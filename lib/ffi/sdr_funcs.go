@@ -648,14 +648,9 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 
 	defer releaseSector()
 
-	ssize, err := sector.ProofType.SectorSize()
-	if err != nil {
-		return xerrors.Errorf("getting sector size: %w", err)
-	}
-
 	// If this is a synthetic proof sector then unsealed should already exist otherwise generate it
 	if abi.Synthetic[sector.ProofType] {
-		if err := ffi.ClearSyntheticProofs(uint64(ssize), sectorPaths.Cache); err != nil {
+		if err := ffi.ClearSyntheticProofs(sectorPaths.Cache); err != nil {
 			return xerrors.Errorf("Unable to delete Synth cache: %w", err)
 		}
 	} else {
@@ -664,7 +659,7 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 		}
 	}
 
-	if err := ffi.ClearCache(uint64(ssize), sectorPaths.Cache); err != nil {
+	if err := ffi.ClearCache(sectorPaths.Cache); err != nil {
 		return xerrors.Errorf("clearing cache: %w", err)
 	}
 
@@ -799,11 +794,6 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 	}
 	defer releaseSector()
 
-	ssize, err := sector.ProofType.SectorSize()
-	if err != nil {
-		return err
-	}
-
 	err = ffi.GenerateSynthProofs(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
 	if err != nil {
 		return xerrors.Errorf("generating synthetic proof: %w", err)
@@ -824,7 +814,7 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 		return xerrors.Errorf("generating unsealed sector: %w", err)
 	}
 
-	if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
+	if err = ffi.ClearCache(fspaths.Cache); err != nil {
 		return xerrors.Errorf("failed to clear cache for synthetic proof of sector %d of miner %d", sector.ID.Miner, sector.ID.Number)
 	}
 

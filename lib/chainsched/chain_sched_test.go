@@ -408,9 +408,10 @@ func TestTimeoutResubscription(t *testing.T) {
 			count := callCount
 			mu.Unlock()
 
-			if count == 1 {
+			switch count {
+			case 1:
 				defer close(firstCallCh)
-			} else if count == 2 {
+			case 2:
 				defer close(secondCallCh)
 			}
 
@@ -484,9 +485,10 @@ func TestMultipleChanges(t *testing.T) {
 		callCount++
 		lastApply = apply
 
-		if callCount == 1 {
+		switch callCount {
+		case 1:
 			close(firstCallDone)
-		} else if callCount == 2 {
+		case 2:
 			close(secondCallDone)
 		}
 		return nil

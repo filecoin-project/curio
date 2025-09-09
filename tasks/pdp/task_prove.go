@@ -438,7 +438,9 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subPieceSize-unssize.Padded())))
 	}
 
-	defer subPieceReader.Close()
+	defer func() {
+		_ = subPieceReader.Close()
+	}()
 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }

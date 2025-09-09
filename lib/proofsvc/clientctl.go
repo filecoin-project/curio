@@ -98,7 +98,9 @@ func CheckAvailability() (bool, error) {
 	if err != nil {
 		return false, xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return false, xerrors.Errorf("failed to check availability: %s", resp.Status)
@@ -148,7 +150,9 @@ func GetCurrentPrice() (PriceResponse, error) {
 	if err != nil {
 		return PriceResponse{}, xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return PriceResponse{}, xerrors.Errorf("failed to get current price: %s", resp.Status)
@@ -195,7 +199,9 @@ func UploadProofData(ctx context.Context, proofData []byte) (cid.Cid, error) {
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -224,7 +230,9 @@ func RequestProof(request common.ProofRequest) (bool, error) {
 	if err != nil {
 		return false, xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -265,7 +273,9 @@ func GetProofStatus(ctx context.Context, requestCid cid.Cid) (common.ProofRespon
 		if err != nil {
 			return common.ProofResponse{}, xerrors.Errorf("failed to send request: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
@@ -324,7 +334,9 @@ func GetClientPaymentStatus(walletID abi.ActorID) (*ClientPaymentStatus, error) 
 	if err != nil {
 		return nil, xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, xerrors.Errorf("no payments found for wallet %d", walletID)

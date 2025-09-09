@@ -320,7 +320,9 @@ func (handler *FetchHandler) remoteGetStash(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	defer readCloser.Close()
+	defer func() {
+		_ = readCloser.Close()
+	}()
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	_, err = io.Copy(w, readCloser)

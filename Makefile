@@ -279,7 +279,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.33.1
+lotus_version?=v1.34.0-rc2
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version

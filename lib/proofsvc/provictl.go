@@ -108,7 +108,9 @@ func CreateWorkAsk(ctx context.Context, resolver *AddressResolver, signer addres
 	if err != nil {
 		return 0, xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -139,7 +141,9 @@ func PollWork(address string) (common.WorkResponse, error) {
 		if err != nil {
 			return common.WorkResponse{}, xerrors.Errorf("failed to send request: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			return common.WorkResponse{}, xerrors.Errorf("failed to poll work: %s", resp.Status)
@@ -175,7 +179,9 @@ func WithdrawAsk(ctx context.Context, resolver *AddressResolver, signer address.
 	if err != nil {
 		return xerrors.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -201,7 +207,9 @@ func GetProof(cid cid.Cid) ([]byte, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("failed to send request: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, xerrors.Errorf("failed to get proof: %s", resp.Status)
@@ -241,7 +249,9 @@ func RespondWork(ctx context.Context, resolver *AddressResolver, address address
 		if err != nil {
 			return common.ProofReward{}, xerrors.Errorf("failed to send request: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)

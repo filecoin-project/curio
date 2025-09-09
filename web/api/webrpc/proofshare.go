@@ -193,7 +193,7 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 			continue
 		}
 
-		var paymentAmt string = "0"
+		var paymentAmt = "0"
 		var providerID, paymentNonce int64
 		err := a.deps.DB.QueryRow(ctx, `
 			SELECT payment_cumulative_amount, provider_id, payment_nonce
@@ -204,7 +204,7 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 			return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_provider_payments: %w", err)
 		}
 
-		var prevPaymentAmt string = "0"
+		var prevPaymentAmt = "0"
 		if paymentNonce > 0 {
 			err := a.deps.DB.QueryRow(ctx, `
 				SELECT payment_cumulative_amount
