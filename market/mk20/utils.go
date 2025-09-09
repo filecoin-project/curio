@@ -681,10 +681,10 @@ type DealStatusResponse struct {
 type DealProductStatusResponse struct {
 
 	// DDOV1 holds the DealStatusResponse for product "ddo_v1".
-	DDOV1 DealStatusResponse `json:"ddoV1"`
+	DDOV1 DealStatusResponse `json:"ddo_v1"`
 
 	// PDPV1 represents the DealStatusResponse for the product pdp_v1.
-	PDPV1 DealStatusResponse `json:"pdpV1"`
+	PDPV1 DealStatusResponse `json:"pdp_v1"`
 }
 
 // DealStatus represents the status of a deal, including the HTTP code and an optional response detailing the deal's state and error message.
@@ -797,17 +797,17 @@ type SupportedDataSources struct {
 type StartUpload struct {
 
 	// RawSize indicates the total size of the data to be uploaded in bytes.
-	RawSize uint64 `json:"rawSize"`
+	RawSize uint64 `json:"raw_size"`
 
 	// ChunkSize defines the size of each data chunk to be used during the upload process.
-	ChunkSize int64 `json:"chunkSize"`
+	ChunkSize int64 `json:"chunk_size"`
 }
 
 // UploadStatus represents the status of a file upload process, including progress and missing chunks.
 type UploadStatus struct {
 
 	// TotalChunks represents the total number of chunks required for the upload.
-	TotalChunks int `json:"totalChunks"`
+	TotalChunks int `json:"total_chunks"`
 
 	// Uploaded represents the number of chunks successfully uploaded.
 	Uploaded int `json:"uploaded"`
@@ -816,10 +816,10 @@ type UploadStatus struct {
 	Missing int `json:"missing"`
 
 	// UploadedChunks is a slice containing the indices of successfully uploaded chunks.
-	UploadedChunks []int `json:"uploadedChunks"`
+	UploadedChunks []int `json:"uploaded_chunks"`
 
 	//MissingChunks is a slice containing the indices of missing chunks.
-	MissingChunks []int `json:"missingChunks"`
+	MissingChunks []int `json:"missing_chunks"`
 }
 
 func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal *Deal, cfg *config.MK20Config, auth string) (*Deal, DealCode, []ProductName, error) {

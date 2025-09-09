@@ -647,15 +647,19 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	}
 
 	for i := range pieceDeals {
-		addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
-		if err != nil {
-			return nil, err
+		if pieceDeals[i].SpId == -1 {
+			pieceDeals[i].Miner = "PDP"
+		} else {
+			addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
+			if err != nil {
+				return nil, err
+			}
+			_, err = uuid.Parse(pieceDeals[i].ID)
+			if err != nil {
+				pieceDeals[i].MK20 = true
+			}
+			pieceDeals[i].Miner = addr.String()
 		}
-		_, err = uuid.Parse(pieceDeals[i].ID)
-		if err != nil {
-			pieceDeals[i].MK20 = true
-		}
-		pieceDeals[i].Miner = addr.String()
 	}
 	ret.Deals = pieceDeals
 

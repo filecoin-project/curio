@@ -430,7 +430,7 @@ func (c *Client) DealChunkedUpload(ctx context.Context, dealID string, size, chu
 		}
 	}
 
-	numChunks := int(size / chunkSize)
+	numChunks := int((size + chunkSize - 1) / chunkSize)
 
 	for {
 		status, rerr := c.http.UploadStatus(ctx, id)

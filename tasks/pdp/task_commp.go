@@ -51,14 +51,9 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		ID   string `db:"id"`
 	}
 
-	err = c.db.Select(ctx, &pieces, `SELECT 
-											id, 
-											piece_cid_v2
-										FROM 
-											pdp_pipeline 
-										WHERE 
-											commp_task_id = $1 
-										  AND downloaded = TRUE`, taskID)
+	err = c.db.Select(ctx, &pieces, `SELECT id, piece_cid_v2, piece_ref FROM pdp_pipeline 
+										WHERE commp_task_id = $1 
+										  AND downloaded = TRUE;`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece details: %w", err)
 	}

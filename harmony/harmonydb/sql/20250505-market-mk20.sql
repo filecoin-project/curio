@@ -831,7 +831,7 @@ begin
           on dp.id = p.id
               and dp.piece_cid_v2 = p.piece_cid_v2
               and dp.product = _product
-        where p.piece_ref is null
+        where p.url is null
     ),
     picked as (
         -- choose ONE completed ref_id from the array for each (id,piece_cid_v2)

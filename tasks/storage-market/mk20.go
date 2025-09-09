@@ -295,7 +295,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
                           downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload, after_commp) 
 					VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10, TRUE)`,
 					id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
-					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
+					pdp.ExtraData, pieceRefID, aggregation, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 				if err != nil {
 					return false, xerrors.Errorf("inserting piece in PDP pipeline: %w", err)
 				}
@@ -530,7 +530,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
         	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 				dealID, spid, ddo.ContractAddress, deal.Client, piece.PieceCID.String(), spi.PieceCIDV1.String(),
 				spi.Size, spi.RawSize, offline, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
-				0, data.Format.Aggregate.Type, i, !offline)
+				0, aggregation, i, !offline)
 			if pBatch.Len() > pBatchSize {
 				res := tx.SendBatch(ctx, pBatch)
 				if err := res.Close(); err != nil {

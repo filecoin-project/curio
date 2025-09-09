@@ -34,29 +34,29 @@ type DDOV1 struct {
 	Provider address.Address `json:"provider"`
 
 	// Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs
-	PieceManager address.Address `json:"pieceManager"`
+	PieceManager address.Address `json:"piece_manager"`
 
 	// Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
 	// It must be at least 518400
 	Duration abi.ChainEpoch `json:"duration"`
 
 	// AllocationId represents an allocation identifier for the deal.
-	AllocationId *verifreg.AllocationId `json:"allocationId,omitempty" swaggertype:"integer" format:"uint64" example:"1"`
+	AllocationId *verifreg.AllocationId `json:"allocation_id,omitempty" swaggertype:"integer" format:"uint64" example:"1"`
 
 	// ContractAddress specifies the address of the contract governing the deal
-	ContractAddress string `json:"contractAddress"`
+	ContractAddress string `json:"contract_address"`
 
 	// ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract
-	ContractVerifyMethod string `json:"contractVerifyMethod"`
+	ContractVerifyMethod string `json:"contract_verify_method"`
 
 	// ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract
-	ContractVerifyMethodParams []byte `json:"contractVerifyMethodParams,omitempty" swaggertype:"string" format:"byte"`
+	ContractVerifyMethodParams []byte `json:"contract_verify_method_Params,omitempty" swaggertype:"string" format:"byte"`
 
 	// NotificationAddress specifies the address to which notifications will be relayed to when sector is activated
-	NotificationAddress string `json:"notificationAddress"`
+	NotificationAddress string `json:"notification_address"`
 
 	// NotificationPayload holds the notification data typically in a serialized byte array format.
-	NotificationPayload []byte `json:"notificationPayload,omitempty" swaggertype:"string" format:"byte"`
+	NotificationPayload []byte `json:"notification_payload,omitempty" swaggertype:"string" format:"byte"`
 }
 
 func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {

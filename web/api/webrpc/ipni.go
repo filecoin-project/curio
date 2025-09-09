@@ -207,11 +207,15 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	}
 
 	for i := range summary {
-		maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert ID address: %w", err)
+		if summary[i].SpId == -1 {
+			summary[i].Miner = "PDP"
+		} else {
+			maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert ID address: %w", err)
+			}
+			summary[i].Miner = maddr.String()
 		}
-		summary[i].Miner = maddr.String()
 	}
 
 	type minimalIpniInfo struct {

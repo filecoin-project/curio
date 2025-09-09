@@ -13,7 +13,7 @@ import (
 
 const PDPMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
 const PDPCalibnet = "0x4E1e9AB9bf23E9Fe96041E0a2d2f0B99dE27FBb2"
-const PDPTestNet = "0xAa67E78b48ca16c8Ee2e9f296404637307D3654d"
+const PDPTestNet = "0x36BB02036a59147b5062BaF997743923Faef1D9e"
 
 type PDPContracts struct {
 	PDPVerifier common.Address

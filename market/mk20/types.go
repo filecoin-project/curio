@@ -28,35 +28,35 @@ type Deal struct {
 
 type Products struct {
 	// DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)
-	DDOV1 *DDOV1 `json:"ddoV1,omitempty"`
+	DDOV1 *DDOV1 `json:"ddo_v1,omitempty"`
 
 	// RetrievalV1 represents configuration for retrieval settings in the system, including indexing and announcement flags.
-	RetrievalV1 *RetrievalV1 `json:"retrievalV1,omitempty"`
+	RetrievalV1 *RetrievalV1 `json:"retrieval_v1,omitempty"`
 
 	// PDPV1 represents product-specific configuration for PDP version 1 deals.
-	PDPV1 *PDPV1 `json:"pdpV1,omitempty"`
+	PDPV1 *PDPV1 `json:"pdp_v1,omitempty"`
 }
 
 // DataSource represents the source of piece data, including metadata and optional methods to fetch or describe the data origin.
 type DataSource struct {
 
 	// PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.
-	PieceCID cid.Cid `json:"pieceCid" swaggertype:"string" format:"cid" example:"bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"`
+	PieceCID cid.Cid `json:"piece_cid" swaggertype:"string" format:"cid" example:"bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"`
 
 	// Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.
 	Format PieceDataFormat `json:"format"`
 
 	// SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.
-	SourceHTTP *DataSourceHTTP `json:"sourceHttp,omitempty"`
+	SourceHTTP *DataSourceHTTP `json:"source_http,omitempty"`
 
 	// SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.
-	SourceAggregate *DataSourceAggregate `json:"sourceAggregate,omitempty"`
+	SourceAggregate *DataSourceAggregate `json:"source_aggregate,omitempty"`
 
 	// SourceOffline defines the data source for offline pieces, including raw size information.
-	SourceOffline *DataSourceOffline `json:"sourceOffline,omitempty"`
+	SourceOffline *DataSourceOffline `json:"source_offline,omitempty"`
 
 	// SourceHttpPut allow clients to push piece data after deal is accepted
-	SourceHttpPut *DataSourceHttpPut `json:"sourceHttpPut,omitempty"`
+	SourceHttpPut *DataSourceHttpPut `json:"source_http_put,omitempty"`
 }
 
 // PieceDataFormat represents various formats in which piece data can be defined, including CAR files, aggregate formats, or raw byte data.

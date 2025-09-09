@@ -886,7 +886,7 @@ func (a *WebRPC) MK20PDPStorageDeals(ctx context.Context, limit int, offset int)
 													  d.id,
 													  d.piece_cid_v2,
 													  (d.pdp_v1->>'error')::text AS error,
-													  (d.complete->>'complete'::boolean) as processed
+													  (d.pdp_v1->>'complete')::boolean as processed
 													FROM market_mk20_deal d
 													WHERE d.pdp_v1 IS NOT NULL AND d.pdp_v1 != 'null'
 													ORDER BY d.created_at DESC
@@ -1000,9 +1000,9 @@ func (a *WebRPC) MK20PDPPipelineFailedTasks(ctx context.Context) (*MK20PDPPipeli
 		FROM pipeline_data p
 		LEFT JOIN harmony_task dt ON dt.id = p.downloading_task_id
 		LEFT JOIN harmony_task ct ON ct.id = p.commp_task_id
-		LEFT JOIN harmony_task pt ON at.id = p.agg_task_id
-		LEFT JOIN harmony_task pt ON ap.id = p.add_piece_task_id
-		LEFT JOIN harmony_task pt ON sc.id = p.save_cache_task_id
+		LEFT JOIN harmony_task at ON at.id = p.agg_task_id
+		LEFT JOIN harmony_task ap ON ap.id = p.add_piece_task_id
+		LEFT JOIN harmony_task sc ON sc.id = p.save_cache_task_id
 		LEFT JOIN harmony_task it ON it.id = p.indexing_task_id
 	)
 	SELECT

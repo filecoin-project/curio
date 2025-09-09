@@ -13,29 +13,29 @@ import (
 // PDPV1 represents configuration for product-specific PDP version 1 deals.
 type PDPV1 struct {
 	// CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.
-	CreateDataSet bool `json:"createDataSet"`
+	CreateDataSet bool `json:"create_data_set"`
 
 	// DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.
 	// DataSetID must be defined.
-	DeleteDataSet bool `json:"deleteDataSet"`
+	DeleteDataSet bool `json:"delete_data_set"`
 
 	// AddPiece indicated that this deal is meant to add Piece to a given DataSet. DataSetID must be defined.
-	AddPiece bool `json:"addPiece"`
+	AddPiece bool `json:"add_piece"`
 
 	// DeletePiece indicates whether the Piece of the data should be deleted. DataSetID must be defined.
-	DeletePiece bool `json:"deletePiece"`
+	DeletePiece bool `json:"delete_piece"`
 
 	// DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.
-	DataSetID *uint64 `json:"dataSetId,omitempty" swaggertype:"integer" format:"uint64" example:"0"`
+	DataSetID *uint64 `json:"data_set_id,omitempty" swaggertype:"integer" format:"uint64" example:"0"`
 
 	// RecordKeeper specifies the record keeper contract address for the new PDP dataset.
-	RecordKeeper string `json:"recordKeeper"`
+	RecordKeeper string `json:"record_keeper"`
 
 	// PieceIDs is a list of Piece ids in a proof set.
-	PieceIDs []uint64 `json:"pieceIDs,omitempty" swaggertype:"array,integer" format:"uint64" example:"0,1,2"`
+	PieceIDs []uint64 `json:"piece_ids,omitempty" swaggertype:"array,integer" format:"uint64" example:"0,1,2"`
 
 	// ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
-	ExtraData []byte `json:"extraData,omitempty" swaggertype:"string" format:"byte"`
+	ExtraData []byte `json:"extra_data,omitempty"`
 }
 
 func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {

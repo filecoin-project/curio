@@ -868,21 +868,21 @@ const docTemplate = `{
         "mk20.DDOV1": {
             "type": "object",
             "properties": {
-                "allocationId": {
+                "allocation_id": {
                     "description": "AllocationId represents an allocation identifier for the deal.",
                     "type": "integer",
                     "format": "uint64",
                     "example": 1
                 },
-                "contractAddress": {
+                "contract_address": {
                     "description": "ContractAddress specifies the address of the contract governing the deal",
                     "type": "string"
                 },
-                "contractVerifyMethod": {
+                "contract_verify_method": {
                     "description": "ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract",
                     "type": "string"
                 },
-                "contractVerifyMethodParams": {
+                "contract_verify_method_Params": {
                     "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
                     "type": "string",
                     "format": "byte"
@@ -891,16 +891,16 @@ const docTemplate = `{
                     "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
                     "type": "integer"
                 },
-                "notificationAddress": {
+                "notification_address": {
                     "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
                     "type": "string"
                 },
-                "notificationPayload": {
+                "notification_payload": {
                     "description": "NotificationPayload holds the notification data typically in a serialized byte array format.",
                     "type": "string",
                     "format": "byte"
                 },
-                "pieceManager": {
+                "piece_manager": {
                     "description": "Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs",
                     "allOf": [
                         {
@@ -929,13 +929,13 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "pieceCid": {
+                "piece_cid": {
                     "description": "PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.",
                     "type": "string",
                     "format": "cid",
                     "example": "bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"
                 },
-                "sourceAggregate": {
+                "source_aggregate": {
                     "description": "SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.",
                     "allOf": [
                         {
@@ -943,7 +943,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "sourceHttp": {
+                "source_http": {
                     "description": "SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.",
                     "allOf": [
                         {
@@ -951,7 +951,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "sourceHttpPut": {
+                "source_http_put": {
                     "description": "SourceHttpPut allow clients to push piece data after deal is accepted",
                     "allOf": [
                         {
@@ -959,7 +959,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "sourceOffline": {
+                "source_offline": {
                     "description": "SourceOffline defines the data source for offline pieces, including raw size information.",
                     "allOf": [
                         {
@@ -1069,7 +1069,7 @@ const docTemplate = `{
         "mk20.DealProductStatusResponse": {
             "type": "object",
             "properties": {
-                "ddoV1": {
+                "ddo_v1": {
                     "description": "DDOV1 holds the DealStatusResponse for product \"ddo_v1\".",
                     "allOf": [
                         {
@@ -1077,7 +1077,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "pdpV1": {
+                "pdp_v1": {
                     "description": "PDPV1 represents the DealStatusResponse for the product pdp_v1.",
                     "allOf": [
                         {
@@ -1181,34 +1181,36 @@ const docTemplate = `{
         "mk20.PDPV1": {
             "type": "object",
             "properties": {
-                "addPiece": {
+                "add_piece": {
                     "description": "AddPiece indicated that this deal is meant to add Piece to a given DataSet. DataSetID must be defined.",
                     "type": "boolean"
                 },
-                "createDataSet": {
+                "create_data_set": {
                     "description": "CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.",
                     "type": "boolean"
                 },
-                "dataSetId": {
+                "data_set_id": {
                     "description": "DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.",
                     "type": "integer",
                     "format": "uint64",
                     "example": 0
                 },
-                "deleteDataSet": {
+                "delete_data_set": {
                     "description": "DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.\nDataSetID must be defined.",
                     "type": "boolean"
                 },
-                "deletePiece": {
+                "delete_piece": {
                     "description": "DeletePiece indicates whether the Piece of the data should be deleted. DataSetID must be defined.",
                     "type": "boolean"
                 },
-                "extraData": {
+                "extra_data": {
                     "description": "ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.",
-                    "type": "string",
-                    "format": "byte"
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
-                "pieceIDs": {
+                "piece_ids": {
                     "description": "PieceIDs is a list of Piece ids in a proof set.",
                     "type": "array",
                     "items": {
@@ -1221,7 +1223,7 @@ const docTemplate = `{
                         2
                     ]
                 },
-                "recordKeeper": {
+                "record_keeper": {
                     "description": "RecordKeeper specifies the record keeper contract address for the new PDP dataset.",
                     "type": "string"
                 }
@@ -1259,7 +1261,7 @@ const docTemplate = `{
         "mk20.Products": {
             "type": "object",
             "properties": {
-                "ddoV1": {
+                "ddo_v1": {
                     "description": "DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)",
                     "allOf": [
                         {
@@ -1267,7 +1269,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "pdpV1": {
+                "pdp_v1": {
                     "description": "PDPV1 represents product-specific configuration for PDP version 1 deals.",
                     "allOf": [
                         {
@@ -1275,7 +1277,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "retrievalV1": {
+                "retrieval_v1": {
                     "description": "RetrievalV1 represents configuration for retrieval settings in the system, including indexing and announcement flags.",
                     "allOf": [
                         {
@@ -1288,11 +1290,11 @@ const docTemplate = `{
         "mk20.RetrievalV1": {
             "type": "object",
             "properties": {
-                "announcePayload": {
+                "announce_payload": {
                     "description": "AnnouncePayload indicates whether the payload should be announced to IPNI.",
                     "type": "boolean"
                 },
-                "announcePiece": {
+                "announce_piece": {
                     "description": "AnnouncePiece indicates whether the piece information should be announced to IPNI.",
                     "type": "boolean"
                 },
@@ -1305,11 +1307,11 @@ const docTemplate = `{
         "mk20.StartUpload": {
             "type": "object",
             "properties": {
-                "chunkSize": {
+                "chunk_size": {
                     "description": "ChunkSize defines the size of each data chunk to be used during the upload process.",
                     "type": "integer"
                 },
-                "rawSize": {
+                "raw_size": {
                     "description": "RawSize indicates the total size of the data to be uploaded in bytes.",
                     "type": "integer"
                 }
@@ -1394,14 +1396,14 @@ const docTemplate = `{
                     "description": "Missing represents the number of chunks that are not yet uploaded.",
                     "type": "integer"
                 },
-                "missingChunks": {
+                "missing_chunks": {
                     "description": "MissingChunks is a slice containing the indices of missing chunks.",
                     "type": "array",
                     "items": {
                         "type": "integer"
                     }
                 },
-                "totalChunks": {
+                "total_chunks": {
                     "description": "TotalChunks represents the total number of chunks required for the upload.",
                     "type": "integer"
                 },
@@ -1409,7 +1411,7 @@ const docTemplate = `{
                     "description": "Uploaded represents the number of chunks successfully uploaded.",
                     "type": "integer"
                 },
-                "uploadedChunks": {
+                "uploaded_chunks": {
                     "description": "UploadedChunks is a slice containing the indices of successfully uploaded chunks.",
                     "type": "array",
                     "items": {

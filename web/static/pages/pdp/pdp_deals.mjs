@@ -78,9 +78,7 @@ class MK20PDPDealList extends LitElement {
             <tr>
                 <th>Created At</th>
                 <th>ID</th>
-                <th>Provider</th>
                 <th>Piece CID</th>
-                <th>Piece Size</th>
                 <th>Processed</th>
                 <th>Error</th>
             </tr>
@@ -91,7 +89,6 @@ class MK20PDPDealList extends LitElement {
                 <tr>
                     <td>${formatDate(deal.created_at)}</td>
                     <td><a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a></td>
-                    <td>${deal.miner.Valid ? deal.miner.String : '-'}</td>
                     <td>
                         ${deal.piece_cid_v2
                                 ? html`<a href="/pages/piece/?id=${deal.piece_cid_v2.String}">${this.formatPieceCid(deal.piece_cid_v2.String)}</a>`

@@ -17,20 +17,20 @@ definitions:
     - AggregateTypeV1
   mk20.DDOV1:
     properties:
-      allocationId:
+      allocation_id:
         description: AllocationId represents an allocation identifier for the deal.
         example: 1
         format: uint64
         type: integer
-      contractAddress:
+      contract_address:
         description: ContractAddress specifies the address of the contract governing
           the deal
         type: string
-      contractVerifyMethod:
+      contract_verify_method:
         description: ContractDealIDMethod specifies the method name to verify the
           deal and retrieve the deal ID for a contract
         type: string
-      contractVerifyMethodParams:
+      contract_verify_method_Params:
         description: ContractDealIDMethodParams represents encoded parameters for
           the contract verify method if required by the contract
         format: byte
@@ -40,16 +40,16 @@ definitions:
           Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
           It must be at least 518400
         type: integer
-      notificationAddress:
+      notification_address:
         description: NotificationAddress specifies the address to which notifications
           will be relayed to when sector is activated
         type: string
-      notificationPayload:
+      notification_payload:
         description: NotificationPayload holds the notification data typically in
           a serialized byte array format.
         format: byte
         type: string
-      pieceManager:
+      piece_manager:
         allOf:
         - $ref: '#/definitions/address.Address'
         description: Actor providing AuthorizeMessage (like f1/f3 wallet) able to
@@ -66,28 +66,28 @@ definitions:
         - $ref: '#/definitions/mk20.PieceDataFormat'
         description: Format defines the format of the piece data, which can include
           CAR, Aggregate, or Raw formats.
-      pieceCid:
+      piece_cid:
         description: PieceCID represents the unique identifier (pieceCID V2) for a
           piece of data, stored as a CID object.
         example: bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq
         format: cid
         type: string
-      sourceAggregate:
+      source_aggregate:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceAggregate'
         description: SourceAggregate represents an aggregated source, comprising multiple
           data sources as pieces.
-      sourceHttp:
+      source_http:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceHTTP'
         description: SourceHTTP represents the HTTP-based source of piece data within
           a deal, including raw size and URLs for retrieval.
-      sourceHttpPut:
+      source_http_put:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceHttpPut'
         description: SourceHttpPut allow clients to push piece data after deal is
           accepted
-      sourceOffline:
+      source_offline:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceOffline'
         description: SourceOffline defines the data source for offline pieces, including
@@ -169,11 +169,11 @@ definitions:
     - ErrDurationTooShort
   mk20.DealProductStatusResponse:
     properties:
-      ddoV1:
+      ddo_v1:
         allOf:
         - $ref: '#/definitions/mk20.DealStatusResponse'
         description: DDOV1 holds the DealStatusResponse for product "ddo_v1".
-      pdpV1:
+      pdp_v1:
         allOf:
         - $ref: '#/definitions/mk20.DealStatusResponse'
         description: PDPV1 represents the DealStatusResponse for the product pdp_v1.
@@ -249,35 +249,36 @@ definitions:
     type: object
   mk20.PDPV1:
     properties:
-      addPiece:
+      add_piece:
         description: AddPiece indicated that this deal is meant to add Piece to a
           given DataSet. DataSetID must be defined.
         type: boolean
-      createDataSet:
+      create_data_set:
         description: CreateDataSet indicated that this deal is meant to create a new
           DataSet for the client by storage provider.
         type: boolean
-      dataSetId:
+      data_set_id:
         description: DataSetID is PDP verified contract dataset ID. It must be defined
           for all deals except when CreateDataSet is true.
         example: 0
         format: uint64
         type: integer
-      deleteDataSet:
+      delete_data_set:
         description: |-
           DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.
           DataSetID must be defined.
         type: boolean
-      deletePiece:
+      delete_piece:
         description: DeletePiece indicates whether the Piece of the data should be
           deleted. DataSetID must be defined.
         type: boolean
-      extraData:
+      extra_data:
         description: ExtraData can be used to send additional information to service
           contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
-        format: byte
-        type: string
-      pieceIDs:
+        items:
+          type: integer
+        type: array
+      piece_ids:
         description: PieceIDs is a list of Piece ids in a proof set.
         example:
         - 0
@@ -287,7 +288,7 @@ definitions:
           format: uint64
           type: integer
         type: array
-      recordKeeper:
+      record_keeper:
         description: RecordKeeper specifies the record keeper contract address for
           the new PDP dataset.
         type: string
@@ -311,17 +312,17 @@ definitions:
     type: object
   mk20.Products:
     properties:
-      ddoV1:
+      ddo_v1:
         allOf:
         - $ref: '#/definitions/mk20.DDOV1'
         description: DDOV1 represents a product v1 configuration for Direct Data Onboarding
           (DDO)
-      pdpV1:
+      pdp_v1:
         allOf:
         - $ref: '#/definitions/mk20.PDPV1'
         description: PDPV1 represents product-specific configuration for PDP version
           1 deals.
-      retrievalV1:
+      retrieval_v1:
         allOf:
         - $ref: '#/definitions/mk20.RetrievalV1'
         description: RetrievalV1 represents configuration for retrieval settings in
@@ -329,11 +330,11 @@ definitions:
     type: object
   mk20.RetrievalV1:
     properties:
-      announcePayload:
+      announce_payload:
         description: AnnouncePayload indicates whether the payload should be announced
           to IPNI.
         type: boolean
-      announcePiece:
+      announce_piece:
         description: AnnouncePiece indicates whether the piece information should
           be announced to IPNI.
         type: boolean
@@ -344,11 +345,11 @@ definitions:
     type: object
   mk20.StartUpload:
     properties:
-      chunkSize:
+      chunk_size:
         description: ChunkSize defines the size of each data chunk to be used during
           the upload process.
         type: integer
-      rawSize:
+      raw_size:
         description: RawSize indicates the total size of the data to be uploaded in
           bytes.
         type: integer
@@ -415,19 +416,19 @@ definitions:
       missing:
         description: Missing represents the number of chunks that are not yet uploaded.
         type: integer
-      missingChunks:
+      missing_chunks:
         description: MissingChunks is a slice containing the indices of missing chunks.
         items:
           type: integer
         type: array
-      totalChunks:
+      total_chunks:
         description: TotalChunks represents the total number of chunks required for
           the upload.
         type: integer
       uploaded:
         description: Uploaded represents the number of chunks successfully uploaded.
         type: integer
-      uploadedChunks:
+      uploaded_chunks:
         description: UploadedChunks is a slice containing the indices of successfully
           uploaded chunks.
         items:

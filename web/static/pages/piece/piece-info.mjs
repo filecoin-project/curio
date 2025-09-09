@@ -134,9 +134,10 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                         <td>${item.miner}</td>
                         <td>${item.chain_deal_id}</td>
-                        <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
                         <td>
-                            ${item.offset ? item.offset : html``}
+                            ${item.sector > 0 ? html`<a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>`: "NA" }
+                        <td>
+                            ${item.offset.Valid ? item.offset.int64 : html`NA`}
                         </td>
                         <td>${this.toHumanBytes(item.length)}</td>
                         <td>${this.toHumanBytes(item.raw_size)}</td>
@@ -345,7 +346,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.deal.deal.data.piece_size)}</td></tr>
 
                         <tr><th colspan="2"><h5>Status 🟢️🔴</h5></th></tr>
-                        <tr><td>Error</td><td>${entry.deal.error.Valid ? entry.deal.error.String : 'N/A'}</td></tr>
+                        <tr><td>DDO Error</td><td>${entry.deal.ddoerr.Valid ? entry.deal.ddoerr.String : 'N/A'}</td></tr>
+                        <tr><td>PDP Error</td><td>${entry.deal.pdperr.Valid ? entry.deal.pdperr.String : 'N/A'}</td></tr>
                         ${(() => {
                             const matchingPieceDeals = this.data.deals.filter(deal => deal.id === entry.deal.uuid);
                             if (matchingPieceDeals.length > 0) {
@@ -393,12 +395,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                 </td>
                             </tr>
                             <tr><td>Created At</td><td>${formatDate(entry.mk20_ddo_pipeline.created_at)}</td></tr>
-                            <tr><td>Piece CID</td><td>${entry.mk20_ddo_pipeline.piece_cid}</td></tr>
-                            <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.mk20_ddo_pipeline.piece_size)}</td></tr>
-                            <tr><td>Raw Size</td><td>${entry.mk20_ddo_pipeline.raw_size.Valid ? this.toHumanBytes(entry.mk20_ddo_pipeline.raw_size.Int64) : 'N/A'}</td></tr>
-                            <tr><td>Offline</td><td><yes-no .value=${entry.mk20_ddo_pipeline.offline}></yes-no></td></tr>
-                            <tr><td>URL</td><td>${entry.mk20_ddo_pipeline.url.Valid ? entry.mk20_ddo_pipeline.url.String : 'N/A'}</td></tr>
-                            <tr><td>Headers</td><td><pre>${JSON.stringify(entry.mk20_ddo_pipeline.headers, null, 2)}</pre></td></tr>
+                            <tr><td>Piece CID</td><td>${entry.mk20_ddo_pipeline.piece_cid_v2}</td></tr>
                             <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_ddo_pipeline.indexing)}</td></tr>
                             <tr>
                                 <td>Announce</td>
