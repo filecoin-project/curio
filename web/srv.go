@@ -233,7 +233,9 @@ func websocketProxy(target *url.URL, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to connect to backend", http.StatusServiceUnavailable)
 		return
 	}
-	defer backendConn.Close()
+	defer func() {
+		_ = backendConn.Close()
+	}()
 
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -246,7 +248,9 @@ func websocketProxy(target *url.URL, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to upgrade connection", http.StatusInternalServerError)
 		return
 	}
-	defer clientConn.Close()
+	defer func() {
+		_ = clientConn.Close()
+	}()
 
 	errc := make(chan error, 2)
 	go proxyCopy(clientConn, backendConn, errc, "client -> backend")

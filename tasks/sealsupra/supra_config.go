@@ -89,7 +89,7 @@ func GetSystemInfo() (*SystemInfo, error) {
 	packageRegex := regexp.MustCompile(`Package L#(\d+)`)
 
 	var currentL3Cores int
-	var lastL3Index int = -1
+	var lastL3Index = -1
 	var threadCount int
 
 	for scanner.Scan() {

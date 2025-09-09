@@ -119,8 +119,8 @@ canAcceptAgain:
 
 	releaseStorage := func() {
 	}
-	if h.TaskTypeDetails.Cost.Storage != nil {
-		markComplete, err := h.TaskTypeDetails.Cost.Storage.Claim(int(*tID))
+	if h.Cost.Storage != nil {
+		markComplete, err := h.Cost.Claim(int(*tID))
 		if err != nil {
 			log.Infow("did not accept task", "task_id", strconv.Itoa(int(*tID)), "reason", "storage claim failed", "name", h.Name, "error", err)
 
@@ -354,8 +354,8 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 		return xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
 	}
 
-	if h.TaskTypeDetails.Cost.Storage != nil {
-		if !h.TaskTypeDetails.Cost.Storage.HasCapacity() {
+	if h.Cost.Storage != nil {
+		if !h.Cost.HasCapacity() {
 			return errors.New("Did not accept " + h.Name + " task: out of available Storage")
 		}
 	}

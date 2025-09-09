@@ -50,7 +50,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
-		if errors.Is(err, cachedreader.NoDealErr) {
+		if errors.Is(err, cachedreader.ErrNoDeal) {
 			w.WriteHeader(http.StatusNotFound)
 			stats.Record(ctx, remoteblockstore.HttpPieceByCid404ResponseCount.M(1))
 			return

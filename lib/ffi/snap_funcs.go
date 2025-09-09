@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	paths2 "github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proof"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
@@ -242,17 +242,12 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("write vanilla proofs: %w", err)
 	}
 
-	ssize, err := sector.ProofType.SectorSize()
-	if err != nil {
-		return cid.Undef, cid.Undef, xerrors.Errorf("getting sector size: %w", err)
-	}
-
 	// cleanup
 	if err := cleanupStagedFiles(); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("cleanup staged files: %w", err)
 	}
 
-	if err := ffi.ClearCache(uint64(ssize), paths.UpdateCache); err != nil {
+	if err := ffi.ClearCache(paths.UpdateCache); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
 	}
 

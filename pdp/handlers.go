@@ -151,7 +151,9 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	var reqBody RequestBody
 	if err := json.Unmarshal(body, &reqBody); err != nil {
@@ -645,7 +647,9 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	if len(payload.Roots) == 0 {
 		http.Error(w, "At least one root must be provided", http.StatusBadRequest)
