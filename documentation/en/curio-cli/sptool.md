@@ -906,6 +906,7 @@ COMMANDS:
    aggregate     Create a new aggregate from a list of CAR files
    upload        Upload a file to the storage provider
    chunk-upload  Upload a file in chunks to the storage provider
+   deal-status   Get status of a Mk20 deal
    help, h       Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1031,4 +1032,19 @@ OPTIONS:
    --chunk-size value  chunk size to be used for the upload (default: "4 MiB")
    --wallet value      wallet address to be used to initiate the deal
    --help, -h          show help
+```
+
+#### sptool toolbox mk20-client deal-status
+```
+NAME:
+   sptool toolbox mk20-client deal-status - Get status of a Mk20 deal
+
+USAGE:
+   sptool toolbox mk20-client deal-status [command options]
+
+OPTIONS:
+   --provider value  PDP providers's URL
+   --id value        deal id
+   --wallet value    wallet address to be used to initiate the deal
+   --help, -h        show help
 ```

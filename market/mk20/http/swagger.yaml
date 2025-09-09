@@ -1,6 +1,14 @@
 definitions:
   address.Address:
     type: object
+  cid.Cid:
+    type: object
+  github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId:
+    enum:
+    - 0
+    type: integer
+    x-enum-varnames:
+    - NoAllocationID
   http.Header:
     additionalProperties:
       items:
@@ -18,10 +26,9 @@ definitions:
   mk20.DDOV1:
     properties:
       allocation_id:
+        allOf:
+        - $ref: '#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId'
         description: AllocationId represents an allocation identifier for the deal.
-        example: 1
-        format: uint64
-        type: integer
       contract_address:
         description: ContractAddress specifies the address of the contract governing
           the deal
@@ -33,8 +40,9 @@ definitions:
       contract_verify_method_Params:
         description: ContractDealIDMethodParams represents encoded parameters for
           the contract verify method if required by the contract
-        format: byte
-        type: string
+        items:
+          type: integer
+        type: array
       duration:
         description: |-
           Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
@@ -47,8 +55,9 @@ definitions:
       notification_payload:
         description: NotificationPayload holds the notification data typically in
           a serialized byte array format.
-        format: byte
-        type: string
+        items:
+          type: integer
+        type: array
       piece_manager:
         allOf:
         - $ref: '#/definitions/address.Address'
@@ -67,11 +76,10 @@ definitions:
         description: Format defines the format of the piece data, which can include
           CAR, Aggregate, or Raw formats.
       piece_cid:
+        allOf:
+        - $ref: '#/definitions/cid.Cid'
         description: PieceCID represents the unique identifier (pieceCID V2) for a
           piece of data, stored as a CID object.
-        example: bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq
-        format: cid
-        type: string
       source_aggregate:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceAggregate'
@@ -124,9 +132,9 @@ definitions:
       identifier:
         description: Identifier represents a unique identifier for the deal in ULID
           format.
-        example: 01ARZ3NDEKTSV4RRFFQ69G5FAV
-        format: ulid
-        type: string
+        items:
+          type: integer
+        type: array
       products:
         allOf:
         - $ref: '#/definitions/mk20.Products'
@@ -243,8 +251,6 @@ definitions:
         type: integer
       url:
         description: URL specifies the HTTP endpoint where the piece data can be fetched.
-        example: http://127.0.0.1:8080/piece/xyz
-        format: url
         type: string
     type: object
   mk20.PDPV1:
@@ -260,8 +266,6 @@ definitions:
       data_set_id:
         description: DataSetID is PDP verified contract dataset ID. It must be defined
           for all deals except when CreateDataSet is true.
-        example: 0
-        format: uint64
         type: integer
       delete_data_set:
         description: |-
@@ -280,12 +284,7 @@ definitions:
         type: array
       piece_ids:
         description: PieceIDs is a list of Piece ids in a proof set.
-        example:
-        - 0
-        - 1
-        - 2
         items:
-          format: uint64
           type: integer
         type: array
       record_keeper:
