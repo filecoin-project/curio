@@ -55,27 +55,29 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
             
             ${this.data.Info.Tasks || this.data.Info.Miners || this.data.Info.StartupTime || this.data.Info.RestartRequest ? html`
             <h3>Additional Info</h3>
-            <table class="table table-dark table-borderless">
-                ${this.data.Info.Tasks ? html`
-                <tr>
-                    <td>Supported Tasks</td>
-                    <td>${this.data.Info.Tasks.split(',').map(task => task.trim()).join(', ')}</td>
-                </tr>` : ''}
-                ${this.data.Info.Miners ? html`
-                <tr>
-                    <td>Miners</td>
-                    <td>${this.data.Info.Miners.split(',').map(miner => miner.trim()).join(', ')}</td>
-                </tr>` : ''}
-                ${this.data.Info.StartupTime ? html`
-                <tr>
-                    <td>Startup Time</td>
-                    <td>${this.formatTime(this.data.Info.StartupTime)}</td>
-                </tr>` : ''}
-                ${this.data.Info.RestartRequest ? html`
-                <tr>
-                    <td>Restart Request</td>
-                    <td><span class="warning">${this.formatTime(this.data.Info.RestartRequest)}</span></td>
-                </tr>` : ''}
+            <table class="table table-dark">
+                <tbody>
+                    ${this.data.Info.Tasks ? html`
+                    <tr>
+                        <td>Supported Tasks</td>
+                        <td>${this.data.Info.Tasks.split(',').map(task => task.trim()).join(', ')}</td>
+                    </tr>` : ''}
+                    ${this.data.Info.Miners ? html`
+                    <tr>
+                        <td>Miners</td>
+                        <td>${this.data.Info.Miners.split(',').map(miner => miner.trim()).join(', ')}</td>
+                    </tr>` : ''}
+                    ${this.data.Info.StartupTime ? html`
+                    <tr>
+                        <td>Startup Time</td>
+                        <td>${this.formatTime(this.data.Info.StartupTime)}</td>
+                    </tr>` : ''}
+                    ${this.data.Info.RestartRequest ? html`
+                    <tr>
+                        <td>Restart Request</td>
+                        <td><span class="warning">${this.formatTime(this.data.Info.RestartRequest)}</span></td>
+                    </tr>` : ''}
+                </tbody>
             </table>` : ''}
             <hr>
             <h2>Configuration</h2>

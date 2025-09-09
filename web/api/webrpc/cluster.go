@@ -196,18 +196,25 @@ type MachineInfo struct {
 
 	// Message Waits
 	MessageWaits []struct {
-		SignedMessageCID string
-		ExecutedTskCID   *string
-		ExecutedTskEpoch *int64
-		ExecutedMsgCID   *string
-		CreatedAt        time.Time
-		Status           string
+		SignedMessageCID     string
+		ExecutedTskCID       *string
+		ExecutedTskEpoch     *int64
+		ExecutedMsgCID       *string
+		ExecutedMsgData      *string
+		ExecutedRcptExitcode *int64
+		ExecutedRcptReturn   *[]byte
+		ExecutedRcptGasUsed  *int64
+		CreatedAt            time.Time
+		Status               string
 	}
 
 	MessageWaitsEth []struct {
 		SignedTxHash         string
 		ConfirmedBlockNumber *int64
+		ConfirmedTxHash      *string
+		ConfirmedTxData      *string
 		TxStatus             *string
+		TxReceipt            *string
 		TxSuccess            *bool
 		Status               string
 	}
@@ -361,7 +368,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 
 
 	// query message waits
-	rowsMsg, err := a.deps.DB.Query(ctx, "SELECT signed_message_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, created_at FROM message_waits WHERE waiter_machine_id=$1 ORDER BY created_at DESC LIMIT 10", summaries[0].Info.ID)
+	rowsMsg, err := a.deps.DB.Query(ctx, "SELECT signed_message_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_msg_data, executed_rcpt_exitcode, executed_rcpt_return, executed_rcpt_gas_used, created_at FROM message_waits WHERE waiter_machine_id=$1 ORDER BY created_at DESC LIMIT 10", summaries[0].Info.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -369,14 +376,18 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 
 	for rowsMsg.Next() {
 		var msg struct {
-			SignedMessageCID string
-			ExecutedTskCID   *string
-			ExecutedTskEpoch *int64
-			ExecutedMsgCID   *string
-			CreatedAt        time.Time
-			Status           string
+			SignedMessageCID     string
+			ExecutedTskCID       *string
+			ExecutedTskEpoch     *int64
+			ExecutedMsgCID       *string
+			ExecutedMsgData      *string
+			ExecutedRcptExitcode *int64
+			ExecutedRcptReturn   *[]byte
+			ExecutedRcptGasUsed  *int64
+			CreatedAt            time.Time
+			Status               string
 		}
-		if err := rowsMsg.Scan(&msg.SignedMessageCID, &msg.ExecutedTskCID, &msg.ExecutedTskEpoch, &msg.ExecutedMsgCID, &msg.CreatedAt); err != nil {
+		if err := rowsMsg.Scan(&msg.SignedMessageCID, &msg.ExecutedTskCID, &msg.ExecutedTskEpoch, &msg.ExecutedMsgCID, &msg.ExecutedMsgData, &msg.ExecutedRcptExitcode, &msg.ExecutedRcptReturn, &msg.ExecutedRcptGasUsed, &msg.CreatedAt); err != nil {
 			return nil, err
 		}
 		
@@ -391,7 +402,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	}
 
 	// query message waits eth
-	rowsMsgEth, err := a.deps.DB.Query(ctx, "SELECT signed_tx_hash, confirmed_block_number, tx_status, tx_success FROM message_waits_eth WHERE waiter_machine_id=$1 ORDER BY signed_tx_hash DESC LIMIT 10", summaries[0].Info.ID)
+	rowsMsgEth, err := a.deps.DB.Query(ctx, "SELECT signed_tx_hash, confirmed_block_number, confirmed_tx_hash, confirmed_tx_data, tx_status, tx_receipt, tx_success FROM message_waits_eth WHERE waiter_machine_id=$1 ORDER BY signed_tx_hash DESC LIMIT 10", summaries[0].Info.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +412,14 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		var msgEth struct {
 			SignedTxHash         string
 			ConfirmedBlockNumber *int64
+			ConfirmedTxHash      *string
+			ConfirmedTxData      *string
 			TxStatus             *string
+			TxReceipt            *string
 			TxSuccess            *bool
 			Status               string
 		}
-		if err := rowsMsgEth.Scan(&msgEth.SignedTxHash, &msgEth.ConfirmedBlockNumber, &msgEth.TxStatus, &msgEth.TxSuccess); err != nil {
+		if err := rowsMsgEth.Scan(&msgEth.SignedTxHash, &msgEth.ConfirmedBlockNumber, &msgEth.ConfirmedTxHash, &msgEth.ConfirmedTxData, &msgEth.TxStatus, &msgEth.TxReceipt, &msgEth.TxSuccess); err != nil {
 			return nil, err
 		}
 		
