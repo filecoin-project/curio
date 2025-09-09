@@ -1,9 +1,10 @@
 import { DefaultApi, ConfigurationParameters, Mk20Deal, Mk20DealProductStatusResponse, Mk20SupportedContracts, Mk20SupportedProducts, Mk20SupportedDataSources, Mk20Products, Mk20PDPV1, Mk20RetrievalV1, Mk20DDOV1, Mk20DataSource, Mk20DealState } from '../generated';
-import { ulid } from 'ulid';
+import { monotonicFactory } from 'ulid';
 import { Configuration } from '../generated/runtime';
 import { Mk20StartUpload } from '../generated/models/Mk20StartUpload';
 import { StreamingPDP } from './streaming';
 
+const ulid = monotonicFactory(() => Math.random());
 export interface MarketClientConfig extends Omit<ConfigurationParameters, 'basePath'> {
   serverUrl: string; // e.g. http://localhost:8080
 }
@@ -377,6 +378,7 @@ export class MarketClient {
    * @param deal - Deal payload matching Mk20Deal schema
    */
   async submitDeal(deal: Mk20Deal): Promise<number> {
+
     try {
       const response = await this.api.storePost({ body: deal });
       return response;
@@ -426,6 +428,116 @@ export class MarketClient {
       }
     }
   }
+  
+  /**
+   * Submit a PDPv1 deal in two steps and prepare for upload.
+   * - Step 1: createDataSet
+   * - Step 2: addPiece with data descriptor (pieceCid, raw format, HTTP PUT source)
+   * Returns the upload identifier (ULID), computed pieceCid, total size, and the deal payload
+   * that should be used at finalize time.
+   */
+  async submitPDPv1Deal(params: {
+    blobs: Blob[];
+    client: string;
+    recordKeeper: string;
+    contractAddress: string;
+  }): Promise<{ id: string; totalSize: number; dealId: number; pieceCid: string; deal: Mk20Deal }> {
+    const { blobs, client, recordKeeper } = params;
+
+    // Calculate total size and compute piece CID from blobs
+    const totalSize = blobs.reduce((sum, blob) => sum + blob.size, 0);
+    const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
+
+    // Step 1: create dataset with a fresh identifier
+    const datasetId = ulid();
+    const createDeal: Mk20Deal = {
+      identifier: datasetId,
+      client,
+      products: {
+        pdpV1: {
+          createDataSet: true,
+          addPiece: false,
+          recordKeeper: recordKeeper,
+          extraData: '',
+          deleteDataSet: false,
+          deletePiece: false,
+        } as Mk20PDPV1,
+        retrievalV1: {
+          announcePayload: true,
+          announcePiece: true,
+          indexing: true,
+        } as Mk20RetrievalV1,
+      } as Mk20Products,
+    } as Mk20Deal;
+
+    await this.submitDeal(createDeal);
+    await this.waitDealComplete(datasetId);
+
+    // Step 2: add piece with data under a new identifier (upload id)
+    const uploadId = ulid();
+    const addPieceDeal: Mk20Deal = {
+      identifier: uploadId,
+      client,
+      data: {
+        pieceCid: pieceCid,
+        format: { raw: {} },
+        sourceHttpput: {},
+      } as Mk20DataSource,
+      products: {
+        pdpV1: {
+          addPiece: true,
+          recordKeeper: recordKeeper,
+          extraData: '',
+          deleteDataSet: false,
+          deletePiece: false,
+        } as Mk20PDPV1,
+        retrievalV1: {
+          announcePayload: true,
+          announcePiece: true,
+          indexing: true,
+        } as Mk20RetrievalV1,
+      } as Mk20Products,
+    } as Mk20Deal;
+
+    const dealId = await this.submitDeal(addPieceDeal);
+    await this.waitDealComplete(uploadId);
+
+    return { id: uploadId, totalSize, dealId, pieceCid, deal: addPieceDeal };
+  }
+
+  /**
+   * Upload a set of blobs in chunks and finalize the upload for a given deal id.
+   * Optionally accepts the deal payload to finalize with.
+   */
+  async uploadBlobs(params: { id: string; blobs: Blob[]; deal?: Mk20Deal; chunkSize?: number }): Promise<{ id: string; uploadedChunks: number; uploadedBytes: number; finalizeCode: number }> {
+    const { id, blobs } = params;
+    const chunkSize = params.chunkSize ?? 1024 * 1024; // default 1MB
+
+    const totalSize = blobs.reduce((sum, blob) => sum + blob.size, 0);
+
+    // Initialize chunked upload
+    const startUpload: Mk20StartUpload = { rawSize: totalSize, chunkSize };
+    await this.initializeChunkedUpload(id, startUpload);
+
+    // Upload chunks sequentially
+    let totalChunks = 0;
+    let uploadedBytes = 0;
+    for (const blob of blobs) {
+      for (let offset = 0; offset < blob.size; offset += chunkSize) {
+        const chunk = blob.slice(offset, offset + chunkSize);
+        const chunkArray = new Uint8Array(await chunk.arrayBuffer());
+        const chunkNumbers = Array.from(chunkArray);
+        const chunkNum = String(totalChunks);
+        await this.uploadChunk(id, chunkNum, chunkNumbers);
+        totalChunks++;
+        uploadedBytes += chunkNumbers.length;
+      }
+    }
+
+    // Finalize
+    const finalizeCode = await this.finalizeChunkedUpload(id, params.deal);
+    return { id, uploadedChunks: totalChunks, uploadedBytes, finalizeCode };
+  }
   /**
    * Simple convenience wrapper for PDPv1 deals with chunked upload
    * Takes blobs and required addresses, computes piece_cid, and returns a UUID identifier
@@ -442,7 +554,7 @@ export class MarketClient {
   async submitPDPv1DealWithUpload(params: {
     blobs: Blob[];
     client: string;
-    provider: string;
+    recordKeeper: string;
     contractAddress: string;
   }): Promise<{
     uuid: string;
@@ -454,130 +566,17 @@ export class MarketClient {
     uploadedBytes: number;
   }> {
     try {
-      const { blobs, client, provider, contractAddress } = params;
-      
-      // Calculate total size from blobs
-      const totalSize = blobs.reduce((sum, blob) => sum + blob.size, 0);
-      
-      // Generate a ULID for the deal identifier returned to the caller
-      const uuid = ulid(); 
-      // TODO make a streaming example with no data block until finalize, use uploadSerial
-      
-      // Compute piece_cid from blobs using our utility (WebCrypto SubtleCrypto)
-      const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
-      
-      // Create deal with required addresses
-      var deal: Mk20Deal = {
-        // Use the generated UUID as the deal identifier
-        identifier: uuid,
-        client,
-        products: {
-          pdpV1: {
-            createDataSet: true, // Create a new dataset for this deal
-            //addPiece: true, // Add the piece to the dataset
-            //dataSetId: undefined, // Not needed when creating dataset
-            recordKeeper: provider, // Use provider as record keeper
-            extraData: '', // No extra data
-            //pieceIds: undefined, // Piece IDs (on chain) not available for new content.
-            deleteDataSet: false,
-            deletePiece: false
-          } as Mk20PDPV1,
-          retrievalV1: {
-            announcePayload: true, // Announce payload to IPNI
-            announcePiece: true, // Announce piece information to IPNI
-            indexing: true // Index for CID-based retrieval
-          } as Mk20RetrievalV1
-        } as Mk20Products
-      };
-
-      // Submit the deal
-      var dealId = await this.submitDeal(deal);
-
-      this.waitDealComplete(uuid);
-
-      // Create deal with required addresses
-      var deal: Mk20Deal = {
-        // Use the generated UUID as the deal identifier
-        identifier: uuid,
-        client,
-        data: {
-          pieceCid: pieceCid,
-          format: { raw: {} },
-          sourceHttpput: {},
-        } as Mk20DataSource,
-        products: {
-          pdpV1: {
-            addPiece: true, // Add the piece to the dataset
-            //dataSetId: undefined, // Not needed when creating dataset
-            recordKeeper: provider, // Use provider as record keeper
-            extraData: '', // No extra data
-            //pieceIds: undefined, // Piece IDs (on chain) not available for new content.
-            deleteDataSet: false,
-            deletePiece: false
-          } as Mk20PDPV1,
-          retrievalV1: {
-            announcePayload: true, // Announce payload to IPNI
-            announcePiece: true, // Announce piece information to IPNI
-            indexing: true // Index for CID-based retrieval
-          } as Mk20RetrievalV1
-        } as Mk20Products
-      };
-
-      var dealId = await this.submitDeal(deal);
-
-      this.waitDealComplete(uuid);
-
-      // Initialize chunked upload
-      const startUpload: Mk20StartUpload = {
-        rawSize: totalSize,
-        chunkSize: 1024 * 1024 // 1MB chunks
-      };
-
-      const uploadInitResult = await this.initializeChunkedUpload(uuid, startUpload);
-
-      // Automatically upload all blobs in chunks
-      console.log(`📤 Starting automatic chunked upload of ${blobs.length} blobs...`);
-      const chunkSize = 1024 * 1024; // 1MB chunks
-      let totalChunks = 0;
-      let uploadedBytes = 0;
-
-      for (const [blobIndex, blob] of blobs.entries()) {
-        const blobSize = blob.size;
-        const blobChunks = Math.ceil(blobSize / chunkSize);
-        
-        console.log(`  Uploading blob ${blobIndex + 1}/${blobs.length} (${blobSize} bytes, ${blobChunks} chunks)...`);
-        
-        for (let i = 0; i < blobSize; i += chunkSize) {
-          const chunk = blob.slice(i, i + chunkSize);
-          const chunkNum = totalChunks.toString();
-          
-          // Convert blob chunk to array of numbers for upload
-          const chunkArray = new Uint8Array(await chunk.arrayBuffer());
-          const chunkNumbers = Array.from(chunkArray);
-          
-          console.log(`    Uploading chunk ${chunkNum + 1} (${chunkNumbers.length} bytes)...`);
-          await this.uploadChunk(uuid, chunkNum, chunkNumbers);
-          
-          totalChunks++;
-          uploadedBytes += chunkNumbers.length;
-        }
-      }
-
-      // Finalize the upload
-      console.log('🔒 Finalizing chunked upload...');
-      const finalizeResult = await this.finalizeChunkedUpload(uuid, deal); // TODO check deal (2nd ID) status in loop.
-      console.log(`✅ Upload finalized: ${finalizeResult}`);
-
+      const prep = await this.submitPDPv1Deal(params);
+      const ures = await this.uploadBlobs({ id: prep.id, blobs: params.blobs, deal: prep.deal });
       return {
-        uuid,
-        totalSize,
-        dealId,
-        uploadId: uuid,
-        pieceCid,
-        uploadedChunks: totalChunks,
-        uploadedBytes
+        uuid: prep.id,
+        totalSize: prep.totalSize,
+        dealId: prep.dealId,
+        uploadId: prep.id,
+        pieceCid: prep.pieceCid,
+        uploadedChunks: ures.uploadedChunks,
+        uploadedBytes: ures.uploadedBytes,
       };
-
     } catch (error) {
       throw new Error(`Failed to submit PDPv1 deal with upload: ${error}`);
     }

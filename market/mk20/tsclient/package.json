@@ -38,7 +38,7 @@
     "isomorphic-fetch": "^3.0.0",
     "multiformats": "^13.4.0",
     "tweetnacl": "^1.0.3",
-    "ulid": "^2.3.0"
+    "ulid": "^3.0.1"
   },
   "engines": {
     "node": ">=18.0.0"

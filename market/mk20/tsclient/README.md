@@ -134,7 +134,6 @@ Used for creating datasets and proving data possession:
 products: {
   pdpV1: {
     createDataSet: true,        // Create new dataset
-    addPiece: true,            // Add piece to dataset
     recordKeeper: 'provider-address',
     pieceIds: [123, 456, 789]  // Piece IDs for each individual blob
   },
@@ -145,6 +144,8 @@ products: {
   }
 }
 ```
+then without createDataSet & with:
+    addPiece: true,            // Add piece to dataset
 
 ### DDOv1 (Direct Data Onboarding)
 Used for direct data onboarding with contract verification:

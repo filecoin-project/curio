@@ -30,7 +30,7 @@ async function run() {
     serverUrl: process.env.PDP_URL || 'http://localhost:8080',
   } as MarketClientConfig;
   const clientAddr = process.env.PDP_CLIENT || 'f1client...';
-  const providerAddr = process.env.PDP_PROVIDER || 't1000';
+  const recordKeeper = process.env.PDP_RECORD_KEEPER || 't1000';
   const contractAddress = process.env.PDP_CONTRACT || '0x0000000000000000000000000000000000000000';
 
   // Build Authorization header
@@ -117,20 +117,24 @@ async function run() {
   const bytes = await downloadFromUnpkg(targetUrl);
   console.log(`   Downloaded ${bytes.length} bytes`);
 
+  const products = await client.getProducts();
+  console.log('Products:', products);
+
   // Compute piece CID locally for retrieval
   const blob = new Blob([Buffer.from(bytes)], { type: 'application/octet-stream' });
   const pieceCid = await PieceCidUtils.computePieceCidV2([blob]);
   console.log(`🔗 Computed piece CID: ${pieceCid}`);
 
   console.log('📨 Submitting PDPv1 deal and uploading via helper');
-  let res;
+  let prep;
   try {
-    res = await client.submitPDPv1DealWithUpload({
+    prep = await client.submitPDPv1Deal({
       blobs: [blob],
       client: clientAddr,
-      provider: providerAddr,
+      recordKeeper: recordKeeper,
       contractAddress,
     });
+    await client.uploadBlobs({ id: prep.id, blobs: [blob], deal: prep.deal });
   } catch (e) {
     console.error('Submit error:', (e as Error).message);
     try {
@@ -146,7 +150,7 @@ async function run() {
     try {
       const minimal = {
         client: clientAddr,
-        products: { pdpV1: { createDataSet: true, addPiece: true, recordKeeper: providerAddr } },
+        products: { pdpV1: { createDataSet: true, addPiece: true, recordKeeper: recordKeeper } },
       } as any;
       const url = config.serverUrl.replace(/\/$/, '') + '/market/mk20/store';
       const r = await fetch(url, {
@@ -162,7 +166,7 @@ async function run() {
     }
     throw e;
   }
-  const uploadId = res.uploadId;
+  const uploadId = prep.id;
 
   console.log('⏳ Polling deal status until complete/failed');
   for (let i = 0; i < 120; i++) { // up to ~10 minutes with 5s interval
@@ -190,6 +194,7 @@ async function run() {
 
   console.log('🗑️  Requesting deletion (set delete flags via update)');
   await client.updateDeal(uploadId, {
+    identifier: uploadId,
     client: clientAddr,
     products: { pdpV1: { deletePiece: true, deleteDataSet: true } },
   } as any);

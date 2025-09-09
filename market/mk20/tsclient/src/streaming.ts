@@ -136,10 +136,9 @@ export class StreamingPDP {
    * Begin the streaming deal by submitting a deal without data and initializing upload.
    */
   async begin(): Promise<void> {
-    const products: Products = {
+    var products: Products = {
       pdpV1: {
         createDataSet: true,
-        addPiece: true,
         recordKeeper: this.providerAddr,
         extraData: '',
         pieceIds: undefined,
@@ -161,6 +160,31 @@ export class StreamingPDP {
 
     this.deal = deal;
     await this.client.submitDeal(deal);
+
+    await this.client.waitDealComplete(this.id);
+
+    var products: Products = {
+      pdpV1: {
+        addPiece: true,
+        recordKeeper: this.providerAddr,
+        extraData: '',
+        pieceIds: undefined,
+        deleteDataSet: false,
+        deletePiece: false,
+      } as PDPV1,
+      retrievalV1: {
+        announcePayload: true,
+        announcePiece: true,
+        indexing: true,
+      } as RetrievalV1,
+    } as Products;
+
+    await this.client.submitDeal({
+      identifier: this.id,
+      client: this.clientAddr,
+      products,
+    } as Deal);
+
 
     await this.client.initializeChunkedUpload(this.id, { chunkSize: this.chunkSize });
   }

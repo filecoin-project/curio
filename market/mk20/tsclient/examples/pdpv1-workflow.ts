@@ -23,7 +23,7 @@ async function pdpv1CompleteWorkflowExample() {
     const result = await client.submitPDPv1DealWithUpload({
       blobs: mockBlobs,
       client: 'f1client123456789abcdefghijklmnopqrstuvwxyz',
-      provider: 'f1provider123456789abcdefghijklmnopqrstuvwxyz',
+      recordKeeper: 'f1provider123456789abcdefghijklmnopqrstuvwxyz',
       contractAddress: '0x1234567890123456789012345678901234567890'
     });
 
