@@ -185,14 +185,13 @@ type MachineInfo struct {
 
 	// Storage URL Liveness
 	StorageURLs []struct {
-		StorageID       string
+		StorageID      string
 		URL            string
 		LastChecked    time.Time
 		LastLive       *time.Time
 		LastDead       *time.Time
 		LastDeadReason *string
 	}
-
 
 	// Message Waits
 	MessageWaits []struct {
@@ -353,7 +352,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 
 	for rowsURL.Next() {
 		var sul struct {
-			StorageID       string
+			StorageID      string
 			URL            string
 			LastChecked    time.Time
 			LastLive       *time.Time
@@ -365,7 +364,6 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		}
 		summaries[0].StorageURLs = append(summaries[0].StorageURLs, sul)
 	}
-
 
 	// query message waits
 	rowsMsg, err := a.deps.DB.Query(ctx, "SELECT signed_message_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_msg_data, executed_rcpt_exitcode, executed_rcpt_return, executed_rcpt_gas_used, created_at FROM message_waits WHERE waiter_machine_id=$1 ORDER BY created_at DESC LIMIT 10", summaries[0].Info.ID)
@@ -390,14 +388,14 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		if err := rowsMsg.Scan(&msg.SignedMessageCID, &msg.ExecutedTskCID, &msg.ExecutedTskEpoch, &msg.ExecutedMsgCID, &msg.ExecutedMsgData, &msg.ExecutedRcptExitcode, &msg.ExecutedRcptReturn, &msg.ExecutedRcptGasUsed, &msg.CreatedAt); err != nil {
 			return nil, err
 		}
-		
+
 		// Determine status
 		if msg.ExecutedTskCID != nil {
 			msg.Status = "Executed"
 		} else {
 			msg.Status = "Waiting"
 		}
-		
+
 		summaries[0].MessageWaits = append(summaries[0].MessageWaits, msg)
 	}
 
@@ -422,7 +420,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		if err := rowsMsgEth.Scan(&msgEth.SignedTxHash, &msgEth.ConfirmedBlockNumber, &msgEth.ConfirmedTxHash, &msgEth.ConfirmedTxData, &msgEth.TxStatus, &msgEth.TxReceipt, &msgEth.TxSuccess); err != nil {
 			return nil, err
 		}
-		
+
 		// Determine status
 		if msgEth.TxStatus != nil {
 			if msgEth.TxSuccess != nil && *msgEth.TxSuccess {
@@ -435,7 +433,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		} else {
 			msgEth.Status = "Pending"
 		}
-		
+
 		summaries[0].MessageWaitsEth = append(summaries[0].MessageWaitsEth, msgEth)
 	}
 
