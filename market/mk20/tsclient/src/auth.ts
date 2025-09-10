@@ -205,6 +205,19 @@ export class AuthUtils {
 
 export default AuthUtils;
 
+// Configuration interface for authentication
+export interface AuthConfig {
+  serverUrl: string;
+  clientAddr: string;
+  recordKeeper: string;
+  contractAddress: string;
+  keyType: 'ed25519' | 'secp256k1';
+  publicKeyB64?: string;
+  privateKeyB64?: string;
+  secpPrivateKeyHex?: string;
+  secpPrivateKeyB64?: string;
+}
+
 /** Generic signer interface */
 export interface AuthSigner {
   getPublicKey(): Promise<Uint8Array> | Uint8Array;
@@ -313,6 +326,99 @@ export class Secp256k1AddressSigner implements AuthSigner {
       }
     }
     return new Uint8Array(out);
+  }
+}
+
+// Utility functions for authentication and client management
+
+/**
+ * Build authentication header from configuration
+ */
+export async function buildAuthHeader(config: AuthConfig): Promise<string> {
+  if (config.keyType === 'ed25519') {
+    if (!config.publicKeyB64 || !config.privateKeyB64) {
+      throw new Error('PDP_PUBLIC_KEY_B64 and PDP_PRIVATE_KEY_B64 must be set for ed25519');
+    }
+    const pub = Uint8Array.from(Buffer.from(config.publicKeyB64, 'base64'));
+    const priv = Uint8Array.from(Buffer.from(config.privateKeyB64, 'base64'));
+    const signer = new Ed25519KeypairSigner(pub, priv);
+    return await AuthUtils.buildAuthHeader(signer, 'ed25519');
+  } else if (config.keyType === 'secp256k1') {
+    // Derive pubKeyBase64 from Filecoin address bytes
+    const addrBytes = Secp256k1AddressSigner.addressBytesFromString(config.clientAddr);
+    const pubB64 = Buffer.from(addrBytes).toString('base64');
+    if (!pubB64) throw new Error('Unable to derive address bytes from PDP_CLIENT');
+
+    // Load secp256k1 private key from env (HEX preferred, else B64)
+    let priv: Uint8Array | undefined;
+    if (config.secpPrivateKeyHex) {
+      const clean = config.secpPrivateKeyHex.startsWith('0x') ? config.secpPrivateKeyHex.slice(2) : config.secpPrivateKeyHex;
+      if (clean.length !== 64) throw new Error('PDP_SECP_PRIVATE_KEY_HEX must be 32-byte (64 hex chars)');
+      const bytes = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+      priv = bytes;
+    } else if (config.secpPrivateKeyB64) {
+      const buf = Buffer.from(config.secpPrivateKeyB64, 'base64');
+      if (buf.length !== 32) throw new Error('PDP_SECP_PRIVATE_KEY_B64 must decode to 32 bytes');
+      priv = new Uint8Array(buf);
+    }
+    if (!priv) throw new Error('Set PDP_SECP_PRIVATE_KEY_HEX or PDP_SECP_PRIVATE_KEY_B64 for secp256k1 signing');
+
+    // Use Secp256k1AddressSigner (address bytes derived from PDP_CLIENT)
+    const signer = new Secp256k1AddressSigner(config.clientAddr, priv);
+    return await AuthUtils.buildAuthHeader(signer, 'secp256k1');
+  } else {
+    throw new Error(`Unsupported PDP_KEY_TYPE: ${config.keyType}`);
+  }
+}
+
+/**
+ * Create authenticated client from configuration and auth header
+ */
+export function createClient(config: AuthConfig, authHeader: string): any {
+  const clientConfig = {
+    serverUrl: config.serverUrl,
+    headers: { Authorization: authHeader },
+  };
+  // Use the same pattern as the original unpkg-end-to-end.ts file
+  return new (require('./client').MarketClient)(clientConfig);
+}
+
+/**
+ * Sanitize auth header for logging (removes sensitive signature data)
+ */
+export function sanitizeAuthHeader(authHeader: string): string {
+  return authHeader.replace(/:[A-Za-z0-9+/=]{16,}:/, (m) => `:${m.slice(1, 9)}...:`);
+}
+
+/**
+ * Run preflight connectivity checks
+ */
+export async function runPreflightChecks(config: AuthConfig, authHeader: string): Promise<void> {
+  try {
+    const base = config.serverUrl.replace(/\/$/, '');
+    const urls: Array<{ url: string; headers?: Record<string, string> }> = [
+      { url: `${base}/health` },
+      { url: `${base}/market/mk20/info/swagger.json` },
+      { url: `${base}/market/mk20/products`, headers: { Authorization: authHeader } },
+    ];
+    
+    for (const { url, headers } of urls) {
+      try {
+        const init: RequestInit = headers ? { headers } : {};
+        const r = await fetch(url, init);
+        console.log(`Preflight ${url}:`, r.status);
+        if (!r.ok) {
+          const text = await r.text().catch(() => '');
+          console.log(`Preflight body (${url}):`, text);
+        }
+      } catch (e) {
+        const err = e as any;
+        console.error(`Preflight failed (${url}):`, err?.message || String(e), err?.cause?.code || '', err?.code || '');
+      }
+    }
+  } catch (e) {
+    console.error('Preflight orchestrator failed:', (e as Error).message);
   }
 }
 

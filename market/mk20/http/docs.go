@@ -845,11 +845,9 @@ const docTemplate = `{
         "address.Address": {
             "type": "object"
         },
-        "cid.Cid": {
-            "type": "object"
-        },
         "github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId": {
             "type": "integer",
+            "format": "int64",
             "enum": [
                 0
             ],
@@ -949,11 +947,13 @@ const docTemplate = `{
                 },
                 "piece_cid": {
                     "description": "PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/cid.Cid"
-                        }
-                    ]
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "example": {
+                        "/": "bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"
+                    }
                 },
                 "source_aggregate": {
                     "description": "SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.",
@@ -1035,10 +1035,9 @@ const docTemplate = `{
                 },
                 "identifier": {
                     "description": "Identifier represents a unique identifier for the deal in ULID format.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "string",
+                    "format": "ulid",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
                 },
                 "products": {
                     "description": "Products represents a collection of product-specific information associated with a deal",

@@ -278,6 +278,7 @@ export class PieceCidUtils {
 
 export class MarketClient {
   private api: DefaultApi;
+  private config: MarketClientConfig;
   
   /**
    * Try to extract a human-friendly error string from an HTTP Response.
@@ -305,6 +306,7 @@ export class MarketClient {
    * @param config.fetchApi - Optional custom fetch implementation
    */
   constructor(config: MarketClientConfig) {
+    this.config = config;
     const basePath = `${config.serverUrl.replace(/\/$/, '')}/market/mk20`;
     const runtimeConfig = { ...config, basePath } as ConfigurationParameters;
     this.api = new DefaultApi(new Configuration(runtimeConfig));
@@ -326,10 +328,11 @@ export class MarketClient {
   }
 
   /**
-   * Convert a ULID string (26-char Crockford base32) into a 16-byte array
+   * Convert a ULID string (26-char Crockford base32) into an ASCII byte array
    */
   private ulidToBytes(ulidString: string): number[] {
-    var bytes: number[] = [];
+    // ULID is 26 characters, convert to ASCII byte array
+    const bytes: number[] = [];
     for (let i = 0; i < ulidString.length; i++) {
       bytes.push(ulidString.charCodeAt(i));
     }
@@ -503,28 +506,31 @@ export class MarketClient {
     await this.submitDeal(createDeal);
     await this.waitDealComplete(datasetId);
 
+    var datasetIdNumber = 0; // TODO: get dataset id from response
+
     // Step 2: add piece with data under a new identifier (upload id)
     const uploadId = ulid();
     const addPieceDeal: Mk20Deal = {
       identifier: uploadId,
       client,
       data: {
-        pieceCid: pieceCid,
+        pieceCid: { "/": pieceCid } as object,
         format: { raw: {} },
         sourceHttpPut: {},
       } as Mk20DataSource,
       products: {
         pdpV1: {
           addPiece: true,
+          dataSetId: datasetIdNumber,
           recordKeeper: recordKeeper,
           extraData: [],
           deleteDataSet: false,
           deletePiece: false,
         } as Mk20PDPV1,
         retrievalV1: {
-          announcePayload: true,
+          announcePayload: false, // not a CAR file.
           announcePiece: true,
-          indexing: true,
+          indexing: false, // not a CAR file.
         } as Mk20RetrievalV1,
       } as Mk20Products,
     } as Mk20Deal;
@@ -557,7 +563,7 @@ export class MarketClient {
         const chunk = blob.slice(offset, offset + chunkSize);
         const chunkArray = new Uint8Array(await chunk.arrayBuffer());
         const chunkNumbers = Array.from(chunkArray);
-        const chunkNum = String(totalChunks);
+        const chunkNum = String(totalChunks + 1);
         await this.uploadChunk(id, chunkNum, chunkNumbers);
         totalChunks++;
         uploadedBytes += chunkNumbers.length;
@@ -603,7 +609,7 @@ export class MarketClient {
         totalSize: prep.totalSize,
         dealId: prep.dealId,
         uploadId: prep.id,
-        pieceCid: prep.pieceCid,
+        pieceCid: prep.pieceCid ,
         uploadedChunks: ures.uploadedChunks,
         uploadedBytes: ures.uploadedBytes,
       };
@@ -670,7 +676,12 @@ export class MarketClient {
    */
   async uploadChunk(id: string, chunkNum: string, data: Array<number>): Promise<number> {
     try {
-      const apiResp = await this.api.uploadsIdChunkNumPutRaw({ id, chunkNum, data });
+      const apiResp = await this.api.uploadsIdChunkNumPutRaw({ id, chunkNum, data }, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Authorization': this.config.headers?.Authorization || ''
+        }
+      });
       const ct = apiResp.raw.headers.get('content-type') || '';
       if (ct.toLowerCase().includes('application/json') || ct.toLowerCase().includes('+json')) {
         return await apiResp.value();

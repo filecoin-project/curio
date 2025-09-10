@@ -240,7 +240,7 @@ export class StreamingPDP {
     const pieceCid = StreamingCommP.pieceCidV2FromDigest(this.totalSize, digest);
 
     const dataSource: Mk20DataSource = {
-      pieceCid: pieceCid,
+      pieceCid: { "/": pieceCid } as { [key: string]: string; },
       format: { raw: {} } as Mk20PieceDataFormat,
       sourceHttpPut: { raw_size: this.totalSize } as unknown as object,
     };

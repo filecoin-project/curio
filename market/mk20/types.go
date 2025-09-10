@@ -14,7 +14,7 @@ import (
 type Deal struct {
 
 	// Identifier represents a unique identifier for the deal in ULID format.
-	Identifier ulid.ULID `json:"identifier"`
+	Identifier ulid.ULID `json:"identifier" swaggertype:"string" format:"ulid" example:"01ARZ3NDEKTSV4RRFFQ69G5FAV"`
 
 	// Client wallet string for the deal
 	Client string `json:"client"`
@@ -41,7 +41,7 @@ type Products struct {
 type DataSource struct {
 
 	// PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.
-	PieceCID cid.Cid `json:"piece_cid"`
+	PieceCID cid.Cid `json:"piece_cid" swaggertype:"object,string" example:"/:bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"`
 
 	// Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.
 	Format PieceDataFormat `json:"format"`

@@ -1,11 +1,10 @@
 definitions:
   address.Address:
     type: object
-  cid.Cid:
-    type: object
   github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId:
     enum:
     - 0
+    format: int64
     type: integer
     x-enum-varnames:
     - NoAllocationID
@@ -76,10 +75,13 @@ definitions:
         description: Format defines the format of the piece data, which can include
           CAR, Aggregate, or Raw formats.
       piece_cid:
-        allOf:
-        - $ref: '#/definitions/cid.Cid'
+        additionalProperties:
+          type: string
         description: PieceCID represents the unique identifier (pieceCID V2) for a
           piece of data, stored as a CID object.
+        example:
+          /: bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq
+        type: object
       source_aggregate:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceAggregate'
@@ -132,9 +134,9 @@ definitions:
       identifier:
         description: Identifier represents a unique identifier for the deal in ULID
           format.
-        items:
-          type: integer
-        type: array
+        example: 01ARZ3NDEKTSV4RRFFQ69G5FAV
+        format: ulid
+        type: string
       products:
         allOf:
         - $ref: '#/definitions/mk20.Products'
