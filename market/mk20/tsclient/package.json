@@ -1,9 +1,9 @@
 {
   "name": "@curio/market-client",
-  "version": "1.0.0",
-  "description": "TypeScript API client for Curio storage market",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "0.4.0",
+  "description": "TypeScript API client for Curio storage market. You probably want the Synapse SDK instead.",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "npm run generate && npm run compile",
     "generate": "openapi-generator-cli generate -i ../http/swagger.json -g typescript-fetch -o ./generated --additional-properties=supportsES6=true,typescriptThreePlus=true --skip-validate-spec",
