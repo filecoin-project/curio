@@ -34,7 +34,7 @@ type PDPV1 struct {
 	// PieceIDs is a list of Piece ids in a proof set.
 	PieceIDs []uint64 `json:"piece_ids,omitempty"`
 
-	// ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
+	// ExtraData can be used to send additional information to service contract when Verifier action like AddPiece, DeletePiece, etc. are performed.
 	ExtraData []byte `json:"extra_data,omitempty"`
 }
 
@@ -95,7 +95,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 
 	if p.AddPiece {
 		if p.DataSetID == nil {
-			return ErrBadProposal, xerrors.Errorf("add_root must have data_set_id defined")
+			return ErrBadProposal, xerrors.Errorf("add_piece must have data_set_id defined")
 		}
 		pid := *p.DataSetID
 		var exists bool
@@ -110,11 +110,11 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 
 	if p.DeletePiece {
 		if p.DataSetID == nil {
-			return ErrBadProposal, xerrors.Errorf("delete_root must have data_set_id defined")
+			return ErrBadProposal, xerrors.Errorf("delete_piece must have data_set_id defined")
 		}
 		pid := *p.DataSetID
 		if len(p.PieceIDs) == 0 {
-			return ErrBadProposal, xerrors.Errorf("root_ids must be defined for delete_proof_set")
+			return ErrBadProposal, xerrors.Errorf("piece_ids must be defined for delete_proof_set")
 		}
 		var exists bool
 		err := db.QueryRow(ctx, `SELECT COUNT(*) = cardinality($2::BIGINT[]) AS all_exist_and_active

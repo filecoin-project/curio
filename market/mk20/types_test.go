@@ -2,7 +2,6 @@ package mk20
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -10,6 +9,9 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 )
 
 func mustCID(t *testing.T, s string) cid.Cid {
@@ -93,6 +95,11 @@ func TestHttpHeaderRoundTrip(t *testing.T) {
 }
 
 func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
+	addr, err := address.NewFromString("t01000")
+	require.NoError(t, err)
+	x := uint64(1234)
+	v := verifreg.AllocationId(x)
+
 	orig := Deal{
 		Identifier: mustULID(t, "01ARZ3NDEKTSV4RRFFQ69G5FAV"),
 		Client:     "f1client",
@@ -116,13 +123,29 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 				},
 			},
 		},
-		Products: Products{}, // explicit empty
+		Products: Products{
+			PDPV1: &PDPV1{
+				CreateDataSet: true,
+				RecordKeeper:  "0x158c8f05A616403589b99BE5d82d756860363A92",
+				ExtraData:     []byte("extra data"),
+				PieceIDs:      []uint64{0, 1},
+				DataSetID:     &x,
+			},
+			DDOV1: &DDOV1{
+				Provider:                   addr,
+				PieceManager:               addr,
+				AllocationId:               &v,
+				ContractVerifyMethodParams: []byte("contract verify method params"),
+			},
+		},
 	}
 
 	b, err := json.Marshal(orig)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
+	t.Logf("marshaled JSON: %s", string(b))
 
 	var round Deal
 	if err := json.Unmarshal(b, &round); err != nil {
@@ -282,17 +305,17 @@ func TestDeal_Products_OmitEmptyInnerFields(t *testing.T) {
 }
 
 func TestPartialUnmarshal(t *testing.T) {
-	//iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"products\":{\"pdp_v1\":{\"create_data_set\":true,\"add_piece\":true,\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"}}}"
-	iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"data\":{\"format\":{\"raw\":{}},\"piece_cid\":\"bafkzcibfxx3meais7dgqlg24253d7s2unmxkczzlrnsoni6zmvjy6vi636nslfyggu3q\",\"source_http_put\":{}},\"identifier\":\"01K4R3EK6QEPASQH8KFPKVBNWR\",\"products\":{\"pdp_v1\":{\"add_piece\":true,\"delete_data_set\":false,\"delete_piece\":false,\"extra_data\":[],\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"},\"retrieval_v1\":{\"announce_payload\":true,\"announce_piece\":true,\"indexing\":true}}}"
+	iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"data\":{\"format\":{\"raw\":{}},\"piece_cid\":{\"/\": \"bafkzcibfxx3meais7dgqlg24253d7s2unmxkczzlrnsoni6zmvjy6vi636nslfyggu3q\"},\"source_http_put\":{}},\"identifier\":\"01K4R3EK6QEPASQH8KFPKVBNWR\",\"products\":{\"pdp_v1\":{\"add_piece\":true,\"delete_data_set\":false,\"delete_piece\":false,\"extra_data\":[],\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"},\"retrieval_v1\":{\"announce_payload\":true,\"announce_piece\":true,\"indexing\":true}}}"
 	var deal Deal
 	if err := json.Unmarshal([]byte(iString), &deal); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Printf("%+v\n", deal)
 	require.NotNil(t, deal)
 	require.NotNil(t, deal.Products)
 	require.NotNil(t, deal.Products.PDPV1)
-	require.Equal(t, true, deal.Products.PDPV1.CreateDataSet)
+	require.Equal(t, false, deal.Products.PDPV1.CreateDataSet)
 	require.Equal(t, true, deal.Products.PDPV1.AddPiece)
 	require.Equal(t, "0x158c8f05A616403589b99BE5d82d756860363A92", deal.Products.PDPV1.RecordKeeper)
+	require.True(t, deal.Data.PieceCID.Defined())
+	require.NotNil(t, deal.Data.SourceHttpPut)
 }
