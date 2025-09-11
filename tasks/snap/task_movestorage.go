@@ -3,6 +3,7 @@ package snap
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -114,7 +115,10 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram:     128 << 20,
 			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
-		MaxFailures: 3,
+		MaxFailures: 6,
+		RetryWait: func(retries int) time.Duration {
+			return time.Duration(2<<retries) * time.Second
+		},
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {
 			return m.schedule(context.Background(), taskFunc)
 		}),
