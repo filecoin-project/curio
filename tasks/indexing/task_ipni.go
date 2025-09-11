@@ -96,7 +96,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 	if len(tasks) == 0 {
 		// orphans are normal actually
-		return false, nil
+		return true, nil
 	}
 	if len(tasks) != 1 {
 		return false, xerrors.Errorf("expected 1 ipni task params, got %d", len(tasks))
