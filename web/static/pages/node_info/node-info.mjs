@@ -42,7 +42,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>${this.toHumanBytes(this.data.Info.Memory)}</td>
                     <td>${this.data.Info.GPU}</td>
                     <td>
-                        ${!this.data.Info.Unschedulable ? html`<span class="success">ok</span>` : html``} 
+                        ${!this.data.Info.Unschedulable ? html`<span class="success">ok</span>` : html``}
                         ${this.data.Info.Unschedulable ? html`<span class="warning">${this.data.Info.RunningTasks > 0 ? html`cordoned (${this.data.Info.RunningTasks} tasks still running)` : html`cordoned`}</span>` : html``}
                     </td>
                     <td>
@@ -52,8 +52,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     </td>
                 </tr>
             </table>
-            
-            ${this.data.Info.Tasks || this.data.Info.Miners || this.data.Info.StartupTime || this.data.Info.RestartRequest ? html`
+
             <h3>Additional Info</h3>
             <table class="table table-dark">
                 <tbody>
@@ -78,7 +77,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                         <td><span class="warning">${this.formatTime(this.data.Info.RestartRequest)}</span></td>
                     </tr>` : ''}
                 </tbody>
-            </table>` : ''}
+            </table>
             <hr>
             <h2>Configuration</h2>
             <table class="table table-dark">
@@ -135,51 +134,6 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     </tr>
                 `)}
             </table>
-            
-            
-            ${(this.data.MessageWaits||[]).length > 0 || (this.data.MessageWaitsEth||[]).length > 0 ? html`
-            <h3>Message Waits</h3>
-            ${(this.data.MessageWaits||[]).length > 0 ? html`
-            <h4>Filecoin Messages</h4>
-            <table class="table table-dark">
-                <tr>
-                    <td>Message CID</td>
-                    <td>Status</td>
-                    <td>Created At</td>
-                    <td>Executed Epoch</td>
-                </tr>
-                ${(this.data.MessageWaits||[]).map((msg) => html`
-                    <tr>
-                        <td><small>${msg.SignedMessageCID}</small></td>
-                        <td>
-                            ${msg.Status === 'Executed' ? html`<span class="success">Executed</span>` : html`<span class="warning">Waiting</span>`}
-                        </td>
-                        <td>${this.formatTime(msg.CreatedAt)}</td>
-                        <td>${msg.ExecutedTskEpoch || '-'}</td>
-                    </tr>
-                `)}
-            </table>` : ''}
-            ${(this.data.MessageWaitsEth||[]).length > 0 ? html`
-            <h4>Ethereum Messages</h4>
-            <table class="table table-dark">
-                <tr>
-                    <td>Transaction Hash</td>
-                    <td>Status</td>
-                    <td>Block Number</td>
-                </tr>
-                ${(this.data.MessageWaitsEth||[]).map((msg) => html`
-                    <tr>
-                        <td><small>${msg.SignedTxHash}</small></td>
-                        <td>
-                            ${msg.Status === 'Success' ? html`<span class="success">Success</span>` : 
-                              msg.Status === 'Failed' ? html`<span class="error">Failed</span>` : 
-                              html`<span class="warning">${msg.Status}</span>`}
-                        </td>
-                        <td>${msg.ConfirmedBlockNumber || '-'}</td>
-                    </tr>
-                `)}
-            </table>` : ''}
-            ` : ''}
             <hr>
             <h2>Tasks</h2>
             <h3>Running</h3>
@@ -212,31 +166,25 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
             <h3>Recently Finished</h3>
             <table class="table table-dark">
                 <tr>
-                    <td>Hist ID</td>
-                    <td>Task ID</td>
+                    <td>ID</td>
                     <td>Task</td>
                     <td>Posted</td>
                     <td>Start</td>
-                    <td>End</td>
                     <td>Queued</td>
                     <td>Took</td>
-                    <td>Result</td>
+                    <td>Outcome</td>
                     <td>Message</td>
                 </tr>
-                ${(this.data.FinishedTasks||[]).map((task) => html`
+                ${this.data.FinishedTasks.map((task) => html`
                     <tr>
                         <td><a href="/pages/task/id/?id=${task.ID}">${task.ID}</a></td>
-                        <td>${task.TaskID}</td>
                         <td>${task.Task}</td>
                         <td>${task.Posted}</td>
                         <td>${task.Start}</td>
-                        <td>${task.End}</td>
                         <td>${task.Queued}</td>
                         <td>${task.Took}</td>
-                        <td>
-                            ${task.Result ? html`<span class="success">Success</span>` : html`<span class="error">Failed</span>`}
-                        </td>
-                        <td><small>${task.Message}</small></td>
+                        <td>${task.Outcome}</td>
+                        <td>${task.Message}</td>
                     </tr>
                 `)}
             </table>
@@ -264,7 +212,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
 
     getStorageHealthStatus(storageId) {
         if (!this.data.StorageURLs) return html`<span class="muted">Unknown</span>`;
-        
+
         const storageURLs = this.data.StorageURLs.filter(url => url.StorageID === storageId);
         if (storageURLs.length === 0) {
             return html`<span class="muted">No URLs</span>`;
