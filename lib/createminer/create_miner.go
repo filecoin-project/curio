@@ -10,7 +10,6 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/network"
 	power2 "github.com/filecoin-project/specs-actors/v2/actors/builtin/power"
 	power6 "github.com/filecoin-project/specs-actors/v6/actors/builtin/power"
@@ -27,6 +26,7 @@ type CreateMinerChainAPI interface {
 	MpoolPushMessage(context.Context, *types.Message, *api.MessageSendSpec) (*types.SignedMessage, error)
 	StateWaitMsg(ctx context.Context, cid cid.Cid, confidence uint64, limit abi.ChainEpoch, allowReplaced bool) (*api.MsgLookup, error) //perm:read
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
+	StateMinerCreationDeposit(ctx context.Context, tsk types.TipSetKey) (types.BigInt, error)
 }
 
 func CreateStorageMiner(ctx context.Context, chain CreateMinerChainAPI, owner, worker, sender address.Address, ssize abi.SectorSize, confidence uint64) (address.Address, error) {
@@ -103,10 +103,15 @@ func CreateStorageMiner(ctx context.Context, chain CreateMinerChainAPI, owner, w
 		return address.Undef, err
 	}
 
+	value, err := chain.StateMinerCreationDeposit(ctx, types.EmptyTSK)
+	if err != nil {
+		return address.Undef, xerrors.Errorf("getting miner creation deposit: %w", err)
+	}
+
 	createStorageMinerMsg := &types.Message{
 		To:    power.Address,
 		From:  sender,
-		Value: big.Zero(),
+		Value: value,
 
 		Method: power.Methods.CreateMiner,
 		Params: params,
