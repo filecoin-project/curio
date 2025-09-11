@@ -7,17 +7,17 @@ import (
 	"os"
 	"testing"
 
-	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/lib/savecache"
-	"github.com/filecoin-project/curio/market/indexstore"
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/stretchr/testify/require"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
+	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/pdp"
 
@@ -28,7 +28,7 @@ import (
 func TestPDPProving(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
-	idxStore := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore := indexstore.NewIndexStore([]string{EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	err := idxStore.Start(ctx, true)
 	require.NoError(t, err)
 

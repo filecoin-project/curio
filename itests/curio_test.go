@@ -80,7 +80,7 @@ func TestCurioHappyPath(t *testing.T) {
 
 	defer db.ITestDeleteAll()
 
-	idxStore := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore := indexstore.NewIndexStore([]string{EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
@@ -520,7 +520,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
 }
 
-func envElse(env, els string) string {
+func EnvElse(env, els string) string {
 	if v := os.Getenv(env); v != "" {
 		return v
 	}

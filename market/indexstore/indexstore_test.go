@@ -7,16 +7,17 @@ import (
 	"os"
 	"testing"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
-	"github.com/filecoin-project/curio/lib/savecache"
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/lib/commcidv2"
+	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
 )
 

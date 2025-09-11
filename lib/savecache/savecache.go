@@ -6,10 +6,12 @@ import (
 	"math/bits"
 	"sync"
 
-	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/go-padreader"
 	sha256simd "github.com/minio/sha256-simd"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-padreader"
+
+	"github.com/filecoin-project/curio/lib/proof"
 )
 
 const LeafSize = proof.NODE_SIZE
