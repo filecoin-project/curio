@@ -25,4 +25,5 @@ scratchpad
 # in dirty git state if removed from the docker context
 !extern/filecoin-ffi/rust/filecoin.pc
 
-node_modules
+# VIM
+*.swp
