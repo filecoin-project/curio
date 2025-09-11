@@ -1,11 +1,16 @@
 package itests
 
 import (
+	"context"
 	"io"
 	"math/rand"
 	"os"
 	"testing"
 
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/lib/savecache"
+	"github.com/filecoin-project/curio/market/indexstore"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-padreader"
@@ -21,6 +26,12 @@ import (
 
 // TestPDPProving verifies the functionality of generating and validating PDP proofs with a random file created in a temporary directory.
 func TestPDPProving(t *testing.T) {
+	ctx := context.Background()
+	cfg := config.DefaultCurioConfig()
+	idxStore := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	err := idxStore.Start(ctx, true)
+	require.NoError(t, err)
+
 	dir := t.TempDir()
 
 	rawSize := int64(8323072)
@@ -52,7 +63,7 @@ func TestPDPProving(t *testing.T) {
 	numberOfLeafs := pieceSize.Unpadded() / 32
 
 	// Do commP and save the snapshot layer
-	cp := pdp.NewCommPWithSizeForTest(uint64(rawSize))
+	cp := savecache.NewCommPWithSizeForTest(uint64(rawSize))
 	_, err = io.Copy(cp, f)
 	require.NoError(t, err)
 
@@ -67,6 +78,22 @@ func TestPDPProving(t *testing.T) {
 	t.Logf("Number of Nodes in snapshot layer: %d", len(layer))
 	t.Logf("Total Number of Leafs: %d", numberOfLeafs)
 
+	pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(stat.Size()))
+	require.NoError(t, err)
+
+	leafs := make([]indexstore.NodeDigest, len(layer))
+	for i, s := range layer {
+		leafs[i] = indexstore.NodeDigest{
+			Layer: layerIdx,
+			Hash:  s.Hash,
+			Index: int64(i),
+		}
+	}
+	require.Equal(t, len(leafs), len(layer))
+
+	err = idxStore.AddPDPLayer(ctx, pcid2, leafs)
+	require.NoError(t, err)
+
 	// Generate challenge leaf
 	challenge := int64(rand.Intn(int(numberOfLeafs)))
 
@@ -80,7 +107,12 @@ func TestPDPProving(t *testing.T) {
 	t.Logf("Start Leaf: %d", startLeaf)
 	t.Logf("Snapshot Node Index: %d", snapshotNodeIndex)
 
-	snapNode := layer[snapshotNodeIndex]
+	has, snapNode, err := idxStore.GetPDPNode(ctx, pcid2, layerIdx, snapshotNodeIndex)
+	require.NoError(t, err)
+	require.True(t, has)
+	require.Equal(t, snapNode.Index, snapshotNodeIndex)
+	require.Equal(t, snapNode.Layer, layerIdx)
+	require.Equal(t, snapNode.Hash, layer[snapshotNodeIndex].Hash)
 
 	// Convert tree-based leaf range to file-based offset/length
 	offset := int64(abi.PaddedPieceSize(startLeaf * 32).Unpadded())
@@ -128,8 +160,13 @@ func TestPDPProving(t *testing.T) {
 
 	// Arrange snapshot layer into a byte array
 	var layerBytes []byte
-	for _, node := range layer {
-		layerBytes = append(layerBytes, node.Hash[:]...)
+	outLayer, err := idxStore.GetPDPLayer(ctx, pcid2, layerIdx)
+	require.NoError(t, err)
+	require.Equal(t, len(outLayer), len(leafs))
+	require.Equal(t, len(outLayer), len(layer))
+	require.Equal(t, outLayer, leafs)
+	for _, n := range outLayer {
+		layerBytes = append(layerBytes, n.Hash[:]...)
 	}
 
 	t.Logf("Layer Bytes: %d", len(layerBytes))

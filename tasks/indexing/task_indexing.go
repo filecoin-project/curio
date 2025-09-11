@@ -86,6 +86,7 @@ type itask struct {
 	ChainDealId       abi.DealID              `db:"chain_deal_id"`
 	IsDDO             bool                    `db:"is_ddo"`
 	Mk20              bool                    `db:"mk20"`
+	IsRM              bool                    `db:"is_rm"`
 	PieceRef          int64
 }
 

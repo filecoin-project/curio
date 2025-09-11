@@ -106,6 +106,7 @@ func (i *IndexStore) Start(ctx context.Context, test bool) error {
 	if test {
 		id := ITestNewID()
 		keyspaceName = fmt.Sprintf("test%s", id)
+		fmt.Printf("Using test keyspace: %s\n", keyspaceName)
 	}
 
 	// Create Cassandra keyspace
@@ -438,40 +439,86 @@ func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, 
 }
 
 func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid, records []Record) error {
-	insertAggregateIndex := `INSERT INTO PieceToAggregatePiece (PieceCid, AggregatePieceCid, UnpaddedOffset, UnpaddedLength) VALUES (?, ?, ?, ?)`
 	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
-	var batch *gocql.Batch
-	batchSize := i.settings.InsertBatchSize
 
-	if len(records) == 0 {
-		return xerrors.Errorf("no records to insert")
-	}
+	chanSize := i.settings.InsertConcurrency * i.settings.InsertBatchSize
 
-	for _, r := range records {
-		if batch == nil {
-			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+	recordsChan := make(chan Record, chanSize)
+
+	go func(f []Record) {
+		for _, r := range f {
+			recordsChan <- r
 		}
+		close(recordsChan)
+	}(records)
 
-		batch.Entries = append(batch.Entries, gocql.BatchEntry{
-			Stmt:       insertAggregateIndex,
-			Args:       []interface{}{r.Cid.Bytes(), aggregatePieceCidBytes, r.Offset, r.Size},
-			Idempotent: true,
+	insertPieceByAggregate := `INSERT INTO piece_by_aggregate (AggregatePieceCid, PieceCid, UnpaddedOffset, UnpaddedLength) VALUES (?, ?, ?, ?)`
+	insertAggregateByPiece := `INSERT INTO aggregate_by_piece (PieceCid, AggregatePieceCid, UnpaddedOffset, UnpaddedLength) VALUES (?, ?, ?, ?)`
+
+	var eg errgroup.Group
+
+	// Start worker threads based on InsertConcurrency value
+	for worker := 0; worker < i.settings.InsertConcurrency; worker++ {
+		eg.Go(func() error {
+			var batchPieceByAggregate *gocql.Batch
+			var batchAggregateByPiece *gocql.Batch
+			for {
+				if batchPieceByAggregate == nil {
+					batchPieceByAggregate = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+					batchPieceByAggregate.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
+				}
+				if batchAggregateByPiece == nil {
+					batchAggregateByPiece = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+					batchAggregateByPiece.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
+				}
+
+				rec, ok := <-recordsChan
+
+				if !ok {
+					if len(batchPieceByAggregate.Entries) > 0 {
+						if err := i.executeBatchWithRetry(ctx, batchPieceByAggregate, aggregatePieceCid); err != nil {
+							return err
+						}
+					}
+					if len(batchAggregateByPiece.Entries) > 0 {
+						if err := i.executeBatchWithRetry(ctx, batchAggregateByPiece, aggregatePieceCid); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+
+				batchPieceByAggregate.Entries = append(batchPieceByAggregate.Entries, gocql.BatchEntry{
+					Stmt:       insertPieceByAggregate,
+					Args:       []interface{}{aggregatePieceCidBytes, rec.Cid.Bytes(), rec.Offset, rec.Size},
+					Idempotent: true,
+				})
+
+				batchAggregateByPiece.Entries = append(batchAggregateByPiece.Entries, gocql.BatchEntry{
+					Stmt:       insertAggregateByPiece,
+					Args:       []interface{}{rec.Cid.Bytes(), aggregatePieceCidBytes, rec.Offset, rec.Size},
+					Idempotent: true,
+				})
+
+				if len(batchPieceByAggregate.Entries) == i.settings.InsertBatchSize {
+					if err := i.executeBatchWithRetry(ctx, batchPieceByAggregate, aggregatePieceCid); err != nil {
+						return err
+					}
+					batchPieceByAggregate = nil
+				}
+				if len(batchAggregateByPiece.Entries) == i.settings.InsertBatchSize {
+					if err := i.executeBatchWithRetry(ctx, batchAggregateByPiece, aggregatePieceCid); err != nil {
+						return err
+					}
+					batchAggregateByPiece = nil
+				}
+			}
 		})
-
-		if len(batch.Entries) >= batchSize {
-			if err := i.session.ExecuteBatch(batch); err != nil {
-				return xerrors.Errorf("executing batch insert for aggregate piece %s: %w", aggregatePieceCid, err)
-			}
-			batch = nil
-		}
 	}
 
-	if batch != nil {
-		if len(batch.Entries) >= 0 {
-			if err := i.session.ExecuteBatch(batch); err != nil {
-				return xerrors.Errorf("executing batch insert for aggregate piece %s: %w", aggregatePieceCid, err)
-			}
-		}
+	err := eg.Wait()
+	if err != nil {
+		return xerrors.Errorf("add aggregate index: %w", err)
 	}
 
 	return nil
@@ -479,7 +526,7 @@ func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid
 
 func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid) ([]Record, error) {
 	var recs []Record
-	qry := `SELECT AggregatePieceCid, UnpaddedOffset, UnpaddedLength FROM PieceToAggregatePiece WHERE PieceCid = ?`
+	qry := `SELECT AggregatePieceCid, UnpaddedOffset, UnpaddedLength FROM aggregate_by_piece WHERE PieceCid = ?`
 	iter := i.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
 	var r []byte
 	var idx, length int64
@@ -505,9 +552,47 @@ func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid)
 func (i *IndexStore) RemoveAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid) error {
 	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
 
-	err := i.session.Query(`DELETE FROM PieceToAggregatePiece WHERE AggregatePieceCid = ?`, aggregatePieceCidBytes).WithContext(ctx).Exec()
+	// 1) iterate children with paging
+	iter := i.session.Query(`SELECT PieceCid, UnpaddedOffset FROM piece_by_aggregate WHERE AggregatePieceCid = ?`, aggregatePieceCidBytes).WithContext(ctx).PageSize(1000).Iter()
+
+	var piece []byte
+	var off int64
+
+	batch := i.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+
+	flush := func() error {
+		if len(batch.Entries) == 0 {
+			return nil
+		}
+		if berr := i.session.ExecuteBatch(batch); berr != nil {
+			return xerrors.Errorf("executing batch delete for aggregate index for piece cid (P:0x%02x) %s: %w", aggregatePieceCidBytes, aggregatePieceCid.String(), berr)
+		}
+		batch = i.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+		return nil
+	}
+
+	for iter.Scan(&piece, &off) {
+		batch.Query(`DELETE FROM aggregate_by_piece
+                     WHERE PieceCid = ? AND AggregatePieceCid = ? AND UnpaddedOffset = ?`,
+			append([]byte{}, piece...), aggregatePieceCidBytes, off)
+
+		if len(batch.Entries) >= 1000 {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	if err := iter.Close(); err != nil {
+		return err
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+
+	// 3) delete the forward partition
+	err := i.session.Query(`DELETE FROM piece_by_aggregate WHERE AggregatePieceCid = ?`, aggregatePieceCidBytes).WithContext(ctx).Exec()
 	if err != nil {
-		return xerrors.Errorf("deleting aggregate piece cid (P:0x%02x): %w", aggregatePieceCid.Bytes(), err)
+		return xerrors.Errorf("deleting piece_by_aggregate aggregate piece cid (P:0x%02x) %s: %w", aggregatePieceCidBytes, aggregatePieceCid.String(), err)
 	}
 
 	return nil
@@ -595,7 +680,7 @@ type NodeDigest struct {
 }
 
 func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer []NodeDigest) error {
-	qry := `INSERT INTO PDPCacheLayer (PieceCid, LayerIndex, Leaf, LeafIndex) VALUES (?, ?, ?, ?)`
+	qry := `INSERT INTO pdp_cache_layer (PieceCid, LayerIndex, Leaf, LeafIndex) VALUES (?, ?, ?, ?)`
 	pieceCidBytes := pieceCidV2.Bytes()
 	var batch *gocql.Batch
 	batchSize := i.settings.InsertBatchSize
@@ -611,7 +696,7 @@ func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer 
 
 		batch.Entries = append(batch.Entries, gocql.BatchEntry{
 			Stmt:       qry,
-			Args:       []interface{}{pieceCidBytes, r.Layer, r.Hash, r.Index},
+			Args:       []interface{}{pieceCidBytes, r.Layer, r.Hash[:], r.Index},
 			Idempotent: true,
 		})
 
@@ -634,24 +719,37 @@ func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer 
 	return nil
 }
 
-func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid) ([]NodeDigest, error) {
-	var layer []NodeDigest
-	qry := `SELECT LayerIndex, Leaf, LeafIndex FROM PDPCacheLayer WHERE PieceCid = ? ORDER BY LeafIndex ASC`
-	iter := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Iter()
-	r := make([]byte, 32)
-	var idx int64
+func (i *IndexStore) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (bool, int, error) {
 	var layerIdx int
-	for iter.Scan(&layerIdx, &r, &idx) {
+	if err := i.session.Query(`SELECT LayerIndex FROM pdp_cache_layer WHERE PieceCid = ? LIMIT 1`, pieceCidV2.Bytes()).WithContext(ctx).Scan(&layerIdx); err != nil {
+		if errors.Is(err, gocql.ErrNotFound) {
+			return false, 0, nil
+		}
+		return false, 0, xerrors.Errorf("scanning highest layer for PDP cache layer (P:0x%02x) %s: %w", pieceCidV2.Bytes(), pieceCidV2.String(), err)
+	}
+
+	return true, layerIdx, nil
+}
+
+func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int) ([]NodeDigest, error) {
+	var layer []NodeDigest
+
+	iter := i.session.Query(`SELECT LeafIndex, Leaf FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ?`, pieceCidV2.Bytes(), layerIdx).WithContext(ctx).PageSize(2000).Iter()
+
+	var leafIdx int64
+	var leaf []byte
+	for iter.Scan(&leafIdx, &leaf) {
 		layer = append(layer, NodeDigest{
 			Layer: layerIdx,
-			Index: idx,
-			Hash:  [32]byte(r),
+			Index: leafIdx,
+			Hash:  [32]byte(leaf),
 		})
-		r = make([]byte, 32)
+		leaf = make([]byte, 32)
 	}
 	if err := iter.Close(); err != nil {
-		return nil, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+		return nil, xerrors.Errorf("iterating PDP cache layer (P:0x%02x) %s: %w", pieceCidV2.Bytes(), pieceCidV2.String(), err)
 	}
+
 	sort.Slice(layer, func(i, j int) bool {
 		return layer[i].Index < layer[j].Index
 	})
@@ -659,57 +757,31 @@ func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid) ([]Nod
 }
 
 func (i *IndexStore) DeletePDPLayer(ctx context.Context, pieceCidV2 cid.Cid) error {
-	qry := `DELETE FROM PDPCacheLayer WHERE PieceCid = ?`
+	qry := `DELETE FROM pdp_cache_layer WHERE PieceCid = ?`
 	if err := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Exec(); err != nil {
 		return xerrors.Errorf("deleting PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
 	}
 	return nil
 }
 
-func (i *IndexStore) HasPDPLayer(ctx context.Context, pieceCidV2 cid.Cid) (bool, error) {
-	qry := `SELECT Leaf FROM PDPCacheLayer WHERE PieceCid = ? LIMIT 1`
-	iter := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Iter()
-
-	var hashes [][]byte
+func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int, index int64) (bool, *NodeDigest, error) {
 	var r []byte
-	for iter.Scan(&r) {
-		if r != nil {
-			hashes = append(hashes, r)
-			r = make([]byte, 32)
+
+	qry := `SELECT Leaf FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ? AND LeafIndex = ? LIMIT 1`
+	err := i.session.Query(qry, pieceCidV2.Bytes(), layerIdx, index).WithContext(ctx).Scan(&r)
+	if err != nil {
+		if errors.Is(err, gocql.ErrNotFound) {
+			return false, nil, nil
 		}
-	}
-	if err := iter.Close(); err != nil {
-		return false, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+		return false, nil, xerrors.Errorf("scanning PDP cache layer (P:0x%02x) %s: %w", pieceCidV2.Bytes(), pieceCidV2.String(), err)
 	}
 
-	return len(hashes) > 0, nil
+	var hash [32]byte
+	copy(hash[:], r)
 
-}
-
-func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, index int64) (bool, *NodeDigest, error) {
-	qry := `SELECT IndexLayer, Leaf, LeafIndex FROM PDPCacheLayer WHERE PieceCid = ? AND LeafIndex = ? LIMIT 1`
-	iter := i.session.Query(qry, pieceCidV2.Bytes(), index).WithContext(ctx).Iter()
-
-	var node *NodeDigest
-
-	var r []byte
-	var idx int
-	var lidx int64
-	for iter.Scan(&r, &idx, &lidx) {
-		if r != nil {
-			node = &NodeDigest{
-				Layer: idx,
-				Index: lidx,
-				Hash:  [32]byte(r),
-			}
-			r = make([]byte, 32)
-		}
-	}
-	if err := iter.Close(); err != nil {
-		return false, nil, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
-	}
-	if node != nil {
-		return true, node, nil
-	}
-	return false, nil, nil
+	return true, &NodeDigest{
+		Layer: layerIdx,
+		Index: index,
+		Hash:  hash,
+	}, nil
 }

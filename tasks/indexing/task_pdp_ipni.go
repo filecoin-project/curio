@@ -502,6 +502,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 	var stop bool
 	for !stop {
 		var markComplete, markCompletePayload, complete *string
+		var isRm bool
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
@@ -509,23 +510,44 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			var pendings []struct {
 				ID               string `db:"id"`
 				PieceCid         string `db:"piece_cid_v2"`
+				IsRM             bool   `db:"is_rm"`
 				Announce         bool   `db:"announce"`
 				AnnouncePayload  bool   `db:"announce_payload"`
 				Announced        bool   `db:"announced"`
 				AnnouncedPayload bool   `db:"announced_payload"`
 			}
 
-			err := tx.Select(&pendings, `SELECT
-											  id,
-											  piece_cid_v2,
-											  announce,
-											  announce_payload,
-											  announced,
-											  announced_payload
-											FROM pdp_pipeline
-											WHERE indexed = TRUE 
-											  AND complete = FALSE
-											LIMIT 1;`)
+			err := tx.Select(&pendings, `WITH unioned AS (
+											  SELECT
+												dp.id,
+												dp.piece_cid_v2,
+												dp.announce,
+												dp.announce_payload,
+												dp.announced,
+												dp.announced_payload,
+												FALSE AS is_rm
+											  FROM pdp_pipeline dp
+											  WHERE dp.indexed = TRUE
+												AND dp.complete = FALSE
+											
+											  UNION ALL
+											
+											  SELECT
+												pc.id,
+												pc.piece_cid_v2,
+												pc.announce,
+												pc.announce_payload,
+												pc.announced,
+												pc.announced_payload,
+												TRUE AS is_rm
+											  FROM piece_cleanup pc
+											  WHERE pc.after_cleanup = TRUE
+												AND pc.complete = FALSE
+											)
+											SELECT *
+											FROM unioned
+											LIMIT 1;
+											`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending IPNI announcing tasks: %w", err)
 			}
@@ -540,6 +562,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			// 1. We don't need to announce anything
 			// 2. Both type of announcements are done
 			if !(p.Announce && p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) { //nolint:staticcheck
+				isRm = p.IsRM
 				complete = &p.ID
 				return false, nil
 			}
@@ -552,14 +575,6 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					return false, xerrors.Errorf("failed to get private libp2p key for PDP: %w", err)
 				}
 
-				//var pkey []byte
-
-				// TODO: Connect to PDP owner key. Might not be the best approach as keys seem incompatible.
-				//err = tx.QueryRow(`SELECT private_key FROM eth_keys WHERE role = 'pdp'`).Scan(&pkey)
-				//if err != nil {
-				//	return false, xerrors.Errorf("failed to get private eth key for PDP: %w", err)
-				//}
-
 				// generate the ipni provider key
 				pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
 				if err != nil {
@@ -570,11 +585,6 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				if err != nil {
 					return false, xerrors.Errorf("failed to marshal the private key: %w", err)
 				}
-
-				//pk, err := crypto.UnmarshalPrivateKey(pkey)
-				//if err != nil {
-				//	return false, xerrors.Errorf("unmarshaling private key: %w", err)
-				//}
 
 				pid, err := peer.IDFromPublicKey(pk.GetPublic())
 				if err != nil {
@@ -615,10 +625,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					return false, xerrors.Errorf("marshaling piece info: %w", err)
 				}
 
-				_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, iContext, false, p.ID, pid.String(), id)
+				_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, iContext, p.IsRM, p.ID, pid.String(), id)
 				if err != nil {
 					if harmonydb.IsErrUniqueContraint(err) {
-						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d in deal %s", p.PieceCid, p.AnnouncePayload, p.ID)
+						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d with RM %t in deal %s", p.PieceCid, p.AnnouncePayload, p.IsRM, p.ID)
 						stop = false // we found a sector to work on, keep going
 						markCompletePayload = &p.ID
 						return false, nil
@@ -632,6 +642,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
 				}
 				stop = false
+				isRm = p.IsRM
 				markCompletePayload = &p.ID
 				// Return early while commiting so we mark complete for payload announcement
 				return true, nil
@@ -640,6 +651,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			// If we don't need to announce payload, mark it as complete so pipeline does not try that
 			if !p.AnnouncePayload && !p.AnnouncedPayload {
 				stop = false
+				isRm = p.IsRM
 				markCompletePayload = &p.ID
 				// Rerun early without commiting so we mark complete for payload announcement
 				return false, nil
@@ -657,10 +669,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					return false, xerrors.Errorf("marshaling piece info: %w", err)
 				}
 
-				_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, iContext, false, p.ID, pid.String(), id)
+				_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, iContext, p.IsRM, p.ID, pid.String(), id)
 				if err != nil {
 					if harmonydb.IsErrUniqueContraint(err) {
-						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d in deal %s", p.PieceCid, p.AnnouncePayload, p.ID)
+						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d with RM %t in deal %s", p.PieceCid, p.AnnouncePayload, p.IsRM, p.ID)
 						stop = false // we found a sector to work on, keep going
 						markComplete = &p.ID
 						return false, nil
@@ -676,6 +688,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
 				}
 				stop = false
+				isRm = p.IsRM
 				markComplete = &p.ID
 				// Return early while commiting so we mark complete for piece announcement
 				return true, nil
@@ -684,6 +697,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			// If we don't need to announce piece, mark it as complete so pipeline does not try that
 			if !p.Announce && !p.Announced {
 				stop = false
+				isRm = p.IsRM
 				markComplete = &p.ID
 				// Rerun early without commiting so we mark complete for payload announcement
 				return false, nil
@@ -693,7 +707,14 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 		})
 
 		if markComplete != nil {
-			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced = TRUE WHERE id = $1`, *markComplete)
+			var n int
+			var err error
+			if isRm {
+				n, err = P.db.Exec(ctx, `UPDATE piece_cleanup SET announced = TRUE WHERE id = $1`, *markComplete)
+			} else {
+				n, err = P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced = TRUE WHERE id = $1`, *markComplete)
+			}
+
 			if err != nil {
 				log.Errorf("store IPNI success: updating pipeline: %w", err)
 			}
@@ -703,7 +724,13 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 		}
 
 		if markCompletePayload != nil {
-			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced_payload = TRUE WHERE id = $1`, *markCompletePayload)
+			var n int
+			var err error
+			if isRm {
+				n, err = P.db.Exec(ctx, `UPDATE piece_cleanup SET announced_payload = TRUE WHERE id = $1`, *markCompletePayload)
+			} else {
+				n, err = P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced_payload = TRUE WHERE id = $1`, *markCompletePayload)
+			}
 			if err != nil {
 				log.Errorf("store IPNI success: updating pipeline: %w", err)
 			}
@@ -714,6 +741,16 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 		if complete != nil {
 			comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				if isRm {
+					n, err := tx.Exec(`UPDATE piece_cleanup SET complete = TRUE WHERE id = $1`, *complete)
+					if err != nil {
+						return false, xerrors.Errorf("updating piece cleanup pipeline: %w", err)
+					}
+					if n != 1 {
+						return false, xerrors.Errorf("expected to update 1 row in piece_cleanup but updated %d rows", n)
+					}
+					return true, nil
+				}
 				n, err := tx.Exec(`UPDATE pdp_pipeline SET complete = TRUE WHERE id = $1`, *complete)
 
 				if err != nil {

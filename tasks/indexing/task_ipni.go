@@ -533,51 +533,76 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 	var stop bool
 	for !stop {
 		var markComplete *string
-		var mk20 bool
+		var mk20, isRM bool
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
 			var pendings []itask
 
-			err := tx.Select(&pendings, `SELECT
-											  uuid, 
-											  sp_id, 
-											  sector,
-											  piece_cid, 
-											  piece_size, 
-											  sector_offset,
-											  reg_seal_proof,
-											  raw_size,
-											  should_index,
-											  announce,
-											  indexing_created_at,
-											  FALSE as mk20
-											FROM market_mk12_deal_pipeline
-											WHERE sealed = TRUE
-											  AND indexed = TRUE 
-											  AND complete = FALSE
-											
-											UNION ALL
-											
-											SELECT
-											  id AS uuid,
-											  sp_id,
-											  sector,
-											  piece_cid,
-											  piece_size,
-											  sector_offset,
-											  reg_seal_proof,
-											  raw_size,
-											  indexing AS should_index,
-											  announce,
-											  indexing_created_at,
-											  TRUE as mk20
-											FROM market_mk20_pipeline
-											WHERE sealed = TRUE
-											  AND indexed = TRUE 
-											  AND complete = FALSE
-											
+			err := tx.Select(&pendings, `WITH unioned AS (
+												SELECT
+												  uuid, 
+												  sp_id, 
+												  sector,
+												  piece_cid, 
+												  piece_size, 
+												  sector_offset,
+												  reg_seal_proof,
+												  raw_size,
+												  should_index,
+												  announce,
+												  indexing_created_at,
+												  FALSE as mk20,
+												  FALSE as is_rm
+												FROM market_mk12_deal_pipeline
+												WHERE sealed = TRUE
+												  AND indexed = TRUE 
+												  AND complete = FALSE
+												
+												UNION ALL
+												
+												SELECT
+												  id AS uuid,
+												  sp_id,
+												  sector,
+												  piece_cid,
+												  piece_size,
+												  sector_offset,
+												  reg_seal_proof,
+												  raw_size,
+												  indexing AS should_index,
+												  announce,
+												  indexing_created_at,
+												  TRUE as mk20,
+												  FALSE as is_rm
+												FROM market_mk20_pipeline
+												WHERE sealed = TRUE
+												  AND indexed = TRUE 
+												  AND complete = FALSE
+
+												UNION ALL
+
+												SELECT
+												  id AS uuid,
+												  sp_id,
+												  sector_number AS sector,
+												  piece_cid,
+												  piece_size,
+												  0::bigint AS sector_offset,
+												  0::bigint AS reg_seal_proof,
+												  0::bigint AS raw_size,
+												  TRUE AS should_index,
+												  TRUE AS announce,
+												  TIMEZONE('UTC', NOW()) AS indexing_created_at,
+												  TRUE as mk20,
+												  TRUE as is_rm
+												FROM piece_cleanup
+												WHERE after_cleanup = TRUE
+												  AND complete = FALSE
+											)
+											SELECT *
+											FROM unioned
 											ORDER BY indexing_created_at ASC
 											LIMIT 1;`)
 			if err != nil {
@@ -594,10 +619,14 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			// indexing, it will cause issue with retrievals.
 			if !p.Announce || !p.ShouldIndex {
 				var n int
-				if p.Mk20 {
-					n, err = tx.Exec(`UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1`, p.UUID)
+				if isRM {
+					n, err = tx.Exec(`UPDATE piece_cleanup SET complete = TRUE WHERE id = $1`, p.UUID)
 				} else {
-					n, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
+					if p.Mk20 {
+						n, err = tx.Exec(`UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1`, p.UUID)
+					} else {
+						n, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
+					}
 				}
 				if err != nil {
 					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
@@ -612,7 +641,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			var privKey []byte
 			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, p.SpID).Scan(&privKey)
 			if err != nil {
-				if err != pgx.ErrNoRows {
+				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to get private libp2p key for miner %d: %w", p.SpID, err)
 				}
 
@@ -669,13 +698,14 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			}
 
 			_, err = tx.Exec(`SELECT insert_ipni_task($1, $2, $3, $4, $5, $6, $7, $8, $9)`, p.UUID, p.SpID,
-				p.Sector, p.Proof, p.Offset, b.Bytes(), false, pid.String(), id)
+				p.Sector, p.Proof, p.Offset, b.Bytes(), p.IsRM, pid.String(), id)
 			if err != nil {
 				if harmonydb.IsErrUniqueContraint(err) {
-					ilog.Infof("Another IPNI announce task already present for piece %s in deal %s", p.PieceCid, p.UUID)
+					ilog.Infof("Another IPNI announce task already present for piece %s and RM %t in deal %s", p.PieceCid, p.IsRM, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
 					markComplete = &p.UUID
 					mk20 = p.Mk20
+					isRM = p.IsRM
 					stop = false // we found a sector to work on, keep going
 					return false, nil
 				}
@@ -684,6 +714,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 					// SET "complete" status to true for this deal, so it is not considered next time
 					markComplete = &p.UUID
 					mk20 = p.Mk20
+					isRM = p.IsRM
 					stop = false // we found a sector to work on, keep going
 					return false, nil
 				}
@@ -697,11 +728,16 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 		if markComplete != nil {
 			var n int
 			var err error
-			if mk20 {
-				n, err = I.db.Exec(ctx, `UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1 AND complete = FALSE`, *markComplete)
+			if isRM {
+				n, err = I.db.Exec(ctx, `UPDATE piece_cleanup SET complete = TRUE WHERE id = $1 AND complete = FALSE`, *markComplete)
 			} else {
-				n, err = I.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1 AND complete = FALSE`, *markComplete)
+				if mk20 {
+					n, err = I.db.Exec(ctx, `UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1 AND complete = FALSE`, *markComplete)
+				} else {
+					n, err = I.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1 AND complete = FALSE`, *markComplete)
+				}
 			}
+
 			if err != nil {
 				log.Errorf("store IPNI success: updating pipeline (2): %s", err)
 			}

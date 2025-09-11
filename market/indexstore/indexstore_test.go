@@ -3,16 +3,18 @@ package indexstore
 import (
 	"context"
 	"io"
+	"math/rand"
 	"os"
 	"testing"
 
+	"github.com/filecoin-project/curio/lib/commcidv2"
+	"github.com/filecoin-project/curio/lib/savecache"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/filecoin-project/go-commp-utils/writer"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/testutils"
@@ -59,13 +61,31 @@ func TestNewIndexStore(t *testing.T) {
 		_ = f.Close()
 	}()
 
-	w := &writer.Writer{}
-	_, err = io.CopyBuffer(w, f, make([]byte, writer.CommPBuf))
+	stat, err := f.Stat()
 	require.NoError(t, err)
 
-	commp, err := w.Sum()
+	// Calculate commP
+	cp := savecache.NewCommPWithSizeForTest(uint64(stat.Size()))
+	_, err = io.Copy(cp, f)
 	require.NoError(t, err)
 
+	digest, _, layerIdx, layer, err := cp.DigestWithSnapShot()
+	require.NoError(t, err)
+
+	t.Logf("Layer number: %d", layerIdx)
+	t.Logf("Number of nodes in layer: %d", len(layer))
+
+	pcid1, err := commcid.DataCommitmentV1ToCID(digest)
+	require.NoError(t, err)
+
+	pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(stat.Size()))
+	require.NoError(t, err)
+
+	comm, err := commcidv2.CommPFromPCidV2(pcid2)
+	require.NoError(t, err)
+	require.Equal(t, comm.PCidV1(), pcid1)
+
+	// Rewind the file
 	_, err = f.Seek(0, io.SeekStart)
 	require.NoError(t, err)
 
@@ -81,7 +101,7 @@ func TestNewIndexStore(t *testing.T) {
 	// Add index to the store
 	var eg errgroup.Group
 	eg.Go(func() error {
-		serr := idxStore.AddIndex(ctx, commp.PieceCID, recs)
+		serr := idxStore.AddIndex(ctx, pcid2, recs)
 		return serr
 	})
 
@@ -111,37 +131,91 @@ func TestNewIndexStore(t *testing.T) {
 	pcids, err := idxStore.PiecesContainingMultihash(ctx, m)
 	require.NoError(t, err)
 	require.Len(t, pcids, 1)
-	require.Equal(t, pcids[0].PieceCidV2.String(), commp.PieceCID.String())
+	require.Equal(t, pcids[0].PieceCidV2.String(), pcid2.String())
 
 	// Remove all indexes from the store
 	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCidV2)
 	require.NoError(t, err)
 
-	err = idxStore.session.Query("SELECT * FROM PieceToAggregatePiece").Exec()
+	err = idxStore.session.Query("SELECT * FROM piece_by_aggregate").Exec()
 	require.NoError(t, err)
 
-	aggrRec := Record{
-		Cid:    commp.PieceCID,
-		Offset: 0,
-		Size:   100,
+	aggrRec := []Record{
+		{
+			Cid:    pcid1,
+			Offset: 0,
+			Size:   100,
+		},
+		{
+			Cid:    pcid2,
+			Offset: 100,
+			Size:   101,
+		},
 	}
 
-	err = idxStore.InsertAggregateIndex(ctx, commp.PieceCID, []Record{aggrRec})
+	err = idxStore.InsertAggregateIndex(ctx, pcid2, aggrRec)
 	require.NoError(t, err)
 
-	x, err := idxStore.FindPieceInAggregate(ctx, commp.PieceCID)
+	x, err := idxStore.FindPieceInAggregate(ctx, pcid1)
 	require.NoError(t, err)
 	require.Len(t, x, 1)
-	require.Equal(t, x[0].Cid, commp.PieceCID)
+	require.Equal(t, x[0].Cid, pcid2)
 
-	err = idxStore.RemoveAggregateIndex(ctx, commp.PieceCID)
+	x, err = idxStore.FindPieceInAggregate(ctx, pcid2)
 	require.NoError(t, err)
+	require.Len(t, x, 1)
+	require.Equal(t, x[0].Cid, pcid2)
+
+	err = idxStore.RemoveAggregateIndex(ctx, pcid2)
+	require.NoError(t, err)
+
+	// Test PDP layer
+	leafs := make([]NodeDigest, len(layer))
+	for i, s := range layer {
+		leafs[i] = NodeDigest{
+			Layer: layerIdx,
+			Hash:  s.Hash,
+			Index: int64(i),
+		}
+	}
+	require.Equal(t, len(leafs), len(layer))
+
+	// Insert the layer
+	err = idxStore.AddPDPLayer(ctx, pcid2, leafs)
+	require.NoError(t, err)
+
+	// Verify the layer
+	has, ldx, err := idxStore.GetPDPLayerIndex(ctx, pcid2)
+	require.NoError(t, err)
+	require.True(t, has)
+	require.Equal(t, ldx, layerIdx)
+
+	has, _, err = idxStore.GetPDPLayerIndex(ctx, pcid1)
+	require.NoError(t, err)
+	require.False(t, has)
+
+	outLayer, err := idxStore.GetPDPLayer(ctx, pcid2, layerIdx)
+	require.NoError(t, err)
+	require.Equal(t, len(layer), len(outLayer))
+
+	// Fetch a NodeDigest
+	challenge := int64(rand.Intn(len(layer)))
+	has, node, err := idxStore.GetPDPNode(ctx, pcid2, layerIdx, challenge)
+	require.NoError(t, err)
+	require.True(t, has)
+	require.Equal(t, node.Index, challenge)
+	require.Equal(t, node.Layer, layerIdx)
+	require.Equal(t, node.Hash, layer[challenge].Hash)
 
 	// Drop the tables
 	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
 	require.NoError(t, err)
 	err = idxStore.session.Query("DROP TABLE PieceBlockOffsetSize").Exec()
 	require.NoError(t, err)
-	err = idxStore.session.Query("DROP TABLE piecetoaggregatepiece").Exec()
+	err = idxStore.session.Query("DROP TABLE aggregate_by_piece").Exec()
+	require.NoError(t, err)
+	err = idxStore.session.Query("DROP TABLE piece_by_aggregate").Exec()
+	require.NoError(t, err)
+	err = idxStore.session.Query("DROP TABLE pdp_cache_layer").Exec()
 	require.NoError(t, err)
 }

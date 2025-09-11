@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"math"
 	"math/big"
 	"sync/atomic"
 
@@ -407,14 +406,14 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
-func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
+func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
 	//const arity = 2
 
 	rootChallengeOffset := challengedLeaf * LeafSize
 
 	var pieceCid string
 
-	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2 FROM pdp_dataset_piece WHERE data_set_id = $1 AND root_id = $2`, dataSetID, rootId).Scan(&pieceCid)
+	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2 FROM pdp_dataset_piece WHERE data_set_id = $1 AND piece = $2`, dataSetID, pieceID).Scan(&pieceCid)
 	if err != nil {
 		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
 	}
@@ -448,7 +447,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
-		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf)
+		log.Debugw("provePiece", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf)
 
 		mProof, err := proof.MemtreeProof(memTree, challengedLeaf)
 		if err != nil {
@@ -464,13 +463,21 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 	} else {
 		//Calculate layer L such that 127 * 2^L >= targetReadSize
 		//→ 2^L >= targetReadSize / 32
-		ratio := float64(4161536) / 32
-		layerIdx := int(math.Ceil(math.Log2(ratio)))
+		//ratio := float64(4161536) / 32
+		//layerIdx := int(math.Ceil(math.Log2(ratio)))
+		has, layerIdx, err := p.idx.GetPDPLayerIndex(ctx, pcid)
+		if err != nil {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to check if piece has PDP layer: %w", err)
+		}
+
+		if !has {
+			panic("implement me") // TODO: Trigger a Layer save task here and figure out if we should proceed or not
+		}
 
 		leavesPerNode := int64(1) << layerIdx
 		snapshotNodeIndex := challengedLeaf >> layerIdx
 
-		has, node, err := p.idx.GetPDPNode(ctx, pcid, snapshotNodeIndex)
+		has, node, err := p.idx.GetPDPNode(ctx, pcid, layerIdx, snapshotNodeIndex)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get node: %w", err)
 		}
@@ -479,7 +486,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 			// TODO: Trigger a Layer save task here and figure out if we should proceed or not
 			// TODO: Proceeding from here can cause memory issue for big pieces, we will need to generate proof using some other lib
 			panic("implement me")
-		}
+		} // TODO: Trigger a Layer save task here and figure out if we should proceed or not
 
 		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf, "layerIdx", layerIdx, "snapshotNodeIndex", snapshotNodeIndex, "node", node)
 
@@ -533,7 +540,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		}
 
 		// Fetch full cached layer from DB
-		layerNodes, err := p.idx.GetPDPLayer(ctx, pcid)
+		layerNodes, err := p.idx.GetPDPLayer(ctx, pcid, layerIdx)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get layer nodes: %w", err)
 		}

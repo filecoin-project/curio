@@ -772,9 +772,27 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE piece_cleanup (
     id TEXT NOT NULL,
     piece_cid_v2 TEXT NOT NULL,
+
+    piece_cid TEXT,
+    piece_size BIGINT,
+
     pdp BOOLEAN NOT NULL,
 
-    task_id BIGINT,
+    sp_id BIGINT NOT NULL,
+    sector_number BIGINT NOT NULL,
+
+    piece_ref BIGINT,
+
+    cleanup_task_id BIGINT DEFAULT NULL,
+    after_cleanup BOOLEAN NOT NULL DEFAULT FALSE,
+
+    announce BOOLEAN DEFAULT FALSE,
+    announce_payload BOOLEAN DEFAULT FALSE,
+
+    announced BOOLEAN DEFAULT FALSE,
+    announced_payload BOOLEAN DEFAULT FALSE,
+
+    complete BOOLEAN DEFAULT FALSE,
 
     PRIMARY KEY (id, pdp)
 );
