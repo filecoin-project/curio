@@ -41,6 +41,8 @@ var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, error) {
 	mx := mux.NewRouter()
+	mx.Use(corsMiddleware)
+
 	if !devMode {
 		api.Routes(mx.PathPrefix("/api").Subrouter(), deps, webDev)
 	} else {
@@ -275,4 +277,20 @@ func proxyCopy(dst, src *websocket.Conn, errc chan<- error, direction string) {
 			return
 		}
 	}
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

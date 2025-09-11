@@ -42,7 +42,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>${this.toHumanBytes(this.data.Info.Memory)}</td>
                     <td>${this.data.Info.GPU}</td>
                     <td>
-                        ${!this.data.Info.Unschedulable ? html`<span class="success">ok</span>` : html``} 
+                        ${!this.data.Info.Unschedulable ? html`<span class="success">ok</span>` : html``}
                         ${this.data.Info.Unschedulable ? html`<span class="warning">${this.data.Info.RunningTasks > 0 ? html`cordoned (${this.data.Info.RunningTasks} tasks still running)` : html`cordoned`}</span>` : html``}
                     </td>
                     <td>
@@ -51,6 +51,32 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                         <a href="http://${this.data.Info.Host}/debug/vars">[vars]</a>
                     </td>
                 </tr>
+            </table>
+
+            <h3>Additional Info</h3>
+            <table class="table table-dark">
+                <tbody>
+                    ${this.data.Info.Tasks ? html`
+                    <tr>
+                        <td>Supported Tasks</td>
+                        <td>${this.data.Info.Tasks.split(',').map(task => task.trim()).join(', ')}</td>
+                    </tr>` : ''}
+                    ${this.data.Info.Miners ? html`
+                    <tr>
+                        <td>Miners</td>
+                        <td>${this.data.Info.Miners.split(',').map(miner => miner.trim()).join(', ')}</td>
+                    </tr>` : ''}
+                    ${this.data.Info.StartupTime ? html`
+                    <tr>
+                        <td>Startup Time</td>
+                        <td>${this.formatTime(this.data.Info.StartupTime)}</td>
+                    </tr>` : ''}
+                    ${this.data.Info.RestartRequest ? html`
+                    <tr>
+                        <td>Restart Request</td>
+                        <td><span class="warning">${this.formatTime(this.data.Info.RestartRequest)}</span></td>
+                    </tr>` : ''}
+                </tbody>
             </table>
             <hr>
             <h2>Configuration</h2>
@@ -75,15 +101,18 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
             <table class="table table-dark">
                 <tr>
                     <td>ID</td>
+                    <td>URLs</td>
                     <td>Type</td>
                     <td>Capacity</td>
                     <td>Available</td>
                     <td>Reserved</td>
-                    <td></td>
+                    <td>Usage</td>
+                    <td>Health Status</td>
                 </tr>
                 ${(this.data.Storage||[]).map((item) => html`
                     <tr>
                         <td>${item.ID}</td>
+                        <td><small>${item.URLs}</small></td>
                         <td>
                             ${!item.CanSeal && !item.CanStore ? 'ReadOnly' : ''}
                             ${item.CanSeal && !item.CanStore ? 'Seal' : ''}
@@ -99,6 +128,9 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                                 <div style="float: left; width: ${item.ReservedPercent}%; height: 10px; background-color: darkred"></div>
                             </div>
                         </td>
+                        <td>
+                            ${this.getStorageHealthStatus(item.ID)}
+                        </td>
                     </tr>
                 `)}
             </table>
@@ -110,14 +142,24 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>ID</td>
                     <td>Task</td>
                     <td>Posted</td>
+                    <td>Updated</td>
+                    <td>Retries</td>
                     <td>Sector</td>
+                    <td>Details</td>
                 </tr>
                 ${(this.data.RunningTasks||[]).map((task) => html`
                     <tr>
                         <td><a href="/pages/task/id/?id=${task.ID}">${task.ID}</a></td>
                         <td>${task.Task}</td>
                         <td>${task.Posted}</td>
+                        <td>${task.UpdateTime}</td>
+                        <td>${task.Retries > 0 ? html`<span class="warning">${task.Retries}</span>` : task.Retries}</td>
                         <td>${task.PoRepSector ? html`<a href="/pages/sector/?sp=${task.PoRepSectorMiner}&id=${task.PoRepSector}">${task.PoRepSectorMiner}:${task.PoRepSector}</a>` : ''}</td>
+                        <td>
+                            ${task.InitiatedBy ? html`<small>Init: ${task.InitiatedBy}</small><br>` : ''}
+                            ${task.PreviousTask ? html`<small>Prev: ${task.PreviousTask}</small><br>` : ''}
+                            ${task.AddedBy ? html`<small>Added: <a href="/pages/node_info/?id=${task.AddedBy}">${task.AddedBy}</a></small>` : ''}
+                        </td>
                     </tr>
                 `)}
             </table>
@@ -156,6 +198,50 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
             bytes /= 1024;
         }
         return bytes.toFixed(2) + ' ' + sizes[sizeIndex];
+    }
+
+    formatTime(timeStr) {
+        if (!timeStr) return '';
+        try {
+            const date = new Date(timeStr);
+            return date.toLocaleString();
+        } catch (e) {
+            return timeStr;
+        }
+    }
+
+    getStorageHealthStatus(storageId) {
+        if (!this.data.StorageURLs) return html`<span class="muted">Unknown</span>`;
+
+        const storageURLs = this.data.StorageURLs.filter(url => url.StorageID === storageId);
+        if (storageURLs.length === 0) {
+            return html`<span class="muted">No URLs</span>`;
+        }
+
+        let liveCount = 0;
+        let deadCount = 0;
+        let details = [];
+
+        storageURLs.forEach(urlInfo => {
+            const isLive = urlInfo.LastLive && (!urlInfo.LastDead || new Date(urlInfo.LastLive) > new Date(urlInfo.LastDead));
+            if (isLive) {
+                liveCount++;
+            } else {
+                deadCount++;
+                if (urlInfo.LastDeadReason) {
+                    details.push(urlInfo.LastDeadReason);
+                }
+            }
+        });
+
+        const totalUrls = storageURLs.length;
+        if (deadCount === 0) {
+            return html`<span class="success">All Live (${totalUrls})</span>`;
+        } else if (liveCount === 0) {
+            return html`<span class="error">All Dead (${totalUrls})</span>`;
+        } else {
+            return html`<span class="warning">Partial (${liveCount}/${totalUrls})</span>`;
+        }
     }
 
     // Define setters for the data properties
