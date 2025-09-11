@@ -94,6 +94,10 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
 	}
 
+	if len(tasks) == 0 {
+		// orphans are normal actually
+		return false, nil
+	}
 	if len(tasks) != 1 {
 		return false, xerrors.Errorf("expected 1 ipni task params, got %d", len(tasks))
 	}
@@ -272,7 +276,7 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 		TaskID       harmonytask.TaskID `db:"task_id"`
 		SpID         int64              `db:"sp_id"`
 		SectorNumber int64              `db:"sector"`
-		StorageID    string             `db:"storage_id"`
+		StorageID    *string            `db:"storage_id"`
 	}
 
 	if storiface.FTUnsealed != 1 {
@@ -288,8 +292,8 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 	err := I.db.Select(ctx, &tasks, `
 		SELECT dp.task_id, dp.sp_id, dp.sector, l.storage_id FROM ipni_task dp
-			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-			WHERE dp.task_id = ANY ($1) AND l.sector_filetype = 1
+			LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
+			WHERE dp.task_id = ANY ($1) AND (l.sector_filetype IS NULL OR l.sector_filetype = 1)
 `, indIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting tasks: %w", err)
@@ -310,12 +314,27 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
 		}
+		acceptables[t.TaskID] = false // note the task was found
+
+		if t.StorageID == nil {
+			// no unsealed copy
+			return &t.TaskID, nil
+		}
 
 		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
+			if string(l.ID) == *t.StorageID {
 				return &t.TaskID, nil
 			}
 		}
+	}
+
+	// special case for orphan tasks which are created for non-announced pieces
+	for taskID, notAccepted := range acceptables {
+		if !notAccepted {
+			continue
+		}
+
+		return &taskID, nil
 	}
 
 	return nil, nil
