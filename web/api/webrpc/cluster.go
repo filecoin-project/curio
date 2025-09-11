@@ -140,21 +140,26 @@ func (a *WebRPC) ClusterTaskHistory(ctx context.Context, limit, offset int) ([]T
 
 type MachineInfo struct {
 	Info struct {
-		Name          string
-		Host          string
-		ID            int64
-		LastContact   string
-		CPU           int64
-		Memory        int64
-		GPU           int64
-		Layers        string
-		Unschedulable bool
-		RunningTasks  int
+		Name           string
+		Host           string
+		ID             int64
+		LastContact    string
+		CPU            int64
+		Memory         int64
+		GPU            float64
+		Layers         string
+		Unschedulable  bool
+		RunningTasks   int
+		Tasks          string
+		Miners         string
+		StartupTime    *time.Time
+		RestartRequest *time.Time
 	}
 
 	// Storage
 	Storage []struct {
 		ID            string
+		URLs          string
 		Weight        int64
 		MaxStorage    int64
 		CanSeal       bool
@@ -177,22 +182,26 @@ type MachineInfo struct {
 		ReservedPercent float64
 	}
 
-	/*TotalStorage struct {
-		MaxStorage  int64
-		UsedStorage int64
-
-		MaxSealStorage  int64
-		UsedSealStorage int64
-
-		MaxStoreStorage  int64
-		UsedStoreStorage int64
-	}*/
+	// Storage URL Liveness
+	StorageURLs []struct {
+		StorageID      string
+		URL            string
+		LastChecked    time.Time
+		LastLive       *time.Time
+		LastDead       *time.Time
+		LastDeadReason *string
+	}
 
 	// Tasks
 	RunningTasks []struct {
-		ID     int64
-		Task   string
-		Posted string
+		ID           int64
+		Task         string
+		Posted       string
+		UpdateTime   string
+		InitiatedBy  *int64
+		AddedBy      int64
+		PreviousTask *int64
+		Retries      int64
 
 		PoRepSector, PoRepSectorSP *int64
 		PoRepSectorMiner           string
@@ -200,11 +209,14 @@ type MachineInfo struct {
 
 	FinishedTasks []struct {
 		ID      int64
+		TaskID  int64
 		Task    string
 		Posted  string
 		Start   string
+		End     string
 		Queued  string
 		Took    string
+		Result  bool
 		Outcome string
 		Message string
 	}
@@ -220,8 +232,12 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 							hm.ram,
 							hm.gpu,
 							hm.unschedulable,
+							hm.restart_request,
 							hmd.machine_name,
-							hmd.layers
+							hmd.layers,
+							hmd.tasks,
+							hmd.miners,
+							hmd.startup_time
 						FROM 
 							harmony_machines hm
 						LEFT JOIN 
@@ -241,7 +257,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		var m MachineInfo
 		var lastContact time.Time
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.Name, &m.Info.Layers); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.RestartRequest, &m.Info.Name, &m.Info.Layers, &m.Info.Tasks, &m.Info.Miners, &m.Info.StartupTime); err != nil {
 			return nil, err
 		}
 
@@ -255,7 +271,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	}
 
 	// query storage info
-	rows2, err := a.deps.DB.Query(ctx, "SELECT storage_id, weight, max_storage, can_seal, can_store, groups, allow_to, allow_types, deny_types, capacity, available, fs_available, reserved, used, allow_miners, deny_miners, last_heartbeat, heartbeat_err FROM storage_path WHERE urls LIKE '%' || $1 || '%'", summaries[0].Info.Host)
+	rows2, err := a.deps.DB.Query(ctx, "SELECT storage_id, urls, weight, max_storage, can_seal, can_store, groups, allow_to, allow_types, deny_types, capacity, available, fs_available, reserved, used, allow_miners, deny_miners, last_heartbeat, heartbeat_err FROM storage_path WHERE urls LIKE '%' || $1 || '%'", summaries[0].Info.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -265,6 +281,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	for rows2.Next() {
 		var s struct {
 			ID            string
+			URLs          string
 			Weight        int64
 			MaxStorage    int64
 			CanSeal       bool
@@ -286,7 +303,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 			UsedPercent     float64
 			ReservedPercent float64
 		}
-		if err := rows2.Scan(&s.ID, &s.Weight, &s.MaxStorage, &s.CanSeal, &s.CanStore, &s.Groups, &s.AllowTo, &s.AllowTypes, &s.DenyTypes, &s.Capacity, &s.Available, &s.FSAvailable, &s.Reserved, &s.Used, &s.AllowMiners, &s.DenyMiners, &s.LastHeartbeat, &s.HeartbeatErr); err != nil {
+		if err := rows2.Scan(&s.ID, &s.URLs, &s.Weight, &s.MaxStorage, &s.CanSeal, &s.CanStore, &s.Groups, &s.AllowTo, &s.AllowTypes, &s.DenyTypes, &s.Capacity, &s.Available, &s.FSAvailable, &s.Reserved, &s.Used, &s.AllowMiners, &s.DenyMiners, &s.LastHeartbeat, &s.HeartbeatErr); err != nil {
 			return nil, err
 		}
 
@@ -297,8 +314,33 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		summaries[0].Storage = append(summaries[0].Storage, s)
 	}
 
+	// query storage URL liveness
+	rowsURL, err := a.deps.DB.Query(ctx, `SELECT sp.storage_id, spul.url, spul.last_checked, spul.last_live, spul.last_dead, spul.last_dead_reason 
+		FROM storage_path sp 
+		INNER JOIN sector_path_url_liveness spul ON sp.storage_id = spul.storage_id 
+		WHERE sp.urls LIKE '%' || $1 || '%'`, summaries[0].Info.Host)
+	if err != nil {
+		return nil, err
+	}
+	defer rowsURL.Close()
+
+	for rowsURL.Next() {
+		var sul struct {
+			StorageID      string
+			URL            string
+			LastChecked    time.Time
+			LastLive       *time.Time
+			LastDead       *time.Time
+			LastDeadReason *string
+		}
+		if err := rowsURL.Scan(&sul.StorageID, &sul.URL, &sul.LastChecked, &sul.LastLive, &sul.LastDead, &sul.LastDeadReason); err != nil {
+			return nil, err
+		}
+		summaries[0].StorageURLs = append(summaries[0].StorageURLs, sul)
+	}
+
 	// tasks
-	rows3, err := a.deps.DB.Query(ctx, "SELECT id, name, posted_time FROM harmony_task WHERE owner_id=$1", summaries[0].Info.ID)
+	rows3, err := a.deps.DB.Query(ctx, "SELECT id, name, posted_time, update_time, initiated_by, added_by, previous_task, retries FROM harmony_task WHERE owner_id=$1", summaries[0].Info.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -307,20 +349,26 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 
 	for rows3.Next() {
 		var t struct {
-			ID     int64
-			Task   string
-			Posted string
+			ID           int64
+			Task         string
+			Posted       string
+			UpdateTime   string
+			InitiatedBy  *int64
+			AddedBy      int64
+			PreviousTask *int64
+			Retries      int64
 
 			PoRepSector      *int64
 			PoRepSectorSP    *int64
 			PoRepSectorMiner string
 		}
 
-		var posted time.Time
-		if err := rows3.Scan(&t.ID, &t.Task, &posted); err != nil {
+		var posted, updateTime time.Time
+		if err := rows3.Scan(&t.ID, &t.Task, &posted, &updateTime, &t.InitiatedBy, &t.AddedBy, &t.PreviousTask, &t.Retries); err != nil {
 			return nil, err
 		}
 		t.Posted = time.Since(posted).Round(time.Second).String()
+		t.UpdateTime = time.Since(updateTime).Round(time.Second).String()
 
 		{
 			// try to find in the porep pipeline
@@ -361,7 +409,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		summaries[0].Info.RunningTasks++
 	}
 
-	rows5, err := a.deps.DB.Query(ctx, `SELECT name, task_id, posted, work_start, work_end, result, err FROM harmony_task_history WHERE completed_by_host_and_port = $1 ORDER BY work_end DESC LIMIT 15`, summaries[0].Info.Host)
+	rows5, err := a.deps.DB.Query(ctx, `SELECT id, name, task_id, posted, work_start, work_end, result, err FROM harmony_task_history WHERE completed_by_host_and_port = $1 ORDER BY work_end DESC LIMIT 15`, summaries[0].Info.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -370,30 +418,32 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 	for rows5.Next() {
 		var ft struct {
 			ID      int64
+			TaskID  int64
 			Task    string
 			Posted  string
 			Start   string
+			End     string
 			Queued  string
 			Took    string
+			Result  bool
 			Outcome string
-
 			Message string
 		}
 
 		var posted, start, end time.Time
-		var result bool
-		if err := rows5.Scan(&ft.Task, &ft.ID, &posted, &start, &end, &result, &ft.Message); err != nil {
+		if err := rows5.Scan(&ft.ID, &ft.Task, &ft.TaskID, &posted, &start, &end, &ft.Result, &ft.Message); err != nil {
 			return nil, err
 		}
 
 		ft.Outcome = "Success"
-		if !result {
+		if !ft.Result {
 			ft.Outcome = "Failed"
 		}
 
 		// Format the times and durations
 		ft.Posted = posted.Format("02 Jan 06 15:04 MST")
 		ft.Start = start.Format("02 Jan 06 15:04 MST")
+		ft.End = end.Format("02 Jan 06 15:04 MST")
 		ft.Queued = start.Sub(posted).Round(time.Second).String()
 		ft.Took = end.Sub(start).Round(time.Second).String()
 
