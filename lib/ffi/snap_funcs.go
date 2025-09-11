@@ -30,6 +30,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/commitment"
 )
 
+var TreeRTimeout = 20 * time.Minute
+
 func (sb *SealCalls) EncodeUpdate(
 	ctx context.Context,
 	sectorKeyCid cid.Cid,
@@ -295,7 +297,10 @@ func (sb *SealCalls) EncodeUpdate(
 	treeRStart := time.Now()
 
 	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "task", taskID, "update", paths.Update, "treeD", treeDPath, "updateCache", paths.UpdateCache, "sectorSize", ssize)
-	err = ffiselect.FFISelect.TreeRFile(ctx, paths.Update, treeDPath, paths.UpdateCache, uint64(ssize))
+	treeCtx, cancel := context.WithTimeout(ctx, TreeRTimeout)
+	defer cancel()
+
+	err = ffiselect.FFISelect.TreeRFile(treeCtx, paths.Update, treeDPath, paths.UpdateCache, uint64(ssize))
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("tree r file %s: %w", paths.Update, err)
 	}

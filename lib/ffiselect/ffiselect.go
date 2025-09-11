@@ -87,7 +87,7 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	}
 
 	commandAry := []string{"ffi"}
-	cmd := exec.Command(p, commandAry...)
+	cmd := exec.CommandContext(ctx, p, commandAry...)
 
 	// Set Visible Devices for CUDA and OpenCL
 	cmd.Env = append(os.Environ(),
@@ -118,7 +118,7 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	lw := NewLogWriter(ctx.Value(logCtxKey).([]any), os.Stderr)
 
 	cmd.Stderr = lw
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = lw
 	outFile, err := os.CreateTemp("", "out")
 	if err != nil {
 		return nil, err
