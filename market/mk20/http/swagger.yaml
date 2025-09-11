@@ -798,6 +798,8 @@ paths:
       - CurioAuth: []
       summary: Finalizes the serial upload process
     put:
+      consumes:
+      - application/octet-stream
       description: Allows uploading data for deals in a single stream. Suitable for
         small deals.
       parameters:
@@ -921,6 +923,8 @@ paths:
       summary: Starts the upload process
   /uploads/{id}/{chunkNum}:
     put:
+      consumes:
+      - application/octet-stream
       description: Allows uploading chunks for a deal file. Method can be called in
         parallel to speed up uploads.
       parameters:

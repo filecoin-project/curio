@@ -455,7 +455,7 @@ func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Requ
 // @BasePath /market/mk20
 // @Param id path string true "id"
 // @Param chunkNum path string true "chunkNum"
-// @accepts bytes
+// @Accept octet-stream
 // @Param data body []byte true "raw binary"
 // @Failure 200 {object} mk20.UploadCode "UploadOk indicates a successful upload operation, represented by the HTTP status code 200"
 // @Failure 400 {object} mk20.UploadCode "UploadBadRequest represents a bad request error with an HTTP status code of 400"
@@ -565,7 +565,6 @@ func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Reque
 // @Description Finalizes the upload process once all the chunks are uploaded.
 // @BasePath /market/mk20
 // @Param id path string true "id"
-// @accepts json
 // @Param body body mk20.Deal optional "mk20.deal in json format"
 // @Accept json
 // @Failure 200 {object} mk20.DealCode "Ok represents a successful operation with an HTTP status code of 200"
@@ -739,7 +738,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 // @Description Allows uploading data for deals in a single stream. Suitable for small deals.
 // @BasePath /market/mk20
 // @Param id path string true "id"
-// @accepts bytes
+// @Accept octet-stream
 // @Param body body []byte true "raw binary"
 // @Failure 200 {object} mk20.UploadCode "UploadOk indicates a successful upload operation, represented by the HTTP status code 200"
 // @Failure 500 {object} mk20.UploadCode "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -177,6 +178,8 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
+	txHashLower := strings.ToLower(txHash.Hex())
+
 	// Update the database in a transaction
 	_, err = n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Update pdp_data_set
@@ -186,7 +189,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3
             WHERE id = $4
-        `, txHash.Hex(), ts.Height(), next_prove_at.Uint64(), dataSetID)
+        `, txHashLower, ts.Height(), next_prove_at.Uint64(), dataSetID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_data_set: %w", err)
 		}
@@ -198,7 +201,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		_, err = tx.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, 'pending') ON CONFLICT DO NOTHING
-        `, txHash.Hex())
+        `, txHashLower)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
 		}

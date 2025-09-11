@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -123,7 +124,8 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if leafCount.Cmp(big.NewInt(0)) == 0 {
 		// No leaves in the data set yet, skip initialization
 		// Return done=false to retry later (the task will be retried by the scheduler)
-		return false, xerrors.Errorf("no leaves in data set %d, skipping initialization", dataSetID)
+		log.Warnf("no leaves in data set %d, skipping initialization with task %d", dataSetID, taskID)
+		return false, nil
 	}
 
 	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetID))
@@ -143,10 +145,11 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// ChallengeWindow
-	challengeWindow := config.ChallengeWindow
+	challengeWindow := big.NewInt(config.ChallengeWindow.Int64())
 
-	init_prove_at := config.InitChallengeWindowStart
-	init_prove_at = init_prove_at.Add(init_prove_at, challengeWindow.Div(challengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
+	init_prove_at := big.NewInt(config.InitChallengeWindowStart.Int64())
+	buffer := challengeWindow.Uint64() / 2
+	init_prove_at = init_prove_at.Add(init_prove_at, big.NewInt(int64(buffer))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
 	pdpVeriferAddress := pdpContracts.PDPVerifier
@@ -161,6 +164,14 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
+
+	currentBlock, err := ipp.ethClient.BlockNumber(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get current block number: %w", err)
+	}
+
+	expectedInitWdStart := currentBlock + config.MaxProvingPeriod - config.ChallengeWindow.Uint64()
+	expectedMid := expectedInitWdStart + config.ChallengeWindow.Uint64()/2
 
 	// Prepare the transaction
 	txEth := types.NewTransaction(
@@ -192,8 +203,11 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	reason := "pdp-proving-init"
 	txHash, err := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
-		return false, xerrors.Errorf("failed to send transaction: %w", err)
+		//return false, xerrors.Errorf("failed to send transaction: %w", err)
+		return false, xerrors.Errorf("failed to send transaction at %d, InitChallengeWindowStart %d, ChallengeWindow %d, MaxProvingPeriod %d, Buffer %d, InitReadyAt %d, ExpectedInitChallenge %d, ExpectedInitReadyAt %d: %w", currentBlock, config.InitChallengeWindowStart.Uint64(), config.ChallengeWindow.Uint64(), config.MaxProvingPeriod, buffer, init_prove_at.Uint64(), expectedInitWdStart, expectedMid, err)
 	}
+
+	txHashLower := strings.ToLower(txHash.Hex())
 
 	// Update the database in a transaction
 	_, err = ipp.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -204,7 +218,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3
             WHERE id = $4
-        `, txHash.Hex(), ts.Height(), init_prove_at.Uint64(), data)
+        `, txHashLower, ts.Height(), init_prove_at.Uint64(), dataSetID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_data_set: %w", err)
 		}
@@ -216,7 +230,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		_, err = tx.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, 'pending') ON CONFLICT DO NOTHING
-        `, txHash.Hex())
+        `, txHashLower)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
 		}

@@ -373,6 +373,9 @@ const docTemplate = `{
                     }
                 ],
                 "description": "Allows uploading data for deals in a single stream. Suitable for small deals.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
                 "summary": "Upload the deal data",
                 "parameters": [
                     {
@@ -777,6 +780,9 @@ const docTemplate = `{
                     }
                 ],
                 "description": "Allows uploading chunks for a deal file. Method can be called in parallel to speed up uploads.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
                 "summary": "Upload a file chunk",
                 "parameters": [
                     {
