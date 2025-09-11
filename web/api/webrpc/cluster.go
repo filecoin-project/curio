@@ -510,7 +510,9 @@ func (a *WebRPC) ClusterNodeMetrics(ctx context.Context, id int64) (string, erro
 	if err != nil {
 		return "", xerrors.Errorf("failed to fetch metrics from %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", xerrors.Errorf("metrics endpoint returned status %d", resp.StatusCode)
