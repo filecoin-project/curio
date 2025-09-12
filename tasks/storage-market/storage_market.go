@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -28,14 +29,16 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
+	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/market/storageingest"
 
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -51,11 +54,12 @@ const (
 	pollerCommP = iota
 	pollerPSD
 	pollerFindDeal
+	pollerAggregate
 
 	numPollers
 )
 
-const dealPollerInterval = 30 * time.Second
+const dealPollerInterval = 3 * time.Second
 
 type storageMarketAPI interface {
 	mk12.MK12API
@@ -66,13 +70,16 @@ type CurioStorageDealMarket struct {
 	cfg         *config.CurioConfig
 	db          *harmonydb.DB
 	pin         storageingest.Ingester
-	miners      map[string][]address.Address
+	miners      []address.Address
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
+	MK20Handler *mk20.MK20
+	ethClient   *ethclient.Client
 	si          paths.SectorIndex
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
+	sc          *ffi.SealCalls
 }
 
 type MK12Pipeline struct {
@@ -109,10 +116,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector) *CurioStorageDealMarket {
-
-	moduleMap := make(map[string][]address.Address)
-	moduleMap[mk12Str] = append(moduleMap[mk12Str], miners...)
+func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	urls := make(map[string]http.Header)
 	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
@@ -120,64 +124,65 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 	}
 
 	return &CurioStorageDealMarket{
-		cfg:    cfg,
-		db:     db,
-		api:    mapi,
-		miners: moduleMap,
-		si:     si,
-		urls:   urls,
-		as:     as,
+		cfg:       cfg,
+		db:        db,
+		api:       mapi,
+		miners:    miners,
+		si:        si,
+		urls:      urls,
+		as:        as,
+		ethClient: ethClient,
+		sc:        sc,
 	}
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	for module, miners := range d.miners {
-		if module == mk12Str {
-			if len(miners) == 0 {
-				// Do not start the poller if no minerID present
-				return nil
-			}
-			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.si, d.api, d.cfg, d.as)
-			if err != nil {
-				return err
-			}
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners, d.db, d.si, d.api, d.cfg, d.as)
+	if err != nil {
+		return err
+	}
 
-			if d.MK12Handler != nil {
-				for _, miner := range miners {
-					_, err = d.MK12Handler.GetAsk(ctx, miner)
-					if err != nil {
-						if strings.Contains(err.Error(), "no ask found") {
-							if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-								err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(0), abi.NewTokenAmount(0), miner, legacytypes.MinPieceSize(abi.PaddedPieceSize(128)), legacytypes.MaxPieceSize(abi.PaddedPieceSize(8<<20)))
-								if err != nil {
-									return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
-								}
-							} else {
-								err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(45211226852), abi.NewTokenAmount(0), miner)
-								if err != nil {
-									return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
-								}
-							}
-						} else {
-							return xerrors.Errorf("failed to get miner ask %s: %w", miner, err)
+	if d.MK12Handler != nil {
+		for _, miner := range d.miners {
+			_, err = d.MK12Handler.GetAsk(ctx, miner)
+			if err != nil {
+				if strings.Contains(err.Error(), "no ask found") {
+					if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+						err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(0), abi.NewTokenAmount(0), miner, legacytypes.MinPieceSize(abi.PaddedPieceSize(128)), legacytypes.MaxPieceSize(abi.PaddedPieceSize(8<<20)))
+						if err != nil {
+							return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
+						}
+					} else {
+						err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(45211226852), abi.NewTokenAmount(0), miner)
+						if err != nil {
+							return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
 						}
 					}
+				} else {
+					return xerrors.Errorf("failed to get miner ask %s: %w", miner, err)
 				}
-			}
-
-			if d.cfg.Ingest.DoSnap {
-				d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, miners, d.cfg)
-			} else {
-				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, miners, d.cfg)
 			}
 		}
 	}
 
+	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
 	if err != nil {
 		return err
 	}
+
+	if len(d.miners) > 0 {
+		if d.cfg.Ingest.DoSnap {
+			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners, d.cfg)
+		} else {
+			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners, d.cfg)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
 	go d.runPoller(ctx)
 
 	return nil
@@ -185,6 +190,10 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 }
 
 func (d *CurioStorageDealMarket) runPoller(ctx context.Context) {
+	// Start thread to insert mk20 DDO deals into pipeline
+	go d.pipelineInsertLoop(ctx)
+	go d.migratePieceCIDV2(ctx)
+
 	ticker := time.NewTicker(dealPollerInterval)
 	defer ticker.Stop()
 
@@ -218,13 +227,8 @@ func (d *CurioStorageDealMarket) poll(ctx context.Context) {
 			5. Once commP is complete, send PSD and find the allocated deal ID
 			6. Add the deal using pieceIngest
 	*/
-	for module, miners := range d.miners {
-		if module == mk12Str {
-			if len(miners) > 0 {
-				d.processMK12Deals(ctx)
-			}
-		}
-	}
+	d.processMK12Deals(ctx)
+	d.processMK20Deals(ctx)
 }
 
 func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
@@ -497,21 +501,36 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 		var updated bool
 		err = tx.QueryRow(`
 						WITH selected_data AS (
-						SELECT url, headers, raw_size
-						FROM market_offline_urls
-						WHERE uuid = $1
+							SELECT url, headers, raw_size
+							FROM market_offline_urls
+							WHERE uuid = $1
+						),
+						updated_pipeline AS (
+							UPDATE market_mk12_deal_pipeline
+							SET url = selected_data.url,
+								headers = selected_data.headers,
+								raw_size = selected_data.raw_size,
+								started = TRUE
+							FROM selected_data
+							WHERE market_mk12_deal_pipeline.uuid = $1
+							RETURNING uuid
+						),
+						updated_deals AS (
+							UPDATE market_mk12_deals
+							SET raw_size = selected_data.raw_size
+							FROM selected_data
+							WHERE market_mk12_deals.uuid = $1
+							RETURNING uuid
+						),
+						updated_direct_deals AS (
+							UPDATE market_direct_deals
+							SET raw_size = selected_data.raw_size
+							FROM selected_data
+							WHERE market_direct_deals.uuid = $1
+							RETURNING uuid
 						)
-						UPDATE market_mk12_deal_pipeline
-						SET url = selected_data.url,
-							headers = selected_data.headers,
-							raw_size = selected_data.raw_size,
-							started = TRUE
-						FROM selected_data
-						WHERE market_mk12_deal_pipeline.uuid = $1
-						RETURNING CASE 
-							WHEN EXISTS (SELECT 1 FROM selected_data) THEN TRUE 
-							ELSE FALSE 
-						END;`, deal).Scan(&updated)
+						SELECT
+						  (EXISTS (SELECT 1 FROM selected_data)) AS updated;`, deal).Scan(&updated)
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", deal, err)
@@ -568,6 +587,16 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
                            WHERE uuid = $4 AND started = FALSE`, urlString, hdrs, rawSize, deal)
 			if err != nil {
 				return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
+			}
+
+			_, err = tx.Exec(`UPDATE market_mk12_deals SET raw_size = $1 WHERE uuid = $2`, rawSize, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store url for piece %s: updating deals: %w", pcid, err)
+			}
+
+			_, err = tx.Exec(`UPDATE market_direct_deals SET raw_size = $1 WHERE uuid = $2`, rawSize, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store url for piece %s: updating direct deals: %w", pcid, err)
 			}
 
 			return true, nil
@@ -694,10 +723,10 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
 					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
 				},
-				PieceActivationManifest: &miner.PieceActivationManifest{
+				PieceActivationManifest: &lminer.PieceActivationManifest{
 					CID:  pcid,
 					Size: abi.PaddedPieceSize(dbdeal.PieceSize),
-					VerifiedAllocationKey: &miner.VerifiedAllocationKey{
+					VerifiedAllocationKey: &lminer.VerifiedAllocationKey{
 						Client: abi.ActorID(clientId),
 						ID:     verifreg.AllocationId(dbdeal.AllocationID),
 					},

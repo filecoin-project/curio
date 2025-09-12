@@ -112,6 +112,13 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  2 * time.Hour,
 					CIDGravityTokens:          []string{},
 				},
+				MK20: MK20Config{
+					ExpectedPoRepSealDuration: 8 * time.Hour,
+					ExpectedSnapSealDuration:  2 * time.Hour,
+					MaxParallelChunkUploads:   512,
+					MinimumChunkSize:          16 * 1024 * 1024,  // 16 MiB
+					MaximumChunkSize:          256 * 1024 * 1024, // 256 MiB
+				},
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
@@ -122,7 +129,7 @@ func DefaultCurioConfig() *CurioConfig {
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
 			ReadTimeout:       time.Second * 10,
-			IdleTimeout:       time.Minute * 2,
+			IdleTimeout:       time.Hour,
 			ReadHeaderTimeout: time.Second * 5,
 			EnableCORS:        true,
 			CSP:               "inline",
@@ -727,6 +734,9 @@ type StorageMarketConfig struct {
 	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
 	MK12 MK12Config
 
+	// MK20 encompasses all configuration related to deal protocol mk2.0 i.e. market 2.0
+	MK20 MK20Config
+
 	// IPNI configuration for ipni-provider
 	IPNI IPNIConfig
 
@@ -817,7 +827,6 @@ type IPNIConfig struct {
 	Disable bool
 
 	// The network indexer web UI URL for viewing published announcements
-	// TODO: should we use this for checking published heads before publishing? Later commit
 	ServiceURL []string
 
 	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
@@ -906,4 +915,42 @@ type MK12CollateralConfig struct {
 	// when it drops below CollateralLowThreshold.
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")
 	CollateralHighThreshold types.FIL
+}
+
+type MK20Config struct {
+	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")
+	ExpectedPoRepSealDuration time.Duration
+
+	// ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")
+	ExpectedSnapSealDuration time.Duration
+
+	// SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
+	// sector will need to be sent again (Default: false)
+	SkipCommP bool
+
+	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
+	DisabledMiners []string
+
+	// MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+	// When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+	// (Default: 0 = unlimited)
+	MaxConcurrentDealSizeGiB int64
+
+	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+	// If True then all deals coming from unknown clients will be rejected. (Default: false)
+	DenyUnknownClients bool
+
+	// MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)
+	MaxParallelChunkUploads int
+
+	// MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)
+	MinimumChunkSize int64
+
+	// MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)
+	MaximumChunkSize int64
 }

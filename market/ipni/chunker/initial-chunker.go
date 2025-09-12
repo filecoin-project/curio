@@ -122,7 +122,7 @@ func (c *InitialChunker) processCarPending() error {
 	return nil
 }
 
-func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
+func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid, isPDP bool) (ipld.Link, error) {
 	defer func() {
 		took := time.Since(c.start)
 		ingestedPerSec := float64(c.ingestedSoFar) / took.Seconds()
@@ -132,14 +132,14 @@ func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid 
 	// note: <= because we're not inserting anything here
 	if c.ingestedSoFar <= longChainThreshold {
 		// db-order ingest
-		return c.finishDB(ctx, db, pieceCid)
+		return c.finishDB(ctx, db, pieceCid, isPDP)
 	}
 
 	// car-order ingest
-	return c.finishCAR(ctx, db, pieceCid)
+	return c.finishCAR(ctx, db, pieceCid, isPDP)
 }
 
-func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
+func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid, isPDP bool) (ipld.Link, error) {
 	if len(c.dbMultihashes) == 0 {
 		return nil, nil
 	}
@@ -228,9 +228,9 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 
 			// Prepare the insert statement
 			batch.Queue(`
-                INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING
-            `, link.String(), pieceCid.String(), i, firstCID.HexString(), startOffset, numBlocks, false)
+                INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car, is_pdp)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING
+            `, link.String(), pieceCid.String(), i, firstCID.HexString(), startOffset, numBlocks, false, isPDP)
 		}
 
 		// Send the batch
@@ -262,7 +262,7 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 	return lastLink, nil
 }
 
-func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
+func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid, isPDP bool) (ipld.Link, error) {
 	// Process any remaining carPending multihashes
 	if len(c.carPending) > 0 {
 		if err := c.processCarPending(); err != nil {
@@ -292,9 +292,9 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 
 			// Prepare the insert statement
 			batch.Queue(`
-                INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING
-            `, link.String(), pieceCid.String(), i, nil, startOffset, numBlocks, true)
+                INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car, is_pdp)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING
+            `, link.String(), pieceCid.String(), i, nil, startOffset, numBlocks, true, isPDP)
 		}
 
 		// Send the batch

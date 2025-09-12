@@ -14,6 +14,11 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH \
     RUST_VERSION=1.63.0
 
+COPY ./ /opt/curio
+WORKDIR /opt/curio
+RUN git submodule update --init
+RUN go mod download
+
 RUN set -eux; \
     dpkgArch="$(dpkg --print-architecture)"; \
     case "${dpkgArch##*-}" in \
@@ -31,9 +36,6 @@ RUN set -eux; \
     rustup --version; \
     cargo --version; \
     rustc --version;
-
-COPY ./ /opt/curio
-WORKDIR /opt/curio
 
 ### make configurable filecoin-ffi build
 ARG FFI_BUILD_FROM_SOURCE=0
@@ -56,13 +58,26 @@ RUN go install github.com/ipld/go-car/cmd/car@latest \
 RUN go install github.com/LexLuthr/piece-server@latest \
  && cp $GOPATH/bin/piece-server /usr/local/bin/
 
-RUN go install github.com/ipni/storetheindex@v0.8.38 \
+RUN go install github.com/ipni/storetheindex@latest \
  && cp $GOPATH/bin/storetheindex /usr/local/bin/
+
+RUN go install github.com/ethereum/go-ethereum/cmd/geth@latest \
+ && cp $GOPATH/bin/geth /usr/local/bin/
 
 #####################################
 FROM ubuntu:22.04 AS curio-all-in-one
 
-RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq
+RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget nodejs npm
+
+# Install Foundry
+RUN curl -L https://foundry.paradigm.xyz | bash \
+    && bash -c ". ~/.foundry/bin/foundryup"
+
+# Make sure foundry binaries are available in PATH
+ENV PATH="/root/.foundry/bin:${PATH}"
+
+# Verify installation
+RUN forge --version && cast --version && anvil --version
 
 # Copy libraries and binaries from curio-builder
 COPY --from=curio-builder /etc/ssl/certs /etc/ssl/certs
@@ -98,6 +113,7 @@ COPY --from=curio-builder /opt/curio/sptool /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/piece-server /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/car /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/storetheindex /usr/local/bin/
+COPY --from=piece-server-builder /usr/local/bin/geth /usr/local/bin/
 
 # Set up directories and permissions
 RUN mkdir /var/tmp/filecoin-proof-parameters \

@@ -102,7 +102,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	machine := dependencies.ListenAddr
 	prover := dependencies.Prover
 	iStore := dependencies.IndexStore
-	pp := dependencies.SectorReader
 
 	chainSched := chainsched.New(full)
 
@@ -234,12 +233,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks)
 			if err != nil {
 				return nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
+			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
+			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
 		}
 	}
 
@@ -257,20 +257,26 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	}
 
 	{
+		var sdeps cuhttp.ServiceDeps
 		// Market tasks
 		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, si, full, as)
+			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
 			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err
 			}
 
+			sdeps.DealMarket = dm
+
 			if cfg.Subsystems.EnableCommP {
 				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
 				activeTasks = append(activeTasks, commpTask)
 			}
+
+			aggTask := storage_market.NewAggregateTask(dm, db, must.One(slrLazy.Val()), lstor, full)
+			activeTasks = append(activeTasks, aggTask)
 
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
@@ -288,30 +294,48 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if err != nil {
 			return nil, err
 		}
-		var sdeps cuhttp.ServiceDeps
 
 		if cfg.Subsystems.EnablePDP {
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+			ethClient := must.One(dependencies.EthClient.Val())
 
-			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
-			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
+			pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
+			pdp.NewWatcherDelete(db, chainSched)
+			pdp.NewWatcherPieceDelete(db, chainSched)
+
+			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
+			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
+
+			addProofSetTask := pdp.NewPDPTaskAddDataSet(db, es, ethClient, full)
+			pdpAddRoot := pdp.NewPDPTaskAddPiece(db, es, ethClient)
+			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, ethClient)
+			pdpDelProofSetTask := pdp.NewPDPTaskDeleteDataSet(db, es, ethClient, full)
+
+			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
+			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
+			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
+
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
-		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask)
+		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
 
 		if cfg.HTTP.Enable {
-			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps, dm)
+			if !cfg.Subsystems.EnableDealMarket {
+				return nil, xerrors.New("deal market must be enabled on HTTP server")
+			}
+			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
 			}
@@ -320,6 +344,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
+
+	pcl := gc.NewPieceCleanupTask(db, iStore)
+	activeTasks = append(activeTasks, pcl)
 
 	log.Infow("This Curio instance handles",
 		"miner_addresses", miners,

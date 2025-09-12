@@ -192,6 +192,8 @@ var pingCmd = &cli.Command{
 			return err
 		}
 
+		serviceURL = serviceURL + "/market"
+
 		// Append /pdp/ping to the service URL
 		pingURL := serviceURL + "/pdp/ping"
 
@@ -537,6 +539,7 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		jwtToken := cctx.String("jwt-token")
 		notifyURL := cctx.String("notify-url")
 		serviceName := cctx.String("service-name")
@@ -692,6 +695,7 @@ var uploadFileCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		jwtToken := cctx.String("jwt-token")
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
@@ -889,6 +893,7 @@ var createProofSetCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		recordKeeper := cctx.String("pdp-service-contract")
 		extraDataHexStr := cctx.String("extra-data")
@@ -982,6 +987,7 @@ var getProofSetStatusCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		txHash := cctx.String("tx-hash")
 
@@ -1091,6 +1097,7 @@ var getProofSetCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 
 		// Create the JWT token
@@ -1195,6 +1202,7 @@ var addRootsCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		proofSetID := cctx.Uint64("proof-set-id")
 		rootInputs := cctx.StringSlice("root")
@@ -1441,6 +1449,7 @@ var removeRootsCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		proofSetID := cctx.Uint64("proof-set-id")
 		rootID := cctx.Uint64("root-id")

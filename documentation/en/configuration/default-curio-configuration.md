@@ -550,7 +550,7 @@ description: The default curio configuration
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
   #
   # type: time.Duration
-  #IdleTimeout = "2m0s"
+  #IdleTimeout = "1h0m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
@@ -701,6 +701,60 @@ description: The default curio configuration
       # type: bool
       #DefaultCIDGravityAccept = false
 
+    # MK20 encompasses all configuration related to deal protocol mk2.0 i.e. market 2.0
+    #
+    # type: MK20Config
+    [Market.StorageMarketConfig.MK20]
+
+      # ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")
+      #
+      # type: time.Duration
+      #ExpectedPoRepSealDuration = "8h0m0s"
+
+      # ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")
+      #
+      # type: time.Duration
+      #ExpectedSnapSealDuration = "2h0m0s"
+
+      # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+      # Warning: If this check is skipped and there is a commP mismatch, all deals in the
+      # sector will need to be sent again (Default: false)
+      #
+      # type: bool
+      #SkipCommP = false
+
+      # MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+      # When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+      # (Default: 0 = unlimited)
+      #
+      # type: int64
+      #MaxConcurrentDealSizeGiB = 0
+
+      # DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+      # If True then all deals coming from unknown clients will be rejected. (Default: false)
+      #
+      # type: bool
+      #DenyUnknownClients = false
+
+      # MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)
+      #
+      # type: int
+      #MaxParallelChunkUploads = 512
+
+      # MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)
+      #
+      # type: int64
+      #MinimumChunkSize = 16777216
+
+      # MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)
+      #
+      # type: int64
+      #MaximumChunkSize = 268435456
+
     # IPNI configuration for ipni-provider
     #
     # type: IPNIConfig
@@ -713,7 +767,6 @@ description: The default curio configuration
       #Disable = false
 
       # The network indexer web UI URL for viewing published announcements
-      # TODO: should we use this for checking published heads before publishing? Later commit
       #
       # type: []string
       #ServiceURL = ["https://cid.contact"]

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -84,7 +85,7 @@ func (ph *PieceHash) commp(ctx context.Context, db *harmonydb.DB) (cid.Cid, bool
 		SELECT commp FROM pdp_piece_mh_to_commp WHERE mhash = $1 AND size = $2
 	`, mh, ph.Size).Scan(&commpStr)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return cid.Undef, false, nil
 		}
 		return cid.Undef, false, fmt.Errorf("failed to query pdp_piece_mh_to_commp: %w", err)
@@ -205,7 +206,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create a location URL where the piece data can be uploaded via PUT
-		uploadURL = path.Join(PDPRoutePath, "/piece/upload", uploadUUID.String())
+		uploadURL = path.Join(r.URL.Path, "upload", uploadUUID.String())
 		responseStatus = http.StatusCreated
 
 		return true, nil // Commit the transaction
@@ -260,7 +261,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
         SELECT piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size FROM pdp_piece_uploads WHERE id = $1
     `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef, &checkHashName, &checkHash, &checkSize)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Upload UUID not found", http.StatusNotFound)
 		} else {
 			http.Error(w, "Database error", http.StatusInternalServerError)
