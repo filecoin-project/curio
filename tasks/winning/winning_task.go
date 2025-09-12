@@ -19,7 +19,6 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/network"
 	"github.com/filecoin-project/go-state-types/proof"
-	prooftypes "github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
@@ -256,7 +255,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	log.Infow("WinPostTask won election", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "eproof", eproof)
 
 	// winning PoSt
-	var wpostProof []prooftypes.PoStProof
+	var wpostProof []proof.PoStProof
 	{
 		buf := new(bytes.Buffer)
 		if err := maddr.MarshalCBOR(buf); err != nil {

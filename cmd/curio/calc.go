@@ -162,7 +162,7 @@ The config can be used directly with SupraSeal binaries to test it without invol
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-		cstr, err := sealsupra.GenerateSupraSealConfigString(cctx.Bool("dual-hashers"), cctx.Int("batch-size"), nil)
+		cstr, _, err := sealsupra.GenerateSupraSealConfigString(cctx.Bool("dual-hashers"), cctx.Int("batch-size"), nil)
 		if err != nil {
 			return err
 		}

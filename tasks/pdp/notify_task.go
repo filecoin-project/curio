@@ -64,7 +64,9 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		if err != nil {
 			log.Errorw("HTTP POST request to notify_url failed", "notify_url", upload.NotifyURL, "upload_id", upload.ID, "error", err)
 		} else {
-			defer resp.Body.Close()
+			defer func() {
+				_ = resp.Body.Close()
+			}()
 			// Not reading the body as per requirement
 			log.Infow("HTTP GET request to notify_url succeeded", "notify_url", upload.NotifyURL, "upload_id", upload.ID)
 		}

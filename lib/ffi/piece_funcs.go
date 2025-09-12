@@ -14,11 +14,15 @@ import (
 
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType) error {
 	// Use storageType in AcquireSector
-	paths, _, done, err := sb.sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
+	paths, pathIDs, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
 	if err != nil {
 		return err
 	}
-	defer done()
+
+	skipDeclare := storiface.FTPiece
+	defer func() {
+		done(skipDeclare)
+	}()
 
 	dest := paths.Piece
 	tempDest := dest + storiface.TempSuffix
@@ -62,14 +66,20 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 		return xerrors.Errorf("rename temp piece to dest %s -> %s: %w", tempDest, dest, err)
 	}
 
+	skipDeclare = storiface.FTNone
 	removeTemp = false
+
+	if err := sb.ensureOneCopy(ctx, pieceID.Ref().ID, pathIDs, storiface.FTPiece); err != nil {
+		return xerrors.Errorf("ensure one copy: %w", err)
+	}
+
 	return nil
 }
 
 func (sb *SealCalls) PieceReader(ctx context.Context, id storiface.PieceNumber) (io.ReadCloser, error) {
-	return sb.sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
+	return sb.Sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
 }
 
 func (sb *SealCalls) RemovePiece(ctx context.Context, id storiface.PieceNumber) error {
-	return sb.sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
+	return sb.Sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
 }

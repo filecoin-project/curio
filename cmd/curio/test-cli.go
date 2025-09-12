@@ -211,11 +211,6 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 			Name:  "layers",
 			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
-		&cli.StringFlag{
-			Name:  "storage-json",
-			Usage: translations.T("path to json file containing storage config"),
-			Value: "~/.curio/storage.json",
-		},
 		&cli.Uint64Flag{
 			Name:  "partition",
 			Usage: translations.T("partition to compute WindowPoSt for"),

@@ -132,6 +132,13 @@ func main() {
 				Value:   "127.0.0.1",
 			},
 			&cli.StringFlag{
+				Name:        "db-host-cql",
+				EnvVars:     []string{"CURIO_DB_HOST_CQL"},
+				Usage:       translations.T("Command separated list of hostnames for yugabyte cluster"),
+				Value:       "",
+				DefaultText: "<--db-host>",
+			},
+			&cli.StringFlag{
 				Name:    "db-name",
 				EnvVars: []string{"CURIO_DB_NAME", "CURIO_HARMONYDB_NAME"},
 				Usage:   translations.T("Name of the Postgres database in Yugabyte cluster"),
@@ -233,7 +240,7 @@ func runApp(app *cli.App) {
 		if os.Getenv("LOTUS_DEV") != "" {
 			log.Warnf("%+v", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
 		}
 
 		var phe *PrintHelpErr

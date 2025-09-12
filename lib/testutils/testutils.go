@@ -104,7 +104,9 @@ func WriteUnixfsDAGTo(path string, into ipldformat.DAGService, chunksize int64, 
 	if err != nil {
 		return cid.Undef, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	stat, err := file.Stat()
 	if err != nil {

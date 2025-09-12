@@ -13,6 +13,9 @@ CREATE TABLE balance_manager_addresses (
     -- "active-provider" - if subject above high watermark, send fil from subject to second address up to low watermark
     action_type TEXT NOT NULL, -- "requester", "active-provider"
 
+    -- added in 20250817-balancemgr-pshare.sql
+    -- subject_type TEXT NOT NULL DEFAULT 'wallet', -- "wallet", "proofshare"
+
     low_watermark_fil_balance TEXT NOT NULL DEFAULT '0',
     high_watermark_fil_balance TEXT NOT NULL DEFAULT '0',
 

@@ -130,7 +130,9 @@ var marketAddOfflineURLCmd = &cli.Command{
 			if err != nil {
 				return err
 			}
-			defer file.Close()
+			defer func() {
+				_ = file.Close()
+			}()
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				line := scanner.Text()

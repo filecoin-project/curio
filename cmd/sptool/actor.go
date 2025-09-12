@@ -5,12 +5,15 @@ import (
 	"os"
 	"strings"
 
+	"github.com/docker/go-units"
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/createminer"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	builtin2 "github.com/filecoin-project/lotus/chain/actors/builtin"
@@ -35,7 +38,7 @@ var actorCmd = &cli.Command{
 		spcli.ActorCompactAllocatedCmd(SPTActorGetter),
 		spcli.ActorProposeChangeBeneficiaryCmd(SPTActorGetter),
 		spcli.ActorConfirmChangeBeneficiaryCmd(SPTActorGetter),
-		spcli.ActorNewMinerCmd,
+		ActorNewMinerCmd,
 	},
 }
 
@@ -141,4 +144,87 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 			return tw.Flush(os.Stdout)
 		},
 	}
+}
+
+var ActorNewMinerCmd = &cli.Command{
+	Name:  "new-miner",
+	Usage: "Initializes a new miner actor",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "worker",
+			Aliases: []string{"w"},
+			Usage:   "worker key to use for new miner initialisation",
+		},
+		&cli.StringFlag{
+			Name:    "owner",
+			Aliases: []string{"o"},
+			Usage:   "owner key to use for new miner initialisation",
+		},
+		&cli.StringFlag{
+			Name:    "from",
+			Aliases: []string{"f"},
+			Usage:   "address to send actor(miner) creation message from",
+		},
+		&cli.StringFlag{
+			Name:  "sector-size",
+			Usage: "specify sector size to use for new miner initialisation",
+		},
+		&cli.IntFlag{
+			Name:  "confidence",
+			Usage: "number of block confirmations to wait for",
+			Value: 5,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+
+		full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+		if err != nil {
+			return xerrors.Errorf("connecting to full node: %w", err)
+		}
+		defer closer()
+
+		var owner address.Address
+		if cctx.String("owner") == "" {
+			return xerrors.Errorf("must provide a owner address")
+		}
+		owner, err = address.NewFromString(cctx.String("owner"))
+
+		if err != nil {
+			return err
+		}
+
+		worker := owner
+		if cctx.String("worker") != "" {
+			worker, err = address.NewFromString(cctx.String("worker"))
+			if err != nil {
+				return xerrors.Errorf("could not parse worker address: %w", err)
+			}
+		}
+
+		sender := owner
+		if fromstr := cctx.String("from"); fromstr != "" {
+			faddr, err := address.NewFromString(fromstr)
+			if err != nil {
+				return xerrors.Errorf("could not parse from address: %w", err)
+			}
+			sender = faddr
+		}
+
+		if !cctx.IsSet("sector-size") {
+			return xerrors.Errorf("must define sector size")
+		}
+
+		sectorSizeInt, err := units.RAMInBytes(cctx.String("sector-size"))
+		if err != nil {
+			return err
+		}
+		ssize := abi.SectorSize(sectorSizeInt)
+
+		_, err = createminer.CreateStorageMiner(ctx, full, owner, worker, sender, ssize, cctx.Uint64("confidence"))
+		if err != nil {
+			return err
+		}
+		return nil
+	},
 }

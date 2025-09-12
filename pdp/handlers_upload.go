@@ -122,7 +122,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
        VALUES ($1, $2, $3, $4, $5, $6, $7)
    `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), dmh.Digest, size)
 		if err != nil {
-			return false, fmt.Errorf("Failed to store upload request in database: %w", err)
+			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
 
 		// Create a location URL where the piece data can be uploaded via PUT
@@ -136,16 +136,17 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if responseStatus == http.StatusCreated {
+	switch responseStatus {
+	case http.StatusCreated:
 		// Return 201 Created with Location header
 		w.Header().Set("Location", uploadURL)
 		w.WriteHeader(http.StatusCreated)
-	} else if responseStatus == http.StatusOK {
+	case http.StatusOK:
 		// Return 200 OK with the pieceCID
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{"pieceCid": pieceCidV2.String()})
-	} else {
+	default:
 		// Should not reach here
 		http.Error(w, "Unexpected error", http.StatusInternalServerError)
 	}

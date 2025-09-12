@@ -49,7 +49,9 @@ func TestPrefetchReader_BasicRead(t *testing.T) {
 	testData := []byte("Hello, World!")
 	source := &mockReader{data: testData}
 	reader := New(source, 1024)
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, len(testData))
 	n, err := reader.Read(buf)
@@ -67,7 +69,9 @@ func TestPrefetchReader_BasicRead(t *testing.T) {
 
 func TestPrefetchReader_ReadEmpty(t *testing.T) {
 	reader := New(&mockReader{data: []byte{}}, 1024)
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, 10)
 	n, err := reader.Read(buf)
@@ -82,7 +86,9 @@ func TestPrefetchReader_ReadEmpty(t *testing.T) {
 
 func TestPrefetchReader_ReadZeroLength(t *testing.T) {
 	reader := New(&mockReader{data: []byte("data")}, 1024)
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	n, err := reader.Read([]byte{})
 
@@ -103,7 +109,9 @@ func TestPrefetchReader_LargeRead(t *testing.T) {
 
 	source := &mockReader{data: testData}
 	reader := New(source, 4096) // Smaller buffer to test multiple reads
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	// Read in chunks
 	buf := make([]byte, len(testData))
@@ -145,7 +153,9 @@ func TestPrefetchReader_SlowSource(t *testing.T) {
 	}
 
 	reader := New(source, 1024)
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, len(testData))
 	n, err := reader.Read(buf)
@@ -169,7 +179,9 @@ func TestPrefetchReader_ErrorHandling(t *testing.T) {
 	}
 
 	reader := New(source, 1024)
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, len(testData))
 	_, firstErr := reader.Read(buf)
@@ -209,7 +221,9 @@ func TestPrefetchReader_Close(t *testing.T) {
 
 func TestPrefetchReader_MinBufferSize(t *testing.T) {
 	reader := New(&mockReader{}, 100) // Less than minBufferDepth
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	if cap(reader.buffer) < minBufferDepth {
 		t.Errorf("buffer size %d is less than minimum %d", cap(reader.buffer), minBufferDepth)
@@ -223,7 +237,9 @@ func TestPrefetchReader_ReadAfterError(t *testing.T) {
 	}
 
 	reader := New(source, 1024)
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, 4)
 	_, firstErr := reader.Read(buf)

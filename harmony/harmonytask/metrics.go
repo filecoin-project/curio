@@ -1,15 +1,21 @@
 package harmonytask
 
 import (
+	"context"
+	"time"
+
 	promclient "github.com/prometheus/client_golang/prometheus"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
+
+	curiobuild "github.com/filecoin-project/curio/build"
 )
 
 var (
 	taskNameTag, _ = tag.NewKey("task_name")
 	sourceTag, _   = tag.NewKey("source")
+	versionTag, _  = tag.NewKey("version")
 	pre            = "harmonytask_"
 
 	// tasks can be short, but can extend to hours
@@ -18,6 +24,7 @@ var (
 
 // TaskMeasures groups all harmonytask metrics.
 var TaskMeasures = struct {
+	Uptime           *stats.Int64Measure
 	TasksStarted     *stats.Int64Measure
 	TasksCompleted   *stats.Int64Measure
 	TasksFailed      *stats.Int64Measure
@@ -29,6 +36,7 @@ var TaskMeasures = struct {
 	PollerIterations *stats.Int64Measure
 	AddedTasks       *stats.Int64Measure
 }{
+	Uptime:         stats.Int64(pre+"uptime", "Total uptime of the node in seconds.", stats.UnitSeconds),
 	TasksStarted:   stats.Int64(pre+"tasks_started", "Total number of tasks started.", stats.UnitDimensionless),
 	TasksCompleted: stats.Int64(pre+"tasks_completed", "Total number of tasks completed successfully.", stats.UnitDimensionless),
 	TasksFailed:    stats.Int64(pre+"tasks_failed", "Total number of tasks that failed.", stats.UnitDimensionless),
@@ -48,6 +56,11 @@ var TaskMeasures = struct {
 // TaskViews groups all harmonytask-related default views.
 func init() {
 	err := view.Register(
+		&view.View{
+			Measure:     TaskMeasures.Uptime,
+			Aggregation: view.LastValue(),
+			TagKeys:     []tag.Key{versionTag},
+		},
 		&view.View{
 			Measure:     TaskMeasures.TasksStarted,
 			Aggregation: view.Sum(),
@@ -102,4 +115,20 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+
+	// record uptime every 10 seconds
+	go func() {
+		v := curiobuild.UserVersion()
+		bootTime := time.Now()
+
+		for {
+			time.Sleep(10 * time.Second)
+			err := stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(versionTag, v),
+			}, TaskMeasures.Uptime.M(int64(time.Since(bootTime).Seconds())))
+			if err != nil {
+				log.Errorw("Could not record uptime", "error", err)
+			}
+		}
+	}()
 }

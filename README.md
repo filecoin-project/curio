@@ -101,6 +101,18 @@ Dual-licensed under [MIT](https://github.com/filecoin-project/curio/blob/master/
 
 We welcome contributions from the community! Feel free to open PRs. Reach out to the team on Slack if you need any help.
 
+## Flow EVM Integration
+
+Curio participates in the Flow ecosystem via **Flow EVM (Chain ID 747)**.
+This enables contributors to use Flow EVM endpoints and receive rewards through the ReWTF program.
+
+Flow EVM RPC configuration:
+
+- **RPC URL:** https://mainnet.evm.nodes.onflow.org
+- **Chain ID:** 747
+- **Currency Symbol:** FLOW
+- **Block Explorer:** https://evm.flowscan.io/
+
 ---
 
 **Curio Storage** is a testament to our commitment to enhancing the Filecoin ecosystem, providing a robust and user-friendly platform for all storage providers. Join us on this journey and contribute to the future of decentralized storage. 💙

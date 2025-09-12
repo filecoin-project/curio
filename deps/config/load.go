@@ -47,7 +47,9 @@ func FromFile(path string, opts ...LoadCfgOpt) (interface{}, error) {
 	case err != nil:
 		return nil, err
 	}
-	defer file.Close() //nolint:errcheck,staticcheck // The file is RO
+	defer func() {
+		_ = file.Close()
+	}()
 	cfgBs, err := io.ReadAll(file)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read config for validation checks %w", err)
@@ -96,7 +98,7 @@ func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interfac
 	}
 	for _, d := range movedFields {
 		if md.IsDefined(d.Field...) {
-			fmt.Fprintf(
+			_, _ = fmt.Fprintf(
 				warningOut,
 				"WARNING: Use of deprecated configuration option '%s' will be removed in a future release, use '%s' instead\n",
 				strings.Join(d.Field, "."),

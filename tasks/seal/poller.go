@@ -224,14 +224,13 @@ func (s *SealPoller) poll(ctx context.Context) error {
 	tasks = lo.Filter(tasks, func(t pollTask, _ int) bool {
 		return !t.Failed
 	})
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		return xerrors.Errorf("getting chain head: %w", err)
+	}
 
 	for _, task := range tasks {
 		task := task
-
-		ts, err := s.api.ChainHead(ctx)
-		if err != nil {
-			return xerrors.Errorf("getting chain head: %w", err)
-		}
 
 		s.pollStartSDR(ctx, task)
 		s.pollStartSDRTreeD(ctx, task)

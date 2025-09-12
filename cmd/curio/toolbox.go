@@ -233,7 +233,9 @@ func filfoxMessage(cid string) (FilfoxMsg, error) {
 		return FilfoxMsg{}, xerrors.Errorf("request failed: %w", err)
 	}
 
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	if res.StatusCode != 200 {
 		return FilfoxMsg{}, xerrors.Errorf("request failed with status code %d", res.StatusCode)
 	}

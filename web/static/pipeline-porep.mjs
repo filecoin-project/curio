@@ -55,6 +55,9 @@ customElements.define('pipeline-porep',class PipelinePorep extends LitElement {
                 </div>
             </div>
             <div class="col-md-auto">
+                <div class="info-block">
+                    <cc-scheduler></cc-scheduler>
+                </div>
             </div>
         </div>
         `;

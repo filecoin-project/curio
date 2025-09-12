@@ -132,7 +132,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
-		if err := chk.Accept(blockMetadata.Cid.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
+		if err := chk.Accept(blockMetadata.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
 			return false, xerrors.Errorf("accepting block: %w", err)
 		}
 

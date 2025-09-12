@@ -234,7 +234,7 @@ Use the command `brew install` to install the following packages:
 
 ```shell
 brew install jq pkg-config hwloc coreutils
-brew install go@1.23
+brew install go@1.24
 ```
 
 Next up is cloning the Lotus repository and building the executables.

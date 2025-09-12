@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"fmt"
 
 	"golang.org/x/xerrors"
 
@@ -101,6 +102,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		PipelineSlot int64 `db:"pipeline_slot"`
 	}
 
+	var refFound bool
 	if f.slots != nil {
 		// batch handling part 1:
 		// get machine id
@@ -135,9 +137,11 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 			return false, xerrors.Errorf("getting batch refs: %w", err)
 		}
 
-		if len(refs) != 1 {
-			return false, xerrors.Errorf("expected one batch ref")
+		if len(refs) > 1 {
+			return false, xerrors.Errorf("expected one batch ref, got %d", len(refs))
 		}
+
+		refFound = len(refs) == 1
 	}
 
 	err = f.sc.FinalizeSector(ctx, sector, keepUnsealed)
@@ -149,7 +153,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("dropping sector piece refs: %w", err)
 	}
 
-	if f.slots != nil {
+	if refFound {
 		// batch handling part 2:
 
 		if err := f.slots.SectorDone(ctx, uint64(refs[0].PipelineSlot), sector.ID); err != nil {
@@ -230,7 +234,25 @@ func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 100 << 20,
 		},
 		MaxFailures: 10,
+
+		// Allow finalize to be scheduled when batch tasks are still running even when the node is not schedulable.
+		// This allows finalize to unblock move-storage and PoRep for multiple hours while the node is technically not schedulable,
+		// but is still finishing another batch. In most cases this behavior enables nearly zero-waste restarts of supraseal nodes.
+		SchedulingOverrides: batchTaskNameGrid(),
 	}
+}
+
+func batchTaskNameGrid() map[string]bool {
+	batchSizes := []int{128, 64, 32, 16, 8}
+	sectorSizes := []string{"32G", "64G"}
+
+	out := map[string]bool{}
+	for _, batchSize := range batchSizes {
+		for _, sectorSize := range sectorSizes {
+			out[fmt.Sprintf("Batch%d-%s", batchSize, sectorSize)] = true
+		}
+	}
+	return out
 }
 
 func (f *FinalizeTask) Adder(taskFunc harmonytask.AddTaskFunc) {

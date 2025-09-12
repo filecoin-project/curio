@@ -26,7 +26,9 @@ var testDebugIpniChunks = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("opening file: %w", err)
 		}
-		defer f.Close()
+		defer func() {
+			_ = f.Close()
+		}()
 
 		opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
 		blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(f, 4<<20), opts...)
@@ -36,7 +38,7 @@ var testDebugIpniChunks = &cli.Command{
 
 		blockMetadata, err := blockReader.SkipNext()
 		for err == nil {
-			if err := ck.Accept(blockMetadata.Cid.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
+			if err := ck.Accept(blockMetadata.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
 				return xerrors.Errorf("accepting block: %w", err)
 			}
 

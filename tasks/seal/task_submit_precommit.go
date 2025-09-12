@@ -108,7 +108,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	}
 
 	if len(sectorParamsArr) == 0 {
-		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
+		return true, xerrors.Errorf("expected at least 1 sector params, got 0")
 	}
 
 	head, err := s.api.ChainHead(ctx)

@@ -21,7 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/metrics"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -522,7 +522,9 @@ func (dbi *DBIndex) batchStorageDeclareSectors(ctx context.Context, declarations
 		}
 
 		br := tx.SendBatch(ctx, batch)
-		defer br.Close()
+		defer func() {
+			_ = br.Close()
+		}()
 
 		for i := 0; i < batch.Len(); i++ {
 			_, err := br.Exec()

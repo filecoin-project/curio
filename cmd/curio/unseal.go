@@ -328,7 +328,9 @@ var listUnsealPipelineCmd = &cli.Command{
 			if err != nil {
 				return xerrors.Errorf("failed to create output file: %w", err)
 			}
-			defer file.Close()
+			defer func() {
+				_ = file.Close()
+			}()
 			writer = csv.NewWriter(file)
 		}
 		defer writer.Flush()

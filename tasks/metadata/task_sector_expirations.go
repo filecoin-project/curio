@@ -94,7 +94,9 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			}
 
 			br := tx.SendBatch(ctx, batch)
-			defer br.Close()
+			defer func() {
+				_ = br.Close()
+			}()
 
 			for i := 0; i < batch.Len(); i++ {
 				_, err := br.Exec()

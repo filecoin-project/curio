@@ -105,10 +105,11 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 
 	if b, ok := p.entryCache.Get(block); ok {
 		v := b.Val(rctx)
-		if v.Error == nil {
+		switch v.Error {
+		case nil:
 			prevChunk = v.Value.Prev
 			return v.Value.Data, nil
-		} else if v.Error == ErrNotFound {
+		case ErrNotFound:
 			log.Errorw("Cached promise skip", "block", block, "prev", prevChunk, "err", err)
 			return v.Value.Data, v.Error
 		}

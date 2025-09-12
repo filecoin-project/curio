@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	paths2 "github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proof"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
@@ -41,7 +41,7 @@ func (sb *SealCalls) EncodeUpdate(
 		noDecl = storiface.FTUnsealed
 	}
 
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.PathSealing)
+	paths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.PathSealing)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -133,7 +133,7 @@ func (sb *SealCalls) EncodeUpdate(
 
 		log.Debugw("get key data", "keyPath", keyPath, "keyCachePath", keyCachePath, "sectorID", sector.ID, "taskID", taskID)
 
-		r, err := sb.sectors.storage.ReaderSeq(ctx, sector, storiface.FTSealed)
+		r, err := sb.Sectors.storage.ReaderSeq(ctx, sector, storiface.FTSealed)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("getting sealed sector reader: %w", err)
 		}
@@ -177,7 +177,7 @@ func (sb *SealCalls) EncodeUpdate(
 
 		// fetch cache
 		var buf bytes.Buffer // usually 73.2 MiB
-		err = sb.sectors.storage.ReadMinCacheInto(ctx, sector, storiface.FTCache, &buf)
+		err = sb.Sectors.storage.ReadMinCacheInto(ctx, sector, storiface.FTCache, &buf)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("reading cache: %w", err)
 		}
@@ -242,17 +242,12 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("write vanilla proofs: %w", err)
 	}
 
-	ssize, err := sector.ProofType.SectorSize()
-	if err != nil {
-		return cid.Undef, cid.Undef, xerrors.Errorf("getting sector size: %w", err)
-	}
-
 	// cleanup
 	if err := cleanupStagedFiles(); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("cleanup staged files: %w", err)
 	}
 
-	if err := ffi.ClearCache(uint64(ssize), paths.UpdateCache); err != nil {
+	if err := ffi.ClearCache(paths.UpdateCache); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
 	}
 
@@ -269,7 +264,7 @@ func (sb *SealCalls) EncodeUpdate(
 }
 
 func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUpdateProof, sector storiface.SectorRef, key, sealed, unsealed cid.Cid) ([]byte, error) {
-	jsonb, err := sb.sectors.storage.ReadSnapVanillaProof(ctx, sector)
+	jsonb, err := sb.Sectors.storage.ReadSnapVanillaProof(ctx, sector)
 	if err != nil {
 		return nil, xerrors.Errorf("read snap vanilla proof: %w", err)
 	}
@@ -301,11 +296,16 @@ func (sb *SealCalls) MoveStorageSnap(ctx context.Context, sector storiface.Secto
 
 	var opts []storiface.AcquireOption
 	if taskID != nil {
-		resv, ok := sb.sectors.storageReservations.Load(*taskID)
+		resvs, ok := sb.Sectors.storageReservations.Load(*taskID)
 		// if the reservation is missing MoveStorage will simply create one internally. This is fine as the reservation
 		// will only be missing when the node is restarting, which means that the missing reservations will get recreated
 		// anyways, and before we start claiming other tasks.
 		if ok {
+			if len(resvs) != 1 {
+				return xerrors.Errorf("task %d has %d reservations, expected 1", taskID, len(resvs))
+			}
+			resv := resvs[0]
+
 			defer resv.Release()
 
 			if resv.Alloc != storiface.FTNone {
@@ -319,13 +319,13 @@ func (sb *SealCalls) MoveStorageSnap(ctx context.Context, sector storiface.Secto
 		}
 	}
 
-	err := sb.sectors.storage.MoveStorage(ctx, sector, toMove, opts...)
+	err := sb.Sectors.storage.MoveStorage(ctx, sector, toMove, opts...)
 	if err != nil {
 		return xerrors.Errorf("moving storage: %w", err)
 	}
 
 	for _, fileType := range toMove.AllSet() {
-		if err := sb.sectors.storage.RemoveCopies(ctx, sector.ID, fileType); err != nil {
+		if err := sb.Sectors.storage.RemoveCopies(ctx, sector.ID, fileType); err != nil {
 			return xerrors.Errorf("rm copies (t:%s, s:%v): %w", fileType, sector, err)
 		}
 	}

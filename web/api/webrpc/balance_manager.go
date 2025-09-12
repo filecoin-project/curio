@@ -23,6 +23,7 @@ type BalanceMgrRule struct {
 	SubjectAddress  string  `json:"subject_address"`
 	SecondAddress   string  `json:"second_address"`
 	ActionType      string  `json:"action_type"`
+	SubjectType     string  `json:"subject_type"`
 	LowWatermark    string  `json:"low_watermark"`
 	HighWatermark   string  `json:"high_watermark"`
 	TaskID          *int64  `json:"task_id,omitempty"`
@@ -33,7 +34,7 @@ type BalanceMgrRule struct {
 
 // BalanceMgrRules returns all balance-manager rules.
 func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) {
-	const q = `SELECT id, subject_address, second_address, action_type, low_watermark_fil_balance, high_watermark_fil_balance,
+	const q = `SELECT id, subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance,
         last_msg_cid, last_msg_sent_at, last_msg_landed_at, active_task_id FROM balance_manager_addresses ORDER BY id`
 
 	rows, err := a.deps.DB.Query(ctx, q)
@@ -45,13 +46,13 @@ func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) 
 	var out []BalanceMgrRule
 	for rows.Next() {
 		var (
-			id                                                   int64
-			subjectAddr, secondAddr, actionType, lowStr, highStr string
-			lastMsgCID                                           sql.NullString
-			lastMsgSentAt, lastMsgLandedAt                       sql.NullTime
-			taskID                                               sql.NullInt64
+			id                                                                int64
+			subjectAddr, secondAddr, actionType, subjectType, lowStr, highStr string
+			lastMsgCID                                                        sql.NullString
+			lastMsgSentAt, lastMsgLandedAt                                    sql.NullTime
+			taskID                                                            sql.NullInt64
 		)
-		if err := rows.Scan(&id, &subjectAddr, &secondAddr, &actionType, &lowStr, &highStr, &lastMsgCID, &lastMsgSentAt, &lastMsgLandedAt, &taskID); err != nil {
+		if err := rows.Scan(&id, &subjectAddr, &secondAddr, &actionType, &subjectType, &lowStr, &highStr, &lastMsgCID, &lastMsgSentAt, &lastMsgLandedAt, &taskID); err != nil {
 			return nil, err
 		}
 
@@ -70,6 +71,7 @@ func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) 
 			SubjectAddress: subjectAddr,
 			SecondAddress:  secondAddr,
 			ActionType:     actionType,
+			SubjectType:    subjectType,
 			LowWatermark:   types.FIL(lowBig).Short(),
 			HighWatermark:  types.FIL(highBig).Short(),
 		}
@@ -116,13 +118,11 @@ func (a *WebRPC) BalanceMgrRuleRemove(ctx context.Context, id int64) error {
 
 // BalanceMgrRuleAdd creates a new balance-manager rule.
 // Watermarks are provided as FIL strings. Addresses use Fil/ID strings.
-func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionType, lowWatermark, highWatermark string) error {
+// subjectType can be "wallet" or "proofshare".
+func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionType, lowWatermark, highWatermark, subjectType string) error {
 	// Basic sanity – ensure addresses parse but keep original text for insertion.
 	if _, err := address.NewFromString(subject); err != nil {
 		return xerrors.Errorf("invalid subject address: %w", err)
-	}
-	if _, err := address.NewFromString(second); err != nil {
-		return xerrors.Errorf("invalid second address: %w", err)
 	}
 
 	switch actionType {
@@ -130,6 +130,19 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 	case "active-provider":
 	default:
 		return xerrors.Errorf("invalid action type: %s", actionType)
+	}
+
+	switch subjectType {
+	case "wallet":
+		if _, err := address.NewFromString(second); err != nil {
+			return xerrors.Errorf("invalid second address: %w", err)
+		}
+	case "proofshare":
+		// For proofshare, subject == second and action is always requester
+		actionType = "requester"
+		second = subject
+	default:
+		return xerrors.Errorf("invalid subject type: %s", subjectType)
 	}
 
 	lowAmt, err := types.ParseFIL(lowWatermark)
@@ -141,6 +154,6 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 		return xerrors.Errorf("invalid high watermark: %w", err)
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `INSERT INTO balance_manager_addresses (subject_address, second_address, action_type, low_watermark_fil_balance, high_watermark_fil_balance) VALUES ($1,$2,$3,$4,$5)`, subject, second, actionType, lowAmt.String(), highAmt.String())
+	_, err = a.deps.DB.Exec(ctx, `INSERT INTO balance_manager_addresses (subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance) VALUES ($1,$2,$3,$4,$5,$6)`, subject, second, actionType, subjectType, lowAmt.String(), highAmt.String())
 	return err
 }

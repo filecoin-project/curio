@@ -2,6 +2,7 @@ package cuhttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -166,19 +167,19 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 	// Use http.ServeMux as a fallback for routes not handled by chi
 	chiRouter.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, "Requested resource not found")
+		_, _ = fmt.Fprintf(w, "Requested resource not found")
 	})
 
 	// Root path handler (simpler routes handled by http.ServeMux)
 	chiRouter.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Hello, World!\n -Curio\n")
+		_, _ = fmt.Fprintf(w, "Hello, World!\n -Curio\n")
 	})
 
 	// Status endpoint to check the health of the service
 	chiRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Service is up and running")
+		_, _ = fmt.Fprintf(w, "Service is up and running")
 	})
 
 	chiRouter, err = attachRouters(ctx, chiRouter, d, sd, dm)
@@ -244,7 +245,7 @@ func (c cache) Get(ctx context.Context, key string) ([]byte, error) {
 	var ret []byte
 	err := c.db.QueryRow(ctx, `SELECT v FROM autocert_cache WHERE k = $1`, key).Scan(&ret)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, autocert.ErrCacheMiss
 		}
 

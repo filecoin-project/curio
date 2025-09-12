@@ -19,9 +19,11 @@ import (
 
 var log = logging.Logger("curio/chainsched")
 
-// Notification timeout for chain updates, if we don't get a notification within this time frame
-// then something must be wrong so we'll attempt to restart
-const notificationTimeout = 60 * time.Second
+// Default notification timeout for chain updates. Set to 5 minutes to accommodate the 30-second
+// block time and potential consecutive null rounds and other reasonable delays upstream.
+// If we don't get a notification within this time frame, then something may be wrong so we'll
+// attempt to restart just in case.
+const defaultNotificationTimeout = 5 * time.Minute
 
 type NodeAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -34,11 +36,21 @@ type CurioChainSched struct {
 	callbacks []UpdateFunc
 	lk        sync.RWMutex
 	started   bool
+
+	notificationTimeout time.Duration
 }
 
 func New(api NodeAPI) *CurioChainSched {
 	return &CurioChainSched{
-		api: api,
+		api:                 api,
+		notificationTimeout: defaultNotificationTimeout,
+	}
+}
+
+func NewWithNotificationTimeout(api NodeAPI, timeout time.Duration) *CurioChainSched {
+	return &CurioChainSched{
+		api:                 api,
+		notificationTimeout: timeout,
 	}
 }
 
@@ -61,23 +73,44 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 
 	var (
 		notificationCh       <-chan []*api.HeadChange
+		notificationCancel   context.CancelFunc
 		err                  error
 		gotFirstNotification bool
 	)
 
-	ticker := build.Clock.Ticker(notificationTimeout)
+	ticker := build.Clock.Ticker(s.notificationTimeout)
 	defer ticker.Stop()
 	lastNotif := build.Clock.Now()
+
+	// Ensure we clean up any active subscription on exit
+	defer func() {
+		if notificationCancel != nil {
+			notificationCancel()
+		}
+	}()
 
 	// not fine to panic after this point
 	for ctx.Err() == nil {
 		if notificationCh == nil {
-			notificationCh, err = s.api.ChainNotify(ctx)
+			// Cancel any existing subscription context
+			if notificationCancel != nil {
+				notificationCancel()
+			}
+
+			// Create new context for this subscription
+			newCtx, newCancel := context.WithCancel(ctx)
+
+			notificationCh, err = s.api.ChainNotify(newCtx)
 			if err != nil {
+				// Cancel the context we just created since we're not using it
+				newCancel()
 				log.Errorw("ChainNotify", "error", err)
 				build.Clock.Sleep(10 * time.Second) // Retry after 10 second wait
 				continue
 			}
+
+			// Only update the cancel function if we succeeded
+			notificationCancel = newCancel
 			gotFirstNotification = false
 			log.Info("restarting CurioChainSched with new notification channel")
 			lastNotif = build.Clock.Now()
@@ -148,8 +181,8 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 		case <-ticker.C:
 			since := build.Clock.Since(lastNotif)
 			log.Debugf("CurioChainSched ticker: %s since last notification", since)
-			if since > notificationTimeout {
-				log.Warnf("no notifications received in %s, resubscribing to ChainNotify", notificationTimeout)
+			if since > s.notificationTimeout {
+				log.Warnf("no notifications received in %s, resubscribing to ChainNotify", s.notificationTimeout)
 				notificationCh = nil
 			}
 		case <-ctx.Done():

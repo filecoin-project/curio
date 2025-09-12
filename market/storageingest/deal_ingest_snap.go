@@ -301,7 +301,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	}
 
 	// Reject incorrect sized online deals except verified deal less than 1 MiB because verified deals can be 1 MiB minimum even if rawSize is much lower
-	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() && !(vd.isVerified && psize <= abi.PaddedPieceSize(1<<20)) {
+	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() && (!vd.isVerified || psize > abi.PaddedPieceSize(1<<20)) {
 		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 

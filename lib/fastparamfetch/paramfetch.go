@@ -212,7 +212,9 @@ func (ft *fetch) checkFile(path string, info paramFile) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	h := blake2b.New512()
 	if _, err := io.Copy(h, f); err != nil {
@@ -276,7 +278,9 @@ func doFetch(ctx context.Context, out string, info paramFile) error {
 	if err != nil {
 		return err
 	}
-	defer outf.Close()
+	defer func() {
+		_ = outf.Close()
+	}()
 
 	fStat, err := outf.Stat()
 	if err != nil {
@@ -296,7 +300,9 @@ func doFetch(ctx context.Context, out string, info paramFile) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	_, err = io.Copy(outf, resp.Body)
 

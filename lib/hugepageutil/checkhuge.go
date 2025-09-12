@@ -14,7 +14,9 @@ func CheckHugePages(minPages int) error {
 	if err != nil {
 		return xerrors.Errorf("error opening /proc/meminfo: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	scanner := bufio.NewScanner(file)
 	hugepagesTotal := 0

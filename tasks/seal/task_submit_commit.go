@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/ipfs/go-cid"
 	"go.uber.org/multierr"
@@ -33,7 +34,6 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
@@ -133,7 +133,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	if len(sectorParamsArr) == 0 {
-		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
+		return true, xerrors.Errorf("expected at least 1 sector params, got 0")
 	}
 
 	maddr, err := address.NewIDAddress(uint64(sectorParamsArr[0].SpID))
@@ -147,6 +147,16 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	regProof := sectorParamsArr[0].RegSealProof
+
+	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("getting miner balance: %w", err)
+	}
+
+	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("getting miner info: %w", err)
+	}
 
 	params := miner.ProveCommitSectors3Params{
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
@@ -306,6 +316,26 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			collateralPerSector = big.Zero()
 		}
 
+		simulateSendParam := miner.ProveCommitSectors3Params{
+			SectorActivations: []miner.SectorActivationManifest{
+				{
+					SectorNumber: abi.SectorNumber(sectorParams.SectorNumber),
+					Pieces:       pams,
+				},
+			},
+			SectorProofs: [][]byte{
+				sectorParams.Proof,
+			},
+			RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
+			RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
+		}
+
+		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateral, ts, simulateSendParam)
+		if err != nil {
+			log.Errorw("failed to simulate commit for sector", "Miner", maddr.String(), "Sector", sectorParams.SectorNumber, "err", err)
+			continue
+		}
+
 		collateral = big.Add(collateral, collateralPerSector)
 
 		params.SectorActivations = append(params.SectorActivations, miner.SectorActivationManifest{
@@ -337,7 +367,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(len(infos))
 
-	msg, err := s.createCommitMessage(ctx, maddr, sectorParamsArr[0].RegSealProof, sectorParamsArr[0].SpID, collateral, params, infos, ts)
+	msg, err := s.createCommitMessage(ctx, maddr, mi, balance, sectorParamsArr[0].RegSealProof, sectorParamsArr[0].SpID, collateral, params, infos, ts)
 	if err != nil {
 		return false, xerrors.Errorf("failed to create the commit message: %w", err)
 	}
@@ -365,7 +395,23 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr address.Address, sealProof abi.RegisteredSealProof, SpID int64, collateral abi.TokenAmount, params miner.ProveCommitSectors3Params, infos []proof.AggregateSealVerifyInfo, ts *types.TipSet) (*types.Message, error) {
+func (s *SubmitCommitTask) simuateCommitPerSector(ctx context.Context, maddr address.Address, mi api.MinerInfo, balance big.Int, collateral abi.TokenAmount, ts *types.TipSet, param miner.ProveCommitSectors3Params) error {
+	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(1)
+
+	collateral = s.calculateCollateral(balance, collateral)
+	goodFunds := big.Add(maxFee, collateral)
+	enc := new(bytes.Buffer)
+	if err := param.MarshalCBOR(enc); err != nil {
+		return xerrors.Errorf("could not serialize commit params: %w", err)
+	}
+	_, err := s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, collateral, maxFee, ts.Key())
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr address.Address, mi api.MinerInfo, balance big.Int, sealProof abi.RegisteredSealProof, SpID int64, collateral abi.TokenAmount, params miner.ProveCommitSectors3Params, infos []proof.AggregateSealVerifyInfo, ts *types.TipSet) (*types.Message, error) {
 	aggParams := params
 	var aggCost, cost big.Int
 	var msg, aggMsg *types.Message
@@ -374,16 +420,6 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting network version: %s", err)
-	}
-
-	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
-	if err != nil {
-		return nil, xerrors.Errorf("getting miner balance: %w", err)
-	}
-
-	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
-	if err != nil {
-		return nil, xerrors.Errorf("getting miner info: %w", err)
 	}
 
 	if len(infos) >= miner.MinAggregatedSectors {
@@ -408,15 +444,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		}
 		aggParams.SectorProofs = nil // can't be set when aggregating
 
-		aggFeeRaw, err := policy.AggregateProveCommitNetworkFee(nv, len(infos), ts.MinTicketBlock().ParentBaseFee)
-		if err != nil {
-			return nil, xerrors.Errorf("getting aggregate commit network fee: %s", err)
-		}
-
-		aggFee := big.Div(big.Mul(aggFeeRaw, big.NewInt(110)), big.NewInt(110))
-
-		aggCollateral := big.Add(collateral, aggFee)
-		aggCollateral = s.calculateCollateral(balance, aggCollateral)
+		aggCollateral := s.calculateCollateral(balance, collateral)
 		goodFunds := big.Add(maxFee, aggCollateral)
 		aggEnc := new(bytes.Buffer)
 		if err := aggParams.MarshalCBOR(aggEnc); err != nil {
@@ -424,10 +452,10 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		}
 		aggMsg, err = s.gasEstimateCommit(ctx, maddr, aggEnc.Bytes(), mi, goodFunds, aggCollateral, maxFee, ts.Key())
 		if err != nil {
-			return nil, err
+			return nil, xerrors.Errorf("gas estimate aggregate commit: %w", err)
 		}
 		aggGas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, aggMsg.GasPremium), big.NewInt(aggMsg.GasLimit))
-		aggCost = big.Add(aggGas, aggFee)
+		aggCost = aggGas
 	}
 
 	{
@@ -438,9 +466,15 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
 		}
 		msg, err = s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, collateral, maxFee, ts.Key())
-		if err != nil {
-			return nil, err
+		if err != nil && !strings.Contains(err.Error(), "call ran out of gas") {
+			return nil, xerrors.Errorf("gas estimate individual commit: %w", err)
+		} else if err != nil && !aggCost.Nil() {
+			log.Errorw("gas estimate individual commit failed", "err", err, "sp", SpID, "sector", infos[0].Number)
+			log.Infow("Sending commit message with aggregate due to no alternative", "Batch Cost", cost, "Aggregate Cost", aggCost)
+			return aggMsg, nil
 		}
+
+		log.Infow("gas estimate individual commit succeeded", "sp", SpID, "sector", infos[0].Number)
 		gas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, msg.GasPremium), big.NewInt(msg.GasLimit))
 		cost = gas
 	}

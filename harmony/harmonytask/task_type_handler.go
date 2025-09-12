@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
 var log = logging.Logger("harmonytask")
@@ -118,8 +119,8 @@ canAcceptAgain:
 
 	releaseStorage := func() {
 	}
-	if h.TaskTypeDetails.Cost.Storage != nil {
-		markComplete, err := h.TaskTypeDetails.Cost.Storage.Claim(int(*tID))
+	if h.Cost.Storage != nil {
+		markComplete, err := h.Cost.Claim(int(*tID))
 		if err != nil {
 			log.Infow("did not accept task", "task_id", strconv.Itoa(int(*tID)), "reason", "storage claim failed", "name", h.Name, "error", err)
 
@@ -215,6 +216,13 @@ canAcceptAgain:
 		}()
 
 		done, doErr = h.Do(*tID, func() bool {
+			if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
+				if h.TaskEngine.yieldBackground.Load() {
+					log.Infow("yielding background task", "name", h.Name, "id", *tID)
+					return false
+				}
+			}
+
 			var owner int
 			// Background here because we don't want GracefulRestart to block this save.
 			err := h.TaskEngine.db.QueryRow(context.Background(),
@@ -346,8 +354,8 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 		return xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
 	}
 
-	if h.TaskTypeDetails.Cost.Storage != nil {
-		if !h.TaskTypeDetails.Cost.Storage.HasCapacity() {
+	if h.Cost.Storage != nil {
+		if !h.Cost.HasCapacity() {
 			return errors.New("Did not accept " + h.Name + " task: out of available Storage")
 		}
 	}
