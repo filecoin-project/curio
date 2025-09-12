@@ -92,6 +92,16 @@ class BalanceManager extends LitElement {
     this.newHigh = '';
   }
 
+  startAddF05() {
+    this.adding = true;
+    this.newSubjectType = 'f05';
+    this.newSubject = '';
+    this.newSecond = '';
+    this.newAction = 'requester';
+    this.newLow = '';
+    this.newHigh = '';
+  }
+
   cancelAdd() {
     this.adding = false;
   }
@@ -149,6 +159,7 @@ class BalanceManager extends LitElement {
         <h2>Balance-Manager Rules</h2>
         <button class="btn btn-primary btn-sm mb-2" @click=${this.startAddWallet}>Add Wallet Rule</button>
         <button class="btn btn-primary btn-sm mb-2" @click=${this.startAddProofshare}>Add SnarkMarket Client Rule</button>
+        <button class="btn btn-primary btn-sm mb-2" @click=${this.startAddF05}>Add F05 Rule</button>
         ${this.adding
           ? html`
               <div class="card card-body bg-dark text-light mb-3">
@@ -157,7 +168,7 @@ class BalanceManager extends LitElement {
                     <label class="form-label mb-0">Subject</label>
                     <input class="form-control form-control-sm" .value=${this.newSubject} @input=${(e) => (this.newSubject = e.target.value)} />
                   </div>
-                  ${this.newSubjectType === 'wallet' ? html`
+                  ${(this.newSubjectType === 'wallet' || this.newSubjectType === 'f05') ? html`
                   <div class="col-md-2">
                     <label class="form-label mb-0">Second</label>
                     <input class="form-control form-control-sm" .value=${this.newSecond} @input=${(e) => (this.newSecond = e.target.value)} />
