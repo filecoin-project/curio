@@ -42,6 +42,11 @@ var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, error) {
 	mx := mux.NewRouter()
 	mx.Use(corsMiddleware)
+	mx.Methods(http.MethodOptions).PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Register OPTIONS routes for CORS preflight requests.
+		// Actual handling is done by corsMiddleware which intercepts
+		// all OPTIONS requests before they reach this handler.
+	})
 
 	if !devMode {
 		api.Routes(mx.PathPrefix("/api").Subrouter(), deps, webDev)
