@@ -827,7 +827,6 @@ type IPNIConfig struct {
 	Disable bool
 
 	// The network indexer web UI URL for viewing published announcements
-	// TODO: should we use this for checking published heads before publishing? Later commit
 	ServiceURL []string
 
 	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new

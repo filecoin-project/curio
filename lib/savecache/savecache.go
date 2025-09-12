@@ -1,6 +1,7 @@
 package savecache
 
 import (
+	"fmt"
 	"hash"
 	"math"
 	"math/bits"
@@ -429,10 +430,10 @@ func (cp *Calc) snapshotLayerIndex(size uint64, test bool) {
 	cp.expectedNodeCount = int(expectedNodes)
 }
 
-func (cp *Calc) DigestWithSnapShot() ([]byte, uint64, int, []NodeDigest, error) {
+func (cp *Calc) DigestWithSnapShot() ([]byte, uint64, int, int, []NodeDigest, error) {
 	commp, paddedPieceSize, err := cp.digest()
 	if err != nil {
-		return nil, 0, 0, nil, err
+		return nil, 0, 0, 0, nil, err
 	}
 
 	cp.snapshotNodesMu.Lock()
@@ -443,19 +444,20 @@ func (cp *Calc) DigestWithSnapShot() ([]byte, uint64, int, []NodeDigest, error) 
 
 	// Copy snapShot nodes to output
 	copied := copy(out[:len(cp.snapshotNodes)], cp.snapshotNodes)
+	fmt.Println("copied number of nodes", copied)
 
 	// Fill the remaining nodes with zeroPadding
-	if copied != cp.expectedNodeCount {
+	if copied < cp.expectedNodeCount {
 		count := cp.expectedNodeCount - copied
+		fmt.Println("count", count)
 		var h [32]byte
 		copy(h[:], stackedNulPadding[cp.snapShotLayerIdx])
-		out = append(out, make([]NodeDigest, count)...)
-		for i := copied; i < len(out); i++ {
+		for i := copied; i < cp.expectedNodeCount; i++ {
 			out[i].Hash = h
 		}
 	}
 
-	return commp, paddedPieceSize, cp.snapShotLayerIdx, out, nil
+	return commp, paddedPieceSize, cp.snapShotLayerIdx, cp.expectedNodeCount, out, nil
 }
 
 func NewCommPWithSizeForTest(size uint64) *Calc {

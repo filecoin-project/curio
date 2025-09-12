@@ -28,14 +28,15 @@ import (
 func TestPDPProving(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
-	idxStore := indexstore.NewIndexStore([]string{EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	err := idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
 
-	rawSize := int64(8323072)
+	//rawSize := int64(8323072)
 	//rawSize := int64(7 * 1024 * 1024 * 1024)
+	rawSize := int64(5 * 1024 * 1024)
 	pieceSize := padreader.PaddedSize(uint64(rawSize)).Padded()
 
 	// Create temporary file
@@ -67,7 +68,7 @@ func TestPDPProving(t *testing.T) {
 	_, err = io.Copy(cp, f)
 	require.NoError(t, err)
 
-	digest, psize, layerIdx, layer, err := cp.DigestWithSnapShot()
+	digest, psize, layerIdx, expectedNodeCount, layer, err := cp.DigestWithSnapShot()
 	require.NoError(t, err)
 
 	require.Equal(t, abi.PaddedPieceSize(psize), pieceSize)
@@ -75,6 +76,7 @@ func TestPDPProving(t *testing.T) {
 	t.Logf("Digest: %x", digest)
 	t.Logf("PieceSize: %d", psize)
 	t.Logf("LayerIdx: %d", layerIdx)
+	t.Logf("Expected Node Count: %d", expectedNodeCount)
 	t.Logf("Number of Nodes in snapshot layer: %d", len(layer))
 	t.Logf("Total Number of Leafs: %d", numberOfLeafs)
 
@@ -99,15 +101,20 @@ func TestPDPProving(t *testing.T) {
 
 	t.Logf("Challenge: %d", challenge)
 
+	has, outLayerIndex, err := idxStore.GetPDPLayerIndex(ctx, pcid2)
+	require.NoError(t, err)
+	require.True(t, has)
+	require.Equal(t, outLayerIndex, layerIdx)
+
 	// Calculate start leaf and snapshot leaf indexes
-	leavesPerNode := int64(1) << layerIdx
-	snapshotNodeIndex := challenge >> layerIdx
-	startLeaf := snapshotNodeIndex << layerIdx
+	leavesPerNode := int64(1) << outLayerIndex
+	snapshotNodeIndex := challenge >> outLayerIndex
+	startLeaf := snapshotNodeIndex << outLayerIndex
 	t.Logf("Leaves per Node: %d", leavesPerNode)
 	t.Logf("Start Leaf: %d", startLeaf)
 	t.Logf("Snapshot Node Index: %d", snapshotNodeIndex)
 
-	has, snapNode, err := idxStore.GetPDPNode(ctx, pcid2, layerIdx, snapshotNodeIndex)
+	has, snapNode, err := idxStore.GetPDPNode(ctx, pcid2, outLayerIndex, snapshotNodeIndex)
 	require.NoError(t, err)
 	require.True(t, has)
 	require.Equal(t, snapNode.Index, snapshotNodeIndex)

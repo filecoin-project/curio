@@ -558,7 +558,8 @@ func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
                             data = $2, 
                             ddo_v1 = $3,
                             retrieval_v1 = $4,
-                            pdp_v1 = $5`, pieceCid, dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
+                            pdp_v1 = $5
+                            WHERE id = $6`, pieceCid, dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1, d.Identifier.String())
 	if err != nil {
 		return xerrors.Errorf("update deal: %w", err)
 	}

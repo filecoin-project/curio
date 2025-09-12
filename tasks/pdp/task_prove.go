@@ -9,12 +9,14 @@ import (
 	"math/big"
 	"sync/atomic"
 
+	"github.com/dustin/go-humanize"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	"github.com/minio/sha256-simd"
+	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/sha3"
@@ -407,15 +409,14 @@ func padTo32Bytes(b []byte) []byte {
 }
 
 func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
-	//const arity = 2
 
 	rootChallengeOffset := challengedLeaf * LeafSize
 
-	var pieceCid string
+	var pieceCid, dealID string
 
-	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2 FROM pdp_dataset_piece WHERE data_set_id = $1 AND piece = $2`, dataSetID, pieceID).Scan(&pieceCid)
+	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2, add_deal_id FROM pdp_dataset_piece WHERE data_set_id = $1 AND piece = $2`, dataSetID, pieceID).Scan(&pieceCid, &dealID)
 	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to piece cid and deal id for the piece: %w", err)
 	}
 
 	pcid, err := cid.Parse(pieceCid)
@@ -461,21 +462,23 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 
 		rootDigest = mProof.Root
 	} else {
-		//Calculate layer L such that 127 * 2^L >= targetReadSize
-		//→ 2^L >= targetReadSize / 32
-		//ratio := float64(4161536) / 32
-		//layerIdx := int(math.Ceil(math.Log2(ratio)))
 		has, layerIdx, err := p.idx.GetPDPLayerIndex(ctx, pcid)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to check if piece has PDP layer: %w", err)
 		}
 
 		if !has {
-			panic("implement me") // TODO: Trigger a Layer save task here and figure out if we should proceed or not
+			log.Errorf("No proving cache found for piece %s. Create a save cache task", pcid.String())
+			err = p.startSaveCache(ctx, dealID)
+			if err != nil {
+				return contract.IPDPTypesProof{}, xerrors.Errorf("failed to start save cache task: %w", err)
+			}
+			return contract.IPDPTypesProof{}, xerrors.Errorf("No proving cache found for piece %s. Create a save cache task", pcid.String())
 		}
 
 		leavesPerNode := int64(1) << layerIdx
 		snapshotNodeIndex := challengedLeaf >> layerIdx
+		startLeaf := snapshotNodeIndex << layerIdx
 
 		has, node, err := p.idx.GetPDPNode(ctx, pcid, layerIdx, snapshotNodeIndex)
 		if err != nil {
@@ -483,10 +486,13 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		}
 
 		if !has {
-			// TODO: Trigger a Layer save task here and figure out if we should proceed or not
-			// TODO: Proceeding from here can cause memory issue for big pieces, we will need to generate proof using some other lib
-			panic("implement me")
-		} // TODO: Trigger a Layer save task here and figure out if we should proceed or not
+			log.Errorf("Proving cache does not have the node for piece %s. Create a save cache task", pcid.String())
+			err = p.startSaveCache(ctx, dealID)
+			if err != nil {
+				return contract.IPDPTypesProof{}, xerrors.Errorf("failed to start save cache task: %w", err)
+			}
+			return contract.IPDPTypesProof{}, xerrors.Errorf("Proving cache does not have the node for piece %s. Create a save cache task", pcid.String())
+		}
 
 		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf, "layerIdx", layerIdx, "snapshotNodeIndex", snapshotNodeIndex, "node", node)
 
@@ -494,7 +500,6 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 			return contract.IPDPTypesProof{}, xerrors.Errorf("node layer mismatch: %d != %d", node.Layer, layerIdx)
 		}
 
-		startLeaf := snapshotNodeIndex << layerIdx
 		// Convert tree-based leaf range to file-based offset/length
 		offset := int64(abi.PaddedPieceSize(startLeaf * 32).Unpadded())
 		length := int64(abi.PaddedPieceSize(leavesPerNode * 32).Unpadded())
@@ -511,13 +516,16 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 			_ = reader.Close()
 		}()
 
+		// Create a new section reader that only reads the requested range
+		dataReader := io.NewSectionReader(reader, offset, length)
+
 		fileRemaining := int64(reportedSize) - offset
 
 		var data io.Reader
 		if fileRemaining < length {
-			data = io.MultiReader(reader, nullreader.NewNullReader(abi.UnpaddedPieceSize(int64(subrootSize.Unpadded())-fileRemaining)))
+			data = io.MultiReader(dataReader, nullreader.NewNullReader(abi.UnpaddedPieceSize(int64(subrootSize.Unpadded())-fileRemaining)))
 		} else {
-			data = reader
+			data = dataReader
 		}
 
 		memtree, err := proof.BuildSha254Memtree(data, subrootSize.Unpadded())
@@ -550,6 +558,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		for _, n := range layerNodes {
 			layerBytes = append(layerBytes, n.Hash[:]...)
 		}
+		log.Debugw("layerBytes", "Human Size", humanize.Bytes(uint64(len(layerBytes))), "Size", len(layerBytes), "Number of nodes", len(layerNodes))
 
 		// Create subTree from snapshot to commP (root)
 		mtree, err := proof.BuildSha254MemtreeFromSnapshot(layerBytes)
@@ -658,3 +667,34 @@ func shabytes(in []byte) []byte {
 
 var _ = harmonytask.Reg(&ProveTask{})
 var _ harmonytask.TaskInterface = &ProveTask{}
+
+func (p *ProveTask) startSaveCache(ctx context.Context, dealID string) error {
+	id, err := ulid.Parse(dealID)
+	if err != nil {
+		return xerrors.Errorf("failed to parse deal ID: %w", err)
+	}
+
+	deal, err := mk20.DealFromDB(ctx, p.db, id)
+	if err != nil {
+		return xerrors.Errorf("failed to get deal from DB: %w", err)
+	}
+
+	pdp := deal.Products.PDPV1
+
+	var refID int64
+	err = p.db.QueryRow(ctx, `SELECT piece_ref FROM market_piece_deal WHERE id = $1 AND piece_ref IS NOT NULL`, id.String()).Scan(&refID)
+	if err != nil {
+		return xerrors.Errorf("failed to get piece ref: %w", err)
+	}
+
+	_, err = p.db.Exec(ctx, `INSERT INTO pdp_pipeline (
+									id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
+                          			downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload, after_commp, after_add_piece, after_add_piece_msg) 
+								VALUES ($1, $2, $3, $4, $5, $6, TRUE, 0, 0, TRUE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE) ON CONFLICT(id, aggr_index) DO NOTHING`,
+		id.String(), deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID, pdp.ExtraData, refID)
+
+	if err != nil {
+		return xerrors.Errorf("inserting piece in PDP pipeline: %w", err)
+	}
+	return nil
+}

@@ -70,7 +70,7 @@ func TestNewIndexStore(t *testing.T) {
 	_, err = io.Copy(cp, f)
 	require.NoError(t, err)
 
-	digest, _, layerIdx, layer, err := cp.DigestWithSnapShot()
+	digest, _, layerIdx, _, layer, err := cp.DigestWithSnapShot()
 	require.NoError(t, err)
 
 	t.Logf("Layer number: %d", layerIdx)

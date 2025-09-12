@@ -294,3 +294,10 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 
 	return comm.PCidV2(), nil
 }
+
+func EnvElse(env, els string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	return els
+}

@@ -95,7 +95,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("failed to copy piece data to commP: %w", err)
 			}
 
-			digest, _, lidx, snap, err := cp.DigestWithSnapShot()
+			digest, _, lidx, _, snap, err := cp.DigestWithSnapShot()
 			if err != nil {
 				return false, xerrors.Errorf("failed to get piece digest: %w", err)
 			}
