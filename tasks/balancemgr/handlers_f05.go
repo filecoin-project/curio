@@ -140,7 +140,7 @@ func (b *BalanceMgrTask) doF05(ctx context.Context, taskID harmonytask.TaskID, a
 		Params: params,
 	}
 
-	msgCid, err := b.sender.Send(ctx, msg, msp, "add-market-collateral")
+	msgCid, err := b.sender.Send(ctx, msg, msp, "balancemgr-f05")
 	if err != nil {
 		return false, xerrors.Errorf("failed to send message: %w", err)
 	}
@@ -162,18 +162,10 @@ func (b *BalanceMgrTask) doF05(ctx context.Context, taskID harmonytask.TaskID, a
 		return false, xerrors.Errorf("updating message cid: %w", err)
 	}
 
-	_, err = b.db.Exec(ctx, `
-			INSERT INTO proofshare_client_messages (signed_cid, wallet, action)
-			VALUES ($1, $2, $3)
-		`, msgCid, addrID, "deposit-bmgr")
-	if err != nil {
-		return false, xerrors.Errorf("addMessageTracking: failed to insert proofshare_client_messages: %w", err)
-	}
-
 	log.Infow("sent balance management message",
 		"from", addr.SecondAddress,
 		"to", to,
-		"subjectType", "proofshare",
+		"subjectType", "f05",
 		"amount", types.FIL(amount),
 		"msgCid", msgCid,
 		"actionType", addr.ActionType)
