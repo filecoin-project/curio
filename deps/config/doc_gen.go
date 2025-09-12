@@ -950,8 +950,7 @@ allow indexer nodes to process announcements. Default: False`,
 			Name: "ServiceURL",
 			Type: "[]string",
 
-			Comment: `The network indexer web UI URL for viewing published announcements
-TODO: should we use this for checking published heads before publishing? Later commit`,
+			Comment: `The network indexer web UI URL for viewing published announcements`,
 		},
 		{
 			Name: "DirectAnnounceURLs",

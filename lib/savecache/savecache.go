@@ -407,9 +407,8 @@ func (cp *Calc) snapshotLayerIndex(size uint64, test bool) {
 	//Calculate layer L such that 127 * 2^L >= targetReadSize
 	//→ 2^L >= targetReadSize / 32
 	//ratio := float64(1040384) / 32
-	testRatio := float64(2032) / LeafSize // 2 KiB.UnPadded()
-	//ProdRatio := float64(4161536) / LeafSize // 4 MiB.UnPadded()
-	ProdRatio := float64(4064) / LeafSize // 4 KiB.UnPadded()
+	testRatio := float64(2032) / LeafSize    // 2 KiB.UnPadded()
+	ProdRatio := float64(4161536) / LeafSize // 4 MiB.UnPadded()
 	var layer int
 	if test {
 		layer = int(math.Ceil(math.Log2(testRatio)))

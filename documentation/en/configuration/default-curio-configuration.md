@@ -767,7 +767,6 @@ description: The default curio configuration
       #Disable = false
 
       # The network indexer web UI URL for viewing published announcements
-      # TODO: should we use this for checking published heads before publishing? Later commit
       #
       # type: []string
       #ServiceURL = ["https://cid.contact"]

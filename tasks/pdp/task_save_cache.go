@@ -22,7 +22,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
-const MinSizeForCache = uint64(1 * 1024 * 1024)
+const MinSizeForCache = uint64(100 * 1024 * 1024)
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
