@@ -10,7 +10,7 @@
 // PDP_CONTRACT=0x4A6867D8537f83c1cEae02dF9Df2E31a6c5A1bb6
 
 import { getAuthConfigFromEnv, buildAuthHeader, createClient } from './auth';
-import { Mk20Deal, Mk20Products, Mk20PDPV1 } from '../../generated';
+import { CurioMarket } from '../../src';
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -47,7 +47,7 @@ async function run(uploadId?: string) {
   console.log(`🗑️  Requesting deletion of upload ${targetUploadId}...`);
   
   // Request deletion by updating the deal with delete flags
-  const deleteDeal: Mk20Deal = {
+  const deleteDeal: CurioMarket.Deal = {
     identifier: targetUploadId,
     client: config.clientAddr,
     products: {
@@ -55,8 +55,8 @@ async function run(uploadId?: string) {
         deletePiece: true,
         deleteDataSet: true,
         recordKeeper: config.recordKeeper,
-      } as Mk20PDPV1
-    } as Mk20Products
+      } as CurioMarket.PDPV1
+    } as CurioMarket.Products
   };
   
   try {

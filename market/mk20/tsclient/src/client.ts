@@ -3,6 +3,7 @@ import { monotonicFactory } from 'ulid';
 import { Configuration } from '../generated/runtime';
 import { Mk20StartUpload } from '../generated/models/Mk20StartUpload';
 import { StreamingPDP } from './streaming';
+import { calculate as calculatePieceCID } from './piece';
 
 const ulid = monotonicFactory(() => Math.random());
 export interface MarketClientConfig extends Omit<ConfigurationParameters, 'basePath'> {
@@ -11,22 +12,11 @@ export interface MarketClientConfig extends Omit<ConfigurationParameters, 'baseP
 
 /**
  * Utility class for computing Filecoin piece CID v2 from blobs
- * Ports the exact Go CommP algorithm from lib/commcidv2/commcidv2.go
+ * Uses the better implementation from piece.ts
  */
 export class PieceCidUtils {
-  // Filecoin multicodec constants (same as Go)
-  private static readonly FIL_COMMITMENT_UNSEALED = 0x1020;
-  private static readonly FIL_COMMITMENT_SEALED = 0x1021;
-  private static readonly SHA2_256_TRUNC254_PADDED = 0x1012;
-  private static readonly POSEIDON_BLS12_381_A2_FC1 = 0xb401;
-
-  // CommP constants (same as Go)
-  private static readonly NODE_SIZE = 32;
-  private static readonly NODE_LOG2_SIZE = 5;
-
   /**
    * Compute piece CID v2 from an array of blobs
-   * Uses the exact same algorithm as Go NewSha2CommP + PCidV2
    * @param blobs - Array of Blob objects
    * @returns Promise<string> - Piece CID v2 as a string
    */
@@ -44,235 +34,12 @@ export class PieceCidUtils {
         offset += uint8Array.length;
       }
 
-      // Compute SHA256 hash (works in browser and Node)
-      const hashArray = await this.computeSha256(concatenatedData);
-
-      // Create CommP using the exact Go algorithm
-      const commP = this.newSha2CommP(totalSize, hashArray);
-      
-      // Generate piece CID v2 using the exact Go algorithm
-      const pieceCidV2 = this.pCidV2(commP);
-      
-      return pieceCidV2;
+      // Use the better piece.ts implementation
+      const pieceCID = calculatePieceCID(concatenatedData);
+      return pieceCID.toString();
     } catch (error) {
       throw new Error(`Failed to compute piece CID v2: ${error}`);
     }
-  }
-
-  /**
-   * Compute SHA-256 digest cross-environment (browser WebCrypto or Node crypto)
-   */
-  private static async computeSha256(data: Uint8Array): Promise<Uint8Array> {
-    if (typeof globalThis !== 'undefined' && (globalThis as any).crypto && (globalThis as any).crypto.subtle) {
-      const h = await (globalThis as any).crypto.subtle.digest('SHA-256', data);
-      return new Uint8Array(h);
-    }
-    try {
-      const nodeCrypto = await import('crypto');
-      const hasher = nodeCrypto.createHash('sha256');
-      hasher.update(Buffer.from(data));
-      return new Uint8Array(hasher.digest());
-    } catch {
-      throw new Error('No available crypto implementation to compute SHA-256 digest in this environment');
-    }
-  }
-
-  /**
-   * NewSha2CommP - exact port of Go function
-   * @param payloadSize - Size of the payload in bytes
-   * @param digest - 32-byte SHA256 digest
-   * @returns CommP object
-   */
-  private static newSha2CommP(payloadSize: number, digest: Uint8Array): any {
-    if (digest.length !== this.NODE_SIZE) {
-      throw new Error(`digest size must be 32, got ${digest.length}`);
-    }
-
-    let psz = payloadSize;
-
-    // always 4 nodes long
-    if (psz < 127) {
-      psz = 127;
-    }
-
-    // fr32 expansion, count 127 blocks, rounded up
-    const boxSize = Math.ceil((psz + 126) / 127) * 128;
-
-    // hardcoded for now
-    const hashType = 1;
-    const treeHeight = this.calculateTreeHeight(boxSize);
-    const payloadPadding = ((1 << (treeHeight - 2)) * 127) - payloadSize;
-
-    return {
-      hashType,
-      digest,
-      treeHeight,
-      payloadPadding
-    };
-  }
-
-  /**
-   * Calculate tree height using the exact Go algorithm
-   * @param boxSize - The box size after fr32 expansion
-   * @returns Tree height
-   */
-  private static calculateTreeHeight(boxSize: number): number {
-    // 63 - bits.LeadingZeros64(boxSize) - nodeLog2Size
-    let leadingZeros = 0;
-    let temp = boxSize;
-    while (temp > 0) {
-      temp = temp >>> 1;
-      leadingZeros++;
-    }
-    leadingZeros = 64 - leadingZeros;
-    
-    let treeHeight = 63 - leadingZeros - this.NODE_LOG2_SIZE;
-    
-    // if bits.OnesCount64(boxSize) != 1 { treeHeight++ }
-    if (this.countOnes(boxSize) !== 1) {
-      treeHeight++;
-    }
-    
-    return treeHeight;
-  }
-
-  /**
-   * Count the number of 1 bits in a 64-bit number
-   * @param n - 64-bit number
-   * @returns Number of 1 bits
-   */
-  private static countOnes(n: number): number {
-    let count = 0;
-    while (n > 0) {
-      count += n & 1;
-      n = n >>> 1;
-    }
-    return count;
-  }
-
-  /**
-   * PCidV2 - exact port of Go function
-   * @param commP - CommP object
-   * @returns Piece CID v2 string
-   */
-  private static pCidV2(commP: any): string {
-    // The Go piece CID v2 format uses a specific prefix structure
-    // From Go: pCidV2Pref: "\x01" + "\x55" + "\x91" + "\x20"
-    // This creates: [0x01, 0x55, 0x91, 0x20] = CID v1 + raw codec + multihash length + multihash code
-    
-    // Create the complete piece CID v2 structure
-    // From Go: pCidV2Pref: "\x01" + "\x55" + "\x91" + "\x20"
-    // This creates: [0x01, 0x55, 0x91, 0x20] = CID v1 + raw codec + multihash length + multihash code
-    // But the actual piece CID v2 format needs to include the multihash code 0x1011
-    const prefix = new Uint8Array([0x01, 0x55, 0x91, 0x20]); // Exact match with Go pCidV2Pref
-    
-    // Calculate varint size for payload padding
-    const ps = this.varintSize(commP.payloadPadding);
-    
-    // Create buffer with exact size calculation from Go
-    const bufSize = prefix.length + 1 + ps + 1 + this.NODE_SIZE;
-    const buf = new Uint8Array(bufSize);
-    
-    let n = 0;
-    
-    // Copy prefix
-    n += this.copyBytes(buf, n, prefix);
-    
-    // Set size byte: ps + 1 + nodeSize
-    buf[n] = ps + 1 + this.NODE_SIZE;
-    n++;
-    
-    // Put varint for payload padding
-    n += this.putVarint(buf, n, commP.payloadPadding);
-    
-    // Set tree height
-    buf[n] = commP.treeHeight;
-    n++;
-    
-    // Copy digest
-    this.copyBytes(buf, n, commP.digest);
-    
-    // Convert to base32 CID string
-    return this.bytesToCidString(buf);
-  }
-
-  /**
-   * Calculate varint size for a number
-   * @param value - Number to encode
-   * @returns Size in bytes
-   */
-  private static varintSize(value: number): number {
-    if (value < 0x80) return 1;
-    if (value < 0x4000) return 2;
-    if (value < 0x200000) return 3;
-    if (value < 0x10000000) return 4;
-    if (value < 0x800000000) return 5;
-    if (value < 0x40000000000) return 6;
-    if (value < 0x2000000000000) return 7;
-    if (value < 0x100000000000000) return 8;
-    return 9;
-  }
-
-  /**
-   * Put varint into buffer
-   * @param buf - Buffer to write to
-   * @param offset - Offset in buffer
-   * @param value - Value to encode
-   * @returns Number of bytes written
-   */
-  private static putVarint(buf: Uint8Array, offset: number, value: number): number {
-    let n = 0;
-    while (value >= 0x80) {
-      buf[offset + n] = (value & 0x7F) | 0x80;
-      value = value >>> 7;
-      n++;
-    }
-    buf[offset + n] = value & 0x7F;
-    return n + 1;
-  }
-
-  /**
-   * Copy bytes from source to destination
-   * @param dest - Destination buffer
-   * @param destOffset - Destination offset
-   * @param source - Source buffer
-   * @returns Number of bytes copied
-   */
-  private static copyBytes(dest: Uint8Array, destOffset: number, source: Uint8Array): number {
-    dest.set(source, destOffset);
-    return source.length;
-  }
-
-  /**
-   * Convert bytes to CID string
-   * @param bytes - Bytes to convert
-   * @returns CID string
-   */
-  private static bytesToCidString(bytes: Uint8Array): string {
-    // This is a simplified conversion - in practice you'd use a proper CID library
-    // For now, we'll create a base32-like representation
-    const base32Chars = 'abcdefghijklmnopqrstuvwxyz234567';
-    let result = '';
-    let value = 0;
-    let bits = 0;
-    
-    for (let i = 0; i < bytes.length; i++) {
-      value = (value << 8) | bytes[i];
-      bits += 8;
-      
-      while (bits >= 5) {
-        result += base32Chars[(value >>> (bits - 5)) & 31];
-        bits -= 5;
-      }
-    }
-    
-    if (bits > 0) {
-      result += base32Chars[(value << (5 - bits)) & 31];
-    }
-    
-    // Add the "b" prefix to match Go's piece CID v2 format
-    // Go generates: bafkzcibd6adqm6c3a5i7ylct3qkkjtr5qahgt3444eaj5mzhzt2frl7atqscyjwj
-    return `b${result}`;
   }
 }
 

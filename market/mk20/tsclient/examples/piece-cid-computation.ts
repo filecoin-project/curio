@@ -1,4 +1,4 @@
-import { PieceCidUtils } from '../src';
+import { CurioMarket } from '../src';
 
 // Example: Compute piece CID v2 from blobs
 async function computePieceCidExample() {
@@ -18,7 +18,7 @@ async function computePieceCidExample() {
     });
 
     // Compute piece CID v2
-    const pieceCid = await PieceCidUtils.computePieceCidV2(mockBlobs);
+    const pieceCid = CurioMarket.calculatePieceCID(mockBlobs);
     
     console.log('\n✅ Piece CID v2 computed successfully!');
     console.log(`🔗 Piece CID: ${pieceCid}`);
@@ -49,8 +49,8 @@ async function convertCidV1ToV2Example() {
     console.log(`🔍 Codec: ${cidV1.code}`);
     console.log(`🔍 Hash: ${cidV1.multihash.name}`);
 
-    // Convert to piece CID v2
-    const pieceCidV2 = await PieceCidUtils.pieceCidV2FromV1(cidV1, mockData.length);
+    // Convert to piece CID v2 using the better implementation
+    const pieceCidV2 = CurioMarket.calculatePieceCID(mockData);
     
     console.log('\n✅ Conversion successful!');
     console.log(`📤 Output piece CID v2: ${pieceCidV2.toString()}`);
@@ -83,7 +83,7 @@ async function handleDifferentBlobTypesExample() {
     });
 
     // Compute piece CID v2
-    const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
+    const pieceCid = await CurioMarket.PieceCidUtils.computePieceCidV2(blobs);
     
     console.log('\n✅ Piece CID computed for mixed blob types!');
     console.log(`🔗 Piece CID: ${pieceCid}`);
@@ -104,20 +104,19 @@ async function errorHandlingExample() {
 
     // Test with empty blob array
     try {
-      await PieceCidUtils.computePieceCidV2([]);
+      await CurioMarket.PieceCidUtils.computePieceCidV2([]);
       console.log('❌ Should have thrown error for empty blobs');
     } catch (error) {
       console.log('✅ Correctly handled empty blob array:', error.message);
     }
 
-    // Test with invalid CID
+    // Test with invalid data
     try {
-      const { CID } = await import('multiformats/cid');
-      const invalidCid = CID.create(1, 0x999, { code: 0x999, digest: new Uint8Array(16) });
-      await PieceCidUtils.pieceCidV2FromV1(invalidCid, 100);
-      console.log('❌ Should have thrown error for invalid CID');
+      const invalidData = new Uint8Array(0); // Empty data
+      CurioMarket.calculatePieceCID(invalidData);
+      console.log('❌ Should have thrown error for invalid data');
     } catch (error) {
-      console.log('✅ Correctly handled invalid CID:', error.message);
+      console.log('✅ Correctly handled invalid data:', error.message);
     }
 
   } catch (error) {

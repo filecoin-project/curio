@@ -10,7 +10,7 @@
 // PDP_CONTRACT=0x4A6867D8537f83c1cEae02dF9Df2E31a6c5A1bb6
 
 import { getAuthConfigFromEnv, buildAuthHeader, createClient, sanitizeAuthHeader, runPreflightChecks } from './auth';
-import { Mk20Deal, Mk20Products, Mk20PDPV1, Mk20RetrievalV1 } from '../../generated';
+import { CurioMarket } from '../../src';
 import { ulid } from 'ulid';
 
 async function sleep(ms: number) {
@@ -40,7 +40,7 @@ async function run() {
   // Create dataset with a fresh identifier (first part of startPDPv1DealForUpload)
   console.log('📝 Creating PDPv1 dataset...');
   const datasetId = ulid();
-  const createDeal: Mk20Deal = {
+  const createDeal: CurioMarket.Deal = {
     identifier: datasetId,
     client: config.clientAddr,
     products: {
@@ -51,9 +51,9 @@ async function run() {
         extraData: [],
         deleteDataSet: false,
         deletePiece: false,
-      } as Mk20PDPV1,
-    } as Mk20Products,
-  } as Mk20Deal;
+      } as CurioMarket.PDPV1,
+    } as CurioMarket.Products,
+  } as CurioMarket.Deal;
   
   // Submit the dataset creation deal
   console.log('📤 Submitting dataset creation deal...');

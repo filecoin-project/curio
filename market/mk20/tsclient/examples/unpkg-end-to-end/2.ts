@@ -10,11 +10,10 @@
 // PDP_CONTRACT=0x4A6867D8537f83c1cEae02dF9Df2E31a6c5A1bb6
 
 import { getAuthConfigFromEnv, buildAuthHeader, createClient, sanitizeAuthHeader, runPreflightChecks } from './auth';
-import { Mk20Deal, Mk20Products, Mk20PDPV1, Mk20RetrievalV1, Mk20DataSource } from '../../generated';
-import { PieceCidUtils } from '../../src';
+import { CurioMarket } from '../../src';
 import { ulid } from 'ulid';
 
-async function sleep(ms: number) {
+async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
@@ -68,20 +67,20 @@ async function run(datasetId?: string) {
   
   // Compute piece CID
   console.log('🔗 Computing piece CID...');
-  const pieceCid = await PieceCidUtils.computePieceCidV2([blob]);
+  const pieceCid = await CurioMarket.PieceCidUtils.computePieceCidV2([blob]);
   console.log(`   Piece CID: ${pieceCid}`);
   
   // Add piece with data under a new identifier (upload id)
   console.log('📝 Creating add piece deal...');
   const uploadId = ulid();
-  const addPieceDeal: Mk20Deal = {
+  const addPieceDeal: CurioMarket.Deal = {
     identifier: uploadId,
     client: config.clientAddr,
     data: {
       pieceCid: { "/": pieceCid } as object,
       format: { raw: {} },
       sourceHttpPut: {},
-    } as Mk20DataSource,
+    } as CurioMarket.DataSource,
     products: {
       pdpV1: {
         addPiece: true,
@@ -90,14 +89,14 @@ async function run(datasetId?: string) {
         extraData: [],
         deleteDataSet: false,
         deletePiece: false,
-      } as Mk20PDPV1,
+      } as CurioMarket.PDPV1,
       retrievalV1: {
         announcePayload: false,
         announcePiece: true,
         indexing: false,
-      } as Mk20RetrievalV1,
-    } as Mk20Products,
-  } as Mk20Deal;
+      } as CurioMarket.RetrievalV1,
+    } as CurioMarket.Products,
+  } as CurioMarket.Deal;
   
   // Submit the add piece deal
   console.log('📤 Submitting add piece deal...');
