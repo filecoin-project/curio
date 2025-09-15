@@ -104,29 +104,6 @@ async function run(datasetId?: string) {
   const dealId = await client.submitDeal(addPieceDeal);
   console.log(`   Add piece deal submitted with ID: ${uploadId}, deal ID: ${dealId}`);
   
-  // Wait for add piece to complete
-  console.log('⏳ Waiting for add piece to complete...');
-  let addPieceComplete = false;
-  for (let i = 0; i < 12; i++) { // up to 60 seconds with 5s interval
-    try {
-      const status = await client.getStatus(uploadId);
-      const pdp = status.pdpV1;
-      const st = pdp?.status;
-      console.log(`   Add piece status: ${st}${pdp?.errorMsg ? `, error: ${pdp.errorMsg}` : ''}`);
-      if (st === 'complete' || st === 'failed') {
-        addPieceComplete = true;
-        break;
-      }
-    } catch (e) {
-      console.log(`   Status check failed (attempt ${i + 1}): ${(e as Error).message}`);
-      if (i === 11) {
-        console.log('   ⚠️  Status polling timed out after 60 seconds');
-        break;
-      }
-    }
-    await sleep(5000);
-  }
-  
   if (!addPieceComplete) {
     console.log('   ⏰ Add piece status polling timed out after 60 seconds');
     console.log('   🔗 Please check the blockchain for deal status:');

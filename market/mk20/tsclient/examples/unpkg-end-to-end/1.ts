@@ -52,11 +52,6 @@ async function run() {
         deleteDataSet: false,
         deletePiece: false,
       } as Mk20PDPV1,
-      retrievalV1: {
-        announcePayload: true,
-        announcePiece: true,
-        indexing: true,
-      } as Mk20RetrievalV1,
     } as Mk20Products,
   } as Mk20Deal;
   
