@@ -1,6 +1,6 @@
 {
   "name": "@curiostorage/market-client",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "TypeScript API client for Curio storage market. You probably want the Synapse SDK instead.",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
