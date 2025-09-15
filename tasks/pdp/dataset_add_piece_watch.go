@@ -84,7 +84,8 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd Data
                                                        AND tx_receipt IS NOT NULL`, pieceAdd.AddMessageHash).Scan(&txSuccess, &txReceiptJSON)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return xerrors.Errorf("tx hash %s is either missing from watch table or is not yet processed by watcher", pieceAdd.AddMessageHash)
+			log.Debugf("tx hash %s is either missing from watch table or is not yet processed by watcher", pieceAdd.AddMessageHash)
+			return nil
 		}
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", pieceAdd.AddMessageHash, err)
 	}

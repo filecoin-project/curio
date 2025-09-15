@@ -200,4 +200,7 @@ func TestPDPProving(t *testing.T) {
 
 	verified := pdp.Verify(out, rd, uint64(challenge))
 	require.True(t, verified)
+
+	err = idxStore.DeletePDPLayer(ctx, pcid2)
+	require.NoError(t, err)
 }

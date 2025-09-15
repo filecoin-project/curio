@@ -65,7 +65,8 @@ func processDataSetPieceDelete(ctx context.Context, db *harmonydb.DB, psd DataSe
                                                        AND tx_receipt IS NOT NULL`, psd.Hash).Scan(&txReceiptJSON, &txSuccess)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return xerrors.Errorf("tx hash %s is either missing from watch table or is not yet processed by watcher", psd.Hash)
+			log.Debugf("tx hash %s is either missing from watch table or is not yet processed by watcher", psd.Hash)
+			return nil
 		}
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", psd.Hash, err)
 	}
@@ -129,8 +130,8 @@ func processDataSetPieceDelete(ctx context.Context, db *harmonydb.DB, psd DataSe
 		if err != nil {
 			return false, xerrors.Errorf("failed to delete row from pdp_piece_delete: %w", err)
 		}
-		_, err = tx.Exec(`INSERT INTO piece_cleanup (id, piece_cid_v2, pdp)
-								SELECT p.add_deal_id, p.piece_cid_v2, TRUE
+		_, err = tx.Exec(`INSERT INTO piece_cleanup (id, piece_cid_v2, pdp, sp_id, sector_number, piece_ref)
+								SELECT p.add_deal_id, p.piece_cid_v2, TRUE, -1, -1, p.piece_ref
 								FROM pdp_dataset_piece AS p
 								WHERE p.data_set_id = $1
 								  AND p.piece = ANY($2)

@@ -133,8 +133,8 @@ BEGIN
 
     -- If a different is_rm exists for the same context_id and provider, insert the new task
     IF FOUND THEN
-        INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
-        VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
+        INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, task_id)
+        VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, _task_id);
         RETURN;
     END IF;
 
@@ -151,8 +151,8 @@ BEGIN
     END IF;
 
     -- If all conditions are met, insert the new task into ipni_task
-    INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
-    VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
+    INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, task_id)
+    VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, _task_id);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -711,7 +711,7 @@ BEGIN
 
     -- If a different is_rm exists for the same context_id and provider, insert the new task
     IF FOUND THEN
-        INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id, created_at)
+        INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id)
         VALUES (_context_id, _is_rm, _id, _provider, _task_id);
         RETURN;
     END IF;

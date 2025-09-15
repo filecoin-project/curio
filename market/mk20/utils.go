@@ -379,13 +379,6 @@ func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, 
 		if err != nil {
 			return code, err
 		}
-		// TODO: Enable this once Indexing is done
-		//if d.RetrievalV1 == nil {
-		//	return ErrProductValidationFailed, xerrors.Errorf("retrieval v1 is required for pdp v1")
-		//}
-		//if d.RetrievalV1.Indexing || d.RetrievalV1.AnnouncePayload {
-		//	return ErrProductValidationFailed, xerrors.Errorf("payload indexing and announcement is not supported for pdp v1")
-		//}
 	}
 
 	if nproducts == 0 {
@@ -529,7 +522,8 @@ func (d *Deal) UpdateDealWithTx(tx *harmonydb.Tx) error {
                             data = $2, 
                             ddo_v1 = $3,
                             retrieval_v1 = $4,
-                            pdp_v1 = $5`, pieceCid, dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
+                            pdp_v1 = $5
+                            WHERE id = $6`, pieceCid, dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1, d.Identifier.String())
 	if err != nil {
 		return xerrors.Errorf("update deal: %w", err)
 	}

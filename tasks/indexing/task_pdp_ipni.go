@@ -561,7 +561,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			// Mark deal is complete if:
 			// 1. We don't need to announce anything
 			// 2. Both type of announcements are done
-			if !(p.Announce && p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) { //nolint:staticcheck
+			if (!p.Announce && !p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) { //nolint:staticcheck
 				isRm = p.IsRM
 				complete = &p.ID
 				return false, nil
@@ -630,12 +630,14 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					if harmonydb.IsErrUniqueContraint(err) {
 						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d with RM %t in deal %s", p.PieceCid, p.AnnouncePayload, p.IsRM, p.ID)
 						stop = false // we found a sector to work on, keep going
+						isRm = p.IsRM
 						markCompletePayload = &p.ID
 						return false, nil
 					}
 					if strings.Contains(err.Error(), "already published") {
 						ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.ID)
 						stop = false // we found a sector to work on, keep going
+						isRm = p.IsRM
 						markCompletePayload = &p.ID
 						return false, nil
 					}
@@ -675,6 +677,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d with RM %t in deal %s", p.PieceCid, p.AnnouncePayload, p.IsRM, p.ID)
 						stop = false // we found a sector to work on, keep going
 						markComplete = &p.ID
+						isRm = p.IsRM
 						return false, nil
 
 					}
@@ -682,6 +685,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 						ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.ID)
 						stop = false // we found a sector to work on, keep going
 						markComplete = &p.ID
+						isRm = p.IsRM
 						return false, nil
 
 					}

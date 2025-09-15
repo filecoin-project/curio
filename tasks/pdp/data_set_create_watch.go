@@ -77,7 +77,8 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, dsc DataSetCrea
                                  AND tx_receipt IS NOT NULL`, dsc.CreateMessageHash).Scan(&txReceiptJSON, &txSuccess)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return xerrors.Errorf("tx hash %s is either missing from watch table or is not yet processed by watcher", dsc.CreateMessageHash)
+			log.Debugf("tx hash %s is either missing from watch table or is not yet processed by watcher", dsc.CreateMessageHash)
+			return nil
 		}
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", dsc.CreateMessageHash, err)
 	}

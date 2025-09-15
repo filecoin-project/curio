@@ -59,7 +59,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
                 SELECT id
                 FROM pdp_data_set
                 WHERE challenge_request_task_id IS NULL
-                AND init_ready AND prove_at_epoch IS NULL
+                AND init_ready AND prove_at_epoch IS NULL AND removed = FALSE
             `)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err)
@@ -71,7 +71,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 				affected, err := tx.Exec(`
                         UPDATE pdp_data_set
                         SET challenge_request_task_id = $1
-                        WHERE id = $2 AND challenge_request_task_id IS NULL
+                        WHERE id = $2 AND challenge_request_task_id IS NULL AND removed = FALSE
                     `, id, ps.DataSetID)
 				if err != nil {
 					return false, xerrors.Errorf("failed to update pdp_data_set: %w", err)

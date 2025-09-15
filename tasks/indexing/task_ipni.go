@@ -722,6 +722,9 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			}
 
 			stop = false // we found a task to schedule, keep going
+			markComplete = &p.UUID
+			mk20 = p.Mk20
+			isRM = p.IsRM
 			return true, nil
 		})
 

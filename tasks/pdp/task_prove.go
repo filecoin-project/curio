@@ -233,24 +233,11 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
-	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
 
-	calcProofFeeResult := make([]any, 1)
-	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetID), gasFee)
+	fee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
-
-	if len(calcProofFeeResult) == 0 {
-		return false, xerrors.Errorf("failed to calculate proof fee: wrong number of return values")
-	}
-	if calcProofFeeResult[0] == nil {
-		return false, xerrors.Errorf("failed to calculate proof fee: nil return value")
-	}
-	if calcProofFeeResult[0].(*big.Int) == nil {
-		return false, xerrors.Errorf("failed to calculate proof fee: nil *big.Int return value")
-	}
-	proofFee := calcProofFeeResult[0].(*big.Int)
 
 	// Get the sender address for this dataset
 	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, big.NewInt(dataSetID))
@@ -267,7 +254,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	txEth := types.NewTransaction(
 		0,
 		pdpVerifierAddress,
-		proofFee,
+		fee,
 		0,
 		nil,
 		data,
@@ -297,8 +284,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
 		"gasFeeEstimate", gasFee,
-		"proofFee initial", proofFee.Div(proofFee, big.NewInt(3)),
-		"proofFee 3x", proofFee,
+		"proofFee initial", fee.Div(fee, big.NewInt(3)),
+		"proofFee 3x", fee,
 		"txEth", txEth,
 	)
 

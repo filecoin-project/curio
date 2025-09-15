@@ -331,6 +331,26 @@ func (p *PieceCleanupTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 	}
 
+	var shouldDropCache bool
+	err = p.db.QueryRow(ctx, `SELECT NOT EXISTS (
+									  SELECT 1
+									  FROM market_piece_deal mpd
+									  WHERE mpd.piece_cid = $1
+										AND mpd.piece_length = $2
+										AND mpd.id IS DISTINCT FROM $3
+										AND mpd.sp_id = -1
+									) AS ok;`, pi.PieceCIDV1.String(), pi.Size, task.ID).Scan(&shouldDropCache)
+	if err != nil {
+		return false, xerrors.Errorf("failed to check if we should drop cache for piece %s: %w", pcid2, err)
+	}
+
+	if shouldDropCache {
+		err = p.indexStore.DeletePDPLayer(ctx, pcid2)
+		if err != nil {
+			return false, xerrors.Errorf("failed to drop cache for piece %s: %w", pcid2, err)
+		}
+	}
+
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		if task.PDP {
 			_, err = tx.Exec(`SELECT remove_piece_deal($1, $2, $3, $4)`, task.ID, -1, pi.PieceCIDV1.String(), pi.Size)
@@ -351,15 +371,16 @@ func (p *PieceCleanupTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		_, err = tx.Exec(`UPDATE piece_cleanup SET 
-                         cleanup_task_id = NULL, 
-                         after_cleanup = TRUE,
-                         piece_cid = $1,
-                         piece_size = $2,
-                     WHERE task_id = $3`, pi.PieceCIDV1.String(), pi.Size, task.ID)
+								 cleanup_task_id = NULL, 
+								 after_cleanup = TRUE,
+								 piece_cid = $1,
+								 piece_size = $2
+							  WHERE cleanup_task_id = $3`, pi.PieceCIDV1.String(), pi.Size, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to mark complete cleanup task: %w", err)
 		}
 		return true, nil
+
 	}, harmonydb.OptionRetry())
 	if err != nil {
 		return false, xerrors.Errorf("failed to commit piece cleanup: %w", err)

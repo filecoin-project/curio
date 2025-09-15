@@ -257,7 +257,7 @@ func (mw *MessageWatcherEth) update() {
 		}
 	}
 
-	log.Infow("MessageWatcherEth update completed",
+	log.Debugw("MessageWatcherEth update completed",
 		"processed", processed,
 		"confirmed", confirmed,
 		"stillPending", stillPending,

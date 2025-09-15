@@ -208,6 +208,9 @@ func TestNewIndexStore(t *testing.T) {
 	require.Equal(t, node.Layer, layerIdx)
 	require.Equal(t, node.Hash, layer[challenge].Hash)
 
+	err = idxStore.DeletePDPLayer(ctx, pcid2)
+	require.NoError(t, err)
+
 	// Drop the tables
 	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
 	require.NoError(t, err)

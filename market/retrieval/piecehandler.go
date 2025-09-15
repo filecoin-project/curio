@@ -44,20 +44,6 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For PDP metrics check if this is a PDP piece
-	var isPDP bool
-	err = rp.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 LIMIT 1)`, pieceCid.String()).Scan(&isPDP)
-	if err != nil {
-		log.Errorf("failed to query the db for piece CID %s: %s", pieceCid, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		stats.Record(ctx, remoteblockstore.HttpPieceByCid500ResponseCount.M(1))
-		return
-	}
-
-	if isPDP {
-		stats.Record(ctx, remoteblockstore.PDPPieceByCidRequestCount.M(1))
-	}
-
 	// Get a reader over the piece
 	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
 	if err != nil {
@@ -88,14 +74,9 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w, pieceCid, contentType, int64(size))
 	serveContent(w, r, reader)
 
-	if isPDP {
-		stats.Record(ctx, remoteblockstore.PDPPieceByCid200ResponseCount.M(1))
-		stats.Record(ctx, remoteblockstore.PDPPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
-		stats.Record(ctx, remoteblockstore.PDPPieceBytesServedCount.M(int64(size)))
-	} else {
-		stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
-		stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
-	}
+	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
+	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+
 }
 
 func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string, size int64) {

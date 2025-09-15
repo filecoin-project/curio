@@ -757,11 +757,20 @@ func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layerI
 }
 
 func (i *IndexStore) DeletePDPLayer(ctx context.Context, pieceCidV2 cid.Cid) error {
-	qry := `DELETE FROM pdp_cache_layer WHERE PieceCid = ?`
-	if err := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Exec(); err != nil {
-		return xerrors.Errorf("deleting PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+	for {
+		has, layerIdx, err := i.GetPDPLayerIndex(ctx, pieceCidV2)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return nil
+		}
+
+		qry := `DELETE FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ?`
+		if err := i.session.Query(qry, pieceCidV2.Bytes(), layerIdx).WithContext(ctx).Exec(); err != nil {
+			return xerrors.Errorf("deleting PDP cache layer with index %d (P:0x%02x): %w", layerIdx, pieceCidV2.Bytes(), err)
+		}
 	}
-	return nil
 }
 
 func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int, index int64) (bool, *NodeDigest, error) {

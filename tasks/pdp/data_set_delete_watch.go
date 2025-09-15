@@ -71,7 +71,8 @@ func processDataSetDelete(ctx context.Context, db *harmonydb.DB, psd DataSetDele
                                                        AND tx_receipt IS NOT NULL`, psd.DeleteMessageHash).Scan(&txReceiptJSON, &txSuccess)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return xerrors.Errorf("tx hash %s is either missing from watch table or is not yet processed by watcher", psd.DeleteMessageHash)
+			log.Debugf("tx hash %s is either missing from watch table or is not yet processed by watcher", psd.DeleteMessageHash)
+			return nil
 		}
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", psd.DeleteMessageHash, err)
 	}
@@ -128,14 +129,6 @@ func processDataSetDelete(ctx context.Context, db *harmonydb.DB, psd DataSetDele
 			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 		}
 
-		_, err = tx.Exec(`UPDATE pdp_dataset_piece SET removed = TRUE, 
-                         remove_deal_id = $1, 
-                         remove_message_hash = $2 
-                         WHERE data_set_id = $3`, psd.ID, psd.DeleteMessageHash, psd.PID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_dataset_piece: %w", err)
-		}
-
 		_, err = tx.Exec(`DELETE FROM pdp_data_set_delete WHERE id = $1`, psd.ID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to delete row from pdp_data_set_delete: %w", err)
@@ -149,6 +142,25 @@ func processDataSetDelete(ctx context.Context, db *harmonydb.DB, psd DataSetDele
 		}
 		if n != 1 {
 			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+		}
+
+		// Start piece cleanup tasks
+		_, err = tx.Exec(`INSERT INTO piece_cleanup (id, piece_cid_v2, pdp, sp_id, sector_number, piece_ref)
+								SELECT p.add_deal_id, p.piece_cid_v2, TRUE, -1, -1, p.piece_ref
+								FROM pdp_dataset_piece AS p
+								WHERE p.data_set_id = $1
+									AND p.removed = FALSE
+								ON CONFLICT (id, pdp) DO NOTHING;`, psd.PID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into piece_cleanup: %w", err)
+		}
+
+		_, err = tx.Exec(`UPDATE pdp_dataset_piece SET removed = TRUE, 
+                         remove_deal_id = $1, 
+                         remove_message_hash = $2 
+                         WHERE data_set_id = $3`, psd.ID, psd.DeleteMessageHash, psd.PID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_dataset_piece: %w", err)
 		}
 
 		return true, nil
