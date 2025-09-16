@@ -71,17 +71,7 @@ func (b *BalanceMgrTask) doF05(ctx context.Context, taskID harmonytask.TaskID, a
 	if err != nil {
 		return false, xerrors.Errorf("getting source balance: %w", err)
 	}
-
-	idAddr, err := b.chain.StateLookupID(ctx, addr.SubjectAddress, types.EmptyTSK)
-	if err != nil {
-		return false, xerrors.Errorf("getting address ID: %w", err)
-	}
-
-	addrID, err := address.IDFromAddress(idAddr)
-	if err != nil {
-		return false, xerrors.Errorf("getting address ID: %w", err)
-	}
-
+	
 	addr.SubjectBalance = big.Sub(marketBalance.Escrow, marketBalance.Locked)
 	addr.SecondBalance = types.BigInt(sourceBalance.Balance)
 
