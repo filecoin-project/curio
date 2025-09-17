@@ -26,8 +26,9 @@ func ContractAddresses() PDPContracts {
 			},
 		}
 	case build.BuildMainnet:
-		// Compatible contract not yet deployed
-		panic("compatible PDP contract not available on mainnet")
+		return PDPContracts{
+			PDPVerifier: common.HexToAddress("0x1790d465d1FABE85b530B116f385091d52a12a3b"),
+		}
 	default:
 		panic("PDP contract unknown for this network")
 	}
