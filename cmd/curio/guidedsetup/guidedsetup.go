@@ -11,7 +11,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"math/bits"
 	"os"
 	"os/signal"
 	"path"
@@ -310,15 +309,6 @@ func configToDB(d *MigrationData) {
 	}
 }
 
-// bucket returns the power's 4 highest bits (rounded down).
-func bucket(power *lapi.MinerPower) uint64 {
-	rawQAP := power.TotalPower.QualityAdjPower.Uint64()
-	magnitude := lo.Max([]int{bits.Len64(rawQAP), 5})
-
-	// shifting erases resolution so we cannot distinguish SPs of similar scales.
-	return rawQAP >> (uint64(magnitude) - 4) << (uint64(magnitude - 4))
-}
-
 func doc(d *MigrationData) {
 	d.say(plain, "Documentation: ")
 	d.say(plain, "The '%s' layer stores common configuration. All curio instances can include it in their %s argument.", "base", "--layers")
@@ -351,7 +341,7 @@ func readMinerConfig(d *MigrationData) {
 		return err
 	}
 
-	dirs := map[string]struct{}{"~/.lotusminer": struct{}{}, "~/.lotus-miner-local-net": struct{}{}}
+	dirs := map[string]struct{}{"~/.lotusminer": {}, "~/.lotus-miner-local-net": {}}
 	if v := os.Getenv("LOTUS_MINER_PATH"); v != "" {
 		dirs[v] = struct{}{}
 	}

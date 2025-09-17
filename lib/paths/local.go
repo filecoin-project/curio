@@ -1194,7 +1194,7 @@ func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 
 var supraC1Token = make(chan struct{}, 1)
 
-func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, _, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
 	bmdata, err := os.ReadFile(batchMetaPath)
 	if err != nil {
