@@ -25,7 +25,7 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
   if [ ! -f $CURIO_REPO_PATH/.init.setup ]; then
   export DEFAULT_WALLET=`lotus wallet default`
 	echo Create a new miner actor ...
-	sptool --actor t01000 actor new-miner --owner $DEFAULT_WALLET --worker $DEFAULT_WALLET --send $DEFAULT_WALLET 8MiB
+	sptool --actor t01000 actor new-miner --owner $DEFAULT_WALLET --worker $DEFAULT_WALLET --from $DEFAULT_WALLET --sector-size 8MiB --confidence 1
 	touch $CURIO_REPO_PATH/.init.setup
 	fi
 
