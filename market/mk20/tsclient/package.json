@@ -35,6 +35,7 @@
   "dependencies": {
     "@glif/filecoin-address": "^4.0.0",
     "@noble/secp256k1": "^2.1.0",
+    "@web3-storage/data-segment": "^5.3.0",
     "isomorphic-fetch": "^3.0.0",
     "multiformats": "^13.4.0",
     "tweetnacl": "^1.0.3",
