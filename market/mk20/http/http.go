@@ -5,7 +5,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +18,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -326,17 +324,17 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {string} string "Internal Server Error"
 func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *http.Request) {
 	var contracts mk20.SupportedContracts
-	err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM ddo_contracts")
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			log.Errorw("no supported contracts found")
-			http.Error(w, "no supported contracts found", http.StatusNotFound)
-			return
-		}
-		log.Errorw("failed to get supported contracts", "err", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	//err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM ddo_contracts")
+	//if err != nil {
+	//	if errors.Is(err, pgx.ErrNoRows) {
+	//		log.Errorw("no supported contracts found")
+	//		http.Error(w, "no supported contracts found", http.StatusNotFound)
+	//		return
+	//	}
+	//	log.Errorw("failed to get supported contracts", "err", err)
+	//	w.WriteHeader(http.StatusInternalServerError)
+	//	return
+	//}
 	w.WriteHeader(http.StatusOK)
 	// Write a json array
 	resp, err := json.Marshal(contracts)

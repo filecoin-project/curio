@@ -1,10 +1,32 @@
 package contract
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	etypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 )
+
+var log = logging.Logger("pdp-contract")
 
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
@@ -34,4 +56,239 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 	}
 
 	return provingSchedule, nil
+}
+
+const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
+const ServiceRegistryCalibnet = "0xA8a7e2130C27e4f39D1aEBb3D538D5937bCf8ddb"
+
+func ServiceRegistryAddress() (common.Address, error) {
+	switch build.BuildType {
+	case build.BuildCalibnet:
+		return common.HexToAddress(ServiceRegistryCalibnet), nil
+	case build.BuildMainnet:
+		return common.HexToAddress(ServiceRegistryMainnet), nil
+	default:
+		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
+	}
+}
+
+func CreateFSRegisterMessage(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (uint64, error) {
+	if len(name) > 128 {
+		return 0, xerrors.Errorf("name is too long, max 128 characters allowed")
+	}
+
+	if name == "" {
+		return 0, xerrors.Errorf("name is required")
+	}
+
+	if len(description) > 128 {
+		return 0, xerrors.Errorf("description is too long, max 128 characters allowed")
+	}
+
+	var keys, values []string
+	for k, v := range capabilities {
+		if len(k) > 32 {
+			return 0, xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
+		}
+		if len(v) > 128 {
+			return 0, xerrors.Errorf("capabilities value %s is too long, max 128 characters allowed", v)
+		}
+		keys = append(keys, k)
+		values = append(values, v)
+	}
+
+	// Fetch the private key from the database
+	var privateKeyData []byte
+	err := db.QueryRow(ctx,
+		`SELECT private_key FROM eth_keys WHERE role = 'pdp'`).Scan(&privateKeyData)
+	if err != nil {
+		return 0, xerrors.Errorf("fetching pdp private key from db: %w", err)
+	}
+
+	privateKey, err := crypto.ToECDSA(privateKeyData)
+	if err != nil {
+		return 0, xerrors.Errorf("converting private key: %w", err)
+	}
+
+	sender := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	fSender, err := address.NewDelegatedAddress(builtin.EthereumAddressManagerActorID, sender.Bytes())
+	if err != nil {
+		return 0, xerrors.Errorf("failed to create delegated address: %w", err)
+	}
+
+	fmt.Println("Wallet: ", fSender.String())
+
+	ac, err := full.StateGetActor(ctx, fSender, types.EmptyTSK)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to get actor: %w", err)
+	}
+
+	amount, err := types.ParseFIL("5 FIL")
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse 5 FIL: %w", err)
+	}
+
+	token := abi.NewTokenAmount(amount.Int64())
+
+	if ac.Balance.LessThan(big.NewInt(token.Int64())) {
+		return 0, xerrors.Errorf("wallet balance is too low")
+	}
+
+	walletEvm, err := ethtypes.EthAddressFromFilecoinAddress(fSender)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to convert wallet address to Eth address: %w", err)
+	}
+
+	contractAddr, err := ServiceRegistryAddress()
+	if err != nil {
+		return 0, xerrors.Errorf("failed to get service registry address: %w", err)
+	}
+
+	srAbi, err := ServiceProviderRegistryMetaData.GetAbi()
+	if err != nil {
+		return 0, xerrors.Errorf("failed to get service registry ABI: %w", err)
+	}
+
+	registry, err := NewServiceProviderRegistry(contractAddr, ethClient)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to create service registry: %w", err)
+	}
+
+	encodedPDP, err := registry.EncodePDPOffering(&bind.CallOpts{Context: ctx}, pdpOffering)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to encode PDP offering: %w", err)
+	}
+
+	if len(keys) > 10 {
+		return 0, xerrors.Errorf("too many capabilities, max 10 allowed")
+	}
+
+	// Prepare EVM calldata
+	calldata, err := srAbi.Pack("registerProvider", common.Address(walletEvm), name, description, uint8(0), encodedPDP, keys, values)
+	if err != nil {
+		return 0, fmt.Errorf("failed to serialize parameters for registerProvider: %w", err)
+	}
+
+	msg := ethereum.CallMsg{
+		From:  sender,
+		To:    &contractAddr,
+		Value: amount.Int,
+		Data:  calldata,
+	}
+
+	gasLimit, err := ethClient.EstimateGas(ctx, msg)
+	if err != nil {
+		return 0, fmt.Errorf("failed to estimate gas: %w", err)
+	}
+	if gasLimit == 0 {
+		return 0, fmt.Errorf("estimated gas limit is zero")
+	}
+
+	// Fetch current base fee
+	header, err := ethClient.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get latest block header: %w", err)
+	}
+
+	baseFee := header.BaseFee
+	if baseFee == nil {
+		return 0, fmt.Errorf("base fee not available; network might not support EIP-1559")
+	}
+
+	// Set GasTipCap (maxPriorityFeePerGas)
+	gasTipCap, err := ethClient.SuggestGasTipCap(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("estimating gas premium: %w", err)
+	}
+
+	// Calculate GasFeeCap (maxFeePerGas)
+	gasFeeCap := big.NewInt(0).Add(baseFee, gasTipCap)
+
+	chainID, err := ethClient.NetworkID(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("getting network ID: %w", err)
+	}
+
+	pendingNonce, err := ethClient.PendingNonceAt(ctx, sender)
+	if err != nil {
+		return 0, xerrors.Errorf("getting pending nonce: %w", err)
+	}
+
+	// Create a new transaction with estimated gas limit and fee caps
+	tx := etypes.NewTx(&etypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     pendingNonce,
+		GasFeeCap: gasFeeCap,
+		GasTipCap: gasTipCap,
+		Gas:       gasLimit,
+		To:        &contractAddr,
+		Value:     amount.Int,
+		Data:      calldata,
+	})
+
+	// Sign the transaction
+	signer := etypes.LatestSignerForChainID(chainID)
+	signedTx, err := etypes.SignTx(tx, signer, privateKey)
+	if err != nil {
+		return 0, xerrors.Errorf("signing transaction: %w", err)
+	}
+
+	err = ethClient.SendTransaction(ctx, signedTx)
+	if err != nil {
+		return 0, xerrors.Errorf("sending transaction: %w", err)
+	}
+
+	log.Infof("Sent Register Service Provider transaction %s at %s", signedTx.Hash().String(), time.Now().Format(time.RFC3339Nano))
+
+	ctxCancel, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	for {
+		_, pending, err := ethClient.TransactionByHash(ctxCancel, signedTx.Hash())
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return 0, xerrors.Errorf("timed out while waiting for transaction %s to be mined: %w", signedTx.Hash().String(), err)
+			}
+			if strings.Contains(err.Error(), "not found") {
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			return 0, xerrors.Errorf("getting transaction %s status: %w", signedTx.Hash().String(), err)
+		}
+		if pending {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		break
+	}
+
+	receipt, err := ethClient.TransactionReceipt(ctx, signedTx.Hash())
+	if err != nil {
+		return 0, xerrors.Errorf("getting transaction receipt: %w", err)
+	}
+
+	event, exists := srAbi.Events["ProviderRegistered"]
+	if !exists {
+		return 0, xerrors.Errorf("ProviderRegistered event not found in ABI")
+	}
+
+	for _, vLog := range receipt.Logs {
+		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
+			if len(vLog.Topics) < 2 {
+				return 0, xerrors.Errorf("log does not contain providerId topic")
+			}
+
+			// Compare that event log contains the correct payee
+			payee := common.BytesToAddress(vLog.Topics[1].Bytes())
+			if payee != sender {
+				continue
+			}
+
+			setIdBigInt := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			return setIdBigInt.Uint64(), nil
+		}
+	}
+
+	return 0, xerrors.Errorf("ProviderRegistered event not found in receipt of transaction %s", signedTx.Hash().String())
 }

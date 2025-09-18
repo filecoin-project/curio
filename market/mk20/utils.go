@@ -871,15 +871,16 @@ func AuthenticateClient(db *harmonydb.DB, id, client string) (bool, error) {
 }
 
 func clientAllowed(ctx context.Context, db *harmonydb.DB, client string, cfg *config.CurioConfig) (bool, error) {
-	if !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients {
-		return true, nil
-	}
-
 	var allowed bool
-	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_clients WHERE client = $1 AND allowed = TRUE)`, client).Scan(&allowed)
+	err := db.QueryRow(ctx, `SELECT allowed FROM market_mk20_clients WHERE client = $1`, client).Scan(&allowed)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Client is not in the database
+			return !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients, nil
+		}
 		return false, xerrors.Errorf("querying client: %w", err)
 	}
+
 	return allowed, nil
 }
 

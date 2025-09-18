@@ -608,27 +608,37 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*ethclient.Client], error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	layers := cctx.StringSlice("layers")
 
 	cfg, err := GetConfig(cctx.Context, layers, db)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfg.Apis.ChainApiInfo)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	cfgApiInfo := cfg.Apis.ChainApiInfo
+	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
+		cfgApiInfo = []string{v}
 	}
-	return db, cfg, full, fullCloser, nil
+
+	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	ethClient := lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+		return GetEthClient(cctx, cfgApiInfo)
+	})
+
+	return db, cfg, full, fullCloser, ethClient, nil
 }
 func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
-	db, cfg, full, fullCloser, err := GetAPI(ctx, cctx)
+	db, cfg, full, fullCloser, ethClient, err := GetAPI(ctx, cctx)
 	if err != nil {
 		return nil, err
 	}
@@ -651,10 +661,11 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	}
 
 	return &Deps{
-		Cfg:    cfg,
-		DB:     db,
-		Chain:  full,
-		Maddrs: maddrs,
+		Cfg:       cfg,
+		DB:        db,
+		Chain:     full,
+		Maddrs:    maddrs,
+		EthClient: ethClient,
 	}, nil
 }
 

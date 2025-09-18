@@ -6,10 +6,14 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -227,4 +231,99 @@ func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 	}
 
 	return nil
+}
+
+type FSRegistryStatus struct {
+	Address                    string            `json:"address"`
+	ID                         int64             `json:"id"`
+	Active                     bool              `json:"status"`
+	Name                       string            `json:"name"`
+	Description                string            `json:"description"`
+	Payee                      string            `json:"payee"`
+	ServiceURL                 string            `json:"service_url"`
+	MinPieceSizeInBytes        int64             `json:"min_size"`
+	MaxPieceSizeInBytes        int64             `json:"max_size"`
+	IpniPiece                  bool              `json:"ipni_piece"`
+	IpniIpfs                   bool              `json:"ipni_ipfs"`
+	StoragePricePerTibPerMonth int64             `json:"price"`
+	MinProvingPeriodInEpochs   int64             `json:"min_proving_period"`
+	Location                   string            `json:"location"`
+	Capabilities               map[string]string `json:"capabilities"`
+}
+
+func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error) {
+	var existingAddress string
+	err := a.deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp'`).Scan(&existingAddress)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("no PDP key found")
+		}
+		return nil, fmt.Errorf("failed to retrieve PDP key")
+	}
+
+	eclient, err := a.deps.EthClient.Val()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get eth client: %w", err)
+	}
+
+	registryAddr, err := contract.ServiceRegistryAddress()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service registry address: %w", err)
+	}
+
+	registry, err := contract.NewServiceProviderRegistry(registryAddr, eclient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service registry: %w", err)
+	}
+
+	registered, err := registry.IsRegisteredProvider(&bind.CallOpts{Context: ctx}, common.HexToAddress(existingAddress))
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if provider is registered: %w", err)
+	}
+
+	if !registered {
+		return nil, nil
+	}
+
+	provider, err := registry.GetProviderByAddress(&bind.CallOpts{Context: ctx}, common.HexToAddress(existingAddress))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider: %w", err)
+	}
+
+	pdpOffering, err := registry.GetPDPService(&bind.CallOpts{Context: ctx}, provider.ProviderId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PDP offering: %w", err)
+	}
+
+	capabilityValues, err := registry.GetProductCapabilities(&bind.CallOpts{Context: ctx}, provider.ProviderId, uint8(0), pdpOffering.CapabilityKeys)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get capability values: %w", err)
+	}
+
+	capabilities := make(map[string]string)
+	for i := range pdpOffering.CapabilityKeys {
+		if capabilityValues.Exists[i] {
+			capabilities[pdpOffering.CapabilityKeys[i]] = capabilityValues.Values[i]
+		} else {
+			capabilities[pdpOffering.CapabilityKeys[i]] = ""
+		}
+	}
+
+	return &FSRegistryStatus{
+		Address:                    existingAddress,
+		ID:                         provider.ProviderId.Int64(),
+		Active:                     provider.IsActive,
+		Payee:                      provider.Payee.String(),
+		Name:                       provider.Name,
+		Description:                provider.Description,
+		ServiceURL:                 pdpOffering.PdpOffering.ServiceURL,
+		MinPieceSizeInBytes:        pdpOffering.PdpOffering.MinPieceSizeInBytes.Int64(),
+		MaxPieceSizeInBytes:        pdpOffering.PdpOffering.MaxPieceSizeInBytes.Int64(),
+		IpniPiece:                  pdpOffering.PdpOffering.IpniPiece,
+		IpniIpfs:                   pdpOffering.PdpOffering.IpniIpfs,
+		StoragePricePerTibPerMonth: pdpOffering.PdpOffering.StoragePricePerTibPerMonth.Int64(),
+		MinProvingPeriodInEpochs:   pdpOffering.PdpOffering.MinProvingPeriodInEpochs.Int64(),
+		Location:                   pdpOffering.PdpOffering.Location,
+		Capabilities:               capabilities,
+	}, nil
 }
