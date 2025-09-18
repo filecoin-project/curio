@@ -22,17 +22,17 @@ func EncodeCommit1OutRaw(w io.Writer, c Commit1OutRaw) error {
 	if !ok {
 		// If there's no "StackedDrg32GiBV1" key, we can encode zero slices,
 		// or we might decide to error. Here we encode zero slices to match decode logic.
-		if err := WriteLE[uint64](w, 0); err != nil {
+		if err := WriteLE(w, 0); err != nil {
 			return fmt.Errorf("writing 0 for proofs outer length: %w", err)
 		}
 	} else {
 		// outer length
-		if err := WriteLE[uint64](w, uint64(len(proofs))); err != nil {
+		if err := WriteLE(w, uint64(len(proofs))); err != nil {
 			return fmt.Errorf("writing proofs outer length: %w", err)
 		}
 		for _, innerSlice := range proofs {
 			// inner length
-			if err := WriteLE[uint64](w, uint64(len(innerSlice))); err != nil {
+			if err := WriteLE(w, uint64(len(innerSlice))); err != nil {
 				return fmt.Errorf("writing proofs inner length: %w", err)
 			}
 			for _, p := range innerSlice {
@@ -76,30 +76,30 @@ func EncodeCommit1OutRaw(w io.Writer, c Commit1OutRaw) error {
 // EncodeVanillaStackedProof serializes a single VanillaStackedProof.
 func EncodeVanillaStackedProof(w io.Writer, v VanillaStackedProof) error {
 	// comm_d_proofs => MerkleProof[Sha256Domain]
-	if err := EncodeMerkleProof[Sha256Domain](w, v.CommDProofs); err != nil {
+	if err := EncodeMerkleProof(w, v.CommDProofs); err != nil {
 		return fmt.Errorf("encode CommDProofs: %w", err)
 	}
 	// comm_r_last_proof => MerkleProof[PoseidonDomain]
-	if err := EncodeMerkleProof[PoseidonDomain](w, v.CommRLastProof); err != nil {
+	if err := EncodeMerkleProof(w, v.CommRLastProof); err != nil {
 		return fmt.Errorf("encode CommRLastProof: %w", err)
 	}
 	// replica_column_proofs
-	if err := EncodeReplicaColumnProof[PoseidonDomain](w, v.ReplicaColumnProofs); err != nil {
+	if err := EncodeReplicaColumnProof(w, v.ReplicaColumnProofs); err != nil {
 		return fmt.Errorf("encode ReplicaColumnProofs: %w", err)
 	}
 
 	// labeling proofs
-	if err := WriteLE[uint64](w, uint64(len(v.LabelingProofs))); err != nil {
+	if err := WriteLE(w, uint64(len(v.LabelingProofs))); err != nil {
 		return fmt.Errorf("writing labelingProofs length: %w", err)
 	}
 	for _, lp := range v.LabelingProofs {
-		if err := EncodeLabelingProof[PoseidonDomain](w, lp); err != nil {
+		if err := EncodeLabelingProof(w, lp); err != nil {
 			return fmt.Errorf("encode labeling proof: %w", err)
 		}
 	}
 
 	// encoding proof
-	if err := EncodeEncodingProof[PoseidonDomain](w, v.EncodingProof); err != nil {
+	if err := EncodeEncodingProof(w, v.EncodingProof); err != nil {
 		return fmt.Errorf("encode encoding proof: %w", err)
 	}
 
@@ -109,7 +109,7 @@ func EncodeVanillaStackedProof(w io.Writer, v VanillaStackedProof) error {
 // EncodeMerkleProof writes a MerkleProof of type H.
 func EncodeMerkleProof[H HasherDomain](w io.Writer, m MerkleProof[H]) error {
 	// MerkleProof -> { Data: ProofData[H] }
-	return EncodeProofData[H](w, m.Data)
+	return EncodeProofData(w, m.Data)
 }
 
 // EncodeProofData checks Single, Sub, or Top and writes the matching tag + data.
@@ -146,48 +146,48 @@ func EncodeProofData[H HasherDomain](w io.Writer, pd ProofData[H]) error {
 }
 
 func EncodeSingleProof[H HasherDomain](w io.Writer, sp SingleProof[H]) error {
-	if err := EncodeHasherDomain[H](w, sp.Root); err != nil {
+	if err := EncodeHasherDomain(w, sp.Root); err != nil {
 		return fmt.Errorf("encode SingleProof Root: %w", err)
 	}
-	if err := EncodeHasherDomain[H](w, sp.Leaf); err != nil {
+	if err := EncodeHasherDomain(w, sp.Leaf); err != nil {
 		return fmt.Errorf("encode SingleProof Leaf: %w", err)
 	}
-	if err := EncodeInclusionPath[H](w, sp.Path); err != nil {
+	if err := EncodeInclusionPath(w, sp.Path); err != nil {
 		return fmt.Errorf("encode SingleProof Path: %w", err)
 	}
 	return nil
 }
 
 func EncodeSubProof[H HasherDomain](w io.Writer, sp SubProof[H]) error {
-	if err := EncodeInclusionPath[H](w, sp.BaseProof); err != nil {
+	if err := EncodeInclusionPath(w, sp.BaseProof); err != nil {
 		return fmt.Errorf("encode SubProof BaseProof: %w", err)
 	}
-	if err := EncodeInclusionPath[H](w, sp.SubProof); err != nil {
+	if err := EncodeInclusionPath(w, sp.SubProof); err != nil {
 		return fmt.Errorf("encode SubProof SubProof: %w", err)
 	}
-	if err := EncodeHasherDomain[H](w, sp.Root); err != nil {
+	if err := EncodeHasherDomain(w, sp.Root); err != nil {
 		return fmt.Errorf("encode SubProof Root: %w", err)
 	}
-	if err := EncodeHasherDomain[H](w, sp.Leaf); err != nil {
+	if err := EncodeHasherDomain(w, sp.Leaf); err != nil {
 		return fmt.Errorf("encode SubProof Leaf: %w", err)
 	}
 	return nil
 }
 
 func EncodeTopProof[H HasherDomain](w io.Writer, tp TopProof[H]) error {
-	if err := EncodeInclusionPath[H](w, tp.BaseProof); err != nil {
+	if err := EncodeInclusionPath(w, tp.BaseProof); err != nil {
 		return fmt.Errorf("encode TopProof BaseProof: %w", err)
 	}
-	if err := EncodeInclusionPath[H](w, tp.SubProof); err != nil {
+	if err := EncodeInclusionPath(w, tp.SubProof); err != nil {
 		return fmt.Errorf("encode TopProof SubProof: %w", err)
 	}
-	if err := EncodeInclusionPath[H](w, tp.TopProof); err != nil {
+	if err := EncodeInclusionPath(w, tp.TopProof); err != nil {
 		return fmt.Errorf("encode TopProof TopProof: %w", err)
 	}
-	if err := EncodeHasherDomain[H](w, tp.Root); err != nil {
+	if err := EncodeHasherDomain(w, tp.Root); err != nil {
 		return fmt.Errorf("encode TopProof Root: %w", err)
 	}
-	if err := EncodeHasherDomain[H](w, tp.Leaf); err != nil {
+	if err := EncodeHasherDomain(w, tp.Leaf); err != nil {
 		return fmt.Errorf("encode TopProof Leaf: %w", err)
 	}
 	return nil
@@ -195,11 +195,11 @@ func EncodeTopProof[H HasherDomain](w io.Writer, tp TopProof[H]) error {
 
 func EncodeInclusionPath[H HasherDomain](w io.Writer, ip InclusionPath[H]) error {
 	// first write path length
-	if err := WriteLE[uint64](w, uint64(len(ip.Path))); err != nil {
+	if err := WriteLE(w, uint64(len(ip.Path))); err != nil {
 		return fmt.Errorf("writing path length: %w", err)
 	}
 	for _, el := range ip.Path {
-		if err := EncodePathElement[H](w, el); err != nil {
+		if err := EncodePathElement(w, el); err != nil {
 			return fmt.Errorf("encode path element: %w", err)
 		}
 	}
@@ -208,16 +208,16 @@ func EncodeInclusionPath[H HasherDomain](w io.Writer, ip InclusionPath[H]) error
 
 func EncodePathElement[H HasherDomain](w io.Writer, pe PathElement[H]) error {
 	// first write number of hashes
-	if err := WriteLE[uint64](w, uint64(len(pe.Hashes))); err != nil {
+	if err := WriteLE(w, uint64(len(pe.Hashes))); err != nil {
 		return fmt.Errorf("writing number of path-element hashes: %w", err)
 	}
 	for _, h := range pe.Hashes {
-		if err := EncodeHasherDomain[H](w, h); err != nil {
+		if err := EncodeHasherDomain(w, h); err != nil {
 			return fmt.Errorf("encode path-element hash: %w", err)
 		}
 	}
 	// then index
-	if err := WriteLE[uint64](w, pe.Index); err != nil {
+	if err := WriteLE(w, pe.Index); err != nil {
 		return fmt.Errorf("writing path-element index: %w", err)
 	}
 
@@ -226,26 +226,26 @@ func EncodePathElement[H HasherDomain](w io.Writer, pe PathElement[H]) error {
 
 func EncodeReplicaColumnProof[H HasherDomain](w io.Writer, rcp ReplicaColumnProof[H]) error {
 	// c_x
-	if err := EncodeColumnProof[H](w, rcp.C_X); err != nil {
+	if err := EncodeColumnProof(w, rcp.C_X); err != nil {
 		return fmt.Errorf("encode c_x: %w", err)
 	}
 
 	// drg_parents
-	if err := WriteLE[uint64](w, uint64(len(rcp.DrgParents))); err != nil {
+	if err := WriteLE(w, uint64(len(rcp.DrgParents))); err != nil {
 		return fmt.Errorf("writing drg_parents length: %w", err)
 	}
 	for _, cp := range rcp.DrgParents {
-		if err := EncodeColumnProof[H](w, cp); err != nil {
+		if err := EncodeColumnProof(w, cp); err != nil {
 			return fmt.Errorf("encode drg parent: %w", err)
 		}
 	}
 
 	// exp_parents
-	if err := WriteLE[uint64](w, uint64(len(rcp.ExpParents))); err != nil {
+	if err := WriteLE(w, uint64(len(rcp.ExpParents))); err != nil {
 		return fmt.Errorf("writing exp_parents length: %w", err)
 	}
 	for _, cp := range rcp.ExpParents {
-		if err := EncodeColumnProof[H](w, cp); err != nil {
+		if err := EncodeColumnProof(w, cp); err != nil {
 			return fmt.Errorf("encode exp parent: %w", err)
 		}
 	}
@@ -254,10 +254,10 @@ func EncodeReplicaColumnProof[H HasherDomain](w io.Writer, rcp ReplicaColumnProo
 }
 
 func EncodeColumnProof[H HasherDomain](w io.Writer, cp ColumnProof[H]) error {
-	if err := EncodeColumn[H](w, cp.Column); err != nil {
+	if err := EncodeColumn(w, cp.Column); err != nil {
 		return fmt.Errorf("encode column: %w", err)
 	}
-	if err := EncodeMerkleProof[H](w, cp.InclusionProof); err != nil {
+	if err := EncodeMerkleProof(w, cp.InclusionProof); err != nil {
 		return fmt.Errorf("encode inclusion proof: %w", err)
 	}
 	return nil
@@ -265,16 +265,16 @@ func EncodeColumnProof[H HasherDomain](w io.Writer, cp ColumnProof[H]) error {
 
 func EncodeColumn[H HasherDomain](w io.Writer, c Column[H]) error {
 	// index (u32)
-	if err := WriteLE[uint32](w, c.Index); err != nil {
+	if err := WriteLE(w, c.Index); err != nil {
 		return fmt.Errorf("writing column index: %w", err)
 	}
 
 	// rows slice length (u64)
-	if err := WriteLE[uint64](w, uint64(len(c.Rows))); err != nil {
+	if err := WriteLE(w, uint64(len(c.Rows))); err != nil {
 		return fmt.Errorf("writing column rows length: %w", err)
 	}
 	for _, row := range c.Rows {
-		if err := EncodeHasherDomain[H](w, row); err != nil {
+		if err := EncodeHasherDomain(w, row); err != nil {
 			return fmt.Errorf("encode column row: %w", err)
 		}
 	}
@@ -285,22 +285,22 @@ func EncodeColumn[H HasherDomain](w io.Writer, c Column[H]) error {
 
 func EncodeLabelingProof[H HasherDomain](w io.Writer, lp LabelingProof[H]) error {
 	// parents length
-	if err := WriteLE[uint64](w, uint64(len(lp.Parents))); err != nil {
+	if err := WriteLE(w, uint64(len(lp.Parents))); err != nil {
 		return fmt.Errorf("writing labeling proof parents length: %w", err)
 	}
 	for _, p := range lp.Parents {
-		if err := EncodeHasherDomain[H](w, p); err != nil {
+		if err := EncodeHasherDomain(w, p); err != nil {
 			return fmt.Errorf("encode labeling proof parent: %w", err)
 		}
 	}
 
 	// layer_index (u32)
-	if err := WriteLE[uint32](w, lp.LayerIndex); err != nil {
+	if err := WriteLE(w, lp.LayerIndex); err != nil {
 		return fmt.Errorf("writing labeling proof layer_index: %w", err)
 	}
 
 	// node (u64)
-	if err := WriteLE[uint64](w, lp.Node); err != nil {
+	if err := WriteLE(w, lp.Node); err != nil {
 		return fmt.Errorf("writing labeling proof node: %w", err)
 	}
 
@@ -309,22 +309,22 @@ func EncodeLabelingProof[H HasherDomain](w io.Writer, lp LabelingProof[H]) error
 
 func EncodeEncodingProof[H HasherDomain](w io.Writer, ep EncodingProof[H]) error {
 	// parents length
-	if err := WriteLE[uint64](w, uint64(len(ep.Parents))); err != nil {
+	if err := WriteLE(w, uint64(len(ep.Parents))); err != nil {
 		return fmt.Errorf("writing encoding proof parents length: %w", err)
 	}
 	for _, p := range ep.Parents {
-		if err := EncodeHasherDomain[H](w, p); err != nil {
+		if err := EncodeHasherDomain(w, p); err != nil {
 			return fmt.Errorf("encode encoding proof parent: %w", err)
 		}
 	}
 
 	// layer_index (u32)
-	if err := WriteLE[uint32](w, ep.LayerIndex); err != nil {
+	if err := WriteLE(w, ep.LayerIndex); err != nil {
 		return fmt.Errorf("writing encoding proof layer_index: %w", err)
 	}
 
 	// node (u64)
-	if err := WriteLE[uint64](w, ep.Node); err != nil {
+	if err := WriteLE(w, ep.Node); err != nil {
 		return fmt.Errorf("writing encoding proof node: %w", err)
 	}
 

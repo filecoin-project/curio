@@ -64,7 +64,7 @@ func VerifyWindowPoStVanilla(pvi proof.WindowPoStVerifyInfo) (bool, error) {
 // verifying the “vanilla” portion (no SNARK).
 func verifyWindowPoStVanilla(
 	cfg *PoStConfig,
-	randomness [32]byte,
+	_ [32]byte,
 	replicas map[uint64]PublicReplicaInfo,
 	sectorProofs []FallbackPoStSectorProof,
 ) (bool, error) {

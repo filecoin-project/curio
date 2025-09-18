@@ -18,7 +18,7 @@ require (
 	github.com/etclabscore/go-openrpc-reflect v0.0.37
 	github.com/ethereum/go-ethereum v1.15.0
 	github.com/fatih/color v1.18.0
-	github.com/filecoin-project/filecoin-ffi v1.33.1-dev
+	github.com/filecoin-project/filecoin-ffi v1.34.0
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-cbor-util v0.0.2
@@ -31,9 +31,9 @@ require (
 	github.com/filecoin-project/go-fil-commp-hashhash v0.2.0
 	github.com/filecoin-project/go-jsonrpc v0.8.0
 	github.com/filecoin-project/go-padreader v0.0.1
-	github.com/filecoin-project/go-state-types v0.17.0-dev2
+	github.com/filecoin-project/go-state-types v0.17.0
 	github.com/filecoin-project/go-statestore v0.2.0
-	github.com/filecoin-project/lotus v1.34.0-rc2
+	github.com/filecoin-project/lotus v1.34.1
 	github.com/filecoin-project/specs-actors/v2 v2.3.6
 	github.com/filecoin-project/specs-actors/v5 v5.0.6
 	github.com/filecoin-project/specs-actors/v6 v6.0.2
