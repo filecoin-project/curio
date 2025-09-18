@@ -2373,6 +2373,78 @@
       "translation": "无法将配置插入数据库: {Error}",
       "message": "Failed to insert config into database: {Error}",
       "placeholder": null
+    },
+    {
+      "id": "Register a PDP service provider with Filecoin Service Registry Contract",
+      "translation": "在 Filecoin 服务注册合约中注册 PDP 服务提供商",
+      "message": "Register a PDP service provider with Filecoin Service Registry Contract",
+      "placeholder": null
+    },
+    {
+      "id": "Service provider name",
+      "translation": "服务提供商名称",
+      "message": "Service provider name",
+      "placeholder": null
+    },
+    {
+      "id": "Service provider description",
+      "translation": "服务提供商描述",
+      "message": "Service provider description",
+      "placeholder": null
+    },
+    {
+      "id": "URL of the service provider",
+      "translation": "服务提供商的 URL",
+      "message": "URL of the service provider",
+      "placeholder": null
+    },
+    {
+      "id": "Minimum piece size",
+      "translation": "最小分片大小",
+      "message": "Minimum piece size",
+      "placeholder": null
+    },
+    {
+      "id": "Maximum piece size",
+      "translation": "最大分片大小",
+      "message": "Maximum piece size",
+      "placeholder": null
+    },
+    {
+      "id": "Supports IPNI piece CID indexing",
+      "translation": "支持 IPNI 分片 CID 索引",
+      "message": "Supports IPNI piece CID indexing",
+      "placeholder": null
+    },
+    {
+      "id": "Supports IPNI IPFS CID indexing",
+      "translation": "支持 IPNI IPFS CID 索引",
+      "message": "Supports IPNI IPFS CID indexing",
+      "placeholder": null
+    },
+    {
+      "id": "Storage price per TiB per month in USDFC, Default is 1 USDFC.",
+      "translation": "每 TiB 每月的存储价格（USDFC 计价），默认值为 1 USDFC。",
+      "message": "Storage price per TiB per month in USDFC, Default is 1 USDFC.",
+      "placeholder": null
+    },
+    {
+      "id": "Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset",
+      "translation": "服务提供商愿意证明对存储数据集访问权限的最短频率间隔（以 epoch 为单位）",
+      "message": "Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset",
+      "placeholder": null
+    },
+    {
+      "id": "Location of the service provider",
+      "translation": "服务提供商位置",
+      "message": "Location of the service provider",
+      "placeholder": null
+    },
+    {
+      "id": "Token contract for payment (IERC20(address(0)) for FIL)",
+      "translation": "支付用的代币合约（FIL 使用 IERC20(address(0))）",
+      "message": "Token contract for payment (IERC20(address(0)) for FIL)",
+      "placeholder": null
     }
   ]
 }

@@ -2,8 +2,10 @@ package contract
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	mbig "math/big"
 	"strings"
 	"time"
 
@@ -13,17 +15,20 @@ import (
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/filecoin-project/curio/build"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
+	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
+
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
-	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("pdp-contract")
@@ -72,7 +77,7 @@ func ServiceRegistryAddress() (common.Address, error) {
 	}
 }
 
-func CreateFSRegisterMessage(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (uint64, error) {
+func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (uint64, error) {
 	if len(name) > 128 {
 		return 0, xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -97,27 +102,10 @@ func CreateFSRegisterMessage(ctx context.Context, db *harmonydb.DB, full api.Ful
 		values = append(values, v)
 	}
 
-	// Fetch the private key from the database
-	var privateKeyData []byte
-	err := db.QueryRow(ctx,
-		`SELECT private_key FROM eth_keys WHERE role = 'pdp'`).Scan(&privateKeyData)
+	sender, fSender, privateKey, err := getSender(ctx, db)
 	if err != nil {
-		return 0, xerrors.Errorf("fetching pdp private key from db: %w", err)
+		return 0, xerrors.Errorf("failed to get sender: %w", err)
 	}
-
-	privateKey, err := crypto.ToECDSA(privateKeyData)
-	if err != nil {
-		return 0, xerrors.Errorf("converting private key: %w", err)
-	}
-
-	sender := crypto.PubkeyToAddress(privateKey.PublicKey)
-
-	fSender, err := address.NewDelegatedAddress(builtin.EthereumAddressManagerActorID, sender.Bytes())
-	if err != nil {
-		return 0, xerrors.Errorf("failed to create delegated address: %w", err)
-	}
-
-	fmt.Println("Wallet: ", fSender.String())
 
 	ac, err := full.StateGetActor(ctx, fSender, types.EmptyTSK)
 	if err != nil {
@@ -170,68 +158,9 @@ func CreateFSRegisterMessage(ctx context.Context, db *harmonydb.DB, full api.Ful
 		return 0, fmt.Errorf("failed to serialize parameters for registerProvider: %w", err)
 	}
 
-	msg := ethereum.CallMsg{
-		From:  sender,
-		To:    &contractAddr,
-		Value: amount.Int,
-		Data:  calldata,
-	}
-
-	gasLimit, err := ethClient.EstimateGas(ctx, msg)
+	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, amount.Int, calldata)
 	if err != nil {
-		return 0, fmt.Errorf("failed to estimate gas: %w", err)
-	}
-	if gasLimit == 0 {
-		return 0, fmt.Errorf("estimated gas limit is zero")
-	}
-
-	// Fetch current base fee
-	header, err := ethClient.HeaderByNumber(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get latest block header: %w", err)
-	}
-
-	baseFee := header.BaseFee
-	if baseFee == nil {
-		return 0, fmt.Errorf("base fee not available; network might not support EIP-1559")
-	}
-
-	// Set GasTipCap (maxPriorityFeePerGas)
-	gasTipCap, err := ethClient.SuggestGasTipCap(ctx)
-	if err != nil {
-		return 0, xerrors.Errorf("estimating gas premium: %w", err)
-	}
-
-	// Calculate GasFeeCap (maxFeePerGas)
-	gasFeeCap := big.NewInt(0).Add(baseFee, gasTipCap)
-
-	chainID, err := ethClient.NetworkID(ctx)
-	if err != nil {
-		return 0, xerrors.Errorf("getting network ID: %w", err)
-	}
-
-	pendingNonce, err := ethClient.PendingNonceAt(ctx, sender)
-	if err != nil {
-		return 0, xerrors.Errorf("getting pending nonce: %w", err)
-	}
-
-	// Create a new transaction with estimated gas limit and fee caps
-	tx := etypes.NewTx(&etypes.DynamicFeeTx{
-		ChainID:   chainID,
-		Nonce:     pendingNonce,
-		GasFeeCap: gasFeeCap,
-		GasTipCap: gasTipCap,
-		Gas:       gasLimit,
-		To:        &contractAddr,
-		Value:     amount.Int,
-		Data:      calldata,
-	})
-
-	// Sign the transaction
-	signer := etypes.LatestSignerForChainID(chainID)
-	signedTx, err := etypes.SignTx(tx, signer, privateKey)
-	if err != nil {
-		return 0, xerrors.Errorf("signing transaction: %w", err)
+		return 0, xerrors.Errorf("creating signed transaction: %w", err)
 	}
 
 	err = ethClient.SendTransaction(ctx, signedTx)
@@ -291,4 +220,192 @@ func CreateFSRegisterMessage(ctx context.Context, db *harmonydb.DB, full api.Ful
 	}
 
 	return 0, xerrors.Errorf("ProviderRegistered event not found in receipt of transaction %s", signedTx.Hash().String())
+}
+
+func getSender(ctx context.Context, db *harmonydb.DB) (common.Address, address.Address, *ecdsa.PrivateKey, error) {
+	// Fetch the private key from the database
+	var privateKeyData []byte
+	err := db.QueryRow(ctx,
+		`SELECT private_key FROM eth_keys WHERE role = 'pdp'`).Scan(&privateKeyData)
+	if err != nil {
+		return common.Address{}, address.Address{}, nil, xerrors.Errorf("fetching pdp private key from db: %w", err)
+	}
+
+	privateKey, err := crypto.ToECDSA(privateKeyData)
+	if err != nil {
+		return common.Address{}, address.Address{}, nil, xerrors.Errorf("converting private key: %w", err)
+	}
+
+	sender := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	fSender, err := address.NewDelegatedAddress(builtin.EthereumAddressManagerActorID, sender.Bytes())
+	if err != nil {
+		return common.Address{}, address.Address{}, nil, xerrors.Errorf("failed to create delegated address: %w", err)
+	}
+
+	return sender, fSender, privateKey, nil
+}
+
+func createSignedTransaction(ctx context.Context, ethClient *ethclient.Client, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
+	msg := ethereum.CallMsg{
+		From:  from,
+		To:    &to,
+		Value: amount,
+		Data:  data,
+	}
+
+	gasLimit, err := ethClient.EstimateGas(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to estimate gas: %w", err)
+	}
+	if gasLimit == 0 {
+		return nil, fmt.Errorf("estimated gas limit is zero")
+	}
+
+	// Fetch current base fee
+	header, err := ethClient.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block header: %w", err)
+	}
+
+	baseFee := header.BaseFee
+	if baseFee == nil {
+		return nil, fmt.Errorf("base fee not available; network might not support EIP-1559")
+	}
+
+	// Set GasTipCap (maxPriorityFeePerGas)
+	gasTipCap, err := ethClient.SuggestGasTipCap(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("estimating gas premium: %w", err)
+	}
+
+	// Calculate GasFeeCap (maxFeePerGas)
+	gasFeeCap := big.NewInt(0).Add(baseFee, gasTipCap)
+
+	chainID, err := ethClient.NetworkID(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting network ID: %w", err)
+	}
+
+	pendingNonce, err := ethClient.PendingNonceAt(ctx, from)
+	if err != nil {
+		return nil, xerrors.Errorf("getting pending nonce: %w", err)
+	}
+
+	// Create a new transaction with estimated gas limit and fee caps
+	tx := etypes.NewTx(&etypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     pendingNonce,
+		GasFeeCap: gasFeeCap,
+		GasTipCap: gasTipCap,
+		Gas:       gasLimit,
+		To:        &to,
+		Value:     amount,
+		Data:      data,
+	})
+
+	// Sign the transaction
+	signer := etypes.LatestSignerForChainID(chainID)
+	signedTx, err := etypes.SignTx(tx, signer, privateKey)
+	if err != nil {
+		return nil, xerrors.Errorf("signing transaction: %w", err)
+	}
+
+	return signedTx, nil
+}
+
+func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient *ethclient.Client) (string, error) {
+	if len(name) > 128 {
+		return "", xerrors.Errorf("name is too long, max 128 characters allowed")
+	}
+
+	if name == "" {
+		return "", xerrors.Errorf("name is required")
+	}
+
+	if len(description) > 128 {
+		return "", xerrors.Errorf("description is too long, max 128 characters allowed")
+	}
+
+	sender, _, privateKey, err := getSender(ctx, db)
+	if err != nil {
+		return "", xerrors.Errorf("failed to get sender: %w", err)
+	}
+
+	contractAddr, err := ServiceRegistryAddress()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get service registry address: %w", err)
+	}
+
+	srAbi, err := ServiceProviderRegistryMetaData.GetAbi()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get service registry ABI: %w", err)
+	}
+
+	calldata, err := srAbi.Pack("updateProviderInfo", name, description)
+	if err != nil {
+		return "", xerrors.Errorf("failed to serialize parameters for updateProviderInfo: %w", err)
+	}
+
+	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, mbig.NewInt(0), calldata)
+	if err != nil {
+		return "", xerrors.Errorf("creating signed transaction: %w", err)
+	}
+
+	err = ethClient.SendTransaction(ctx, signedTx)
+	if err != nil {
+		return "", xerrors.Errorf("sending transaction: %w", err)
+	}
+
+	return signedTx.Hash().String(), nil
+}
+
+func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (string, error) {
+	var keys, values []string
+	for k, v := range capabilities {
+		keys = append(keys, k)
+		values = append(values, v)
+	}
+
+	sender, _, privateKey, err := getSender(ctx, db)
+	if err != nil {
+		return "", xerrors.Errorf("failed to get sender: %w", err)
+	}
+
+	contractAddr, err := ServiceRegistryAddress()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get service registry address: %w", err)
+	}
+
+	srAbi, err := ServiceProviderRegistryMetaData.GetAbi()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get service registry ABI: %w", err)
+	}
+
+	registry, err := NewServiceProviderRegistry(contractAddr, ethClient)
+	if err != nil {
+		return "", xerrors.Errorf("failed to create service registry: %w", err)
+	}
+
+	encodedPDP, err := registry.EncodePDPOffering(&bind.CallOpts{Context: ctx}, pdpOffering)
+	if err != nil {
+		return "", xerrors.Errorf("failed to encode PDP offering: %w", err)
+	}
+
+	calldata, err := srAbi.Pack("updatePDPServiceWithCapabilities", encodedPDP, keys, values)
+	if err != nil {
+		return "", xerrors.Errorf("failed to serialize parameters for updatePDPServiceWithCapabilities: %w", err)
+	}
+
+	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, mbig.NewInt(0), calldata)
+	if err != nil {
+		return "", xerrors.Errorf("creating signed transaction: %w", err)
+	}
+
+	err = ethClient.SendTransaction(ctx, signedTx)
+	if err != nil {
+		return "", xerrors.Errorf("sending transaction: %w", err)
+	}
+
+	return signedTx.Hash().String(), nil
 }

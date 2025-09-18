@@ -11,7 +11,6 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/ipfs/go-cid"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -22,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
+	"github.com/filecoin-project/curio/pdp/contract"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -372,6 +372,10 @@ var registerPDPServiceProviderCmd = &cli.Command{
 			return xerrors.Errorf("failed to parse max size: %w", err)
 		}
 
+		if minSize > maxSize {
+			return xerrors.Errorf("min size must be less than max size")
+		}
+
 		ipiece := cctx.Bool("ipni-piece")
 		ipfs := cctx.Bool("ipni-ipfs")
 
@@ -425,7 +429,7 @@ var registerPDPServiceProviderCmd = &cli.Command{
 		name := cctx.String("name")
 		description := cctx.String("description")
 
-		id, err := contract.CreateFSRegisterMessage(ctx, dep.DB, dep.Chain, ethClient, name, description, offering, nil)
+		id, err := contract.FSRegister(ctx, dep.DB, dep.Chain, ethClient, name, description, offering, nil)
 		if err != nil {
 			return xerrors.Errorf("failed to register storage provider with service contract: %w", err)
 		}
