@@ -43,20 +43,31 @@ type BalanceManager struct {
 }
 
 func NewBalanceManager(api mbalanceApi, miners []address.Address, cfg *config.CurioConfig, sender *message.Sender) (*BalanceManager, error) {
-	var disabledMiners []address.Address
+	var mk12disabledMiners []address.Address
 
 	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse miner string: %s", err)
 		}
-		disabledMiners = append(disabledMiners, maddr)
+		mk12disabledMiners = append(mk12disabledMiners, maddr)
 	}
 
-	enabled, _ := lo.Difference(miners, disabledMiners)
+	mk12enabled, _ := lo.Difference(miners, mk12disabledMiners)
+
+	var mk20disabledMiners []address.Address
+	for _, m := range cfg.Market.StorageMarketConfig.MK20.DisabledMiners {
+		maddr, err := address.NewFromString(m)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to parse miner string: %s", err)
+		}
+		mk20disabledMiners = append(mk20disabledMiners, maddr)
+	}
+	mk20enabled, _ := lo.Difference(miners, mk20disabledMiners)
 
 	mmap := make(map[string][]address.Address)
-	mmap[mk12Str] = enabled
+	mmap[mk12Str] = mk12enabled
+	mmap[mk20Str] = mk20enabled
 	bmcfg := make(map[address.Address]config.BalanceManagerConfig)
 	for _, a := range cfg.Addresses {
 		if len(a.MinerAddresses) > 0 {

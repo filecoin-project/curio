@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -377,7 +377,8 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			dbHost = cctx.String("db-host")
 		}
 
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		deps.IndexStore = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		err = deps.IndexStore.Start(cctx.Context, false)
 		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
@@ -389,7 +390,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.CachedPieceReader == nil {
 		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr, deps.IndexStore)
 	}
 
 	if deps.ServeChunker == nil {
@@ -447,7 +448,7 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 		text := ""
 		err := db.QueryRow(ctx, `SELECT config FROM harmony_config WHERE title=$1`, layer).Scan(&text)
 		if err != nil {
-			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+			if strings.Contains(err.Error(), pgx.ErrNoRows.Error()) {
 				return nil, fmt.Errorf("missing layer '%s' ", layer)
 			}
 			if layer == "base" {
@@ -479,7 +480,7 @@ func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		text := ""
 		err = tx.QueryRow(`SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
 		if err != nil {
-			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+			if strings.Contains(err.Error(), pgx.ErrNoRows.Error()) {
 				return false, fmt.Errorf("missing layer 'base' ")
 			}
 			return false, fmt.Errorf("could not read layer 'base': %w", err)
@@ -607,27 +608,37 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*ethclient.Client], error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	layers := cctx.StringSlice("layers")
 
 	cfg, err := GetConfig(cctx.Context, layers, db)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfg.Apis.ChainApiInfo)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	cfgApiInfo := cfg.Apis.ChainApiInfo
+	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
+		cfgApiInfo = []string{v}
 	}
-	return db, cfg, full, fullCloser, nil
+
+	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	ethClient := lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+		return GetEthClient(cctx, cfgApiInfo)
+	})
+
+	return db, cfg, full, fullCloser, ethClient, nil
 }
 func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
-	db, cfg, full, fullCloser, err := GetAPI(ctx, cctx)
+	db, cfg, full, fullCloser, ethClient, err := GetAPI(ctx, cctx)
 	if err != nil {
 		return nil, err
 	}
@@ -650,10 +661,11 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	}
 
 	return &Deps{
-		Cfg:    cfg,
-		DB:     db,
-		Chain:  full,
-		Maddrs: maddrs,
+		Cfg:       cfg,
+		DB:        db,
+		Chain:     full,
+		Maddrs:    maddrs,
+		EthClient: ethClient,
 	}, nil
 }
 

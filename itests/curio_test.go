@@ -33,6 +33,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -80,7 +81,8 @@ func TestCurioHappyPath(t *testing.T) {
 
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
 	var titles []string
@@ -517,13 +519,6 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
-}
-
-func envElse(env, els string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	return els
 }
 
 // Helper functions to handle nil or null values

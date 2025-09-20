@@ -343,7 +343,7 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		return xerrors.Errorf("declaring storage in index: %w", err)
 	}
 
-	if err := st.declareSectors(ctx, p, meta.ID, meta.CanStore, false); err != nil {
+	if err := st.declareSectors(ctx, p, meta.ID, meta.CanStore, true); err != nil {
 		return err
 	}
 
@@ -391,10 +391,27 @@ func (st *Local) open(ctx context.Context) error {
 
 	go st.reportHealth(ctx)
 
+	go st.startPeriodicRedeclare(ctx)
+
 	return nil
 }
 
 var declareCounter atomic.Int32
+
+func (st *Local) startPeriodicRedeclare(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour * 4)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if err := st.Redeclare(ctx, nil, true); err != nil {
+				log.Errorf("redeclaring storage: %w", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
 
 func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMissingDecls bool) error {
 	st.localLk.Lock()

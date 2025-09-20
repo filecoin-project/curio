@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Deals</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
+    <script type="module" src="deal.mjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+          crossorigin="anonymous" />
+</head>
+
+<body style="visibility:hidden" data-bs-theme="dark">
+<curio-ux>
+    <div class="page" style="margin-left: 20px; margin-right: 10px">
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                <h1>MK20 Deal Info</h1>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <mk20-deal-pipelines></mk20-deal-pipelines>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <deal-details></deal-details>
+                </div>
+            </div>
+        </section>
+    </div>
+</curio-ux>
+</body>
+
+</html>

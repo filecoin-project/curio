@@ -34,27 +34,21 @@ type CidsCid struct {
 	Data []byte
 }
 
-// PDPVerifierProof is an auto generated low-level Go binding around an user-defined struct.
-type PDPVerifierProof struct {
+// IPDPTypesPieceIdAndOffset is an auto generated low-level Go binding around an user-defined struct.
+type IPDPTypesPieceIdAndOffset struct {
+	PieceId *big.Int
+	Offset  *big.Int
+}
+
+// IPDPTypesProof is an auto generated low-level Go binding around an user-defined struct.
+type IPDPTypesProof struct {
 	Leaf  [32]byte
 	Proof [][32]byte
 }
 
-// PDPVerifierRootData is an auto generated low-level Go binding around an user-defined struct.
-type PDPVerifierRootData struct {
-	Root    CidsCid
-	RawSize *big.Int
-}
-
-// PDPVerifierRootIdAndOffset is an auto generated low-level Go binding around an user-defined struct.
-type PDPVerifierRootIdAndOffset struct {
-	RootId *big.Int
-	Offset *big.Int
-}
-
 // PDPVerifierMetaData contains all meta data concerning the PDPVerifier contract.
 var PDPVerifierMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"FIL_USD_PRICE_FEED_ID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ROOT_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_CHALLENGE_SCHEDULED\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_PROVEN_EPOCH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"PYTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIPyth\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"SECONDS_IN_DAY\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootData[]\",\"components\":[{\"name\":\"root\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"calculateProofFee\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"estimatedGasFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"claimProofSetOwnership\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createProofSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"deleteProofSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findRootIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getFILUSDPrice\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"\",\"type\":\"int32\",\"internalType\":\"int32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProofSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextRootId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLastProvenEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proofSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"rootChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"rootLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"scheduleRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"Debug\",\"inputs\":[{\"name\":\"message\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"value\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"NextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"leafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PossessionProven\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challenges\",\"type\":\"tuple[]\",\"indexed\":false,\"internalType\":\"structPDPVerifier.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofFeePaid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"fee\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"price\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"},{\"name\":\"expo\",\"type\":\"int32\",\"indexed\":false,\"internalType\":\"int32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"owner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetEmpty\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetOwnerChanged\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"oldOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsAdded\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsRemoved\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"FIL_USD_PRICE_FEED_ID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_PIECE_SIZE_LOG2\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_CHALLENGE_SCHEDULED\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_PROVEN_EPOCH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"PYTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIPyth\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"SECONDS_IN_DAY\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addPieces\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceData\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"calculateProofFee\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"estimatedGasFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"claimDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createDataSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"dataSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"deleteDataSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findPieceIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structIPDPTypes.PieceIdAndOffset[]\",\"components\":[{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getActivePieceCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"activeCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getActivePieces\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"pieces\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"rawSizes\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetLastProvenEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getFILUSDPrice\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"\",\"type\":\"int32\",\"internalType\":\"int32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextDataSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextPieceId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"migrate\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pieceChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pieceLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newStorageProvider\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structIPDPTypes.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"schedulePieceDeletions\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"ContractUpgraded\",\"inputs\":[{\"name\":\"version\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"storageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetEmpty\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"NextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"leafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PiecesAdded\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"},{\"name\":\"pieceCids\",\"type\":\"tuple[]\",\"indexed\":false,\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PiecesRemoved\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PossessionProven\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challenges\",\"type\":\"tuple[]\",\"indexed\":false,\"internalType\":\"structIPDPTypes.PieceIdAndOffset[]\",\"components\":[{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofFeePaid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"fee\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"price\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"},{\"name\":\"expo\",\"type\":\"int32\",\"indexed\":false,\"internalType\":\"int32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"StorageProviderChanged\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"oldStorageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newStorageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
 }
 
 // PDPVerifierABI is the input ABI used to generate the binding from.
@@ -358,12 +352,12 @@ func (_PDPVerifier *PDPVerifierCallerSession) MAXENQUEUEDREMOVALS() (*big.Int, e
 	return _PDPVerifier.Contract.MAXENQUEUEDREMOVALS(&_PDPVerifier.CallOpts)
 }
 
-// MAXROOTSIZE is a free data retrieval call binding the contract method 0x16e2bcd5.
+// MAXPIECESIZELOG2 is a free data retrieval call binding the contract method 0xf8eb8276.
 //
-// Solidity: function MAX_ROOT_SIZE() view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) MAXROOTSIZE(opts *bind.CallOpts) (*big.Int, error) {
+// Solidity: function MAX_PIECE_SIZE_LOG2() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) MAXPIECESIZELOG2(opts *bind.CallOpts) (*big.Int, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "MAX_ROOT_SIZE")
+	err := _PDPVerifier.contract.Call(opts, &out, "MAX_PIECE_SIZE_LOG2")
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -375,18 +369,18 @@ func (_PDPVerifier *PDPVerifierCaller) MAXROOTSIZE(opts *bind.CallOpts) (*big.In
 
 }
 
-// MAXROOTSIZE is a free data retrieval call binding the contract method 0x16e2bcd5.
+// MAXPIECESIZELOG2 is a free data retrieval call binding the contract method 0xf8eb8276.
 //
-// Solidity: function MAX_ROOT_SIZE() view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) MAXROOTSIZE() (*big.Int, error) {
-	return _PDPVerifier.Contract.MAXROOTSIZE(&_PDPVerifier.CallOpts)
+// Solidity: function MAX_PIECE_SIZE_LOG2() view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) MAXPIECESIZELOG2() (*big.Int, error) {
+	return _PDPVerifier.Contract.MAXPIECESIZELOG2(&_PDPVerifier.CallOpts)
 }
 
-// MAXROOTSIZE is a free data retrieval call binding the contract method 0x16e2bcd5.
+// MAXPIECESIZELOG2 is a free data retrieval call binding the contract method 0xf8eb8276.
 //
-// Solidity: function MAX_ROOT_SIZE() view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) MAXROOTSIZE() (*big.Int, error) {
-	return _PDPVerifier.Contract.MAXROOTSIZE(&_PDPVerifier.CallOpts)
+// Solidity: function MAX_PIECE_SIZE_LOG2() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) MAXPIECESIZELOG2() (*big.Int, error) {
+	return _PDPVerifier.Contract.MAXPIECESIZELOG2(&_PDPVerifier.CallOpts)
 }
 
 // NOCHALLENGESCHEDULED is a free data retrieval call binding the contract method 0x462dd449.
@@ -575,6 +569,37 @@ func (_PDPVerifier *PDPVerifierCallerSession) UPGRADEINTERFACEVERSION() (string,
 	return _PDPVerifier.Contract.UPGRADEINTERFACEVERSION(&_PDPVerifier.CallOpts)
 }
 
+// VERSION is a free data retrieval call binding the contract method 0xffa1ad74.
+//
+// Solidity: function VERSION() view returns(string)
+func (_PDPVerifier *PDPVerifierCaller) VERSION(opts *bind.CallOpts) (string, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "VERSION")
+
+	if err != nil {
+		return *new(string), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(string)).(*string)
+
+	return out0, err
+
+}
+
+// VERSION is a free data retrieval call binding the contract method 0xffa1ad74.
+//
+// Solidity: function VERSION() view returns(string)
+func (_PDPVerifier *PDPVerifierSession) VERSION() (string, error) {
+	return _PDPVerifier.Contract.VERSION(&_PDPVerifier.CallOpts)
+}
+
+// VERSION is a free data retrieval call binding the contract method 0xffa1ad74.
+//
+// Solidity: function VERSION() view returns(string)
+func (_PDPVerifier *PDPVerifierCallerSession) VERSION() (string, error) {
+	return _PDPVerifier.Contract.VERSION(&_PDPVerifier.CallOpts)
+}
+
 // CalculateProofFee is a free data retrieval call binding the contract method 0x4903704a.
 //
 // Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) view returns(uint256)
@@ -606,35 +631,152 @@ func (_PDPVerifier *PDPVerifierCallerSession) CalculateProofFee(setId *big.Int, 
 	return _PDPVerifier.Contract.CalculateProofFee(&_PDPVerifier.CallOpts, setId, estimatedGasFee)
 }
 
-// FindRootIds is a free data retrieval call binding the contract method 0x0528a55b.
+// DataSetLive is a free data retrieval call binding the contract method 0xca759f27.
 //
-// Solidity: function findRootIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
-func (_PDPVerifier *PDPVerifierCaller) FindRootIds(opts *bind.CallOpts, setId *big.Int, leafIndexs []*big.Int) ([]PDPVerifierRootIdAndOffset, error) {
+// Solidity: function dataSetLive(uint256 setId) view returns(bool)
+func (_PDPVerifier *PDPVerifierCaller) DataSetLive(opts *bind.CallOpts, setId *big.Int) (bool, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "findRootIds", setId, leafIndexs)
+	err := _PDPVerifier.contract.Call(opts, &out, "dataSetLive", setId)
 
 	if err != nil {
-		return *new([]PDPVerifierRootIdAndOffset), err
+		return *new(bool), err
 	}
 
-	out0 := *abi.ConvertType(out[0], new([]PDPVerifierRootIdAndOffset)).(*[]PDPVerifierRootIdAndOffset)
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
 
 	return out0, err
 
 }
 
-// FindRootIds is a free data retrieval call binding the contract method 0x0528a55b.
+// DataSetLive is a free data retrieval call binding the contract method 0xca759f27.
 //
-// Solidity: function findRootIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
-func (_PDPVerifier *PDPVerifierSession) FindRootIds(setId *big.Int, leafIndexs []*big.Int) ([]PDPVerifierRootIdAndOffset, error) {
-	return _PDPVerifier.Contract.FindRootIds(&_PDPVerifier.CallOpts, setId, leafIndexs)
+// Solidity: function dataSetLive(uint256 setId) view returns(bool)
+func (_PDPVerifier *PDPVerifierSession) DataSetLive(setId *big.Int) (bool, error) {
+	return _PDPVerifier.Contract.DataSetLive(&_PDPVerifier.CallOpts, setId)
 }
 
-// FindRootIds is a free data retrieval call binding the contract method 0x0528a55b.
+// DataSetLive is a free data retrieval call binding the contract method 0xca759f27.
 //
-// Solidity: function findRootIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
-func (_PDPVerifier *PDPVerifierCallerSession) FindRootIds(setId *big.Int, leafIndexs []*big.Int) ([]PDPVerifierRootIdAndOffset, error) {
-	return _PDPVerifier.Contract.FindRootIds(&_PDPVerifier.CallOpts, setId, leafIndexs)
+// Solidity: function dataSetLive(uint256 setId) view returns(bool)
+func (_PDPVerifier *PDPVerifierCallerSession) DataSetLive(setId *big.Int) (bool, error) {
+	return _PDPVerifier.Contract.DataSetLive(&_PDPVerifier.CallOpts, setId)
+}
+
+// FindPieceIds is a free data retrieval call binding the contract method 0x349c9179.
+//
+// Solidity: function findPieceIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
+func (_PDPVerifier *PDPVerifierCaller) FindPieceIds(opts *bind.CallOpts, setId *big.Int, leafIndexs []*big.Int) ([]IPDPTypesPieceIdAndOffset, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "findPieceIds", setId, leafIndexs)
+
+	if err != nil {
+		return *new([]IPDPTypesPieceIdAndOffset), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new([]IPDPTypesPieceIdAndOffset)).(*[]IPDPTypesPieceIdAndOffset)
+
+	return out0, err
+
+}
+
+// FindPieceIds is a free data retrieval call binding the contract method 0x349c9179.
+//
+// Solidity: function findPieceIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
+func (_PDPVerifier *PDPVerifierSession) FindPieceIds(setId *big.Int, leafIndexs []*big.Int) ([]IPDPTypesPieceIdAndOffset, error) {
+	return _PDPVerifier.Contract.FindPieceIds(&_PDPVerifier.CallOpts, setId, leafIndexs)
+}
+
+// FindPieceIds is a free data retrieval call binding the contract method 0x349c9179.
+//
+// Solidity: function findPieceIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
+func (_PDPVerifier *PDPVerifierCallerSession) FindPieceIds(setId *big.Int, leafIndexs []*big.Int) ([]IPDPTypesPieceIdAndOffset, error) {
+	return _PDPVerifier.Contract.FindPieceIds(&_PDPVerifier.CallOpts, setId, leafIndexs)
+}
+
+// GetActivePieceCount is a free data retrieval call binding the contract method 0x5353bdfd.
+//
+// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256 activeCount)
+func (_PDPVerifier *PDPVerifierCaller) GetActivePieceCount(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getActivePieceCount", setId)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetActivePieceCount is a free data retrieval call binding the contract method 0x5353bdfd.
+//
+// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256 activeCount)
+func (_PDPVerifier *PDPVerifierSession) GetActivePieceCount(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetActivePieceCount(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetActivePieceCount is a free data retrieval call binding the contract method 0x5353bdfd.
+//
+// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256 activeCount)
+func (_PDPVerifier *PDPVerifierCallerSession) GetActivePieceCount(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetActivePieceCount(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetActivePieces is a free data retrieval call binding the contract method 0x39f51544.
+//
+// Solidity: function getActivePieces(uint256 setId, uint256 offset, uint256 limit) view returns((bytes)[] pieces, uint256[] pieceIds, uint256[] rawSizes, bool hasMore)
+func (_PDPVerifier *PDPVerifierCaller) GetActivePieces(opts *bind.CallOpts, setId *big.Int, offset *big.Int, limit *big.Int) (struct {
+	Pieces   []CidsCid
+	PieceIds []*big.Int
+	RawSizes []*big.Int
+	HasMore  bool
+}, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getActivePieces", setId, offset, limit)
+
+	outstruct := new(struct {
+		Pieces   []CidsCid
+		PieceIds []*big.Int
+		RawSizes []*big.Int
+		HasMore  bool
+	})
+	if err != nil {
+		return *outstruct, err
+	}
+
+	outstruct.Pieces = *abi.ConvertType(out[0], new([]CidsCid)).(*[]CidsCid)
+	outstruct.PieceIds = *abi.ConvertType(out[1], new([]*big.Int)).(*[]*big.Int)
+	outstruct.RawSizes = *abi.ConvertType(out[2], new([]*big.Int)).(*[]*big.Int)
+	outstruct.HasMore = *abi.ConvertType(out[3], new(bool)).(*bool)
+
+	return *outstruct, err
+
+}
+
+// GetActivePieces is a free data retrieval call binding the contract method 0x39f51544.
+//
+// Solidity: function getActivePieces(uint256 setId, uint256 offset, uint256 limit) view returns((bytes)[] pieces, uint256[] pieceIds, uint256[] rawSizes, bool hasMore)
+func (_PDPVerifier *PDPVerifierSession) GetActivePieces(setId *big.Int, offset *big.Int, limit *big.Int) (struct {
+	Pieces   []CidsCid
+	PieceIds []*big.Int
+	RawSizes []*big.Int
+	HasMore  bool
+}, error) {
+	return _PDPVerifier.Contract.GetActivePieces(&_PDPVerifier.CallOpts, setId, offset, limit)
+}
+
+// GetActivePieces is a free data retrieval call binding the contract method 0x39f51544.
+//
+// Solidity: function getActivePieces(uint256 setId, uint256 offset, uint256 limit) view returns((bytes)[] pieces, uint256[] pieceIds, uint256[] rawSizes, bool hasMore)
+func (_PDPVerifier *PDPVerifierCallerSession) GetActivePieces(setId *big.Int, offset *big.Int, limit *big.Int) (struct {
+	Pieces   []CidsCid
+	PieceIds []*big.Int
+	RawSizes []*big.Int
+	HasMore  bool
+}, error) {
+	return _PDPVerifier.Contract.GetActivePieces(&_PDPVerifier.CallOpts, setId, offset, limit)
 }
 
 // GetChallengeFinality is a free data retrieval call binding the contract method 0xf83758fe.
@@ -697,6 +839,131 @@ func (_PDPVerifier *PDPVerifierSession) GetChallengeRange(setId *big.Int) (*big.
 // Solidity: function getChallengeRange(uint256 setId) view returns(uint256)
 func (_PDPVerifier *PDPVerifierCallerSession) GetChallengeRange(setId *big.Int) (*big.Int, error) {
 	return _PDPVerifier.Contract.GetChallengeRange(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetLastProvenEpoch is a free data retrieval call binding the contract method 0x04595c1a.
+//
+// Solidity: function getDataSetLastProvenEpoch(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) GetDataSetLastProvenEpoch(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getDataSetLastProvenEpoch", setId)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetDataSetLastProvenEpoch is a free data retrieval call binding the contract method 0x04595c1a.
+//
+// Solidity: function getDataSetLastProvenEpoch(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) GetDataSetLastProvenEpoch(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetDataSetLastProvenEpoch(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetLastProvenEpoch is a free data retrieval call binding the contract method 0x04595c1a.
+//
+// Solidity: function getDataSetLastProvenEpoch(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) GetDataSetLastProvenEpoch(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetDataSetLastProvenEpoch(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetLeafCount is a free data retrieval call binding the contract method 0xa531998c.
+//
+// Solidity: function getDataSetLeafCount(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) GetDataSetLeafCount(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getDataSetLeafCount", setId)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetDataSetLeafCount is a free data retrieval call binding the contract method 0xa531998c.
+//
+// Solidity: function getDataSetLeafCount(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) GetDataSetLeafCount(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetDataSetLeafCount(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetLeafCount is a free data retrieval call binding the contract method 0xa531998c.
+//
+// Solidity: function getDataSetLeafCount(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) GetDataSetLeafCount(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetDataSetLeafCount(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetListener is a free data retrieval call binding the contract method 0x2b3129bb.
+//
+// Solidity: function getDataSetListener(uint256 setId) view returns(address)
+func (_PDPVerifier *PDPVerifierCaller) GetDataSetListener(opts *bind.CallOpts, setId *big.Int) (common.Address, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getDataSetListener", setId)
+
+	if err != nil {
+		return *new(common.Address), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+
+	return out0, err
+
+}
+
+// GetDataSetListener is a free data retrieval call binding the contract method 0x2b3129bb.
+//
+// Solidity: function getDataSetListener(uint256 setId) view returns(address)
+func (_PDPVerifier *PDPVerifierSession) GetDataSetListener(setId *big.Int) (common.Address, error) {
+	return _PDPVerifier.Contract.GetDataSetListener(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetListener is a free data retrieval call binding the contract method 0x2b3129bb.
+//
+// Solidity: function getDataSetListener(uint256 setId) view returns(address)
+func (_PDPVerifier *PDPVerifierCallerSession) GetDataSetListener(setId *big.Int) (common.Address, error) {
+	return _PDPVerifier.Contract.GetDataSetListener(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetStorageProvider is a free data retrieval call binding the contract method 0x21b7cd1c.
+//
+// Solidity: function getDataSetStorageProvider(uint256 setId) view returns(address, address)
+func (_PDPVerifier *PDPVerifierCaller) GetDataSetStorageProvider(opts *bind.CallOpts, setId *big.Int) (common.Address, common.Address, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getDataSetStorageProvider", setId)
+
+	if err != nil {
+		return *new(common.Address), *new(common.Address), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	out1 := *abi.ConvertType(out[1], new(common.Address)).(*common.Address)
+
+	return out0, out1, err
+
+}
+
+// GetDataSetStorageProvider is a free data retrieval call binding the contract method 0x21b7cd1c.
+//
+// Solidity: function getDataSetStorageProvider(uint256 setId) view returns(address, address)
+func (_PDPVerifier *PDPVerifierSession) GetDataSetStorageProvider(setId *big.Int) (common.Address, common.Address, error) {
+	return _PDPVerifier.Contract.GetDataSetStorageProvider(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetDataSetStorageProvider is a free data retrieval call binding the contract method 0x21b7cd1c.
+//
+// Solidity: function getDataSetStorageProvider(uint256 setId) view returns(address, address)
+func (_PDPVerifier *PDPVerifierCallerSession) GetDataSetStorageProvider(setId *big.Int) (common.Address, common.Address, error) {
+	return _PDPVerifier.Contract.GetDataSetStorageProvider(&_PDPVerifier.CallOpts, setId)
 }
 
 // GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
@@ -762,12 +1029,12 @@ func (_PDPVerifier *PDPVerifierCallerSession) GetNextChallengeEpoch(setId *big.I
 	return _PDPVerifier.Contract.GetNextChallengeEpoch(&_PDPVerifier.CallOpts, setId)
 }
 
-// GetNextProofSetId is a free data retrieval call binding the contract method 0x8ea417e5.
+// GetNextDataSetId is a free data retrieval call binding the contract method 0x442cded3.
 //
-// Solidity: function getNextProofSetId() view returns(uint64)
-func (_PDPVerifier *PDPVerifierCaller) GetNextProofSetId(opts *bind.CallOpts) (uint64, error) {
+// Solidity: function getNextDataSetId() view returns(uint64)
+func (_PDPVerifier *PDPVerifierCaller) GetNextDataSetId(opts *bind.CallOpts) (uint64, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getNextProofSetId")
+	err := _PDPVerifier.contract.Call(opts, &out, "getNextDataSetId")
 
 	if err != nil {
 		return *new(uint64), err
@@ -779,26 +1046,26 @@ func (_PDPVerifier *PDPVerifierCaller) GetNextProofSetId(opts *bind.CallOpts) (u
 
 }
 
-// GetNextProofSetId is a free data retrieval call binding the contract method 0x8ea417e5.
+// GetNextDataSetId is a free data retrieval call binding the contract method 0x442cded3.
 //
-// Solidity: function getNextProofSetId() view returns(uint64)
-func (_PDPVerifier *PDPVerifierSession) GetNextProofSetId() (uint64, error) {
-	return _PDPVerifier.Contract.GetNextProofSetId(&_PDPVerifier.CallOpts)
+// Solidity: function getNextDataSetId() view returns(uint64)
+func (_PDPVerifier *PDPVerifierSession) GetNextDataSetId() (uint64, error) {
+	return _PDPVerifier.Contract.GetNextDataSetId(&_PDPVerifier.CallOpts)
 }
 
-// GetNextProofSetId is a free data retrieval call binding the contract method 0x8ea417e5.
+// GetNextDataSetId is a free data retrieval call binding the contract method 0x442cded3.
 //
-// Solidity: function getNextProofSetId() view returns(uint64)
-func (_PDPVerifier *PDPVerifierCallerSession) GetNextProofSetId() (uint64, error) {
-	return _PDPVerifier.Contract.GetNextProofSetId(&_PDPVerifier.CallOpts)
+// Solidity: function getNextDataSetId() view returns(uint64)
+func (_PDPVerifier *PDPVerifierCallerSession) GetNextDataSetId() (uint64, error) {
+	return _PDPVerifier.Contract.GetNextDataSetId(&_PDPVerifier.CallOpts)
 }
 
-// GetNextRootId is a free data retrieval call binding the contract method 0xd49245c1.
+// GetNextPieceId is a free data retrieval call binding the contract method 0x1c5ae80f.
 //
-// Solidity: function getNextRootId(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) GetNextRootId(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+// Solidity: function getNextPieceId(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) GetNextPieceId(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getNextRootId", setId)
+	err := _PDPVerifier.contract.Call(opts, &out, "getNextPieceId", setId)
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -810,26 +1077,57 @@ func (_PDPVerifier *PDPVerifierCaller) GetNextRootId(opts *bind.CallOpts, setId 
 
 }
 
-// GetNextRootId is a free data retrieval call binding the contract method 0xd49245c1.
+// GetNextPieceId is a free data retrieval call binding the contract method 0x1c5ae80f.
 //
-// Solidity: function getNextRootId(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) GetNextRootId(setId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetNextRootId(&_PDPVerifier.CallOpts, setId)
+// Solidity: function getNextPieceId(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) GetNextPieceId(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetNextPieceId(&_PDPVerifier.CallOpts, setId)
 }
 
-// GetNextRootId is a free data retrieval call binding the contract method 0xd49245c1.
+// GetNextPieceId is a free data retrieval call binding the contract method 0x1c5ae80f.
 //
-// Solidity: function getNextRootId(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) GetNextRootId(setId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetNextRootId(&_PDPVerifier.CallOpts, setId)
+// Solidity: function getNextPieceId(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) GetNextPieceId(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetNextPieceId(&_PDPVerifier.CallOpts, setId)
 }
 
-// GetProofSetLastProvenEpoch is a free data retrieval call binding the contract method 0xfaa67163.
+// GetPieceCid is a free data retrieval call binding the contract method 0x25bbbedf.
 //
-// Solidity: function getProofSetLastProvenEpoch(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) GetProofSetLastProvenEpoch(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+// Solidity: function getPieceCid(uint256 setId, uint256 pieceId) view returns((bytes))
+func (_PDPVerifier *PDPVerifierCaller) GetPieceCid(opts *bind.CallOpts, setId *big.Int, pieceId *big.Int) (CidsCid, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getProofSetLastProvenEpoch", setId)
+	err := _PDPVerifier.contract.Call(opts, &out, "getPieceCid", setId, pieceId)
+
+	if err != nil {
+		return *new(CidsCid), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(CidsCid)).(*CidsCid)
+
+	return out0, err
+
+}
+
+// GetPieceCid is a free data retrieval call binding the contract method 0x25bbbedf.
+//
+// Solidity: function getPieceCid(uint256 setId, uint256 pieceId) view returns((bytes))
+func (_PDPVerifier *PDPVerifierSession) GetPieceCid(setId *big.Int, pieceId *big.Int) (CidsCid, error) {
+	return _PDPVerifier.Contract.GetPieceCid(&_PDPVerifier.CallOpts, setId, pieceId)
+}
+
+// GetPieceCid is a free data retrieval call binding the contract method 0x25bbbedf.
+//
+// Solidity: function getPieceCid(uint256 setId, uint256 pieceId) view returns((bytes))
+func (_PDPVerifier *PDPVerifierCallerSession) GetPieceCid(setId *big.Int, pieceId *big.Int) (CidsCid, error) {
+	return _PDPVerifier.Contract.GetPieceCid(&_PDPVerifier.CallOpts, setId, pieceId)
+}
+
+// GetPieceLeafCount is a free data retrieval call binding the contract method 0x0cd7b880.
+//
+// Solidity: function getPieceLeafCount(uint256 setId, uint256 pieceId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) GetPieceLeafCount(opts *bind.CallOpts, setId *big.Int, pieceId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getPieceLeafCount", setId, pieceId)
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -841,112 +1139,18 @@ func (_PDPVerifier *PDPVerifierCaller) GetProofSetLastProvenEpoch(opts *bind.Cal
 
 }
 
-// GetProofSetLastProvenEpoch is a free data retrieval call binding the contract method 0xfaa67163.
+// GetPieceLeafCount is a free data retrieval call binding the contract method 0x0cd7b880.
 //
-// Solidity: function getProofSetLastProvenEpoch(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) GetProofSetLastProvenEpoch(setId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetProofSetLastProvenEpoch(&_PDPVerifier.CallOpts, setId)
+// Solidity: function getPieceLeafCount(uint256 setId, uint256 pieceId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) GetPieceLeafCount(setId *big.Int, pieceId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetPieceLeafCount(&_PDPVerifier.CallOpts, setId, pieceId)
 }
 
-// GetProofSetLastProvenEpoch is a free data retrieval call binding the contract method 0xfaa67163.
+// GetPieceLeafCount is a free data retrieval call binding the contract method 0x0cd7b880.
 //
-// Solidity: function getProofSetLastProvenEpoch(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetLastProvenEpoch(setId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetProofSetLastProvenEpoch(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetProofSetLeafCount is a free data retrieval call binding the contract method 0x3f84135f.
-//
-// Solidity: function getProofSetLeafCount(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) GetProofSetLeafCount(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getProofSetLeafCount", setId)
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// GetProofSetLeafCount is a free data retrieval call binding the contract method 0x3f84135f.
-//
-// Solidity: function getProofSetLeafCount(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) GetProofSetLeafCount(setId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetProofSetLeafCount(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetProofSetLeafCount is a free data retrieval call binding the contract method 0x3f84135f.
-//
-// Solidity: function getProofSetLeafCount(uint256 setId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetLeafCount(setId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetProofSetLeafCount(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetProofSetListener is a free data retrieval call binding the contract method 0x31601226.
-//
-// Solidity: function getProofSetListener(uint256 setId) view returns(address)
-func (_PDPVerifier *PDPVerifierCaller) GetProofSetListener(opts *bind.CallOpts, setId *big.Int) (common.Address, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getProofSetListener", setId)
-
-	if err != nil {
-		return *new(common.Address), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-
-	return out0, err
-
-}
-
-// GetProofSetListener is a free data retrieval call binding the contract method 0x31601226.
-//
-// Solidity: function getProofSetListener(uint256 setId) view returns(address)
-func (_PDPVerifier *PDPVerifierSession) GetProofSetListener(setId *big.Int) (common.Address, error) {
-	return _PDPVerifier.Contract.GetProofSetListener(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetProofSetListener is a free data retrieval call binding the contract method 0x31601226.
-//
-// Solidity: function getProofSetListener(uint256 setId) view returns(address)
-func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetListener(setId *big.Int) (common.Address, error) {
-	return _PDPVerifier.Contract.GetProofSetListener(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetProofSetOwner is a free data retrieval call binding the contract method 0x4726075b.
-//
-// Solidity: function getProofSetOwner(uint256 setId) view returns(address, address)
-func (_PDPVerifier *PDPVerifierCaller) GetProofSetOwner(opts *bind.CallOpts, setId *big.Int) (common.Address, common.Address, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getProofSetOwner", setId)
-
-	if err != nil {
-		return *new(common.Address), *new(common.Address), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-	out1 := *abi.ConvertType(out[1], new(common.Address)).(*common.Address)
-
-	return out0, out1, err
-
-}
-
-// GetProofSetOwner is a free data retrieval call binding the contract method 0x4726075b.
-//
-// Solidity: function getProofSetOwner(uint256 setId) view returns(address, address)
-func (_PDPVerifier *PDPVerifierSession) GetProofSetOwner(setId *big.Int) (common.Address, common.Address, error) {
-	return _PDPVerifier.Contract.GetProofSetOwner(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetProofSetOwner is a free data retrieval call binding the contract method 0x4726075b.
-//
-// Solidity: function getProofSetOwner(uint256 setId) view returns(address, address)
-func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetOwner(setId *big.Int) (common.Address, common.Address, error) {
-	return _PDPVerifier.Contract.GetProofSetOwner(&_PDPVerifier.CallOpts, setId)
+// Solidity: function getPieceLeafCount(uint256 setId, uint256 pieceId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) GetPieceLeafCount(setId *big.Int, pieceId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetPieceLeafCount(&_PDPVerifier.CallOpts, setId, pieceId)
 }
 
 // GetRandomness is a free data retrieval call binding the contract method 0x453f4f62.
@@ -978,68 +1182,6 @@ func (_PDPVerifier *PDPVerifierSession) GetRandomness(epoch *big.Int) (*big.Int,
 // Solidity: function getRandomness(uint256 epoch) view returns(uint256)
 func (_PDPVerifier *PDPVerifierCallerSession) GetRandomness(epoch *big.Int) (*big.Int, error) {
 	return _PDPVerifier.Contract.GetRandomness(&_PDPVerifier.CallOpts, epoch)
-}
-
-// GetRootCid is a free data retrieval call binding the contract method 0x3b7ae913.
-//
-// Solidity: function getRootCid(uint256 setId, uint256 rootId) view returns((bytes))
-func (_PDPVerifier *PDPVerifierCaller) GetRootCid(opts *bind.CallOpts, setId *big.Int, rootId *big.Int) (CidsCid, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getRootCid", setId, rootId)
-
-	if err != nil {
-		return *new(CidsCid), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(CidsCid)).(*CidsCid)
-
-	return out0, err
-
-}
-
-// GetRootCid is a free data retrieval call binding the contract method 0x3b7ae913.
-//
-// Solidity: function getRootCid(uint256 setId, uint256 rootId) view returns((bytes))
-func (_PDPVerifier *PDPVerifierSession) GetRootCid(setId *big.Int, rootId *big.Int) (CidsCid, error) {
-	return _PDPVerifier.Contract.GetRootCid(&_PDPVerifier.CallOpts, setId, rootId)
-}
-
-// GetRootCid is a free data retrieval call binding the contract method 0x3b7ae913.
-//
-// Solidity: function getRootCid(uint256 setId, uint256 rootId) view returns((bytes))
-func (_PDPVerifier *PDPVerifierCallerSession) GetRootCid(setId *big.Int, rootId *big.Int) (CidsCid, error) {
-	return _PDPVerifier.Contract.GetRootCid(&_PDPVerifier.CallOpts, setId, rootId)
-}
-
-// GetRootLeafCount is a free data retrieval call binding the contract method 0x9153e64b.
-//
-// Solidity: function getRootLeafCount(uint256 setId, uint256 rootId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) GetRootLeafCount(opts *bind.CallOpts, setId *big.Int, rootId *big.Int) (*big.Int, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getRootLeafCount", setId, rootId)
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// GetRootLeafCount is a free data retrieval call binding the contract method 0x9153e64b.
-//
-// Solidity: function getRootLeafCount(uint256 setId, uint256 rootId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) GetRootLeafCount(setId *big.Int, rootId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetRootLeafCount(&_PDPVerifier.CallOpts, setId, rootId)
-}
-
-// GetRootLeafCount is a free data retrieval call binding the contract method 0x9153e64b.
-//
-// Solidity: function getRootLeafCount(uint256 setId, uint256 rootId) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) GetRootLeafCount(setId *big.Int, rootId *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.GetRootLeafCount(&_PDPVerifier.CallOpts, setId, rootId)
 }
 
 // GetScheduledRemovals is a free data retrieval call binding the contract method 0x6fa44692.
@@ -1104,12 +1246,12 @@ func (_PDPVerifier *PDPVerifierCallerSession) Owner() (common.Address, error) {
 	return _PDPVerifier.Contract.Owner(&_PDPVerifier.CallOpts)
 }
 
-// ProofSetLive is a free data retrieval call binding the contract method 0xf5cac1ba.
+// PieceChallengable is a free data retrieval call binding the contract method 0xdc635266.
 //
-// Solidity: function proofSetLive(uint256 setId) view returns(bool)
-func (_PDPVerifier *PDPVerifierCaller) ProofSetLive(opts *bind.CallOpts, setId *big.Int) (bool, error) {
+// Solidity: function pieceChallengable(uint256 setId, uint256 pieceId) view returns(bool)
+func (_PDPVerifier *PDPVerifierCaller) PieceChallengable(opts *bind.CallOpts, setId *big.Int, pieceId *big.Int) (bool, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "proofSetLive", setId)
+	err := _PDPVerifier.contract.Call(opts, &out, "pieceChallengable", setId, pieceId)
 
 	if err != nil {
 		return *new(bool), err
@@ -1121,18 +1263,49 @@ func (_PDPVerifier *PDPVerifierCaller) ProofSetLive(opts *bind.CallOpts, setId *
 
 }
 
-// ProofSetLive is a free data retrieval call binding the contract method 0xf5cac1ba.
+// PieceChallengable is a free data retrieval call binding the contract method 0xdc635266.
 //
-// Solidity: function proofSetLive(uint256 setId) view returns(bool)
-func (_PDPVerifier *PDPVerifierSession) ProofSetLive(setId *big.Int) (bool, error) {
-	return _PDPVerifier.Contract.ProofSetLive(&_PDPVerifier.CallOpts, setId)
+// Solidity: function pieceChallengable(uint256 setId, uint256 pieceId) view returns(bool)
+func (_PDPVerifier *PDPVerifierSession) PieceChallengable(setId *big.Int, pieceId *big.Int) (bool, error) {
+	return _PDPVerifier.Contract.PieceChallengable(&_PDPVerifier.CallOpts, setId, pieceId)
 }
 
-// ProofSetLive is a free data retrieval call binding the contract method 0xf5cac1ba.
+// PieceChallengable is a free data retrieval call binding the contract method 0xdc635266.
 //
-// Solidity: function proofSetLive(uint256 setId) view returns(bool)
-func (_PDPVerifier *PDPVerifierCallerSession) ProofSetLive(setId *big.Int) (bool, error) {
-	return _PDPVerifier.Contract.ProofSetLive(&_PDPVerifier.CallOpts, setId)
+// Solidity: function pieceChallengable(uint256 setId, uint256 pieceId) view returns(bool)
+func (_PDPVerifier *PDPVerifierCallerSession) PieceChallengable(setId *big.Int, pieceId *big.Int) (bool, error) {
+	return _PDPVerifier.Contract.PieceChallengable(&_PDPVerifier.CallOpts, setId, pieceId)
+}
+
+// PieceLive is a free data retrieval call binding the contract method 0x1a271225.
+//
+// Solidity: function pieceLive(uint256 setId, uint256 pieceId) view returns(bool)
+func (_PDPVerifier *PDPVerifierCaller) PieceLive(opts *bind.CallOpts, setId *big.Int, pieceId *big.Int) (bool, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "pieceLive", setId, pieceId)
+
+	if err != nil {
+		return *new(bool), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+
+	return out0, err
+
+}
+
+// PieceLive is a free data retrieval call binding the contract method 0x1a271225.
+//
+// Solidity: function pieceLive(uint256 setId, uint256 pieceId) view returns(bool)
+func (_PDPVerifier *PDPVerifierSession) PieceLive(setId *big.Int, pieceId *big.Int) (bool, error) {
+	return _PDPVerifier.Contract.PieceLive(&_PDPVerifier.CallOpts, setId, pieceId)
+}
+
+// PieceLive is a free data retrieval call binding the contract method 0x1a271225.
+//
+// Solidity: function pieceLive(uint256 setId, uint256 pieceId) view returns(bool)
+func (_PDPVerifier *PDPVerifierCallerSession) PieceLive(setId *big.Int, pieceId *big.Int) (bool, error) {
+	return _PDPVerifier.Contract.PieceLive(&_PDPVerifier.CallOpts, setId, pieceId)
 }
 
 // ProxiableUUID is a free data retrieval call binding the contract method 0x52d1902d.
@@ -1166,150 +1339,88 @@ func (_PDPVerifier *PDPVerifierCallerSession) ProxiableUUID() ([32]byte, error) 
 	return _PDPVerifier.Contract.ProxiableUUID(&_PDPVerifier.CallOpts)
 }
 
-// RootChallengable is a free data retrieval call binding the contract method 0x71cf2a16.
+// AddPieces is a paid mutator transaction binding the contract method 0x306fc8be.
 //
-// Solidity: function rootChallengable(uint256 setId, uint256 rootId) view returns(bool)
-func (_PDPVerifier *PDPVerifierCaller) RootChallengable(opts *bind.CallOpts, setId *big.Int, rootId *big.Int) (bool, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "rootChallengable", setId, rootId)
-
-	if err != nil {
-		return *new(bool), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
-
-	return out0, err
-
+// Solidity: function addPieces(uint256 setId, (bytes)[] pieceData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactor) AddPieces(opts *bind.TransactOpts, setId *big.Int, pieceData []CidsCid, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "addPieces", setId, pieceData, extraData)
 }
 
-// RootChallengable is a free data retrieval call binding the contract method 0x71cf2a16.
+// AddPieces is a paid mutator transaction binding the contract method 0x306fc8be.
 //
-// Solidity: function rootChallengable(uint256 setId, uint256 rootId) view returns(bool)
-func (_PDPVerifier *PDPVerifierSession) RootChallengable(setId *big.Int, rootId *big.Int) (bool, error) {
-	return _PDPVerifier.Contract.RootChallengable(&_PDPVerifier.CallOpts, setId, rootId)
+// Solidity: function addPieces(uint256 setId, (bytes)[] pieceData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) AddPieces(setId *big.Int, pieceData []CidsCid, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.AddPieces(&_PDPVerifier.TransactOpts, setId, pieceData, extraData)
 }
 
-// RootChallengable is a free data retrieval call binding the contract method 0x71cf2a16.
+// AddPieces is a paid mutator transaction binding the contract method 0x306fc8be.
 //
-// Solidity: function rootChallengable(uint256 setId, uint256 rootId) view returns(bool)
-func (_PDPVerifier *PDPVerifierCallerSession) RootChallengable(setId *big.Int, rootId *big.Int) (bool, error) {
-	return _PDPVerifier.Contract.RootChallengable(&_PDPVerifier.CallOpts, setId, rootId)
+// Solidity: function addPieces(uint256 setId, (bytes)[] pieceData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactorSession) AddPieces(setId *big.Int, pieceData []CidsCid, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.AddPieces(&_PDPVerifier.TransactOpts, setId, pieceData, extraData)
 }
 
-// RootLive is a free data retrieval call binding the contract method 0x47331050.
+// ClaimDataSetStorageProvider is a paid mutator transaction binding the contract method 0xdf0f3248.
 //
-// Solidity: function rootLive(uint256 setId, uint256 rootId) view returns(bool)
-func (_PDPVerifier *PDPVerifierCaller) RootLive(opts *bind.CallOpts, setId *big.Int, rootId *big.Int) (bool, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "rootLive", setId, rootId)
-
-	if err != nil {
-		return *new(bool), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
-
-	return out0, err
-
+// Solidity: function claimDataSetStorageProvider(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactor) ClaimDataSetStorageProvider(opts *bind.TransactOpts, setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "claimDataSetStorageProvider", setId, extraData)
 }
 
-// RootLive is a free data retrieval call binding the contract method 0x47331050.
+// ClaimDataSetStorageProvider is a paid mutator transaction binding the contract method 0xdf0f3248.
 //
-// Solidity: function rootLive(uint256 setId, uint256 rootId) view returns(bool)
-func (_PDPVerifier *PDPVerifierSession) RootLive(setId *big.Int, rootId *big.Int) (bool, error) {
-	return _PDPVerifier.Contract.RootLive(&_PDPVerifier.CallOpts, setId, rootId)
+// Solidity: function claimDataSetStorageProvider(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierSession) ClaimDataSetStorageProvider(setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.ClaimDataSetStorageProvider(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
-// RootLive is a free data retrieval call binding the contract method 0x47331050.
+// ClaimDataSetStorageProvider is a paid mutator transaction binding the contract method 0xdf0f3248.
 //
-// Solidity: function rootLive(uint256 setId, uint256 rootId) view returns(bool)
-func (_PDPVerifier *PDPVerifierCallerSession) RootLive(setId *big.Int, rootId *big.Int) (bool, error) {
-	return _PDPVerifier.Contract.RootLive(&_PDPVerifier.CallOpts, setId, rootId)
+// Solidity: function claimDataSetStorageProvider(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) ClaimDataSetStorageProvider(setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.ClaimDataSetStorageProvider(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
-// AddRoots is a paid mutator transaction binding the contract method 0x11c0ee4a.
+// CreateDataSet is a paid mutator transaction binding the contract method 0xbbae41cb.
 //
-// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData, bytes extraData) returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactor) AddRoots(opts *bind.TransactOpts, setId *big.Int, rootData []PDPVerifierRootData, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "addRoots", setId, rootData, extraData)
+// Solidity: function createDataSet(address listenerAddr, bytes extraData) payable returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactor) CreateDataSet(opts *bind.TransactOpts, listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "createDataSet", listenerAddr, extraData)
 }
 
-// AddRoots is a paid mutator transaction binding the contract method 0x11c0ee4a.
+// CreateDataSet is a paid mutator transaction binding the contract method 0xbbae41cb.
 //
-// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData, bytes extraData) returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) AddRoots(setId *big.Int, rootData []PDPVerifierRootData, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.AddRoots(&_PDPVerifier.TransactOpts, setId, rootData, extraData)
+// Solidity: function createDataSet(address listenerAddr, bytes extraData) payable returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) CreateDataSet(listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.CreateDataSet(&_PDPVerifier.TransactOpts, listenerAddr, extraData)
 }
 
-// AddRoots is a paid mutator transaction binding the contract method 0x11c0ee4a.
+// CreateDataSet is a paid mutator transaction binding the contract method 0xbbae41cb.
 //
-// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData, bytes extraData) returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactorSession) AddRoots(setId *big.Int, rootData []PDPVerifierRootData, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.AddRoots(&_PDPVerifier.TransactOpts, setId, rootData, extraData)
+// Solidity: function createDataSet(address listenerAddr, bytes extraData) payable returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactorSession) CreateDataSet(listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.CreateDataSet(&_PDPVerifier.TransactOpts, listenerAddr, extraData)
 }
 
-// ClaimProofSetOwnership is a paid mutator transaction binding the contract method 0xee3dac65.
+// DeleteDataSet is a paid mutator transaction binding the contract method 0x7a1e2990.
 //
-// Solidity: function claimProofSetOwnership(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierTransactor) ClaimProofSetOwnership(opts *bind.TransactOpts, setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "claimProofSetOwnership", setId)
+// Solidity: function deleteDataSet(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactor) DeleteDataSet(opts *bind.TransactOpts, setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "deleteDataSet", setId, extraData)
 }
 
-// ClaimProofSetOwnership is a paid mutator transaction binding the contract method 0xee3dac65.
+// DeleteDataSet is a paid mutator transaction binding the contract method 0x7a1e2990.
 //
-// Solidity: function claimProofSetOwnership(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierSession) ClaimProofSetOwnership(setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ClaimProofSetOwnership(&_PDPVerifier.TransactOpts, setId)
+// Solidity: function deleteDataSet(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierSession) DeleteDataSet(setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.DeleteDataSet(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
-// ClaimProofSetOwnership is a paid mutator transaction binding the contract method 0xee3dac65.
+// DeleteDataSet is a paid mutator transaction binding the contract method 0x7a1e2990.
 //
-// Solidity: function claimProofSetOwnership(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) ClaimProofSetOwnership(setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ClaimProofSetOwnership(&_PDPVerifier.TransactOpts, setId)
-}
-
-// CreateProofSet is a paid mutator transaction binding the contract method 0x0a4d7932.
-//
-// Solidity: function createProofSet(address listenerAddr, bytes extraData) payable returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactor) CreateProofSet(opts *bind.TransactOpts, listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "createProofSet", listenerAddr, extraData)
-}
-
-// CreateProofSet is a paid mutator transaction binding the contract method 0x0a4d7932.
-//
-// Solidity: function createProofSet(address listenerAddr, bytes extraData) payable returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) CreateProofSet(listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.CreateProofSet(&_PDPVerifier.TransactOpts, listenerAddr, extraData)
-}
-
-// CreateProofSet is a paid mutator transaction binding the contract method 0x0a4d7932.
-//
-// Solidity: function createProofSet(address listenerAddr, bytes extraData) payable returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactorSession) CreateProofSet(listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.CreateProofSet(&_PDPVerifier.TransactOpts, listenerAddr, extraData)
-}
-
-// DeleteProofSet is a paid mutator transaction binding the contract method 0x847d1d06.
-//
-// Solidity: function deleteProofSet(uint256 setId, bytes extraData) returns()
-func (_PDPVerifier *PDPVerifierTransactor) DeleteProofSet(opts *bind.TransactOpts, setId *big.Int, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "deleteProofSet", setId, extraData)
-}
-
-// DeleteProofSet is a paid mutator transaction binding the contract method 0x847d1d06.
-//
-// Solidity: function deleteProofSet(uint256 setId, bytes extraData) returns()
-func (_PDPVerifier *PDPVerifierSession) DeleteProofSet(setId *big.Int, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.DeleteProofSet(&_PDPVerifier.TransactOpts, setId, extraData)
-}
-
-// DeleteProofSet is a paid mutator transaction binding the contract method 0x847d1d06.
-//
-// Solidity: function deleteProofSet(uint256 setId, bytes extraData) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) DeleteProofSet(setId *big.Int, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.DeleteProofSet(&_PDPVerifier.TransactOpts, setId, extraData)
+// Solidity: function deleteDataSet(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) DeleteDataSet(setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.DeleteDataSet(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
 // Initialize is a paid mutator transaction binding the contract method 0xfe4b84df.
@@ -1333,6 +1444,27 @@ func (_PDPVerifier *PDPVerifierTransactorSession) Initialize(_challengeFinality 
 	return _PDPVerifier.Contract.Initialize(&_PDPVerifier.TransactOpts, _challengeFinality)
 }
 
+// Migrate is a paid mutator transaction binding the contract method 0x8fd3ab80.
+//
+// Solidity: function migrate() returns()
+func (_PDPVerifier *PDPVerifierTransactor) Migrate(opts *bind.TransactOpts) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "migrate")
+}
+
+// Migrate is a paid mutator transaction binding the contract method 0x8fd3ab80.
+//
+// Solidity: function migrate() returns()
+func (_PDPVerifier *PDPVerifierSession) Migrate() (*types.Transaction, error) {
+	return _PDPVerifier.Contract.Migrate(&_PDPVerifier.TransactOpts)
+}
+
+// Migrate is a paid mutator transaction binding the contract method 0x8fd3ab80.
+//
+// Solidity: function migrate() returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) Migrate() (*types.Transaction, error) {
+	return _PDPVerifier.Contract.Migrate(&_PDPVerifier.TransactOpts)
+}
+
 // NextProvingPeriod is a paid mutator transaction binding the contract method 0x45c0b92d.
 //
 // Solidity: function nextProvingPeriod(uint256 setId, uint256 challengeEpoch, bytes extraData) returns()
@@ -1354,45 +1486,45 @@ func (_PDPVerifier *PDPVerifierTransactorSession) NextProvingPeriod(setId *big.I
 	return _PDPVerifier.Contract.NextProvingPeriod(&_PDPVerifier.TransactOpts, setId, challengeEpoch, extraData)
 }
 
-// ProposeProofSetOwner is a paid mutator transaction binding the contract method 0x6cb55c16.
+// ProposeDataSetStorageProvider is a paid mutator transaction binding the contract method 0x43186080.
 //
-// Solidity: function proposeProofSetOwner(uint256 setId, address newOwner) returns()
-func (_PDPVerifier *PDPVerifierTransactor) ProposeProofSetOwner(opts *bind.TransactOpts, setId *big.Int, newOwner common.Address) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "proposeProofSetOwner", setId, newOwner)
+// Solidity: function proposeDataSetStorageProvider(uint256 setId, address newStorageProvider) returns()
+func (_PDPVerifier *PDPVerifierTransactor) ProposeDataSetStorageProvider(opts *bind.TransactOpts, setId *big.Int, newStorageProvider common.Address) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "proposeDataSetStorageProvider", setId, newStorageProvider)
 }
 
-// ProposeProofSetOwner is a paid mutator transaction binding the contract method 0x6cb55c16.
+// ProposeDataSetStorageProvider is a paid mutator transaction binding the contract method 0x43186080.
 //
-// Solidity: function proposeProofSetOwner(uint256 setId, address newOwner) returns()
-func (_PDPVerifier *PDPVerifierSession) ProposeProofSetOwner(setId *big.Int, newOwner common.Address) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ProposeProofSetOwner(&_PDPVerifier.TransactOpts, setId, newOwner)
+// Solidity: function proposeDataSetStorageProvider(uint256 setId, address newStorageProvider) returns()
+func (_PDPVerifier *PDPVerifierSession) ProposeDataSetStorageProvider(setId *big.Int, newStorageProvider common.Address) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.ProposeDataSetStorageProvider(&_PDPVerifier.TransactOpts, setId, newStorageProvider)
 }
 
-// ProposeProofSetOwner is a paid mutator transaction binding the contract method 0x6cb55c16.
+// ProposeDataSetStorageProvider is a paid mutator transaction binding the contract method 0x43186080.
 //
-// Solidity: function proposeProofSetOwner(uint256 setId, address newOwner) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) ProposeProofSetOwner(setId *big.Int, newOwner common.Address) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ProposeProofSetOwner(&_PDPVerifier.TransactOpts, setId, newOwner)
+// Solidity: function proposeDataSetStorageProvider(uint256 setId, address newStorageProvider) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) ProposeDataSetStorageProvider(setId *big.Int, newStorageProvider common.Address) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.ProposeDataSetStorageProvider(&_PDPVerifier.TransactOpts, setId, newStorageProvider)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) payable returns()
-func (_PDPVerifier *PDPVerifierTransactor) ProvePossession(opts *bind.TransactOpts, setId *big.Int, proofs []PDPVerifierProof) (*types.Transaction, error) {
+func (_PDPVerifier *PDPVerifierTransactor) ProvePossession(opts *bind.TransactOpts, setId *big.Int, proofs []IPDPTypesProof) (*types.Transaction, error) {
 	return _PDPVerifier.contract.Transact(opts, "provePossession", setId, proofs)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) payable returns()
-func (_PDPVerifier *PDPVerifierSession) ProvePossession(setId *big.Int, proofs []PDPVerifierProof) (*types.Transaction, error) {
+func (_PDPVerifier *PDPVerifierSession) ProvePossession(setId *big.Int, proofs []IPDPTypesProof) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.ProvePossession(&_PDPVerifier.TransactOpts, setId, proofs)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) payable returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) ProvePossession(setId *big.Int, proofs []PDPVerifierProof) (*types.Transaction, error) {
+func (_PDPVerifier *PDPVerifierTransactorSession) ProvePossession(setId *big.Int, proofs []IPDPTypesProof) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.ProvePossession(&_PDPVerifier.TransactOpts, setId, proofs)
 }
 
@@ -1417,25 +1549,25 @@ func (_PDPVerifier *PDPVerifierTransactorSession) RenounceOwnership() (*types.Tr
 	return _PDPVerifier.Contract.RenounceOwnership(&_PDPVerifier.TransactOpts)
 }
 
-// ScheduleRemovals is a paid mutator transaction binding the contract method 0x3b68e4e9.
+// SchedulePieceDeletions is a paid mutator transaction binding the contract method 0x0c292024.
 //
-// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds, bytes extraData) returns()
-func (_PDPVerifier *PDPVerifierTransactor) ScheduleRemovals(opts *bind.TransactOpts, setId *big.Int, rootIds []*big.Int, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "scheduleRemovals", setId, rootIds, extraData)
+// Solidity: function schedulePieceDeletions(uint256 setId, uint256[] pieceIds, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactor) SchedulePieceDeletions(opts *bind.TransactOpts, setId *big.Int, pieceIds []*big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "schedulePieceDeletions", setId, pieceIds, extraData)
 }
 
-// ScheduleRemovals is a paid mutator transaction binding the contract method 0x3b68e4e9.
+// SchedulePieceDeletions is a paid mutator transaction binding the contract method 0x0c292024.
 //
-// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds, bytes extraData) returns()
-func (_PDPVerifier *PDPVerifierSession) ScheduleRemovals(setId *big.Int, rootIds []*big.Int, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ScheduleRemovals(&_PDPVerifier.TransactOpts, setId, rootIds, extraData)
+// Solidity: function schedulePieceDeletions(uint256 setId, uint256[] pieceIds, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierSession) SchedulePieceDeletions(setId *big.Int, pieceIds []*big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.SchedulePieceDeletions(&_PDPVerifier.TransactOpts, setId, pieceIds, extraData)
 }
 
-// ScheduleRemovals is a paid mutator transaction binding the contract method 0x3b68e4e9.
+// SchedulePieceDeletions is a paid mutator transaction binding the contract method 0x0c292024.
 //
-// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds, bytes extraData) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) ScheduleRemovals(setId *big.Int, rootIds []*big.Int, extraData []byte) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ScheduleRemovals(&_PDPVerifier.TransactOpts, setId, rootIds, extraData)
+// Solidity: function schedulePieceDeletions(uint256 setId, uint256[] pieceIds, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) SchedulePieceDeletions(setId *big.Int, pieceIds []*big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.SchedulePieceDeletions(&_PDPVerifier.TransactOpts, setId, pieceIds, extraData)
 }
 
 // TransferOwnership is a paid mutator transaction binding the contract method 0xf2fde38b.
@@ -1480,9 +1612,9 @@ func (_PDPVerifier *PDPVerifierTransactorSession) UpgradeToAndCall(newImplementa
 	return _PDPVerifier.Contract.UpgradeToAndCall(&_PDPVerifier.TransactOpts, newImplementation, data)
 }
 
-// PDPVerifierDebugIterator is returned from FilterDebug and is used to iterate over the raw logs and unpacked data for Debug events raised by the PDPVerifier contract.
-type PDPVerifierDebugIterator struct {
-	Event *PDPVerifierDebug // Event containing the contract specifics and raw log
+// PDPVerifierContractUpgradedIterator is returned from FilterContractUpgraded and is used to iterate over the raw logs and unpacked data for ContractUpgraded events raised by the PDPVerifier contract.
+type PDPVerifierContractUpgradedIterator struct {
+	Event *PDPVerifierContractUpgraded // Event containing the contract specifics and raw log
 
 	contract *bind.BoundContract // Generic contract to use for unpacking event data
 	event    string              // Event name to use for unpacking event data
@@ -1496,7 +1628,7 @@ type PDPVerifierDebugIterator struct {
 // Next advances the iterator to the subsequent event, returning whether there
 // are any more events found. In case of a retrieval or parsing error, false is
 // returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierDebugIterator) Next() bool {
+func (it *PDPVerifierContractUpgradedIterator) Next() bool {
 	// If the iterator failed, stop iterating
 	if it.fail != nil {
 		return false
@@ -1505,7 +1637,7 @@ func (it *PDPVerifierDebugIterator) Next() bool {
 	if it.done {
 		select {
 		case log := <-it.logs:
-			it.Event = new(PDPVerifierDebug)
+			it.Event = new(PDPVerifierContractUpgraded)
 			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 				it.fail = err
 				return false
@@ -1520,7 +1652,7 @@ func (it *PDPVerifierDebugIterator) Next() bool {
 	// Iterator still in progress, wait for either a data or an error event
 	select {
 	case log := <-it.logs:
-		it.Event = new(PDPVerifierDebug)
+		it.Event = new(PDPVerifierContractUpgraded)
 		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 			it.fail = err
 			return false
@@ -1536,42 +1668,42 @@ func (it *PDPVerifierDebugIterator) Next() bool {
 }
 
 // Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierDebugIterator) Error() error {
+func (it *PDPVerifierContractUpgradedIterator) Error() error {
 	return it.fail
 }
 
 // Close terminates the iteration process, releasing any pending underlying
 // resources.
-func (it *PDPVerifierDebugIterator) Close() error {
+func (it *PDPVerifierContractUpgradedIterator) Close() error {
 	it.sub.Unsubscribe()
 	return nil
 }
 
-// PDPVerifierDebug represents a Debug event raised by the PDPVerifier contract.
-type PDPVerifierDebug struct {
-	Message string
-	Value   *big.Int
-	Raw     types.Log // Blockchain specific contextual infos
+// PDPVerifierContractUpgraded represents a ContractUpgraded event raised by the PDPVerifier contract.
+type PDPVerifierContractUpgraded struct {
+	Version        string
+	Implementation common.Address
+	Raw            types.Log // Blockchain specific contextual infos
 }
 
-// FilterDebug is a free log retrieval operation binding the contract event 0x3c5ad147104e56be34a9176a6692f7df8d2f4b29a5af06bc6b98970d329d6577.
+// FilterContractUpgraded is a free log retrieval operation binding the contract event 0x2b51ff7c4cc8e6fe1c72e9d9685b7d2a88a5d82ad3a644afbdceb0272c89c1c3.
 //
-// Solidity: event Debug(string message, uint256 value)
-func (_PDPVerifier *PDPVerifierFilterer) FilterDebug(opts *bind.FilterOpts) (*PDPVerifierDebugIterator, error) {
+// Solidity: event ContractUpgraded(string version, address implementation)
+func (_PDPVerifier *PDPVerifierFilterer) FilterContractUpgraded(opts *bind.FilterOpts) (*PDPVerifierContractUpgradedIterator, error) {
 
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "Debug")
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ContractUpgraded")
 	if err != nil {
 		return nil, err
 	}
-	return &PDPVerifierDebugIterator{contract: _PDPVerifier.contract, event: "Debug", logs: logs, sub: sub}, nil
+	return &PDPVerifierContractUpgradedIterator{contract: _PDPVerifier.contract, event: "ContractUpgraded", logs: logs, sub: sub}, nil
 }
 
-// WatchDebug is a free log subscription operation binding the contract event 0x3c5ad147104e56be34a9176a6692f7df8d2f4b29a5af06bc6b98970d329d6577.
+// WatchContractUpgraded is a free log subscription operation binding the contract event 0x2b51ff7c4cc8e6fe1c72e9d9685b7d2a88a5d82ad3a644afbdceb0272c89c1c3.
 //
-// Solidity: event Debug(string message, uint256 value)
-func (_PDPVerifier *PDPVerifierFilterer) WatchDebug(opts *bind.WatchOpts, sink chan<- *PDPVerifierDebug) (event.Subscription, error) {
+// Solidity: event ContractUpgraded(string version, address implementation)
+func (_PDPVerifier *PDPVerifierFilterer) WatchContractUpgraded(opts *bind.WatchOpts, sink chan<- *PDPVerifierContractUpgraded) (event.Subscription, error) {
 
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "Debug")
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ContractUpgraded")
 	if err != nil {
 		return nil, err
 	}
@@ -1581,8 +1713,8 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchDebug(opts *bind.WatchOpts, sink c
 			select {
 			case log := <-logs:
 				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierDebug)
-				if err := _PDPVerifier.contract.UnpackLog(event, "Debug", log); err != nil {
+				event := new(PDPVerifierContractUpgraded)
+				if err := _PDPVerifier.contract.UnpackLog(event, "ContractUpgraded", log); err != nil {
 					return err
 				}
 				event.Raw = log
@@ -1603,12 +1735,454 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchDebug(opts *bind.WatchOpts, sink c
 	}), nil
 }
 
-// ParseDebug is a log parse operation binding the contract event 0x3c5ad147104e56be34a9176a6692f7df8d2f4b29a5af06bc6b98970d329d6577.
+// ParseContractUpgraded is a log parse operation binding the contract event 0x2b51ff7c4cc8e6fe1c72e9d9685b7d2a88a5d82ad3a644afbdceb0272c89c1c3.
 //
-// Solidity: event Debug(string message, uint256 value)
-func (_PDPVerifier *PDPVerifierFilterer) ParseDebug(log types.Log) (*PDPVerifierDebug, error) {
-	event := new(PDPVerifierDebug)
-	if err := _PDPVerifier.contract.UnpackLog(event, "Debug", log); err != nil {
+// Solidity: event ContractUpgraded(string version, address implementation)
+func (_PDPVerifier *PDPVerifierFilterer) ParseContractUpgraded(log types.Log) (*PDPVerifierContractUpgraded, error) {
+	event := new(PDPVerifierContractUpgraded)
+	if err := _PDPVerifier.contract.UnpackLog(event, "ContractUpgraded", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPVerifierDataSetCreatedIterator is returned from FilterDataSetCreated and is used to iterate over the raw logs and unpacked data for DataSetCreated events raised by the PDPVerifier contract.
+type PDPVerifierDataSetCreatedIterator struct {
+	Event *PDPVerifierDataSetCreated // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierDataSetCreatedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierDataSetCreated)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierDataSetCreated)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierDataSetCreatedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierDataSetCreatedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierDataSetCreated represents a DataSetCreated event raised by the PDPVerifier contract.
+type PDPVerifierDataSetCreated struct {
+	SetId           *big.Int
+	StorageProvider common.Address
+	Raw             types.Log // Blockchain specific contextual infos
+}
+
+// FilterDataSetCreated is a free log retrieval operation binding the contract event 0x11369440e1b7135015c16acb9bc14b55b0f4b23b02010c363d34aec2e5b96281.
+//
+// Solidity: event DataSetCreated(uint256 indexed setId, address indexed storageProvider)
+func (_PDPVerifier *PDPVerifierFilterer) FilterDataSetCreated(opts *bind.FilterOpts, setId []*big.Int, storageProvider []common.Address) (*PDPVerifierDataSetCreatedIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+	var storageProviderRule []interface{}
+	for _, storageProviderItem := range storageProvider {
+		storageProviderRule = append(storageProviderRule, storageProviderItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "DataSetCreated", setIdRule, storageProviderRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierDataSetCreatedIterator{contract: _PDPVerifier.contract, event: "DataSetCreated", logs: logs, sub: sub}, nil
+}
+
+// WatchDataSetCreated is a free log subscription operation binding the contract event 0x11369440e1b7135015c16acb9bc14b55b0f4b23b02010c363d34aec2e5b96281.
+//
+// Solidity: event DataSetCreated(uint256 indexed setId, address indexed storageProvider)
+func (_PDPVerifier *PDPVerifierFilterer) WatchDataSetCreated(opts *bind.WatchOpts, sink chan<- *PDPVerifierDataSetCreated, setId []*big.Int, storageProvider []common.Address) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+	var storageProviderRule []interface{}
+	for _, storageProviderItem := range storageProvider {
+		storageProviderRule = append(storageProviderRule, storageProviderItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "DataSetCreated", setIdRule, storageProviderRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierDataSetCreated)
+				if err := _PDPVerifier.contract.UnpackLog(event, "DataSetCreated", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDataSetCreated is a log parse operation binding the contract event 0x11369440e1b7135015c16acb9bc14b55b0f4b23b02010c363d34aec2e5b96281.
+//
+// Solidity: event DataSetCreated(uint256 indexed setId, address indexed storageProvider)
+func (_PDPVerifier *PDPVerifierFilterer) ParseDataSetCreated(log types.Log) (*PDPVerifierDataSetCreated, error) {
+	event := new(PDPVerifierDataSetCreated)
+	if err := _PDPVerifier.contract.UnpackLog(event, "DataSetCreated", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPVerifierDataSetDeletedIterator is returned from FilterDataSetDeleted and is used to iterate over the raw logs and unpacked data for DataSetDeleted events raised by the PDPVerifier contract.
+type PDPVerifierDataSetDeletedIterator struct {
+	Event *PDPVerifierDataSetDeleted // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierDataSetDeletedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierDataSetDeleted)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierDataSetDeleted)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierDataSetDeletedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierDataSetDeletedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierDataSetDeleted represents a DataSetDeleted event raised by the PDPVerifier contract.
+type PDPVerifierDataSetDeleted struct {
+	SetId            *big.Int
+	DeletedLeafCount *big.Int
+	Raw              types.Log // Blockchain specific contextual infos
+}
+
+// FilterDataSetDeleted is a free log retrieval operation binding the contract event 0x14eeeef7679fcb051c6572811f61c07bedccd0f1cfc1f9b79b23e47c5c52aeb7.
+//
+// Solidity: event DataSetDeleted(uint256 indexed setId, uint256 deletedLeafCount)
+func (_PDPVerifier *PDPVerifierFilterer) FilterDataSetDeleted(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierDataSetDeletedIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "DataSetDeleted", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierDataSetDeletedIterator{contract: _PDPVerifier.contract, event: "DataSetDeleted", logs: logs, sub: sub}, nil
+}
+
+// WatchDataSetDeleted is a free log subscription operation binding the contract event 0x14eeeef7679fcb051c6572811f61c07bedccd0f1cfc1f9b79b23e47c5c52aeb7.
+//
+// Solidity: event DataSetDeleted(uint256 indexed setId, uint256 deletedLeafCount)
+func (_PDPVerifier *PDPVerifierFilterer) WatchDataSetDeleted(opts *bind.WatchOpts, sink chan<- *PDPVerifierDataSetDeleted, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "DataSetDeleted", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierDataSetDeleted)
+				if err := _PDPVerifier.contract.UnpackLog(event, "DataSetDeleted", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDataSetDeleted is a log parse operation binding the contract event 0x14eeeef7679fcb051c6572811f61c07bedccd0f1cfc1f9b79b23e47c5c52aeb7.
+//
+// Solidity: event DataSetDeleted(uint256 indexed setId, uint256 deletedLeafCount)
+func (_PDPVerifier *PDPVerifierFilterer) ParseDataSetDeleted(log types.Log) (*PDPVerifierDataSetDeleted, error) {
+	event := new(PDPVerifierDataSetDeleted)
+	if err := _PDPVerifier.contract.UnpackLog(event, "DataSetDeleted", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPVerifierDataSetEmptyIterator is returned from FilterDataSetEmpty and is used to iterate over the raw logs and unpacked data for DataSetEmpty events raised by the PDPVerifier contract.
+type PDPVerifierDataSetEmptyIterator struct {
+	Event *PDPVerifierDataSetEmpty // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierDataSetEmptyIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierDataSetEmpty)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierDataSetEmpty)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierDataSetEmptyIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierDataSetEmptyIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierDataSetEmpty represents a DataSetEmpty event raised by the PDPVerifier contract.
+type PDPVerifierDataSetEmpty struct {
+	SetId *big.Int
+	Raw   types.Log // Blockchain specific contextual infos
+}
+
+// FilterDataSetEmpty is a free log retrieval operation binding the contract event 0x02a8400fc343f45098cb00c3a6ea694174771939a5503f663e0ff6f4eb7c2842.
+//
+// Solidity: event DataSetEmpty(uint256 indexed setId)
+func (_PDPVerifier *PDPVerifierFilterer) FilterDataSetEmpty(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierDataSetEmptyIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "DataSetEmpty", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierDataSetEmptyIterator{contract: _PDPVerifier.contract, event: "DataSetEmpty", logs: logs, sub: sub}, nil
+}
+
+// WatchDataSetEmpty is a free log subscription operation binding the contract event 0x02a8400fc343f45098cb00c3a6ea694174771939a5503f663e0ff6f4eb7c2842.
+//
+// Solidity: event DataSetEmpty(uint256 indexed setId)
+func (_PDPVerifier *PDPVerifierFilterer) WatchDataSetEmpty(opts *bind.WatchOpts, sink chan<- *PDPVerifierDataSetEmpty, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "DataSetEmpty", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierDataSetEmpty)
+				if err := _PDPVerifier.contract.UnpackLog(event, "DataSetEmpty", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDataSetEmpty is a log parse operation binding the contract event 0x02a8400fc343f45098cb00c3a6ea694174771939a5503f663e0ff6f4eb7c2842.
+//
+// Solidity: event DataSetEmpty(uint256 indexed setId)
+func (_PDPVerifier *PDPVerifierFilterer) ParseDataSetEmpty(log types.Log) (*PDPVerifierDataSetEmpty, error) {
+	event := new(PDPVerifierDataSetEmpty)
+	if err := _PDPVerifier.contract.UnpackLog(event, "DataSetEmpty", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log
@@ -2048,6 +2622,297 @@ func (_PDPVerifier *PDPVerifierFilterer) ParseOwnershipTransferred(log types.Log
 	return event, nil
 }
 
+// PDPVerifierPiecesAddedIterator is returned from FilterPiecesAdded and is used to iterate over the raw logs and unpacked data for PiecesAdded events raised by the PDPVerifier contract.
+type PDPVerifierPiecesAddedIterator struct {
+	Event *PDPVerifierPiecesAdded // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierPiecesAddedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierPiecesAdded)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierPiecesAdded)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierPiecesAddedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierPiecesAddedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierPiecesAdded represents a PiecesAdded event raised by the PDPVerifier contract.
+type PDPVerifierPiecesAdded struct {
+	SetId     *big.Int
+	PieceIds  []*big.Int
+	PieceCids []CidsCid
+	Raw       types.Log // Blockchain specific contextual infos
+}
+
+// FilterPiecesAdded is a free log retrieval operation binding the contract event 0x396df50222a87662e94bb7d173792d5e61fe0b193b6ccf791f7ce433f0b28207.
+//
+// Solidity: event PiecesAdded(uint256 indexed setId, uint256[] pieceIds, (bytes)[] pieceCids)
+func (_PDPVerifier *PDPVerifierFilterer) FilterPiecesAdded(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierPiecesAddedIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "PiecesAdded", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierPiecesAddedIterator{contract: _PDPVerifier.contract, event: "PiecesAdded", logs: logs, sub: sub}, nil
+}
+
+// WatchPiecesAdded is a free log subscription operation binding the contract event 0x396df50222a87662e94bb7d173792d5e61fe0b193b6ccf791f7ce433f0b28207.
+//
+// Solidity: event PiecesAdded(uint256 indexed setId, uint256[] pieceIds, (bytes)[] pieceCids)
+func (_PDPVerifier *PDPVerifierFilterer) WatchPiecesAdded(opts *bind.WatchOpts, sink chan<- *PDPVerifierPiecesAdded, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "PiecesAdded", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierPiecesAdded)
+				if err := _PDPVerifier.contract.UnpackLog(event, "PiecesAdded", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParsePiecesAdded is a log parse operation binding the contract event 0x396df50222a87662e94bb7d173792d5e61fe0b193b6ccf791f7ce433f0b28207.
+//
+// Solidity: event PiecesAdded(uint256 indexed setId, uint256[] pieceIds, (bytes)[] pieceCids)
+func (_PDPVerifier *PDPVerifierFilterer) ParsePiecesAdded(log types.Log) (*PDPVerifierPiecesAdded, error) {
+	event := new(PDPVerifierPiecesAdded)
+	if err := _PDPVerifier.contract.UnpackLog(event, "PiecesAdded", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPVerifierPiecesRemovedIterator is returned from FilterPiecesRemoved and is used to iterate over the raw logs and unpacked data for PiecesRemoved events raised by the PDPVerifier contract.
+type PDPVerifierPiecesRemovedIterator struct {
+	Event *PDPVerifierPiecesRemoved // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierPiecesRemovedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierPiecesRemoved)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierPiecesRemoved)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierPiecesRemovedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierPiecesRemovedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierPiecesRemoved represents a PiecesRemoved event raised by the PDPVerifier contract.
+type PDPVerifierPiecesRemoved struct {
+	SetId    *big.Int
+	PieceIds []*big.Int
+	Raw      types.Log // Blockchain specific contextual infos
+}
+
+// FilterPiecesRemoved is a free log retrieval operation binding the contract event 0x6e87df804629ac17804b57ba7abbdfac8bdc36bab504fb8a8801eb313a8ce7b1.
+//
+// Solidity: event PiecesRemoved(uint256 indexed setId, uint256[] pieceIds)
+func (_PDPVerifier *PDPVerifierFilterer) FilterPiecesRemoved(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierPiecesRemovedIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "PiecesRemoved", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierPiecesRemovedIterator{contract: _PDPVerifier.contract, event: "PiecesRemoved", logs: logs, sub: sub}, nil
+}
+
+// WatchPiecesRemoved is a free log subscription operation binding the contract event 0x6e87df804629ac17804b57ba7abbdfac8bdc36bab504fb8a8801eb313a8ce7b1.
+//
+// Solidity: event PiecesRemoved(uint256 indexed setId, uint256[] pieceIds)
+func (_PDPVerifier *PDPVerifierFilterer) WatchPiecesRemoved(opts *bind.WatchOpts, sink chan<- *PDPVerifierPiecesRemoved, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "PiecesRemoved", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierPiecesRemoved)
+				if err := _PDPVerifier.contract.UnpackLog(event, "PiecesRemoved", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParsePiecesRemoved is a log parse operation binding the contract event 0x6e87df804629ac17804b57ba7abbdfac8bdc36bab504fb8a8801eb313a8ce7b1.
+//
+// Solidity: event PiecesRemoved(uint256 indexed setId, uint256[] pieceIds)
+func (_PDPVerifier *PDPVerifierFilterer) ParsePiecesRemoved(log types.Log) (*PDPVerifierPiecesRemoved, error) {
+	event := new(PDPVerifierPiecesRemoved)
+	if err := _PDPVerifier.contract.UnpackLog(event, "PiecesRemoved", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
 // PDPVerifierPossessionProvenIterator is returned from FilterPossessionProven and is used to iterate over the raw logs and unpacked data for PossessionProven events raised by the PDPVerifier contract.
 type PDPVerifierPossessionProvenIterator struct {
 	Event *PDPVerifierPossessionProven // Event containing the contract specifics and raw log
@@ -2118,7 +2983,7 @@ func (it *PDPVerifierPossessionProvenIterator) Close() error {
 // PDPVerifierPossessionProven represents a PossessionProven event raised by the PDPVerifier contract.
 type PDPVerifierPossessionProven struct {
 	SetId      *big.Int
-	Challenges []PDPVerifierRootIdAndOffset
+	Challenges []IPDPTypesPieceIdAndOffset
 	Raw        types.Log // Blockchain specific contextual infos
 }
 
@@ -2340,9 +3205,9 @@ func (_PDPVerifier *PDPVerifierFilterer) ParseProofFeePaid(log types.Log) (*PDPV
 	return event, nil
 }
 
-// PDPVerifierProofSetCreatedIterator is returned from FilterProofSetCreated and is used to iterate over the raw logs and unpacked data for ProofSetCreated events raised by the PDPVerifier contract.
-type PDPVerifierProofSetCreatedIterator struct {
-	Event *PDPVerifierProofSetCreated // Event containing the contract specifics and raw log
+// PDPVerifierStorageProviderChangedIterator is returned from FilterStorageProviderChanged and is used to iterate over the raw logs and unpacked data for StorageProviderChanged events raised by the PDPVerifier contract.
+type PDPVerifierStorageProviderChangedIterator struct {
+	Event *PDPVerifierStorageProviderChanged // Event containing the contract specifics and raw log
 
 	contract *bind.BoundContract // Generic contract to use for unpacking event data
 	event    string              // Event name to use for unpacking event data
@@ -2356,7 +3221,7 @@ type PDPVerifierProofSetCreatedIterator struct {
 // Next advances the iterator to the subsequent event, returning whether there
 // are any more events found. In case of a retrieval or parsing error, false is
 // returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierProofSetCreatedIterator) Next() bool {
+func (it *PDPVerifierStorageProviderChangedIterator) Next() bool {
 	// If the iterator failed, stop iterating
 	if it.fail != nil {
 		return false
@@ -2365,7 +3230,7 @@ func (it *PDPVerifierProofSetCreatedIterator) Next() bool {
 	if it.done {
 		select {
 		case log := <-it.logs:
-			it.Event = new(PDPVerifierProofSetCreated)
+			it.Event = new(PDPVerifierStorageProviderChanged)
 			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 				it.fail = err
 				return false
@@ -2380,7 +3245,7 @@ func (it *PDPVerifierProofSetCreatedIterator) Next() bool {
 	// Iterator still in progress, wait for either a data or an error event
 	select {
 	case log := <-it.logs:
-		it.Event = new(PDPVerifierProofSetCreated)
+		it.Event = new(PDPVerifierStorageProviderChanged)
 		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 			it.fail = err
 			return false
@@ -2396,60 +3261,69 @@ func (it *PDPVerifierProofSetCreatedIterator) Next() bool {
 }
 
 // Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierProofSetCreatedIterator) Error() error {
+func (it *PDPVerifierStorageProviderChangedIterator) Error() error {
 	return it.fail
 }
 
 // Close terminates the iteration process, releasing any pending underlying
 // resources.
-func (it *PDPVerifierProofSetCreatedIterator) Close() error {
+func (it *PDPVerifierStorageProviderChangedIterator) Close() error {
 	it.sub.Unsubscribe()
 	return nil
 }
 
-// PDPVerifierProofSetCreated represents a ProofSetCreated event raised by the PDPVerifier contract.
-type PDPVerifierProofSetCreated struct {
-	SetId *big.Int
-	Owner common.Address
-	Raw   types.Log // Blockchain specific contextual infos
+// PDPVerifierStorageProviderChanged represents a StorageProviderChanged event raised by the PDPVerifier contract.
+type PDPVerifierStorageProviderChanged struct {
+	SetId              *big.Int
+	OldStorageProvider common.Address
+	NewStorageProvider common.Address
+	Raw                types.Log // Blockchain specific contextual infos
 }
 
-// FilterProofSetCreated is a free log retrieval operation binding the contract event 0x017f0b33d96e8f9968590172013032c2346cf047787a5e17a44b0a1bb3cd0f01.
+// FilterStorageProviderChanged is a free log retrieval operation binding the contract event 0x686146a80f2bf4dc855942926481871515b39b508826d7982a2e0212d20552c9.
 //
-// Solidity: event ProofSetCreated(uint256 indexed setId, address indexed owner)
-func (_PDPVerifier *PDPVerifierFilterer) FilterProofSetCreated(opts *bind.FilterOpts, setId []*big.Int, owner []common.Address) (*PDPVerifierProofSetCreatedIterator, error) {
+// Solidity: event StorageProviderChanged(uint256 indexed setId, address indexed oldStorageProvider, address indexed newStorageProvider)
+func (_PDPVerifier *PDPVerifierFilterer) FilterStorageProviderChanged(opts *bind.FilterOpts, setId []*big.Int, oldStorageProvider []common.Address, newStorageProvider []common.Address) (*PDPVerifierStorageProviderChangedIterator, error) {
 
 	var setIdRule []interface{}
 	for _, setIdItem := range setId {
 		setIdRule = append(setIdRule, setIdItem)
 	}
-	var ownerRule []interface{}
-	for _, ownerItem := range owner {
-		ownerRule = append(ownerRule, ownerItem)
+	var oldStorageProviderRule []interface{}
+	for _, oldStorageProviderItem := range oldStorageProvider {
+		oldStorageProviderRule = append(oldStorageProviderRule, oldStorageProviderItem)
+	}
+	var newStorageProviderRule []interface{}
+	for _, newStorageProviderItem := range newStorageProvider {
+		newStorageProviderRule = append(newStorageProviderRule, newStorageProviderItem)
 	}
 
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ProofSetCreated", setIdRule, ownerRule)
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "StorageProviderChanged", setIdRule, oldStorageProviderRule, newStorageProviderRule)
 	if err != nil {
 		return nil, err
 	}
-	return &PDPVerifierProofSetCreatedIterator{contract: _PDPVerifier.contract, event: "ProofSetCreated", logs: logs, sub: sub}, nil
+	return &PDPVerifierStorageProviderChangedIterator{contract: _PDPVerifier.contract, event: "StorageProviderChanged", logs: logs, sub: sub}, nil
 }
 
-// WatchProofSetCreated is a free log subscription operation binding the contract event 0x017f0b33d96e8f9968590172013032c2346cf047787a5e17a44b0a1bb3cd0f01.
+// WatchStorageProviderChanged is a free log subscription operation binding the contract event 0x686146a80f2bf4dc855942926481871515b39b508826d7982a2e0212d20552c9.
 //
-// Solidity: event ProofSetCreated(uint256 indexed setId, address indexed owner)
-func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetCreated(opts *bind.WatchOpts, sink chan<- *PDPVerifierProofSetCreated, setId []*big.Int, owner []common.Address) (event.Subscription, error) {
+// Solidity: event StorageProviderChanged(uint256 indexed setId, address indexed oldStorageProvider, address indexed newStorageProvider)
+func (_PDPVerifier *PDPVerifierFilterer) WatchStorageProviderChanged(opts *bind.WatchOpts, sink chan<- *PDPVerifierStorageProviderChanged, setId []*big.Int, oldStorageProvider []common.Address, newStorageProvider []common.Address) (event.Subscription, error) {
 
 	var setIdRule []interface{}
 	for _, setIdItem := range setId {
 		setIdRule = append(setIdRule, setIdItem)
 	}
-	var ownerRule []interface{}
-	for _, ownerItem := range owner {
-		ownerRule = append(ownerRule, ownerItem)
+	var oldStorageProviderRule []interface{}
+	for _, oldStorageProviderItem := range oldStorageProvider {
+		oldStorageProviderRule = append(oldStorageProviderRule, oldStorageProviderItem)
+	}
+	var newStorageProviderRule []interface{}
+	for _, newStorageProviderItem := range newStorageProvider {
+		newStorageProviderRule = append(newStorageProviderRule, newStorageProviderItem)
 	}
 
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ProofSetCreated", setIdRule, ownerRule)
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "StorageProviderChanged", setIdRule, oldStorageProviderRule, newStorageProviderRule)
 	if err != nil {
 		return nil, err
 	}
@@ -2459,8 +3333,8 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetCreated(opts *bind.WatchOp
 			select {
 			case log := <-logs:
 				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierProofSetCreated)
-				if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetCreated", log); err != nil {
+				event := new(PDPVerifierStorageProviderChanged)
+				if err := _PDPVerifier.contract.UnpackLog(event, "StorageProviderChanged", log); err != nil {
 					return err
 				}
 				event.Raw = log
@@ -2481,753 +3355,12 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetCreated(opts *bind.WatchOp
 	}), nil
 }
 
-// ParseProofSetCreated is a log parse operation binding the contract event 0x017f0b33d96e8f9968590172013032c2346cf047787a5e17a44b0a1bb3cd0f01.
+// ParseStorageProviderChanged is a log parse operation binding the contract event 0x686146a80f2bf4dc855942926481871515b39b508826d7982a2e0212d20552c9.
 //
-// Solidity: event ProofSetCreated(uint256 indexed setId, address indexed owner)
-func (_PDPVerifier *PDPVerifierFilterer) ParseProofSetCreated(log types.Log) (*PDPVerifierProofSetCreated, error) {
-	event := new(PDPVerifierProofSetCreated)
-	if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetCreated", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// PDPVerifierProofSetDeletedIterator is returned from FilterProofSetDeleted and is used to iterate over the raw logs and unpacked data for ProofSetDeleted events raised by the PDPVerifier contract.
-type PDPVerifierProofSetDeletedIterator struct {
-	Event *PDPVerifierProofSetDeleted // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierProofSetDeletedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(PDPVerifierProofSetDeleted)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(PDPVerifierProofSetDeleted)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierProofSetDeletedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *PDPVerifierProofSetDeletedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// PDPVerifierProofSetDeleted represents a ProofSetDeleted event raised by the PDPVerifier contract.
-type PDPVerifierProofSetDeleted struct {
-	SetId            *big.Int
-	DeletedLeafCount *big.Int
-	Raw              types.Log // Blockchain specific contextual infos
-}
-
-// FilterProofSetDeleted is a free log retrieval operation binding the contract event 0x589e9a441b5bddda77c4ab647b0108764a9cc1a7f655aa9b7bc50b8bdfab8673.
-//
-// Solidity: event ProofSetDeleted(uint256 indexed setId, uint256 deletedLeafCount)
-func (_PDPVerifier *PDPVerifierFilterer) FilterProofSetDeleted(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierProofSetDeletedIterator, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ProofSetDeleted", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &PDPVerifierProofSetDeletedIterator{contract: _PDPVerifier.contract, event: "ProofSetDeleted", logs: logs, sub: sub}, nil
-}
-
-// WatchProofSetDeleted is a free log subscription operation binding the contract event 0x589e9a441b5bddda77c4ab647b0108764a9cc1a7f655aa9b7bc50b8bdfab8673.
-//
-// Solidity: event ProofSetDeleted(uint256 indexed setId, uint256 deletedLeafCount)
-func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetDeleted(opts *bind.WatchOpts, sink chan<- *PDPVerifierProofSetDeleted, setId []*big.Int) (event.Subscription, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ProofSetDeleted", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierProofSetDeleted)
-				if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetDeleted", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseProofSetDeleted is a log parse operation binding the contract event 0x589e9a441b5bddda77c4ab647b0108764a9cc1a7f655aa9b7bc50b8bdfab8673.
-//
-// Solidity: event ProofSetDeleted(uint256 indexed setId, uint256 deletedLeafCount)
-func (_PDPVerifier *PDPVerifierFilterer) ParseProofSetDeleted(log types.Log) (*PDPVerifierProofSetDeleted, error) {
-	event := new(PDPVerifierProofSetDeleted)
-	if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetDeleted", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// PDPVerifierProofSetEmptyIterator is returned from FilterProofSetEmpty and is used to iterate over the raw logs and unpacked data for ProofSetEmpty events raised by the PDPVerifier contract.
-type PDPVerifierProofSetEmptyIterator struct {
-	Event *PDPVerifierProofSetEmpty // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierProofSetEmptyIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(PDPVerifierProofSetEmpty)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(PDPVerifierProofSetEmpty)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierProofSetEmptyIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *PDPVerifierProofSetEmptyIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// PDPVerifierProofSetEmpty represents a ProofSetEmpty event raised by the PDPVerifier contract.
-type PDPVerifierProofSetEmpty struct {
-	SetId *big.Int
-	Raw   types.Log // Blockchain specific contextual infos
-}
-
-// FilterProofSetEmpty is a free log retrieval operation binding the contract event 0x323c29bc8d678a5d987b90a321982d10b9a91bcad071a9e445879497bf0e68e7.
-//
-// Solidity: event ProofSetEmpty(uint256 indexed setId)
-func (_PDPVerifier *PDPVerifierFilterer) FilterProofSetEmpty(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierProofSetEmptyIterator, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ProofSetEmpty", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &PDPVerifierProofSetEmptyIterator{contract: _PDPVerifier.contract, event: "ProofSetEmpty", logs: logs, sub: sub}, nil
-}
-
-// WatchProofSetEmpty is a free log subscription operation binding the contract event 0x323c29bc8d678a5d987b90a321982d10b9a91bcad071a9e445879497bf0e68e7.
-//
-// Solidity: event ProofSetEmpty(uint256 indexed setId)
-func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetEmpty(opts *bind.WatchOpts, sink chan<- *PDPVerifierProofSetEmpty, setId []*big.Int) (event.Subscription, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ProofSetEmpty", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierProofSetEmpty)
-				if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetEmpty", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseProofSetEmpty is a log parse operation binding the contract event 0x323c29bc8d678a5d987b90a321982d10b9a91bcad071a9e445879497bf0e68e7.
-//
-// Solidity: event ProofSetEmpty(uint256 indexed setId)
-func (_PDPVerifier *PDPVerifierFilterer) ParseProofSetEmpty(log types.Log) (*PDPVerifierProofSetEmpty, error) {
-	event := new(PDPVerifierProofSetEmpty)
-	if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetEmpty", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// PDPVerifierProofSetOwnerChangedIterator is returned from FilterProofSetOwnerChanged and is used to iterate over the raw logs and unpacked data for ProofSetOwnerChanged events raised by the PDPVerifier contract.
-type PDPVerifierProofSetOwnerChangedIterator struct {
-	Event *PDPVerifierProofSetOwnerChanged // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierProofSetOwnerChangedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(PDPVerifierProofSetOwnerChanged)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(PDPVerifierProofSetOwnerChanged)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierProofSetOwnerChangedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *PDPVerifierProofSetOwnerChangedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// PDPVerifierProofSetOwnerChanged represents a ProofSetOwnerChanged event raised by the PDPVerifier contract.
-type PDPVerifierProofSetOwnerChanged struct {
-	SetId    *big.Int
-	OldOwner common.Address
-	NewOwner common.Address
-	Raw      types.Log // Blockchain specific contextual infos
-}
-
-// FilterProofSetOwnerChanged is a free log retrieval operation binding the contract event 0xd3273037b635678293ef0c076bd77af13760e75e12806d1db237616d03c3a766.
-//
-// Solidity: event ProofSetOwnerChanged(uint256 indexed setId, address indexed oldOwner, address indexed newOwner)
-func (_PDPVerifier *PDPVerifierFilterer) FilterProofSetOwnerChanged(opts *bind.FilterOpts, setId []*big.Int, oldOwner []common.Address, newOwner []common.Address) (*PDPVerifierProofSetOwnerChangedIterator, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-	var oldOwnerRule []interface{}
-	for _, oldOwnerItem := range oldOwner {
-		oldOwnerRule = append(oldOwnerRule, oldOwnerItem)
-	}
-	var newOwnerRule []interface{}
-	for _, newOwnerItem := range newOwner {
-		newOwnerRule = append(newOwnerRule, newOwnerItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ProofSetOwnerChanged", setIdRule, oldOwnerRule, newOwnerRule)
-	if err != nil {
-		return nil, err
-	}
-	return &PDPVerifierProofSetOwnerChangedIterator{contract: _PDPVerifier.contract, event: "ProofSetOwnerChanged", logs: logs, sub: sub}, nil
-}
-
-// WatchProofSetOwnerChanged is a free log subscription operation binding the contract event 0xd3273037b635678293ef0c076bd77af13760e75e12806d1db237616d03c3a766.
-//
-// Solidity: event ProofSetOwnerChanged(uint256 indexed setId, address indexed oldOwner, address indexed newOwner)
-func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetOwnerChanged(opts *bind.WatchOpts, sink chan<- *PDPVerifierProofSetOwnerChanged, setId []*big.Int, oldOwner []common.Address, newOwner []common.Address) (event.Subscription, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-	var oldOwnerRule []interface{}
-	for _, oldOwnerItem := range oldOwner {
-		oldOwnerRule = append(oldOwnerRule, oldOwnerItem)
-	}
-	var newOwnerRule []interface{}
-	for _, newOwnerItem := range newOwner {
-		newOwnerRule = append(newOwnerRule, newOwnerItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ProofSetOwnerChanged", setIdRule, oldOwnerRule, newOwnerRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierProofSetOwnerChanged)
-				if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetOwnerChanged", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseProofSetOwnerChanged is a log parse operation binding the contract event 0xd3273037b635678293ef0c076bd77af13760e75e12806d1db237616d03c3a766.
-//
-// Solidity: event ProofSetOwnerChanged(uint256 indexed setId, address indexed oldOwner, address indexed newOwner)
-func (_PDPVerifier *PDPVerifierFilterer) ParseProofSetOwnerChanged(log types.Log) (*PDPVerifierProofSetOwnerChanged, error) {
-	event := new(PDPVerifierProofSetOwnerChanged)
-	if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetOwnerChanged", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// PDPVerifierRootsAddedIterator is returned from FilterRootsAdded and is used to iterate over the raw logs and unpacked data for RootsAdded events raised by the PDPVerifier contract.
-type PDPVerifierRootsAddedIterator struct {
-	Event *PDPVerifierRootsAdded // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierRootsAddedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(PDPVerifierRootsAdded)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(PDPVerifierRootsAdded)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierRootsAddedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *PDPVerifierRootsAddedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// PDPVerifierRootsAdded represents a RootsAdded event raised by the PDPVerifier contract.
-type PDPVerifierRootsAdded struct {
-	SetId   *big.Int
-	RootIds []*big.Int
-	Raw     types.Log // Blockchain specific contextual infos
-}
-
-// FilterRootsAdded is a free log retrieval operation binding the contract event 0x5ce51a8003915c377679ba533d9dafa0792058b254965697e674272f13f4fdd3.
-//
-// Solidity: event RootsAdded(uint256 indexed setId, uint256[] rootIds)
-func (_PDPVerifier *PDPVerifierFilterer) FilterRootsAdded(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierRootsAddedIterator, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "RootsAdded", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &PDPVerifierRootsAddedIterator{contract: _PDPVerifier.contract, event: "RootsAdded", logs: logs, sub: sub}, nil
-}
-
-// WatchRootsAdded is a free log subscription operation binding the contract event 0x5ce51a8003915c377679ba533d9dafa0792058b254965697e674272f13f4fdd3.
-//
-// Solidity: event RootsAdded(uint256 indexed setId, uint256[] rootIds)
-func (_PDPVerifier *PDPVerifierFilterer) WatchRootsAdded(opts *bind.WatchOpts, sink chan<- *PDPVerifierRootsAdded, setId []*big.Int) (event.Subscription, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "RootsAdded", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierRootsAdded)
-				if err := _PDPVerifier.contract.UnpackLog(event, "RootsAdded", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseRootsAdded is a log parse operation binding the contract event 0x5ce51a8003915c377679ba533d9dafa0792058b254965697e674272f13f4fdd3.
-//
-// Solidity: event RootsAdded(uint256 indexed setId, uint256[] rootIds)
-func (_PDPVerifier *PDPVerifierFilterer) ParseRootsAdded(log types.Log) (*PDPVerifierRootsAdded, error) {
-	event := new(PDPVerifierRootsAdded)
-	if err := _PDPVerifier.contract.UnpackLog(event, "RootsAdded", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// PDPVerifierRootsRemovedIterator is returned from FilterRootsRemoved and is used to iterate over the raw logs and unpacked data for RootsRemoved events raised by the PDPVerifier contract.
-type PDPVerifierRootsRemovedIterator struct {
-	Event *PDPVerifierRootsRemoved // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierRootsRemovedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(PDPVerifierRootsRemoved)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(PDPVerifierRootsRemoved)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierRootsRemovedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *PDPVerifierRootsRemovedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// PDPVerifierRootsRemoved represents a RootsRemoved event raised by the PDPVerifier contract.
-type PDPVerifierRootsRemoved struct {
-	SetId   *big.Int
-	RootIds []*big.Int
-	Raw     types.Log // Blockchain specific contextual infos
-}
-
-// FilterRootsRemoved is a free log retrieval operation binding the contract event 0xd22bb0ee05b8ca92312459c76223d3b9bc1bd96fb6c9b18e637ededf92d81174.
-//
-// Solidity: event RootsRemoved(uint256 indexed setId, uint256[] rootIds)
-func (_PDPVerifier *PDPVerifierFilterer) FilterRootsRemoved(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierRootsRemovedIterator, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "RootsRemoved", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return &PDPVerifierRootsRemovedIterator{contract: _PDPVerifier.contract, event: "RootsRemoved", logs: logs, sub: sub}, nil
-}
-
-// WatchRootsRemoved is a free log subscription operation binding the contract event 0xd22bb0ee05b8ca92312459c76223d3b9bc1bd96fb6c9b18e637ededf92d81174.
-//
-// Solidity: event RootsRemoved(uint256 indexed setId, uint256[] rootIds)
-func (_PDPVerifier *PDPVerifierFilterer) WatchRootsRemoved(opts *bind.WatchOpts, sink chan<- *PDPVerifierRootsRemoved, setId []*big.Int) (event.Subscription, error) {
-
-	var setIdRule []interface{}
-	for _, setIdItem := range setId {
-		setIdRule = append(setIdRule, setIdItem)
-	}
-
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "RootsRemoved", setIdRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierRootsRemoved)
-				if err := _PDPVerifier.contract.UnpackLog(event, "RootsRemoved", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseRootsRemoved is a log parse operation binding the contract event 0xd22bb0ee05b8ca92312459c76223d3b9bc1bd96fb6c9b18e637ededf92d81174.
-//
-// Solidity: event RootsRemoved(uint256 indexed setId, uint256[] rootIds)
-func (_PDPVerifier *PDPVerifierFilterer) ParseRootsRemoved(log types.Log) (*PDPVerifierRootsRemoved, error) {
-	event := new(PDPVerifierRootsRemoved)
-	if err := _PDPVerifier.contract.UnpackLog(event, "RootsRemoved", log); err != nil {
+// Solidity: event StorageProviderChanged(uint256 indexed setId, address indexed oldStorageProvider, address indexed newStorageProvider)
+func (_PDPVerifier *PDPVerifierFilterer) ParseStorageProviderChanged(log types.Log) (*PDPVerifierStorageProviderChanged, error) {
+	event := new(PDPVerifierStorageProviderChanged)
+	if err := _PDPVerifier.contract.UnpackLog(event, "StorageProviderChanged", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log

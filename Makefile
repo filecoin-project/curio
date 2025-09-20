@@ -266,7 +266,11 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
-gensimple: api-gen go-generate cfgdoc-gen docsgen docsgen-cli
+marketgen:
+	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
+.PHONY: marketgen
+
+gensimple: api-gen go-generate cfgdoc-gen docsgen marketgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
 .PHONY: gen
