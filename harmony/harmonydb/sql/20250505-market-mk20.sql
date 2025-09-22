@@ -1,67 +1,147 @@
 -- Add raw_size column to mk12 deals to calculate pieceCidV2
-ALTER TABLE market_mk12_deals
-    ADD COLUMN raw_size BIGINT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'market_mk12_deals' 
+        AND column_name = 'raw_size'
+    ) THEN
+        ALTER TABLE market_mk12_deals ADD COLUMN raw_size BIGINT;
+    END IF;
+END $$;
 
 -- Add raw_size column to mk12-ddo deals to calculate pieceCidV2
-ALTER TABLE market_direct_deals
-    ADD COLUMN raw_size BIGINT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'market_direct_deals' 
+        AND column_name = 'raw_size'
+    ) THEN
+        ALTER TABLE market_direct_deals ADD COLUMN raw_size BIGINT;
+    END IF;
+END $$;
 
 -- Drop the existing primary key constraint for market_piece_metadata
 ALTER TABLE market_piece_metadata
-DROP CONSTRAINT market_piece_metadata_pkey;
+DROP CONSTRAINT IF EXISTS  market_piece_metadata_pkey;
 
 -- Drop the redundant UNIQUE constraint if it exists for market_piece_metadata
 ALTER TABLE market_piece_metadata
 DROP CONSTRAINT IF EXISTS market_piece_meta_identity_key;
 
 -- Add the new composite primary key for market_piece_metadata
-ALTER TABLE market_piece_metadata
-    ADD PRIMARY KEY (piece_cid, piece_size);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'market_piece_metadata' 
+        AND constraint_type = 'PRIMARY KEY'
+    ) THEN
+        ALTER TABLE market_piece_metadata ADD PRIMARY KEY (piece_cid, piece_size);
+    END IF;
+END $$;
 
 -- Drop the current primary key for market_piece_deal
 ALTER TABLE market_piece_deal
-DROP CONSTRAINT market_piece_deal_pkey;
+DROP CONSTRAINT IF EXISTS market_piece_deal_pkey;
 
 -- Drop the old UNIQUE constraint for market_piece_deal
 ALTER TABLE market_piece_deal
 DROP CONSTRAINT IF EXISTS market_piece_deal_identity_key;
 
 -- Add the new composite primary key for market_piece_deal
-ALTER TABLE market_piece_deal
-    ADD PRIMARY KEY (id, sp_id, piece_cid, piece_length);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'market_piece_deal' 
+        AND constraint_type = 'PRIMARY KEY'
+    ) THEN
+        ALTER TABLE market_piece_deal ADD PRIMARY KEY (id, sp_id, piece_cid, piece_length);
+    END IF;
+END $$;
 
 -- Add a column to relate a piece park piece to mk20 deal
-ALTER TABLE market_piece_deal
-ADD COLUMN piece_ref BIGINT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'market_piece_deal' 
+        AND column_name = 'piece_ref'
+    ) THEN
+        ALTER TABLE market_piece_deal ADD COLUMN piece_ref BIGINT;
+    END IF;
+END $$;
 
 -- Allow piece_offset to be null for PDP deals
 ALTER TABLE market_piece_deal
     ALTER COLUMN piece_offset DROP NOT NULL;
 
 -- Add column to skip scheduling piece_park. Used for upload pieces
-ALTER TABLE parked_pieces
-    ADD COLUMN skip BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'parked_pieces' 
+        AND column_name = 'skip'
+    ) THEN
+        ALTER TABLE parked_pieces ADD COLUMN skip BOOLEAN NOT NULL DEFAULT FALSE;
+    END IF;
+END $$;
 
 -- Add column piece_cid_v2 to IPNI table
-ALTER TABLE ipni
-    ADD COLUMN piece_cid_v2 TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'ipni' 
+        AND column_name = 'piece_cid_v2'
+    ) THEN
+        ALTER TABLE ipni ADD COLUMN piece_cid_v2 TEXT;
+    END IF;
+END $$;
 
 -- Add metadata column to IPNI table which defaults to the binary of IpfsGatewayHttp
-ALTER TABLE ipni
-    ADD COLUMN metadata BYTEA NOT NULL DEFAULT '\xa01200';
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'ipni' 
+        AND column_name = 'metadata'
+    ) THEN
+        ALTER TABLE ipni ADD COLUMN metadata BYTEA NOT NULL DEFAULT '\xa01200';
+    END IF;
+END $$;
 
 -- Add is_pdp column to the table to allow generating 2 sets of chunks per
 -- piece cid. One for Payloads and another one for single CID chunks to announce a PDP piece.
-ALTER TABLE ipni_chunks
-    ADD COLUMN is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'ipni_chunks' 
+        AND column_name = 'is_pdp'
+    ) THEN
+        ALTER TABLE ipni_chunks ADD COLUMN is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
+    END IF;
+END $$;
 
 -- Replace the old uniqueness (piece_cid, chunk_num) with the new one
 ALTER TABLE ipni_chunks
-    DROP CONSTRAINT ipni_chunks_piece_cid_chunk_num_key;
+    DROP CONSTRAINT IF EXISTS ipni_chunks_piece_cid_chunk_num_key;
 
-ALTER TABLE ipni_chunks
-    ADD CONSTRAINT ipni_chunks_piece_cid_is_pdp_chunk_num_key
-        UNIQUE (piece_cid, is_pdp, chunk_num);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'ipni_chunks' 
+        AND constraint_name = 'ipni_chunks_piece_cid_is_pdp_chunk_num_key'
+    ) THEN
+        ALTER TABLE ipni_chunks ADD CONSTRAINT ipni_chunks_piece_cid_is_pdp_chunk_num_key
+            UNIQUE (piece_cid, is_pdp, chunk_num);
+    END IF;
+END $$;
 
 -- The order_number column must be completely sequential
 ALTER SEQUENCE ipni_order_number_seq CACHE 1;
@@ -106,8 +186,16 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add ID column to ipni_task table
-ALTER TABLE ipni_task
-    ADD COLUMN id TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'ipni_task' 
+        AND column_name = 'id'
+    ) THEN
+        ALTER TABLE ipni_task ADD COLUMN id TEXT;
+    END IF;
+END $$;
 
 -- Function to create ipni tasks
 CREATE OR REPLACE FUNCTION insert_ipni_task(
@@ -186,7 +274,7 @@ COMMIT;
 
 -- This is main MK20 Deal table. Rows are added per deal and some
 -- modification is allowed later
-CREATE TABLE market_mk20_deal (
+CREATE TABLE IF NOT EXISTS market_mk20_deal (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
     id TEXT PRIMARY KEY,
     client TEXT NOT NULL,
@@ -203,7 +291,7 @@ COMMENT ON COLUMN market_mk20_deal.id IS 'This is ULID TEXT';
 COMMENT ON COLUMN market_mk20_deal.client IS 'Client must always be text as this can be a non Filecoin address like ed25519';
 
 -- This is main pipeline table for PoRep processing of MK20 deals
-CREATE TABLE market_mk20_pipeline (
+CREATE TABLE IF NOT EXISTS market_mk20_pipeline (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
     id TEXT NOT NULL,
     sp_id BIGINT NOT NULL,
@@ -253,13 +341,13 @@ COMMENT ON COLUMN market_mk20_pipeline.deal_aggregation IS 'This is set when use
 -- This table is used to hold MK20 deals waiting for PoRep pipeline
 -- to process. This allows disconnecting the need to immediately process
 -- deals as received and allow upload later strategy to work
-CREATE TABLE market_mk20_pipeline_waiting (
+CREATE TABLE IF NOT EXISTS market_mk20_pipeline_waiting (
     id TEXT PRIMARY KEY
 );
 
 -- This table is used to keep track of deals which need data upload.
 -- A separate table helps easier status check, chunked+serial upload support
-CREATE TABLE market_mk20_upload_waiting (
+CREATE TABLE IF NOT EXISTS market_mk20_upload_waiting (
     id TEXT PRIMARY KEY,
     chunked BOOLEAN DEFAULT NULL,
     ref_id BIGINT DEFAULT NULL,
@@ -270,7 +358,7 @@ CREATE TABLE market_mk20_upload_waiting (
 -- It helps with allowing multiple downloads per deal i.e. server side aggregation.
 -- This also allows us to reuse ongoing downloads within the same deal aggregation.
 -- It also allows using a common download pipeline for both PoRep and PDP.
-CREATE TABLE market_mk20_download_pipeline (
+CREATE TABLE IF NOT EXISTS market_mk20_download_pipeline (
     id TEXT NOT NULL,
     product TEXT NOT NULL, -- This allows us to run multiple refs per product for easier lifecycle management
     piece_cid_v2 TEXT NOT NULL,
@@ -279,7 +367,7 @@ CREATE TABLE market_mk20_download_pipeline (
 );
 
 -- Offline URLs for PoRep deals.
-CREATE TABLE market_mk20_offline_urls (
+CREATE TABLE IF NOT EXISTS market_mk20_offline_urls (
     id TEXT NOT NULL,
     piece_cid_v2 TEXT NOT NULL,
     url TEXT NOT NULL,
@@ -289,7 +377,7 @@ CREATE TABLE market_mk20_offline_urls (
 
 -- This table tracks the chunk upload progress for a MK20 deal. Common for both
 -- PoRep and PDP
-CREATE TABLE market_mk20_deal_chunk (
+CREATE TABLE IF NOT EXISTS market_mk20_deal_chunk (
     id TEXT not null,
     chunk INT not null,
     chunk_size BIGINT not null,
@@ -302,25 +390,25 @@ CREATE TABLE market_mk20_deal_chunk (
 );
 
 -- MK20 product and their status table
-CREATE TABLE market_mk20_products (
+CREATE TABLE IF NOT EXISTS market_mk20_products (
     name TEXT PRIMARY KEY,
     enabled BOOLEAN DEFAULT TRUE
 );
 
 -- MK20 supported data sources and their status table
-CREATE TABLE market_mk20_data_source (
+CREATE TABLE IF NOT EXISTS market_mk20_data_source (
     name TEXT PRIMARY KEY,
     enabled BOOLEAN DEFAULT TRUE
 );
 
 -- Add products and data sources to table
-INSERT INTO market_mk20_products (name, enabled) VALUES ('ddo_v1', TRUE);
-INSERT INTO market_mk20_products (name, enabled) VALUES ('retrieval_v1', TRUE);
-INSERT INTO market_mk20_products (name, enabled) VALUES ('pdp_v1', TRUE);
-INSERT INTO market_mk20_data_source (name, enabled) VALUES ('http', TRUE);
-INSERT INTO market_mk20_data_source (name, enabled) VALUES ('aggregate', TRUE);
-INSERT INTO market_mk20_data_source (name, enabled) VALUES ('offline', TRUE);
-INSERT INTO market_mk20_data_source (name, enabled) VALUES ('put', TRUE);
+INSERT INTO market_mk20_products (name, enabled) VALUES ('ddo_v1', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO market_mk20_products (name, enabled) VALUES ('retrieval_v1', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO market_mk20_products (name, enabled) VALUES ('pdp_v1', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('http', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('aggregate', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('offline', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('put', TRUE) ON CONFLICT (name) DO NOTHING;
 
 -- This function sets an upload completion time. It is used to removed
 -- upload for deal which are not finalized in 1 hour so we don't waste space.
@@ -339,6 +427,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_ready_at_serial ON market_mk20_upload_waiting;
 CREATE TRIGGER trg_ready_at_serial
     BEFORE UPDATE OF ref_id, chunked ON market_mk20_upload_waiting
     FOR EACH ROW
@@ -369,6 +458,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
+DROP TRIGGER IF EXISTS trg_ready_at_chunks_update ON market_mk20_deal_chunk;
 CREATE TRIGGER trg_ready_at_chunks_update
     AFTER INSERT OR UPDATE OF complete ON market_mk20_deal_chunk
     FOR EACH ROW
@@ -447,7 +537,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Main DataSet table for PDP
-CREATE TABLE pdp_data_set (
+CREATE TABLE IF NOT EXISTS pdp_data_set (
     id BIGINT PRIMARY KEY, -- on-chain dataset id
     client TEXT NOT NULL, -- client wallet which requested this dataset
 
@@ -487,7 +577,7 @@ CREATE TABLE pdp_data_set (
 );
 
 -- DataSet create table governs the DataSet create task
-CREATE TABLE pdp_data_set_create (
+CREATE TABLE IF NOT EXISTS pdp_data_set_create (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
@@ -499,7 +589,7 @@ CREATE TABLE pdp_data_set_create (
 );
 
 -- DataSet delete table governs the DataSet delete task
-CREATE TABLE pdp_data_set_delete (
+CREATE TABLE IF NOT EXISTS pdp_data_set_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
@@ -511,7 +601,7 @@ CREATE TABLE pdp_data_set_delete (
 );
 
 -- This table governs the delete piece tasks
-CREATE TABLE pdp_piece_delete (
+CREATE TABLE IF NOT EXISTS pdp_piece_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
@@ -524,7 +614,7 @@ CREATE TABLE pdp_piece_delete (
 );
 
 -- Main DataSet Piece table. Any and all pieces ever added by SP must be part of this table
-CREATE TABLE pdp_dataset_piece (
+CREATE TABLE IF NOT EXISTS pdp_dataset_piece (
     data_set_id BIGINT NOT NULL, -- pdp_data_sets.id
     client TEXT NOT NULL,
 
@@ -546,7 +636,7 @@ CREATE TABLE pdp_dataset_piece (
     PRIMARY KEY (data_set_id, piece)
 );
 
-CREATE TABLE pdp_pipeline (
+CREATE TABLE IF NOT EXISTS pdp_pipeline (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
 
     id TEXT NOT NULL,
@@ -660,12 +750,12 @@ begin
 end;
 $$;
 
-CREATE TABLE market_mk20_clients (
+CREATE TABLE IF NOT EXISTS market_mk20_clients (
     client TEXT PRIMARY KEY,
     allowed BOOLEAN DEFAULT TRUE
 );
 
-CREATE TABLE pdp_proving_tasks (
+CREATE TABLE IF NOT EXISTS pdp_proving_tasks (
     data_set_id BIGINT NOT NULL, -- pdp_data_set.id
     task_id BIGINT NOT NULL, -- harmony_task task ID
 
@@ -676,7 +766,7 @@ CREATE TABLE pdp_proving_tasks (
 
 -- IPNI pipeline is kept separate from rest for robustness
 -- and reuse. This allows for removing, recreating ads using CLI.
-CREATE TABLE pdp_ipni_task (
+CREATE TABLE IF NOT EXISTS pdp_ipni_task (
     context_id BYTEA NOT NULL,
     is_rm BOOLEAN NOT NULL,
 
@@ -769,7 +859,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
-CREATE TABLE piece_cleanup (
+CREATE TABLE IF NOT EXISTS piece_cleanup (
     id TEXT NOT NULL,
     piece_cid_v2 TEXT NOT NULL,
 
