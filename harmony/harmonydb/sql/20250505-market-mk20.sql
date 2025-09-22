@@ -1,10 +1,26 @@
 -- Add raw_size column to mk12 deals to calculate pieceCidV2
-ALTER TABLE market_mk12_deals
-    ADD COLUMN raw_size BIGINT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'market_mk12_deals' 
+        AND column_name = 'raw_size'
+    ) THEN
+        ALTER TABLE market_mk12_deals ADD COLUMN raw_size BIGINT;
+    END IF;
+END $$;
 
 -- Add raw_size column to mk12-ddo deals to calculate pieceCidV2
-ALTER TABLE market_direct_deals
-    ADD COLUMN raw_size BIGINT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'market_direct_deals' 
+        AND column_name = 'raw_size'
+    ) THEN
+        ALTER TABLE market_direct_deals ADD COLUMN raw_size BIGINT;
+    END IF;
+END $$;
 
 -- Drop the existing primary key constraint for market_piece_metadata
 ALTER TABLE market_piece_metadata
