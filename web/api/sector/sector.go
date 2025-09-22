@@ -126,7 +126,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		Miner    int64           `db:"sp_id"`
 		Sector   int64           `db:"sector_number"`
 	}
-	var sectors []sector
+	var sectors []*sector
 	var pieces []piece
 
 	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &sectors, `SELECT 
@@ -143,12 +143,12 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		mID  int64
 		sNum uint64
 	}
-	sectorIdx := map[sectorID]int{}
+	sectorIdx := map[sectorID]*sector{}
 	for i, s := range sectors {
 		sectors[i].HasSealed = s.SectorFiletype&int(storiface.FTSealed) != 0 || s.SectorFiletype&int(storiface.FTUpdate) != 0
 		sectors[i].HasUnsealed = s.SectorFiletype&int(storiface.FTUnsealed) != 0
 		sectors[i].HasSnap = s.SectorFiletype&int(storiface.FTUpdate) != 0
-		sectorIdx[sectorID{s.MinerID, uint64(s.SectorNum)}] = i
+		sectorIdx[sectorID{s.MinerID, uint64(s.SectorNum)}] = sectors[i]
 		addr, err := address.NewIDAddress(uint64(s.MinerID))
 		apihelper.OrHTTPFail(w, err)
 		sectors[i].MinerAddress = addr
@@ -190,29 +190,35 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		apihelper.OrHTTPFail(w, err)
 		for _, chainy := range onChainInfo {
 			st := chainy.onChain
-			if i, ok := sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}]; ok {
-				sectors[i].IsOnChain = true
-				sectors[i].ExpiresAt = st.Expiration
-				sectors[i].IsFilPlus = st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
+			if s, ok := sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}]; ok {
+				s.IsOnChain = true
+				s.ExpiresAt = st.Expiration
+				s.IsFilPlus = st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
 				if ss, err := st.SealProof.SectorSize(); err == nil {
-					sectors[i].SealInfo = ss.ShortString()
+					s.SealInfo = ss.ShortString()
 				}
-				sectors[i].Proving = chainy.active
+				s.Proving = chainy.active
 				if st.Expiration < head.Height() {
 					delete(sectorIdx, sectorID{minerID, uint64(st.SectorNumber)})
-					sectors = append(sectors[:i], sectors[i+1:]...)
+					// find s in sectors and remove it
+					for i, st := range sectors {
+						if s.SectorNum == st.SectorNum && s.MinerID == st.MinerID {
+							sectors = append(sectors[:i], sectors[i+1:]...)
+							break
+						}
+					}
 					continue
 				}
 
 				dw, vp := .0, .0
 				f05, ddo := 0, 0
 				var pi []piece
-				if j, ok := pieceIndex[sectorID{sectors[i].MinerID, uint64(sectors[i].SectorNum)}]; ok {
+				if j, ok := pieceIndex[sectorID{s.MinerID, uint64(s.SectorNum)}]; ok {
 					for _, k := range j {
 						pi = append(pi, pieces[k])
 					}
 				}
-				estimate := st.Expiration-st.Activation <= 0 || sectors[i].HasSnap
+				estimate := st.Expiration-st.Activation <= 0 || s.HasSnap
 				if estimate {
 					for _, p := range pi {
 						if p.Proposal != nil {
@@ -248,20 +254,20 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				sectors[i].DealWeight = "CC"
+				s.DealWeight = "CC"
 				if dw > 0 {
-					sectors[i].DealWeight = units.BytesSize(dw)
+					s.DealWeight = units.BytesSize(dw)
 				}
 				if vp > 0 {
-					sectors[i].DealWeight = units.BytesSize(vp)
+					s.DealWeight = units.BytesSize(vp)
 				}
-				sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
+				s.Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 			} else {
 				// sector is on chain but not in db
 				if st.Expiration < head.Height() {
 					continue // skip expired ones
 				}
-				s := sector{
+				s := &sector{
 					MinerID:      minerID,
 					MinerAddress: maddr,
 					SectorNum:    int64(chainy.onChain.SectorNumber),
@@ -275,6 +281,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 					s.SealInfo = ss.ShortString()
 				}
 				sectors = append(sectors, s)
+				sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}] = s
 			}
 		}
 	}
