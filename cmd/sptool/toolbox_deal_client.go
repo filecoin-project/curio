@@ -289,7 +289,11 @@ var dealFlags = []cli.Flag{
 	},
 	&cli.StringFlag{
 		Name:  "wallet",
-		Usage: "wallet address to be used to initiate the deal",
+		Usage: "wallet address to be used to sign the deal",
+	},
+	&cli.StringFlag{
+		Name:  "client-address",
+		Usage: "address to be used to initiate the deal; if empty, the signing wallet will be used",
 	},
 	&cli.BoolFlag{
 		Name:  "skip-ipni-announce",
@@ -355,6 +359,16 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	}
 
 	log.Debugw("selected wallet", "wallet", walletAddr)
+
+	var clientAddr address.Address
+	if cctx.IsSet("client-address") {
+		clientAddr, err = address.NewFromString(cctx.String("client-address"))
+		if err != nil {
+			return err
+		}
+	} else {
+		clientAddr = walletAddr
+	}
 
 	httpDeal := cctx.Bool("http")
 
@@ -510,7 +524,7 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	}
 
 	// Create a deal proposal to storage provider using deal protocol v1.2.0 format
-	dealProposal, err := dealProposal(ctx, n, walletAddr, rootCid, abi.PaddedPieceSize(pieceSize), pieceCid, maddr, startEpoch, cctx.Int("duration"), cctx.Bool("verified"), providerCollateral, abi.NewTokenAmount(cctx.Int64("storage-price")))
+	dealProposal, err := dealProposal(ctx, n, walletAddr, clientAddr, rootCid, abi.PaddedPieceSize(pieceSize), pieceCid, maddr, startEpoch, cctx.Int("duration"), cctx.Bool("verified"), providerCollateral, abi.NewTokenAmount(cctx.Int64("storage-price")))
 	if err != nil {
 		return xerrors.Errorf("failed to create a deal proposal: %w", err)
 	}
@@ -555,7 +569,8 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		out := map[string]interface{}{
 			"dealUuid":           dealUuid.String(),
 			"provider":           maddr.String(),
-			"clientWallet":       walletAddr.String(),
+			"clientWallet":       clientAddr.String(),
+			"signingWallet":      walletAddr.String(),
 			"payloadCid":         rootCid.String(),
 			"commp":              dealProposal.Proposal.PieceCID.String(),
 			"startEpoch":         dealProposal.Proposal.StartEpoch.String(),
@@ -575,7 +590,8 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	msg += "\n"
 	msg += fmt.Sprintf("  deal uuid: %s\n", dealUuid)
 	msg += fmt.Sprintf("  storage provider: %s\n", maddr)
-	msg += fmt.Sprintf("  client wallet: %s\n", walletAddr)
+	msg += fmt.Sprintf("  client wallet: %s\n", clientAddr)
+	msg += fmt.Sprintf("  signing wallet: %s\n", walletAddr)
 	msg += fmt.Sprintf("  payload cid: %s\n", rootCid)
 	if isOnline {
 		msg += fmt.Sprintf("  url: %s\n", cctx.String("http-url"))
@@ -589,7 +605,7 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	return nil
 }
 
-func dealProposal(ctx context.Context, n *Node, clientAddr address.Address, rootCid cid.Cid, pieceSize abi.PaddedPieceSize, pieceCid cid.Cid, minerAddr address.Address, startEpoch abi.ChainEpoch, duration int, verified bool, providerCollateral abi.TokenAmount, storagePrice abi.TokenAmount) (*market.ClientDealProposal, error) {
+func dealProposal(ctx context.Context, n *Node, signingAddr address.Address, clientAddr address.Address, rootCid cid.Cid, pieceSize abi.PaddedPieceSize, pieceCid cid.Cid, minerAddr address.Address, startEpoch abi.ChainEpoch, duration int, verified bool, providerCollateral abi.TokenAmount, storagePrice abi.TokenAmount) (*market.ClientDealProposal, error) {
 	endEpoch := startEpoch + abi.ChainEpoch(duration)
 	// deal proposal expects total storage price for deal per epoch, therefore we
 	// multiply pieceSize * storagePrice (which is set per epoch per GiB) and divide by 2^30
@@ -616,7 +632,7 @@ func dealProposal(ctx context.Context, n *Node, clientAddr address.Address, root
 		return nil, err
 	}
 
-	sig, err := n.Wallet.WalletSign(ctx, clientAddr, buf, lapi.MsgMeta{Type: lapi.MTDealProposal})
+	sig, err := n.Wallet.WalletSign(ctx, signingAddr, buf, lapi.MsgMeta{Type: lapi.MTDealProposal})
 	if err != nil {
 		return nil, xerrors.Errorf("wallet sign failed: %w", err)
 	}
