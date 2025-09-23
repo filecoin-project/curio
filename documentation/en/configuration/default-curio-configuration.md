@@ -59,6 +59,16 @@ description: The default curio configuration
   # type: int
   #ParkPieceMaxTasks = 0
 
+  # The maximum number of pieces that should be in storage + active tasks writing to storage on this node (Default: 0 - unlimited)
+  #
+  # type: int
+  #ParkPieceMaxInPark = 0
+
+  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+  #
+  # type: float64
+  #ParkPieceMinFreeStoragePercent = 20.0
+
   # EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
   # creating 11 layer files in sector cache directory.
   # 
@@ -218,6 +228,12 @@ description: The default curio configuration
   #
   # type: bool
   #BindEncodeToData = false
+
+  # AllowEncodeGPUOverprovision allows the Encode task to run on regardress of declared GPU usage. (Default: false)
+  # NOTE: This definitely is not safe on PoSt nodes.
+  #
+  # type: bool
+  #AllowEncodeGPUOverprovision = false
 
   # UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)
   #

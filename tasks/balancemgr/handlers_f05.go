@@ -3,17 +3,18 @@ package balancemgr
 import (
 	"context"
 
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -66,12 +67,12 @@ func (b *BalanceMgrTask) doF05(ctx context.Context, taskID harmonytask.TaskID, a
 	if err != nil {
 		return false, xerrors.Errorf("getting market balance: %w", err)
 	}
-	
+
 	sourceBalance, err := b.chain.StateGetActor(ctx, addr.SubjectAddress, types.EmptyTSK)
 	if err != nil {
 		return false, xerrors.Errorf("getting source balance: %w", err)
 	}
-	
+
 	addr.SubjectBalance = big.Sub(marketBalance.Escrow, marketBalance.Locked)
 	addr.SecondBalance = types.BigInt(sourceBalance.Balance)
 

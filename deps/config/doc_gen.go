@@ -555,6 +555,18 @@ Note that future Curio implementations will have a separate task type for fetchi
 also be bounded by resources available on the machine (Default: 0 - unlimited)`,
 		},
 		{
+			Name: "ParkPieceMaxInPark",
+			Type: "int",
+
+			Comment: `The maximum number of pieces that should be in storage + active tasks writing to storage on this node (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "ParkPieceMinFreeStoragePercent",
+			Type: "float64",
+
+			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)`,
+		},
+		{
 			Name: "EnableSealSDR",
 			Type: "bool",
 
@@ -733,6 +745,13 @@ This step submits the generated proofs to the chain. (Default: false)`,
 			Comment: `BindEncodeToData forces the Encode task to be executed on the same node where the data was parked.
 Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
 (Default: false)`,
+		},
+		{
+			Name: "AllowEncodeGPUOverprovision",
+			Type: "bool",
+
+			Comment: `AllowEncodeGPUOverprovision allows the Encode task to run on regardress of declared GPU usage. (Default: false)
+NOTE: This definitely is not safe on PoSt nodes.`,
 		},
 		{
 			Name: "UpdateProveMaxTasks",

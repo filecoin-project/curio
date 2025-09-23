@@ -26,8 +26,8 @@ import (
 const MinSnapSchedInterval = 10 * time.Second
 
 type EncodeTask struct {
-	max        int
-	bindToData bool
+	max                         int
+	bindToData                  bool
 	allowEncodeGPUOverprovision bool
 
 	sc *ffi.SealCalls
@@ -36,10 +36,10 @@ type EncodeTask struct {
 
 func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int, bindToData bool, allowEncodeGPUOverprovision bool) *EncodeTask {
 	return &EncodeTask{
-		max:        max,
-		sc:         sc,
-		db:         db,
-		bindToData: bindToData,
+		max:                         max,
+		sc:                          sc,
+		db:                          db,
+		bindToData:                  bindToData,
 		allowEncodeGPUOverprovision: allowEncodeGPUOverprovision,
 	}
 }

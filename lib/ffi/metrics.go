@@ -11,21 +11,21 @@ import (
 )
 
 var (
-	phaseKey, _      = tag.NewKey("phase")
-	pre              = "cuffi_"
+	phaseKey, _ = tag.NewKey("phase")
+	pre         = "cuffi_"
 )
 
 var (
-	encActiveStart atomic.Int64
-	encActiveTreeD atomic.Int64
+	encActiveStart  atomic.Int64
+	encActiveTreeD  atomic.Int64
 	encActiveEncode atomic.Int64
-	encActiveTreeR atomic.Int64
-	encActiveTail atomic.Int64
+	encActiveTreeR  atomic.Int64
+	encActiveTail   atomic.Int64
 )
 
 var Measures = struct {
 	encActivePhase *stats.Int64Measure
-} {
+}{
 	encActivePhase: stats.Int64(pre+"snap_enc_active", "Number of tasks in each phase", stats.UnitDimensionless),
 }
 

@@ -229,9 +229,9 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	ctx := context.Background()
 
 	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"commp_task_id"`
-		StorageID    string             `db:"storage_id"`
-		Url          *string            `db:"url"`
+		TaskID    harmonytask.TaskID `db:"commp_task_id"`
+		StorageID string             `db:"storage_id"`
+		Url       *string            `db:"url"`
 	}
 
 	indIDs := make([]int64, len(ids))

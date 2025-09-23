@@ -13,11 +13,11 @@ import (
 func DefaultCurioConfig() *CurioConfig {
 	return &CurioConfig{
 		Subsystems: CurioSubsystemsConfig{
-			GuiAddress:                 "0.0.0.0:4701",
-			RequireActivationSuccess:   true,
-			RequireNotificationSuccess: true,
-			IndexingMaxTasks:           8,
-			RemoteProofMaxUploads:      15,
+			GuiAddress:                     "0.0.0.0:4701",
+			RequireActivationSuccess:       true,
+			RequireNotificationSuccess:     true,
+			IndexingMaxTasks:               8,
+			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 20,
 		},
 		Fees: CurioFees{

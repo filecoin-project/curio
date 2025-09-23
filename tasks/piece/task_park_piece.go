@@ -34,7 +34,7 @@ type ParkPieceTask struct {
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
-	max int
+	max                   int
 	minFreeStoragePercent float64
 
 	// maxInPark is the maximum number of pieces that should be in storage + active tasks writing to storage on this node
@@ -56,13 +56,13 @@ func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remot
 
 func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
 	pt := &ParkPieceTask{
-		db:        db,
-		sc:        sc,
-		remote:    remote,
-		max:       max,
-		maxInPark: maxInPark,
-		longTerm:  longTerm,
-		p2Active:  p2Active,
+		db:                    db,
+		sc:                    sc,
+		remote:                remote,
+		max:                   max,
+		maxInPark:             maxInPark,
+		longTerm:              longTerm,
+		p2Active:              p2Active,
 		minFreeStoragePercent: minFreeStoragePercent,
 	}
 
