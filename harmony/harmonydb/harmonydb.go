@@ -351,12 +351,14 @@ func (db *DB) upgrade() error {
 				}
 				msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
 				err = xerrors.New(msg) // makes devs lives easier by placing message at the end.
+				break
 			}
 
 			// Mark Completed.
 			_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
 			if err != nil {
 				err = xerrors.Errorf("cannot insert into base: %w", err)
+				break
 			}
 			break
 		}
