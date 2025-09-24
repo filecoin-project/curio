@@ -16,7 +16,7 @@ import (
 
 var errTx = errors.New("cannot use a non-transaction func in a transaction")
 
-const InitialSerializationErrorRetryWait = 10 * time.Millisecond
+const InitialSerializationErrorRetryWait = 5 * time.Second
 
 // rawStringOnly is _intentionally_private_ to force only basic strings in SQL queries.
 // In any package, raw strings will satisfy compilation.  Ex:

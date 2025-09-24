@@ -356,7 +356,7 @@ func (db *DB) upgrade() error {
 			}
 			if err != nil {
 				if IsErrSerialization(err) {
-					time.Sleep(retryWait)
+					time.Sleep(retryWait + time.Second*time.Duration(rand.Intn(10))) // add jitter
 					retryWait *= 2
 					continue
 				}
