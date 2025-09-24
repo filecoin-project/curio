@@ -330,19 +330,41 @@ func (db *DB) upgrade() error {
 			}
 			megaSql += s + ";"
 		}
-		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
-		if err != nil {
-			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
-			logger.Error(msg)
-			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
+		retryWait := InitialSerializationErrorRetryWait
+		for {
+			b, err := db.BeginTransaction(context.Background(), func(tx *Tx) (bool, error) {
+				var exists int
+				db.QueryRow(context.Background(), "SELECT COUNT(*) FROM base WHERE entry = $1", name[:8]).Scan(&exists)
+				if exists == 1 {
+					return true, nil
+				}
+				_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
+				if err != nil {
+					msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
+					return false, xerrors.New(msg) // makes devs lives easier by placing message at the end.
+				}
+
+				// Mark Completed.
+				_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
+				if err != nil {
+					return false, xerrors.Errorf("cannot insert into base: %w", err)
+				}
+				return true, nil
+			})
+			if b {
+				break
+			}
+			if err != nil {
+				if IsErrSerialization(err) {
+					time.Sleep(retryWait)
+					retryWait *= 2
+					continue
+				}
+				logger.Error("Cannot upgrade: " + err.Error())
+				return err
+			}
 		}
 
-		// Mark Completed.
-		_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
-		if err != nil {
-			logger.Error("Cannot update base: " + err.Error())
-			return xerrors.Errorf("cannot insert into base: %w", err)
-		}
 	}
 	return nil
 }
