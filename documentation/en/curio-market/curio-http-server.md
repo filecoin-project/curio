@@ -115,7 +115,7 @@ The Curio HTTP Server can be customized using the `HTTPConfig` structure, which 
 * **ReadHeaderTimeout**: The time allowed to read the request headers from the client.\
   Default: `5 seconds` — Prevents slow clients from keeping connections open without sending complete headers. For standard web traffic, this value is sufficient, but it may need adjustment for certain client environments.
 * **CORSOrigins**: Specifies the allowed origins for CORS requests. If empty, CORS is disabled.\
-  Default: `[]` (empty array) — This disables CORS by default for security. To enable CORS, specify the allowed origins (e.g., `["https://example.com", "https://app.example.com"]`).
+  Default: `[]` (empty array) — This disables CORS by default for security. To enable CORS, specify the allowed origins (e.g., `["https://example.com", "https://app.example.com"]`). This is required for third-party UI servers.
 * **CompressionLevels**: Defines the compression levels for GZIP, Brotli, and Deflate, which are used to optimize the response size. The defaults balance performance and bandwidth savings:
   * **GzipLevel**: Default: `6` — A moderate compression level that balances speed and compression ratio, suitable for general-purpose use.
   * **BrotliLevel**: Default: `4` — A moderate Brotli compression level, which provides better compression than GZIP but is more CPU-intensive. This level is good for text-heavy responses like HTML or JSON.
