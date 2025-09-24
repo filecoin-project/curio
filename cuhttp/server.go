@@ -154,8 +154,8 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.Use(secureHeaders(cfg.CSP))
 	chiRouter.Use(corsHeaders)
 
-	if cfg.EnableCORS {
-		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + cfg.DomainName})))
+	if len(cfg.CORSOrigins) > 0 {
+		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins(cfg.CORSOrigins)))
 	}
 
 	// Set up the compression middleware with custom compression levels
