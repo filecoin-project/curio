@@ -864,6 +864,7 @@ type HTTPConfig struct {
 
 	// CORSOrigins specifies the allowed origins for CORS requests. If empty, CORS is disabled.
 	// If not empty, only the specified origins will be allowed for CORS requests.
+	// This is required for third-party UI servers.
 	CORSOrigins []string
 
 	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
