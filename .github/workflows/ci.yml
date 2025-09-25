@@ -203,7 +203,7 @@ jobs:
         id: start-yugabyte
         run: |
           # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:latest bin/yugabyted start --daemon=false
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
 
       - name: Wait for YugabyteDB to start
         run: |
