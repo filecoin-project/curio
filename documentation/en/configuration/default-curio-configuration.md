@@ -559,7 +559,8 @@ description: The default curio configuration
   #ReadHeaderTimeout = "5s"
 
   # CORSOrigins specifies the allowed origins for CORS requests. If empty, CORS is disabled.
-  # If not empty, only the specified origins will be allowed for CORS requests. This is required for third-party UI servers.
+  # If not empty, only the specified origins will be allowed for CORS requests. 
+  # This is required for third-party UI servers.
   #
   # type: []string
   #CORSOrigins = []
