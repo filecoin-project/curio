@@ -1,7 +1,7 @@
 -- NOTE: task_ids can be the same between different task types and between different sectors
 --  e.g. SN-supraseal doing 128 sdr/TreeC/TreeR with the same task_id
 
-create table sectors_sdr_pipeline (
+create table if not exists sectors_sdr_pipeline (
     sp_id bigint not null,
     sector_number bigint not null,
 
@@ -103,7 +103,7 @@ create table sectors_sdr_pipeline (
     primary key (sp_id, sector_number)
 );
 
-create table sectors_sdr_initial_pieces (
+create table if not exists sectors_sdr_initial_pieces (
     sp_id bigint not null,
     sector_number bigint not null,
 
@@ -144,7 +144,7 @@ create table sectors_sdr_initial_pieces (
 
 comment on column sectors_sdr_initial_pieces.piece_size is 'padded size of the piece';
 
-create table sectors_allocated_numbers (
+create table if not exists sectors_allocated_numbers (
     sp_id bigint not null primary key,
     allocated jsonb not null
 );

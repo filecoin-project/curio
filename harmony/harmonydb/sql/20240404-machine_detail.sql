@@ -1,4 +1,4 @@
-CREATE TABLE harmony_machine_details (
+CREATE TABLE IF NOT EXISTS harmony_machine_details (
   id SERIAL PRIMARY KEY,
 	tasks TEXT,
   layers TEXT,

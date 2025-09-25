@@ -1,4 +1,4 @@
-ALTER TABLE balance_manager_addresses ADD COLUMN subject_type TEXT NOT NULL DEFAULT 'wallet';
+ALTER TABLE balance_manager_addresses ADD COLUMN IF NOT EXISTS subject_type TEXT NOT NULL DEFAULT 'wallet';
 
 -- For proofshare rules we allow subject_address == second_address.
 -- Relax the constraint accordingly.

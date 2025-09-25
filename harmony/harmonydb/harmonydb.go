@@ -268,6 +268,8 @@ retry:
 //go:embed sql
 var fs embed.FS
 
+var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
+
 func (db *DB) upgrade() error {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
@@ -330,43 +332,23 @@ func (db *DB) upgrade() error {
 			}
 			megaSql += s + ";"
 		}
-		retryWait := InitialSerializationErrorRetryWait
-		for {
-			var exists int
-			err = db.QueryRow(context.Background(), "SELECT COUNT(*) FROM base WHERE entry = $1", name[:8]).Scan(&exists)
-			if err != nil {
-				break
-			}
-			if exists > 0 {
-				break
-			}
-			_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
-			if err != nil {
-				// If DDL conflict (object already exists or doesn't exist), treat as success
-				if IsErrDDLConflict(err) {
-					logger.Debugw("DDL conflict during upgrade, waiting & checking status again", "file", name, "error", err.Error())
-					time.Sleep(retryWait)
-					retryWait *= 2
-					continue
-				}
-				msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
-				err = xerrors.New(msg) // makes devs lives easier by placing message at the end.
-				break
-			}
-
-			// Mark Completed.
-			_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
-			if err != nil {
-				err = xerrors.Errorf("cannot insert into base: %w", err)
-				break
-			}
-			break
-		}
+		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {
-			logger.Error("Cannot upgrade: " + err.Error())
-			return err
+			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
+			logger.Error(msg)
+			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
 		}
 
+		if ITestUpgradeFunc != nil {
+			ITestUpgradeFunc(db.pgx, name, megaSql)
+		}
+
+		// Mark Completed.
+		_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
+		if err != nil {
+			logger.Error("Cannot update base: " + err.Error())
+			return xerrors.Errorf("cannot insert into base: %w", err)
+		}
 	}
 	return nil
 }
