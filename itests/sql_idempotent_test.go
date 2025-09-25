@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/stretchr/testify/require"
 	"github.com/yugabyte/pgx/v5/pgxpool"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // TestSQLIdempotent tests that the SQL DDL files are idempotent.
