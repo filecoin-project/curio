@@ -140,6 +140,7 @@ type ServiceDeps struct {
 	DealMarket *storage_market.CurioStorageDealMarket
 }
 
+// This starts the public-facing server for market calls.
 func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	cfg := d.Cfg.HTTP
 
@@ -152,11 +153,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.Use(middleware.Recoverer)
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders(cfg.CSP))
-	chiRouter.Use(corsHeaders)
-
-	if len(cfg.CORSOrigins) > 0 {
-		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins(cfg.CORSOrigins)))
-	}
+	chiRouter.Use(corsHeaders) // allows market calls from other domains
 
 	// Set up the compression middleware with custom compression levels
 	compressionMw, err := compressionMiddleware(&cfg.CompressionLevels)
