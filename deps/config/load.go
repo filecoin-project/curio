@@ -2,6 +2,8 @@ package config
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -14,9 +16,11 @@ import (
 	"unicode"
 
 	"github.com/BurntSushi/toml"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 )
 
@@ -562,5 +566,76 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 		})
 		il++
 	}
+	return nil
+}
+
+func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *CurioConfig) (toml.MetaData, error) {
+	// allow migration from old config format that was limited to 1 wallet setup.
+	newText := strings.Join(lo.Map(strings.Split(text, "\n"), func(line string, _ int) string {
+		if strings.EqualFold(line, "[addresses]") {
+			return "[[addresses]]"
+		}
+		return line
+	}), "\n")
+
+	err := FixTOML(newText, curioConfigWithDefaults)
+	if err != nil {
+		return toml.MetaData{}, err
+	}
+
+	return toml.Decode(newText, &curioConfigWithDefaults)
+}
+
+type ConfigText struct {
+	Title  string
+	Config string
+}
+
+// GetConfigs returns the configs in the order of the layers
+func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]ConfigText, error) {
+	inputMap := map[string]int{}
+	for i, layer := range layers {
+		inputMap[layer] = i
+	}
+
+	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
+
+	var configs []ConfigText
+	err := db.Select(ctx, &configs, `SELECT title, config FROM harmony_config WHERE title IN ($1)`, strings.Join(layers, ","))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ConfigText, len(layers))
+	for _, config := range configs {
+		index, ok := inputMap[config.Title]
+		if !ok {
+			if config.Title == "base" {
+				return nil, errors.New(`curio defaults to a layer named 'base'. 
+				Either use 'migrate' command or edit a base.toml and upload it with: curio config set base.toml`)
+
+			}
+			return nil, fmt.Errorf("missing layer %s", config.Title)
+		}
+		result[index] = config
+	}
+	return result, nil
+}
+
+func ApplyLayers(ctx context.Context, curioConfig *CurioConfig, layers []ConfigText) error {
+	have := []string{}
+	for _, layer := range layers {
+		meta, err := LoadConfigWithUpgrades(layer.Config, curioConfig)
+		if err != nil {
+			return fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
+		}
+		for _, k := range meta.Keys() {
+			have = append(have, strings.Join(k, " "))
+		}
+		logger.Debugf("Using layer %s, config %v", layer, curioConfig)
+	}
+	_ = have // FUTURE: verify that required fields are here.
+	// If config includes 3rd-party config, consider JSONSchema as a way that
+	// 3rd-parties can dynamically include config requirements and we can
+	// validate the config. Because of layering, we must validate @ startup.
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/network"
@@ -13,27 +14,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
-
-type HarmonyDB struct {
-	// HOSTS is a list of hostnames to nodes running YugabyteDB
-	// in a cluster. Only 1 is required
-	Hosts []string
-
-	// The Yugabyte server's username with full credentials to operate on Lotus' Database. Blank for default.
-	Username string
-
-	// The password for the related username. Blank for default.
-	Password string
-
-	// The database (logical partition) within Yugabyte. Blank for default.
-	Database string
-
-	// The port to find Yugabyte. Blank for default.
-	Port string
-
-	// Load Balance the connection over multiple nodes
-	LoadBalance bool
-}
 
 // StorageMiner is a miner config
 type StorageMiner struct {
@@ -49,7 +29,7 @@ type StorageMiner struct {
 	Addresses     MinerAddressConfig
 	DAGStore      DAGStoreConfig
 
-	HarmonyDB HarmonyDB
+	HarmonyDB harmonydb.Config
 }
 
 type DAGStoreConfig struct {
@@ -683,7 +663,7 @@ func DefaultStorageMiner() *StorageMiner {
 			MaxConcurrentUnseals:       5,
 			GCInterval:                 time.Minute,
 		},
-		HarmonyDB: HarmonyDB{
+		HarmonyDB: harmonydb.Config{
 			Hosts:    []string{"127.0.0.1"},
 			Username: "yugabyte",
 			Password: "yugabyte",
