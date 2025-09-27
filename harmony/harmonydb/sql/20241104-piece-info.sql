@@ -1,6 +1,6 @@
 -- Piece summary table. This table will always have 1 row only and will be updated
 -- by triggers
-CREATE TABLE piece_summary (
+CREATE TABLE IF NOT EXISTS piece_summary (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE, -- Single-row identifier, always set to TRUE
     total BIGINT NOT NULL DEFAULT 0,
     indexed BIGINT NOT NULL DEFAULT 0,
@@ -43,10 +43,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to call update_piece_summary function on insert to market_piece_metadata
-CREATE TRIGGER trigger_update_piece_summary
-    AFTER INSERT OR UPDATE ON market_piece_metadata
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trigger_update_piece_summary'
+    ) THEN
+        CREATE TRIGGER trigger_update_piece_summary AFTER INSERT OR UPDATE ON market_piece_metadata
     FOR EACH ROW
     EXECUTE FUNCTION update_piece_summary();
+    END IF;
+END $$;
 
 
 

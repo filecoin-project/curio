@@ -1,6 +1,6 @@
 -- Proofshare queue
 
-CREATE TABLE proofshare_queue (
+CREATE TABLE IF NOT EXISTS proofshare_queue (
     service_id BIGINT NOT NULL,
     
     obtained_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE proofshare_queue (
 -- create unique index proofshare_queue_request_cid_uindex
 --    on proofshare_queue (request_cid);
 
-CREATE TABLE proofshare_meta (
+CREATE TABLE IF NOT EXISTS proofshare_meta (
     singleton BOOLEAN NOT NULL DEFAULT TRUE CHECK (singleton = TRUE) UNIQUE,
 
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -44,7 +44,7 @@ COMMENT ON COLUMN proofshare_meta.enabled IS 'Setting to TRUE indicates acceptan
 
 INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
 
-CREATE TABLE proofshare_provider_payments (
+CREATE TABLE IF NOT EXISTS proofshare_provider_payments (
     provider_id BIGINT NOT NULL, -- wallet id
     request_cid TEXT NOT NULL,
 
@@ -57,10 +57,10 @@ CREATE TABLE proofshare_provider_payments (
     PRIMARY KEY (provider_id, payment_nonce)
 );
 
-create index proofshare_provider_payments_request_cid_index
+create index if not exists proofshare_provider_payments_request_cid_index
     on proofshare_provider_payments (request_cid);
 
-CREATE TABLE proofshare_provider_payments_settlement (
+CREATE TABLE IF NOT EXISTS proofshare_provider_payments_settlement (
     provider_id BIGINT NOT NULL, -- wallet id
     payment_nonce BIGINT NOT NULL,
 
@@ -71,7 +71,7 @@ CREATE TABLE proofshare_provider_payments_settlement (
 );
 
 -- Table tracking provider-router interactions (deposit, withdraw-request/complete)
-CREATE TABLE proofshare_provider_messages (
+CREATE TABLE IF NOT EXISTS proofshare_provider_messages (
     started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
     signed_cid TEXT NOT NULL,
 
@@ -84,11 +84,11 @@ CREATE TABLE proofshare_provider_messages (
     PRIMARY KEY (started_at, signed_cid)
 );
 
-CREATE INDEX proofshare_provider_messages_signed_cid ON proofshare_provider_messages (signed_cid);
+CREATE INDEX IF NOT EXISTS proofshare_provider_messages_signed_cid ON proofshare_provider_messages (signed_cid);
 
 -- Client settings
 
-CREATE TABLE proofshare_client_settings (
+CREATE TABLE IF NOT EXISTS proofshare_client_settings (
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
     sp_id BIGINT NOT NULL DEFAULT 0, -- 0 = all/other
 
@@ -108,7 +108,7 @@ COMMENT ON COLUMN proofshare_client_settings.enabled IS 'Setting to TRUE indicat
 
 INSERT INTO proofshare_client_settings (enabled, sp_id, wallet, minimum_pending_seconds, do_porep, do_snap) VALUES (FALSE, 0, NULL, 0, FALSE, FALSE);
 
-CREATE TABLE proofshare_client_requests (
+CREATE TABLE IF NOT EXISTS proofshare_client_requests (
     task_id BIGINT NOT NULL,
     
     sp_id BIGINT NOT NULL,
@@ -167,11 +167,11 @@ CREATE TABLE proofshare_client_requests (
 --     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp
 -- );
 
-CREATE TABLE proofshare_client_wallets (
+CREATE TABLE IF NOT EXISTS proofshare_client_wallets (
     wallet BIGINT NOT NULL PRIMARY KEY
 );
 
-CREATE TABLE proofshare_client_payments (
+CREATE TABLE IF NOT EXISTS proofshare_client_payments (
     wallet BIGINT NOT NULL,
 
     nonce BIGINT NOT NULL,
@@ -189,7 +189,7 @@ CREATE TABLE proofshare_client_payments (
 );
 
 -- Table tracking user-router interactions (deposit, withdraw-request/complete)
-CREATE TABLE proofshare_client_messages (
+CREATE TABLE IF NOT EXISTS proofshare_client_messages (
     started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
     signed_cid TEXT NOT NULL,
 
@@ -202,7 +202,7 @@ CREATE TABLE proofshare_client_messages (
     PRIMARY KEY (started_at, signed_cid)
 );
 
-CREATE INDEX proofshare_client_messages_signed_cid ON proofshare_client_messages (signed_cid);
+CREATE INDEX IF NOT EXISTS proofshare_client_messages_signed_cid ON proofshare_client_messages (signed_cid);
 
 CREATE OR REPLACE FUNCTION update_proofshare_client_messages_from_message_waits()
 RETURNS trigger AS $$
@@ -217,11 +217,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER tr_update_proofshare_client_messages
-AFTER UPDATE ON message_waits
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'tr_update_proofshare_client_messages'
+    ) THEN
+        CREATE TRIGGER tr_update_proofshare_client_messages AFTER UPDATE ON message_waits
 FOR EACH ROW
 WHEN (OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL)
 EXECUTE FUNCTION update_proofshare_client_messages_from_message_waits();
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION update_proofshare_provider_messages_from_message_waits()
 RETURNS trigger AS $$
@@ -236,10 +243,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER tr_update_proofshare_provider_messages
-AFTER UPDATE ON message_waits
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'tr_update_proofshare_provider_messages'
+    ) THEN
+        CREATE TRIGGER tr_update_proofshare_provider_messages AFTER UPDATE ON message_waits
 FOR EACH ROW
 WHEN (OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL)
 EXECUTE FUNCTION update_proofshare_provider_messages_from_message_waits();
+    END IF;
+END $$;
 
 

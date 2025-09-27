@@ -6,7 +6,7 @@ BEGIN
         WHERE table_name = 'market_mk12_deals' 
         AND column_name = 'raw_size'
     ) THEN
-        ALTER TABLE market_mk12_deals ADD COLUMN raw_size BIGINT;
+        ALTER TABLE market_mk12_deals ADD COLUMN IF NOT EXISTS raw_size BIGINT;
     END IF;
 END $$;
 
@@ -18,7 +18,7 @@ BEGIN
         WHERE table_name = 'market_direct_deals' 
         AND column_name = 'raw_size'
     ) THEN
-        ALTER TABLE market_direct_deals ADD COLUMN raw_size BIGINT;
+        ALTER TABLE market_direct_deals ADD COLUMN IF NOT EXISTS raw_size BIGINT;
     END IF;
 END $$;
 
@@ -70,7 +70,7 @@ BEGIN
         WHERE table_name = 'market_piece_deal' 
         AND column_name = 'piece_ref'
     ) THEN
-        ALTER TABLE market_piece_deal ADD COLUMN piece_ref BIGINT;
+        ALTER TABLE market_piece_deal ADD COLUMN IF NOT EXISTS piece_ref BIGINT;
     END IF;
 END $$;
 
@@ -86,7 +86,7 @@ BEGIN
         WHERE table_name = 'parked_pieces' 
         AND column_name = 'skip'
     ) THEN
-        ALTER TABLE parked_pieces ADD COLUMN skip BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE parked_pieces ADD COLUMN IF NOT EXISTS skip BOOLEAN NOT NULL DEFAULT FALSE;
     END IF;
 END $$;
 
@@ -98,7 +98,7 @@ BEGIN
         WHERE table_name = 'ipni' 
         AND column_name = 'piece_cid_v2'
     ) THEN
-        ALTER TABLE ipni ADD COLUMN piece_cid_v2 TEXT;
+        ALTER TABLE ipni ADD COLUMN IF NOT EXISTS piece_cid_v2 TEXT;
     END IF;
 END $$;
 
@@ -110,7 +110,7 @@ BEGIN
         WHERE table_name = 'ipni' 
         AND column_name = 'metadata'
     ) THEN
-        ALTER TABLE ipni ADD COLUMN metadata BYTEA NOT NULL DEFAULT '\xa01200';
+        ALTER TABLE ipni ADD COLUMN IF NOT EXISTS metadata BYTEA NOT NULL DEFAULT '\xa01200';
     END IF;
 END $$;
 
@@ -123,7 +123,7 @@ BEGIN
         WHERE table_name = 'ipni_chunks' 
         AND column_name = 'is_pdp'
     ) THEN
-        ALTER TABLE ipni_chunks ADD COLUMN is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE ipni_chunks ADD COLUMN IF NOT EXISTS is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
     END IF;
 END $$;
 
@@ -193,7 +193,7 @@ BEGIN
         WHERE table_name = 'ipni_task' 
         AND column_name = 'id'
     ) THEN
-        ALTER TABLE ipni_task ADD COLUMN id TEXT;
+        ALTER TABLE ipni_task ADD COLUMN IF NOT EXISTS id TEXT;
     END IF;
 END $$;
 
@@ -428,10 +428,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_ready_at_serial ON market_mk20_upload_waiting;
-CREATE TRIGGER trg_ready_at_serial
-    BEFORE UPDATE OF ref_id, chunked ON market_mk20_upload_waiting
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_ready_at_serial'
+    ) THEN
+        CREATE TRIGGER trg_ready_at_serial BEFORE UPDATE OF ref_id, chunked ON market_mk20_upload_waiting
     FOR EACH ROW
     EXECUTE FUNCTION set_ready_at_for_serial_upload();
+    END IF;
+END $$;
 
 -- This function sets an upload completion time. It is used to removed
 -- upload for deal which are not finalized in 1 hour so we don't waste space.
@@ -459,10 +466,17 @@ $$ LANGUAGE plpgsql;
 
 
 DROP TRIGGER IF EXISTS trg_ready_at_chunks_update ON market_mk20_deal_chunk;
-CREATE TRIGGER trg_ready_at_chunks_update
-    AFTER INSERT OR UPDATE OF complete ON market_mk20_deal_chunk
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trg_ready_at_chunks_update'
+    ) THEN
+        CREATE TRIGGER trg_ready_at_chunks_update AFTER INSERT OR UPDATE OF complete ON market_mk20_deal_chunk
     FOR EACH ROW
     EXECUTE FUNCTION set_ready_at_when_all_chunks_complete();
+    END IF;
+END $$;
 
 -- This function triggers a download for an offline piece.
 -- It is different from MK1.2 PoRep pipeline as it downloads the offline pieces

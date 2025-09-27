@@ -1,11 +1,11 @@
 -- Table for storing IPNI ads
-CREATE TABLE ipni_peerid (
+CREATE TABLE IF NOT EXISTS ipni_peerid (
     priv_key BYTEA NOT NULL PRIMARY KEY,
     peer_id TEXT NOT NULL UNIQUE,
     sp_id BIGINT NOT NULL -- 20241106-market-fixes.sql UNIQUE
 );
 
-CREATE TABLE ipni (
+CREATE TABLE IF NOT EXISTS ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,
     context_id BYTEA NOT NULL, -- abi.PieceInfo in Curio
@@ -32,7 +32,7 @@ CREATE TABLE ipni (
 );
 
 -- This index will help speed up the lookup of all ads for a specific provider and ensure fast ordering by order_number
-CREATE INDEX ipni_provider_order_number ON ipni(provider, order_number);
+CREATE INDEX IF NOT EXISTS ipni_provider_order_number ON ipni(provider, order_number);
 
 -- This index will speed up lookups based on the ad_cid, which is frequently used to identify specific ads
 CREATE UNIQUE INDEX ipni_ad_cid ON ipni(ad_cid);
@@ -44,10 +44,10 @@ CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm); -- dropp
 -- CREATE INDEX ipni_entries_skip ON ipni(entries, is_skip, piece_cid);
 
 -- Since the get_ad_chain function relies on both provider and ad_cid to find the order_number, this index will optimize that query:
-CREATE INDEX ipni_provider_ad_cid ON ipni(provider, ad_cid);
+CREATE INDEX IF NOT EXISTS ipni_provider_ad_cid ON ipni(provider, ad_cid);
 
 
-CREATE TABLE ipni_head (
+CREATE TABLE IF NOT EXISTS ipni_head (
     provider TEXT NOT NULL PRIMARY KEY, -- PeerID from libp2p, this is the main identifier
     head TEXT NOT NULL, -- ad_cid from the ipni table, representing the head of the ad chain
 
@@ -56,7 +56,7 @@ CREATE TABLE ipni_head (
 
 -- This table stores metadata for ipni ad entry chunks. This metadata is used to reconstruct the original ad entry from
 -- on-disk .car block headers or from data in the piece index database.
-CREATE TABLE ipni_chunks (
+CREATE TABLE IF NOT EXISTS ipni_chunks (
     cid TEXT PRIMARY KEY, -- CID of the chunk
     piece_cid TEXT NOT NULL, -- Related Piece CID V2
     chunk_num INTEGER NOT NULL, -- Chunk number within the piece. Chunk 0 has no "next" link.
@@ -74,7 +74,7 @@ CREATE TABLE ipni_chunks (
 
 -- IPNI pipeline is kept separate from rest for robustness
 -- and reuse. This allows for removing, recreating ads using CLI.
-CREATE TABLE ipni_task (
+CREATE TABLE IF NOT EXISTS ipni_task (
     sp_id BIGINT NOT NULL,
     sector BIGINT NOT NULL,
     reg_seal_proof INT NOT NULL,

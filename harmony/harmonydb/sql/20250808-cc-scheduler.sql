@@ -1,4 +1,4 @@
-CREATE TABLE sectors_cc_scheduler (
+CREATE TABLE IF NOT EXISTS sectors_cc_scheduler (
     sp_id BIGINT NOT NULL,
     to_seal BIGINT NOT NULL,
     weight BIGINT NOT NULL DEFAULT 1000,

@@ -2,7 +2,7 @@
 -- Stores the deal received over the network.
 -- Entries are created by mk12 module and this will be used
 -- by UI to show deal details. Entries should never be removed from this table.
-CREATE TABLE market_mk12_deals (
+CREATE TABLE IF NOT EXISTS market_mk12_deals (
     uuid TEXT NOT NULL,
     sp_id BIGINT NOT NULL,
 
@@ -44,7 +44,7 @@ CREATE TABLE market_mk12_deals (
 -- It is also used to track if a piece is indexed or not.
 -- Version is used to track changes of how metadata is stored.
 -- Cleanup for this table will be created in a later stage.
-CREATE TABLE market_piece_metadata (
+CREATE TABLE IF NOT EXISTS market_piece_metadata (
     piece_cid TEXT NOT NULL PRIMARY KEY,
     piece_size BIGINT NOT NULL,
 
@@ -65,7 +65,7 @@ CREATE TABLE market_piece_metadata (
 -- This along with market_mk12_deals is used to retrievals as well as
 -- deal detail page in UI.
 -- Cleanup for this table will be created in a later stage.
-CREATE TABLE market_piece_deal (
+CREATE TABLE IF NOT EXISTS market_piece_deal (
     id TEXT NOT NULL, -- (UUID for new deals, PropCID for old)
 
     boost_deal BOOLEAN NOT NULL,
@@ -92,7 +92,7 @@ CREATE TABLE market_piece_deal (
 
 -- Storage Ask for ask protocol over libp2p
 -- Entries for each MinerID must be present. These are updated by SetAsk method in mk12.
-CREATE TABLE market_mk12_storage_ask (
+CREATE TABLE IF NOT EXISTS market_mk12_storage_ask (
     sp_id BIGINT NOT NULL,
 
     price BIGINT NOT NULL,
@@ -111,7 +111,7 @@ CREATE TABLE market_mk12_storage_ask (
 -- Used for processing Mk12 deals. This tables tracks the deal
 -- throughout their lifetime. Entries are added at the same time as market_mk12_deals.
 -- Cleanup is done for complete deals by GC task.
-CREATE TABLE market_mk12_deal_pipeline (
+CREATE TABLE IF NOT EXISTS market_mk12_deal_pipeline (
     uuid TEXT NOT NULL,
     sp_id BIGINT NOT NULL,
 
@@ -162,7 +162,7 @@ CREATE TABLE market_mk12_deal_pipeline (
 -- This table can be used to track remote piece for offline deals
 -- The entries must be created by users. Entry is removed when deal is
 -- removed from market_mk12_deal_pipeline table using a key constraint
-CREATE TABLE market_offline_urls (
+CREATE TABLE IF NOT EXISTS market_offline_urls (
     uuid TEXT NOT NULL,
 
     url TEXT NOT NULL,
@@ -177,7 +177,7 @@ CREATE TABLE market_offline_urls (
 );
 
 -- This table is used for coordinating libp2p nodes
-CREATE TABLE libp2p (
+CREATE TABLE IF NOT EXISTS libp2p (
     priv_key BYTEA NOT NULL PRIMARY KEY,
     peer_id TEXT NOT NULL UNIQUE,
     running_on TEXT DEFAULT NULL, -- harmonymachines machine id (host:port)
@@ -188,7 +188,7 @@ CREATE TABLE libp2p (
 
 -- Table for old lotus market deals. This is just for deal
 -- which are still alive. It should not be used for any processing
-CREATE TABLE market_legacy_deals (
+CREATE TABLE IF NOT EXISTS market_legacy_deals (
     signed_proposal_cid TEXT  NOT NULL,
     sp_id BIGINT  NOT NULL,
     client_peer_id TEXT NOT NULL,
@@ -216,7 +216,7 @@ CREATE TABLE market_legacy_deals (
 );
 
 -- Table for DDO deals in Boost
-CREATE TABLE market_direct_deals (
+CREATE TABLE IF NOT EXISTS market_direct_deals (
     uuid TEXT NOT NULL,
     sp_id BIGINT NOT NULL,
 

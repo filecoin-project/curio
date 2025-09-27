@@ -1,4 +1,4 @@
-CREATE TABLE f3_tasks (
+CREATE TABLE IF NOT EXISTS f3_tasks (
     sp_id BIGINT PRIMARY KEY,
     task_id BIGINT UNIQUE,
     previous_ticket BYTEA,
