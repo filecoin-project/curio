@@ -1,0 +1,1 @@
+ALTER TABLE harmony_config ADD COLUMN timestamp TIMESTAMP NOT NULL DEFAULT NOW();
