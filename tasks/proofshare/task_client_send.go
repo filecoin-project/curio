@@ -134,7 +134,7 @@ func (t *TaskClientSend) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			return false, xerrors.Errorf("failed to check for unconsumed payments: %w", err)
 		}
 
-		if lastPayment.Consumed {
+		if lastPayment.Consumed || errors.Is(err, pgx.ErrNoRows) {
 			// it was, create a new payment
 			// Note: Payment Consumed == it was sent and is now being processed in the market
 			match, err := t.doCreatePayment(ctx, taskID, walletID)
