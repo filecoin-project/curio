@@ -71,6 +71,20 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	if err != nil {
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
+
+	hasIndex, err := P.indexStore.CheckHasPiece(ctx, pcid)
+	if err != nil {
+		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
+	}
+	if hasIndex {
+		// Piece already indexed so earlier indexing should have completed IPNI
+		err = P.recordCompletion(ctx, taskID, task.ID, false)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
 	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -116,7 +130,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	log.Infof("Indexing piece %d took %0.3f seconds", task.ID, time.Since(startTime).Seconds())
 
-	err = P.recordCompletion(ctx, taskID, task.ID)
+	err = P.recordCompletion(ctx, taskID, task.ID, true)
 	if err != nil {
 		return false, err
 	}
@@ -127,11 +141,11 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	return true, nil
 }
 
-func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
+func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
-		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_indexing = TRUE, indexing_task_id = NULL, 
-									WHERE id = $1 AND indexing_task_id = $2`, id, taskID)
+		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_indexing = FALSE, needs_ipni = $3, indexing_task_id = NULL, 
+									WHERE id = $1 AND indexing_task_id = $2`, id, taskID, needsIPNI)
 		if err != nil {
 			return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 		}
@@ -188,8 +202,7 @@ func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTa
 			}
 
 			err := tx.Select(&pendings, `SELECT id FROM pdp_piecerefs 
-            										WHERE after_save_cache = TRUE
-            										AND indexing_task_id IS NULL
+            										WHERE indexing_task_id IS NULL
             										AND needs_indexing = TRUE
 													ORDER BY created_at ASC LIMIT 1;`)
 			if err != nil {

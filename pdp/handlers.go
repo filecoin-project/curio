@@ -1050,7 +1050,41 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 10: Respond with 201 Created
+	// Step 10: check for indexing requirements on data set. If met mark all subpieces for indexing
+	// Get listenerAddr from blockchain contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	if err != nil {
+		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, dataSetId)
+	if err != nil {
+		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	exists, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, p.ethClient, dataSetId, "withIPFSIndexing")
+	if err != nil {
+		// Hard to differenctiate between nsupported listener type OR internal error
+		// So we log on debug and abort indexing attempt
+		log.Infow("Failed to get data set metadata, skipping indexing ", "error", err, "dataSetId", dataSetId)
+	} else {
+		if exists {
+			log.Debugw("Data set metadata exists, marking all subpiecesas needing indexing", "dataSetId", dataSetId)
+			// Note: it's possible to update a duplicate piece that has already completed the indexing step
+			// but task_pdp_indexing handles pieces that have already been indexed smoothly
+			p.db.Exec(ctx, `UPDATE pdp_piecerefs 
+				SET needs_indexing = TRUE
+				WHERE service = $1 
+					AND piece_cid = ANY($2)
+					AND needs_indexing = FALSE
+				`, serviceLabel, subPieceCidList)
+		}
+	}
+
+	// Step 11: Respond with 201 Created
 	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }
