@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"time"
 
+	"github.com/filecoin-project/go-padreader"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
@@ -391,5 +393,355 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to write response: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+}
+
+func (p *PDPService) handleGetStreamingUploadURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify that the request is authorized using ECDSA JWT
+	serviceID, err := p.AuthService(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	uploadUUID := uuid.New()
+	uploadURL := path.Join(PDPRoutePath, "/piece/uploads", uploadUUID.String())
+
+	n, err := p.db.Exec(r.Context(), `INSERT INTO pdp_piece_streaming_uploads (id, service) VALUES ($1, $2)`, uploadUUID.String(), serviceID)
+	if err != nil {
+		log.Errorw("Failed to create upload request in database", "error", err)
+		http.Error(w, "Failed to create upload request", http.StatusInternalServerError)
+		return
+	}
+	if n != 1 {
+		log.Errorf("Failed to create upload request in database: expected 1 row but got %d", n)
+		http.Error(w, "Failed to create upload request", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Location", uploadURL)
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify that the request is authorized using ECDSA JWT
+	serviceID, err := p.AuthService(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	uploadUUIDStr := chi.URLParam(r, "uploadUUID")
+	uploadUUID, err := uuid.Parse(uploadUUIDStr)
+	if err != nil {
+		http.Error(w, "Invalid upload UUID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	var exists bool
+	err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2)`, uploadUUID.String(), serviceID).Scan(&exists)
+	if err != nil {
+		log.Errorw("Failed to query pdp_piece_streaming_uploads", "error", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.NotFound(w, r)
+		return
+	}
+
+	reader := NewTimeoutLimitReader(r.Body, 5*time.Second)
+	cp := &commp.Calc{}
+	readSize := int64(0)
+
+	// Function to write data into StashStore and calculate commP
+	writeFunc := func(f *os.File) error {
+		multiWriter := io.MultiWriter(cp, f)
+
+		// Copy data from limitedReader to multiWriter
+		n, err := io.Copy(multiWriter, reader)
+		if err != nil {
+			return fmt.Errorf("failed to read and write piece data: %w", err)
+		}
+
+		if n > UploadSizeLimit {
+			return fmt.Errorf("piece data exceeds the maximum allowed size")
+		}
+
+		readSize = n
+
+		return nil
+	}
+
+	// Upload into StashStore
+	stashID, err := p.storage.StashCreate(ctx, UploadSizeLimit, writeFunc)
+	if err != nil {
+		if err.Error() == "piece data exceeds the maximum allowed size" {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		} else {
+			log.Errorw("Failed to store piece data in StashStore", "error", err)
+			http.Error(w, "Failed to store piece data", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Finalize the commP calculation
+	digest, paddedPieceSize, err := cp.Digest()
+	if err != nil {
+		log.Errorw("Failed to finalize commP calculation", "error", err)
+		// Remove the stash file as the data is invalid
+		_ = p.storage.StashRemove(ctx, stashID)
+		http.Error(w, "Failed to finalize commP calculation", http.StatusInternalServerError)
+		return
+	}
+
+	pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(readSize))
+	if err != nil {
+		log.Errorw("Failed to calculate PieceCIDV2", "error", err)
+		_ = p.storage.StashRemove(ctx, stashID)
+		http.Error(w, "Failed to calculate PieceCIDV2", http.StatusInternalServerError)
+		return
+	}
+
+	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// 1. Create a long-term parked piece entry
+		var parkedPieceID int64
+		err := tx.QueryRow(`
+            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+            VALUES ($1, $2, $3, TRUE) RETURNING id
+        `, pcid2.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
+		}
+
+		// 2. Create a piece ref with data_url being "stashstore://<stash-url>"
+		// Get StashURL
+		stashURL, err := p.storage.StashURL(stashID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get stash URL: %w", err)
+		}
+
+		// Change scheme to "custore"
+		stashURL.Scheme = dealdata.CustoreScheme
+		dataURL := stashURL.String()
+
+		var pieceRefID int64
+		err = tx.QueryRow(`
+            INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+            VALUES ($1, $2, TRUE) RETURNING ref_id
+        `, parkedPieceID, dataURL).Scan(&pieceRefID)
+		if err != nil {
+			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
+		}
+
+		// 3. Update the pdp_piece_streaming_uploads entry
+		_, err = tx.Exec(`
+            UPDATE pdp_piece_streaming_uploads SET piece_ref = $1, piece_cid = $2, piece_size = $3, raw_size = $4, complete = TRUE, completed_at = NOW() AT TIME ZONE 'UTC' WHERE id = $5 and service = $6
+        `, pieceRefID, pcid2.String(), paddedPieceSize, readSize, uploadUUID.String(), serviceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to update pdp_piece_streaming_uploads: %w", err)
+		}
+
+		return true, nil // Commit the transaction
+	}, harmonydb.OptionRetry())
+
+	if err != nil || !didCommit {
+		// Remove the stash file as the transaction failed
+		if err != nil {
+			log.Errorw("Failed to process piece upload", "error", err)
+		} else {
+			log.Errorw("Failed to process piece upload", "error", "failed to commit transaction")
+		}
+		_ = p.storage.StashRemove(ctx, stashID)
+		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with 204 No Content
+	w.WriteHeader(http.StatusNoContent)
+
+}
+
+func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify that the request is authorized using ECDSA JWT
+	serviceID, err := p.AuthService(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	uploadUUIDStr := chi.URLParam(r, "uploadUUID")
+	uploadUUID, err := uuid.Parse(uploadUUIDStr)
+	if err != nil {
+		http.Error(w, "Invalid upload UUID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	var exists bool
+	err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2)`, uploadUUID.String(), serviceID).Scan(&exists)
+	if err != nil {
+		log.Errorw("Failed to query pdp_piece_streaming_uploads", "error", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if !exists {
+		http.NotFound(w, r)
+		return
+	}
+
+	var req struct {
+		PieceCID string `json:"pieceCid"`
+		Notify   string `json:"notify,omitempty"`
+	}
+	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	pcid2, err := cid.Parse(req.PieceCID)
+	if err != nil {
+		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
+		return
+	}
+
+	digest, raw_size, err := commcid.PieceCidV2ToDataCommitment(pcid2)
+	if err != nil {
+		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
+		return
+	}
+
+	piece_size := padreader.PaddedSize(raw_size).Padded()
+
+	if raw_size > uint64(UploadSizeLimit) {
+		http.Error(w, "Piece size exceeds the maximum allowed size", http.StatusBadRequest)
+		return
+	}
+
+	var dPcid2Str string
+	var pSize, dRaw_size, pref int64
+
+	err = p.db.QueryRow(ctx, `SELECT piece_cid, piece_size, raw_size, piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID).Scan(&dPcid2Str, &pSize, &dRaw_size)
+	if err != nil {
+		log.Errorw("Failed to query pdp_piece_streaming_uploads", "error", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	dPcid2, err := cid.Parse(dPcid2Str)
+	if err != nil {
+		log.Errorw("Failed to parse pieceCid", "error", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if !pcid2.Equals(dPcid2) {
+		http.Error(w, "Invalid request body: pieceCid does not match the calculated pieceCid for the uploaded piece", http.StatusBadRequest)
+		return
+	}
+
+	if raw_size != uint64(dRaw_size) {
+		http.Error(w, "Invalid request body: raw_size does not match the calculated raw_size for the uploaded piece", http.StatusBadRequest)
+		return
+	}
+
+	if piece_size != abi.PaddedPieceSize(uint64(pSize)) {
+		http.Error(w, "Invalid request body: piece_size does not match the calculated piece_size for the uploaded piece", http.StatusBadRequest)
+		return
+	}
+
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`
+       INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, piece_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+   `, uploadUUID.String(), serviceID, pcid2.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, piece_size, pref)
+		if err != nil {
+			return false, fmt.Errorf("failed to store upload request in database: %w", err)
+		}
+		if n != 1 {
+			return false, fmt.Errorf("failed to store upload request in database: expected 1 row but got %d", n)
+		}
+
+		_, err = tx.Exec(`DELETE FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete pdp_piece_streaming_uploads entry: %w", err)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		log.Errorw("Failed to process piece upload", "error", err)
+		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
+		return
+	}
+	if !comm {
+		log.Errorw("Failed to process piece upload", "error", "failed to commit transaction")
+		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+type TimeoutLimitReader struct {
+	r          io.Reader
+	timeout    time.Duration
+	totalBytes int64
+}
+
+func NewTimeoutLimitReader(r io.Reader, timeout time.Duration) *TimeoutLimitReader {
+	return &TimeoutLimitReader{
+		r:          r,
+		timeout:    timeout,
+		totalBytes: 0,
+	}
+}
+
+const UploadSizeLimit = int64(1 * 1024 * 1024 * 1024)
+
+func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
+	deadline := time.Now().Add(t.timeout)
+	for {
+		// Attempt to read
+		n, err := t.r.Read(p)
+		if t.totalBytes+int64(n) > UploadSizeLimit {
+			return 0, fmt.Errorf("upload size limit exceeded: %d bytes", UploadSizeLimit)
+		} else {
+			t.totalBytes += int64(n)
+		}
+
+		if err != nil {
+			return n, err
+		}
+
+		if n > 0 {
+			// Otherwise return bytes read and no error
+			return n, err
+		}
+
+		// Timeout: If we hit the deadline without making progress, return a timeout error
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("upload timeout: no progress (duration: %f Seconds)", t.timeout.Seconds())
+		}
+
+		// Avoid tight loop by adding a tiny sleep
+		time.Sleep(100 * time.Millisecond) // Small pause to avoid busy-waiting
 	}
 }
