@@ -9,7 +9,7 @@ CREATE TABLE ipni_peerid (
 -- for PDP IPNI requests.  This is a practical concern for current IPNI operations with limited resources.
 CREATE TABLE ipni_pdp_peerid (
     singleton BOOLEAN NOT NULL DEFAULT TRUE PRIMARY KEY CHECK (singleton = TRUE),
-    priv_key BYTEA NOT NULL PRIMARY KEY,
+    priv_key BYTEA NOT NULL,
     peer_id TEXT NOT NULL UNIQUE
 );
 

@@ -3,6 +3,7 @@ package indexing
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/ipni/go-libipni/maurl"
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -44,7 +46,6 @@ func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.Cache
 	return &PDPIPNITask{
 		db:  db,
 		cpr: cpr,
-		sc:  sc,
 		cfg: cfg,
 		max: max,
 	}
@@ -56,7 +57,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	var tasks []struct {
 		ID       int64  `db:"id"`
 		PieceCID string `db:"piece_cid"`
-		Size     abi.PaddedPieceSize `db:"piece_padded_size"`
+		Size     int64  `db:"piece_padded_size"`
 		Prov     string `db:"peer_id"`
 	}
 
@@ -94,8 +95,8 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	if err != nil {
 		return false, xerrors.Errorf("marshaling metadata: %w", err)
 	}
-	
-	pi := &types.PdpIpniContext{
+
+	pi := &PdpIpniContext{
 		PieceCID: pcid,
 		Payload:  true,
 	}
@@ -158,7 +159,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		var privKey []byte
 		err = tx.QueryRow(`SELECT priv_key FROM ipni_pdp_peerid WHERE singleton = TRUE`).Scan(&privKey)
 		if err != nil {
-			return false, xerrors.Errorf("failed to get private ipni-libp2p key for miner %d: %w", task.SPID, err)
+			return false, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 		}
 
 		pkey, err := crypto.UnmarshalPrivateKey(privKey)
@@ -175,13 +176,13 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		{
-			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
+			u, err := url.Parse(fmt.Sprintf("https://%s", P.cfg.HTTP.DomainName))
 			if err != nil {
 				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
 			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-				ls := strings.Split(I.cfg.HTTP.ListenAddress, ":")
-				u, err = url.Parse(fmt.Sprintf("http://%s:%s", I.cfg.HTTP.DomainName, ls[1]))
+				ls := strings.Split(P.cfg.HTTP.ListenAddress, ":")
+				u, err = url.Parse(fmt.Sprintf("http://%s:%s", P.cfg.HTTP.DomainName, ls[1]))
 				if err != nil {
 					return false, xerrors.Errorf("parsing announce address domain: %w", err)
 				}
@@ -225,7 +226,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, task.PieceCID.String(), task.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+			ad.(cidlink.Link).Cid.String(), adv.ContextID, task.PieceCID, task.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
 		if err != nil {
@@ -244,7 +245,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return false, xerrors.Errorf("store IPNI success: %w", err)
 	}
 
-	log.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
+	log.Infow("IPNI task complete", "task_id", taskID, "piece_cid", task.PieceCID)
 
 	return true, nil
 }
@@ -252,7 +253,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
-		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL, 
+		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL 
 									WHERE id = $1 AND ipni_task_id = $2`, id, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)
@@ -271,8 +272,6 @@ func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.T
 
 	return nil
 }
-
-
 
 func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
@@ -316,7 +315,6 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				return false, nil
 			}
 
-
 			// Setup PDP IPNI private key if this is our first IPNI task
 			P.initProvider(tx)
 
@@ -339,10 +337,10 @@ func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 	var privKey []byte
-	err = tx.QueryRow(`SELECT priv_key FROM ipni_pdp_peerid WHERE singleton = TRUE`).Scan(&privKey)
+	err := tx.QueryRow(`SELECT priv_key FROM ipni_pdp_peerid WHERE singleton = TRUE`).Scan(&privKey)
 	if err != nil {
 		if err != pgx.ErrNoRows {
-			return xerrors.Errorf("failed to get private libp2p key for miner %d: %w", p.SpID, err)
+			return xerrors.Errorf("failed to get private libp2p key: %w", err)
 		}
 
 		// generate the ipni provider key
@@ -361,7 +359,7 @@ func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 			return xerrors.Errorf("getting peer ID: %w", err)
 		}
 
-		n, err := tx.Exec(`INSERT INTO ipni_pdp_peerid (singleton, priv_key, peer_id) VALUES (true, $1, $2)`, privKey, pid.String())		
+		n, err := tx.Exec(`INSERT INTO ipni_pdp_peerid (singleton, priv_key, peer_id) VALUES (true, $1, $2)`, privKey, pid.String())
 		if err != nil {
 			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
 		}
@@ -370,10 +368,11 @@ func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 			return xerrors.Errorf("failed to insert the key into db")
 		}
 	}
+	return nil
+}
 
 var _ harmonytask.TaskInterface = &PDPIPNITask{}
 var _ = harmonytask.Reg(&PDPIPNITask{})
-
 
 // PdpIpniContext is used to generate the context bytes for PDP IPNI ads
 type PdpIpniContext struct {
