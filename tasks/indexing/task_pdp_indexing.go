@@ -19,7 +19,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
@@ -28,7 +27,6 @@ type PDPIndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
 	cpr               *cachedreader.CachedPieceReader
-	sc                *ffi.SealCalls
 	cfg               *config.CurioConfig
 	insertConcurrency int
 	insertBatchSize   int

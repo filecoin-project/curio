@@ -1075,12 +1075,17 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			log.Debugw("Data set metadata exists, marking all subpiecesas needing indexing", "dataSetId", dataSetId)
 			// Note: it's possible to update a duplicate piece that has already completed the indexing step
 			// but task_pdp_indexing handles pieces that have already been indexed smoothly
-			p.db.Exec(ctx, `UPDATE pdp_piecerefs 
+			_, err := p.db.Exec(ctx, `UPDATE pdp_piecerefs 
 				SET needs_indexing = TRUE
 				WHERE service = $1 
 					AND piece_cid = ANY($2)
 					AND needs_indexing = FALSE
 				`, serviceLabel, subPieceCidList)
+			if err != nil {
+				log.Errorw("Failed to mark all subpieces as needing indexing", "error", err, "dataSetId", dataSetId)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 

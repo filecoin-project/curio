@@ -316,7 +316,9 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 
 			// Setup PDP IPNI private key if this is our first IPNI task
-			P.initProvider(tx)
+			if err := P.initProvider(tx); err != nil {
+				return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
+			}
 
 			pending := pendings[0]
 			_, err = tx.Exec(`UPDATE pdp_piecerefs SET ipni_task_id = $1 
