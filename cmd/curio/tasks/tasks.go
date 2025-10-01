@@ -287,6 +287,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			return nil, err
 		}
 		var sdeps cuhttp.ServiceDeps
+		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		if cfg.Subsystems.EnablePDP {
 			es := getSenderEth()
@@ -299,10 +300,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
+			pdpIndexingTask := indexing.NewPDPIndexingTask(db, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+			pdpIpniTask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpIndexingTask, pdpIpniTask)
 		}
-
-		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)

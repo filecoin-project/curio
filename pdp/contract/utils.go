@@ -1,6 +1,8 @@
 package contract
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
@@ -34,4 +36,25 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 	}
 
 	return provingSchedule, nil
+}
+
+func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *big.Int, key string) (bool, string, error) {
+	metadataAddr := listenerAddr
+
+	// Check if the listener supports the viewContractAddress method
+	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
+	if err == nil {
+		viewAddr, err := listenerService.ViewContractAddress(nil)
+		if err == nil && viewAddr != (common.Address{}) {
+			metadataAddr = viewAddr
+		}
+	}
+
+	// Create a warm storage service viewer.
+	warmStorageService, err := NewFilecoinWarmStorageServiceStateView(metadataAddr, ethClient)
+	if err != nil {
+		return false, "", xerrors.Errorf("failed to create warm storage service viewer: %w", err)
+	}
+	out, err := warmStorageService.GetDataSetMetadata(nil, dataSetId, key)
+	return out.Exists, out.Value, err
 }
