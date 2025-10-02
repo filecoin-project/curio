@@ -115,7 +115,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCidV2)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCidV2, true)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}

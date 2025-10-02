@@ -133,7 +133,7 @@ func (r *cachedSectionReader) Close() error {
 	return nil
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
 	// Get all deals containing this piece
 
 	commp, err := commcidv2.CommPFromPCidV2(pieceCidV2)
@@ -175,7 +175,14 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 	}
 
 	if len(deals) == 0 {
-		return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+		if retrieval {
+			return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+		}
+		reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, nil, &pieceCid, &pieceSize)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
+		}
+		return reader, rawSize, nil
 	}
 
 	// For each deal, try to read an unsealed copy of the data from the sector
@@ -204,7 +211,8 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 		if dl.PieceRef.Valid {
 			// This is a MK20 deal, get from piece park
-			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, dl.PieceRef.Int64)
+			ref := dl.PieceRef.Int64
+			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
 			if err != nil {
 				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
 				continue
@@ -217,15 +225,18 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 	return nil, 0, merr
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, piece_ref int64) (storiface.Reader, uint64, error) {
-	// Query parked_pieces and parked_piece_refs in one go
-	var pieceData []struct {
+func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceRef *int64, pieceCid *cid.Cid, pieceSize *abi.PaddedPieceSize) (storiface.Reader, uint64, error) {
+	type pieceData struct {
 		ID           int64  `db:"id"`
 		PieceCid     string `db:"piece_cid"`
 		PieceRawSize int64  `db:"piece_raw_size"`
 	}
 
-	err := cpr.db.Select(ctx, &pieceData, `
+	var pd []pieceData
+
+	if pieceRef != nil {
+		var pdr []pieceData
+		err := cpr.db.Select(ctx, &pdr, `
 										SELECT
 										  pp.id,
 										  pp.piece_cid,
@@ -233,26 +244,48 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 										FROM parked_piece_refs pr
 										JOIN parked_pieces     pp ON pp.id = pr.piece_id
 										WHERE pr.ref_id = $1 AND pp.complete = TRUE and pp.long_term = TRUE;
-    `, piece_ref)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", piece_ref, err)
+    `, pieceRef)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", pieceRef, err)
+		}
+		if len(pdr) > 0 {
+			pd = append(pd, pdr...)
+		}
 	}
 
-	if len(pieceData) == 0 {
-		return nil, 0, fmt.Errorf("failed to find piece in parked_pieces for piece_ref %d", piece_ref)
+	if pieceCid != nil && pieceSize != nil {
+		pcid := *pieceCid
+		var pdc []pieceData
+		err := cpr.db.Select(ctx, &pdc, `
+										SELECT
+										  id,
+										  piece_cid,
+										  piece_raw_size
+										FROM parked_pieces
+										WHERE piece_cid = $1 AND piece_padded_size = $2;`, pcid.String(), *pieceSize)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", pieceRef, err)
+		}
+		if len(pdc) > 0 {
+			pd = append(pd, pdc...)
+		}
 	}
 
-	pcid, err := cid.Parse(pieceData[0].PieceCid)
+	if len(pd) == 0 {
+		return nil, 0, fmt.Errorf("failed to find piece in parked_pieces for piece_ref %d", pieceRef)
+	}
+
+	pcid, err := cid.Parse(pd[0].PieceCid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to parse piece cid: %w", err)
 	}
 
-	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pieceData[0].ID), pieceData[0].PieceRawSize, pcid)
+	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
 	}
 
-	return reader, uint64(pieceData[0].PieceRawSize), nil
+	return reader, uint64(pd[0].PieceRawSize), nil
 }
 
 type SubPieceReader struct {
@@ -276,7 +309,7 @@ func (s SubPieceReader) ReadAt(p []byte, off int64) (n int, err error) {
 	return s.sr.ReadAt(p, off)
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
 	pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCidV2)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", err)
@@ -294,7 +327,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 	var merr error
 
 	for _, p := range pieces {
-		reader, _, err := cpr.getPieceReaderFromMarketPieceDeal(ctx, p.Cid)
+		reader, _, err := cpr.getPieceReaderFromMarketPieceDeal(ctx, p.Cid, retrieval)
 		if err != nil {
 			merr = multierror.Append(merr, err)
 			continue
@@ -307,7 +340,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 	return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", merr)
 }
 
-func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
+func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
 	// Check if this is PieceCidV1 and try to convert to v2 if possible
 	yes := commcidv2.IsPieceCidV2(pieceCidV2)
 	if !yes {
@@ -386,13 +419,13 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
 		defer close(r.ready)
 
-		reader, size, err := cpr.getPieceReaderFromAggregate(readerCtx, pieceCidV2)
+		reader, size, err := cpr.getPieceReaderFromAggregate(readerCtx, pieceCidV2, retrieval)
 		if err != nil {
 			log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCidV2.String(), "err", err)
 
 			aerr := err
 
-			reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCidV2)
+			reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCidV2, retrieval)
 			if err != nil {
 				log.Errorw("failed to get piece reader", "piececid", pieceCid, "piece size", pieceSize, "err", err)
 				finalErr := fmt.Errorf("failed to get piece reader from aggregate, sector or piece park: %w, %w", aerr, err)
