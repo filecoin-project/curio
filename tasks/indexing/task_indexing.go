@@ -239,7 +239,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	var reader storiface.Reader
 
 	if task.Mk20 {
-		reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2)
+		reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2, false)
 
 		if err != nil {
 			return false, xerrors.Errorf("getting piece reader: %w", err)

@@ -82,7 +82,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 		if !has {
 			cp := savecache.NewCommPWithSize(pi.RawSize)
-			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid)
+			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid, false)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
 			}

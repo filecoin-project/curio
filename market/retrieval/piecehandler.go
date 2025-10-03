@@ -45,7 +45,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get a reader over the piece
-	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
+	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid, true)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
 		if errors.Is(err, cachedreader.ErrNoDeal) {

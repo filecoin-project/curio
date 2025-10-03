@@ -244,7 +244,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	var lnk ipld.Link
 
 	if pinfo.Payload {
-		reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2)
+		reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
 		if err != nil {
 			return false, xerrors.Errorf("getting piece reader from piece park: %w", err)
 		}

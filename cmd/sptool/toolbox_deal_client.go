@@ -2228,6 +2228,7 @@ var mk20PDPDealCmd = &cli.Command{
 		removeRoot := cctx.Bool("remove-piece")
 		removeProofset := cctx.Bool("remove-dataset")
 		recordKeeper := cctx.String("record-keeper")
+		rootIDSet := cctx.IsSet("piece-id")
 		rootIDs := cctx.Uint64Slice("piece-id")
 		proofSetSet := cctx.IsSet("dataset-id")
 		proofsetID := cctx.Uint64("dataset-id")
@@ -2240,6 +2241,9 @@ var mk20PDPDealCmd = &cli.Command{
 		}
 
 		if addRoot {
+			if !proofSetSet {
+				return xerrors.Errorf("proofset-id must be set when adding a piece")
+			}
 			commp := cctx.String("pcidv2")
 			pieceCid, err := cid.Parse(commp)
 			if err != nil {
@@ -2313,7 +2317,7 @@ var mk20PDPDealCmd = &cli.Command{
 						return err
 					}
 				}
-				id, err := pclient.AddPieceWithAggregate(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, pieceCid, true, false, mk20.AggregateTypeNone, pieces)
+				id, err := pclient.AddPieceWithAggregate(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, pieceCid, true, false, mk20.AggregateTypeV1, pieces)
 				if err != nil {
 					return xerrors.Errorf("failed to add piece: %w", err)
 				}
@@ -2354,6 +2358,11 @@ var mk20PDPDealCmd = &cli.Command{
 			if !proofSetSet {
 				return xerrors.Errorf("proofset-id must be set when removing a root")
 			}
+
+			if !rootIDSet {
+				return xerrors.Errorf("piece-id must be set when removing a root")
+			}
+
 			id, err := pclient.RemovePiece(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, rootIDs)
 			if err != nil {
 				return xerrors.Errorf("failed to remove piece: %w", err)

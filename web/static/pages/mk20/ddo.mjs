@@ -80,7 +80,6 @@ class MK20DDODealList extends LitElement {
                 <th>ID</th>
                 <th>Provider</th>
                 <th>Piece CID</th>
-                <th>Piece Size</th>
                 <th>Processed</th>
                 <th>Error</th>
             </tr>

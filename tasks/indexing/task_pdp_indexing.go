@@ -130,7 +130,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return true, nil
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2)
+	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
