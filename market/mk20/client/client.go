@@ -172,7 +172,15 @@ func (c *Client) CreateDataSource(pieceCID cid.Cid, car, raw, aggregate, index, 
 		return nil, xerrors.Errorf("only one data format is supported")
 	}
 
-	if !car && (index || withCDN) {
+	acar := true
+	for _, s := range sub {
+		if s.Format.Car == nil {
+			acar = false
+			break
+		}
+	}
+
+	if (!car && !acar) && (index || withCDN) {
 		return nil, xerrors.Errorf("only car data format supports IPFS style CDN retrievals")
 	}
 
