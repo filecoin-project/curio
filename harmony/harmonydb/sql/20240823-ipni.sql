@@ -5,14 +5,6 @@ CREATE TABLE ipni_peerid (
     sp_id BIGINT NOT NULL -- 20241106-market-fixes.sql UNIQUE
 );
 
--- To enable separation of access based on storage service we create a separate provider identity
--- for PDP IPNI requests.  This is a practical concern for current IPNI operations with limited resources.
-CREATE TABLE ipni_pdp_peerid (
-    singleton BOOLEAN NOT NULL DEFAULT TRUE PRIMARY KEY CHECK (singleton = TRUE),
-    priv_key BYTEA NOT NULL,
-    peer_id TEXT NOT NULL UNIQUE
-);
-
 CREATE TABLE ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,

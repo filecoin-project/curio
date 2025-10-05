@@ -58,10 +58,6 @@ CREATE TABLE pdp_piecerefs (
     FOREIGN KEY (service) REFERENCES pdp_services(service_label) ON DELETE CASCADE,
     FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE CASCADE
 );
-ALTER TABLE pdp_piecerefs ADD COLUMN indexing_task_id BIGINT DEFAULT NULL;
-ALTER TABLE pdp_piecerefs ADD COLUMN needs_indexing BOOLEAN DEFAULT FALSE;
-ALTER TABLE pdp_piecerefs ADD COLUMN ipni_task_id BIGINT DEFAULT NULL;
-ALTER TABLE pdp_piecerefs ADD COLUMN needs_ipni BOOLEAN DEFAULT FALSE;
 
 -- PDP hash to piece cid mapping
 CREATE TABLE pdp_piece_mh_to_commp (

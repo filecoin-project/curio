@@ -71,9 +71,10 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			pdp_piecerefs pr
 		JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 		JOIN parked_pieces pp ON ppr.piece_id = pp.id
-		CROSS JOIN ipni_pdp_peerid ipni_peer
+		CROSS JOIN ipni_peerid ipni_peer
 		WHERE 
 			pr.ipni_task_id = $1
+			ipni_peer.sp_id = 0
 `, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
@@ -157,7 +158,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_pdp_peerid WHERE singleton = TRUE`).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = 0`).Scan(&privKey)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 		}
@@ -337,9 +338,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
+// The ipni provider key for pdp is at spid = 0
 func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 	var privKey []byte
-	err := tx.QueryRow(`SELECT priv_key FROM ipni_pdp_peerid WHERE singleton = TRUE`).Scan(&privKey)
+	err := tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE spid = 0`).Scan(&privKey)
 	if err != nil {
 		if err != pgx.ErrNoRows {
 			return xerrors.Errorf("failed to get private libp2p key: %w", err)
@@ -361,7 +363,7 @@ func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 			return xerrors.Errorf("getting peer ID: %w", err)
 		}
 
-		n, err := tx.Exec(`INSERT INTO ipni_pdp_peerid (singleton, priv_key, peer_id) VALUES (true, $1, $2)`, privKey, pid.String())
+		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, 0)`, privKey, pid.String())
 		if err != nil {
 			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
 		}
