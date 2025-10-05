@@ -489,6 +489,7 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 			return
 		}
 		log.Info("Starting IPNI provider publishing for testnet build")
+		ticker = time.NewTicker(time.Minute)
 		if build.BuildType != build.BuildCalibnet {
 			ticker = time.NewTicker(time.Second * 10)
 			log.Info("Resetting IPNI provider publishing ticker to 10 seconds for devnet build")
