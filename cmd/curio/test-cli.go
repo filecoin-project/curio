@@ -1,26 +1,37 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/samber/lo"
+	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
+	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	cuproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var testCmd = &cli.Command{
@@ -44,6 +55,7 @@ var wdPostCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		wdPostHereCmd,
 		wdPostTaskCmd,
+		wdPostVanillaCmd,
 	},
 }
 
@@ -217,6 +229,10 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 			Usage: translations.T("partition to compute WindowPoSt for"),
 			Value: 0,
 		},
+		&cli.StringFlag{
+			Name:  "addr",
+			Usage: translations.T("SP ID to compute WindowPoSt for"),
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 
@@ -224,6 +240,14 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		deps, err := deps.GetDeps(ctx, cctx)
 		if err != nil {
 			return err
+		}
+
+		var spAddr address.Address
+		if cctx.IsSet("addr") {
+			spAddr, err = address.NewFromString(cctx.String("addr"))
+			if err != nil {
+				return xerrors.Errorf("invalid sp address: %w", err)
+			}
 		}
 
 		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
@@ -245,6 +269,10 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		di := dline.NewInfo(head.Height(), cctx.Uint64("deadline"), 0, 0, 0, 10 /*challenge window*/, 0, 0)
 
 		for maddr := range deps.Maddrs {
+			if spAddr != address.Undef && address.Address(maddr) != spAddr {
+				continue
+			}
+
 			out, err := wdPostTask.DoPartition(ctx, head, address.Address(maddr), di, cctx.Uint64("partition"), true)
 			if err != nil {
 				fmt.Println("Error computing WindowPoSt for miner", maddr, err)
@@ -256,6 +284,226 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 				fmt.Println("Could not encode WindowPoSt output for miner", maddr, err)
 				continue
 			}
+		}
+
+		return nil
+	},
+}
+
+var wdPostVanillaCmd = &cli.Command{
+	Name:  "vanilla",
+	Usage: translations.T("Compute WindowPoSt vanilla proofs and verify them."),
+	Flags: []cli.Flag{
+		&cli.Uint64Flag{
+			Name:  "deadline",
+			Usage: translations.T("deadline to compute WindowPoSt for "),
+			Value: 0,
+		},
+		&cli.StringSliceFlag{
+			Name:  "layers",
+			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
+		},
+		&cli.Uint64Flag{
+			Name:  "partition",
+			Usage: translations.T("partition to compute WindowPoSt for"),
+			Value: 0,
+		},
+		&cli.StringFlag{
+			Name:  "addr",
+			Usage: translations.T("SP ID to compute WindowPoSt for"),
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		start := time.Now()
+
+		ctx := context.Background()
+		deps, err := deps.GetDeps(ctx, cctx)
+		if err != nil {
+			return err
+		}
+
+		var spAddr address.Address
+		if cctx.IsSet("addr") {
+			spAddr, err = address.NewFromString(cctx.String("addr"))
+			if err != nil {
+				return xerrors.Errorf("invalid sp address: %w", err)
+			}
+		}
+
+		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
+			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Chain, deps.Verif, nil, nil, nil,
+			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks)
+		if err != nil {
+			return err
+		}
+		_, _ = wdPoStSubmitTask, derlareRecoverTask
+
+		if len(deps.Maddrs) == 0 {
+			return errors.New("no miners to compute WindowPoSt for")
+		}
+		head, err := deps.Chain.ChainHead(ctx)
+		if err != nil {
+			return xerrors.Errorf("failed to get chain head: %w", err)
+		}
+
+		di := dline.NewInfo(head.Height(), cctx.Uint64("deadline"), 0, 0, 0, 10 /*challenge window*/, 0, 0)
+
+		for maddr := range deps.Maddrs {
+			if spAddr != address.Undef && address.Address(maddr) != spAddr {
+				continue
+			}
+
+			maddr := address.Address(maddr)
+			mid, err := address.IDFromAddress(maddr)
+			if err != nil {
+				return xerrors.Errorf("failed to get miner id: %w", err)
+			}
+
+			buf := new(bytes.Buffer)
+			if err := maddr.MarshalCBOR(buf); err != nil {
+				return xerrors.Errorf("failed to marshal address to cbor: %w", err)
+			}
+
+			headTs, err := deps.Chain.ChainHead(ctx)
+			if err != nil {
+				return xerrors.Errorf("getting current head: %w", err)
+			}
+
+			rand, err := deps.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, di.Challenge, buf.Bytes(), headTs.Key())
+			if err != nil {
+				return xerrors.Errorf("failed to get chain randomness from beacon for window post (ts=%d; deadline=%d): %w", headTs.Height(), di, err)
+			}
+			rand[31] &= 0x3f
+
+			parts, err := deps.Chain.StateMinerPartitions(ctx, maddr, di.Index, headTs.Key())
+			if err != nil {
+				return xerrors.Errorf("getting partitions: %w", err)
+			}
+
+			if cctx.Uint64("partition") >= uint64(len(parts)) {
+				return xerrors.Errorf("invalid partition: %d", cctx.Uint64("partition"))
+			}
+
+			partition := parts[cctx.Uint64("partition")]
+
+			log.Infow("Getting sectors for proof", "partition", cctx.Uint64("partition"), "liveSectors", must.One(partition.LiveSectors.Count()), "allSectors", must.One(partition.AllSectors.Count()))
+
+			xsinfos, err := wdPostTask.SectorsForProof(ctx, maddr, partition.LiveSectors, partition.AllSectors, headTs)
+			if err != nil {
+				return xerrors.Errorf("getting sectors for proof: %w", err)
+			}
+
+			if len(xsinfos) == 0 {
+				return xerrors.Errorf("no sectors to prove")
+			}
+
+			nv, err := deps.Chain.StateNetworkVersion(ctx, headTs.Key())
+			if err != nil {
+				return xerrors.Errorf("getting network version: %w", err)
+			}
+
+			ppt, err := xsinfos[0].SealProof.RegisteredWindowPoStProofByNetworkVersion(nv)
+			if err != nil {
+				return xerrors.Errorf("failed to get window post type: %w", err)
+			}
+
+			sectorNums := make([]abi.SectorNumber, len(xsinfos))
+			sectorMap := make(map[abi.SectorNumber]proof.ExtendedSectorInfo)
+			for i, s := range xsinfos {
+				sectorNums[i] = s.SectorNumber
+				sectorMap[s.SectorNumber] = s
+			}
+
+			postChallenges, err := ffi.GeneratePoStFallbackSectorChallenges(ppt, abi.ActorID(mid), abi.PoStRandomness(rand), sectorNums)
+			if err != nil {
+				return xerrors.Errorf("generating fallback challenges: %w", err)
+			}
+
+			maxPartitionSize, err := builtin.PoStProofWindowPoStPartitionSectors(ppt)
+			if err != nil {
+				return xerrors.Errorf("get sectors count of partition failed:%+v", err)
+			}
+
+			sectors := make([]storiface.PostSectorChallenge, 0)
+			for i := range postChallenges.Sectors {
+				snum := postChallenges.Sectors[i]
+				sinfo := sectorMap[snum]
+
+				sectors = append(sectors, storiface.PostSectorChallenge{
+					SealProof:    sinfo.SealProof,
+					SectorNumber: snum,
+					SealedCID:    sinfo.SealedCID,
+					Challenge:    postChallenges.Challenges[snum],
+					Update:       sinfo.SectorKey != nil,
+				})
+			}
+			elapsed := time.Since(start)
+			log.Infow("Generated fallback challenges", "error", err, "elapsed", elapsed, "sectors", len(sectors), "maxPartitionSize", maxPartitionSize, "postChallenges", len(postChallenges.Challenges))
+
+			var outLk sync.Mutex
+
+			wg := sync.WaitGroup{}
+			wg.Add(len(sectors))
+			throttle := make(chan struct{}, runtime.NumCPU())
+
+			for i, s := range sectors {
+				go func(i int, s storiface.PostSectorChallenge) {
+
+					throttle <- struct{}{}
+					defer func() {
+						<-throttle
+					}()
+					defer wg.Done()
+
+					start := time.Now()
+					vanilla, err := deps.Stor.GenerateSingleVanillaProof(ctx, abi.ActorID(mid), s, ppt)
+					elapsed := time.Since(start)
+
+					if err != nil || vanilla == nil {
+						outLk.Lock()
+						log.Errorw("Generated vanilla proof for sector", "sector", s.SectorNumber, "of", fmt.Sprintf("%d/%d", i+1, len(sectors)), "error", err, "elapsed", elapsed)
+						log.Errorw("reading PoSt challenge for sector", "sector", s.SectorNumber, "vlen", len(vanilla), "error", err)
+						outLk.Unlock()
+						return
+					}
+
+					// verify vproofs
+					pvi := proof.WindowPoStVerifyInfo{
+						Randomness:        abi.PoStRandomness(rand),
+						Proofs:            []proof.PoStProof{},
+						ChallengedSectors: []proof.SectorInfo{},
+					}
+					pvi.Proofs = append(pvi.Proofs, proof.PoStProof{
+						PoStProof:  ppt,
+						ProofBytes: vanilla,
+					})
+					for _, s := range sectors {
+						pvi.ChallengedSectors = append(pvi.ChallengedSectors, proof.SectorInfo{
+							SealProof:    s.SealProof,
+							SectorNumber: s.SectorNumber,
+							SealedCID:    s.SealedCID,
+						})
+					}
+
+					verifyStart := time.Now()
+					ok, err := cuproof.VerifyWindowPoStVanilla(pvi)
+					verifyElapsed := time.Since(verifyStart)
+
+					outLk.Lock()
+					if elapsed.Seconds() > 2 {
+						log.Warnw("Generated vanilla proof for sector (slow)", "sector", s.SectorNumber, "of", fmt.Sprintf("%d/%d", i+1, len(sectors)), "elapsed", elapsed)
+					} else {
+						log.Debugw("Generated vanilla proof for sector", "sector", s.SectorNumber, "of", fmt.Sprintf("%d/%d", i+1, len(sectors)), "elapsed", elapsed)
+					}
+					if err != nil || !ok {
+						log.Errorw("Verified window post vanilla proofs", "error", err, "elapsed", verifyElapsed, "ok", ok)
+					} else {
+						log.Debugw("Verified window post vanilla proofs", "elapsed", verifyElapsed, "ok", ok)
+					}
+					outLk.Unlock()
+				}(i, s)
+			}
+			wg.Wait()
 		}
 
 		return nil

@@ -511,6 +511,7 @@ USAGE:
 COMMANDS:
    here, cli                                       Compute WindowPoSt for performance and configuration testing.
    task, scheduled, schedule, async, asynchronous  Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.
+   vanilla                                         Compute WindowPoSt vanilla proofs and verify them.
    help, h                                         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -533,6 +534,7 @@ OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --partition value                  partition to compute WindowPoSt for (default: 0)
+   --addr value                       SP ID to compute WindowPoSt for
    --help, -h                         show help
 ```
 
@@ -547,6 +549,22 @@ USAGE:
 OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --addr value                       SP ID to compute WindowPoSt for
+   --help, -h                         show help
+```
+
+#### curio test window-post vanilla
+```
+NAME:
+   curio test window-post vanilla - Compute WindowPoSt vanilla proofs and verify them.
+
+USAGE:
+   curio test window-post vanilla [command options]
+
+OPTIONS:
+   --deadline value                   deadline to compute WindowPoSt for  (default: 0)
+   --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --partition value                  partition to compute WindowPoSt for (default: 0)
    --addr value                       SP ID to compute WindowPoSt for
    --help, -h                         show help
 ```

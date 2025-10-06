@@ -2,6 +2,12 @@
     "language": "ko",
     "messages": [
       {
+        "id": "Compute WindowPoSt vanilla proofs and verify them.",
+        "translation": "",
+        "message": "Compute WindowPoSt vanilla proofs and verify them.",
+        "placeholder": null
+      },
+      {
         "id": "Supra consensus testing utilities",
         "translation": "",
         "message": "Supra consensus testing utilities",
