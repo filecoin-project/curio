@@ -22,7 +22,7 @@ func ContractAddresses() PDPContracts {
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x445238Eca6c6aB8Dff1Aa6087d9c05734D22f137"),
 			AllowedPublicRecordKeepers: []common.Address{
-				common.HexToAddress("0x6170dE2b09b404776197485F3dc6c968Ef948505"), // SimplePDPService
+				common.HexToAddress("0x0000000000000000000000000000000000000000"), // Empty
 				common.HexToAddress("0x80617b65FD2EEa1D7fDe2B4F85977670690ed348"), // FilecoinWarmStorageService
 			},
 		}
