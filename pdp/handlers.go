@@ -17,13 +17,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/filecoin-project/go-commp-utils/nonffi"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/yugabyte/pgx/v5"
+
+	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -117,8 +118,8 @@ func Routes(r *chi.Mux, p *PDPService) {
 	// PUT /pdp/piece/upload/{uploadUUID}
 	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
 
-	// GET /pdp/piece/uploads
-	r.Get(path.Join(PDPRoutePath, "/piece/uploads"), p.handleGetStreamingUploadURL)
+	// POST /pdp/piece/uploads
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), p.handleStreamingUploadURL)
 
 	// PUT /pdp/piece/uploads/{uploadUUID}
 	r.Put(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleStreamingUpload)

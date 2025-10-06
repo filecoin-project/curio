@@ -758,7 +758,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 256 << 20, // 256 MB
+			Ram: 1 << 30, // 256 MB
 		},
 		MaxFailures: 5,
 	}

@@ -1697,6 +1697,9 @@ var streamingPieceUploadCmd = &cli.Command{
 		}
 
 		digest, _, err := cp.Digest()
+		if err != nil {
+			return fmt.Errorf("failed to calculate digest: %v", err)
+		}
 
 		pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(raw_size))
 		if err != nil {

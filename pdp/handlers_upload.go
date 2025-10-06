@@ -13,7 +13,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/filecoin-project/go-padreader"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
@@ -24,6 +23,7 @@ import (
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -396,7 +396,7 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (p *PDPService) handleGetStreamingUploadURL(w http.ResponseWriter, r *http.Request) {
+func (p *PDPService) handleStreamingUploadURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
@@ -714,7 +714,7 @@ func NewTimeoutLimitReader(r io.Reader, timeout time.Duration) *TimeoutLimitRead
 	}
 }
 
-const UploadSizeLimit = int64(1 * 1024 * 1024 * 1024)
+const UploadSizeLimit = int64(1065353216) // 1 GiB.Unpadded()
 
 func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
 	deadline := time.Now().Add(t.timeout)
@@ -732,7 +732,7 @@ func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
 		}
 
 		if n > 0 {
-			// Otherwise return bytes read and no error
+			// Otherwise return byte read and no error
 			return n, err
 		}
 
