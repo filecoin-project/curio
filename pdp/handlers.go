@@ -921,6 +921,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 		if height > 50 {
 			http.Error(w, "Invalid height", http.StatusBadRequest)
+			return
 		}
 
 		// Get raw size by summing up the sizes of subPieces
