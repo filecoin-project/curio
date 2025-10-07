@@ -338,10 +338,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-// The ipni provider key for pdp is at spid = 0
+// The ipni provider key for pdp is at sp_id = 0
 func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 	var privKey []byte
-	err := tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE spid = 0`).Scan(&privKey)
+	err := tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = 0`).Scan(&privKey)
 	if err != nil {
 		if err != pgx.ErrNoRows {
 			return xerrors.Errorf("failed to get private libp2p key: %w", err)
