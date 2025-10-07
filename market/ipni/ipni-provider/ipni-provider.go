@@ -479,7 +479,6 @@ func RemoveCidContact(slice []*url.URL) []*url.URL {
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
 	var ticker *time.Ticker
-	f
 	// A poller which publishes head for each provider
 	// every 10 minutes for mainnet build
 	if build.BuildType == build.BuildMainnet {
