@@ -50,7 +50,7 @@ const IPNIPath = "/ipni/v1/ad/"
 
 // publishInterval represents the time interval between each publishing operation.
 // It is set to 10 minutes.
-const publishInterval = 10 * time.Minute
+const publishInterval = 30 * time.Second
 const publishProviderSpacing = 10 * time.Second
 
 var (
@@ -364,7 +364,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	defer func() {
-		log.Infow("Served IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID, "took", time.Since(start))
+		log.Infow("Served IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID, "took", time.Since(start), "remote_addr", r.RemoteAddr)
 	}()
 
 	b, err := cid.Parse(reqCid)
