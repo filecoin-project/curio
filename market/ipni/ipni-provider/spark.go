@@ -26,7 +26,10 @@ import (
 
 func (p *Provider) updateSparkContract(ctx context.Context) error {
 	for _, pInfo := range p.keys {
-		pInfo := pInfo
+		if pInfo.SPID == 0 {
+			log.Debugf("spark does not yet support pdp data")
+			continue
+		}
 		mInfo, err := p.full.StateMinerInfo(ctx, pInfo.Miner, types.EmptyTSK)
 		if err != nil {
 			return err

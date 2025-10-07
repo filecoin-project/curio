@@ -568,6 +568,7 @@ func (p *Provider) publishProviderSpacingWait() {
 // It obtains the HTTP addresses for the peer and sends the announce message to those addresses.
 func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) error {
 	// Create the http announce sender.
+	log.Infow("Creating http announce sender", "urls", p.announceURLs)
 	httpSender, err := httpsender.New(p.announceURLs, p.keys[peer].ID)
 	if err != nil {
 		return fmt.Errorf("cannot create http announce sender: %w", err)
