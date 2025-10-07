@@ -102,7 +102,7 @@ func TestNewIndexStore(t *testing.T) {
 	// Add index to the store
 	var eg errgroup.Group
 	eg.Go(func() error {
-		serr := idxStore.AddIndex(ctx, pcid2, recs)
+		serr := idxStore.AddIndex(ctx, pcid1, recs)
 		return serr
 	})
 
@@ -130,6 +130,14 @@ func TestNewIndexStore(t *testing.T) {
 
 	// Try to find a multihash
 	pcids, err := idxStore.PiecesContainingMultihash(ctx, m)
+	require.NoError(t, err)
+	require.Len(t, pcids, 1)
+	require.Equal(t, pcids[0].PieceCidV2.String(), pcid1.String())
+
+	// Migrate V1 to V2
+	err = idxStore.UpdatePieceCidV1ToV2(ctx, pcid1, pcid2)
+	require.NoError(t, err)
+	pcids, err = idxStore.PiecesContainingMultihash(ctx, m)
 	require.NoError(t, err)
 	require.Len(t, pcids, 1)
 	require.Equal(t, pcids[0].PieceCidV2.String(), pcid2.String())
