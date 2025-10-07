@@ -497,6 +497,15 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 		}
 	}
 
+	// Populated latest head cid from the ipni_head table
+	for provider := range p.keys {
+		c, err := p.getHeadCID(ctx, provider)
+		if err != nil {
+			log.Errorw("failed to get head CID", "provider", provider, "error", err)
+			continue
+		}
+		p.latest[provider] = c
+	}
 	go func(ticker *time.Ticker) {
 		for {
 			select {
