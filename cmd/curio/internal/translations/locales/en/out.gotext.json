@@ -1157,6 +1157,13 @@
             "fuzzy": true
         },
         {
+            "id": "Compute WindowPoSt vanilla proofs and verify them.",
+            "message": "Compute WindowPoSt vanilla proofs and verify them.",
+            "translation": "Compute WindowPoSt vanilla proofs and verify them.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Collection of debugging utilities",
             "message": "Collection of debugging utilities",
             "translation": "Collection of debugging utilities",

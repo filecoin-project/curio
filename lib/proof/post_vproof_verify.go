@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 
@@ -74,16 +73,20 @@ func verifyWindowPoStVanilla(
 	}
 
 	// Partition if the number of sectors is large
-	partitions, err := partitionFallbackPoStSectorProofs(cfg, sectorProofs)
+	/* partitions, err := partitionFallbackPoStSectorProofs(cfg, sectorProofs)
 	if err != nil {
 		return false, xerrors.Errorf("failed partitioning: %w", err)
+	} */
+	if len(sectorProofs) != 1 {
+		return false, xerrors.Errorf("expected 1 proof, multi-sector support todo, got %d", len(sectorProofs))
 	}
+	partitions := [][]FallbackPoStSectorProof{sectorProofs}
 
 	for pIndex, partition := range partitions {
 		var eg errgroup.Group
 
-		for i, sec := range partition {
-			i := i
+		for _, sec := range partition {
+			//i := i
 			sec := sec
 
 			eg.Go(func() error {
@@ -115,7 +118,6 @@ func verifyWindowPoStVanilla(
 					}
 				}
 
-				fmt.Println(i)
 				return nil
 			})
 		}
@@ -128,6 +130,7 @@ func verifyWindowPoStVanilla(
 	return true, nil
 }
 
+/*
 // partitionFallbackPoStSectorProofs splits sector proofs into chunks of length cfg.SectorCount.
 func partitionFallbackPoStSectorProofs(cfg *PoStConfig, all []FallbackPoStSectorProof) ([][]FallbackPoStSectorProof, error) {
 	partitionCount := int(math.Ceil(float64(len(all)) / float64(cfg.SectorCount)))
@@ -136,6 +139,7 @@ func partitionFallbackPoStSectorProofs(cfg *PoStConfig, all []FallbackPoStSector
 	}
 
 	out := make([][]FallbackPoStSectorProof, 0, partitionCount)
+	partSizes := make([]int, partitionCount)
 	start := 0
 	for i := 0; i < partitionCount; i++ {
 		end := start + cfg.SectorCount
@@ -155,9 +159,14 @@ func partitionFallbackPoStSectorProofs(cfg *PoStConfig, all []FallbackPoStSector
 			chunk = append(chunk, pad...)
 		}
 		out = append(out, chunk)
+		partSizes[i] = len(chunk)
 	}
+
+	log.Infow("partitioned fallback PoSt sector proofs", "partitionCount", partitionCount, "partSizes", partSizes)
+
 	return out, nil
 }
+*/
 
 // checkCommR is the fallback post condition: comm_r = PoseidonHash2(comm_c, comm_r_last).
 func checkCommR(commC, commRLast, claimed PoseidonDomain) bool {
