@@ -175,10 +175,13 @@ class ProofShareClient extends LitElement {
     const address = prompt('Enter new SP address:');
     if (!address) return; // cancelled
 
+    const wallet = prompt('Enter client wallet address (f1.. for payments, must be added to wallets first):');
+    if (!wallet) return;
+
     const newRow = {
       address,
       enabled: false,
-      wallet: null,
+      wallet,
       minimum_pending_seconds: 0,
       do_porep: false,
       do_snap: false,
