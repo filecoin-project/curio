@@ -458,7 +458,7 @@ func IndexCAR(r io.Reader, buffSize int, recs chan<- indexstore.Record, addFail 
 		select {
 		case recs <- indexstore.Record{
 			Cid:    blockMetadata.Cid,
-			Offset: blockMetadata.Offset,
+			Offset: blockMetadata.SourceOffset,
 			Size:   blockMetadata.Size,
 		}:
 		case <-addFail:
