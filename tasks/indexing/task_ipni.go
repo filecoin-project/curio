@@ -505,7 +505,114 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 }
 
 func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+	type task struct {
+		TaskID    harmonytask.TaskID `db:"task_id"`
+		ID        string             `db:"id"`
+		StorageID string             `db:"storage_id"`
+		IsRm      bool               `db:"is_rm"`
+	}
+
+	if storiface.FTUnsealed != 1 {
+		panic("storiface.FTUnsealed != 1")
+	}
+
+	if storiface.FTPiece != 32 {
+		panic("storiface.FTPiece != 32")
+	}
+
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var tasks []task
+
+	err := I.db.Select(ctx, &tasks, `
+		SELECT task_id, id, is_rm FROM ipni_task WHERE task_id = ANY($1)`, indIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting task details: %w", err)
+	}
+
+	var mk12TaskIds []harmonytask.TaskID
+	var mk20TaskIds []harmonytask.TaskID
+
+	for _, t := range tasks {
+		if t.IsRm {
+			return &ids[0], nil // If this is rm task then storage is not needed
+		}
+		_, err := ulid.Parse(t.ID)
+		if err == nil {
+			mk20TaskIds = append(mk20TaskIds, t.TaskID)
+		} else {
+			_, err := uuid.Parse(t.ID)
+			if err != nil {
+				return nil, xerrors.Errorf("parsing task id: %w", err)
+			}
+			mk12TaskIds = append(mk12TaskIds, t.TaskID)
+		}
+	}
+
+	var finalTasks []task
+
+	if len(mk12TaskIds) > 0 {
+		var mk12Tasks []task
+		err := I.db.Select(ctx, &mk12Tasks, `
+			SELECT dp.task_id, dp.id, l.storage_id FROM ipni_task dp
+				INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
+				WHERE dp.task_id = ANY ($1) AND l.sector_filetype = 1`, indIDs)
+		if err != nil {
+			return nil, xerrors.Errorf("getting storage details: %w", err)
+		}
+		finalTasks = append(finalTasks, mk12Tasks...)
+	}
+
+	if len(mk20TaskIds) > 0 {
+		var mk20Tasks []task
+		err := I.db.Select(ctx, &mk20Tasks, `
+							SELECT
+							  dp.task_id,
+							  dp.id,
+							  l.storage_id
+							FROM ipni_task dp
+							JOIN market_piece_deal   mpd ON mpd.id    = dp.id
+							JOIN parked_piece_refs    pr ON pr.ref_id = mpd.piece_ref
+							JOIN sector_location       l ON l.miner_id = 0
+														 AND l.sector_num = pr.piece_id
+														 AND l.sector_filetype = 32
+							WHERE dp.task_id = ANY ($1);
+							`, indIDs)
+		if err != nil {
+			return nil, xerrors.Errorf("getting storage details: %w", err)
+		}
+		finalTasks = append(finalTasks, mk20Tasks...)
+	}
+
+	ls, err := I.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+
+	acceptables := map[harmonytask.TaskID]bool{}
+
+	for _, t := range ids {
+		acceptables[t] = true
+	}
+
+	for _, t := range finalTasks {
+		if _, ok := acceptables[t.TaskID]; !ok {
+			continue
+		}
+
+		for _, l := range ls {
+			if string(l.ID) == t.StorageID {
+				return &t.TaskID, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
