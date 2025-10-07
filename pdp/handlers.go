@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -131,8 +132,6 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateDataSet handles the creation of a new data set
 func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
@@ -178,76 +177,16 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Decode extraData if provided
-	extraDataBytes := []byte{}
-	if reqBody.ExtraData != nil {
-		extraDataHexStr := *reqBody.ExtraData
-		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
-		if err != nil {
-			log.Errorf("Failed to decode hex extraData: %v", err)
-			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
-			return
-		}
-		extraDataBytes = decodedBytes
-	}
+	// createDataSet() has been removed in PDP v2.2.0
+	// Datasets are now created implicitly when the first piece is added via addPieces()
+	// To create a dataset, use the /api/pdp/add-pieces endpoint instead.
 
-	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
-	fromAddress, err := p.getSenderAddress(ctx)
-	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Step 4: Manually create the transaction without requiring a Signer
-	// Obtain the ABI of the PDPVerifier contract
-	abiData, err := contract.PDPVerifierMetaData.GetAbi()
-	if err != nil {
-		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Pack the method call data
-	data, err := abiData.Pack("createDataSet", recordKeeperAddr, extraDataBytes)
-	if err != nil {
-		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
-	tx := types.NewTransaction(
-		0,
-		contract.ContractAddresses().PDPVerifier,
-		contract.SybilFee(),
-		0,
-		nil,
-		data,
-	)
-
-	// Step 5: Send the transaction using SenderETH
-	reason := "pdp-mkdataset"
-	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
-	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		log.Errorf("Failed to send transaction: %+v", err)
-		return
-	}
-
-	// Step 6: Insert into message_waits_eth and pdp_data_set_creates
-	txHashLower := strings.ToLower(txHash.Hex())
-	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
-		"txHash", txHashLower,
+	http.Error(w, "createDataSet is no longer supported in PDP v2.2.0. "+
+		"Datasets are now created implicitly when adding the first piece. "+
+		"Please use the /api/pdp/add-pieces endpoint instead.", http.StatusNotImplemented)
+	log.Warnw("Attempt to use deprecated createDataSet endpoint",
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
-	err = p.insertMessageWaitsAndDataSetCreate(ctx, txHashLower, serviceLabel)
-	if err != nil {
-		log.Errorf("Failed to insert into message_waits_eth and pdp_data_set_creates: %+v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Step 7: Respond with 201 Created and Location header
-	w.Header().Set("Location", path.Join("/pdp/data-sets/created", txHashLower))
-	w.WriteHeader(http.StatusCreated)
 }
 
 // getSenderAddress retrieves the sender address from the database where role = 'pdp' limit 1
@@ -262,53 +201,6 @@ func (p *PDPService) getSenderAddress(ctx context.Context) (common.Address, erro
 	}
 	address := common.HexToAddress(addressStr)
 	return address, nil
-}
-
-// insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
-func (p *PDPService) insertMessageWaitsAndDataSetCreate(ctx context.Context, txHashHex string, serviceLabel string) error {
-	// Begin a database transaction
-	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Insert into message_waits_eth
-		log.Debugw("Inserting into message_waits_eth",
-			"txHash", txHashHex,
-			"status", "pending")
-		_, err := tx.Exec(`
-            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
-            VALUES ($1, $2)
-        `, txHashHex, "pending")
-		if err != nil {
-			log.Errorw("Failed to insert into message_waits_eth",
-				"txHash", txHashHex,
-				"error", err)
-			return false, err // Return false to rollback the transaction
-		}
-
-		// Insert into pdp_data_set_creates
-		log.Debugw("Inserting into pdp_data_set_creates",
-			"txHash", txHashHex,
-			"service", serviceLabel)
-		_, err = tx.Exec(`
-            INSERT INTO pdp_data_set_creates (create_message_hash, service)
-            VALUES ($1, $2)
-        `, txHashHex, serviceLabel)
-		if err != nil {
-			log.Errorw("Failed to insert into pdp_data_set_creates",
-				"txHash", txHashHex,
-				"error", err)
-			return false, err // Return false to rollback the transaction
-		}
-
-		log.Infow("Successfully inserted orphaned transaction for watching",
-			"txHash", txHashHex,
-			"service", serviceLabel,
-			"waiter_machine_id", "NULL")
-		// Return true to commit the transaction
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // handleGetDataSetCreationStatus handles the GET request to retrieve the status of a data set creation
@@ -947,16 +839,30 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		pieceDataArray = append(pieceDataArray, pieceData)
 	}
 
-	// Step 6: Prepare the Ethereum transaction
-	// Pack the method call data
+	// Step 6: Get the listener address for the dataset from the blockchain
+	// PDP v2.2.0: addPieces now requires the listener address as a parameter
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	if err != nil {
+		http.Error(w, "Failed to create PDPVerifier contract instance: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	listenerAddr, err := pdpVerifier.GetDataSetListener(&bind.CallOpts{}, dataSetId)
+	if err != nil {
+		http.Error(w, "Failed to get dataset listener address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 7: Prepare the Ethereum transaction
+	// Pack the method call data with the listener address (PDP v2.2.0 requirement)
 	// The extraDataBytes variable is now correctly populated above
-	data, err := abiData.Pack("addPieces", dataSetId, pieceDataArray, extraDataBytes)
+	data, err := abiData.Pack("addPieces", dataSetId, listenerAddr, pieceDataArray, extraDataBytes)
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Step 7: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
+	// Step 8: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
 		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)

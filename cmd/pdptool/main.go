@@ -66,7 +66,8 @@ func main() {
 			uploadFileCmd,   // upload a file to a pdp service in many chunks
 			downloadFileCmd, // download a file from curio
 
-			createDataSetCmd,    // create a new data set on the PDP service
+			// createDataSetCmd,    // REMOVED in PDP v2.2.0 - createDataSet() no longer exists
+			// Datasets are now created implicitly when adding the first piece via addPieces
 			getDataSetStatusCmd, // get the status of a data set creation on the PDP service
 			getDataSetCmd,       // retrieve the details of a data set from the PDP service
 
@@ -885,6 +886,10 @@ var uploadFileCmd = &cli.Command{
 	},
 }
 
+// BREAKING CHANGE: createDataSet has been removed in PDP v2.2.0
+// Datasets are now created implicitly when adding the first piece via addPieces
+// To create a dataset, use the add-pieces command with your first piece
+/* DISABLED - createDataSetCmd removed in PDP v2.2.0
 var createDataSetCmd = &cli.Command{
 	Name:  "create-data-set",
 	Usage: "Create a new data set on the PDP service",
@@ -982,6 +987,7 @@ var createDataSetCmd = &cli.Command{
 		return nil
 	},
 }
+*/
 
 var getDataSetStatusCmd = &cli.Command{
 	Name:  "get-data-set-create-status",
