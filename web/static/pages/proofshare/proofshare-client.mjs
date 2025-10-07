@@ -256,6 +256,22 @@ class ProofShareClient extends LitElement {
   }
 
   /**
+   * Remove an SP row.
+   */
+  async removeRow(spId, address) {
+    if (!confirm(`Are you sure you want to remove the SP configuration for ${address}?`)) return;
+
+    try {
+      await RPCCall('PSClientRemove', [spId]);
+      console.log(`Removed SP configuration for ${address}`);
+      await this.loadAllSettings();
+    } catch (err) {
+      console.error(`Error removing SP configuration for ${address}:`, err);
+      alert(`Failed to remove ${address}. See console for details.`);
+    }
+  }
+
+  /**
    * Render a sub-table of requests for a given SP.
    */
   renderRequestsFor(spId, address) {
