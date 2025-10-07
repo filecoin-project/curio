@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -602,71 +603,100 @@ func (i *IndexStore) UpdatePieceCidV1ToV2(ctx context.Context, pieceCidV1 cid.Ci
 	p1 := pieceCidV1.Bytes()
 	p2 := pieceCidV2.Bytes()
 
-	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
-	selectQry := `SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ?`
-	iter := i.session.Query(selectQry, p1).WithContext(ctx).Iter()
-
-	var payloadMultihashBytes []byte
-	var payloadMultihashes [][]byte
-	for iter.Scan(&payloadMultihashBytes) {
-		// Copy the bytes since the slice will be overwritten
-		mhCopy := make([]byte, len(payloadMultihashBytes))
-		copy(mhCopy, payloadMultihashBytes)
-		payloadMultihashes = append(payloadMultihashes, mhCopy)
-	}
-	if err := iter.Close(); err != nil {
-		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCidV1.String(), err)
+	batchLimit := i.settings.InsertBatchSize
+	if batchLimit <= 0 {
+		batchLimit = 15000
 	}
 
-	// Prepare batch replace for PayloadToPieces
-	updatePiecesQry := `UPDATE PayloadToPieces SET PieceCid = ? WHERE PayloadMultihash = ? AND PieceCid = ?`
-	batch := i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-	batchSize := i.settings.InsertBatchSize
+	pageSize := int(math.Floor(float64(batchLimit) / 2))
 
-	for idx, payloadMH := range payloadMultihashes {
-		batch.Entries = append(batch.Entries, gocql.BatchEntry{
-			Stmt:       updatePiecesQry,
-			Args:       []interface{}{p2, payloadMH, p1},
-			Idempotent: true,
-		})
+	flush := func(batch *gocql.Batch) error {
+		if len(batch.Entries) == 0 {
+			return nil
+		}
+		if err := i.executeBatchWithRetry(ctx, batch, pieceCidV2); err != nil {
+			return xerrors.Errorf("executing batch for updating index from piece %s to %s: %w", pieceCidV1.String(), pieceCidV2.String(), err)
+		}
+		return nil
+	}
 
-		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
-			if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
-				return xerrors.Errorf("executing batch replace for PayloadToPieces for piece %s: %w", pieceCidV1, err)
+	// -------- Pass 1: PayloadToPieces --------
+	{
+		iter := i.session.Query(`SELECT PayloadMultihash, BlockSize FROM PayloadToPieces WHERE PieceCid = ?`, p1).WithContext(ctx).PageSize(pageSize).Iter()
+
+		batch := i.session.NewBatch(gocql.LoggedBatch).WithContext(ctx) // Batches must be logged for consistency
+		var mh []byte
+		var bs int64
+		for iter.Scan(&mh, &bs) {
+			mhCopy := make([]byte, len(mh))
+			copy(mhCopy, mh)
+
+			// INSERT new mapping
+			batch.Entries = append(batch.Entries, gocql.BatchEntry{
+				Stmt:       `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`,
+				Args:       []any{mhCopy, p2, bs},
+				Idempotent: true,
+			})
+			// DELETE old mapping
+			batch.Entries = append(batch.Entries, gocql.BatchEntry{
+				Stmt:       `DELETE FROM PayloadToPieces WHERE PayloadMultihash = ? AND PieceCid = ?`,
+				Args:       []any{mhCopy, p1},
+				Idempotent: true,
+			})
+
+			if len(batch.Entries) >= batchLimit {
+				if err := flush(batch); err != nil {
+					_ = iter.Close()
+					return err
+				}
+				batch = i.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
 			}
-			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+		}
+		if err := iter.Close(); err != nil {
+			return xerrors.Errorf("scan PayloadToPieces for piece %s: %w", pieceCidV1, err)
+		}
+		if err := flush(batch); err != nil {
+			return err
 		}
 	}
 
-	if len(batch.Entries) >= 0 {
-		if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
-			return xerrors.Errorf("executing batch replace for PayloadToPieces for piece %s: %w", pieceCidV1, err)
-		}
-	}
+	// -------- Pass 2: PieceBlockOffsetSize --------
+	{
+		iter := i.session.Query(`SELECT PayloadMultihash, BlockOffset FROM PieceBlockOffsetSize WHERE PieceCid = ?`, p1).WithContext(ctx).PageSize(pageSize).Iter()
 
-	// Prepare batch replace for PieceBlockOffsetSize
-	updatePiecesQry = `UPDATE PieceBlockOffsetSize SET PieceCid = ? WHERE PayloadMultihash = ? AND PieceCid = ?`
-	batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-	batchSize = i.settings.InsertBatchSize
+		batch := i.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+		var mh []byte
+		var off int64
+		for iter.Scan(&mh, &off) {
+			mhCopy := make([]byte, len(mh))
+			copy(mhCopy, mh)
 
-	for idx, payloadMH := range payloadMultihashes {
-		batch.Entries = append(batch.Entries, gocql.BatchEntry{
-			Stmt:       updatePiecesQry,
-			Args:       []interface{}{p2, payloadMH, p1},
-			Idempotent: true,
-		})
+			// INSERT new mapping
+			batch.Entries = append(batch.Entries, gocql.BatchEntry{
+				Stmt:       `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`,
+				Args:       []any{p2, mhCopy, off},
+				Idempotent: true,
+			})
+			// DELETE old mapping
+			batch.Entries = append(batch.Entries, gocql.BatchEntry{
+				Stmt:       `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`,
+				Args:       []any{p1, mhCopy},
+				Idempotent: true,
+			})
 
-		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
-			if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
-				return xerrors.Errorf("executing batch replace for PieceBlockOffsetSize for piece %s: %w", pieceCidV1, err)
+			if len(batch.Entries) >= batchLimit {
+				if err := flush(batch); err != nil {
+					_ = iter.Close()
+					return err
+				}
+				batch = i.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
 			}
-			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
 		}
-	}
-
-	if len(batch.Entries) >= 0 {
-		if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
-			return xerrors.Errorf("executing batch replace for PieceBlockOffsetSize for piece %s: %w", pieceCidV1, err)
+		if err := iter.Close(); err != nil {
+			return xerrors.Errorf("scan PieceBlockOffsetSize for piece %s: %w", pieceCidV1, err)
+		}
+		if err := flush(batch); err != nil {
+			return err
 		}
 	}
 
