@@ -74,7 +74,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		CROSS JOIN ipni_peerid ipni_peer
 		WHERE 
 			pr.ipni_task_id = $1
-			ipni_peer.sp_id = 0
+			AND ipni_peer.sp_id = 0
 `, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
