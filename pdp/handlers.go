@@ -719,7 +719,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// Collect all subPieceCids to fetch their info in a batch
 	subPieceCidSet := make(map[string]struct{})
-	for i, addPieceReq := range payload.Pieces {
+	for _, addPieceReq := range payload.Pieces {
 		if addPieceReq.PieceCID == "" {
 			http.Error(w, "PieceCID is required for each piece", http.StatusBadRequest)
 			return
@@ -730,7 +730,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		for _, subPieceEntry := range addPieceReq.SubPieces {
+		for i, subPieceEntry := range addPieceReq.SubPieces {
 			if subPieceEntry.SubPieceCID == "" {
 				http.Error(w, "subPieceCid is required for each subPiece", http.StatusBadRequest)
 				return
@@ -828,7 +828,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			pieceInfos := make([]abi.PieceInfo, len(addPieceReq.SubPieces))
 
 			var totalOffset uint64 = 0
-			for i, subPieceEntry := range addPieceReq.SubPieces {
+			for j, subPieceEntry := range addPieceReq.SubPieces {
 				subPieceInfo, exists := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
 				if !exists {
 					return false, fmt.Errorf("subPiece CID %s not found in subPiece info map", subPieceEntry.subPieceCIDv1)
@@ -838,7 +838,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				subPieceInfo.SubPieceOffset = totalOffset
 				subPieceInfoMap[subPieceEntry.subPieceCIDv1] = subPieceInfo // Update the map
 
-				pieceInfos[i] = abi.PieceInfo{
+				pieceInfos[j] = abi.PieceInfo{
 					Size:     subPieceInfo.PaddedSize,
 					PieceCID: subPieceInfo.PieceCIDv1,
 				}
