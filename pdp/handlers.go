@@ -561,21 +561,29 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		Pieces:             []PieceEntry{}, // Initialize as empty array, not nil
 	}
 
-	// Calculate aggregate piece raw sizes by summing sub-piece raw sizes
-	pieceRawSizes := make(map[string]uint64)
+	// Calculate aggregate piece raw sizes by summing sub-piece raw sizes (group by piece_id)
+	pieceRawSizes := make(map[uint64]uint64)
 	for _, piece := range pieces {
-		pieceRawSizes[piece.PieceCid] += piece.SubPieceRawSize
+		pieceRawSizes[piece.PieceID] += piece.SubPieceRawSize
 	}
+
+	aggregatePieceCIDs := make(map[uint64]string)
 
 	// Convert pieces to the desired JSON format
 	for _, piece := range pieces {
-		// Use the summed raw size for the aggregate piece
-		aggregateRawSize := pieceRawSizes[piece.PieceCid]
-		pcv2, _, err := asPieceCIDv2(piece.PieceCid, aggregateRawSize)
-		if err != nil {
-			http.Error(w, "Invalid PieceCID: "+err.Error(), http.StatusBadRequest)
-			return
+		// Calculate aggregate piece CID on first use for this piece_id
+		pcv2Str, exists := aggregatePieceCIDs[piece.PieceID]
+		if !exists {
+			aggregateRawSize := pieceRawSizes[piece.PieceID]
+			pcv2, _, err := asPieceCIDv2(piece.PieceCid, aggregateRawSize)
+			if err != nil {
+				http.Error(w, "Invalid PieceCID: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			pcv2Str = pcv2.String()
+			aggregatePieceCIDs[piece.PieceID] = pcv2Str
 		}
+
 		// Use the raw size for the sub piece
 		spcv2, _, err := asPieceCIDv2(piece.SubPieceCID, piece.SubPieceRawSize)
 		if err != nil {
@@ -584,7 +592,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		}
 		response.Pieces = append(response.Pieces, PieceEntry{
 			PieceID:        piece.PieceID,
-			PieceCID:       pcv2.String(),
+			PieceCID:       pcv2Str,
 			SubPieceCID:    spcv2.String(),
 			SubPieceOffset: piece.SubPieceOffset,
 		})
