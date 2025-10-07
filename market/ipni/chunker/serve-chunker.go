@@ -276,7 +276,7 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 
 	pi := commp.PieceInfo()
 
-	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piecev2)
+	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piecev2, false)
 	defer func(reader storiface.Reader) {
 		_ = reader.Close()
 	}(reader)

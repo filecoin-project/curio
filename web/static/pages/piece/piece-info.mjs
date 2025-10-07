@@ -445,7 +445,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                             </tr>
 
                             <tr><th colspan="2"><h5>Sealing 📦</h5></th></tr>
-                            <tr><td>Sector</td><td>${entry.mk20_ddo_pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=${entry.deal.addr}&id=${entry.mk20_ddo_pipeline.sector.Int64}">${entry.mk20_ddo_pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
+                            <tr><td>Sector</td><td>${entry.mk20_ddo_pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=${entry.deal.deal.products.ddo_v1.provider}&id=${entry.mk20_ddo_pipeline.sector.Int64}">${entry.mk20_ddo_pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
                             <tr><td>Reg Seal Proof</td><td>${entry.mk20_ddo_pipeline.reg_seal_proof.Valid ? entry.mk20_ddo_pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
                             <tr><td>Sector Offset</td><td>${entry.mk20_ddo_pipeline.sector_offset.Valid ? entry.mk20_ddo_pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
                             
