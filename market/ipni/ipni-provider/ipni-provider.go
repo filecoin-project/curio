@@ -73,6 +73,7 @@ type Provider struct {
 	indexStore    *indexstore.IndexStore
 	sc            *chunker.ServeChunker
 	keys          map[string]*peerInfo // map[peerID String]Private_Key
+	latest        map[string]cid.Cid   // map[peerID String]last published head, used to avoid duplicate announce
 	// announceURLs enables sending direct announcements via HTTP. This is
 	// the list of indexer URLs to send direct HTTP announce messages to.
 	announceURLs []*url.URL
@@ -193,6 +194,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		keys:                keyMap,
 		announceURLs:        announceURLs,
 		httpServerAddresses: httpServerAddresses,
+		latest:              make(map[string]cid.Cid),
 	}, nil
 }
 
@@ -477,7 +479,7 @@ func RemoveCidContact(slice []*url.URL) []*url.URL {
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
 	var ticker *time.Ticker
-
+	f
 	// A poller which publishes head for each provider
 	// every 10 minutes for mainnet build
 	if build.BuildType == build.BuildMainnet {
@@ -545,6 +547,11 @@ func (p *Provider) publishHead(ctx context.Context) {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
 			continue
 		}
+		if _, ok := p.latest[provider]; ok && p.latest[provider] == c {
+			log.Debugw("Skipping duplicate announce for provider", "provider", provider, "cid", c.String())
+			continue
+		}
+		p.latest[provider] = c
 		log.Infow("Publishing head for provider", "provider", provider, "cid", c.String())
 		err = p.publishhttp(ctx, c, provider)
 		if err != nil {
