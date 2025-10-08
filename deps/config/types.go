@@ -114,7 +114,7 @@ func DefaultCurioConfig() *CurioConfig {
 				},
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
-					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"},
 				},
 			},
 		},

@@ -49,7 +49,7 @@ const IPNIRoutePath = "/ipni-provider/"
 const IPNIPath = "/ipni/v1/ad/"
 
 // publishInterval represents the time interval between each publishing operation.
-// It is set to 10 minutes.
+// It is set to 30 seconds for the purposes of PDP index publishing
 const publishInterval = 30 * time.Second
 const publishProviderSpacing = 10 * time.Second
 
@@ -559,11 +559,13 @@ func (p *Provider) publishHead(ctx context.Context) {
 			log.Debugw("Skipping duplicate announce for provider", "provider", provider, "cid", c.String())
 			continue
 		}
-		p.latest[provider] = c
+
 		log.Infow("Publishing head for provider", "provider", provider, "cid", c.String())
 		err = p.publishhttp(ctx, c, provider)
 		if err != nil {
 			log.Errorw("failed to publish head for provide", "provider", provider, "error", err)
+		} else {
+			p.latest[provider] = c
 		}
 
 		i++
@@ -594,7 +596,6 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 		return fmt.Errorf("cannot create provider http addresses: %w", err)
 	}
 
-	log.Infow("Announcing advertisements over HTTP", "urls", p.announceURLs)
 	return announce.Send(ctx, adCid, addrs, httpSender)
 }
 
