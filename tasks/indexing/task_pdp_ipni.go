@@ -35,6 +35,10 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
+const (
+	PDP_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
+)
+
 type PDPIPNITask struct {
 	db  *harmonydb.DB
 	cpr *cachedreader.CachedPieceReader
@@ -74,8 +78,8 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		CROSS JOIN ipni_peerid ipni_peer
 		WHERE 
 			pr.ipni_task_id = $1
-			AND ipni_peer.sp_id = 0
-`, taskID)
+			AND ipni_peer.sp_id = $2
+`, taskID, PDP_SP_ID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
 	}
@@ -125,7 +129,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
-		if err := chk.Accept(blockMetadata.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
+		if err := chk.Accept(blockMetadata.Hash(), int64(blockMetadata.SourceOffset), blockMetadata.Size+40); err != nil {
 			return false, xerrors.Errorf("accepting block: %w", err)
 		}
 
@@ -338,10 +342,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-// The ipni provider key for pdp is at sp_id = 0
+// The ipni provider key for pdp is at PDP_SP_ID
 func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 	var privKey []byte
-	err := tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = 0`).Scan(&privKey)
+	err := tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&privKey)
 	if err != nil {
 		if err != pgx.ErrNoRows {
 			return xerrors.Errorf("failed to get private libp2p key: %w", err)

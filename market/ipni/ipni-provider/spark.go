@@ -26,7 +26,7 @@ import (
 
 func (p *Provider) updateSparkContract(ctx context.Context) error {
 	for _, pInfo := range p.keys {
-		if pInfo.SPID == 0 {
+		if pInfo.SPID <= 0 {
 			log.Debugf("spark does not yet support pdp data")
 			continue
 		}
