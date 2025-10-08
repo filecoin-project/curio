@@ -292,7 +292,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched, es)
 			pdp.NewWatcherPieceAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)

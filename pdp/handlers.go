@@ -144,6 +144,15 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	type RequestBody struct {
 		RecordKeeper string  `json:"recordKeeper"`
 		ExtraData    *string `json:"extraData,omitempty"`
+		Pieces       *struct {
+			Pieces []struct {
+				PieceCID  string `json:"pieceCid"`
+				SubPieces []struct {
+					SubPieceCID string `json:"subPieceCid"`
+				} `json:"subPieces"`
+			} `json:"pieces"`
+			ExtraData *string `json:"extraData,omitempty"`
+		} `json:"pieces,omitempty"`
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -243,6 +252,17 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		log.Errorf("Failed to insert into message_waits_eth and pdp_data_set_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	if reqBody.Pieces != nil {
+		_, err := p.db.Exec(ctx, `
+            INSERT INTO pdp_pending_piece_adds (create_message_hash, service, payload)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (create_message_hash) DO UPDATE SET payload = EXCLUDED.payload
+        `, txHashLower, serviceLabel, body)
+		if err != nil {
+			log.Errorf("Failed to persist pending piece add intent: %v", err)
+		}
 	}
 
 	// Step 7: Respond with 201 Created and Location header
