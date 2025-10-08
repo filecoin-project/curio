@@ -51,7 +51,7 @@ const IPNIPath = "/ipni/v1/ad/"
 
 // publishInterval represents the time interval between each publishing operation.
 // It is set to 30 seconds for the purposes of PDP index publishing
-const publishInterval = 30 * time.Second
+const publishInterval = 5 * time.Second
 const publishProviderSpacing = 10 * time.Second
 
 var (
