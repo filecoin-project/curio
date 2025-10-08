@@ -886,13 +886,12 @@ var uploadFileCmd = &cli.Command{
 	},
 }
 
-// BREAKING CHANGE: createDataSet has been removed in PDP v2.2.0
-// Datasets are now created implicitly when adding the first piece via addPieces
-// To create a dataset, use the add-pieces command with your first piece
-/* DISABLED - createDataSetCmd removed in PDP v2.2.0
+// BREAKING CHANGE: createDataSet now uses combined dataset creation + piece addition flow
+// This command creates a dataset and adds the first piece(s) in one operation
+// For adding pieces to existing datasets, use the add-pieces command
 var createDataSetCmd = &cli.Command{
 	Name:  "create-data-set",
-	Usage: "Create a new data set on the PDP service",
+	Usage: "Create a new data set on the PDP service with initial pieces",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -909,6 +908,11 @@ var createDataSetCmd = &cli.Command{
 			Usage:    "Service Name to include in the JWT token",
 			Required: true,
 		},
+		&cli.StringSliceFlag{
+			Name:     "piece",
+			Usage:    "Piece CID and its subPieces. Format: pieceCID:subPieceCID1+subPieceCID2,...",
+			Required: true,
+		},
 		&cli.StringFlag{
 			Name:     "extra-data",
 			Usage:    "Optional ABI-encoded extra data as a hex string to pass to the listener contract (max 2048 bytes)",
@@ -919,6 +923,7 @@ var createDataSetCmd = &cli.Command{
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
 		recordKeeper := cctx.String("pdp-service-contract")
+		pieceInputs := cctx.StringSlice("piece")
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
@@ -932,21 +937,66 @@ var createDataSetCmd = &cli.Command{
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
 
-		// Construct the request payload
-		requestBody := map[string]string{
-			"recordKeeper": recordKeeper,
-		}
-		if extraDataHexStr != "" {
-			requestBody["extraData"] = extraDataHexStr
+		// Parse the piece inputs to construct the request payload
+		type SubpieceEntry struct {
+			SubpieceCID string `json:"subPieceCid"`
 		}
 
-		requestBodyBytes, err := json.Marshal(requestBody)
+		type AddPieceRequest struct {
+			PieceCID  string          `json:"pieceCid"`
+			Subpieces []SubpieceEntry `json:"subPieces"`
+		}
+
+		var addPieceRequests []AddPieceRequest
+
+		for _, pieceInput := range pieceInputs {
+			// Expected format: pieceCID:subPieceCID1,subPieceCID2,...
+			parts := strings.SplitN(pieceInput, ":", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid piece input format: %s (%d)", pieceInput, len(parts))
+			}
+			pieceCID := parts[0]
+			subPiecesStr := parts[1]
+			subPieceCIDStrs := strings.Split(subPiecesStr, "+")
+
+			if pieceCID == "" || len(subPieceCIDStrs) == 0 {
+				return fmt.Errorf("pieceCID and at least one subPieceCID are required")
+			}
+
+			var subPieces []SubpieceEntry
+			for _, subPieceCID := range subPieceCIDStrs {
+				subPieces = append(subPieces, SubpieceEntry{SubpieceCID: subPieceCID})
+			}
+
+			addPieceRequests = append(addPieceRequests, AddPieceRequest{
+				PieceCID:  pieceCID,
+				Subpieces: subPieces,
+			})
+		}
+
+		// Construct the request payload for combined dataset creation + piece addition
+		type CreateDataSetPayload struct {
+			RecordKeeper string            `json:"recordKeeper"`
+			Pieces       []AddPieceRequest `json:"pieces"`
+			ExtraData    *string           `json:"extraData,omitempty"`
+		}
+
+		payload := CreateDataSetPayload{
+			RecordKeeper: recordKeeper,
+			Pieces:       addPieceRequests,
+		}
+		if extraDataHexStr != "" {
+			// Pass the validated 0x-prefixed hex string directly
+			payload.ExtraData = &extraDataHexStr
+		}
+
+		requestBodyBytes, err := json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request body: %v", err)
 		}
 
-		// Append /pdp/data-sets to the service URL
-		postURL := serviceURL + "/pdp/data-sets"
+		// Use the /api/pdp/add-pieces endpoint for combined dataset creation + piece addition
+		postURL := serviceURL + "/api/pdp/add-pieces"
 
 		// Create the POST request
 		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
@@ -977,17 +1027,16 @@ var createDataSetCmd = &cli.Command{
 
 		if resp.StatusCode == http.StatusCreated {
 			location := resp.Header.Get("Location")
-			fmt.Printf("Data set creation initiated successfully.\n")
+			fmt.Printf("Data set creation with pieces initiated successfully.\n")
 			fmt.Printf("Location: %s\n", location)
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
-			return fmt.Errorf("failed to create data set, status code %d: %s", resp.StatusCode, bodyString)
+			return fmt.Errorf("failed to create data set with pieces, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
 		return nil
 	},
 }
-*/
 
 var getDataSetStatusCmd = &cli.Command{
 	Name:  "get-data-set-create-status",
