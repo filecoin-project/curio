@@ -8,7 +8,7 @@ CREATE TABLE ipni_peerid (
 CREATE TABLE ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,
-    context_id BYTEA NOT NULL, -- abi.PieceInfo in Curio
+    context_id BYTEA NOT NULL, -- abi.PieceInfo || PDPIPNIContext in Curio
     -- metadata column in not required as Curio only supports one type of metadata(HTTP)
     is_rm BOOLEAN NOT NULL,
 

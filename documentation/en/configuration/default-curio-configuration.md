@@ -722,7 +722,7 @@ description: The default curio configuration
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
 
     # Indexing configuration for deal indexing
     #

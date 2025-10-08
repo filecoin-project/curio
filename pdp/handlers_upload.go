@@ -53,7 +53,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	}
 	pieceCidV2, size, err := asPieceCIDv2(req.PieceCID, 0)
 	if err != nil {
-		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
+		http.Error(w, "Invalid request body: invalid pieceCid: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if size > uint64(PieceSizeLimit) {

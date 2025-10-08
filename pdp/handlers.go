@@ -982,7 +982,30 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 9: Insert into message_waits_eth and pdp_data_set_pieces
+	// Step 9: check for indexing requirements on data set.
+	// Get listenerAddr from blockchain contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	if err != nil {
+		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, dataSetId)
+	if err != nil {
+		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	mustIndex, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, p.ethClient, dataSetId, "withIPFSIndexing")
+	if err != nil {
+		// Hard to differenctiate between unsupported listener type OR internal error
+		// So we log on debug and skip indexing attempt
+		mustIndex = false
+		log.Infow("Failed to get data set metadata, skipping indexing ", "error", err, "dataSetId", dataSetId)
+	}
+
+	// Step 10: Insert into message_waits_eth and pdp_data_set_pieces
+	// If indexing required update pdp_piecerefs table with indexing requirement
 	// Ensure consistent lowercase transaction hash
 	txHashLower := strings.ToLower(txHash.Hex())
 	log.Infow("PDP AddPieces: Inserting transaction tracking",
@@ -1015,7 +1038,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Insert into pdp_data_set_pieces
-
 		for addMessageIndex, addPieceReq := range payload.Pieces {
 			for _, subPieceEntry := range addPieceReq.SubPieces {
 				subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
@@ -1049,6 +1071,22 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
+		if mustIndex {
+			log.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
+			// Note: it's possible to update a duplicate piece that has already completed the indexing step
+			// but task_pdp_indexing handles pieces that have already been indexed smoothly
+			_, err := txdb.Exec(`
+				UPDATE pdp_piecerefs 
+				SET needs_indexing = TRUE
+				WHERE service = $1 
+					AND piece_cid = ANY($2)
+					AND needs_indexing = FALSE
+				`, serviceLabel, subPieceCidList)
+			if err != nil {
+				return false, err
+			}
+		}
+
 		// Return true to commit the transaction
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -1058,7 +1096,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 10: Respond with 201 Created
+	// Step 11: Respond with 201 Created
 	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }

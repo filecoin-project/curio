@@ -1,10 +1,15 @@
 package contract
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	logger "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 )
+
+var log = logger.Logger("pdp-contract")
 
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
@@ -34,4 +39,26 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 	}
 
 	return provingSchedule, nil
+}
+
+func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *big.Int, key string) (bool, string, error) {
+	metadataAddr := listenerAddr
+
+	// Check if the listener supports the viewContractAddress method
+	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
+	if err == nil {
+		viewAddr, err := listenerService.ViewContractAddress(nil)
+		if err == nil && viewAddr != (common.Address{}) {
+			metadataAddr = viewAddr
+		}
+	}
+
+	// Create a metadata service viewer.
+	mDataService, err := NewListenerServiceWithMetaData(metadataAddr, ethClient)
+	if err != nil {
+		log.Debugw("Failed to create a meta data service from listener, returning metadata not found", "error", err)
+		return false, "", nil
+	}
+	out, err := mDataService.GetDataSetMetadata(nil, dataSetId, key)
+	return out.Exists, out.Value, err
 }
