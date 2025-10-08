@@ -27,6 +27,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -534,6 +535,10 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, error) {
 	var headStr string
 	err := p.db.QueryRow(ctx, `SELECT head FROM ipni_head WHERE provider = $1`, provider).Scan(&headStr)
+	if err == pgx.ErrNoRows {
+		log.Debugw("no head CID yet for provider", "provider", provider)
+		return cid.Undef, nil
+	}
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("querying previous head: %w", err)
 	}
