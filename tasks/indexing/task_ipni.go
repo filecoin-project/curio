@@ -22,6 +22,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/multiformats/go-varint"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
@@ -311,7 +312,11 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	eg.Go(func() error {
 		defer close(addFail)
 		for rec := range recs {
-			serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), rec.Size)
+			// CAR sections are [varint (length), CID, blockData]
+			combinedSize := rec.Size + uint64(rec.Cid.ByteLen())
+			lenSize := uint64(varint.UvarintSize(combinedSize))
+			sectionSize := combinedSize + lenSize
+			serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), sectionSize)
 			if serr != nil {
 				addFail <- struct{}{}
 				return serr
