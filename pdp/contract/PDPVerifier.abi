@@ -194,6 +194,30 @@
   },
   {
     "type": "function",
+    "name": "createDataSet",
+    "inputs": [
+      {
+        "name": "listenerAddr",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "dataSetLive",
     "inputs": [
       {
