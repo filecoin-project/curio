@@ -78,7 +78,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		CROSS JOIN ipni_peerid ipni_peer
 		WHERE 
 			pr.ipni_task_id = $1
-			AND ipni_peer.sp_id = $2
+			AND ipni_peerid.sp_id = $2
 `, taskID, PDP_SP_ID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
@@ -367,7 +367,7 @@ func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
 			return xerrors.Errorf("getting peer ID: %w", err)
 		}
 
-		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, 0)`, privKey, pid.String())
+		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, pid.String(), PDP_SP_ID)
 		if err != nil {
 			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
 		}
