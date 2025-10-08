@@ -20,11 +20,11 @@ func ContractAddresses() PDPContracts {
 	switch build.BuildType {
 	case build.BuildCalibnet:
 		return PDPContracts{
-			PDPVerifier: common.HexToAddress("0x9ecb84bB617a6Fd9911553bE12502a1B091CdfD8"), // PDPVerifier Proxy v2.2.0 - https://github.com/FilOzone/pdp/releases/tag/v2.2.0
+			PDPVerifier: common.HexToAddress("0x579dD9E561D4Cd1776CF3e52E598616E77D5FBcb"), // PDPVerifier Proxy v2.2.1 - https://github.com/FilOzone/pdp/releases/tag/v2.2.1
 			AllowedPublicRecordKeepers: []common.Address{
 				common.HexToAddress("0x92B51cefF7eBc721Ad0F1fB09505E75F67DCAac6"), // Simple
 				common.HexToAddress("0x80617b65FD2EEa1D7fDe2B4F85977670690ed348"), // FilecoinWarmStorageService
-				common.HexToAddress("0x9ef4cAb0aD0D19b8Df28791Df80b29bC784bE91b"), // FilecoinWarmStorageService Proxy v0.2.0 - https://github.com/FilOzone/filecoin-services/releases/tag/v0.2.0
+				common.HexToAddress("0x468342072e0dc86AFFBe15519bc5B1A1aa86e4dc"), // FilecoinWarmStorageService Proxy v0.3.0 - https://github.com/FilOzone/filecoin-services/releases/tag/v0.3.0
 			},
 		}
 	case build.BuildMainnet:
