@@ -1064,7 +1064,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		if mustIndex {
-			log.Debugw("Data set metadata exists, marking all subpiecesas needing indexing", "dataSetId", dataSetId)
+			log.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
 			// Note: it's possible to update a duplicate piece that has already completed the indexing step
 			// but task_pdp_indexing handles pieces that have already been indexed smoothly
 			_, err := txdb.Exec(`

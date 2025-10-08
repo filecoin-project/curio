@@ -75,7 +75,11 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
 	}
 	if hasIndex {
-		// Piece already indexed so earlier indexing should have completed IPNI
+		// Piece already indexed so either:
+		// 1. A previous job with same commp indexed and completed IPNI
+		// 2. A parallel job with same commp indexed and will/has set needs_ipni
+		//
+		// In both cases we do not need to index or publish new advertisements to IPNI
 		err = P.recordCompletion(ctx, taskID, task.ID, false)
 		if err != nil {
 			return false, err
@@ -232,6 +236,9 @@ var _ harmonytask.TaskInterface = &PDPIndexingTask{}
 var _ = harmonytask.Reg(&PDPIndexingTask{})
 
 func IndexCAR(r io.Reader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
+	// ZeroLengthSectionAsEOF is not strictly needed here as it exists for the PoRep case where
+	// padding pieces with zero bytes to get them to be a larger size is reasonable. This isn't
+	// expected to be the case with PDP, but we'll stay consistent.
 	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(r, buffSize), carv2.ZeroLengthSectionAsEOF(true))
 	if err != nil {
 		return 0, false, fmt.Errorf("getting block reader over piece: %w", err)

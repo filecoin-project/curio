@@ -128,6 +128,8 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 		if sp < 0 {
 			spID = abi.ActorID(0)
+		} else {
+			spID = abi.ActorID(sp)
 		}
 
 		maddr, err := address.NewIDAddress(uint64(spID))
