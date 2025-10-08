@@ -104,8 +104,9 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	for rows.Next() && rows.Err() == nil {
 		var priv []byte
 		var peerID string
+		var sp int64
 		var spID abi.ActorID
-		err := rows.Scan(&priv, &peerID, &spID)
+		err := rows.Scan(&priv, &peerID, &sp)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan the row: %w", err)
 		}
@@ -122,6 +123,10 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 		if id.String() != peerID {
 			return nil, xerrors.Errorf("peer ID mismatch: got %s (calculated), expected %s (DB)", id.String(), peerID)
+		}
+
+		if sp < 0 {
+			spID = abi.ActorID(0)
 		}
 
 		maddr, err := address.NewIDAddress(uint64(spID))
