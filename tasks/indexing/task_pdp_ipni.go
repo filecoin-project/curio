@@ -131,7 +131,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
 		// CAR sections are [varint (length), CID, blockData]
-		combinedSize := blockMetadata.Size + uint64(blockMetadata.Cid.ByteLen())
+		combinedSize := blockMetadata.Size + uint64(blockMetadata.ByteLen())
 		lenSize := uint64(varint.UvarintSize(combinedSize))
 		sectionSize := combinedSize + lenSize
 		if err := chk.Accept(blockMetadata.Hash(), int64(blockMetadata.SourceOffset), sectionSize); err != nil {

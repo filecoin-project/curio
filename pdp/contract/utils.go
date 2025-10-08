@@ -53,7 +53,7 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 		}
 	}
 
-	// Create a warm storage service viewer.
+	// Create a metadata service viewer.
 	mDataService, err := NewListenerServiceWithMetaData(metadataAddr, ethClient)
 	if err != nil {
 		log.Debugw("Failed to create a meta data service from listener, returning metadata not found", "error", err)
