@@ -1308,6 +1308,31 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		http.Error(w, "Data set not found", http.StatusNotFound)
 		return
 	}
+	type DeletePiecePayload struct {
+		ExtraData *string `json:"extraData"`
+	}
+	var payload DeletePiecePayload
+	err = json.NewDecoder(r.Body).Decode(&payload)
+
+	// if the request body is empty, json.Decode will return io.EOF
+	if err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer func() {
+		_ = r.Body.Close()
+	}()
+
+	var extraDataBytes []byte
+	if payload.ExtraData != nil {
+		extraDataHexStr := *payload.ExtraData
+		extraDataBytes, err = hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+		if err != nil {
+			log.Errorf("Failed to decode hex extraData: %v", err)
+			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Get the ABI and pack the transaction data
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -1320,7 +1345,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	data, err := abiData.Pack("schedulePieceDeletions",
 		big.NewInt(int64(dataSetId)),
 		[]*big.Int{big.NewInt(int64(pieceID))},
-		[]byte{},
+		[]byte(extraDataBytes),
 	)
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
@@ -1372,8 +1397,17 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Return 204 No Content on successful deletion
-	w.WriteHeader(http.StatusNoContent)
+	response := struct {
+		TxHash string `json:"txHash"`
+	}{
+		TxHash: txHashLower,
+	}
+	// Send JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Request) {
