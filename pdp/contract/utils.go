@@ -5,8 +5,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	logger "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 )
+
+var log = logger.Logger("pdp-contract")
 
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
@@ -51,10 +54,11 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 	}
 
 	// Create a warm storage service viewer.
-	warmStorageService, err := NewFilecoinWarmStorageServiceStateView(metadataAddr, ethClient)
+	mDataService, err := NewListenerServiceWithMetaData(metadataAddr, ethClient)
 	if err != nil {
-		return false, "", xerrors.Errorf("failed to create warm storage service viewer: %w", err)
+		log.Debugw("Failed to create a meta data service from listener, returning metadata not found", "error", err)
+		return false, "", nil
 	}
-	out, err := warmStorageService.GetDataSetMetadata(nil, dataSetId, key)
+	out, err := mDataService.GetDataSetMetadata(nil, dataSetId, key)
 	return out.Exists, out.Value, err
 }

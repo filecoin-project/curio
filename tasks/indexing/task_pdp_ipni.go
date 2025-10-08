@@ -19,6 +19,7 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-varint"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -130,8 +131,8 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
 		// CAR sections are [varint (length), CID, blockData]
-		combinedSize := blockMetadata.Size+c.ByteLen()
-		lenSize := varint.UvarintSize(combinedSize)
+		combinedSize := blockMetadata.Size + uint64(blockMetadata.Cid.ByteLen())
+		lenSize := uint64(varint.UvarintSize(combinedSize))
 		sectionSize := combinedSize + lenSize
 		if err := chk.Accept(blockMetadata.Hash(), int64(blockMetadata.SourceOffset), sectionSize); err != nil {
 			return false, xerrors.Errorf("accepting block: %w", err)
