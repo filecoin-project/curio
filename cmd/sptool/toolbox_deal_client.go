@@ -39,13 +39,13 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/keystore"
 	"github.com/filecoin-project/curio/lib/testutils"
 	mk12_libp2p "github.com/filecoin-project/curio/market/libp2p"
@@ -1635,12 +1635,12 @@ var comm2Cmd = &cli.Command{
 			return fmt.Errorf("generating digest failed: %w", err)
 		}
 
-		commp, err := commcidv2.NewSha2CommP(uint64(stat.Size()), digest)
+		pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(stat.Size()))
 		if err != nil {
 			return fmt.Errorf("computing commP failed: %w", err)
 		}
 
-		fmt.Println("CommP CID: ", commp.PCidV2().String())
+		fmt.Println("CommP CID: ", pcid2.String())
 		fmt.Println("Car file size: ", stat.Size())
 		return nil
 	},

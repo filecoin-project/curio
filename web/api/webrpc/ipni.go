@@ -16,9 +16,9 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
 )
@@ -129,7 +129,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 			return nil, xerrors.Errorf("failed to get raw size: %w", err)
 		}
 
-		pcid2, err = commcidv2.PieceCidV2FromV1(pi.PieceCID, rawSize)
+		pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to get commp: %w", err)
 		}

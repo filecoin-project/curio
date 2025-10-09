@@ -30,10 +30,9 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 const defaultHashFunction = uint64(multihash.BLAKE2B_MIN + 31)
@@ -203,17 +202,21 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 		if err != nil {
 			return cid.Undef, xerrors.Errorf("computing digest for subpiece: %w", err)
 		}
-		comm, err := commcidv2.NewSha2CommP(uint64(stat.Size()), pbytes)
+		pcid2, err := commcid.DataCommitmentToPieceCidv2(pbytes, size)
 		if err != nil {
-			return cid.Undef, xerrors.Errorf("converting data commitment to CID: %w", err)
+			return cid.Undef, xerrors.Errorf("converting data commitment to CID v2: %w", err)
+		}
+		pcid1, err := commcid.DataCommitmentV1ToCID(pbytes)
+		if err != nil {
+			return cid.Undef, xerrors.Errorf("converting data commitment to CID v1: %w", err)
 		}
 		deals = append(deals, abi.PieceInfo{
-			PieceCID: comm.PCidV1(),
+			PieceCID: pcid1,
 			Size:     abi.PaddedPieceSize(size),
 		})
 		readers = append(readers, file)
 		urlStr := fmt.Sprintf("http://piece-server:12320/pieces?id=%s", stat.Name())
-		lines = append(lines, fmt.Sprintf("%s\t%s", comm.PCidV2().String(), urlStr))
+		lines = append(lines, fmt.Sprintf("%s\t%s", pcid2.String(), urlStr))
 	}
 
 	_, upsize, err := datasegment.ComputeDealPlacement(deals)
@@ -272,12 +275,12 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 		return cid.Undef, fmt.Errorf("incorrect aggregate raw size: expected %d, got %d", dealSize.Unpadded(), n)
 	}
 
-	comm, err := commcidv2.NewSha2CommP(uint64(n), digest)
+	pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("creating commP: %w", err)
 	}
 
-	err = os.WriteFile(fmt.Sprintf("aggregate_%s", comm.PCidV2().String()), []byte(strings.Join(lines, "\n")), 0644)
+	err = os.WriteFile(fmt.Sprintf("aggregate_%s", pcid2.String()), []byte(strings.Join(lines, "\n")), 0644)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("writing aggregate to file: %w", err)
 	}
@@ -288,11 +291,11 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 		}()
 	} else {
 		defer func() {
-			_ = os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", comm.PCidV2().String()))
+			_ = os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", pcid2.String()))
 		}()
 	}
 
-	return comm.PCidV2(), nil
+	return pcid2, nil
 }
 
 func EnvElse(env, els string) string {
