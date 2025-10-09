@@ -336,6 +336,9 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 	if err != nil {
 		return nil, xerrors.Errorf("parsing head CID: %w", err)
 	}
+	if _, ok := p.keys[provider]; !ok {
+		return nil, xerrors.Errorf("no key found for provider %s", provider)
+	}
 
 	signedHead, err := head.NewSignedHead(ad, "", p.keys[provider].Key)
 	if err != nil {
