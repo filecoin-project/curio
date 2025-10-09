@@ -164,9 +164,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 
@@ -190,9 +187,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 	require.NoError(t, err)

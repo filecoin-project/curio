@@ -570,6 +570,11 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 }
 
 func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *CurioConfig) (toml.MetaData, error) {
+	return LoadConfigWithUpgradesGeneric(text, curioConfigWithDefaults, FixTOML)
+}
+
+func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T, fixupFn func(string, T) error) (toml.MetaData, error) {
+
 	// allow migration from old config format that was limited to 1 wallet setup.
 	newText := strings.Join(lo.Map(strings.Split(text, "\n"), func(line string, _ int) string {
 		if strings.EqualFold(line, "[addresses]") {
@@ -578,7 +583,8 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *CurioConfig) (
 		return line
 	}), "\n")
 
-	err := FixTOML(newText, curioConfigWithDefaults)
+	err := fixupFn(newText, curioConfigWithDefaults)
+
 	if err != nil {
 		return toml.MetaData{}, err
 	}
@@ -621,17 +627,17 @@ func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]Confi
 	return result, nil
 }
 
-func ApplyLayers(ctx context.Context, curioConfig *CurioConfig, layers []ConfigText) error {
+func ApplyLayers[T any](ctx context.Context, configResult T, layers []ConfigText, fixupFn func(string, T) error) error {
 	have := []string{}
 	for _, layer := range layers {
-		meta, err := LoadConfigWithUpgrades(layer.Config, curioConfig)
+		meta, err := LoadConfigWithUpgradesGeneric(layer.Config, configResult, fixupFn)
 		if err != nil {
 			return fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 		for _, k := range meta.Keys() {
 			have = append(have, strings.Join(k, " "))
 		}
-		logger.Debugf("Using layer %s, config %v", layer, curioConfig)
+		logger.Debugf("Using layer %s, config %v", layer, configResult)
 	}
 	_ = have // FUTURE: verify that required fields are here.
 	// If config includes 3rd-party config, consider JSONSchema as a way that
