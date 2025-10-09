@@ -905,9 +905,10 @@ Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
 			Name: "CORSOrigins",
 			Type: "[]string",
 
-			Comment: `CORSOrigins specifies the allowed origins for CORS requests. If empty, CORS is disabled.
+			Comment: `CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
 If not empty, only the specified origins will be allowed for CORS requests.
-This is required for third-party UI servers.`,
+This is required for third-party UI servers.
+"*" allows everyone, it's best to specify the UI servers' hostname.`,
 		},
 		{
 			Name: "CSP",
