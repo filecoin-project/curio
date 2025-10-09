@@ -337,6 +337,7 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 		return nil, xerrors.Errorf("parsing head CID: %w", err)
 	}
 
+	log.Infof("Generating signed head for provider %s, p.keys[provider]: %v", provider, p.keys[provider])
 	signedHead, err := head.NewSignedHead(ad, "", p.keys[provider].Key)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate signed head for peer %s: %w", provider, err)
