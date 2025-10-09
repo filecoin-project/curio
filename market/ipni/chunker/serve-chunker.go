@@ -20,6 +20,9 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/commcidv2"
@@ -208,7 +211,7 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		if !singlePiece {
 			return nil, fmt.Errorf("more than 1 piece metadata found for piece cid %s, please use piece cid v2", pieceCidv2.String())
 		}
-		pcid2, err := commcidv2.PieceCidV2FromV1(pieceCidv2, uint64(rawSize))
+		pcid2, err := commcid.PieceCidV2FromV1(pieceCidv2, uint64(rawSize))
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert piece cid v1 to v2: %w", err)
 		}
@@ -307,12 +310,12 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piecev2 cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	commp, err := commcidv2.CommPFromPCidV2(piecev2)
+	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(piecev2)
 	if err != nil {
-		return nil, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+		return nil, xerrors.Errorf("getting piece CID v2 from piece CID v2: %w", err)
 	}
 
-	pi := commp.PieceInfo()
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piecev2, false)
 	defer func(reader storiface.Reader) {
@@ -320,7 +323,7 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 	}(reader)
 
 	if err != nil {
-		return nil, xerrors.Errorf("failed to read piece %s of size %d for ipni chunk %s reconstruction: %w", pi.PieceCID, pi.Size, chunk, err)
+		return nil, xerrors.Errorf("failed to read piece %s of size %d for ipni chunk %s reconstruction: %w", pieceCid, size, chunk, err)
 	}
 
 	_, err = reader.Seek(startOff, io.SeekStart)
@@ -370,7 +373,7 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 		return nil, xerrors.Errorf("encoding chunk node: %w", err)
 	}
 
-	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", pi.PieceCID, "size", pi.Size, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate, "readMiB", float64(curOff-startOff)/1024/1024, "recomputeTime", time.Since(read), "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds(), "MiB/s", float64(curOff-startOff)/1024/1024/time.Since(start).Seconds())
+	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", pieceCid, "size", size, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate, "readMiB", float64(curOff-startOff)/1024/1024, "recomputeTime", time.Since(read), "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds(), "MiB/s", float64(curOff-startOff)/1024/1024/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
 }
@@ -379,12 +382,12 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	commp, err := commcidv2.CommPFromPCidV2(piecev2)
+	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(piecev2)
 	if err != nil {
-		return nil, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+		return nil, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pi := commp.PieceInfo()
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	var mhs []multihash.Multihash
 
@@ -425,7 +428,7 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev
 		return nil, err
 	}
 
-	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", pi.PieceCID, "size", pi.Size, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
+	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", pieceCid, "size", size, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
 }

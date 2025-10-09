@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/build"
@@ -37,7 +38,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -265,7 +265,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("querying raw size: %w", err)
 	}
 
-	pcid2, err := commcidv2.PieceCidV2FromV1(pi.PieceCID, uint64(rawSize))
+	pcid2, err := commcid.PieceCidV2FromV1(pi.PieceCID, uint64(rawSize))
 	if err != nil {
 		return false, xerrors.Errorf("getting piece CID v2: %w", err)
 	}

@@ -16,7 +16,6 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
 )
@@ -81,10 +80,6 @@ func TestNewIndexStore(t *testing.T) {
 
 	pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(stat.Size()))
 	require.NoError(t, err)
-
-	comm, err := commcidv2.CommPFromPCidV2(pcid2)
-	require.NoError(t, err)
-	require.Equal(t, comm.PCidV1(), pcid1)
 
 	// Rewind the file
 	_, err = f.Seek(0, io.SeekStart)
