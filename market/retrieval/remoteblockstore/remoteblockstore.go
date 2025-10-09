@@ -124,7 +124,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}(reader)
 
 			// Get the offset of the block within the piece (CAR file)
-			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCidV2, c.Hash())
+			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCidV2, c.Hash()) // This can be pieceCidV2 or pieceCidV1, but we don't care because we are feeding back the db output
 			if err != nil {
 				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCidV2, err)
 			}
