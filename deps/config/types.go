@@ -113,7 +113,7 @@ func DefaultCurioConfig() *CurioConfig {
 					CIDGravityTokens:          []string{},
 				},
 				IPNI: IPNIConfig{
-					ServiceURL:         []string{"https://cid.contact"},
+					ServiceURL:         []string{"https://cid.contact", "https://filecoinpin.contact"},
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"},
 				},
 			},
