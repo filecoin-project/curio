@@ -43,6 +43,11 @@ func (d *Dynamic[T]) UnmarshalText(text []byte) error {
 	return toml.Unmarshal(text, d.value)
 }
 
+// For checkers.
+func (d *Dynamic[T]) MarshalText() ([]byte, error) {
+	return toml.Marshal(d.value)
+}
+
 type cfgRoot[T any] struct {
 	db       *harmonydb.DB
 	layers   []string
