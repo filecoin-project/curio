@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
 	"github.com/filecoin-project/curio/deps/config"
 )
 
@@ -397,21 +399,41 @@ func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash mul
 }
 
 func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
-	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
-	iter := i.session.Query(qry, piecev2.Bytes(), []byte(start), num).WithContext(ctx).Iter()
+	getHashes := func(pieceCidV2 cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
+		qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
+		iter := i.session.Query(qry, piecev2.Bytes(), []byte(start), num).WithContext(ctx).Iter()
 
-	var hashes []multihash.Multihash
-	var r []byte
-	for iter.Scan(&r) {
-		m := multihash.Multihash(r)
-		hashes = append(hashes, m)
+		var hashes []multihash.Multihash
+		var r []byte
+		for iter.Scan(&r) {
+			m := multihash.Multihash(r)
+			hashes = append(hashes, m)
 
-		// Allocate new r, preallocating the typical size of a multihash (36 bytes)
-		r = make([]byte, 0, 36)
+			// Allocate new r, preallocating the typical size of a multihash (36 bytes)
+			r = make([]byte, 0, 36)
+		}
+		if err := iter.Close(); err != nil {
+			return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piecev2.Bytes(), []byte(start), num, err)
+		}
+		return hashes, nil
 	}
-	if err := iter.Close(); err != nil {
-		return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piecev2.Bytes(), []byte(start), num, err)
+
+	hashes, err := getHashes(piecev2, start, num)
+	if err != nil {
+		return nil, err
 	}
+
+	if len(hashes) == 0 {
+		pcid1, _, err := commcid.PieceCidV1FromV2(piecev2)
+		if err != nil {
+			return nil, xerrors.Errorf("getting piece cid v1 from v2: %w", err)
+		}
+		hashes, err = getHashes(pcid1, start, num)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if len(hashes) != int(num) {
 		return nil, xerrors.Errorf("expected %d hashes, got %d (possibly missing indexes)", num, len(hashes))
 	}
