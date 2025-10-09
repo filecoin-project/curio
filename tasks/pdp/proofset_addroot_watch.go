@@ -34,7 +34,6 @@ type PieceAddEntry struct {
 	SubPieceSize    int64  `db:"sub_piece_size"`
 	PDPPieceRefID   int64  `db:"pdp_pieceref"`
 	AddMessageOK    *bool  `db:"add_message_ok"`
-	PDPDataSetId    uint64 `db:"data_set"`
 }
 
 // NewWatcherPieceAdd sets up the watcher for data set piece additions
@@ -111,6 +110,16 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 }
 
 func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, pieceAdd DataSetPieceAdd) error {
+	realDataSetId := pieceAdd.DataSet
+	if realDataSetId == 0 {
+		var err error
+		// XXX: Combined dataset creation and piece addition
+		realDataSetId, err = extractDataSetIdFromReceipt(receipt)
+		if err != nil {
+			return fmt.Errorf("expeted to find dataSetId in receipt but failed to extract: %w", err)
+		}
+		// XXX: I considered checking here if dataset exists already in DB, but not sure if it is needed
+	}
 	// Get the ABI from the contract metadata
 	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
@@ -190,6 +199,7 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 
 			pieceId := pieceIds[entry.AddMessageIndex]
 			// Insert into pdp_data_set_pieces
+			// XXX: Use realDataSetId as the unknown dataset id was resolved
 			_, err := tx.Exec(`
                 INSERT INTO pdp_data_set_pieces (
                     data_set,
@@ -204,18 +214,19 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9
                 )
-            `, entry.DataSet, entry.Piece, pieceId, entry.SubPiece, entry.SubPieceOffset, entry.SubPieceSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
+            `, realDataSetId, entry.Piece, pieceId, entry.SubPiece, entry.SubPieceOffset, entry.SubPieceSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into pdp_data_set_pieces: %w", err)
 			}
 		}
 
 		// Mark as processed in pdp_data_set_piece_adds (don't delete, for transaction tracking)
+		// XXX: update the data_set to the real one
 		rowsAffected, err := tx.Exec(`
                       UPDATE pdp_data_set_piece_adds
-                      SET pieces_added = TRUE
+                      SET pieces_added = TRUE, data_set = $3
                       WHERE data_set = $1 AND add_message_hash = $2 AND pieces_added = FALSE
-              `, pieceAdd.DataSet, pieceAdd.AddMessageHash)
+              `, pieceAdd.DataSet, pieceAdd.AddMessageHash, realDataSetId)
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_data_set_piece_adds: %w", err)
 		}
