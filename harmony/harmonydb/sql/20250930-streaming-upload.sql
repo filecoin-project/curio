@@ -2,7 +2,7 @@ CREATE TABLE pdp_piece_streaming_uploads (
     id UUID PRIMARY KEY NOT NULL,
     service TEXT NOT NULL, -- pdp_services.id
 
-    piece_cid TEXT, -- piece cid v2
+    piece_cid TEXT, -- piece cid v1
     piece_size BIGINT,
     raw_size BIGINT,
 

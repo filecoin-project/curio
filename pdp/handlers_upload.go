@@ -23,7 +23,6 @@ import (
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -508,7 +507,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(readSize))
+	pcid, err := commcid.DataCommitmentV1ToCID(digest)
 	if err != nil {
 		log.Errorw("Failed to calculate PieceCIDV2", "error", err)
 		_ = p.storage.StashRemove(ctx, stashID)
@@ -522,7 +521,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 		err := tx.QueryRow(`
             INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
             VALUES ($1, $2, $3, TRUE) RETURNING id
-        `, pcid2.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+        `, pcid.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
@@ -550,7 +549,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 		// 3. Update the pdp_piece_streaming_uploads entry
 		_, err = tx.Exec(`
             UPDATE pdp_piece_streaming_uploads SET piece_ref = $1, piece_cid = $2, piece_size = $3, raw_size = $4, complete = TRUE, completed_at = NOW() AT TIME ZONE 'UTC' WHERE id = $5 and service = $6
-        `, pieceRefID, pcid2.String(), paddedPieceSize, readSize, uploadUUID.String(), serviceID)
+        `, pieceRefID, pcid.String(), paddedPieceSize, readSize, uploadUUID.String(), serviceID)
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_piece_streaming_uploads: %w", err)
 		}
@@ -618,54 +617,37 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	pcid2, err := cid.Parse(req.PieceCID)
+	pcid, err := cid.Parse(req.PieceCID)
 	if err != nil {
 		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
 		return
 	}
 
-	digest, raw_size, err := commcid.PieceCidV2ToDataCommitment(pcid2)
+	digest, err := commcid.CIDToDataCommitmentV1(pcid)
 	if err != nil {
 		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
 		return
 	}
 
-	piece_size := padreader.PaddedSize(raw_size).Padded()
+	var dPcidStr string
+	var pSize, pref int64
 
-	if raw_size > uint64(UploadSizeLimit) {
-		http.Error(w, "Piece size exceeds the maximum allowed size", http.StatusBadRequest)
-		return
-	}
-
-	var dPcid2Str string
-	var pSize, dRaw_size, pref int64
-
-	err = p.db.QueryRow(ctx, `SELECT piece_cid, piece_size, raw_size, piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID).Scan(&dPcid2Str, &pSize, &dRaw_size)
+	err = p.db.QueryRow(ctx, `SELECT piece_cid, piece_size, piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID).Scan(&dPcidStr, &pSize)
 	if err != nil {
 		log.Errorw("Failed to query pdp_piece_streaming_uploads", "error", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	dPcid2, err := cid.Parse(dPcid2Str)
+	dPcid, err := cid.Parse(dPcidStr)
 	if err != nil {
 		log.Errorw("Failed to parse pieceCid", "error", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	if !pcid2.Equals(dPcid2) {
+	if !pcid.Equals(dPcid) {
 		http.Error(w, "Invalid request body: pieceCid does not match the calculated pieceCid for the uploaded piece", http.StatusBadRequest)
-		return
-	}
-
-	if raw_size != uint64(dRaw_size) {
-		http.Error(w, "Invalid request body: raw_size does not match the calculated raw_size for the uploaded piece", http.StatusBadRequest)
-		return
-	}
-
-	if piece_size != abi.PaddedPieceSize(uint64(pSize)) {
-		http.Error(w, "Invalid request body: piece_size does not match the calculated piece_size for the uploaded piece", http.StatusBadRequest)
 		return
 	}
 
@@ -673,7 +655,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		n, err := tx.Exec(`
        INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, piece_ref)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-   `, uploadUUID.String(), serviceID, pcid2.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, piece_size, pref)
+   `, uploadUUID.String(), serviceID, pcid.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, pSize, pref)
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
