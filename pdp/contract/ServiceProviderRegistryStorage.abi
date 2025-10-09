@@ -1,0 +1,179 @@
+[
+  {
+    "type": "function",
+    "name": "activeProductTypeProviderCount",
+    "inputs": [
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "activeProviderCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "addressToProviderId",
+    "inputs": [
+      {
+        "name": "providerAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "providerId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "productCapabilities",
+    "inputs": [
+      {
+        "name": "providerId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "value",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "productTypeProviderCount",
+    "inputs": [
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "providerProducts",
+    "inputs": [
+      {
+        "name": "providerId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      },
+      {
+        "name": "productData",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "isActive",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "providers",
+    "inputs": [
+      {
+        "name": "providerId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "serviceProvider",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "isActive",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "providerId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  }
+]
