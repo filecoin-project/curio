@@ -495,6 +495,7 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 	if build.BuildType == build.BuildMainnet {
 		ticker = time.NewTicker(publishInterval)
 	} else {
+		// We need to not filter out cid.contact
 		urls := RemoveCidContact(p.announceURLs)
 		if len(urls) == 0 {
 			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
