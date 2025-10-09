@@ -44,6 +44,7 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 func Router(mux *chi.Mux, rp *Provider) {
 	mux.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
 	mux.Get(ipfsPrefix+"{cid}", rp.fr.ServeHTTP)
+	mux.Head(ipfsPrefix+"{cid}", rp.fr.ServeHTTP)
 	mux.Get(infoPage, handleInfo)
 }
 
