@@ -12,7 +12,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 )
 
-const MaxMemtreeSize = 256 << 20
+const MaxMemtreeSize = 1 << 30
 
 // BuildSha254Memtree builds a sha256 memtree from the input data
 // Returned slice should be released to the pool after use

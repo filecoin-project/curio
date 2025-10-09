@@ -25,6 +25,7 @@ import (
 	"github.com/minio/sha256-simd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -65,6 +66,8 @@ func main() {
 			pieceUploadCmd,  // upload a piece to a pdp service
 			uploadFileCmd,   // upload a file to a pdp service in many chunks
 			downloadFileCmd, // download a file from curio
+
+			streamingPieceUploadCmd, // upload a piece to a pdp service in streaming mode
 
 			createDataSetCmd,    // create a new data set on the PDP service
 			getDataSetStatusCmd, // get the status of a data set creation on the PDP service
@@ -1502,6 +1505,258 @@ var removePiecesCmd = &cli.Command{
 			return fmt.Errorf("failed to remove piece, status code %d", resp.StatusCode)
 		}
 
+		return nil
+	},
+}
+
+var streamingPieceUploadCmd = &cli.Command{
+	Name:      "upload",
+	Usage:     "Upload a piece to a PDP service",
+	ArgsUsage: "<input-file>",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "jwt-token",
+			Usage: "JWT token for authentication (optional if --service-name is provided)",
+		},
+		&cli.StringFlag{
+			Name:  "service-name",
+			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
+		},
+		&cli.StringFlag{
+			Name:     "notify-url",
+			Usage:    "Notification URL",
+			Required: false,
+		},
+		&cli.StringFlag{
+			Name:  "hash-type",
+			Usage: "Hash type to use for verification (sha256 or commp)",
+			Value: "commp",
+		},
+		&cli.BoolFlag{
+			Name:  "local-notif-wait",
+			Usage: "Wait for server notification by spawning a temporary local HTTP server",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		inputFile := cctx.Args().Get(0)
+		if inputFile == "" {
+			return fmt.Errorf("input file is required")
+		}
+
+		serviceURL := cctx.String("service-url")
+		jwtToken := cctx.String("jwt-token")
+		notifyURL := cctx.String("notify-url")
+		serviceName := cctx.String("service-name")
+		hashType := cctx.String("hash-type")
+		localNotifWait := cctx.Bool("local-notif-wait")
+
+		if jwtToken == "" {
+			if serviceName == "" {
+				return fmt.Errorf("either --jwt-token or --service-name must be provided")
+			}
+			var err error
+			jwtToken, err = getJWTTokenForService(serviceName)
+			if err != nil {
+				return err
+			}
+		}
+
+		if hashType != "sha256" && hashType != "commp" {
+			return fmt.Errorf("invalid hash type: %s", hashType)
+		}
+
+		if localNotifWait && notifyURL != "" {
+			return fmt.Errorf("cannot specify both --notify-url and --local-notif-wait")
+		}
+
+		var notifyReceived chan struct{}
+		var err error
+
+		if localNotifWait {
+			notifyURL, notifyReceived, err = startLocalNotifyServer()
+			if err != nil {
+				return fmt.Errorf("failed to start local HTTP server: %v", err)
+			}
+		}
+
+		// Open the input file
+		file, err := os.Open(inputFile)
+		if err != nil {
+			return fmt.Errorf("failed to open input file: %v", err)
+		}
+		defer func() {
+			_ = file.Close()
+		}()
+
+		// Get the piece size
+		fi, err := file.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to stat input file: %v", err)
+		}
+		raw_size := fi.Size()
+
+		client := &http.Client{}
+
+		req, err := http.NewRequest("GET", serviceURL+"/pdp/piece/uploads", nil)
+		if err != nil {
+			return fmt.Errorf("failed to create upload request: %v", err)
+		}
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		if resp.StatusCode != http.StatusCreated {
+			ret, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to get upload URL, status code %d, failed to read body %s", resp.StatusCode, err.Error())
+			}
+			return fmt.Errorf("failed to create upload, status code %d: %s", resp.StatusCode, string(ret))
+		}
+
+		location := resp.Header.Get("Location")
+		if location == "" {
+			return fmt.Errorf("failed to get upload URL, status code %d, no Location header", resp.StatusCode)
+		}
+
+		cp := commp.Calc{}
+
+		pipeReader, pipeWriter := io.Pipe()
+
+		// Set up a MultiWriter to write to both cp and the pipe
+		multiWriter := io.MultiWriter(&cp, pipeWriter)
+
+		// Create an error group to handle goroutines
+		var g errgroup.Group
+
+		// Start goroutine to read the file and write to the MultiWriter
+		g.Go(func() error {
+			defer func() {
+				_ = pipeWriter.Close() // Ensure the pipeWriter is closed
+			}()
+			n, err := io.Copy(multiWriter, file)
+			if err != nil {
+				return fmt.Errorf("failed to copy data to multiwriter: %v", err)
+			}
+			if n != raw_size {
+				return fmt.Errorf("failed to copy all data to multiwriter, only copied %d/%d bytes", n, raw_size)
+			}
+			return nil
+		})
+
+		// Start a goroutine to handle the HTTP request
+		g.Go(func() error {
+			defer func() {
+				_ = pipeReader.Close() // Ensure the pipeReader is closed
+			}()
+			// Prepare the HTTP request for file upload
+			req, err := http.NewRequest("PUT", serviceURL+location, pipeReader)
+			if err != nil {
+				return fmt.Errorf("failed to create upload request: %v", err)
+			}
+			if jwtToken != "" {
+				req.Header.Set("Authorization", "Bearer "+jwtToken)
+			}
+			req.Header.Set("Content-Type", "application/octet-stream")
+
+			// Execute the request
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to send upload request: %v", err)
+			}
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
+			if resp.StatusCode != http.StatusNoContent {
+				ret, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return fmt.Errorf("failed to upload, status code %d, failed to read body %s", resp.StatusCode, err.Error())
+				}
+				return fmt.Errorf("upload failed, status code %d: %s", resp.StatusCode, string(ret))
+			}
+			return nil
+		})
+
+		// Wait for all goroutines to complete
+		if err := g.Wait(); err != nil {
+			return fmt.Errorf("upload process failed: %v", err)
+		}
+
+		digest, _, err := cp.Digest()
+		if err != nil {
+			return fmt.Errorf("failed to calculate digest: %v", err)
+		}
+
+		pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(raw_size))
+		if err != nil {
+			return fmt.Errorf("failed to compute piece CID: %v", err)
+		}
+
+		// At this point, the commp calculation is complete
+		fmt.Printf("CommP: %s\n", pcid2.String())
+
+		type finalize struct {
+			PieceCID string `json:"pieceCid"`
+			Notify   string `json:"notify,omitempty"`
+		}
+
+		bd := finalize{
+			PieceCID: pcid2.String(),
+		}
+
+		if notifyURL != "" {
+			bd.Notify = notifyURL
+		}
+
+		bodyBytes, err := json.Marshal(bd)
+		if err != nil {
+			return fmt.Errorf("failed to marshal finalize request body: %v", err)
+		}
+
+		req, err = http.NewRequest("POST", serviceURL+location, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			return fmt.Errorf("failed to create finalize request: %v", err)
+		}
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err = client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send finalize request: %v", err)
+		}
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		if resp.StatusCode != http.StatusOK {
+			ret, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to finalize, status code %d, failed to read body %s", resp.StatusCode, err.Error())
+			}
+			return fmt.Errorf("failed to finalize, status code %d: %s", resp.StatusCode, string(ret))
+		}
+
+		fmt.Println("Piece uploaded successfully.")
+		if localNotifWait {
+			fmt.Println("Waiting for server notification...")
+			<-notifyReceived
+		}
 		return nil
 	},
 }

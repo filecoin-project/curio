@@ -12,6 +12,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -52,8 +53,8 @@ type PDPServiceNodeApi interface {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
-	return &PDPService{
+func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
+	p := &PDPService{
 		Auth:    &NullAuth{},
 		db:      db,
 		storage: stor,
@@ -62,6 +63,9 @@ func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client
 		ethClient: ec,
 		filClient: fc,
 	}
+
+	go p.cleanup(ctx)
+	return p
 }
 
 // Routes registers the HTTP routes with the provided router
@@ -113,6 +117,15 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 	// PUT /pdp/piece/upload/{uploadUUID}
 	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
+
+	// POST /pdp/piece/uploads
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), p.handleStreamingUploadURL)
+
+	// PUT /pdp/piece/uploads/{uploadUUID}
+	r.Put(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleStreamingUpload)
+
+	// POST /pdp/piece/uploads/{uploadUUID}
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleFinalizeStreamingUpload)
 }
 
 // Handler functions
@@ -908,6 +921,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 		if height > 50 {
 			http.Error(w, "Invalid height", http.StatusBadRequest)
+			return
 		}
 
 		// Get raw size by summing up the sizes of subPieces
@@ -1588,5 +1602,38 @@ func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
 		return pieceCid, size, nil
 	default:
 		return cid.Undef, 0, fmt.Errorf("unsupported piece CID type: %d", pieceCid.Prefix().MhType)
+	}
+}
+
+func (p *PDPService) cleanup(ctx context.Context) {
+	rm := func(ctx context.Context, db *harmonydb.DB) {
+
+		var RefIDs []int64
+
+		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(ref_id), '{}') AS ref_ids
+												FROM pdp_piece_streaming_uploads
+												WHERE complete = TRUE
+												  AND completed_at <= TIMEZONE('UTC', NOW()) - INTERVAL '60 minutes';`).Scan(&RefIDs)
+		if err != nil {
+			log.Errorw("failed to get non-finalized uploads", "error", err)
+		}
+
+		if len(RefIDs) > 0 {
+			_, err := db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = ANY($1);`, RefIDs)
+			if err != nil {
+				log.Errorw("failed to delete non-finalized uploads", "error", err)
+			}
+		}
+	}
+
+	ticker := time.NewTicker(time.Minute * 5)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rm(ctx, p.db)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
