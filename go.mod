@@ -63,7 +63,7 @@ require (
 	github.com/ipfs/go-graphsync v0.17.0
 	github.com/ipfs/go-ipld-cbor v0.2.1
 	github.com/ipfs/go-ipld-format v0.6.2
-	github.com/ipfs/go-log/v2 v2.8.1
+	github.com/ipfs/go-log/v2 v2.8.2
 	github.com/ipld/frisbii v0.7.1
 	github.com/ipld/go-car v0.6.2
 	github.com/ipld/go-car/v2 v2.15.0
