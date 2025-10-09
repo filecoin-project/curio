@@ -167,7 +167,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = 0`).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = -2`).Scan(&privKey)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 		}
