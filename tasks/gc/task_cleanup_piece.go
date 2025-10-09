@@ -321,7 +321,7 @@ func (p *PieceCleanupTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	if dropIndex {
-		err = dropIndexes(ctx, p.indexStore, pcid2)
+		err = dropIndexes(ctx, p.indexStore, pcid2, pi.PieceCIDV1)
 		if err != nil {
 			return false, xerrors.Errorf("failed to drop indexes for piece %s: %w", pcid2, err)
 		}
@@ -392,8 +392,13 @@ func (p *PieceCleanupTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func dropIndexes(ctx context.Context, indexStore *indexstore.IndexStore, pieceCid cid.Cid) error {
+func dropIndexes(ctx context.Context, indexStore *indexstore.IndexStore, pieceCid, pieceCid2 cid.Cid) error {
 	err := indexStore.RemoveIndexes(ctx, pieceCid)
+	if err != nil {
+		return xerrors.Errorf("failed to remove indexes for piece %s: %w", pieceCid, err)
+	}
+
+	err = indexStore.RemoveIndexes(ctx, pieceCid2)
 	if err != nil {
 		return xerrors.Errorf("failed to remove indexes for piece %s: %w", pieceCid, err)
 	}
