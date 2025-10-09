@@ -26,5 +26,5 @@ func TestCopyPartial(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, res.Bar, 10)
 	input.Foo.Set(30)
-	assert.Equal(t, 30, res.Foo.Dynamic.Get())
+	assert.Equal(t, 30, res.Foo.Get())
 }

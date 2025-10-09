@@ -16,12 +16,13 @@ import (
 	"unicode"
 
 	"github.com/BurntSushi/toml"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // FromFile loads config from a specified file overriding defaults specified in

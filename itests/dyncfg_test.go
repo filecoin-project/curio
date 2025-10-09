@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDynamicConfig(t *testing.T) {

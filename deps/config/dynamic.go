@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	logging "github.com/ipfs/go-log/v2"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 var logger = logging.Logger("config-dynamic")
