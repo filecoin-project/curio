@@ -167,7 +167,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = -2`).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&privKey)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 		}
@@ -202,19 +202,6 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
-			
-			/*
-			peerId, err := peer.IDFromPublicKey(pkey.GetPublic())
-			if err != nil {
-				return false, fmt.Errorf("getting peer ID: %w", err)
-			}
-
-			p2pComp, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_P2P).Name, peerId.String())
-			if err != nil {
-				return false, xerrors.Errorf("creating p2p multiaddr component: %w", err)
-			}
-			addr = addr.AppendComponent(p2pComp)
-			*/
 
 			log.Infow("Announcing piece to IPNI", "piece", pi.PieceCID, "provider", task.Prov, "addr", addr.String(), "task", taskID)
 
