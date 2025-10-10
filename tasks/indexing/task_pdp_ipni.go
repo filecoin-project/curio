@@ -19,7 +19,6 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-varint"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -203,7 +202,8 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
-
+			
+			/*
 			peerId, err := peer.IDFromPublicKey(pkey.GetPublic())
 			if err != nil {
 				return false, fmt.Errorf("getting peer ID: %w", err)
@@ -214,6 +214,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				return false, xerrors.Errorf("creating p2p multiaddr component: %w", err)
 			}
 			addr = addr.AppendComponent(p2pComp)
+			*/
 
 			log.Infow("Announcing piece to IPNI", "piece", pi.PieceCID, "provider", task.Prov, "addr", addr.String(), "task", taskID)
 
