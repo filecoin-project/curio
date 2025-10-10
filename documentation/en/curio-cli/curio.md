@@ -46,7 +46,7 @@ NAME:
    curio cli - Execute cli commands
 
 USAGE:
-   curio cli command [command options]
+   curio cli [command options]
 
 COMMANDS:
    info          Get Curio node info
@@ -82,7 +82,7 @@ NAME:
    curio cli storage - manage sector storage
 
 USAGE:
-   curio cli storage command [command options]
+   curio cli storage [command options]
 
 DESCRIPTION:
    Sectors can be stored across many filesystem paths. These
@@ -220,7 +220,7 @@ NAME:
    curio cli log - Manage logging
 
 USAGE:
-   curio cli log command [command options]
+   curio cli log [command options]
 
 COMMANDS:
    list       List log systems
@@ -361,7 +361,7 @@ NAME:
    curio config - Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
 
 USAGE:
-   curio config command [command options]
+   curio config [command options]
 
 COMMANDS:
    default, defaults                Print default node config
@@ -488,7 +488,7 @@ NAME:
    curio test - Utility functions for testing
 
 USAGE:
-   curio test command [command options]
+   curio test [command options]
 
 COMMANDS:
    window-post, wd, windowpost, wdpost  Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
@@ -505,7 +505,7 @@ NAME:
    curio test window-post - Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
 
 USAGE:
-   curio test window-post command [command options]
+   curio test window-post [command options]
 
 COMMANDS:
    here, cli                                       Compute WindowPoSt for performance and configuration testing.
@@ -556,7 +556,7 @@ NAME:
    curio test debug - Collection of debugging utilities
 
 USAGE:
-   curio test debug command [command options]
+   curio test debug [command options]
 
 COMMANDS:
    ipni-piece-chunks  generate ipni chunks from a file
@@ -586,7 +586,7 @@ NAME:
    curio test debug debug-snsvc
 
 USAGE:
-   curio test debug debug-snsvc command [command options]
+   curio test debug debug-snsvc [command options]
 
 COMMANDS:
    deposit                      Deposit FIL into the Router contract (client)
@@ -889,7 +889,7 @@ NAME:
    curio test debug proofsvc-client - Interact with the remote proof service
 
 USAGE:
-   curio test debug proofsvc-client command [command options]
+   curio test debug proofsvc-client [command options]
 
 COMMANDS:
    create-voucher  Create a client voucher
@@ -983,7 +983,7 @@ NAME:
    curio seal - Manage the sealing pipeline
 
 USAGE:
-   curio seal command [command options]
+   curio seal [command options]
 
 COMMANDS:
    start    Start new sealing operations manually
@@ -1034,7 +1034,7 @@ NAME:
    curio unseal - Manage unsealed data
 
 USAGE:
-   curio unseal command [command options]
+   curio unseal [command options]
 
 COMMANDS:
    info              Get information about unsealed data
@@ -1125,7 +1125,7 @@ NAME:
    curio market
 
 USAGE:
-   curio market command [command options]
+   curio market [command options]
 
 COMMANDS:
    seal            start sealing a deal sector early
@@ -1216,7 +1216,7 @@ NAME:
    curio calc - Math Utils
 
 USAGE:
-   curio calc command [command options]
+   curio calc [command options]
 
 COMMANDS:
    batch-cpu         Analyze and display the layout of batch sealer threads
@@ -1273,7 +1273,7 @@ NAME:
    curio toolbox - Tool Box for Curio
 
 USAGE:
-   curio toolbox command [command options]
+   curio toolbox [command options]
 
 COMMANDS:
    fix-msg  Updated DB with message data missing from chain node

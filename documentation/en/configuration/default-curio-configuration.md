@@ -716,7 +716,7 @@ description: The default curio configuration
       # TODO: should we use this for checking published heads before publishing? Later commit
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact"]
+      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
