@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -180,6 +181,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 	chiRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprintf(w, "Service is up and running")
+	})
+
+	// Status endpoint to check the health of the service
+	chiRouter.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "%s", build.UserVersion())
 	})
 
 	chiRouter, err = attachRouters(ctx, chiRouter, d, sd, dm)
