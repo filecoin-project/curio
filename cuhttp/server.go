@@ -186,7 +186,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 	// Status endpoint to check the health of the service
 	chiRouter.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, build.UserVersion())
+		_, _ = fmt.Fprintf(w, "%s", build.UserVersion())
 	})
 
 	chiRouter, err = attachRouters(ctx, chiRouter, d, sd, dm)
