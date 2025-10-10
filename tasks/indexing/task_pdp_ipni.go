@@ -82,6 +82,10 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
 	}
 
+	if len(tasks) == 0 {
+		return true, nil
+	}
+
 	if len(tasks) != 1 {
 		return false, xerrors.Errorf("expected 1 ipni task params, got %d", len(tasks))
 	}

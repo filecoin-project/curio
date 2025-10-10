@@ -103,6 +103,10 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
 	}
 
+	if len(tasks) == 0 {
+		return true, nil
+	}
+
 	if len(tasks) != 1 {
 		return false, xerrors.Errorf("expected 1 ipni task params, got %d", len(tasks))
 	}
@@ -513,7 +517,7 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 	type task struct {
 		TaskID    harmonytask.TaskID `db:"task_id"`
 		ID        string             `db:"id"`
-		StorageID string             `db:"storage_id"`
+		StorageID sql.NullString     `db:"storage_id"`
 		IsRm      bool               `db:"is_rm"`
 	}
 
@@ -565,8 +569,8 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 		var mk12Tasks []task
 		err := I.db.Select(ctx, &mk12Tasks, `
 			SELECT dp.task_id, dp.id, l.storage_id FROM ipni_task dp
-				INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-				WHERE dp.task_id = ANY ($1) AND l.sector_filetype = 1`, indIDs)
+				LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
+				WHERE dp.task_id = ANY ($1) AND (l.sector_filetype IS NULL OR l.sector_filetype = 1)`, indIDs)
 		if err != nil {
 			return nil, xerrors.Errorf("getting storage details: %w", err)
 		}
@@ -610,11 +614,27 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 			continue
 		}
 
+		acceptables[t.TaskID] = false // note the task was found
+
+		if !t.StorageID.Valid {
+			// no unsealed copy
+			return &t.TaskID, nil
+		}
+
 		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
+			if string(l.ID) == t.StorageID.String {
 				return &t.TaskID, nil
 			}
 		}
+	}
+
+	// special case for orphan tasks which are created for non-announced pieces
+	for taskID, notAccepted := range acceptables {
+		if !notAccepted {
+			continue
+		}
+
+		return &taskID, nil
 	}
 
 	return nil, nil
