@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/google/go-cmp/cmp"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -43,9 +44,14 @@ func (d *Dynamic[T]) UnmarshalText(text []byte) error {
 	return toml.Unmarshal(text, d.value)
 }
 
-// For checkers.
+// For checkers to verify TOML.
 func (d *Dynamic[T]) MarshalText() ([]byte, error) {
 	return toml.Marshal(d.value)
+}
+
+// Helpful for cmp.Equalcheckers.
+func (d *Dynamic[T]) Equals(other *Dynamic[T]) bool {
+	return cmp.Equal(d.value, other.value)
 }
 
 type cfgRoot[T any] struct {
