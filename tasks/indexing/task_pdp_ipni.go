@@ -167,7 +167,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = 0`).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&privKey)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 		}
@@ -186,7 +186,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		{
-			u, err := url.Parse(fmt.Sprintf("https://%s", P.cfg.HTTP.DomainName))
+			u, err := url.Parse(fmt.Sprintf("https://%s:443", P.cfg.HTTP.DomainName))
 			if err != nil {
 				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
@@ -202,6 +202,8 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
+
+			log.Infow("Announcing piece to IPNI", "piece", pi.PieceCID, "provider", task.Prov, "addr", addr.String(), "task", taskID)
 
 			adv.Addresses = append(adv.Addresses, addr.String())
 		}

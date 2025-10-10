@@ -41,10 +41,23 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 	}
 }
 
+// logRequest logs incoming HTTP requests with their headers
+func logRequest(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		log.Infow("HTTP request",
+			"method", r.Method,
+			"url", r.URL.String(),
+			"remote_addr", r.RemoteAddr,
+			"headers", r.Header)
+		next(w, r)
+	}
+}
+
 func Router(mux *chi.Mux, rp *Provider) {
-	mux.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
-	mux.Get(ipfsPrefix+"{cid}", rp.fr.ServeHTTP)
-	mux.Get(infoPage, handleInfo)
+	mux.Get(piecePrefix+"{cid}", logRequest(rp.handleByPieceCid))
+	mux.Get(ipfsPrefix+"{cid}", logRequest(rp.fr.ServeHTTP))
+	mux.Head(ipfsPrefix+"{cid}", logRequest(rp.fr.ServeHTTP))
+	mux.Get(infoPage, logRequest(handleInfo))
 }
 
 func handleInfo(rw http.ResponseWriter, r *http.Request) {
