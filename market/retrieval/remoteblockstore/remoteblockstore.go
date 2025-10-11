@@ -108,7 +108,13 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 		return nil, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
 	}
 	if len(pieces) == 0 {
-		return nil, fmt.Errorf("no pieces with cid %s found", c)
+		// We must return ipld ErrNotFound here because that's the only type
+		// that allows clients (including Frisbii trustless gateway) to distinguish
+		// content-not-found (404) from server errors (500).
+		if ro.blockMetrics != nil {
+			stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+		}
+		return nil, format.ErrNotFound{Cid: c}
 	}
 
 	// Get a reader over one of the pieces and extract the block data
@@ -149,9 +155,14 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	}
 
 	if merr == nil {
-		merr = fmt.Errorf("no block with cid %s found", c)
+		// All pieces failed to provide the block, but not due to errors.
+		// This means the block wasn't found in any piece.
+		merr = format.ErrNotFound{Cid: c}
 	}
 
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+	}
 	return nil, merr
 }
 
