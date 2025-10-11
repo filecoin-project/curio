@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
 
@@ -30,7 +29,7 @@ const infoPage = "/info"
 
 func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *Provider {
 	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
-	lsys := storeutil.LinkSystemForBlockstore(bs)
+	lsys := LinkSystemForBlockstore(bs)
 	fr := frisbii.NewHttpIpfs(ctx, lsys)
 
 	return &Provider{
