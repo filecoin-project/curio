@@ -191,8 +191,8 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			pp.piece_raw_size,
 			pr.created_at,
 
-			-- Indexing status (indexed if service doesn't need it OR if IPNI has ads)
-			(NOT pr.needs_indexing OR i.ad_cid IS NOT NULL) as indexed,
+			-- Indexing status (only true when IPNI ads exist, indicating actual indexing completion)
+			i.ad_cid IS NOT NULL as indexed,
 
 			-- Advertisement status
 			i.ad_cid IS NOT NULL as advertised,
