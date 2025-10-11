@@ -249,11 +249,11 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 	// Prepare response
 	response := struct {
-		PieceCID   string     `json:"pieceCid"`
-		Status     string     `json:"status"`
-		Indexed    bool       `json:"indexed"`
-		Advertised bool       `json:"advertised"`
-		Retrieved  bool       `json:"retrieved"`
+		PieceCID    string     `json:"pieceCid"`
+		Status      string     `json:"status"`
+		Indexed     bool       `json:"indexed"`
+		Advertised  bool       `json:"advertised"`
+		Retrieved   bool       `json:"retrieved"`
 		RetrievedAt *time.Time `json:"retrievedAt,omitempty"`
 	}{
 		PieceCID:    pieceCidV2.String(),
