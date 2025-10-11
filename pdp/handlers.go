@@ -197,18 +197,18 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			(NOT pr.needs_indexing OR i.ad_cid IS NOT NULL) as indexed,
 			CASE
 				WHEN i.ad_cid IS NOT NULL THEN (
-					SELECT created_at FROM ipni WHERE piece_cid = pr.piece_cid
-						AND provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
-						ORDER BY order_number ASC LIMIT 1
+					SELECT ipni.created_at FROM ipni WHERE ipni.piece_cid = pr.piece_cid
+						AND ipni.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
+						ORDER BY ipni.order_number ASC LIMIT 1
 				)
 				WHEN NOT pr.needs_indexing THEN pr.created_at
 			END as indexed_at,
 
 			-- Advertisement status
 			i.ad_cid IS NOT NULL as advertised,
-			(SELECT created_at FROM ipni WHERE piece_cid = pr.piece_cid
-				AND provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
-				ORDER BY order_number ASC LIMIT 1) as advertised_at,
+			(SELECT ipni.created_at FROM ipni WHERE ipni.piece_cid = pr.piece_cid
+				AND ipni.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
+				ORDER BY ipni.order_number ASC LIMIT 1) as advertised_at,
 			i.ad_cid,
 
 			-- Fetch status
