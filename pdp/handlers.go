@@ -1610,7 +1610,7 @@ func (p *PDPService) cleanup(ctx context.Context) {
 
 		var RefIDs []int64
 
-		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(ref_id), '{}') AS ref_ids
+		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(piece_ref), '{}') AS ref_ids
 												FROM pdp_piece_streaming_uploads
 												WHERE complete = TRUE
 												  AND completed_at <= TIMEZONE('UTC', NOW()) - INTERVAL '60 minutes';`).Scan(&RefIDs)
