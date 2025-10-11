@@ -178,9 +178,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		PieceRawSize uint64     `db:"piece_raw_size"`
 		CreatedAt    time.Time  `db:"created_at"`
 		Indexed      bool       `db:"indexed"`
-		IndexedAt    *time.Time `db:"indexed_at"`
 		Advertised   bool       `db:"advertised"`
-		AdvertisedAt *time.Time `db:"advertised_at"`
 		AdCID        *string    `db:"ad_cid"`
 		Retrieved    bool       `db:"retrieved"`
 		RetrievedAt  *time.Time `db:"retrieved_at"`
@@ -195,20 +193,9 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 			-- Indexing status (indexed if service doesn't need it OR if IPNI has ads)
 			(NOT pr.needs_indexing OR i.ad_cid IS NOT NULL) as indexed,
-			CASE
-				WHEN i.ad_cid IS NOT NULL THEN (
-					SELECT ipni.created_at FROM ipni WHERE ipni.piece_cid = pr.piece_cid
-						AND ipni.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
-						ORDER BY ipni.order_number ASC LIMIT 1
-				)
-				WHEN NOT pr.needs_indexing THEN pr.created_at
-			END as indexed_at,
 
 			-- Advertisement status
 			i.ad_cid IS NOT NULL as advertised,
-			(SELECT ipni.created_at FROM ipni WHERE ipni.piece_cid = pr.piece_cid
-				AND ipni.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
-				ORDER BY ipni.order_number ASC LIMIT 1) as advertised_at,
 			i.ad_cid,
 
 			-- Fetch status
@@ -237,9 +224,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		&result.PieceRawSize,
 		&result.CreatedAt,
 		&result.Indexed,
-		&result.IndexedAt,
 		&result.Advertised,
-		&result.AdvertisedAt,
 		&result.AdCID,
 		&result.Retrieved,
 		&result.RetrievedAt,
@@ -264,23 +249,19 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 	// Prepare response
 	response := struct {
-		PieceCID     string     `json:"pieceCid"`
-		Status       string     `json:"status"`
-		Indexed      bool       `json:"indexed"`
-		IndexedAt    *time.Time `json:"indexedAt,omitempty"`
-		Advertised   bool       `json:"advertised"`
-		AdvertisedAt *time.Time `json:"advertisedAt,omitempty"`
-		Retrieved    bool       `json:"retrieved"`
-		RetrievedAt  *time.Time `json:"retrievedAt,omitempty"`
+		PieceCID   string     `json:"pieceCid"`
+		Status     string     `json:"status"`
+		Indexed    bool       `json:"indexed"`
+		Advertised bool       `json:"advertised"`
+		Retrieved  bool       `json:"retrieved"`
+		RetrievedAt *time.Time `json:"retrievedAt,omitempty"`
 	}{
-		PieceCID:     pieceCidV2.String(),
-		Status:       result.Status,
-		Indexed:      result.Indexed,
-		IndexedAt:    result.IndexedAt,
-		Advertised:   result.Advertised,
-		AdvertisedAt: result.AdvertisedAt,
-		Retrieved:    result.Retrieved,
-		RetrievedAt:  result.RetrievedAt,
+		PieceCID:    pieceCidV2.String(),
+		Status:      result.Status,
+		Indexed:     result.Indexed,
+		Advertised:  result.Advertised,
+		Retrieved:   result.Retrieved,
+		RetrievedAt: result.RetrievedAt,
 	}
 
 	// Return JSON response
