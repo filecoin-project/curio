@@ -256,13 +256,9 @@ type FSPDPOffering struct {
 }
 
 func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error) {
-	var existingAddress string
-	err := a.deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp'`).Scan(&existingAddress)
+	pdpAddress, err := a.getPDPAddress(ctx)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("no PDP key found")
-		}
-		return nil, fmt.Errorf("failed to retrieve PDP key")
+		return nil, fmt.Errorf("failed to get PDP address: %w", err)
 	}
 
 	eclient, err := a.deps.EthClient.Val()
@@ -280,7 +276,7 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 		return nil, fmt.Errorf("failed to create service registry: %w", err)
 	}
 
-	registered, err := registry.IsRegisteredProvider(&bind.CallOpts{Context: ctx}, common.HexToAddress(existingAddress))
+	registered, err := registry.IsRegisteredProvider(&bind.CallOpts{Context: ctx}, pdpAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if provider is registered: %w", err)
 	}
@@ -289,12 +285,12 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 		return nil, nil
 	}
 
-	pid, err := registry.GetProviderIdByAddress(&bind.CallOpts{Context: ctx}, common.HexToAddress(existingAddress))
+	pid, err := registry.GetProviderIdByAddress(&bind.CallOpts{Context: ctx}, pdpAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider id: %w", err)
 	}
 
-	provider, err := registry.GetProviderByAddress(&bind.CallOpts{Context: ctx}, common.HexToAddress(existingAddress))
+	provider, err := registry.GetProviderByAddress(&bind.CallOpts{Context: ctx}, pdpAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %w", err)
 	}
@@ -317,8 +313,8 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 	}
 
 	return &FSRegistryStatus{
-		Address:      existingAddress,
-		ID:           provider.ProviderId.Int64(),
+		Address:      pdpAddress.Hex(),
+		ID:           pid.Int64(),
 		Active:       provider.IsActive,
 		Payee:        provider.Payee.String(),
 		Name:         provider.Name,
