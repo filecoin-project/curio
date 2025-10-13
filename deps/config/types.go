@@ -57,19 +57,19 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealSectorSize: "32GiB",
 		},
 		Ingest: CurioIngestConfig{
-			MaxMarketRunningPipelines: 64,
+			MaxMarketRunningPipelines: NewDynamic(64),
 			MaxQueueDownload:          NewDynamic(8),
-			MaxQueueCommP:             8,
+			MaxQueueCommP:             NewDynamic(8),
 
-			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
-			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
-			MaxQueueTrees:      0, // default don't use this limit
-			MaxQueuePoRep:      0, // default don't use this limit
+			MaxQueueDealSector: NewDynamic(8), // default to 8 sectors open(or in process of opening) for deals
+			MaxQueueSDR:        NewDynamic(8), // default to 8 (will cause backpressure even if deal sectors are 0)
+			MaxQueueTrees:      NewDynamic(0), // default don't use this limit
+			MaxQueuePoRep:      NewDynamic(0), // default don't use this limit
 
-			MaxQueueSnapEncode: 16,
-			MaxQueueSnapProve:  0,
+			MaxQueueSnapEncode: NewDynamic(16),
+			MaxQueueSnapProve:  NewDynamic(0),
 
-			MaxDealWaitTime: time.Hour,
+			MaxDealWaitTime: NewDynamic(time.Hour),
 		},
 		Alerting: CurioAlertingConfig{
 			MinimumWalletBalance: types.MustParseFIL("5"),
@@ -520,7 +520,7 @@ type CurioIngestConfig struct {
 	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
 	// If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
 	// 0 means unlimited. (Default: 64)
-	MaxMarketRunningPipelines int
+	MaxMarketRunningPipelines *Dynamic[int]
 
 	// MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
 	// waiting for a machine to pick up their task (owner_id is null).
@@ -532,14 +532,15 @@ type CurioIngestConfig struct {
 	// waiting for a machine to pick up their verification task (owner_id is null).
 	// If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
 	// 0 means unlimited. (Default: 8)
-	MaxQueueCommP int
+	MaxQueueCommP *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for deals to start processing.
 	// 0 = unlimited
 	// Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 	// The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
 	// DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
-	MaxQueueDealSector int
+	// Updates will affect running instances.
+	MaxQueueDealSector *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for SDR to start processing.
 	// 0 = unlimited
@@ -548,7 +549,8 @@ type CurioIngestConfig struct {
 	// possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 	// entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
-	MaxQueueSDR int
+	// Updates will affect running instances.
+	MaxQueueSDR *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for SDRTrees to start processing.
 	// 0 = unlimited
@@ -556,7 +558,8 @@ type CurioIngestConfig struct {
 	// In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 	// applied to sectors entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-	MaxQueueTrees int
+	// Updates will affect running instances.
+	MaxQueueTrees *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for PoRep to start processing.
 	// 0 = unlimited
@@ -564,23 +567,27 @@ type CurioIngestConfig struct {
 	// Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 	// applied to sectors entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-	MaxQueuePoRep int
+	// Updates will affect running instances.
+	MaxQueuePoRep *Dynamic[int]
 
 	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 	// 0 means unlimited.
 	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 	// Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
-	MaxQueueSnapEncode int
+	// Updates will affect running instances.
+	MaxQueueSnapEncode *Dynamic[int]
 
 	// MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 	// 0 means unlimited.
 	// This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
-	MaxQueueSnapProve int
+	// Updates will affect running instances.
+	MaxQueueSnapProve *Dynamic[int]
 
 	// Maximum time an open deal sector should wait for more deals before it starts sealing.
 	// This ensures that sectors don't remain open indefinitely, consuming resources.
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	MaxDealWaitTime time.Duration
+	// Updates will affect running instances.
+	MaxDealWaitTime *Dynamic[time.Duration]
 
 	// DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
 	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.

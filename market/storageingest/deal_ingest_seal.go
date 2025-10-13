@@ -146,7 +146,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		ctx:                  ctx,
 		db:                   db,
 		api:                  api,
-		maxWaitTime:          cfg.Ingest.MaxDealWaitTime,
+		maxWaitTime:          cfg.Ingest.MaxDealWaitTime.Get(),
 		addToID:              addToID,
 		minerDetails:         minerDetails,
 		idToAddr:             idToAddr,
