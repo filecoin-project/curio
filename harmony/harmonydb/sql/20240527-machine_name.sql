@@ -1,2 +1,1 @@
-ALTER TABLE harmony_machine_details
-    ADD COLUMN machine_name TEXT;
+ALTER TABLE harmony_machine_details ADD COLUMN IF NOT EXISTS machine_name TEXT;

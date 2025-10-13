@@ -1,4 +1,4 @@
-create table sector_path_url_liveness (
+create table if not exists sector_path_url_liveness (
     storage_id text,
     url text,
 

@@ -422,7 +422,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 	// If piece is less than 100 MiB, let's generate proof directly without using cache
 	if pi.RawSize < MinSizeForCache {
 		// Get original file reader
-		reader, _, err := p.cpr.GetSharedPieceReader(ctx, pcid)
+		reader, _, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
 		}
@@ -495,7 +495,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		subrootSize := padreader.PaddedSize(uint64(length)).Padded()
 
 		// Get original file reader
-		reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pcid)
+		reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get reader: %w", err)
 		}

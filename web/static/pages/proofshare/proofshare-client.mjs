@@ -175,10 +175,13 @@ class ProofShareClient extends LitElement {
     const address = prompt('Enter new SP address:');
     if (!address) return; // cancelled
 
+    const wallet = prompt('Enter client wallet address (f1.. for payments, must be added to wallets first):');
+    if (!wallet) return;
+
     const newRow = {
       address,
       enabled: false,
-      wallet: null,
+      wallet,
       minimum_pending_seconds: 0,
       do_porep: false,
       do_snap: false,
@@ -250,6 +253,22 @@ class ProofShareClient extends LitElement {
     if (!confirm(`Are you sure you want to complete withdrawal for ${wallet.address}?`)) return;
     await RPCCall('PSClientRouterCompleteWithdrawal', [wallet.address]);
     await this.loadAllSettings();
+  }
+
+  /**
+   * Remove an SP row.
+   */
+  async removeRow(spId, address) {
+    if (!confirm(`Are you sure you want to remove the SP configuration for ${address}?`)) return;
+
+    try {
+      await RPCCall('PSClientRemove', [spId]);
+      console.log(`Removed SP configuration for ${address}`);
+      await this.loadAllSettings();
+    } catch (err) {
+      console.error(`Error removing SP configuration for ${address}:`, err);
+      alert(`Failed to remove ${address}. See console for details.`);
+    }
   }
 
   /**

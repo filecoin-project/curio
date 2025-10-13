@@ -1,16 +1,16 @@
 -- Piece Park adjustments
 
-ALTER TABLE parked_pieces ADD COLUMN long_term BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE parked_pieces ADD COLUMN IF NOT EXISTS long_term BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE parked_pieces DROP CONSTRAINT IF EXISTS parked_pieces_piece_cid_key;
 ALTER TABLE parked_pieces DROP CONSTRAINT IF EXISTS parked_pieces_piece_cid_cleanup_task_id_key;
 ALTER TABLE parked_pieces ADD CONSTRAINT parked_pieces_piece_cid_cleanup_task_id_key UNIQUE (piece_cid, piece_padded_size, long_term, cleanup_task_id);
 
-ALTER TABLE parked_piece_refs ADD COLUMN long_term BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE parked_piece_refs ADD COLUMN IF NOT EXISTS long_term BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- PDP tables
 -- PDP services authenticate with ecdsa-sha256 keys; Allowed services here
-CREATE TABLE pdp_services (
+CREATE TABLE IF NOT EXISTS pdp_services (
     id BIGSERIAL PRIMARY KEY,
     pubkey BYTEA NOT NULL,
 
@@ -23,7 +23,7 @@ CREATE TABLE pdp_services (
     UNIQUE(service_label)
 );
 
-CREATE TABLE pdp_piece_uploads (
+CREATE TABLE IF NOT EXISTS pdp_piece_uploads (
     id UUID PRIMARY KEY NOT NULL,
     service TEXT NOT NULL, -- pdp_services.id
 
@@ -45,7 +45,7 @@ CREATE TABLE pdp_piece_uploads (
 );
 
 -- PDP piece references, this table tells Curio which pieces in storage are managed by PDP
-CREATE TABLE pdp_piecerefs (
+CREATE TABLE IF NOT EXISTS pdp_piecerefs (
     id BIGSERIAL PRIMARY KEY,
     service TEXT NOT NULL, -- pdp_services.id
     piece_cid TEXT NOT NULL, -- piece cid v2
@@ -60,17 +60,17 @@ CREATE TABLE pdp_piecerefs (
 );
 
 -- PDP hash to piece cid mapping
-CREATE TABLE pdp_piece_mh_to_commp (
+CREATE TABLE IF NOT EXISTS pdp_piece_mh_to_commp (
     mhash BYTEA PRIMARY KEY,
     size BIGINT NOT NULL,
     commp TEXT NOT NULL
 );
 
-CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
+CREATE INDEX IF NOT EXISTS pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
 
 -- PDP proofsets we maintain
 
-CREATE TABLE pdp_proof_sets (
+CREATE TABLE IF NOT EXISTS pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
     -- updated when a challenge is requested (either by first proofset add or by invokes of nextProvingPeriod)
@@ -100,7 +100,7 @@ CREATE TABLE pdp_proof_sets (
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
 );
 
-CREATE TABLE pdp_prove_tasks (
+CREATE TABLE IF NOT EXISTS pdp_prove_tasks (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
     task_id BIGINT NOT NULL, -- harmonytask task ID
 
@@ -110,7 +110,7 @@ CREATE TABLE pdp_prove_tasks (
 );
 
 -- proofset creation requests
-CREATE TABLE pdp_proofset_creates (
+CREATE TABLE IF NOT EXISTS pdp_proofset_creates (
     create_message_hash TEXT PRIMARY KEY REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
 
     -- NULL if not yet processed, TRUE if processed and successful, FALSE if processed and failed
@@ -124,7 +124,7 @@ CREATE TABLE pdp_proofset_creates (
 );
 
 -- proofset roots
-CREATE TABLE pdp_proofset_roots (
+CREATE TABLE IF NOT EXISTS pdp_proofset_roots (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
     root TEXT NOT NULL, -- root cid (piececid v2)
 
@@ -147,7 +147,7 @@ CREATE TABLE pdp_proofset_roots (
 );
 
 -- proofset root adds - tracking add-root messages which didn't land yet, so don't have a known root_id
-CREATE TABLE pdp_proofset_root_adds (
+CREATE TABLE IF NOT EXISTS pdp_proofset_root_adds (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
     root TEXT NOT NULL, -- root cid (piececid v2)
 
@@ -179,11 +179,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER pdp_proofset_root_insert
-    AFTER INSERT ON pdp_proofset_roots
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'pdp_proofset_root_insert'
+    ) THEN
+        CREATE TRIGGER pdp_proofset_root_insert AFTER INSERT ON pdp_proofset_roots
     FOR EACH ROW
     WHEN (NEW.pdp_pieceref IS NOT NULL)
 EXECUTE FUNCTION increment_proofset_refcount();
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION decrement_proofset_refcount()
     RETURNS TRIGGER AS $$
@@ -195,11 +202,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER pdp_proofset_root_delete
-    AFTER DELETE ON pdp_proofset_roots
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'pdp_proofset_root_delete'
+    ) THEN
+        CREATE TRIGGER pdp_proofset_root_delete AFTER DELETE ON pdp_proofset_roots
     FOR EACH ROW
     WHEN (OLD.pdp_pieceref IS NOT NULL)
 EXECUTE FUNCTION decrement_proofset_refcount();
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION adjust_proofset_refcount_on_update()
     RETURNS TRIGGER AS $$
@@ -222,10 +236,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER pdp_proofset_root_update
-    AFTER UPDATE ON pdp_proofset_roots
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'pdp_proofset_root_update'
+    ) THEN
+        CREATE TRIGGER pdp_proofset_root_update AFTER UPDATE ON pdp_proofset_roots
     FOR EACH ROW
 EXECUTE FUNCTION adjust_proofset_refcount_on_update();
+    END IF;
+END $$;
 
 -- proofset creation request trigger
 CREATE OR REPLACE FUNCTION update_pdp_proofset_creates()
@@ -245,10 +266,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER pdp_proofset_create_message_status_change
-    AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'pdp_proofset_create_message_status_change'
+    ) THEN
+        CREATE TRIGGER pdp_proofset_create_message_status_change AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
     FOR EACH ROW
 EXECUTE PROCEDURE update_pdp_proofset_creates();
+    END IF;
+END $$;
 
 -- add proofset add message trigger
 CREATE OR REPLACE FUNCTION update_pdp_proofset_roots()
@@ -268,7 +296,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER pdp_proofset_add_message_status_change
-    AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'pdp_proofset_add_message_status_change'
+    ) THEN
+        CREATE TRIGGER pdp_proofset_add_message_status_change AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
     FOR EACH ROW
 EXECUTE PROCEDURE update_pdp_proofset_roots();
+    END IF;
+END $$;

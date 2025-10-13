@@ -1,4 +1,4 @@
-CREATE TABLE harmony_config (
+CREATE TABLE IF NOT EXISTS harmony_config (
     id SERIAL PRIMARY KEY NOT NULL,
     title VARCHAR(300) UNIQUE NOT NULL,
     config TEXT NOT NULL

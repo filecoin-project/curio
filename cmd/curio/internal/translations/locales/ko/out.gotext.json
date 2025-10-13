@@ -1,4 +1,11 @@
 {
     "language": "ko",
-    "messages": []
+    "messages": [
+      {
+        "id": "Compute WindowPoSt vanilla proofs and verify them.",
+        "translation": "",
+        "message": "Compute WindowPoSt vanilla proofs and verify them.",
+        "placeholder": null
+      }
+    ]
   }

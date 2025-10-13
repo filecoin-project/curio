@@ -128,6 +128,7 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 	switch actionType {
 	case "requester":
 	case "active-provider":
+	case "f05":
 	default:
 		return xerrors.Errorf("invalid action type: %s", actionType)
 	}
@@ -141,6 +142,8 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 		// For proofshare, subject == second and action is always requester
 		actionType = "requester"
 		second = subject
+	case "f05":
+		actionType = "requester"
 	default:
 		return xerrors.Errorf("invalid subject type: %s", subjectType)
 	}

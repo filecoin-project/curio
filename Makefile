@@ -275,6 +275,10 @@ gensimple: api-gen go-generate cfgdoc-gen docsgen marketgen docsgen-cli
 	go mod tidy
 .PHONY: gen
 
+fiximports:
+	$(GOCC) run ./scripts/fiximports
+.PHONY: fiximports
+
 forest-test: GOFLAGS+=-tags=forest
 forest-test: buildall
 

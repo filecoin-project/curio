@@ -443,7 +443,12 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	h := head
+	// Start from the newest finalized tipset.
+	h, err := al.api.ChainGetTipSet(al.ctx, head.Parents())
+	if err != nil {
+		al.alertMap[Name].err = err
+		return
+	}
 
 	// Map[Miner Address]Map[DeadlineIdx][]Partitions
 	msgCheck := make(map[address.Address]map[uint64][]bool)

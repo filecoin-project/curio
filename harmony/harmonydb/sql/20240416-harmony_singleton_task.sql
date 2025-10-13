@@ -1,4 +1,4 @@
-create table harmony_task_singletons (
+create table if not exists harmony_task_singletons (
     task_name varchar(255) not null,
     task_id bigint,
     last_run_time timestamp,

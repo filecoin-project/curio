@@ -9,6 +9,7 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -172,7 +173,9 @@ func (c *Client) CreateDataSource(pieceCID cid.Cid, car, raw, aggregate, index, 
 		return nil, xerrors.Errorf("only one data format is supported")
 	}
 
-	if !car && (index || withCDN) {
+	acar := !lo.SomeBy(sub, func(s mk20.DataSource) bool { return s.Format.Car == nil })
+
+	if (!car && !acar) && (index || withCDN) {
 		return nil, xerrors.Errorf("only car data format supports IPFS style CDN retrievals")
 	}
 

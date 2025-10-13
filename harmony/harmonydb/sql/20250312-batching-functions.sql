@@ -1,5 +1,4 @@
-ALTER TABLE sectors_sdr_pipeline
-    ADD COLUMN start_epoch BIGINT DEFAULT NULL;
+ALTER TABLE sectors_sdr_pipeline ADD COLUMN IF NOT EXISTS start_epoch BIGINT DEFAULT NULL;
 
 /*
   Logic:

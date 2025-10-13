@@ -1,7 +1,6 @@
-ALTER TABLE open_sector_pieces
-    ADD COLUMN is_snap BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE open_sector_pieces ADD COLUMN IF NOT EXISTS is_snap BOOLEAN NOT NULL DEFAULT FALSE;
 
-CREATE TABLE sectors_snap_pipeline (
+CREATE TABLE IF NOT EXISTS sectors_snap_pipeline (
     sp_id BIGINT NOT NULL,
     sector_number BIGINT NOT NULL,
 
@@ -57,7 +56,7 @@ CREATE TABLE sectors_snap_pipeline (
     PRIMARY KEY (sp_id, sector_number)
 );
 
-create table sectors_snap_initial_pieces (
+create table if not exists sectors_snap_initial_pieces (
     sp_id bigint not null,
     sector_number bigint not null,
 
@@ -84,7 +83,7 @@ create table sectors_snap_initial_pieces (
     primary key (sp_id, sector_number, piece_index)
 );
 
-CREATE TABLE sectors_cc_values (
+CREATE TABLE IF NOT EXISTS sectors_cc_values (
                                         reg_seal_proof INT,
                                         cur_unsealed_cid TEXT,
                                         PRIMARY KEY (reg_seal_proof, cur_unsealed_cid)
@@ -108,9 +107,9 @@ INSERT INTO sectors_cc_values (reg_seal_proof, cur_unsealed_cid) VALUES
                                                                            (13, 'baga6ea4seaqao7s73y24kcutaosvacpdjgfe5pw76ooefnyqw4ynr3d2y6x2mpq'),
                                                                            (14, 'baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq');
 
-ALTER TABLE sectors_meta ADD COLUMN expiration_epoch BIGINT;
+ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS expiration_epoch BIGINT;
 
-ALTER TABLE sectors_meta ADD COLUMN is_cc BOOLEAN;
+ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS is_cc BOOLEAN;
 
 -- Create the trigger function for updating is_cc on sectors_meta
 CREATE OR REPLACE FUNCTION update_is_cc()
@@ -141,15 +140,29 @@ UPDATE sectors_meta SET is_cc = EXISTS (
 );
 
 -- Create the trigger for updating is_cc on sectors_meta
-CREATE TRIGGER insert_is_cc_trigger
-    BEFORE INSERT ON sectors_meta
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'insert_is_cc_trigger'
+    ) THEN
+        CREATE TRIGGER insert_is_cc_trigger BEFORE INSERT ON sectors_meta
     FOR EACH ROW
 EXECUTE FUNCTION update_is_cc();
+    END IF;
+END $$;
 
-CREATE TRIGGER update_is_cc_trigger
-    BEFORE UPDATE ON sectors_meta
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'update_is_cc_trigger'
+    ) THEN
+        CREATE TRIGGER update_is_cc_trigger BEFORE UPDATE ON sectors_meta
     FOR EACH ROW
 EXECUTE FUNCTION update_is_cc();
+    END IF;
+END $$;
 
 -- Create the trigger function for updating sectors_meta based on sectors_snap_pipeline changes
 CREATE OR REPLACE FUNCTION update_sectors_meta_is_cc()
@@ -174,20 +187,41 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create triggers for sectors_snap_pipeline changes
-CREATE TRIGGER update_sectors_meta_is_cc_on_insert
-    AFTER INSERT ON sectors_snap_pipeline
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'update_sectors_meta_is_cc_on_insert'
+    ) THEN
+        CREATE TRIGGER update_sectors_meta_is_cc_on_insert AFTER INSERT ON sectors_snap_pipeline
     FOR EACH ROW
 EXECUTE FUNCTION update_sectors_meta_is_cc();
+    END IF;
+END $$;
 
-CREATE TRIGGER update_sectors_meta_is_cc_on_update
-    AFTER UPDATE ON sectors_snap_pipeline
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'update_sectors_meta_is_cc_on_update'
+    ) THEN
+        CREATE TRIGGER update_sectors_meta_is_cc_on_update AFTER UPDATE ON sectors_snap_pipeline
     FOR EACH ROW
 EXECUTE FUNCTION update_sectors_meta_is_cc();
+    END IF;
+END $$;
 
-CREATE TRIGGER update_sectors_meta_is_cc_on_delete
-    AFTER DELETE ON sectors_snap_pipeline
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'update_sectors_meta_is_cc_on_delete'
+    ) THEN
+        CREATE TRIGGER update_sectors_meta_is_cc_on_delete AFTER DELETE ON sectors_snap_pipeline
     FOR EACH ROW
 EXECUTE FUNCTION update_sectors_meta_is_cc();
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION insert_snap_ddo_piece(
     v_sp_id bigint,

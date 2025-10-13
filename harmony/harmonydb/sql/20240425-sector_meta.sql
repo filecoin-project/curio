@@ -1,4 +1,4 @@
-CREATE TABLE sectors_meta (
+CREATE TABLE IF NOT EXISTS sectors_meta (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
 
@@ -33,7 +33,7 @@ CREATE TABLE sectors_meta (
     PRIMARY KEY (sp_id, sector_num)
 );
 
-CREATE TABLE sectors_meta_pieces (
+CREATE TABLE IF NOT EXISTS sectors_meta_pieces (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
     piece_num BIGINT NOT NULL,

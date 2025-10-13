@@ -274,7 +274,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	if err != nil {
 		serr := err
 		// Try to read piece (mk20 deal)
-		reader, _, err = I.cpr.GetSharedPieceReader(ctx, pcid2)
+		reader, _, err = I.cpr.GetSharedPieceReader(ctx, pcid2, false)
 		if err != nil {
 			return false, xerrors.Errorf("getting piece reader from sector and piece park: %w, %w", serr, err)
 		}

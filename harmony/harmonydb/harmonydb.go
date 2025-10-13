@@ -287,6 +287,8 @@ retry:
 //go:embed sql
 var fs embed.FS
 
+var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
+
 func (db *DB) upgrade() error {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
@@ -354,6 +356,10 @@ func (db *DB) upgrade() error {
 			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
 			logger.Error(msg)
 			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
+		}
+
+		if ITestUpgradeFunc != nil {
+			ITestUpgradeFunc(db.pgx, name, megaSql)
 		}
 
 		// Mark Completed.

@@ -1,6 +1,6 @@
 -- All indexing task entries are made into this table
 -- and then copied over to market_mk12_deal_pipeline for a controlled migration
-CREATE TABLE market_mk12_deal_pipeline_migration (
+CREATE TABLE IF NOT EXISTS market_mk12_deal_pipeline_migration (
     uuid TEXT NOT NULL PRIMARY KEY,
     sp_id BIGINT NOT NULL,
     piece_cid TEXT NOT NULL,
