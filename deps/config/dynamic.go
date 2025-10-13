@@ -106,6 +106,11 @@ func walker(orig, result reflect.Value) {
 		field := orig.Field(i)
 		resultField := result.Field(i)
 
+		// Skip unexported fields - they can't be set via reflection
+		if !resultField.CanSet() {
+			continue
+		}
+
 		switch field.Kind() {
 		case reflect.Struct:
 			// Check if this struct is a Dynamic[T] - if so, copy by value
