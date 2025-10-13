@@ -102,13 +102,30 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}
 			return blocks.NewBlockWithCid(digest, c)
 		}
+
+		// Check if the error from the index is a "not found" error
+		// If so, convert it to format.ErrNotFound so frisbii can return 404
+		if errors.Is(err, indexstore.ErrNotFound) {
+			if ro.blockMetrics != nil {
+				stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+			}
+			return nil, format.ErrNotFound{Cid: c}
+		}
+
+		// For other errors, wrap and return as 500
 		if ro.blockMetrics != nil {
 			stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
 		}
 		return nil, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
 	}
 	if len(pieces) == 0 {
-		return nil, fmt.Errorf("no pieces with cid %s found", c)
+		// We must return ipld ErrNotFound here because that's the only type
+		// that allows clients (including Frisbii trustless gateway) to distinguish
+		// content-not-found (404) from server errors (500).
+		if ro.blockMetrics != nil {
+			stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+		}
+		return nil, format.ErrNotFound{Cid: c}
 	}
 
 	// Get a reader over one of the pieces and extract the block data
@@ -149,9 +166,14 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	}
 
 	if merr == nil {
-		merr = fmt.Errorf("no block with cid %s found", c)
+		// All pieces failed to provide the block, but not due to errors.
+		// This means the block wasn't found in any piece.
+		merr = format.ErrNotFound{Cid: c}
 	}
 
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+	}
 	return nil, merr
 }
 
@@ -164,6 +186,14 @@ func (ro *RemoteBlockstore) Has(ctx context.Context, c cid.Cid) (bool, error) {
 
 	pieces, err := ro.idxApi.PiecesContainingMultihash(ctx, c.Hash())
 	if err != nil {
+		// If the error is "not found", return false (not found) without error
+		if errors.Is(err, indexstore.ErrNotFound) {
+			if ro.blockMetrics != nil {
+				stats.Record(ctx, ro.blockMetrics.HasSuccessResponseCount.M(1))
+			}
+			return false, nil
+		}
+
 		if ro.blockMetrics != nil {
 			stats.Record(ctx, ro.blockMetrics.HasFailResponseCount.M(1))
 		}
@@ -213,6 +243,11 @@ func (ro *RemoteBlockstore) blockstoreGetSize(ctx context.Context, c cid.Cid) (i
 	// Get the pieces that contain the cid
 	pieces, err := ro.idxApi.PiecesContainingMultihash(ctx, c.Hash())
 	if err != nil {
+		// Check if the error from the index is a "not found" error
+		// If so, convert it to format.ErrNotFound
+		if errors.Is(err, indexstore.ErrNotFound) {
+			return 0, format.ErrNotFound{Cid: c}
+		}
 		return 0, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
 	}
 	if len(pieces) == 0 {
