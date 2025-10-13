@@ -408,6 +408,15 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
+
+		// Log advertisement fetch for indexing status tracking
+		go func() {
+			logCtx := context.Background()
+			_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b.String())
+			if err != nil {
+				log.Warnw("failed to log ad fetch", "ad_cid", b.String(), "err", err)
+			}
+		}()
 		return
 	case ipnisync.CidSchemaEntryChunk:
 		entry, err := p.sc.GetEntry(r.Context(), b)
@@ -463,6 +472,15 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
+
+		// Log advertisement fetch for indexing status tracking
+		go func() {
+			logCtx := context.Background()
+			_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b.String())
+			if err != nil {
+				log.Warnw("failed to log ad fetch", "ad_cid", b.String(), "err", err)
+			}
+		}()
 		return
 	}
 }
