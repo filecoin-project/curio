@@ -16,25 +16,37 @@ import (
 )
 
 var logger = logging.Logger("config-dynamic")
-var DynamicMx sync.RWMutex
 
 type Dynamic[T any] struct {
 	value T
 }
 
 func NewDynamic[T any](value T) *Dynamic[T] {
-	return &Dynamic[T]{value: value}
+	d := &Dynamic[T]{value: value}
+	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = func() {}
+	return d
+}
+
+// OnChange registers a function to be called in a goroutine when the dynamic value changes to a new final-layered value.
+// The function is called in a goroutine to avoid blocking the main thread; it should not panic.
+func (d *Dynamic[T]) OnChange(fn func()) {
+	prev := dynamicLocker.fn[reflect.ValueOf(d).Pointer()]
+	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = func() {
+		fn()
+		prev()
+	}
 }
 
 func (d *Dynamic[T]) Set(value T) {
-	DynamicMx.Lock()
-	defer DynamicMx.Unlock()
+	dynamicLocker.Lock()
+	defer dynamicLocker.Unlock()
+	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
 	d.value = value
 }
 
 func (d *Dynamic[T]) Get() T {
-	DynamicMx.RLock()
-	defer DynamicMx.RUnlock()
+	dynamicLocker.RLock()
+	defer dynamicLocker.RUnlock()
 	return d.value
 }
 
@@ -172,8 +184,8 @@ func (r *cfgRoot[T]) changeMonitor() {
 
 		// 2. lock "dynamic" mutex
 		func() {
-			DynamicMx.Lock()
-			defer DynamicMx.Unlock()
+			dynamicLocker.Lock()
+			defer dynamicLocker.Unlock()
 			err := ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
@@ -182,4 +194,47 @@ func (r *cfgRoot[T]) changeMonitor() {
 		}()
 		time.Sleep(30 * time.Second)
 	}
+}
+
+var dynamicLocker = changeDetector{originally: make(map[uintptr]any), latest: make(map[uintptr]any), fn: make(map[uintptr]func())}
+
+type changeDetector struct {
+	sync.RWMutex      // this protects the dynamic[T] reads from getting a race with the updating
+	updating     bool // determines which mode we are in: updating or querying
+
+	cdmx       sync.Mutex //
+	originally map[uintptr]any
+	latest     map[uintptr]any
+
+	fn map[uintptr]func()
+}
+
+func (c *changeDetector) Lock() {
+	c.RWMutex.Lock()
+	c.updating = true
+}
+func (c *changeDetector) Unlock() {
+	c.RWMutex.Unlock()
+	c.cdmx.Lock()
+	defer c.cdmx.Unlock()
+
+	c.updating = false
+	for k, v := range c.latest {
+		if v != c.originally[k] {
+			go c.fn[k]()
+		}
+	}
+	c.originally = make(map[uintptr]any)
+	c.latest = make(map[uintptr]any)
+}
+func (c *changeDetector) inform(ptr uintptr, oldValue any, newValue any) {
+	if !c.updating {
+		return
+	}
+	c.cdmx.Lock()
+	defer c.cdmx.Unlock()
+	if _, ok := c.originally[ptr]; !ok {
+		c.originally[ptr] = oldValue
+	}
+	c.latest[ptr] = newValue
 }

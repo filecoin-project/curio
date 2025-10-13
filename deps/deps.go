@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/kr/pretty"
 	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -311,6 +312,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	sa, err := StorageAuth(deps.Cfg.Apis.StorageRPCSecret)
 	if err != nil {
+		log.Errorf("error creating storage auth: %s, %v", err, pretty.Sprint(deps.Cfg))
 		return xerrors.Errorf(`'%w' while parsing the config toml's 
 	[Apis]
 	StorageRPCSecret=%v
