@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
+	"google.golang.org/appengine/log"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
@@ -109,6 +110,8 @@ func TestCurioHappyPath(t *testing.T) {
 
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
 	require.NoError(t, err)
+
+	log.Infof("baseText: %s", baseText)
 	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
 	require.NoError(t, err)
 
