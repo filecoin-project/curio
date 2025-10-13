@@ -291,15 +291,24 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 	}
 
-	log.Infow("PDP Prove Task",
+	log.Debugw("PDP Prove Task (verbose)",
 		"dataSetId", dataSetId,
 		"taskID", taskID,
 		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
 		"gasFeeEstimate", gasFee,
-		"proofFee initial", proofFee.Div(proofFee, big.NewInt(3)),
+		"proofFee initial", new(big.Int).Div(proofFee, big.NewInt(3)),
 		"proofFee 3x", proofFee,
 		"txEth", txEth,
+	)
+
+	log.Infow("PDP Prove Task",
+		"dataSetId", dataSetId,
+		"taskID", taskID,
+		"proofCount", len(proofs),
+		"dataLen", len(data),
+		"gasFeeEstimate", gasFee,
+		"proofFee", proofFee,
 	)
 
 	if !stillOwned() {
