@@ -44,13 +44,13 @@ func (d *Dynamic[T]) UnmarshalText(text []byte) error {
 	return toml.Unmarshal(text, d.value)
 }
 
-// For checkers to verify TOML.
-func (d *Dynamic[T]) MarshalText() ([]byte, error) {
+// MarshalTOML marshals the dynamic value to TOML format.
+func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
 	return toml.Marshal(d.value)
 }
 
-// Helpful for cmp.Equalcheckers.
-func (d *Dynamic[T]) Equals(other *Dynamic[T]) bool {
+// Equal is used by cmp.Equal for custom comparison.
+func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
 	return cmp.Equal(d.value, other.value)
 }
 

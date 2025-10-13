@@ -810,6 +810,7 @@ description: The default curio configuration
   # waiting for a machine to pick up their task (owner_id is null).
   # If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
   # 0 means unlimited. (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueDownload = 8
