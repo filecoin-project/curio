@@ -152,7 +152,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 
 	curioCfg.Addresses = []config.CurioAddresses{{
 		MinerAddresses:        []string{addr.String()},
-		PreCommitControl:      smCfg.Addresses.PreCommitControl,
+		PreCommitControl:      config.NewDynamic(smCfg.Addresses.PreCommitControl),
 		CommitControl:         smCfg.Addresses.CommitControl,
 		DealPublishControl:    smCfg.Addresses.DealPublishControl,
 		TerminateControl:      smCfg.Addresses.TerminateControl,
@@ -291,7 +291,7 @@ func ensureEmptyArrays(cfg *config.CurioConfig) {
 	} else {
 		for i := range cfg.Addresses {
 			if cfg.Addresses[i].PreCommitControl == nil {
-				cfg.Addresses[i].PreCommitControl = []string{}
+				cfg.Addresses[i].PreCommitControl = config.NewDynamic([]string{})
 			}
 			if cfg.Addresses[i].CommitControl == nil {
 				cfg.Addresses[i].CommitControl = []string{}

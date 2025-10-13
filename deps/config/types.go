@@ -39,7 +39,7 @@ func DefaultCurioConfig() *CurioConfig {
 			MaximizeFeeCap:             true,
 		},
 		Addresses: []CurioAddresses{{
-			PreCommitControl:   []string{},
+			PreCommitControl:   NewDynamic([]string{}),
 			CommitControl:      []string{},
 			DealPublishControl: []string{},
 			TerminateControl:   []string{},
@@ -456,7 +456,7 @@ type CurioFees struct {
 
 type CurioAddresses struct {
 	// PreCommitControl is an array of Addresses to send PreCommit messages from
-	PreCommitControl []string
+	PreCommitControl *Dynamic[[]string]
 
 	// CommitControl is an array of Addresses to send Commit messages from
 	CommitControl []string

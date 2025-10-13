@@ -63,7 +63,7 @@ func forEachConfig[T any](a *WebRPC, cb func(name string, v T) error) error {
 				preAllocated := make([]config.CurioAddresses, requiredLen)
 				for i := range preAllocated {
 					preAllocated[i] = config.CurioAddresses{
-						PreCommitControl:      []string{},
+						PreCommitControl:      config.NewDynamic([]string{}),
 						CommitControl:         []string{},
 						DealPublishControl:    []string{},
 						TerminateControl:      []string{},

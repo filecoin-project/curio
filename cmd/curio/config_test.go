@@ -554,7 +554,7 @@ func TestConfig(t *testing.T) {
 	baseCfg := config.DefaultCurioConfig()
 
 	addr1 := config.CurioAddresses{
-		PreCommitControl:      []string{},
+		PreCommitControl:      config.NewDynamic([]string{}),
 		CommitControl:         []string{},
 		DealPublishControl:    []string{},
 		TerminateControl:      []string{"t3qroiebizgkz7pvj26reg5r5mqiftrt5hjdske2jzjmlacqr2qj7ytjncreih2mvujxoypwpfusmwpipvxncq"},

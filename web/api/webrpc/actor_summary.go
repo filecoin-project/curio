@@ -104,7 +104,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 			return
 		}
 		for name, aset := range map[string][]string{
-			layer + ":PreCommit":    cAddrs.PreCommitControl,
+			layer + ":PreCommit":    cAddrs.PreCommitControl.Get(),
 			layer + ":Commit":       cAddrs.CommitControl,
 			layer + ":DealPublish:": cAddrs.DealPublishControl,
 			layer + ":Terminate":    cAddrs.TerminateControl,

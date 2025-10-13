@@ -672,7 +672,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		}
 
 		curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
-			PreCommitControl:      []string{},
+			PreCommitControl:      config.NewDynamic([]string{}),
 			CommitControl:         []string{},
 			DealPublishControl:    []string{},
 			TerminateControl:      []string{},

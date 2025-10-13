@@ -540,7 +540,7 @@ func stepNewMinerConfig(d *MigrationData) {
 	// Only add miner address for SP setup
 	if !d.nonSP {
 		curioCfg.Addresses = append(curioCfg.Addresses, config.CurioAddresses{
-			PreCommitControl:      []string{},
+			PreCommitControl:      config.NewDynamic([]string{}),
 			CommitControl:         []string{},
 			DealPublishControl:    []string{},
 			TerminateControl:      []string{},

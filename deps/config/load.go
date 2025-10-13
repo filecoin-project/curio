@@ -556,7 +556,7 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 
 	for l > il {
 		cfg.Addresses = append(cfg.Addresses, CurioAddresses{
-			PreCommitControl:      []string{},
+			PreCommitControl:      NewDynamic([]string{}),
 			CommitControl:         []string{},
 			DealPublishControl:    []string{},
 			TerminateControl:      []string{},

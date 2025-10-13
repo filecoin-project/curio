@@ -363,7 +363,7 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 		}
 
 		for i := range cfg.Addresses {
-			prec := cfg.Addresses[i].PreCommitControl
+			prec := cfg.Addresses[i].PreCommitControl.Get()
 			com := cfg.Addresses[i].CommitControl
 			term := cfg.Addresses[i].TerminateControl
 			miners := cfg.Addresses[i].MinerAddresses

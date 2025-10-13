@@ -26,14 +26,28 @@ func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSele
 					DisableWorkerFallback: addrConf.DisableWorkerFallback,
 				}
 
-				for _, s := range addrConf.PreCommitControl {
-					addr, err := address.NewFromString(s)
-					if err != nil {
-						return nil, xerrors.Errorf("parsing precommit control address: %w", err)
-					}
+				fixPCC := func() error {
+					tmp.PreCommitControl = []address.Address{}
+					for _, s := range addrConf.PreCommitControl.Get() {
+						addr, err := address.NewFromString(s)
+						if err != nil {
+							return xerrors.Errorf("parsing precommit control address: %w", err)
+						}
 
-					tmp.PreCommitControl = append(tmp.PreCommitControl, addr)
+						tmp.PreCommitControl = append(tmp.PreCommitControl, addr)
+					}
+					return nil
 				}
+				if err := fixPCC(); err != nil {
+					return nil, err
+				}
+				addrConf.PreCommitControl.OnChange(func() {
+					as.mmLock.Lock()
+					defer as.mmLock.Unlock()
+					if err := fixPCC(); err != nil {
+						log.Errorf("error fixing precommit control: %s", err)
+					}
+				})
 
 				for _, s := range addrConf.CommitControl {
 					addr, err := address.NewFromString(s)
