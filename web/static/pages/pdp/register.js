@@ -134,7 +134,6 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
     }
 
     openUpdate() {
-        // prefill from current status
         this.name = this.status?.name || '';
         this.description = this.status?.description || '';
         this.showUpdateModal = true;
@@ -145,7 +144,6 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         e.preventDefault();
         const name = this.name.trim();
         const description = this.description.trim();
-        // FSUpdateProvider signature: (name, description)
         if (!name || !description) {
             alert('Please fill name and description.');
             return;
@@ -197,22 +195,18 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 return;
             }
             const value = prompt('Enter capability value:');
-            if (value) {
-                this.capabilities = {...this.capabilities, [key]: value};
-            }
+            this.capabilities = {...this.capabilities, [key]: value};
         }
     }
 
     editCapability(key) {
         const value = prompt(`Edit value for key "${key}":`, this.capabilities[key]);
-        if (value) {
-            this.capabilities = {...this.capabilities, [key]: value};
-        }
+        this.capabilities = {...this.capabilities, [key]: value};
     }
 
     removeCapability(key) {
         if (confirm(`Are you sure you want to remove the capability "${key}"?`)) {
-            const { [key]: _, ...updatedCapabilities } = this.capabilities; // Use destructuring to exclude the key
+            const { [key]: _, ...updatedCapabilities } = this.capabilities;
             this.capabilities = updatedCapabilities;
         }
     }
@@ -237,7 +231,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
     isValidLocation(location) {
         // Regular expression for the format "C=US;ST=California;L=San Francisco"
-        const regex = /^C=[A-Z]{2};ST=[\w\s]+;L=[\w\s]+$/;
+        const regex = /^C=[A-Z]{2}(;ST=[\w\s]+)?(;L=[\w\s]+)?$/;
         return regex.test(location);
     }
 

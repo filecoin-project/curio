@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/snadrus/must"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/build"
 
@@ -59,4 +60,32 @@ func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 		}
 	}
 	return false
+}
+
+const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
+const ServiceRegistryCalibnet = "0xA8a7e2130C27e4f39D1aEBb3D538D5937bCf8ddb"
+
+func ServiceRegistryAddress() (common.Address, error) {
+	switch build.BuildType {
+	case build.BuildCalibnet:
+		return common.HexToAddress(ServiceRegistryCalibnet), nil
+	case build.BuildMainnet:
+		return common.HexToAddress(ServiceRegistryMainnet), nil
+	default:
+		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
+	}
+}
+
+const USDFCAddressMainnet = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
+const USDFCAddressCalibnet = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
+
+func USDFCAddress() (common.Address, error) {
+	switch build.BuildType {
+	case build.BuildCalibnet:
+		return common.HexToAddress(USDFCAddressCalibnet), nil
+	case build.BuildMainnet:
+		return common.HexToAddress(USDFCAddressMainnet), nil
+	default:
+		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
+	}
 }

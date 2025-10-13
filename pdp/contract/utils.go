@@ -21,7 +21,6 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
@@ -86,20 +85,6 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 	return out.Exists, out.Value, nil
 }
 
-const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const ServiceRegistryCalibnet = "0xA8a7e2130C27e4f39D1aEBb3D538D5937bCf8ddb"
-
-func ServiceRegistryAddress() (common.Address, error) {
-	switch build.BuildType {
-	case build.BuildCalibnet:
-		return common.HexToAddress(ServiceRegistryCalibnet), nil
-	case build.BuildMainnet:
-		return common.HexToAddress(ServiceRegistryMainnet), nil
-	default:
-		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
-	}
-}
-
 func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) error {
 	if len(name) > 128 {
 		return xerrors.Errorf("name is too long, max 128 characters allowed")
@@ -122,6 +107,9 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 			return xerrors.Errorf("capabilities value %s is too long, max 128 characters allowed", v)
 		}
 		keys = append(keys, k)
+		if len(keys) > 10 {
+			return xerrors.Errorf("too many capabilities, max 10 allowed")
+		}
 		values = append(values, v)
 	}
 
@@ -169,10 +157,6 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 	encodedPDP, err := registry.EncodePDPOffering(&bind.CallOpts{Context: ctx}, pdpOffering)
 	if err != nil {
 		return xerrors.Errorf("failed to encode PDP offering: %w", err)
-	}
-
-	if len(keys) > 10 {
-		return xerrors.Errorf("too many capabilities, max 10 allowed")
 	}
 
 	// Prepare EVM calldata
@@ -336,7 +320,16 @@ func FSUpdateProvider(ctx context.Context, name, description string, db *harmony
 func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (string, error) {
 	var keys, values []string
 	for k, v := range capabilities {
+		if len(k) > 32 {
+			return "", xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
+		}
+		if len(v) > 128 {
+			return "", xerrors.Errorf("capabilities value %s is too long, max 128 characters allowed", v)
+		}
 		keys = append(keys, k)
+		if len(keys) > 10 {
+			return "", xerrors.Errorf("too many capabilities, max 10 allowed")
+		}
 		values = append(values, v)
 	}
 
