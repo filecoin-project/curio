@@ -117,27 +117,37 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
+	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Insert a new entry into pdp_data_sets
+		_, err = tx.Exec(`
+        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
+        VALUES ($1, $2, $3, $4, $5)
+    `, dataSetId, psc.CreateMessageHash, psc.Service, provingPeriod, challengeWindow)
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
+		}
 
-	// Insert a new entry into pdp_data_sets
-	err = insertDataSet(ctx, db, psc.CreateMessageHash, dataSetId, psc.Service, provingPeriod, challengeWindow)
-	if err != nil {
-		return xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
-	}
-
-	// Update pdp_data_set_creates to set data_set_created = TRUE
-	_, err = db.Exec(ctx, `
+		// Update pdp_data_set_creates to set data_set_created = TRUE
+		_, err = db.Exec(ctx, `
         UPDATE pdp_data_set_creates
         SET data_set_created = TRUE
         WHERE create_message_hash = $1
+        	AND data_set_created = FALSE;
     `, psc.CreateMessageHash)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update data_set_creates for tx %s: %w", psc.CreateMessageHash, err)
+		}
+		return true, nil
+	})
+
 	if err != nil {
-		return xerrors.Errorf("failed to update data_set_creates for tx %s: %w", psc.CreateMessageHash, err)
+		return xerrors.Errorf("failed to create data set %d for tx %+v: %w", dataSetId, psc, err)
 	}
 
 	return nil
 }
 
-func extractDataSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
+func extractDataSetIdFromReceipt(receipt *types.Receipt) (int64, error) {
 	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		return 0, xerrors.Errorf("failed to get PDP ABI: %w", err)
@@ -155,21 +165,14 @@ func extractDataSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 			}
 
 			setIdBigInt := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
-			return setIdBigInt.Uint64(), nil
+			if !setIdBigInt.IsInt64() {
+				return 0, xerrors.Errorf("setId is not an int64")
+			}
+			return setIdBigInt.Int64(), nil
 		}
 	}
 
 	return 0, xerrors.Errorf("DataSetCreated event not found in receipt")
-}
-
-func insertDataSet(ctx context.Context, db *harmonydb.DB, createMsg string, dataSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
-	// Implement the insertion into pdp_data_sets table
-	// Adjust the SQL statement based on your table schema
-	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
-        VALUES ($1, $2, $3, $4, $5)
-    `, dataSetId, createMsg, service, provingPeriod, challengeWindow)
-	return err
 }
 
 func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {
