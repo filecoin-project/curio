@@ -121,15 +121,18 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 		resolvedDataSetId.Valid = true
 		var exists bool
 		// we check if the dataset exists already to avoid foreign key violation
-		db.QueryRow(ctx, `
+		err = db.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1
 				FROM pdp_data_sets
 				WHERE id = $1
 			)`, resolvedDataSetId.Int64).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check if data set exists: %w", err)
+		}
 		if !exists {
 			// XXX: maybe return nil instead to avoid warning?
-			return fmt.Errorf("data set %d not found in pdp_data_sets: %w", resolvedDataSetId.Int64)
+			return fmt.Errorf("data set %d not found in pdp_data_sets", resolvedDataSetId.Int64)
 		}
 	}
 	// Get the ABI from the contract metadata
