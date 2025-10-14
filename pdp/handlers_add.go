@@ -200,18 +200,18 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		// Convert PieceCid to bytes
 		pieceCidV2, err := cid.Decode(addPieceReq.PieceCID)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("Invalid PieceCid: %w", err)
+			return nil, nil, nil, fmt.Errorf("invalid PieceCid: %w", err)
 		}
 		_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("Invalid CommPv2: %w", err)
+			return nil, nil, nil, fmt.Errorf("invalid CommPv2: %w", err)
 		}
 		height, _, err := commcid.PayloadSizeToV1TreeHeightAndPadding(rawSize)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("Computing height and padding: %w", err)
+			return nil, nil, nil, fmt.Errorf("computing height and padding: %w", err)
 		}
 		if height > 50 {
-			return nil, nil, nil, errors.New("Invalid height")
+			return nil, nil, nil, errors.New("invalid height")
 		}
 
 		// Get raw size by summing up the sizes of subPieces
@@ -220,7 +220,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		for i, subPieceEntry := range addPieceReq.SubPieces {
 			subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
 			if subPieceInfo.PaddedSize > prevSubPieceSize {
-				return nil, nil, nil, fmt.Errorf("SubPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s",
+				return nil, nil, nil, fmt.Errorf("subPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s",
 					i, subPieceEntry.SubPieceCID, addPieceReq.SubPieces[i-1].SubPieceCID)
 			}
 
@@ -229,7 +229,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		}
 		// sanity check that the rawSize in the CommPv2 matches the totalSize of the subPieces
 		if rawSize != totalSize {
-			return nil, nil, nil, fmt.Errorf("Raw size miss-match: expected %d, got %d", totalSize, rawSize)
+			return nil, nil, nil, fmt.Errorf("raw size miss-match: expected %d, got %d", totalSize, rawSize)
 		}
 
 		/* TODO: this doesn't work, do we need it?
