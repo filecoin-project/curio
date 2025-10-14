@@ -310,6 +310,8 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 	rs := io.NewSectionReader(r.reader, 0, int64(r.pieceSize))
 
+	log.Debugw("Served piece reader", "piececid", pieceCid)
+
 	return struct {
 		io.Closer
 		io.Reader

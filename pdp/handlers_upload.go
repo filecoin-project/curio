@@ -367,15 +367,13 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Verify that a 'parked_pieces' entry exists for the given 'piece_cid'
-	var count int
-	err = p.db.QueryRow(ctx, `
-    SELECT count(*) FROM pdp_piecerefs WHERE piece_cid = $1
-  `, pieceCidV1.String()).Scan(&count)
+	var exist bool
+	err = p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1) AS exist;`, pieceCidV1.String()).Scan(&exist)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
-	if count == 0 {
+	if !exist {
 		http.NotFound(w, r)
 		return
 	}
