@@ -46,6 +46,8 @@ import (
 	"github.com/filecoin-project/lotus/node"
 )
 
+var log = logging.Logger("curio/itests")
+
 func TestCurioHappyPath(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -109,6 +111,8 @@ func TestCurioHappyPath(t *testing.T) {
 
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
 	require.NoError(t, err)
+
+	log.Errorf("baseText: %s", baseText)
 	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
 	require.NoError(t, err)
 
