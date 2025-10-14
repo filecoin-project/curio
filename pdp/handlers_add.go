@@ -59,7 +59,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		}
 
 		if len(addPieceReq.SubPieces) == 0 {
-			return nil, nil, nil, errors.New("At least one subPiece is required per piece")
+			return nil, nil, nil, errors.New("at least one subPiece is required per piece")
 		}
 
 		for i, subPieceEntry := range addPieceReq.SubPieces {
@@ -68,7 +68,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			}
 			pieceCid, err := asPieceCIDv1(subPieceEntry.SubPieceCID)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("Invalid SubPiece: %w", err)
+				return nil, nil, nil, fmt.Errorf("invalid SubPiece: %w", err)
 			}
 			pieceCidString := pieceCid.String()
 
@@ -189,7 +189,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("Failed to validate subPieces: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to validate subPieces: %w", err)
 	}
 
 	// Prepare PieceData array for Ethereum transaction

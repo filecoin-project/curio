@@ -63,6 +63,10 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	}
 
 	pieceDataArray, subPieceInfoMap, _, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	if err != nil {
+		http.Error(w, "Failed to transform addPieces request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
