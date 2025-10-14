@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/lib/pq"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -600,15 +601,13 @@ type ConfigText struct {
 
 // GetConfigs returns the configs in the order of the layers
 func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]ConfigText, error) {
+	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
 	inputMap := map[string]int{}
 	for i, layer := range layers {
 		inputMap[layer] = i
 	}
-
-	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
-
 	var configs []ConfigText
-	err := db.Select(ctx, &configs, `SELECT title, config FROM harmony_config WHERE title IN ($1)`, strings.Join(layers, ","))
+	err := db.Select(ctx, &configs, `SELECT title, config FROM harmony_config WHERE title = ANY($1)`, pq.Array(layers))
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +618,6 @@ func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]Confi
 			if config.Title == "base" {
 				return nil, errors.New(`curio defaults to a layer named 'base'. 
 				Either use 'migrate' command or edit a base.toml and upload it with: curio config set base.toml`)
-
 			}
 			return nil, fmt.Errorf("missing layer %s", config.Title)
 		}

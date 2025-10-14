@@ -227,29 +227,29 @@ func (c *changeNotifier) Lock() {
 	c.updating = true
 }
 func (c *changeNotifier) Unlock() {
-	c.diff.cdmx.Lock()
+	c.cdmx.Lock()
 	c.RWMutex.Unlock()
-	defer c.diff.cdmx.Unlock()
+	defer c.cdmx.Unlock()
 
 	c.updating = false
-	for k, v := range c.diff.latest {
-		if v != c.diff.originally[k] {
+	for k, v := range c.latest {
+		if v != c.originally[k] {
 			if fn := c.fn[k]; fn != nil {
 				go fn()
 			}
 		}
 	}
-	c.diff.originally = make(map[uintptr]any)
-	c.diff.latest = make(map[uintptr]any)
+	c.originally = make(map[uintptr]any)
+	c.latest = make(map[uintptr]any)
 }
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 	if !c.updating {
 		return
 	}
-	c.diff.cdmx.Lock()
-	defer c.diff.cdmx.Unlock()
-	if _, ok := c.diff.originally[ptr]; !ok {
-		c.diff.originally[ptr] = oldValue
+	c.cdmx.Lock()
+	defer c.cdmx.Unlock()
+	if _, ok := c.originally[ptr]; !ok {
+		c.originally[ptr] = oldValue
 	}
-	c.diff.latest[ptr] = newValue
+	c.latest[ptr] = newValue
 }
