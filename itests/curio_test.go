@@ -14,12 +14,12 @@ import (
 	"github.com/docker/go-units"
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-log/v2"
 	logging "github.com/ipfs/go-log/v2"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
-	"google.golang.org/appengine/log"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
