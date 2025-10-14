@@ -14,7 +14,6 @@ import (
 	"github.com/docker/go-units"
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
-	"github.com/ipfs/go-log/v2"
 	logging "github.com/ipfs/go-log/v2"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/stretchr/testify/require"
@@ -46,6 +45,8 @@ import (
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
 )
+
+var log = logging.Logger("curio/itests")
 
 func TestCurioHappyPath(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
