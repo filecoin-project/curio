@@ -41,7 +41,14 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 			ID storiface.PieceNumber `db:"id"`
 		}
 
-		err := c.db.Select(ctx, &pieceIDs, `SELECT id FROM parked_pieces WHERE cleanup_task_id IS NULL AND (SELECT count(*) FROM parked_piece_refs WHERE piece_id = parked_pieces.id) = 0`)
+		err := c.db.Select(ctx, &pieceIDs, `SELECT pp.id
+												FROM parked_pieces pp
+												WHERE pp.cleanup_task_id IS NULL
+												  AND NOT EXISTS (
+													SELECT 1
+													FROM parked_piece_refs pr
+													WHERE pr.piece_id = pp.id
+												  );`)
 		if err != nil {
 			log.Errorf("failed to get parked pieces: %s", err)
 			time.Sleep(PieceParkPollInterval)
