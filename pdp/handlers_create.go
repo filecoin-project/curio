@@ -114,8 +114,8 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		if err != nil {
 			return false, err
 		}
-		// XXX: The zero (0) here is a hack, it would be better if this was nullable. Not sure if this will work
-		err = p.insertPieceAdds(tx, 0, txHashLower, reqBody.Pieces, subPieceInfoMap)
+		// insert piece adds with data_set id = NULL as the dataset is pending
+		err = p.insertPieceAdds(tx, nil, txHashLower, reqBody.Pieces, subPieceInfoMap)
 
 		return true, err
 	}, harmonydb.OptionRetry())

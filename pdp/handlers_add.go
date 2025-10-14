@@ -439,7 +439,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Insert into pdp_data_set_pieces
-		err = p.insertPieceAdds(txdb, dataSetIdUint64, txHashLower, payload.Pieces, subPieceInfoMap)
+		err = p.insertPieceAdds(txdb, &dataSetIdUint64, txHashLower, payload.Pieces, subPieceInfoMap)
 		if err != nil {
 			return false, err
 		}
@@ -473,7 +473,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId uint64, txHash string, pieces []AddPieceRequest, subPieceInfoMap map[string]*SubPieceInfo) error {
+func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHash string, pieces []AddPieceRequest, subPieceInfoMap map[string]*SubPieceInfo) error {
 	for addMessageIndex, addPieceReq := range pieces {
 		for _, subPieceEntry := range addPieceReq.SubPieces {
 			subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
