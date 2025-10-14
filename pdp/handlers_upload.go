@@ -66,7 +66,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
 		return
 	}
-	log.Debugw("[handlePiecePost] -- piece stuff done", "pieceCidV1", pieceCidV1)
+	log.Debugw("[handlePiecePost] -- piece stuff done", "pieceCidV2", pieceCidV2)
 
 	ctx := r.Context()
 
@@ -89,9 +89,9 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, fmt.Errorf("failed to query parked_pieces: %w", err)
 		}
-		log.Debugw("[handlePiecePost] -- parked piece check done", "pieceCidV1", pieceCidV1)
+		log.Debugw("[handlePiecePost] -- parked piece check done", "pieceCidV2", pieceCidV2)
 		if err == nil {
-			log.Debugw("[handlePiecePost] -- parked piece found", "pieceCidV1", pieceCidV1)
+			log.Debugw("[handlePiecePost] -- parked piece found", "pieceCidV2", pieceCidV2)
 			// Piece is already stored
 			// Create a new 'parked_piece_refs' entry
 			var parkedPieceRefID int64
@@ -118,7 +118,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			responseStatus = http.StatusOK
 			return true, nil // Commit the transaction
 		}
-		log.Debugw("[handlePiecePost] -- parked piece not found", "pieceCidV1", pieceCidV1)
+		log.Debugw("[handlePiecePost] -- parked piece not found", "pieceCidV2", pieceCidV2)
 
 		// Piece does not exist, proceed to create a new upload request
 		uploadUUID = uuid.New()
@@ -130,7 +130,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
-		log.Debugw("[handlePiecePost] -- new pdp_piece_uploads inserted", "uploadUUID", uploadUUID, "pieceCidV1", pieceCidV1)
+		log.Debugw("[handlePiecePost] -- new pdp_piece_uploads inserted", "uploadUUID", uploadUUID, "pieceCidV2", pieceCidV2)
 
 		// Create a location URL where the piece data can be uploaded via PUT
 		uploadURL = path.Join(PDPRoutePath, "/piece/upload", uploadUUID.String())
@@ -142,7 +142,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Debugw("[handlePiecePost] -- writing response", "uploadUUID", uploadUUID, "pieceCidV1", pieceCidV1)
+	log.Debugw("[handlePiecePost] -- writing response", "uploadUUID", uploadUUID, "pieceCidV2", pieceCidV2)
 
 	switch responseStatus {
 	case http.StatusCreated:
