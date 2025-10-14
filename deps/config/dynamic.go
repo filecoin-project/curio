@@ -23,17 +23,22 @@ type Dynamic[T any] struct {
 
 func NewDynamic[T any](value T) *Dynamic[T] {
 	d := &Dynamic[T]{value: value}
-	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = func() {}
+	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = nil
 	return d
 }
 
 // OnChange registers a function to be called in a goroutine when the dynamic value changes to a new final-layered value.
 // The function is called in a goroutine to avoid blocking the main thread; it should not panic.
 func (d *Dynamic[T]) OnChange(fn func()) {
-	prev := dynamicLocker.fn[reflect.ValueOf(d).Pointer()]
-	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = func() {
-		fn()
+	p := reflect.ValueOf(d).Pointer()
+	prev := dynamicLocker.fn[p]
+	if prev == nil {
+		dynamicLocker.fn[p] = fn
+		return
+	}
+	dynamicLocker.fn[p] = func() {
 		prev()
+		fn()
 	}
 }
 
@@ -196,45 +201,55 @@ func (r *cfgRoot[T]) changeMonitor() {
 	}
 }
 
-var dynamicLocker = changeDetector{originally: make(map[uintptr]any), latest: make(map[uintptr]any), fn: make(map[uintptr]func())}
+var dynamicLocker = changeNotifier{diff: diff{
+	originally: make(map[uintptr]any),
+	latest:     make(map[uintptr]any),
+},
+	fn: make(map[uintptr]func()),
+}
 
-type changeDetector struct {
+type changeNotifier struct {
 	sync.RWMutex      // this protects the dynamic[T] reads from getting a race with the updating
 	updating     bool // determines which mode we are in: updating or querying
 
-	cdmx       sync.Mutex //
-	originally map[uintptr]any
-	latest     map[uintptr]any
+	diff
 
 	fn map[uintptr]func()
 }
+type diff struct {
+	cdmx       sync.Mutex //
+	originally map[uintptr]any
+	latest     map[uintptr]any
+}
 
-func (c *changeDetector) Lock() {
+func (c *changeNotifier) Lock() {
 	c.RWMutex.Lock()
 	c.updating = true
 }
-func (c *changeDetector) Unlock() {
+func (c *changeNotifier) Unlock() {
+	c.diff.cdmx.Lock()
 	c.RWMutex.Unlock()
-	c.cdmx.Lock()
-	defer c.cdmx.Unlock()
+	defer c.diff.cdmx.Unlock()
 
 	c.updating = false
-	for k, v := range c.latest {
-		if v != c.originally[k] {
-			go c.fn[k]()
+	for k, v := range c.diff.latest {
+		if v != c.diff.originally[k] {
+			if fn := c.fn[k]; fn != nil {
+				go fn()
+			}
 		}
 	}
-	c.originally = make(map[uintptr]any)
-	c.latest = make(map[uintptr]any)
+	c.diff.originally = make(map[uintptr]any)
+	c.diff.latest = make(map[uintptr]any)
 }
-func (c *changeDetector) inform(ptr uintptr, oldValue any, newValue any) {
+func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 	if !c.updating {
 		return
 	}
-	c.cdmx.Lock()
-	defer c.cdmx.Unlock()
-	if _, ok := c.originally[ptr]; !ok {
-		c.originally[ptr] = oldValue
+	c.diff.cdmx.Lock()
+	defer c.diff.cdmx.Unlock()
+	if _, ok := c.diff.originally[ptr]; !ok {
+		c.diff.originally[ptr] = oldValue
 	}
-	c.latest[ptr] = newValue
+	c.diff.latest[ptr] = newValue
 }
