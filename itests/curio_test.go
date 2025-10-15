@@ -46,8 +46,6 @@ import (
 	"github.com/filecoin-project/lotus/node"
 )
 
-var log = logging.Logger("curio/itests")
-
 func TestCurioHappyPath(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
