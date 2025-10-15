@@ -433,7 +433,7 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 
 	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
-			for _, addr := range aset.MinerAddresses {
+			for _, addr := range aset.MinerAddresses.Get() {
 				maddr, err := address.NewFromString(addr)
 				if err != nil {
 					return xerrors.Errorf("parsing address: %w", err)

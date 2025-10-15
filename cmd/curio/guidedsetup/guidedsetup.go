@@ -541,12 +541,12 @@ func stepNewMinerConfig(d *MigrationData) {
 	if !d.nonSP {
 		curioCfg.Addresses = append(curioCfg.Addresses, config.CurioAddresses{
 			PreCommitControl:      config.NewDynamic([]string{}),
-			CommitControl:         []string{},
-			DealPublishControl:    []string{},
-			TerminateControl:      []string{},
-			DisableOwnerFallback:  false,
-			DisableWorkerFallback: false,
-			MinerAddresses:        []string{d.MinerID.String()},
+			CommitControl:         config.NewDynamic([]string{}),
+			DealPublishControl:    config.NewDynamic([]string{}),
+			TerminateControl:      config.NewDynamic([]string{}),
+			DisableOwnerFallback:  config.NewDynamic(false),
+			DisableWorkerFallback: config.NewDynamic(false),
+			MinerAddresses:        config.NewDynamic([]string{d.MinerID.String()}),
 			BalanceManager:        config.DefaultBalanceManager(),
 		})
 	}
@@ -605,7 +605,7 @@ func stepNewMinerConfig(d *MigrationData) {
 	if !lo.Contains(titles, "base") {
 		if !d.nonSP {
 			curioCfg.Addresses = lo.Filter(curioCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-				return len(a.MinerAddresses) > 0
+				return len(a.MinerAddresses.Get()) > 0
 			})
 		}
 		cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
@@ -663,7 +663,7 @@ func stepNewMinerConfig(d *MigrationData) {
 
 	baseCfg.Addresses = append(baseCfg.Addresses, curioCfg.Addresses...)
 	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-		return len(a.MinerAddresses) > 0
+		return len(a.MinerAddresses.Get()) > 0
 	})
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())

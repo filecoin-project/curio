@@ -70,7 +70,7 @@ type CurioStorageDealMarket struct {
 	cfg         *config.CurioConfig
 	db          *harmonydb.DB
 	pin         storageingest.Ingester
-	miners      []address.Address
+	miners      *config.Dynamic[[]address.Address]
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	MK20Handler *mk20.MK20
@@ -116,7 +116,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	urls := make(map[string]http.Header)
 	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
@@ -139,13 +139,13 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	d.MK12Handler, err = mk12.NewMK12Handler(d.miners, d.db, d.si, d.api, d.cfg, d.as)
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as)
 	if err != nil {
 		return err
 	}
 
 	if d.MK12Handler != nil {
-		for _, miner := range d.miners {
+		for _, miner := range d.miners.Get() { // Not Dynamic for MK12
 			_, err = d.MK12Handler.GetAsk(ctx, miner)
 			if err != nil {
 				if strings.Contains(err.Error(), "no ask found") {
@@ -167,16 +167,17 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		}
 	}
 
-	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
+	// TODO BUG XXXX @LexLuthr push d.miners (dynamic) to mk20, especially allowing 0 --> 1 miners
+	d.MK20Handler, err = mk20.NewMK20Handler(d.miners.Get(), d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
 	if err != nil {
 		return err
 	}
 
-	if len(d.miners) > 0 {
+	if len(d.miners.Get()) > 0 {
 		if d.cfg.Ingest.DoSnap {
-			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners, d.cfg)
+			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners.Get(), d.cfg)
 		} else {
-			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners, d.cfg)
+			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners.Get(), d.cfg)
 		}
 		if err != nil {
 			return err

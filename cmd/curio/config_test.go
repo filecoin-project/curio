@@ -555,17 +555,17 @@ func TestConfig(t *testing.T) {
 
 	addr1 := config.CurioAddresses{
 		PreCommitControl:      config.NewDynamic([]string{}),
-		CommitControl:         []string{},
-		DealPublishControl:    []string{},
-		TerminateControl:      []string{"t3qroiebizgkz7pvj26reg5r5mqiftrt5hjdske2jzjmlacqr2qj7ytjncreih2mvujxoypwpfusmwpipvxncq"},
-		DisableOwnerFallback:  false,
-		DisableWorkerFallback: false,
-		MinerAddresses:        []string{"t01000"},
+		CommitControl:         config.NewDynamic([]string{}),
+		DealPublishControl:    config.NewDynamic([]string{}),
+		TerminateControl:      config.NewDynamic([]string{"t3qroiebizgkz7pvj26reg5r5mqiftrt5hjdske2jzjmlacqr2qj7ytjncreih2mvujxoypwpfusmwpipvxncq"}),
+		DisableOwnerFallback:  config.NewDynamic(false),
+		DisableWorkerFallback: config.NewDynamic(false),
+		MinerAddresses:        config.NewDynamic([]string{"t01000"}),
 		BalanceManager:        config.DefaultBalanceManager(),
 	}
 
 	addr2 := config.CurioAddresses{
-		MinerAddresses: []string{"t01001"},
+		MinerAddresses: config.NewDynamic([]string{"t01001"}),
 		BalanceManager: config.DefaultBalanceManager(),
 	}
 
@@ -574,7 +574,7 @@ func TestConfig(t *testing.T) {
 
 	baseCfg.Addresses = append(baseCfg.Addresses, addr1)
 	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-		return len(a.MinerAddresses) > 0
+		return len(a.MinerAddresses.Get()) > 0
 	})
 
 	_, err = config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
@@ -582,7 +582,7 @@ func TestConfig(t *testing.T) {
 
 	baseCfg.Addresses = append(baseCfg.Addresses, addr2)
 	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-		return len(a.MinerAddresses) > 0
+		return len(a.MinerAddresses.Get()) > 0
 	})
 
 	_, err = config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())

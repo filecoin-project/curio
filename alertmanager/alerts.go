@@ -364,9 +364,9 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 
 		for i := range cfg.Addresses {
 			prec := cfg.Addresses[i].PreCommitControl.Get()
-			com := cfg.Addresses[i].CommitControl
-			term := cfg.Addresses[i].TerminateControl
-			miners := cfg.Addresses[i].MinerAddresses
+			com := cfg.Addresses[i].CommitControl.Get()
+			term := cfg.Addresses[i].TerminateControl.Get()
+			miners := cfg.Addresses[i].MinerAddresses.Get()
 			for j := range prec {
 				if prec[j] != "" {
 					addrMap[prec[j]] = struct{}{}

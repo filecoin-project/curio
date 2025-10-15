@@ -18,7 +18,7 @@ import (
 var log = logging.Logger("curio/multictladdr")
 
 type MultiAddressSelector struct {
-	MinerMap map[address.Address]api.AddressConfig
+	MinerMap map[address.Address]AddressConfig
 	mmLock   sync.RWMutex
 }
 
@@ -77,10 +77,10 @@ func (as *MultiAddressSelector) AddressFor(ctx context.Context, a ctladdr.NodeAp
 		}
 	}
 
-	if len(addrs) == 0 || !tmp.DisableWorkerFallback {
+	if len(addrs) == 0 || !tmp.DisableWorkerFallback.Get() {
 		addrs = append(addrs, mi.Worker)
 	}
-	if !tmp.DisableOwnerFallback {
+	if !tmp.DisableOwnerFallback.Get() {
 		addrs = append(addrs, mi.Owner)
 	}
 

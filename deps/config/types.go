@@ -40,10 +40,10 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Addresses: []CurioAddresses{{
 			PreCommitControl:   NewDynamic([]string{}),
-			CommitControl:      []string{},
-			DealPublishControl: []string{},
-			TerminateControl:   []string{},
-			MinerAddresses:     []string{},
+			CommitControl:      NewDynamic([]string{}),
+			DealPublishControl: NewDynamic([]string{}),
+			TerminateControl:   NewDynamic([]string{}),
+			MinerAddresses:     NewDynamic([]string{}),
 			BalanceManager:     DefaultBalanceManager(),
 		}},
 		Proving: CurioProvingConfig{
@@ -459,26 +459,26 @@ type CurioAddresses struct {
 	PreCommitControl *Dynamic[[]string]
 
 	// CommitControl is an array of Addresses to send Commit messages from
-	CommitControl []string
+	CommitControl *Dynamic[[]string]
 
 	// DealPublishControl is an array of Address to send the deal collateral from with PublishStorageDeal Message
-	DealPublishControl []string
+	DealPublishControl *Dynamic[[]string]
 
 	// TerminateControl is a list of addresses used to send Terminate messages.
-	TerminateControl []string
+	TerminateControl *Dynamic[[]string]
 
 	// DisableOwnerFallback disables usage of the owner address for messages
 	// sent automatically
-	DisableOwnerFallback bool
+	DisableOwnerFallback *Dynamic[bool]
 
 	// DisableWorkerFallback disables usage of the worker address for messages
 	// sent automatically, if control addresses are configured.
 	// A control address that doesn't have enough funds will still be chosen
 	// over the worker address if this flag is set.
-	DisableWorkerFallback bool
+	DisableWorkerFallback *Dynamic[bool]
 
 	// MinerAddresses are the addresses of the miner actors
-	MinerAddresses []string
+	MinerAddresses *Dynamic[[]string]
 
 	// BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
 	// including collateral and other operational resources.

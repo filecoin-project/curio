@@ -36,57 +36,89 @@ type mbalanceApi interface {
 
 type BalanceManager struct {
 	api    mbalanceApi
-	miners map[string][]address.Address
+	miners *config.Dynamic[map[string][]address.Address]
 	cfg    *config.CurioConfig
 	sender *message.Sender
-	bmcfg  map[address.Address]config.BalanceManagerConfig
+	bmcfg  *config.Dynamic[map[address.Address]config.BalanceManagerConfig]
 }
 
-func NewBalanceManager(api mbalanceApi, miners []address.Address, cfg *config.CurioConfig, sender *message.Sender) (*BalanceManager, error) {
-	var mk12disabledMiners []address.Address
+func NewBalanceManager(api mbalanceApi, miners *config.Dynamic[[]address.Address], cfg *config.CurioConfig, sender *message.Sender) (*BalanceManager, error) {
 
-	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
-		maddr, err := address.NewFromString(m)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse miner string: %s", err)
+	computeMMap := func() (map[string][]address.Address, error) {
+		var mk12disabledMiners []address.Address
+
+		for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
+			maddr, err := address.NewFromString(m)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to parse miner string: %s", err)
+			}
+			mk12disabledMiners = append(mk12disabledMiners, maddr)
 		}
-		mk12disabledMiners = append(mk12disabledMiners, maddr)
+
+		mk12enabled, _ := lo.Difference(miners.Get(), mk12disabledMiners)
+
+		var mk20disabledMiners []address.Address
+		for _, m := range cfg.Market.StorageMarketConfig.MK20.DisabledMiners {
+			maddr, err := address.NewFromString(m)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to parse miner string: %s", err)
+			}
+			mk20disabledMiners = append(mk20disabledMiners, maddr)
+		}
+		mk20enabled, _ := lo.Difference(miners.Get(), mk20disabledMiners)
+
+		mmap := make(map[string][]address.Address)
+		mmap[mk12Str] = mk12enabled
+		mmap[mk20Str] = mk20enabled
+		return mmap, nil
 	}
 
-	mk12enabled, _ := lo.Difference(miners, mk12disabledMiners)
-
-	var mk20disabledMiners []address.Address
-	for _, m := range cfg.Market.StorageMarketConfig.MK20.DisabledMiners {
-		maddr, err := address.NewFromString(m)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse miner string: %s", err)
-		}
-		mk20disabledMiners = append(mk20disabledMiners, maddr)
+	mmap, err := computeMMap()
+	if err != nil {
+		return nil, err
 	}
-	mk20enabled, _ := lo.Difference(miners, mk20disabledMiners)
-
-	mmap := make(map[string][]address.Address)
-	mmap[mk12Str] = mk12enabled
-	mmap[mk20Str] = mk20enabled
-	bmcfg := make(map[address.Address]config.BalanceManagerConfig)
-	for _, a := range cfg.Addresses {
-		if len(a.MinerAddresses) > 0 {
-			for _, m := range a.MinerAddresses {
-				maddr, err := address.NewFromString(m)
-				if err != nil {
-					return nil, xerrors.Errorf("failed to parse miner string: %s", err)
+	mmapDynamic := config.NewDynamic(mmap)
+	miners.OnChange(func() {
+		mmap, err := computeMMap()
+		if err != nil {
+			log.Errorf("error computeMMap: %s", err)
+		}
+		mmapDynamic.Set(mmap)
+	})
+	bmcfgDynamic := config.NewDynamic(make(map[address.Address]config.BalanceManagerConfig))
+	forMinerID := func() error {
+		bmcfg := make(map[address.Address]config.BalanceManagerConfig)
+		for _, a := range cfg.Addresses {
+			if len(a.MinerAddresses.Get()) > 0 {
+				for _, m := range a.MinerAddresses.Get() {
+					maddr, err := address.NewFromString(m)
+					if err != nil {
+						return xerrors.Errorf("failed to parse miner string: %s", err)
+					}
+					bmcfg[maddr] = a.BalanceManager
 				}
-				bmcfg[maddr] = a.BalanceManager
 			}
 		}
+		bmcfgDynamic.Set(bmcfg)
+		return nil
+	}
+	if err := forMinerID(); err != nil {
+		return nil, err
+	}
+	for _, s := range cfg.Addresses {
+		s.MinerAddresses.OnChange(func() {
+			if err := forMinerID(); err != nil {
+				log.Errorf("error forMinerID: %s", err)
+			}
+		})
 	}
 
 	return &BalanceManager{
 		api:    api,
 		cfg:    cfg,
-		miners: mmap,
+		miners: mmapDynamic,
 		sender: sender,
-		bmcfg:  bmcfg,
+		bmcfg:  bmcfgDynamic,
 	}, nil
 }
 
@@ -126,22 +158,21 @@ var _ = harmonytask.Reg(&BalanceManager{})
 
 func (m *BalanceManager) dealMarketBalance(ctx context.Context) error {
 
-	for module, miners := range m.miners {
+	for module, miners := range m.miners.Get() {
 		if module != mk12Str {
 			continue
 		}
 		for _, miner := range miners {
-			miner := miner
 
-			lowthreshold := abi.TokenAmount(m.bmcfg[miner].MK12Collateral.CollateralLowThreshold)
-			highthreshold := abi.TokenAmount(m.bmcfg[miner].MK12Collateral.CollateralHighThreshold)
+			lowthreshold := abi.TokenAmount(m.bmcfg.Get()[miner].MK12Collateral.CollateralLowThreshold)
+			highthreshold := abi.TokenAmount(m.bmcfg.Get()[miner].MK12Collateral.CollateralHighThreshold)
 
-			if m.bmcfg[miner].MK12Collateral.DealCollateralWallet == "" {
+			if m.bmcfg.Get()[miner].MK12Collateral.DealCollateralWallet == "" {
 				blog.Errorf("Deal collateral wallet is not set for miner %s", miner.String())
 				continue
 			}
 
-			wallet, err := address.NewFromString(m.bmcfg[miner].MK12Collateral.DealCollateralWallet)
+			wallet, err := address.NewFromString(m.bmcfg.Get()[miner].MK12Collateral.DealCollateralWallet)
 			if err != nil {
 				return xerrors.Errorf("failed to parse deal collateral wallet: %w", err)
 			}

@@ -151,13 +151,13 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 	minerAddress = addr
 
 	curioCfg.Addresses = []config.CurioAddresses{{
-		MinerAddresses:        []string{addr.String()},
+		MinerAddresses:        config.NewDynamic([]string{addr.String()}),
 		PreCommitControl:      config.NewDynamic(smCfg.Addresses.PreCommitControl),
-		CommitControl:         smCfg.Addresses.CommitControl,
-		DealPublishControl:    smCfg.Addresses.DealPublishControl,
-		TerminateControl:      smCfg.Addresses.TerminateControl,
-		DisableOwnerFallback:  smCfg.Addresses.DisableOwnerFallback,
-		DisableWorkerFallback: smCfg.Addresses.DisableWorkerFallback,
+		CommitControl:         config.NewDynamic(smCfg.Addresses.CommitControl),
+		DealPublishControl:    config.NewDynamic(smCfg.Addresses.DealPublishControl),
+		TerminateControl:      config.NewDynamic(smCfg.Addresses.TerminateControl),
+		DisableOwnerFallback:  config.NewDynamic(smCfg.Addresses.DisableOwnerFallback),
+		DisableWorkerFallback: config.NewDynamic(smCfg.Addresses.DisableWorkerFallback),
 		BalanceManager:        config.DefaultBalanceManager(),
 	}}
 
@@ -193,7 +193,8 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 			return minerAddress, xerrors.Errorf("Cannot load base config: %w", err)
 		}
 		for _, addr := range baseCfg.Addresses {
-			if lo.Contains(addr.MinerAddresses, curioCfg.Addresses[0].MinerAddresses[0]) {
+			ma := addr.MinerAddresses.Get()
+			if lo.Contains(ma, curioCfg.Addresses[0].MinerAddresses.Get()[0]) {
 				goto skipWritingToBase
 			}
 		}
@@ -201,7 +202,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		{
 			baseCfg.Addresses = append(baseCfg.Addresses, curioCfg.Addresses[0])
 			baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-				return len(a.MinerAddresses) > 0
+				return len(a.MinerAddresses.Get()) > 0
 			})
 			if baseCfg.Apis.ChainApiInfo == nil {
 				baseCfg.Apis.ChainApiInfo = append(baseCfg.Apis.ChainApiInfo, chainApiInfo)
@@ -223,7 +224,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 			}
 			say(plain, "Configuration 'base' was updated to include this miner's address (%s) and its wallet setup.", minerAddress)
 		}
-		say(plain, "Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.", "base", "mig-"+curioCfg.Addresses[0].MinerAddresses[0])
+		say(plain, "Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.", "base", "mig-"+curioCfg.Addresses[0].MinerAddresses.Get()[0])
 	skipWritingToBase:
 	} else {
 		_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ('base', $1)
@@ -236,7 +237,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 	}
 
 	{ // make a layer representing the migration
-		layerName := fmt.Sprintf("mig-%s", curioCfg.Addresses[0].MinerAddresses[0])
+		layerName := fmt.Sprintf("mig-%s", curioCfg.Addresses[0].MinerAddresses.Get()[0])
 		_, err = db.Exec(ctx, "DELETE FROM harmony_config WHERE title=$1", layerName)
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot delete existing layer: %w", err)
@@ -294,13 +295,13 @@ func ensureEmptyArrays(cfg *config.CurioConfig) {
 				cfg.Addresses[i].PreCommitControl = config.NewDynamic([]string{})
 			}
 			if cfg.Addresses[i].CommitControl == nil {
-				cfg.Addresses[i].CommitControl = []string{}
+				cfg.Addresses[i].CommitControl = config.NewDynamic([]string{})
 			}
 			if cfg.Addresses[i].DealPublishControl == nil {
-				cfg.Addresses[i].DealPublishControl = []string{}
+				cfg.Addresses[i].DealPublishControl = config.NewDynamic([]string{})
 			}
 			if cfg.Addresses[i].TerminateControl == nil {
-				cfg.Addresses[i].TerminateControl = []string{}
+				cfg.Addresses[i].TerminateControl = config.NewDynamic([]string{})
 			}
 		}
 	}

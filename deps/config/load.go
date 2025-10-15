@@ -558,12 +558,12 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 	for l > il {
 		cfg.Addresses = append(cfg.Addresses, CurioAddresses{
 			PreCommitControl:      NewDynamic([]string{}),
-			CommitControl:         []string{},
-			DealPublishControl:    []string{},
-			TerminateControl:      []string{},
-			DisableOwnerFallback:  false,
-			DisableWorkerFallback: false,
-			MinerAddresses:        []string{},
+			CommitControl:         NewDynamic([]string{}),
+			DealPublishControl:    NewDynamic([]string{}),
+			TerminateControl:      NewDynamic([]string{}),
+			DisableOwnerFallback:  NewDynamic(false),
+			DisableWorkerFallback: NewDynamic(false),
+			MinerAddresses:        NewDynamic([]string{}),
 			BalanceManager:        DefaultBalanceManager(),
 		})
 		il++
