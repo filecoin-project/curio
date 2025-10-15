@@ -12,10 +12,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
-
-	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 type DataSetCreate struct {
@@ -23,18 +20,8 @@ type DataSetCreate struct {
 	Service           string `db:"service"`
 }
 
-func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingDataSetCreates(ctx, db, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process pending data set creates: %v", err)
-		}
-		return nil
-	}); err != nil {
-		panic(err)
-	}
-}
-
+// processPendingDataSetCreates finalises data set creation best on transactions logs
+// it is called from proofset_watch.go
 func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_data_set_creates entries where ok = TRUE and data_set_created = FALSE
 	var dataSetCreates []DataSetCreate

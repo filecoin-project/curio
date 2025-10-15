@@ -293,8 +293,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherPieceAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewProofSetWatch(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
@@ -512,7 +511,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 	})
 	sort.Strings(miners)
 
-	_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
+	_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details
 		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
 		strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),

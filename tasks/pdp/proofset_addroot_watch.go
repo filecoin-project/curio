@@ -12,10 +12,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
-
-	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 // Structures to represent database records
@@ -37,21 +34,8 @@ type PieceAddEntry struct {
 	AddMessageOK    *bool         `db:"add_message_ok"`
 }
 
-// NewWatcherPieceAdd sets up the watcher for data set piece additions
-func NewWatcherPieceAdd(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingDataSetPieceAdds(ctx, db, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process pending data set piece adds: %v", err)
-		}
-
-		return nil
-	}); err != nil {
-		panic(err)
-	}
-}
-
 // processPendingDataSetPieceAdds processes piece additions that have been confirmed on-chain
+// it is called from proofset_watch.go
 func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_data_set_piece_adds entries where add_message_ok = TRUE
 	var pieceAdds []DataSetPieceAdd
@@ -131,7 +115,9 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 			return fmt.Errorf("failed to check if data set exists: %w", err)
 		}
 		if !exists {
-			// XXX: maybe return nil instead to avoid warning?
+			// this is a rare case where the transaction is marked as complete between create_watch being called and this function
+			// if that happens, we return an error which will get logged and ignored
+			// piece addition will get picked up in the next run of the watcher
 			return fmt.Errorf("data set %d not found in pdp_data_sets", resolvedDataSetId.Int64)
 		}
 	}
