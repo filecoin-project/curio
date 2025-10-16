@@ -235,7 +235,7 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if v != c.originally[k] {
+		if cmp.Equal(v, c.originally[k]) {
 			if fn := c.fn[k]; fn != nil {
 				go fn()
 			}
