@@ -19,7 +19,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kelseyhightower/envconfig"
-	"github.com/lib/pq"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -609,7 +608,7 @@ func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]Confi
 		inputMap[layer] = i
 	}
 	var configs []ConfigText
-	err := db.Select(ctx, &configs, `SELECT title, config FROM harmony_config WHERE title = ANY($1)`, pq.Array(layers))
+	err := db.Select(ctx, &configs, `SELECT title, config FROM harmony_config WHERE title = ANY($1)`, layers)
 	if err != nil {
 		return nil, err
 	}
