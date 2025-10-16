@@ -553,21 +553,23 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 	}
 
 	l := len(lengthDetector.Addresses)
-	il := len(cfg.Addresses)
+	addrs := cfg.Addresses.Get()
+	il := len(addrs)
 
 	for l > il {
-		cfg.Addresses = append(cfg.Addresses, CurioAddresses{
-			PreCommitControl:      NewDynamic([]string{}),
-			CommitControl:         NewDynamic([]string{}),
-			DealPublishControl:    NewDynamic([]string{}),
-			TerminateControl:      NewDynamic([]string{}),
-			DisableOwnerFallback:  NewDynamic(false),
-			DisableWorkerFallback: NewDynamic(false),
-			MinerAddresses:        NewDynamic([]string{}),
+		addrs = append(addrs, CurioAddresses{
+			PreCommitControl:      []string{},
+			CommitControl:         []string{},
+			DealPublishControl:    []string{},
+			TerminateControl:      []string{},
+			DisableOwnerFallback:  false,
+			DisableWorkerFallback: false,
+			MinerAddresses:        []string{},
 			BalanceManager:        DefaultBalanceManager(),
 		})
 		il++
 	}
+	cfg.Addresses.Set(addrs)
 	return nil
 }
 

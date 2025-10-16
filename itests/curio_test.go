@@ -117,9 +117,9 @@ func TestCurioHappyPath(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, baseCfg.Addresses)
-	require.GreaterOrEqual(t, len(baseCfg.Addresses), 1)
+	require.GreaterOrEqual(t, len(baseCfg.Addresses.Get()), 1)
 
-	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
+	require.Contains(t, baseCfg.Addresses.Get()[0].MinerAddresses, maddr.String())
 
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second

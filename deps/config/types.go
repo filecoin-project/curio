@@ -38,14 +38,14 @@ func DefaultCurioConfig() *CurioConfig {
 			DisableCollateralFallback:  false,
 			MaximizeFeeCap:             true,
 		},
-		Addresses: []CurioAddresses{{
-			PreCommitControl:   NewDynamic([]string{}),
-			CommitControl:      NewDynamic([]string{}),
-			DealPublishControl: NewDynamic([]string{}),
-			TerminateControl:   NewDynamic([]string{}),
-			MinerAddresses:     NewDynamic([]string{}),
+		Addresses: NewDynamic([]CurioAddresses{{
+			PreCommitControl:   []string{},
+			CommitControl:      []string{},
+			DealPublishControl: []string{},
+			TerminateControl:   []string{},
+			MinerAddresses:     []string{},
 			BalanceManager:     DefaultBalanceManager(),
-		}},
+		}}),
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
 			PartitionCheckTimeout: 20 * time.Minute,
@@ -162,7 +162,7 @@ type CurioConfig struct {
 	Fees CurioFees
 
 	// Addresses specifies the list of miner addresses and their related wallet addresses.
-	Addresses []CurioAddresses
+	Addresses *Dynamic[[]CurioAddresses]
 
 	// Proving defines the configuration settings related to proving functionality within the Curio node.
 	Proving CurioProvingConfig
@@ -456,29 +456,29 @@ type CurioFees struct {
 
 type CurioAddresses struct {
 	// PreCommitControl is an array of Addresses to send PreCommit messages from
-	PreCommitControl *Dynamic[[]string]
+	PreCommitControl []string
 
 	// CommitControl is an array of Addresses to send Commit messages from
-	CommitControl *Dynamic[[]string]
+	CommitControl []string
 
 	// DealPublishControl is an array of Address to send the deal collateral from with PublishStorageDeal Message
-	DealPublishControl *Dynamic[[]string]
+	DealPublishControl []string
 
 	// TerminateControl is a list of addresses used to send Terminate messages.
-	TerminateControl *Dynamic[[]string]
+	TerminateControl []string
 
 	// DisableOwnerFallback disables usage of the owner address for messages
 	// sent automatically
-	DisableOwnerFallback *Dynamic[bool]
+	DisableOwnerFallback bool
 
 	// DisableWorkerFallback disables usage of the worker address for messages
 	// sent automatically, if control addresses are configured.
 	// A control address that doesn't have enough funds will still be chosen
 	// over the worker address if this flag is set.
-	DisableWorkerFallback *Dynamic[bool]
+	DisableWorkerFallback bool
 
 	// MinerAddresses are the addresses of the miner actors
-	MinerAddresses *Dynamic[[]string]
+	MinerAddresses []string
 
 	// BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
 	// including collateral and other operational resources.

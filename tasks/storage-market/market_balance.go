@@ -88,9 +88,9 @@ func NewBalanceManager(api mbalanceApi, miners *config.Dynamic[[]address.Address
 	bmcfgDynamic := config.NewDynamic(make(map[address.Address]config.BalanceManagerConfig))
 	forMinerID := func() error {
 		bmcfg := make(map[address.Address]config.BalanceManagerConfig)
-		for _, a := range cfg.Addresses {
-			if len(a.MinerAddresses.Get()) > 0 {
-				for _, m := range a.MinerAddresses.Get() {
+		for _, a := range cfg.Addresses.Get() {
+			if len(a.MinerAddresses) > 0 {
+				for _, m := range a.MinerAddresses {
 					maddr, err := address.NewFromString(m)
 					if err != nil {
 						return xerrors.Errorf("failed to parse miner string: %s", err)
@@ -105,13 +105,11 @@ func NewBalanceManager(api mbalanceApi, miners *config.Dynamic[[]address.Address
 	if err := forMinerID(); err != nil {
 		return nil, err
 	}
-	for _, s := range cfg.Addresses {
-		s.MinerAddresses.OnChange(func() {
-			if err := forMinerID(); err != nil {
-				log.Errorf("error forMinerID: %s", err)
-			}
-		})
-	}
+	cfg.Addresses.OnChange(func() {
+		if err := forMinerID(); err != nil {
+			log.Errorf("error forMinerID: %s", err)
+		}
+	})
 
 	return &BalanceManager{
 		api:    api,

@@ -14,51 +14,39 @@ type AddressConfig struct {
 	TerminateControl   []address.Address
 	DealPublishControl []address.Address
 
-	DisableOwnerFallback  *config.Dynamic[bool]
-	DisableWorkerFallback *config.Dynamic[bool]
+	DisableOwnerFallback  bool
+	DisableWorkerFallback bool
 }
 
-func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSelector, error) {
+func AddressSelector(addrConf *config.Dynamic[[]config.CurioAddresses]) func() (*MultiAddressSelector, error) {
 	return func() (*MultiAddressSelector, error) {
 		as := &MultiAddressSelector{
 			MinerMap: make(map[address.Address]AddressConfig),
 		}
-		if addrConf == nil {
-			return as, nil
-		}
+		makeMinerMap := func() error {
+			as.mmLock.Lock()
+			defer as.mmLock.Unlock()
+			if addrConf == nil {
+				return nil
+			}
 
-		for _, addrConf := range addrConf {
-			forMinerID := func() error {
-				for _, minerID := range addrConf.MinerAddresses.Get() {
+			for _, addrConf := range addrConf.Get() {
+				for _, minerID := range addrConf.MinerAddresses {
 					tmp := AddressConfig{
 						DisableOwnerFallback:  addrConf.DisableOwnerFallback,
 						DisableWorkerFallback: addrConf.DisableWorkerFallback,
 					}
 
-					fixPCC := func() error {
-						tmp.PreCommitControl = []address.Address{}
-						for _, s := range addrConf.PreCommitControl.Get() {
-							addr, err := address.NewFromString(s)
-							if err != nil {
-								return xerrors.Errorf("parsing precommit control address: %w", err)
-							}
-
-							tmp.PreCommitControl = append(tmp.PreCommitControl, addr)
+					for _, s := range addrConf.PreCommitControl {
+						addr, err := address.NewFromString(s)
+						if err != nil {
+							return xerrors.Errorf("parsing precommit control address: %w", err)
 						}
-						return nil
-					}
-					if err := fixPCC(); err != nil {
-						return err
-					}
-					addrConf.PreCommitControl.OnChange(func() {
-						as.mmLock.Lock()
-						defer as.mmLock.Unlock()
-						if err := fixPCC(); err != nil {
-							log.Errorf("error fixing precommit control: %s", err)
-						}
-					})
 
-					for _, s := range addrConf.CommitControl.Get() {
+						tmp.PreCommitControl = append(tmp.PreCommitControl, addr)
+					}
+
+					for _, s := range addrConf.CommitControl {
 						addr, err := address.NewFromString(s)
 						if err != nil {
 							return xerrors.Errorf("parsing commit control address: %w", err)
@@ -67,7 +55,7 @@ func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSele
 						tmp.CommitControl = append(tmp.CommitControl, addr)
 					}
 
-					for _, s := range addrConf.DealPublishControl.Get() {
+					for _, s := range addrConf.DealPublishControl {
 						addr, err := address.NewFromString(s)
 						if err != nil {
 							return xerrors.Errorf("parsing deal publish control address: %w", err)
@@ -76,7 +64,7 @@ func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSele
 						tmp.DealPublishControl = append(tmp.DealPublishControl, addr)
 					}
 
-					for _, s := range addrConf.TerminateControl.Get() {
+					for _, s := range addrConf.TerminateControl {
 						addr, err := address.NewFromString(s)
 						if err != nil {
 							return xerrors.Errorf("parsing terminate control address: %w", err)
@@ -90,17 +78,19 @@ func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSele
 					}
 					as.MinerMap[a] = tmp
 				}
-				return nil
 			}
-			if err := forMinerID(); err != nil {
-				return nil, err
-			}
-			addrConf.MinerAddresses.OnChange(func() {
-				if err := forMinerID(); err != nil {
-					log.Errorf("error forMinerID: %s", err)
-				}
-			})
+			return nil
 		}
+		err := makeMinerMap()
+		if err != nil {
+			return nil, err
+		}
+		addrConf.OnChange(func() {
+			err := makeMinerMap()
+			if err != nil {
+				log.Errorf("error making miner map: %s", err)
+			}
+		})
 		return as, nil
 	}
 }

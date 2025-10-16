@@ -150,16 +150,16 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 
 	minerAddress = addr
 
-	curioCfg.Addresses = []config.CurioAddresses{{
-		MinerAddresses:        config.NewDynamic([]string{addr.String()}),
-		PreCommitControl:      config.NewDynamic(smCfg.Addresses.PreCommitControl),
-		CommitControl:         config.NewDynamic(smCfg.Addresses.CommitControl),
-		DealPublishControl:    config.NewDynamic(smCfg.Addresses.DealPublishControl),
-		TerminateControl:      config.NewDynamic(smCfg.Addresses.TerminateControl),
-		DisableOwnerFallback:  config.NewDynamic(smCfg.Addresses.DisableOwnerFallback),
-		DisableWorkerFallback: config.NewDynamic(smCfg.Addresses.DisableWorkerFallback),
+	curioCfg.Addresses.Set([]config.CurioAddresses{{
+		MinerAddresses:        []string{addr.String()},
+		PreCommitControl:      smCfg.Addresses.PreCommitControl,
+		CommitControl:         smCfg.Addresses.CommitControl,
+		DealPublishControl:    smCfg.Addresses.DealPublishControl,
+		TerminateControl:      smCfg.Addresses.TerminateControl,
+		DisableOwnerFallback:  smCfg.Addresses.DisableOwnerFallback,
+		DisableWorkerFallback: smCfg.Addresses.DisableWorkerFallback,
 		BalanceManager:        config.DefaultBalanceManager(),
-	}}
+	}})
 
 	ks, err := lr.KeyStore()
 	if err != nil {
@@ -192,18 +192,20 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot load base config: %w", err)
 		}
-		for _, addr := range baseCfg.Addresses {
-			ma := addr.MinerAddresses.Get()
-			if lo.Contains(ma, curioCfg.Addresses[0].MinerAddresses.Get()[0]) {
+		addrs := baseCfg.Addresses.Get()
+		for _, addr := range addrs {
+			ma := addr.MinerAddresses
+			if lo.Contains(ma, addrs[0].MinerAddresses[0]) {
 				goto skipWritingToBase
 			}
 		}
 		// write to base
 		{
-			baseCfg.Addresses = append(baseCfg.Addresses, curioCfg.Addresses[0])
-			baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-				return len(a.MinerAddresses.Get()) > 0
-			})
+			addrs := baseCfg.Addresses.Get()
+			addrs = append(addrs, addrs[0])
+			baseCfg.Addresses.Set(lo.Filter(addrs, func(a config.CurioAddresses, _ int) bool {
+				return len(a.MinerAddresses) > 0
+			}))
 			if baseCfg.Apis.ChainApiInfo == nil {
 				baseCfg.Apis.ChainApiInfo = append(baseCfg.Apis.ChainApiInfo, chainApiInfo)
 			}
@@ -224,7 +226,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 			}
 			say(plain, "Configuration 'base' was updated to include this miner's address (%s) and its wallet setup.", minerAddress)
 		}
-		say(plain, "Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.", "base", "mig-"+curioCfg.Addresses[0].MinerAddresses.Get()[0])
+		say(plain, "Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.", "base", "mig-"+curioCfg.Addresses.Get()[0].MinerAddresses[0])
 	skipWritingToBase:
 	} else {
 		_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ('base', $1)
@@ -237,7 +239,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 	}
 
 	{ // make a layer representing the migration
-		layerName := fmt.Sprintf("mig-%s", curioCfg.Addresses[0].MinerAddresses.Get()[0])
+		layerName := fmt.Sprintf("mig-%s", curioCfg.Addresses.Get()[0].MinerAddresses[0])
 		_, err = db.Exec(ctx, "DELETE FROM harmony_config WHERE title=$1", layerName)
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot delete existing layer: %w", err)
@@ -288,22 +290,24 @@ func getDBSettings(smCfg config.StorageMiner) string {
 
 func ensureEmptyArrays(cfg *config.CurioConfig) {
 	if cfg.Addresses == nil {
-		cfg.Addresses = []config.CurioAddresses{}
+		cfg.Addresses.Set([]config.CurioAddresses{})
 	} else {
-		for i := range cfg.Addresses {
-			if cfg.Addresses[i].PreCommitControl == nil {
-				cfg.Addresses[i].PreCommitControl = config.NewDynamic([]string{})
+		addrs := cfg.Addresses.Get()
+		for i := range addrs {
+			if addrs[i].PreCommitControl == nil {
+				addrs[i].PreCommitControl = []string{}
 			}
-			if cfg.Addresses[i].CommitControl == nil {
-				cfg.Addresses[i].CommitControl = config.NewDynamic([]string{})
+			if addrs[i].CommitControl == nil {
+				addrs[i].CommitControl = []string{}
 			}
-			if cfg.Addresses[i].DealPublishControl == nil {
-				cfg.Addresses[i].DealPublishControl = config.NewDynamic([]string{})
+			if addrs[i].DealPublishControl == nil {
+				addrs[i].DealPublishControl = []string{}
 			}
-			if cfg.Addresses[i].TerminateControl == nil {
-				cfg.Addresses[i].TerminateControl = config.NewDynamic([]string{})
+			if addrs[i].TerminateControl == nil {
+				addrs[i].TerminateControl = []string{}
 			}
 		}
+		cfg.Addresses.Set(addrs)
 	}
 	if cfg.Apis.ChainApiInfo == nil {
 		cfg.Apis.ChainApiInfo = []string{}

@@ -362,11 +362,12 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
-		for i := range cfg.Addresses {
-			prec := cfg.Addresses[i].PreCommitControl.Get()
-			com := cfg.Addresses[i].CommitControl.Get()
-			term := cfg.Addresses[i].TerminateControl.Get()
-			miners := cfg.Addresses[i].MinerAddresses.Get()
+		addrs := cfg.Addresses.Get()
+		for i := range addrs {
+			prec := addrs[i].PreCommitControl
+			com := addrs[i].CommitControl
+			term := addrs[i].TerminateControl
+			miners := addrs[i].MinerAddresses
 			for j := range prec {
 				if prec[j] != "" {
 					addrMap[prec[j]] = struct{}{}

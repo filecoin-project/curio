@@ -325,33 +325,29 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	if deps.Maddrs == nil {
 		deps.Maddrs = config.NewDynamic(map[dtypes.MinerAddress]bool{})
 	}
-	if len(deps.Maddrs.Get()) == 0 {
-		setMaddrs := func() error {
-			tmp := map[dtypes.MinerAddress]bool{}
-			for _, s := range deps.Cfg.Addresses {
-				for _, s := range s.MinerAddresses.Get() {
-					addr, err := address.NewFromString(s)
-					if err != nil {
-						return err
-					}
-					tmp[dtypes.MinerAddress(addr)] = true
+	setMaddrs := func() error {
+		tmp := map[dtypes.MinerAddress]bool{}
+		for _, s := range deps.Cfg.Addresses.Get() {
+			for _, s := range s.MinerAddresses {
+				addr, err := address.NewFromString(s)
+				if err != nil {
+					return err
 				}
+				tmp[dtypes.MinerAddress(addr)] = true
 			}
-			deps.Maddrs.Set(tmp)
-			return nil
 		}
-		if err := setMaddrs(); err != nil {
-			return err
-		}
-		for _, s := range deps.Cfg.Addresses {
-			s.MinerAddresses.OnChange(func() {
-				if err := setMaddrs(); err != nil {
-					log.Errorf("error setting maddrs: %s", err)
-				}
-			})
-		}
+		deps.Maddrs.Set(tmp)
+		return nil
+	}
+	if err := setMaddrs(); err != nil {
+		return err
 	}
 
+	deps.Cfg.Addresses.OnChange(func() {
+		if err := setMaddrs(); err != nil {
+			log.Errorf("error setting maddrs: %s", err)
+		}
+	})
 	if deps.ProofTypes == nil {
 		deps.ProofTypes = map[abi.RegisteredSealProof]bool{}
 	}
@@ -640,8 +636,8 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 
 	maddrs := map[dtypes.MinerAddress]bool{}
 	if len(maddrs) == 0 {
-		for _, s := range cfg.Addresses {
-			for _, s := range s.MinerAddresses.Get() {
+		for _, s := range cfg.Addresses.Get() {
+			for _, s := range s.MinerAddresses {
 				addr, err := address.NewFromString(s)
 				if err != nil {
 					return nil, err
@@ -686,16 +682,16 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 			return xerrors.Errorf("Failed to get miner info: %w", err)
 		}
 
-		curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
-			PreCommitControl:      config.NewDynamic([]string{}),
-			CommitControl:         config.NewDynamic([]string{}),
-			DealPublishControl:    config.NewDynamic([]string{}),
-			TerminateControl:      config.NewDynamic([]string{}),
-			DisableOwnerFallback:  config.NewDynamic(false),
-			DisableWorkerFallback: config.NewDynamic(false),
-			MinerAddresses:        config.NewDynamic([]string{addr}),
+		curioConfig.Addresses.Set(append(curioConfig.Addresses.Get(), config.CurioAddresses{
+			PreCommitControl:      []string{},
+			CommitControl:         []string{},
+			DealPublishControl:    []string{},
+			TerminateControl:      []string{},
+			DisableOwnerFallback:  false,
+			DisableWorkerFallback: false,
+			MinerAddresses:        []string{addr},
 			BalanceManager:        config.DefaultBalanceManager(),
-		})
+		}))
 	}
 
 	{
@@ -711,9 +707,9 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		curioConfig.Apis.ChainApiInfo = append(curioConfig.Apis.ChainApiInfo, info)
 	}
 
-	curioConfig.Addresses = lo.Filter(curioConfig.Addresses, func(a config.CurioAddresses, _ int) bool {
-		return len(a.MinerAddresses.Get()) > 0
-	})
+	curioConfig.Addresses.Set(lo.Filter(curioConfig.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
+		return len(a.MinerAddresses) > 0
+	}))
 
 	// If no base layer is present
 	if !lo.Contains(titles, "base") {
@@ -742,10 +738,10 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		return xerrors.Errorf("Cannot parse base config: %w", err)
 	}
 
-	baseCfg.Addresses = append(baseCfg.Addresses, curioConfig.Addresses...)
-	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-		return len(a.MinerAddresses.Get()) > 0
-	})
+	baseCfg.Addresses.Set(append(baseCfg.Addresses.Get(), curioConfig.Addresses.Get()...))
+	baseCfg.Addresses.Set(lo.Filter(baseCfg.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
+		return len(a.MinerAddresses) > 0
+	}))
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	if err != nil {

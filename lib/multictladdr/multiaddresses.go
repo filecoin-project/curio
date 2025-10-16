@@ -77,10 +77,10 @@ func (as *MultiAddressSelector) AddressFor(ctx context.Context, a ctladdr.NodeAp
 		}
 	}
 
-	if len(addrs) == 0 || !tmp.DisableWorkerFallback.Get() {
+	if len(addrs) == 0 || !tmp.DisableWorkerFallback {
 		addrs = append(addrs, mi.Worker)
 	}
-	if !tmp.DisableOwnerFallback.Get() {
+	if !tmp.DisableOwnerFallback {
 		addrs = append(addrs, mi.Owner)
 	}
 

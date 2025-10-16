@@ -104,10 +104,10 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 			return
 		}
 		for name, aset := range map[string][]string{
-			layer + ":PreCommit":    cAddrs.PreCommitControl.Get(),
-			layer + ":Commit":       cAddrs.CommitControl.Get(),
-			layer + ":DealPublish:": cAddrs.DealPublishControl.Get(),
-			layer + ":Terminate":    cAddrs.TerminateControl.Get(),
+			layer + ":PreCommit":    cAddrs.PreCommitControl,
+			layer + ":Commit":       cAddrs.CommitControl,
+			layer + ":DealPublish:": cAddrs.DealPublishControl,
+			layer + ":Terminate":    cAddrs.TerminateControl,
 		} {
 			for _, addrStr := range aset {
 				addr, err := address.NewFromString(addrStr)
@@ -286,7 +286,7 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 func (a *WebRPC) visitAddresses(cb func(string, config.CurioAddresses, address.Address)) error {
 	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
-			for _, addr := range aset.MinerAddresses.Get() {
+			for _, addr := range aset.MinerAddresses {
 				a, err := address.NewFromString(addr)
 				if err != nil {
 					return xerrors.Errorf("parsing address: %w", err)
@@ -500,7 +500,7 @@ func (a *WebRPC) ActorList(ctx context.Context) ([]string, error) {
 
 	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
-			for _, addr := range aset.MinerAddresses.Get() {
+			for _, addr := range aset.MinerAddresses {
 				a, err := address.NewFromString(addr)
 				if err != nil {
 					return xerrors.Errorf("parsing address: %w", err)

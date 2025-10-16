@@ -63,13 +63,13 @@ func forEachConfig[T any](a *WebRPC, cb func(name string, v T) error) error {
 				preAllocated := make([]config.CurioAddresses, requiredLen)
 				for i := range preAllocated {
 					preAllocated[i] = config.CurioAddresses{
-						PreCommitControl:      config.NewDynamic([]string{}),
-						CommitControl:         config.NewDynamic([]string{}),
-						DealPublishControl:    config.NewDynamic([]string{}),
-						TerminateControl:      config.NewDynamic([]string{}),
-						DisableOwnerFallback:  config.NewDynamic(false),
-						DisableWorkerFallback: config.NewDynamic(false),
-						MinerAddresses:        config.NewDynamic([]string{}),
+						PreCommitControl:      []string{},
+						CommitControl:         []string{},
+						DealPublishControl:    []string{},
+						TerminateControl:      []string{},
+						DisableOwnerFallback:  false,
+						DisableWorkerFallback: false,
+						MinerAddresses:        []string{},
 						BalanceManager:        config.DefaultBalanceManager(),
 					}
 				}
