@@ -39,3 +39,23 @@ func TestDynamic(t *testing.T) {
 		return notified.Load()
 	}, 10*time.Second, 100*time.Millisecond)
 }
+
+func TestDynamicUnmarshalText(t *testing.T) {
+	type TestConfig struct {
+		Name  string
+		Value int
+	}
+
+	d := NewDynamic(TestConfig{})
+	tomlData := []byte(`
+Name = "test"
+Value = 42
+`)
+
+	err := d.UnmarshalText(tomlData)
+	assert.NoError(t, err)
+
+	result := d.Get()
+	assert.Equal(t, "test", result.Name)
+	assert.Equal(t, 42, result.Value)
+}

@@ -58,15 +58,17 @@ func (d *Dynamic[T]) Get() T {
 // UnmarshalText unmarshals the text into the dynamic value.
 // After initial setting, future updates require a lock on the DynamicMx mutex before calling toml.Decode.
 func (d *Dynamic[T]) UnmarshalText(text []byte) error {
-	return toml.Unmarshal(text, d.value)
+	return toml.Unmarshal(text, &d.value)
 }
 
 // MarshalTOML marshals the dynamic value to TOML format.
+// If used from deps, requires a lock.
 func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
 	return toml.Marshal(d.value)
 }
 
 // Equal is used by cmp.Equal for custom comparison.
+// If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
 	return cmp.Equal(d.value, other.value)
 }
