@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -11,47 +12,30 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
-
-	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 // Structures to represent database records
 type DataSetPieceAdd struct {
-	DataSet        uint64 `db:"data_set"`
-	AddMessageHash string `db:"add_message_hash"`
+	DataSet        sql.NullInt64 `db:"data_set"`
+	AddMessageHash string        `db:"add_message_hash"`
 }
 
 // PieceAddEntry represents entries from pdp_data_set_piece_adds
 type PieceAddEntry struct {
-	DataSet         uint64 `db:"data_set"`
-	Piece           string `db:"piece"`
-	AddMessageHash  string `db:"add_message_hash"`
-	AddMessageIndex uint64 `db:"add_message_index"`
-	SubPiece        string `db:"sub_piece"`
-	SubPieceOffset  int64  `db:"sub_piece_offset"`
-	SubPieceSize    int64  `db:"sub_piece_size"`
-	PDPPieceRefID   int64  `db:"pdp_pieceref"`
-	AddMessageOK    *bool  `db:"add_message_ok"`
-	PDPDataSetId    uint64 `db:"data_set"`
-}
-
-// NewWatcherPieceAdd sets up the watcher for data set piece additions
-func NewWatcherPieceAdd(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingDataSetPieceAdds(ctx, db, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process pending data set piece adds: %v", err)
-		}
-
-		return nil
-	}); err != nil {
-		panic(err)
-	}
+	DataSet         sql.NullInt64 `db:"data_set"`
+	Piece           string        `db:"piece"`
+	AddMessageHash  string        `db:"add_message_hash"`
+	AddMessageIndex uint64        `db:"add_message_index"`
+	SubPiece        string        `db:"sub_piece"`
+	SubPieceOffset  int64         `db:"sub_piece_offset"`
+	SubPieceSize    int64         `db:"sub_piece_size"`
+	PDPPieceRefID   int64         `db:"pdp_pieceref"`
+	AddMessageOK    *bool         `db:"add_message_ok"`
 }
 
 // processPendingDataSetPieceAdds processes piece additions that have been confirmed on-chain
+// it is called from proofset_watch.go
 func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_data_set_piece_adds entries where add_message_ok = TRUE
 	var pieceAdds []DataSetPieceAdd
@@ -111,6 +95,32 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 }
 
 func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, pieceAdd DataSetPieceAdd) error {
+	resolvedDataSetId := pieceAdd.DataSet
+	if !resolvedDataSetId.Valid {
+		var err error
+		resolvedDataSetId.Int64, err = extractDataSetIdFromReceipt(receipt)
+		if err != nil {
+			return fmt.Errorf("expeted to find dataSetId in receipt but failed to extract: %w", err)
+		}
+		resolvedDataSetId.Valid = true
+		var exists bool
+		// we check if the dataset exists already to avoid foreign key violation
+		err = db.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pdp_data_sets
+				WHERE id = $1
+			)`, resolvedDataSetId.Int64).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check if data set exists: %w", err)
+		}
+		if !exists {
+			// this is a rare case where the transaction is marked as complete between create_watch being called and this function
+			// if that happens, we return an error which will get logged and ignored
+			// piece addition will get picked up in the next run of the watcher
+			return fmt.Errorf("data set %d not found in pdp_data_sets", resolvedDataSetId.Int64)
+		}
+	}
 	// Get the ABI from the contract metadata
 	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
@@ -171,6 +181,7 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Fetch the entries from pdp_data_set_piece_adds
 		var pieceAddEntries []PieceAddEntry
+		// XXX: is the `WHERE data_set` here needed?
 		err := tx.Select(&pieceAddEntries, `
             SELECT data_set, piece, add_message_hash, add_message_index, sub_piece, sub_piece_offset, sub_piece_size, pdp_pieceref
             FROM pdp_data_set_piece_adds
@@ -204,18 +215,19 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9
                 )
-            `, entry.DataSet, entry.Piece, pieceId, entry.SubPiece, entry.SubPieceOffset, entry.SubPieceSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
+            `, resolvedDataSetId.Int64, entry.Piece, pieceId, entry.SubPiece, entry.SubPieceOffset, entry.SubPieceSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into pdp_data_set_pieces: %w", err)
 			}
 		}
 
 		// Mark as processed in pdp_data_set_piece_adds (don't delete, for transaction tracking)
+		// XXX: same here, is there WHERE data_set needed?
 		rowsAffected, err := tx.Exec(`
                       UPDATE pdp_data_set_piece_adds
-                      SET pieces_added = TRUE
+                      SET pieces_added = TRUE, data_set = $3
                       WHERE data_set = $1 AND add_message_hash = $2 AND pieces_added = FALSE
-              `, pieceAdd.DataSet, pieceAdd.AddMessageHash)
+              `, pieceAdd.DataSet, pieceAdd.AddMessageHash, resolvedDataSetId)
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_data_set_piece_adds: %w", err)
 		}
