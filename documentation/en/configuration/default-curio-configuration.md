@@ -541,10 +541,10 @@ description: The default curio configuration
   #DelegateTLS = false
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #ReadTimeout = "10s"
+  #ReadTimeout = "30m0s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
