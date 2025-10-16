@@ -66,6 +66,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
 		return
 	}
+	log.Debugw("[handlePiecePost] -- piece stuff done", "pieceCidV2", pieceCidV2)
 
 	ctx := r.Context()
 
@@ -88,8 +89,9 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, fmt.Errorf("failed to query parked_pieces: %w", err)
 		}
-
+		log.Debugw("[handlePiecePost] -- parked piece check done", "pieceCidV2", pieceCidV2)
 		if err == nil {
+			log.Debugw("[handlePiecePost] -- parked piece found", "pieceCidV2", pieceCidV2)
 			// Piece is already stored
 			// Create a new 'parked_piece_refs' entry
 			var parkedPieceRefID int64
@@ -100,6 +102,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
 			}
+			log.Debugw("[handlePiecePost] -- new parked piece ref", "parkedPieceRefID", parkedPieceRefID, "pieceCidV1", pieceCidV1)
 
 			// Create a new 'pdp_piece_uploads' entry pointing to the 'parked_piece_refs' entry
 			uploadUUID = uuid.New()
@@ -110,10 +113,12 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
 			}
+			log.Debugw("[handlePiecePost] -- new pdp_piece_uploads", "uploadUUID", uploadUUID, "pieceCidV1", pieceCidV1)
 
 			responseStatus = http.StatusOK
 			return true, nil // Commit the transaction
 		}
+		log.Debugw("[handlePiecePost] -- parked piece not found", "pieceCidV2", pieceCidV2)
 
 		// Piece does not exist, proceed to create a new upload request
 		uploadUUID = uuid.New()
@@ -125,6 +130,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
+		log.Debugw("[handlePiecePost] -- new pdp_piece_uploads inserted", "uploadUUID", uploadUUID, "pieceCidV2", pieceCidV2)
 
 		// Create a location URL where the piece data can be uploaded via PUT
 		uploadURL = path.Join(PDPRoutePath, "/piece/upload", uploadUUID.String())
@@ -136,6 +142,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Debugw("[handlePiecePost] -- writing response", "uploadUUID", uploadUUID, "pieceCidV2", pieceCidV2)
 
 	switch responseStatus {
 	case http.StatusCreated:
@@ -167,7 +174,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid upload UUID", http.StatusBadRequest)
 		return
 	}
-
+	log.Debugw("[handlePieceUpload] -- upload started", "uploadUUID", uploadUUID)
 	ctx := r.Context()
 
 	// Lookup the expected pieceCID, notify_url, and piece_ref from the database using uploadUUID
@@ -187,7 +194,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
+	log.Debugw("[handlePieceUpload] -- upload lookup done", "uploadUUID", uploadUUID)
 	// Check that piece_ref is null; non-null means data was already uploaded
 	if pieceRef.Valid {
 		http.Error(w, "Data has already been uploaded", http.StatusConflict)
@@ -231,7 +238,6 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 		return nil
 	}
-
 	// Upload into StashStore
 	stashID, err := p.storage.StashCreate(ctx, maxPieceSize, writeFunc)
 	if err != nil {
@@ -244,6 +250,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	log.Debugw("[handlePieceUpload] -- uploaded into StashStore", "uploadUUID", uploadUUID)
 
 	// Finalize the commP calculation
 	digest, paddedPieceSize, err := cp.Digest()
@@ -255,6 +262,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if readSize != checkSize {
+		log.Debugw("[handlePieceUpload] -- piece size does not match the expected size removing from stash store", "uploadUUID", uploadUUID)
 		_ = p.storage.StashRemove(ctx, stashID)
 		http.Error(w, "Piece size does not match the expected size", http.StatusBadRequest)
 		return
@@ -263,6 +271,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	outHash := digest
 
 	if !bytes.Equal(outHash, dmh.Digest) {
+		log.Debugw("[handlePieceUpload] -- computed hash does not match expected hash removing from stash store", "uploadUUID", uploadUUID)
 		// Remove the stash file as the data is invalid
 		_ = p.storage.StashRemove(ctx, stashID)
 		log.Warnw("Computed hash does not match expected hash", "computed", hex.EncodeToString(outHash), "expected", hex.EncodeToString(dmh.Digest), "pieceCid", pieceCidV1.String())
@@ -281,6 +290,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Compare the computed piece CID with the expected one from the database
 	if pieceCIDStr != nil && pieceCIDComputed.String() != *pieceCIDStr {
+		log.Debugw("[handlePieceUpload] -- computed piece CID does not match expected piece CID removing from stash store", "uploadUUID", uploadUUID)
 		// Remove the stash file as the data is invalid
 		_ = p.storage.StashRemove(ctx, stashID)
 		http.Error(w, "Computed piece CID does not match expected piece CID", http.StatusBadRequest)
@@ -297,7 +307,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
-
+		log.Debugw("[handlePieceUpload] -- parked pieces entry created", "uploadUUID", uploadUUID)
 		// 2. Create a piece ref with data_url being "stashstore://<stash-url>"
 		// Get StashURL
 		stashURL, err := p.storage.StashURL(stashID)
@@ -317,7 +327,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 		}
-
+		log.Debugw("[handlePieceUpload] -- parked piece ref created", "uploadUUID", uploadUUID)
 		// 3. Update the pdp_piece_uploads entry to contain the created piece_ref
 		_, err = tx.Exec(`
             UPDATE pdp_piece_uploads SET piece_ref = $1, piece_cid = $2 WHERE id = $3
@@ -325,7 +335,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_piece_uploads: %w", err)
 		}
-
+		log.Debugw("[handlePieceUpload] -- pdp_piece_uploads entry updated", "uploadUUID", uploadUUID)
 		return true, nil // Commit the transaction
 	}, harmonydb.OptionRetry())
 
@@ -336,6 +346,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Debugw("[handlePieceUpload] -- piece upload done, writing response", "uploadUUID", uploadUUID)
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -367,15 +378,13 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Verify that a 'parked_pieces' entry exists for the given 'piece_cid'
-	var count int
-	err = p.db.QueryRow(ctx, `
-    SELECT count(*) FROM pdp_piecerefs WHERE piece_cid = $1
-  `, pieceCidV1.String()).Scan(&count)
+	var exist bool
+	err = p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1) AS exist;`, pieceCidV1.String()).Scan(&exist)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
-	if count == 0 {
+	if !exist {
 		http.NotFound(w, r)
 		return
 	}

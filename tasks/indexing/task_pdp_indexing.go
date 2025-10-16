@@ -200,7 +200,7 @@ func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTa
 			stop = true // assume we're done until we find a task to schedule
 
 			var pendings []struct {
-				ID string `db:"id"`
+				ID int64 `db:"id"`
 			}
 
 			err := tx.Select(&pendings, `SELECT id FROM pdp_piecerefs 
@@ -212,6 +212,7 @@ func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTa
 			}
 
 			if len(pendings) == 0 {
+				log.Debug("No pending PDP indexing tasks found")
 				return false, nil
 			}
 
@@ -221,6 +222,7 @@ func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTa
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP indexing task id: %w", err)
 			}
+			log.Debugf("PDP indexing task scheduled for pending indexing task %d", pending.ID)
 
 			stop = false
 			return true, nil

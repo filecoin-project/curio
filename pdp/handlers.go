@@ -118,7 +118,11 @@ func Routes(r *chi.Mux, p *PDPService) {
 	r.Get(path.Join(PDPRoutePath, "/piece/"), p.handleFindPiece)
 
 	// PUT /pdp/piece/upload/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
+	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), func(w http.ResponseWriter, r *http.Request) {
+		log.Debugw("[handlePieceUpload] -- router says upload started", "uploadUUID", chi.URLParam(r, "uploadUUID"))
+		p.handlePieceUpload(w, r)
+		log.Debugw("[handlePieceUpload] -- router says its done", "uploadUUID", chi.URLParam(r, "uploadUUID"))
+	})
 
 	// POST /pdp/piece/uploads
 	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), p.handleStreamingUploadURL)

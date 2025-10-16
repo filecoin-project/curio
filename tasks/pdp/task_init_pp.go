@@ -143,6 +143,8 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}
 
+	challengeWindow := big.NewInt(config.ChallengeWindow.Int64())
+
 	init_prove_at := config.InitChallengeWindowStart.Add(config.InitChallengeWindowStart, config.ChallengeWindow.Div(config.ChallengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
@@ -158,6 +160,15 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
+
+	currentBlock, err := ipp.ethClient.BlockNumber(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get current block number: %w", err)
+	}
+
+	expectedInitWdStart := currentBlock + config.MaxProvingPeriod - config.ChallengeWindow.Uint64()
+	expectedMid := expectedInitWdStart + config.ChallengeWindow.Uint64()/2
+	buffer := challengeWindow.Uint64() / 2
 
 	// Prepare the transaction
 	txEth := types.NewTransaction(
@@ -189,6 +200,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	reason := "pdp-proving-init"
 	txHash, err := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
+		log.Errorf("failed to send transaction at %d, InitChallengeWindowStart %d, ChallengeWindow %d, MaxProvingPeriod %d, Buffer %d, InitReadyAt %d, ExpectedInitChallenge %d, ExpectedInitReadyAt %d: %w", currentBlock, config.InitChallengeWindowStart.Uint64(), config.ChallengeWindow.Uint64(), config.MaxProvingPeriod, buffer, init_prove_at.Uint64(), expectedInitWdStart, expectedMid, err)
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 

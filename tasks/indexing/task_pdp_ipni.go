@@ -312,7 +312,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			stop = true // assume we're done until we find a task to schedule
 
 			var pendings []struct {
-				ID string `db:"id"`
+				ID int64 `db:"id"`
 			}
 
 			err := tx.Select(&pendings, `SELECT id FROM pdp_piecerefs 
@@ -324,6 +324,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 
 			if len(pendings) == 0 {
+				log.Debug("No pending PDP IPNI tasks found")
 				return false, nil
 			}
 
@@ -338,6 +339,8 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP ipni task id: %w", err)
 			}
+
+			log.Debugf("PDP IPNI task scheduled for pending IPNI task %d", pending.ID)
 
 			stop = false
 			return true, nil
