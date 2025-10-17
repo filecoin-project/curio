@@ -68,14 +68,13 @@ func (d *Dynamic[T]) Get() T {
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
 	return cmp.Equal(d.value, other.value, BigIntComparer)
-
+}
 
 // MarshalTOML marshals the dynamic value to TOML format.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
 	return toml.Marshal(d.value)
 }
-
 
 type cfgRoot[T any] struct {
 	db       *harmonydb.DB
