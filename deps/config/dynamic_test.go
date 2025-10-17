@@ -43,6 +43,7 @@ func TestDynamic(t *testing.T) {
 }
 
 func TestDynamicUnmarshalTOML(t *testing.T) {
+
 	type TestConfig struct {
 		Name  string
 		Value int
@@ -68,6 +69,7 @@ func TestDynamicUnmarshalTOML(t *testing.T) {
 	assert.NoError(t, err)
 
 	result := w2.Config.Get()
+
 	assert.Equal(t, "test", result.Name)
 	assert.Equal(t, 42, result.Value)
 }
@@ -97,6 +99,7 @@ func TestDynamicWithBigInt(t *testing.T) {
 	// Test that cmp.Equal works with bigIntComparer
 	assert.True(t, cmp.Equal(d1.Get(), d2.Get(), BigIntComparer), "cmp.Equal should work with bigIntComparer")
 	assert.False(t, cmp.Equal(d1.Get(), d3.Get(), BigIntComparer), "cmp.Equal should detect differences")
+
 }
 
 func TestDynamicChangeNotificationWithBigInt(t *testing.T) {
