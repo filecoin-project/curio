@@ -179,7 +179,7 @@ func createShadowType(t reflect.Type) reflect.Type {
 			newField.Type = createShadowType(field.Type)
 		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
 			if hasNestedDynamics(field.Type.Elem()) {
-				newField.Type = reflect.PtrTo(createShadowType(field.Type.Elem()))
+				newField.Type = reflect.PointerTo(createShadowType(field.Type.Elem()))
 			}
 		}
 		// For all other types (including structs without Dynamic fields), keep original type
