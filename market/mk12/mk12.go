@@ -708,8 +708,8 @@ FROM joined
 		return true, nil
 	}
 
-	if cfg.MaxQueueDownload != 0 && downloadingPending > int64(cfg.MaxQueueDownload) {
-		log.Infow("backpressure", "reason", "too many pending downloads", "pending_downloads", downloadingPending, "max", cfg.MaxQueueDownload)
+	if cfg.MaxQueueDownload.Get() != 0 && downloadingPending > int64(cfg.MaxQueueDownload.Get()) {
+		log.Infow("backpressure", "reason", "too many pending downloads", "pending_downloads", downloadingPending, "max", cfg.MaxQueueDownload.Get())
 		return true, nil
 	}
 

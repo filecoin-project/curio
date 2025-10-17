@@ -58,7 +58,7 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Ingest: CurioIngestConfig{
 			MaxMarketRunningPipelines: 64,
-			MaxQueueDownload:          8,
+			MaxQueueDownload:          NewDynamic(8),
 			MaxQueueCommP:             8,
 
 			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
@@ -526,7 +526,7 @@ type CurioIngestConfig struct {
 	// waiting for a machine to pick up their task (owner_id is null).
 	// If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
 	// 0 means unlimited. (Default: 8)
-	MaxQueueDownload int
+	MaxQueueDownload *Dynamic[int]
 
 	// MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
 	// waiting for a machine to pick up their verification task (owner_id is null).

@@ -109,6 +109,7 @@ func TestCurioHappyPath(t *testing.T) {
 
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
 	require.NoError(t, err)
+
 	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
 	require.NoError(t, err)
 
@@ -164,9 +165,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 
@@ -190,9 +188,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 	require.NoError(t, err)
