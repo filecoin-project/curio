@@ -118,8 +118,8 @@ func TestCurioHappyPath(t *testing.T) {
 
 	require.Contains(t, baseCfg.Addresses.Get()[0].MinerAddresses, maddr.String())
 
-	baseCfg.Batching.PreCommit.Timeout = time.Second
-	baseCfg.Batching.Commit.Timeout = time.Second
+	baseCfg.Batching.PreCommit.Timeout.Set(time.Second)
+	baseCfg.Batching.Commit.Timeout.Set(time.Second)
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)

@@ -328,16 +328,19 @@ description: The default curio configuration
 
   # WindowPoSt is a high-value operation, so the default fee should be high.
   # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
+  # Updates will affect running instances.
   #
   # type: types.FIL
   #MaxWindowPoStGasFee = "5 FIL"
 
   # Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
+  # Updates will affect running instances.
   #
   # type: bool
   #CollateralFromMinerBalance = false
 
   # Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
+  # Updates will affect running instances.
   #
   # type: bool
   #DisableCollateralFallback = false
@@ -345,6 +348,7 @@ description: The default curio configuration
   # MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
   # This generally doesn't increase message cost, but in highly congested network messages
   # are much less likely to get stuck in mempool. (Default: true)
+  # Updates will affect running instances.
   #
   # type: bool
   #MaximizeFeeCap = true
@@ -356,11 +360,13 @@ description: The default curio configuration
   [Fees.MaxPreCommitBatchGasFee]
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #Base = "0 FIL"
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #PerSector = "0.02 FIL"
@@ -372,11 +378,13 @@ description: The default curio configuration
   [Fees.MaxCommitBatchGasFee]
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #Base = "0 FIL"
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #PerSector = "0.03 FIL"
@@ -388,11 +396,13 @@ description: The default curio configuration
   [Fees.MaxUpdateBatchGasFee]
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #Base = "0 FIL"
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #PerSector = "0.03 FIL"
@@ -617,6 +627,7 @@ description: The default curio configuration
     # The server must support "HEAD" request and "GET" request.
     # 1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
     # 2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
+    # Updates will affect running instances.
     #
     # type: []PieceLocatorConfig
     #PieceLocator = []
@@ -1028,18 +1039,21 @@ description: The default curio configuration
 
     # Base fee value below which we should try to send Precommit messages immediately
     # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #BaseFeeThreshold = "0.005 FIL"
 
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Timeout = "4h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deal in batch would start expiring
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Slack = "6h0m0s"
@@ -1051,18 +1065,21 @@ description: The default curio configuration
 
     # Base fee value below which we should try to send Commit messages immediately
     # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #BaseFeeThreshold = "0.005 FIL"
 
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Timeout = "1h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Slack = "1h0m0s"
@@ -1074,18 +1091,21 @@ description: The default curio configuration
 
     # Base fee value below which we should try to send Commit messages immediately
     # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #BaseFeeThreshold = "0.005 FIL"
 
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Timeout = "1h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Slack = "1h0m0s"

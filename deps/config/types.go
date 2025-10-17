@@ -82,19 +82,19 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Batching: CurioBatchingConfig{
 			PreCommit: PreCommitBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          4 * time.Hour,
-				Slack:            6 * time.Hour,
+				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
+				Timeout:          NewDynamic(4 * time.Hour),
+				Slack:            NewDynamic(6 * time.Hour),
 			},
 			Commit: CommitBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          time.Hour,
-				Slack:            time.Hour,
+				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
+				Timeout:          NewDynamic(time.Hour),
+				Slack:            NewDynamic(time.Hour),
 			},
 			Update: UpdateBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          time.Hour,
-				Slack:            time.Hour,
+				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
+				Timeout:          NewDynamic(time.Hour),
+				Slack:            NewDynamic(time.Hour),
 			},
 		},
 		Market: MarketConfig{
@@ -693,43 +693,43 @@ type CurioBatchingConfig struct {
 type PreCommitBatchingConfig struct {
 	// Base fee value below which we should try to send Precommit messages immediately
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
+	BaseFeeThreshold *Dynamic[types.FIL]
 
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type CommitBatchingConfig struct {
 	// Base fee value below which we should try to send Commit messages immediately
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
+	BaseFeeThreshold *Dynamic[types.FIL]
 
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type UpdateBatchingConfig struct {
 	// Base fee value below which we should try to send Commit messages immediately
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
+	BaseFeeThreshold *Dynamic[types.FIL]
 
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type MarketConfig struct {

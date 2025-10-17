@@ -32,7 +32,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 		return
 	}
 
-	slackEpoch := int64(math.Ceil(s.cfg.preCommit.Slack.Seconds() / float64(build.BlockDelaySecs)))
+	slackEpoch := int64(math.Ceil(s.cfg.preCommit.Slack.Get().Seconds() / float64(build.BlockDelaySecs)))
 
 	s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		var updatedCount int64
@@ -43,18 +43,18 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 			"current_height", ts.Height(),
 			"max_batch", s.cfg.preCommit.MaxPreCommitBatch,
 			"new_task_id", id,
-			"timeout_secs", s.cfg.preCommit.Timeout.Seconds(),
-			"timeout_at", time.Now().Add(s.cfg.preCommit.Timeout).UTC().Format(time.RFC3339),
+			"timeout_secs", s.cfg.preCommit.Timeout.Get().Seconds(),
+			"timeout_at", time.Now().Add(s.cfg.preCommit.Timeout.Get()).UTC().Format(time.RFC3339),
 			"randomness_lookback", policy.MaxPreCommitRandomnessLookback,
 		)
 
 		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_precommit_msgs($1, $2, $3, $4, $5, $6)`,
-			policy.MaxPreCommitRandomnessLookback,  // p_randomnessLookBack BIGINT,  -- policy.MaxPreCommitRandomnessLookback
-			slackEpoch,                             // p_slack_epoch        BIGINT,  -- "Slack" epoch to compare against a sector's start_epoch
-			ts.Height(),                            // p_current_height     BIGINT,  -- Current on-chain height
-			s.cfg.preCommit.MaxPreCommitBatch,      // p_max_batch          INT,     -- Max number of sectors per batch
-			id,                                     // p_new_task_id        BIGINT,  -- Task ID to assign if a batch is chosen
-			int(s.cfg.preCommit.Timeout.Seconds()), // p_timeout_secs  	   INT      -- Timeout in seconds for earliest_ready_at check
+			policy.MaxPreCommitRandomnessLookback, // p_randomnessLookBack BIGINT,  -- policy.MaxPreCommitRandomnessLookback
+			slackEpoch,                            // p_slack_epoch        BIGINT,  -- "Slack" epoch to compare against a sector's start_epoch
+			ts.Height(),                           // p_current_height     BIGINT,  -- Current on-chain height
+			s.cfg.preCommit.MaxPreCommitBatch,     // p_max_batch          INT,     -- Max number of sectors per batch
+			id,                                    // p_new_task_id        BIGINT,  -- Task ID to assign if a batch is chosen
+			int(s.cfg.preCommit.Timeout.Get().Seconds()), // p_timeout_secs  	   INT      -- Timeout in seconds for earliest_ready_at check
 		).Scan(&updatedCount, &reason)
 		if err != nil {
 			return false, err

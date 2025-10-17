@@ -36,13 +36,15 @@ var Doc = map[string][]DocField{
 			Name: "Base",
 			Type: "types.FIL",
 
-			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PerSector",
 			Type: "types.FIL",
 
-			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+Updates will affect running instances.`,
 		},
 	},
 	"CommitBatchingConfig": {
@@ -51,21 +53,24 @@ var Doc = map[string][]DocField{
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 	"CompressionConfig": {
@@ -287,19 +292,22 @@ Updates will affect running instances.`,
 			Type: "types.FIL",
 
 			Comment: `WindowPoSt is a high-value operation, so the default fee should be high.
-Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")`,
+Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "CollateralFromMinerBalance",
 			Type: "bool",
 
-			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)`,
+			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "DisableCollateralFallback",
 			Type: "bool",
 
-			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
+			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaximizeFeeCap",
@@ -307,7 +315,8 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 
 			Comment: `MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
 This generally doesn't increase message cost, but in highly congested network messages
-are much less likely to get stuck in mempool. (Default: true)`,
+are much less likely to get stuck in mempool. (Default: true)
+Updates will affect running instances.`,
 		},
 	},
 	"CurioIngestConfig": {
@@ -1228,21 +1237,24 @@ identifier in the integration page for the service.`,
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Precommit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {
@@ -1307,7 +1319,8 @@ Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXX
 User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
 The server must support "HEAD" request and "GET" request.
 1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
-2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value`,
+2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
+Updates will affect running instances.`,
 		},
 	},
 	"UpdateBatchingConfig": {
@@ -1316,21 +1329,24 @@ The server must support "HEAD" request and "GET" request.
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 }
