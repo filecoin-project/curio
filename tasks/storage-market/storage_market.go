@@ -175,7 +175,6 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		})
 	}
 
-	// TODO BUG XXXX @LexLuthr push d.miners (dynamic) to mk20, especially allowing 0 --> 1 miners
 	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
 	if err != nil {
 		return err
