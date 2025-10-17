@@ -99,7 +99,7 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Market: MarketConfig{
 			StorageMarketConfig: StorageMarketConfig{
-				PieceLocator: []PieceLocatorConfig{},
+				PieceLocator: NewDynamic([]PieceLocatorConfig{}),
 				Indexing: IndexingConfig{
 					InsertConcurrency: 10,
 					InsertBatchSize:   1000,
@@ -755,7 +755,7 @@ type StorageMarketConfig struct {
 	// The server must support "HEAD" request and "GET" request.
 	// 	1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 	//  2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
-	PieceLocator []PieceLocatorConfig
+	PieceLocator *Dynamic[[]PieceLocatorConfig]
 }
 
 type MK12Config struct {

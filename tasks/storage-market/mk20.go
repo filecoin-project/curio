@@ -715,7 +715,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 			}
 
 			// Check if We can find the URL for this piece on remote servers
-			for rUrl, headers := range d.urls {
+			for rUrl, headers := range d.urls.Get() {
 				// Create a new HTTP request
 				urlString := fmt.Sprintf("%s?id=%s", rUrl, piece.PieceCIDV2)
 				req, err := http.NewRequest(http.MethodHead, urlString, nil)

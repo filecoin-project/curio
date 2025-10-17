@@ -77,7 +77,7 @@ type CurioStorageDealMarket struct {
 	MK20Handler *mk20.MK20
 	ethClient   *ethclient.Client
 	si          paths.SectorIndex
-	urls        map[string]http.Header
+	urls        *config.Dynamic[map[string]http.Header]
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
@@ -119,10 +119,17 @@ type MK12Pipeline struct {
 
 func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
-	urls := make(map[string]http.Header)
-	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
-		urls[curl.URL] = curl.Headers
+	urlsDynamic := config.NewDynamic(make(map[string]http.Header))
+
+	makeUrls := func() {
+		urls := make(map[string]http.Header)
+		for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator.Get() {
+			urls[curl.URL] = curl.Headers
+		}
+		urlsDynamic.Set(urls)
 	}
+	makeUrls()
+	cfg.Market.StorageMarketConfig.PieceLocator.OnChange(makeUrls)
 
 	return &CurioStorageDealMarket{
 		cfg:       cfg,
@@ -130,7 +137,7 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 		api:       mapi,
 		miners:    miners,
 		si:        si,
-		urls:      urls,
+		urls:      urlsDynamic,
 		as:        as,
 		ethClient: ethClient,
 		sc:        sc,
@@ -555,7 +562,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 		}
 
 		// Check if We can find the URL for this piece on remote servers
-		for rUrl, headers := range d.urls {
+		for rUrl, headers := range d.urls.Get() {
 			// Create a new HTTP request
 			urlString := fmt.Sprintf("%s?id=%s", rUrl, pcid)
 			req, err := http.NewRequest(http.MethodHead, urlString, nil)
