@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/google/go-cmp/cmp"
 	logging "github.com/ipfs/go-log/v2"
 
@@ -23,6 +22,9 @@ var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
 	return x.Cmp(&y) == 0
 })
 
+// Dynamic is a wrapper for configuration values that can change at runtime.
+// Use Get() and Set() methods to access the value with proper synchronization
+// and change detection.
 type Dynamic[T any] struct {
 	value T
 }
@@ -59,18 +61,6 @@ func (d *Dynamic[T]) Get() T {
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
 	return d.value
-}
-
-// UnmarshalText unmarshals the text into the dynamic value.
-// After initial setting, future updates require a lock on the DynamicMx mutex before calling toml.Decode.
-func (d *Dynamic[T]) UnmarshalText(text []byte) error {
-	return toml.Unmarshal(text, &d.value)
-}
-
-// MarshalTOML marshals the dynamic value to TOML format.
-// If used from deps, requires a lock.
-func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
-	return toml.Marshal(d.value)
 }
 
 // Equal is used by cmp.Equal for custom comparison.

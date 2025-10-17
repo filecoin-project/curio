@@ -89,7 +89,8 @@ func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interfac
 		cfg = ccfg
 	}
 
-	md, err := toml.Decode(buf.String(), cfg)
+	// Use TransparentDecode for configs with Dynamic fields
+	md, err := TransparentDecode(buf.String(), cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +593,7 @@ func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T
 		return toml.MetaData{}, err
 	}
 
-	return toml.Decode(newText, &curioConfigWithDefaults)
+	return TransparentDecode(newText, &curioConfigWithDefaults)
 }
 
 type ConfigText struct {
