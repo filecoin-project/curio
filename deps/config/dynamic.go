@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -66,7 +67,7 @@ func (d *Dynamic[T]) Get() T {
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, BigIntComparer)
+	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.

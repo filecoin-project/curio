@@ -59,6 +59,11 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 		targetVal = targetVal.Elem()
 	}
 
+	// Ensure we have structs to work with
+	if shadowVal.Kind() != reflect.Struct || targetVal.Kind() != reflect.Struct {
+		return
+	}
+
 	for i := 0; i < targetVal.NumField(); i++ {
 		targetField := targetVal.Field(i)
 		shadowField := shadowVal.Field(i)
@@ -188,6 +193,11 @@ func wrapDynamics(shadow, target interface{}) error {
 		targetVal = targetVal.Elem()
 	}
 
+	// Ensure we have structs to work with
+	if shadowVal.Kind() != reflect.Struct || targetVal.Kind() != reflect.Struct {
+		return nil
+	}
+
 	for i := 0; i < targetVal.NumField(); i++ {
 		targetField := targetVal.Field(i)
 		shadowField := shadowVal.Field(i)
@@ -201,7 +211,10 @@ func wrapDynamics(shadow, target interface{}) error {
 			setDynamicValue(targetField, shadowField)
 		} else if targetField.Kind() == reflect.Struct && hasNestedDynamics(targetField.Type()) {
 			// Recursively handle nested structs that have Dynamic fields
-			wrapDynamics(shadowField.Interface(), targetField.Addr().Interface())
+			err := wrapDynamics(shadowField.Interface(), targetField.Addr().Interface())
+			if err != nil {
+				return err
+			}
 		} else {
 			// Copy regular fields - don't copy if types don't match (shouldn't happen)
 			if shadowField.IsValid() && targetField.CanSet() {

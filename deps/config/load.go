@@ -10,9 +10,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/BurntSushi/toml"
@@ -448,23 +446,15 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 		opts := []cmp.Option{
 			// This equality function compares big.Int
 			cmpopts.IgnoreUnexported(big.Int{}),
-			cmp.Comparer(func(x, y []string) bool {
-				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
-				if tx.Kind() == reflect.Slice && ty.Kind() == reflect.Slice && tx.Elem().Kind() == reflect.String && ty.Elem().Kind() == reflect.String {
-					sort.Strings(x)
-					sort.Strings(y)
-					return strings.Join(x, "\n") == strings.Join(y, "\n")
-				}
-				return false
-			}),
-			cmp.Comparer(func(x, y time.Duration) bool {
-				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
-				return tx.Kind() == ty.Kind()
-			}),
+			// Treat nil and empty slices/maps as equal for all types
+			cmpopts.EquateEmpty(),
+			// Use BigIntComparer for proper big.Int comparison
+			BigIntComparer,
 		}
 
 		if !cmp.Equal(cfgUpdated, cfgCur, opts...) {
-			return nil, xerrors.Errorf("updated config didn't match current config")
+			diff := cmp.Diff(cfgUpdated, cfgCur, opts...)
+			return nil, xerrors.Errorf("updated config didn't match current config:\n%s", diff)
 		}
 	}
 
