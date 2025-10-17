@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/deps"
@@ -54,8 +53,8 @@ func TestDynamicConfig(t *testing.T) {
 
 }
 
-func setTestConfig(ctx context.Context, cdb *harmonydb.DB, config *config.CurioConfig) error {
-	tomlData, err := toml.Marshal(config)
+func setTestConfig(ctx context.Context, cdb *harmonydb.DB, cfg *config.CurioConfig) error {
+	tomlData, err := config.TransparentMarshal(cfg)
 	if err != nil {
 		return err
 	}

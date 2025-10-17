@@ -36,13 +36,15 @@ var Doc = map[string][]DocField{
 			Name: "Base",
 			Type: "types.FIL",
 
-			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PerSector",
 			Type: "types.FIL",
 
-			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+Updates will affect running instances.`,
 		},
 	},
 	"CommitBatchingConfig": {
@@ -51,21 +53,24 @@ var Doc = map[string][]DocField{
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 	"CompressionConfig": {
@@ -208,7 +213,8 @@ Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "a
 			Name: "Addresses",
 			Type: "[]CurioAddresses",
 
-			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.`,
+			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Proving",
@@ -286,19 +292,22 @@ Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "a
 			Type: "types.FIL",
 
 			Comment: `WindowPoSt is a high-value operation, so the default fee should be high.
-Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")`,
+Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "CollateralFromMinerBalance",
 			Type: "bool",
 
-			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)`,
+			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "DisableCollateralFallback",
 			Type: "bool",
 
-			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
+			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaximizeFeeCap",
@@ -306,7 +315,8 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 
 			Comment: `MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
 This generally doesn't increase message cost, but in highly congested network messages
-are much less likely to get stuck in mempool. (Default: true)`,
+are much less likely to get stuck in mempool. (Default: true)
+Updates will affect running instances.`,
 		},
 	},
 	"CurioIngestConfig": {
@@ -317,7 +327,8 @@ are much less likely to get stuck in mempool. (Default: true)`,
 			Comment: `MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
 A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
 If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
-0 means unlimited. (Default: 64)`,
+0 means unlimited. (Default: 64)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueDownload",
@@ -336,7 +347,8 @@ Updates will affect running instances.`,
 			Comment: `MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
 waiting for a machine to pick up their verification task (owner_id is null).
 If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
-0 means unlimited. (Default: 8)`,
+0 means unlimited. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueDealSector",
@@ -346,7 +358,9 @@ If this limit is exceeded, the system will apply backpressure, delaying new deal
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
-DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)`,
+DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSDR",
@@ -358,7 +372,9 @@ Note: This mechanism will delay taking deal data from markets, providing backpre
 The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
 possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueTrees",
@@ -369,7 +385,9 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueuePoRep",
@@ -380,7 +398,9 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSnapEncode",
@@ -389,7 +409,9 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
+Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSnapProve",
@@ -397,7 +419,9 @@ Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
 
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
-This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)`,
+This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxDealWaitTime",
@@ -405,7 +429,9 @@ This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying
 
 			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
 This ensures that sectors don't remain open indefinitely, consuming resources.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "DoSnap",
@@ -1211,21 +1237,24 @@ identifier in the integration page for the service.`,
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Precommit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {
@@ -1290,7 +1319,8 @@ Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXX
 User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
 The server must support "HEAD" request and "GET" request.
 1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
-2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value`,
+2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
+Updates will affect running instances.`,
 		},
 	},
 	"UpdateBatchingConfig": {
@@ -1299,21 +1329,24 @@ The server must support "HEAD" request and "GET" request.
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 }
