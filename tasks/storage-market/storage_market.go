@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -143,6 +144,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prevMiners := d.miners.Get()
 
 	if d.MK12Handler != nil {
 		for _, miner := range d.miners.Get() { // Not Dynamic for MK12
@@ -165,25 +167,36 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				}
 			}
 		}
+		d.miners.OnChange(func() {
+			newMiners := d.miners.Get()
+			if !cmp.Equal(prevMiners, newMiners, config.BigIntComparer) {
+				log.Errorf("Miners changed from %d to %d. . Restart required for Market 1.2 Ingest to work.", len(prevMiners), len(newMiners))
+			}
+		})
 	}
 
 	// TODO BUG XXXX @LexLuthr push d.miners (dynamic) to mk20, especially allowing 0 --> 1 miners
-	d.MK20Handler, err = mk20.NewMK20Handler(d.miners.Get(), d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
+	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
 	if err != nil {
 		return err
 	}
 
-	if len(d.miners.Get()) > 0 {
+	if len(prevMiners) > 0 {
 		if d.cfg.Ingest.DoSnap {
-			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners.Get(), d.cfg)
+			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, prevMiners, d.cfg)
 		} else {
-			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners.Get(), d.cfg)
+			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, prevMiners, d.cfg)
 		}
 		if err != nil {
 			return err
 		}
 	}
-
+	d.miners.OnChange(func() {
+		newMiners := d.miners.Get()
+		if len(prevMiners) != len(newMiners) && (len(prevMiners) == 0 || len(newMiners) == 0) {
+			log.Errorf("Miners changed from %d to %d. . Restart required for Market Ingest to work.", len(prevMiners), len(newMiners))
+		}
+	})
 	go d.runPoller(ctx)
 
 	return nil

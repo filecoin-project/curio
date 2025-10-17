@@ -291,11 +291,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			activeTasks = append(activeTasks, psdTask, dealFindTask, checkIndexesTask)
 
-			// TODO BUG XXXX @LexLuthr push miners (dynamic) to libp2p
-
 			// Start libp2p hosts and handle streams. This is a special function which calls the shutdown channel
 			// instead of returning the error. This design is to allow libp2p take over if required
-			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners.Get(), machine, shutdownChan)
+			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
 		sc, err := slrLazy.Val()
 		if err != nil {

@@ -95,8 +95,8 @@ func TestDynamicWithBigInt(t *testing.T) {
 	assert.False(t, d1.Equal(d3), "Different FIL values should not be equal")
 
 	// Test that cmp.Equal works with bigIntComparer
-	assert.True(t, cmp.Equal(d1.Get(), d2.Get(), bigIntComparer), "cmp.Equal should work with bigIntComparer")
-	assert.False(t, cmp.Equal(d1.Get(), d3.Get(), bigIntComparer), "cmp.Equal should detect differences")
+	assert.True(t, cmp.Equal(d1.Get(), d2.Get(), BigIntComparer), "cmp.Equal should work with bigIntComparer")
+	assert.False(t, cmp.Equal(d1.Get(), d3.Get(), BigIntComparer), "cmp.Equal should detect differences")
 }
 
 func TestDynamicChangeNotificationWithBigInt(t *testing.T) {

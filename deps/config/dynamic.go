@@ -17,8 +17,8 @@ import (
 
 var logger = logging.Logger("config-dynamic")
 
-// bigIntComparer is used to compare big.Int values properly
-var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
+// BigIntComparer is used to compare big.Int values properly
+var BigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
 	return x.Cmp(&y) == 0
 })
 
@@ -66,7 +66,7 @@ func (d *Dynamic[T]) Get() T {
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, bigIntComparer)
+	return cmp.Equal(d.value, other.value, BigIntComparer)
 }
 
 type cfgRoot[T any] struct {
@@ -231,7 +231,7 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], bigIntComparer) {
+		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
