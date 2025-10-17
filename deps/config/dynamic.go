@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -16,6 +17,11 @@ import (
 )
 
 var logger = logging.Logger("config-dynamic")
+
+// bigIntComparer is used to compare big.Int values properly
+var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
+	return x.Cmp(&y) == 0
+})
 
 type Dynamic[T any] struct {
 	value T
@@ -70,7 +76,7 @@ func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value)
+	return cmp.Equal(d.value, other.value, bigIntComparer)
 }
 
 type cfgRoot[T any] struct {
@@ -235,7 +241,7 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k]) {
+		if !cmp.Equal(v, c.originally[k], bigIntComparer) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
