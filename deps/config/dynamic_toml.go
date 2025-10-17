@@ -28,14 +28,18 @@ func TransparentUnmarshal(data []byte, v interface{}) error {
 // Like toml.Decode, it returns MetaData for checking which fields were set.
 // NOTE: For types like types.FIL with unexported pointer fields, the target must be pre-initialized
 // with default values (e.g., types.MustParseFIL("0")) before calling this function.
+// NOTE: FixTOML should be called BEFORE this function to ensure proper slice lengths and FIL initialization.
 func TransparentDecode(data string, v interface{}) (toml.MetaData, error) {
 	// Create a shadow struct to decode into
 	shadow := createShadowStruct(v)
 
 	// Initialize shadow with values from target (for types like FIL that need non-nil pointers)
+	// This copies FIL values that were initialized by FixTOML
 	initializeShadowFromTarget(shadow, v)
 
 	// Decode into shadow and get metadata
+	// Note: TOML will overwrite slice elements, but our initialized FIL fields will be preserved
+	// because TOML calls UnmarshalText on FIL types, which requires non-nil pointers
 	md, err := toml.Decode(data, shadow)
 	if err != nil {
 		return md, err
@@ -76,7 +80,12 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 			// For Dynamic fields, copy the inner initialized value to the unwrapped shadow field
 			innerVal := extractDynamicValue(targetField)
 			if innerVal.IsValid() && innerVal.CanInterface() {
-				shadowField.Set(reflect.ValueOf(innerVal.Interface()))
+				// Copy the value (including slices with initialized FIL elements from FixTOML)
+				val := innerVal.Interface()
+				valReflect := reflect.ValueOf(val)
+				if valReflect.Type().AssignableTo(shadowField.Type()) {
+					shadowField.Set(valReflect)
+				}
 			}
 		} else if targetField.Kind() == reflect.Struct && hasNestedDynamics(targetField.Type()) {
 			// For nested structs with Dynamic fields, recursively initialize
@@ -149,7 +158,7 @@ func createShadowStruct(v interface{}) interface{} {
 // createShadowType creates a type with Dynamic[T] fields replaced by T
 func createShadowType(t reflect.Type) reflect.Type {
 	if t.Kind() == reflect.Ptr {
-		return reflect.PtrTo(createShadowType(t.Elem()))
+		return reflect.PointerTo(createShadowType(t.Elem()))
 	}
 
 	if t.Kind() != reflect.Struct {

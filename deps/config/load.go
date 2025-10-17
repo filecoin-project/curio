@@ -580,7 +580,7 @@ func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T
 		return toml.MetaData{}, err
 	}
 
-	return TransparentDecode(newText, &curioConfigWithDefaults)
+	return TransparentDecode(newText, curioConfigWithDefaults)
 }
 
 type ConfigText struct {
