@@ -635,12 +635,12 @@ func DefaultStorageMiner() *StorageMiner {
 			MaxCommitGasFee:    types.MustParseFIL("0.05"),
 
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.02"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.02")),
 			},
 			MaxCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"), // enough for 6 agg and 1nFIL base fee
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")), // enough for 6 agg and 1nFIL base fee
 			},
 
 			MaxTerminateGasFee:     types.MustParseFIL("0.5"),

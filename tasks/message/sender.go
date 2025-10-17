@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -47,7 +48,7 @@ type SignerAPI interface {
 type Sender struct {
 	api SenderAPI
 
-	maximizeFeeCap bool
+	maximizeFeeCap *config.Dynamic[bool]
 
 	sendTask *SendTask
 
@@ -262,7 +263,7 @@ var _ harmonytask.TaskInterface = &SendTask{}
 var _ = harmonytask.Reg(&SendTask{})
 
 // NewSender creates a new Sender.
-func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB, maximizeFeeCap bool) (*Sender, *SendTask) {
+func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB, maximizeFeeCap *config.Dynamic[bool]) (*Sender, *SendTask) {
 	st := &SendTask{
 		api:    api,
 		signer: signer,
@@ -298,7 +299,7 @@ func (s *Sender) Send(ctx context.Context, msg *types.Message, mss *api.MessageS
 		return cid.Undef, xerrors.Errorf("MessageSendSpec.MsgUuid must be zero")
 	}
 
-	if s.maximizeFeeCap {
+	if s.maximizeFeeCap.Get() {
 		mss.MaximizeFeeCap = true
 	}
 

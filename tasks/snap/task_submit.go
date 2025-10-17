@@ -75,8 +75,8 @@ type submitConfig struct {
 	feeCfg                     *config.CurioFees
 	RequireActivationSuccess   bool
 	RequireNotificationSuccess bool
-	CollateralFromMinerBalance bool
-	DisableCollateralFallback  bool
+	CollateralFromMinerBalance *config.Dynamic[bool]
+	DisableCollateralFallback  *config.Dynamic[bool]
 }
 
 type SubmitTask struct {
@@ -364,8 +364,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("could not serialize commit params: %w", err)
 	}
 
-	if s.cfg.CollateralFromMinerBalance {
-		if s.cfg.DisableCollateralFallback {
+	if s.cfg.CollateralFromMinerBalance.Get() {
+		if s.cfg.DisableCollateralFallback.Get() {
 			collateral = big.Zero()
 		}
 		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)

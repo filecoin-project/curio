@@ -510,8 +510,8 @@ func (s *SubmitCommitTask) gasEstimateCommit(ctx context.Context, maddr address.
 }
 
 func (s *SubmitCommitTask) calculateCollateral(minerBalance abi.TokenAmount, collateral abi.TokenAmount) abi.TokenAmount {
-	if s.cfg.feeCfg.CollateralFromMinerBalance {
-		if s.cfg.feeCfg.DisableCollateralFallback {
+	if s.cfg.feeCfg.CollateralFromMinerBalance.Get() {
+		if s.cfg.feeCfg.DisableCollateralFallback.Get() {
 			collateral = big.Zero()
 		}
 

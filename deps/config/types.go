@@ -21,22 +21,22 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.02"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.02")),
 			},
 			MaxCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"), // enough for 6 agg and 1nFIL base fee
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")), // enough for 6 agg and 1nFIL base fee
 			},
 			MaxUpdateBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")),
 			},
 
-			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
-			CollateralFromMinerBalance: false,
-			DisableCollateralFallback:  false,
-			MaximizeFeeCap:             true,
+			MaxWindowPoStGasFee:        NewDynamic(types.MustParseFIL("5")),
+			CollateralFromMinerBalance: NewDynamic(false),
+			DisableCollateralFallback:  NewDynamic(false),
+			MaximizeFeeCap:             NewDynamic(true),
 		},
 		Addresses: NewDynamic([]CurioAddresses{{
 			PreCommitControl:   []string{},
@@ -191,14 +191,14 @@ type CurioConfig struct {
 
 type BatchFeeConfig struct {
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
-	Base types.FIL
+	Base *Dynamic[types.FIL]
 
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
-	PerSector types.FIL
+	PerSector *Dynamic[types.FIL]
 }
 
 func (b *BatchFeeConfig) FeeForSectors(nSectors int) abi.TokenAmount {
-	return big.Add(big.Int(b.Base), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector)))
+	return big.Add(big.Int(b.Base.Get()), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector.Get())))
 }
 
 type CurioSubsystemsConfig struct {
@@ -440,18 +440,18 @@ type CurioFees struct {
 
 	// WindowPoSt is a high-value operation, so the default fee should be high.
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
-	MaxWindowPoStGasFee types.FIL
+	MaxWindowPoStGasFee *Dynamic[types.FIL]
 
 	// Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
-	CollateralFromMinerBalance bool
+	CollateralFromMinerBalance *Dynamic[bool]
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
-	DisableCollateralFallback bool
+	DisableCollateralFallback *Dynamic[bool]
 
 	// MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
 	// This generally doesn't increase message cost, but in highly congested network messages
 	// are much less likely to get stuck in mempool. (Default: true)
-	MaximizeFeeCap bool
+	MaximizeFeeCap *Dynamic[bool]
 }
 
 type CurioAddresses struct {

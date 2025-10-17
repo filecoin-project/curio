@@ -75,12 +75,12 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 		return nil, nil, nil, err
 	}
 
-	submitTask, err := window2.NewWdPostSubmitTask(chainSched, sender, db, api, fc.MaxWindowPoStGasFee, as)
+	submitTask, err := window2.NewWdPostSubmitTask(chainSched, sender, db, api, fc.MaxWindowPoStGasFee.Get(), as)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	recoverTask, err := window2.NewWdPostRecoverDeclareTask(sender, db, api, ft, as, chainSched, fc.MaxWindowPoStGasFee, addresses)
+	recoverTask, err := window2.NewWdPostRecoverDeclareTask(sender, db, api, ft, as, chainSched, fc.MaxWindowPoStGasFee.Get(), addresses)
 	if err != nil {
 		return nil, nil, nil, err
 	}
