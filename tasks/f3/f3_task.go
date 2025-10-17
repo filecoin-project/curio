@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-f3/manifest"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -52,10 +53,10 @@ type F3Task struct {
 
 	leaseTerm uint64
 
-	actors map[dtypes.MinerAddress]bool
+	actors *config.Dynamic[map[dtypes.MinerAddress]bool]
 }
 
-func NewF3Task(db *harmonydb.DB, api F3ParticipationAPI, actors map[dtypes.MinerAddress]bool) *F3Task {
+func NewF3Task(db *harmonydb.DB, api F3ParticipationAPI, actors *config.Dynamic[map[dtypes.MinerAddress]bool]) *F3Task {
 	return &F3Task{
 		db:        db,
 		api:       api,
@@ -210,7 +211,7 @@ func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (f *F3Task) Adder(taskFunc harmonytask.AddTaskFunc) {
-	for a := range f.actors {
+	for a := range f.actors.Get() {
 		spid, err := address.IDFromAddress(address.Address(a))
 		if err != nil {
 			log.Errorw("failed to parse miner address", "miner", a, "error", err)

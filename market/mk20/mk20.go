@@ -44,20 +44,20 @@ type MK20API interface {
 }
 
 type MK20 struct {
-	miners             []address.Address
+	miners             *config.Dynamic[[]address.Address]
 	DB                 *harmonydb.DB
 	api                MK20API
 	ethClient          *ethclient.Client
 	si                 paths.SectorIndex
 	cfg                *config.CurioConfig
-	sm                 map[address.Address]abi.SectorSize
+	sm                 *config.Dynamic[map[address.Address]abi.SectorSize]
 	as                 *multictladdr.MultiAddressSelector
 	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
 	unknowClient       bool
 }
 
-func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
+func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
 	ctx := context.Background()
 
 	// Ensure MinChunk size and max chunkSize is a power of 2
@@ -69,17 +69,29 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		return nil, xerrors.Errorf("MaximumChunkSize must be a power of 2")
 	}
 
-	sm := make(map[address.Address]abi.SectorSize)
-
-	for _, m := range miners {
-		info, err := mapi.StateMinerInfo(ctx, m, types.EmptyTSK)
-		if err != nil {
-			return nil, xerrors.Errorf("getting miner info: %w", err)
+	sm := config.NewDynamic(make(map[address.Address]abi.SectorSize))
+	smUpdate := func() error {
+		smTmp := make(map[address.Address]abi.SectorSize)
+		for _, m := range miners.Get() {
+			info, err := mapi.StateMinerInfo(ctx, m, types.EmptyTSK)
+			if err != nil {
+				return xerrors.Errorf("getting miner info: %w", err)
+			}
+			if _, ok := smTmp[m]; !ok {
+				smTmp[m] = info.SectorSize
+			}
 		}
-		if _, ok := sm[m]; !ok {
-			sm[m] = info.SectorSize
-		}
+		sm.Set(smTmp)
+		return nil
 	}
+	if err := smUpdate(); err != nil {
+		return nil, err
+	}
+	miners.OnChange(func() {
+		if err := smUpdate(); err != nil {
+			log.Errorf("error updating sm: %s", err)
+		}
+	})
 
 	go markDownloaded(ctx, db)
 	go removeNotFinalizedUploads(ctx, db)
@@ -257,7 +269,7 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 }
 
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
-	if !lo.Contains(m.miners, deal.Products.DDOV1.Provider) {
+	if !lo.Contains(m.miners.Get(), deal.Products.DDOV1.Provider) {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Provider not available in Curio cluster",
@@ -294,7 +306,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}, nil
 	}
 
-	if size > abi.PaddedPieceSize(m.sm[deal.Products.DDOV1.Provider]) {
+	if size > abi.PaddedPieceSize(m.sm.Get()[deal.Products.DDOV1.Provider]) {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Deal size is larger than the miner's sector size",
@@ -364,7 +376,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, xerrors.Errorf("getting provider address: %w", err)
 		}
 
-		if !lo.Contains(m.miners, prov) {
+		if !lo.Contains(m.miners.Get(), prov) {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation provider does not belong to the list of miners in Curio cluster",
