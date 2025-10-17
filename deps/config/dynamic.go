@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -17,13 +18,18 @@ import (
 
 var logger = logging.Logger("config-dynamic")
 
+// bigIntComparer is used to compare big.Int values properly
+var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
+	return x.Cmp(&y) == 0
+})
+
 type Dynamic[T any] struct {
 	value T
 }
 
 func NewDynamic[T any](value T) *Dynamic[T] {
 	d := &Dynamic[T]{value: value}
-	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = nil
+	dynamicLocker.notifier[reflect.ValueOf(d).Pointer()] = nil
 	return d
 }
 
@@ -31,12 +37,12 @@ func NewDynamic[T any](value T) *Dynamic[T] {
 // The function is called in a goroutine to avoid blocking the main thread; it should not panic.
 func (d *Dynamic[T]) OnChange(fn func()) {
 	p := reflect.ValueOf(d).Pointer()
-	prev := dynamicLocker.fn[p]
+	prev := dynamicLocker.notifier[p]
 	if prev == nil {
-		dynamicLocker.fn[p] = fn
+		dynamicLocker.notifier[p] = fn
 		return
 	}
-	dynamicLocker.fn[p] = func() {
+	dynamicLocker.notifier[p] = func() {
 		prev()
 		fn()
 	}
@@ -70,7 +76,7 @@ func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value)
+	return cmp.Equal(d.value, other.value, bigIntComparer)
 }
 
 type cfgRoot[T any] struct {
@@ -207,7 +213,7 @@ var dynamicLocker = changeNotifier{diff: diff{
 	originally: make(map[uintptr]any),
 	latest:     make(map[uintptr]any),
 },
-	fn: make(map[uintptr]func()),
+	notifier: make(map[uintptr]func()),
 }
 
 type changeNotifier struct {
@@ -216,7 +222,7 @@ type changeNotifier struct {
 
 	diff
 
-	fn map[uintptr]func()
+	notifier map[uintptr]func()
 }
 type diff struct {
 	cdmx       sync.Mutex //
@@ -235,9 +241,9 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if cmp.Equal(v, c.originally[k]) {
-			if fn := c.fn[k]; fn != nil {
-				go fn()
+		if !cmp.Equal(v, c.originally[k], bigIntComparer) {
+			if notifier := c.notifier[k]; notifier != nil {
+				go notifier()
 			}
 		}
 	}

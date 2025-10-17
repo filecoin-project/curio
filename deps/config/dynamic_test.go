@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type Input struct {
@@ -58,4 +60,62 @@ Value = 42
 	result := d.Get()
 	assert.Equal(t, "test", result.Name)
 	assert.Equal(t, 42, result.Value)
+}
+
+func TestDynamicWithBigInt(t *testing.T) {
+	type ConfigWithFIL struct {
+		Fee types.FIL
+	}
+
+	// Test that BigInt values compare correctly
+	d1 := NewDynamic(ConfigWithFIL{
+		Fee: types.MustParseFIL("5 FIL"),
+	})
+
+	d2 := NewDynamic(ConfigWithFIL{
+		Fee: types.MustParseFIL("5 FIL"),
+	})
+
+	d3 := NewDynamic(ConfigWithFIL{
+		Fee: types.MustParseFIL("10 FIL"),
+	})
+
+	// Test Equal method works with BigInt
+	assert.True(t, d1.Equal(d2), "Equal FIL values should be equal")
+	assert.False(t, d1.Equal(d3), "Different FIL values should not be equal")
+
+	// Test that cmp.Equal works with bigIntComparer
+	assert.True(t, cmp.Equal(d1.Get(), d2.Get(), bigIntComparer), "cmp.Equal should work with bigIntComparer")
+	assert.False(t, cmp.Equal(d1.Get(), d3.Get(), bigIntComparer), "cmp.Equal should detect differences")
+}
+
+func TestDynamicChangeNotificationWithBigInt(t *testing.T) {
+	type ConfigWithFIL struct {
+		Fee types.FIL
+	}
+
+	d := NewDynamic(ConfigWithFIL{
+		Fee: types.MustParseFIL("5 FIL"),
+	})
+
+	var notified atomic.Bool
+	d.OnChange(func() {
+		notified.Store(true)
+	})
+
+	// Use public API to change value
+	d.Set(ConfigWithFIL{Fee: types.MustParseFIL("10 FIL")})
+
+	// Verify notification was triggered
+	assert.Eventually(t, func() bool {
+		return notified.Load()
+	}, 2*time.Second, 100*time.Millisecond, "OnChange should be called when BigInt value changes")
+
+	// Reset and test that same value doesn't trigger notification
+	notified.Store(false)
+	d.Set(ConfigWithFIL{Fee: types.MustParseFIL("10 FIL")}) // Same value as current
+
+	// Give it a moment to potentially trigger (it shouldn't)
+	time.Sleep(200 * time.Millisecond)
+	assert.False(t, notified.Load(), "OnChange should not be called when BigInt value stays the same")
 }

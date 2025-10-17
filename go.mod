@@ -74,7 +74,6 @@ require (
 	github.com/jellydator/ttlcache/v2 v2.11.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/kr/pretty v0.3.1
-	github.com/lib/pq v1.10.9
 	github.com/libp2p/go-buffer-pool v0.1.0
 	github.com/libp2p/go-libp2p v0.43.0
 	github.com/manifoldco/promptui v0.9.0
