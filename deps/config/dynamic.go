@@ -23,7 +23,7 @@ type Dynamic[T any] struct {
 
 func NewDynamic[T any](value T) *Dynamic[T] {
 	d := &Dynamic[T]{value: value}
-	dynamicLocker.fn[reflect.ValueOf(d).Pointer()] = nil
+	dynamicLocker.notifier[reflect.ValueOf(d).Pointer()] = nil
 	return d
 }
 
@@ -31,12 +31,12 @@ func NewDynamic[T any](value T) *Dynamic[T] {
 // The function is called in a goroutine to avoid blocking the main thread; it should not panic.
 func (d *Dynamic[T]) OnChange(fn func()) {
 	p := reflect.ValueOf(d).Pointer()
-	prev := dynamicLocker.fn[p]
+	prev := dynamicLocker.notifier[p]
 	if prev == nil {
-		dynamicLocker.fn[p] = fn
+		dynamicLocker.notifier[p] = fn
 		return
 	}
-	dynamicLocker.fn[p] = func() {
+	dynamicLocker.notifier[p] = func() {
 		prev()
 		fn()
 	}
@@ -207,7 +207,7 @@ var dynamicLocker = changeNotifier{diff: diff{
 	originally: make(map[uintptr]any),
 	latest:     make(map[uintptr]any),
 },
-	fn: make(map[uintptr]func()),
+	notifier: make(map[uintptr]func()),
 }
 
 type changeNotifier struct {
@@ -216,7 +216,7 @@ type changeNotifier struct {
 
 	diff
 
-	fn map[uintptr]func()
+	notifier map[uintptr]func()
 }
 type diff struct {
 	cdmx       sync.Mutex //
@@ -235,9 +235,9 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if cmp.Equal(v, c.originally[k]) {
-			if fn := c.fn[k]; fn != nil {
-				go fn()
+		if !cmp.Equal(v, c.originally[k]) {
+			if notifier := c.notifier[k]; notifier != nil {
+				go notifier()
 			}
 		}
 	}
