@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/google/go-cmp/cmp"
 	logging "github.com/ipfs/go-log/v2"
 
@@ -70,11 +69,7 @@ func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
 	return cmp.Equal(d.value, other.value, BigIntComparer)
 }
 
-// MarshalTOML marshals the dynamic value to TOML format.
-// If used from deps, requires a lock.
-func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
-	return toml.Marshal(d.value)
-}
+// MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
 
 type cfgRoot[T any] struct {
 	db       *harmonydb.DB
