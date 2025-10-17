@@ -10,7 +10,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
@@ -174,10 +173,11 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 
 	curioCfg.Apis.ChainApiInfo = append(curioCfg.Apis.ChainApiInfo, chainApiInfo)
 	// Express as configTOML
-	configTOML := &bytes.Buffer{}
-	if err = toml.NewEncoder(configTOML).Encode(curioCfg); err != nil {
+	configTOMLBytes, err := config.TransparentMarshal(curioCfg)
+	if err != nil {
 		return minerAddress, err
 	}
+	configTOML := bytes.NewBuffer(configTOMLBytes)
 
 	if lo.Contains(titles, "base") {
 		// append addresses
@@ -247,12 +247,12 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 
 		// Express as new toml to avoid adding StorageRPCSecret in more than 1 layer
 		curioCfg.Apis.StorageRPCSecret = ""
-		ct := &bytes.Buffer{}
-		if err = toml.NewEncoder(ct).Encode(curioCfg); err != nil {
+		ctBytes, err := config.TransparentMarshal(curioCfg)
+		if err != nil {
 			return minerAddress, err
 		}
 
-		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ($1, $2)", layerName, ct.String())
+		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ($1, $2)", layerName, string(ctBytes))
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot insert layer after layer created message: %w", err)
 		}

@@ -208,7 +208,8 @@ Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "a
 			Name: "Addresses",
 			Type: "[]CurioAddresses",
 
-			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.`,
+			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Proving",
@@ -429,8 +430,7 @@ Updates will affect running instances.`,
 
 			Comment: `DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
 Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
-When enabled, all deals will be processed as snap deals. (Default: false)
-Updates will affect running instances.`,
+When enabled, all deals will be processed as snap deals. (Default: false)`,
 		},
 	},
 	"CurioProvingConfig": {

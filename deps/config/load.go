@@ -316,23 +316,19 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 	}
 	var nodeStr, defStr string
 	if cfgDef != nil {
-		buf := new(bytes.Buffer)
-		e := toml.NewEncoder(buf)
-		if err := e.Encode(cfgDef); err != nil {
+		defBytes, err := TransparentMarshal(cfgDef)
+		if err != nil {
 			return nil, xerrors.Errorf("encoding default config: %w", err)
 		}
-
-		defStr = buf.String()
+		defStr = string(defBytes)
 	}
 
 	{
-		buf := new(bytes.Buffer)
-		e := toml.NewEncoder(buf)
-		if err := e.Encode(cfgCur); err != nil {
+		nodeBytes, err := TransparentMarshal(cfgCur)
+		if err != nil {
 			return nil, xerrors.Errorf("encoding node config: %w", err)
 		}
-
-		nodeStr = buf.String()
+		nodeStr = string(nodeBytes)
 	}
 
 	if updateOpts.comment {
@@ -511,8 +507,9 @@ func findDocSect(root, section, name string) *DocField {
 		found := false
 		for _, field := range docSection {
 			if field.Name == e {
-				lastField = &field                               // Store reference to the section field
-				docSection = Doc[strings.Trim(field.Type, "[]")] // Move to the next section
+				lastField = &field // Store reference to the section field
+				t := strings.Trim(field.Type, "[]")
+				docSection = Doc[t] // Move to the next section
 				found = true
 				break
 			}
@@ -594,80 +591,6 @@ func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T
 	}
 
 	return TransparentDecode(newText, &curioConfigWithDefaults)
-}
-
-type ConfigText struct {
-	Title  string
-	Config string
-}
-
-// GetConfigs returns the configs in the order of the layers
-func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]ConfigText, error) {
-	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
-	inputMap := map[string]int{}
-	for i, layer := range layers {
-		inputMap[layer] = i
-	}
-	var configs []ConfigText
-	err := db.Select(ctx, &configs, `SELECT title, config FROM harmony_config WHERE title = ANY($1)`, layers)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]ConfigText, len(layers))
-	for _, config := range configs {
-		index, ok := inputMap[config.Title]
-		if !ok {
-			if config.Title == "base" {
-				return nil, errors.New(`curio defaults to a layer named 'base'. 
-				Either use 'migrate' command or edit a base.toml and upload it with: curio config set base.toml`)
-			}
-			return nil, fmt.Errorf("missing layer %s", config.Title)
-		}
-		result[index] = config
-	}
-	return result, nil
-}
-
-func ApplyLayers[T any](ctx context.Context, configResult T, layers []ConfigText, fixupFn func(string, T) error) error {
-	have := []string{}
-	for _, layer := range layers {
-		meta, err := LoadConfigWithUpgradesGeneric(layer.Config, configResult, fixupFn)
-		if err != nil {
-			return fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
-		}
-		for _, k := range meta.Keys() {
-			have = append(have, strings.Join(k, " "))
-		}
-		logger.Debugf("Using layer %s, config %v", layer, configResult)
-	}
-	_ = have // FUTURE: verify that required fields are here.
-	// If config includes 3rd-party config, consider JSONSchema as a way that
-	// 3rd-parties can dynamically include config requirements and we can
-	// validate the config. Because of layering, we must validate @ startup.
-	return nil
-}
-
-func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *CurioConfig) (toml.MetaData, error) {
-	return LoadConfigWithUpgradesGeneric(text, curioConfigWithDefaults, FixTOML)
-}
-
-func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T, fixupFn func(string, T) error) (toml.MetaData, error) {
-
-	// allow migration from old config format that was limited to 1 wallet setup.
-	newText := strings.Join(lo.Map(strings.Split(text, "\n"), func(line string, _ int) string {
-		if strings.EqualFold(line, "[addresses]") {
-			return "[[addresses]]"
-		}
-		return line
-	}), "\n")
-
-	err := fixupFn(newText, curioConfigWithDefaults)
-
-	if err != nil {
-		return toml.MetaData{}, err
-	}
-
-	return toml.Decode(newText, &curioConfigWithDefaults)
 }
 
 type ConfigText struct {

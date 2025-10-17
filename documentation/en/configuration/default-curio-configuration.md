@@ -399,6 +399,7 @@ description: The default curio configuration
 
 
 # Addresses specifies the list of miner addresses and their related wallet addresses.
+# Updates will affect running instances.
 #
 # type: []CurioAddresses
 [[Addresses]]
@@ -904,7 +905,6 @@ description: The default curio configuration
   # DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
   # Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
   # When enabled, all deals will be processed as snap deals. (Default: false)
-  # Updates will affect running instances.
   #
   # type: bool
   #DoSnap = false
