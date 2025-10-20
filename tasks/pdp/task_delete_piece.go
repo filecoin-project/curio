@@ -9,10 +9,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -25,7 +25,7 @@ import (
 type PDPTaskDeletePiece struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient api.EthClientInterface
 }
 
 func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -196,7 +196,7 @@ func (p *PDPTaskDeletePiece) schedule(ctx context.Context, taskFunc harmonytask.
 
 func (p *PDPTaskDeletePiece) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-func NewPDPTaskDeletePiece(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client) *PDPTaskDeletePiece {
+func NewPDPTaskDeletePiece(db *harmonydb.DB, sender *message.SenderETH, ethClient api.EthClientInterface) *PDPTaskDeletePiece {
 	return &PDPTaskDeletePiece{
 		db:        db,
 		sender:    sender,

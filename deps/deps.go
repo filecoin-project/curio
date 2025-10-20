@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/kr/pretty"
@@ -175,7 +174,7 @@ type Deps struct {
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
-	EthClient         *lazy.Lazy[*ethclient.Client]
+	EthClient         *lazy.Lazy[*api.EthClientStruct]
 	Sender            *message.Sender
 }
 
@@ -248,7 +247,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		var fullCloser func()
 		cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 		if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-			cfgApiInfo = []string{v}
+			cfgApiInfo = config.NewDynamic([]string{v})
 		}
 		deps.Chain, fullCloser, err = GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
 		if err != nil {
@@ -262,10 +261,10 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.EthClient == nil {
-		deps.EthClient = lazy.MakeLazy(func() (*ethclient.Client, error) {
+		deps.EthClient = lazy.MakeLazy(func() (*api.EthClientStruct, error) {
 			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-				cfgApiInfo = []string{v}
+				cfgApiInfo = config.NewDynamic([]string{v})
 			}
 			return GetEthClient(cctx, cfgApiInfo)
 		})
@@ -595,7 +594,7 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*ethclient.Client], error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*api.EthClientStruct], error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
@@ -610,7 +609,7 @@ func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.Curi
 
 	cfgApiInfo := cfg.Apis.ChainApiInfo
 	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
-		cfgApiInfo = []string{v}
+		cfgApiInfo = config.NewDynamic([]string{v})
 	}
 
 	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
@@ -618,7 +617,7 @@ func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.Curi
 		return nil, nil, nil, nil, nil, err
 	}
 
-	ethClient := lazy.MakeLazy(func() (*ethclient.Client, error) {
+	ethClient := lazy.MakeLazy(func() (*api.EthClientStruct, error) {
 		return GetEthClient(cctx, cfgApiInfo)
 	})
 
@@ -704,7 +703,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 	}
 
 	{
-		curioConfig.Apis.ChainApiInfo = append(curioConfig.Apis.ChainApiInfo, info)
+		curioConfig.Apis.ChainApiInfo.Set(append(curioConfig.Apis.ChainApiInfo.Get(), info))
 	}
 
 	curioConfig.Addresses.Set(lo.Filter(curioConfig.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {

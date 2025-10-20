@@ -671,7 +671,7 @@ type SlackWebhookConfig struct {
 
 type ApisConfig struct {
 	// ChainApiInfo is the API endpoint for the Lotus daemon.
-	ChainApiInfo []string
+	ChainApiInfo *Dynamic[[]string]
 
 	// API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
 	StorageRPCSecret string

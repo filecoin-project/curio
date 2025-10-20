@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -26,6 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -75,7 +75,7 @@ type CurioStorageDealMarket struct {
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	MK20Handler *mk20.MK20
-	ethClient   *ethclient.Client
+	ethClient   api.EthClientInterface
 	si          paths.SectorIndex
 	urls        *config.Dynamic[map[string]http.Header]
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
@@ -117,7 +117,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient api.EthClientInterface, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	urlsDynamic := config.NewDynamic(make(map[string]http.Header))
 

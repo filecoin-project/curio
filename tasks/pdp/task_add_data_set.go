@@ -8,10 +8,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -24,11 +24,11 @@ import (
 type PDPTaskAddDataSet struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient api.EthClientInterface
 	filClient PDPServiceNodeApi
 }
 
-func NewPDPTaskAddDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client, filClient PDPServiceNodeApi) *PDPTaskAddDataSet {
+func NewPDPTaskAddDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient api.EthClientInterface, filClient PDPServiceNodeApi) *PDPTaskAddDataSet {
 	return &PDPTaskAddDataSet{
 		db:        db,
 		sender:    sender,
