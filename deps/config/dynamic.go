@@ -234,7 +234,7 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
+		if !cmp.Equal(v, c.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
@@ -242,6 +242,25 @@ func (c *changeNotifier) Unlock() {
 	}
 	c.originally = make(map[uintptr]any)
 	c.latest = make(map[uintptr]any)
+}
+
+type reportHandler struct {
+	changes  []string
+	newValue any
+	oldValue any
+}
+
+func (r *reportHandler) PushStep(path cmp.PathStep) {
+	r.changes = append(r.changes, path.String())
+	r.newValue, r.oldValue = path.Values()
+}
+func (r *reportHandler) Report(result cmp.Result) {
+	if !result.Equal() {
+		logger.Infof("Dynamic configuration %s updated from %v to %v", strings.Join(r.changes, "."), r.oldValue, r.newValue)
+	}
+}
+func (r *reportHandler) PopStep() {
+	r.changes = r.changes[:len(r.changes)-1]
 }
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 	if !c.updating {

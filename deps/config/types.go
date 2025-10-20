@@ -72,24 +72,22 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxDealWaitTime: NewDynamic(time.Hour),
 		},
 		Alerting: CurioAlertingConfig{
-			MinimumWalletBalance: types.MustParseFIL("5"),
+			MinimumWalletBalance: NewDynamic(types.MustParseFIL("5")),
 			PagerDuty: PagerDutyConfig{
-				PagerDutyEventURL: "https://events.pagerduty.com/v2/enqueue",
+				PagerDutyEventURL: NewDynamic("https://events.pagerduty.com/v2/enqueue"),
 			},
 			PrometheusAlertManager: PrometheusAlertManagerConfig{
-				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
+				AlertManagerURL: NewDynamic("http://localhost:9093/api/v2/alerts"),
 			},
 		},
 		Batching: CurioBatchingConfig{
 			PreCommit: PreCommitBatchingConfig{
-				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
-				Timeout:          NewDynamic(4 * time.Hour),
-				Slack:            NewDynamic(6 * time.Hour),
+				Timeout: NewDynamic(4 * time.Hour),
+				Slack:   NewDynamic(6 * time.Hour),
 			},
 			Commit: CommitBatchingConfig{
-				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
-				Timeout:          NewDynamic(time.Hour),
-				Slack:            NewDynamic(time.Hour),
+				Timeout: NewDynamic(time.Hour),
+				Slack:   NewDynamic(time.Hour),
 			},
 			Update: UpdateBatchingConfig{
 				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
@@ -599,7 +597,7 @@ type CurioAlertingConfig struct {
 	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 	// alerts will be triggered for the wallet
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
-	MinimumWalletBalance types.FIL
+	MinimumWalletBalance *Dynamic[types.FIL]
 
 	// PagerDutyConfig is the configuration for the PagerDuty alerting integration.
 	PagerDuty PagerDutyConfig
@@ -642,33 +640,33 @@ type CurioSealConfig struct {
 
 type PagerDutyConfig struct {
 	// Enable is a flag to enable or disable the PagerDuty integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 	// routed to a PagerDuty.com service and processed.
 	// The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
-	PagerDutyEventURL string
+	PagerDutyEventURL *Dynamic[string]
 
 	// PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 	// identifier in the integration page for the service.
-	PageDutyIntegrationKey string
+	PageDutyIntegrationKey *Dynamic[string]
 }
 
 type PrometheusAlertManagerConfig struct {
 	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
-	AlertManagerURL string
+	AlertManagerURL *Dynamic[string]
 }
 
 type SlackWebhookConfig struct {
 	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// WebHookURL is the URL for the URL for slack Webhook.
 	// Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
-	WebHookURL string
+	WebHookURL *Dynamic[string]
 }
 
 type ApisConfig struct {
@@ -691,10 +689,6 @@ type CurioBatchingConfig struct {
 }
 
 type PreCommitBatchingConfig struct {
-	// Base fee value below which we should try to send Precommit messages immediately
-	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold *Dynamic[types.FIL]
-
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
 	Timeout *Dynamic[time.Duration]
@@ -705,10 +699,6 @@ type PreCommitBatchingConfig struct {
 }
 
 type CommitBatchingConfig struct {
-	// Base fee value below which we should try to send Commit messages immediately
-	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold *Dynamic[types.FIL]
-
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
 	Timeout *Dynamic[time.Duration]
