@@ -21,11 +21,11 @@ func ContractAddresses() PDPContracts {
 	switch build.BuildType {
 	case build.BuildCalibnet:
 		return PDPContracts{
-			PDPVerifier: common.HexToAddress("0x579dD9E561D4Cd1776CF3e52E598616E77D5FBcb"), // PDPVerifier Proxy v2.2.1 - https://github.com/FilOzone/pdp/releases/tag/v2.2.1
+			PDPVerifier: common.HexToAddress("0x06279D540BDCd6CA33B073cEAeA1425B6C68c93d"), // PDPVerifier Proxy v3.0.0 - https://github.com/FilOzone/filecoin-services/pull/311
 			AllowedPublicRecordKeepers: []common.Address{
 				common.HexToAddress("0x92B51cefF7eBc721Ad0F1fB09505E75F67DCAac6"), // Simple
-				common.HexToAddress("0x80617b65FD2EEa1D7fDe2B4F85977670690ed348"), // FilecoinWarmStorageService Proxy v0.1.0 - https://github.com/FilOzone/filecoin-services/releases/tag/alpha%2Fcalibnet%2F0x80617b65FD2EEa1D7fDe2B4F85977670690ed348-v2
-				common.HexToAddress("0x468342072e0dc86AFFBe15519bc5B1A1aa86e4dc"), // FilecoinWarmStorageService Proxy v0.3.0 - https://github.com/FilOzone/filecoin-services/releases/tag/v0.3.0
+				common.HexToAddress("0xD3De778C05f89e1240ef70100Fb0d9e5b2eFD258"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/pull/311 (2025-10-21)
+
 			},
 		}
 	case build.BuildMainnet:
@@ -64,7 +64,7 @@ func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 }
 
 const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const ServiceRegistryCalibnet = "0x1096ba1e7BB912136DA8524A22bF71091dc4FDd9" // FWSS v0.3.0 Registry Proxy
+const ServiceRegistryCalibnet = "0x97Dd879F5a97A8c761B94746d7F5cfF50AAd4452" // FWSS Registry Proxy - https://github.com/FilOzone/filecoin-services/pull/311
 
 func ServiceRegistryAddress() (common.Address, error) {
 	switch build.BuildType {
