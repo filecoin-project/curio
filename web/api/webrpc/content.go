@@ -10,8 +10,8 @@ import (
 // ContentInfo represents information about content location
 type ContentInfo struct {
 	PieceCID string `json:"piece_cid"`
-	Offset   uint64  `json:"offset"`
-	Size     uint64  `json:"size"`
+	Offset   uint64 `json:"offset"`
+	Size     uint64 `json:"size"`
 
 	Err string `json:"err"`
 }
