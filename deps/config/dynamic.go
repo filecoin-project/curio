@@ -60,7 +60,8 @@ func (d *Dynamic[T]) Set(value T) {
 
 func (d *Dynamic[T]) Get() T {
 	if d == nil {
-		return reflect.Zero(reflect.TypeOf(d)).Interface().(T)
+		var zero T
+		return zero
 	}
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
