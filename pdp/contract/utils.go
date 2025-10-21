@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -29,6 +29,40 @@ import (
 )
 
 var log = logging.Logger("pdp-contract")
+
+var PDPOfferingAbiType *eabi.Type
+var PDPOfferingArgs eabi.Arguments
+
+func init() {
+	// very hacky if you have a better way, tell me about it
+	// ServiceURL                 string
+	// MinPieceSizeInBytes        *big.Int
+	// MaxPieceSizeInBytes        *big.Int
+	// IpniPiece                  bool
+	// IpniIpfs                   bool
+	// StoragePricePerTibPerMonth *big.Int
+	// MinProvingPeriodInEpochs   *big.Int
+	// Location                   string
+	// PaymentTokenAddress        common.Address
+	abiType, err := eabi.NewType("tuple", "struct thing", []eabi.ArgumentMarshaling{
+		{Name: "ServiceURL", Type: "string"},
+		{Name: "MinPieceSizeInBytes", Type: "uint256"},
+		{Name: "MaxPieceSizeInBytes", Type: "uint256"},
+		{Name: "IpniPiece", Type: "bool"},
+		{Name: "IpniIpfs", Type: "bool"},
+		{Name: "StoragePricePerTibPerMonth", Type: "uint256"},
+		{Name: "MinProvingPeriodInEpochs", Type: "uint256"},
+		{Name: "Location", Type: "string"},
+		{Name: "PaymentTokenAddress", Type: "address"},
+	})
+	if err != nil {
+		panic(err)
+	}
+	PDPOfferingAbiType = &abiType
+	PDPOfferingArgs = eabi.Arguments{
+		{Type: abiType, Name: "param_one"},
+	}
+}
 
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
@@ -149,14 +183,10 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 		return xerrors.Errorf("failed to get service registry ABI: %w", err)
 	}
 
-	registry, err := NewServiceProviderRegistry(contractAddr, ethClient)
+	// no idea if that is going to give correct format
+	encodedPDP, err := PDPOfferingArgs.Pack(&pdpOffering)
 	if err != nil {
-		return xerrors.Errorf("failed to create service registry: %w", err)
-	}
-
-	encodedPDP, err := registry.EncodePDPOffering(&bind.CallOpts{Context: ctx}, pdpOffering)
-	if err != nil {
-		return xerrors.Errorf("failed to encode PDP offering: %w", err)
+		return fmt.Errorf("failed to serialize PDP offering: %w", err)
 	}
 
 	// Prepare EVM calldata
