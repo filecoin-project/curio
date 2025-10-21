@@ -64,7 +64,7 @@ func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 }
 
 const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const ServiceRegistryCalibnet = "0xA8a7e2130C27e4f39D1aEBb3D538D5937bCf8ddb"
+const ServiceRegistryCalibnet = "0x1096ba1e7BB912136DA8524A22bF71091dc4FDd9" // FWSS v0.3.0 Registry Proxy
 
 func ServiceRegistryAddress() (common.Address, error) {
 	switch build.BuildType {
