@@ -315,10 +315,10 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 	return &FSRegistryStatus{
 		Address:      pdpAddress.Hex(),
 		ID:           pid.Int64(),
-		Active:       provider.IsActive,
-		Payee:        provider.Payee.String(),
-		Name:         provider.Name,
-		Description:  provider.Description,
+		Active:       provider.Info.IsActive,
+		Payee:        provider.Info.Payee.String(),
+		Name:         provider.Info.Name,
+		Description:  provider.Info.Description,
 		Capabilities: capabilities,
 		PDPService: &FSPDPOffering{
 			ServiceURL:                 pdpOffering.PdpOffering.ServiceURL,
