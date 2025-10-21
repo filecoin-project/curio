@@ -59,6 +59,9 @@ func (d *Dynamic[T]) Set(value T) {
 }
 
 func (d *Dynamic[T]) Get() T {
+	if d == nil {
+		return reflect.Zero(reflect.TypeOf(d)).Interface().(T)
+	}
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
 	return d.value
