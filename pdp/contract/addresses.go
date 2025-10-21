@@ -64,7 +64,7 @@ func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 }
 
 const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const ServiceRegistryCalibnet = "0x97Dd879F5a97A8c761B94746d7F5cfF50AAd4452" // FWSS Registry Proxy - https://github.com/FilOzone/filecoin-services/pull/311
+const ServiceRegistryCalibnet = "0xc758dB755f59189d8FB3C166Ee372b77d7CFA9D3" // FWSS Registry Proxy - https://github.com/FilOzone/filecoin-services/pull/311
 
 func ServiceRegistryAddress() (common.Address, error) {
 	switch build.BuildType {
