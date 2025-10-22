@@ -23,9 +23,7 @@ func ContractAddresses() PDPContracts {
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x06279D540BDCd6CA33B073cEAeA1425B6C68c93d"), // PDPVerifier Proxy v3.0.0 - https://github.com/FilOzone/filecoin-services/pull/311
 			AllowedPublicRecordKeepers: []common.Address{
-				common.HexToAddress("0x92B51cefF7eBc721Ad0F1fB09505E75F67DCAac6"), // Simple
 				common.HexToAddress("0xD3De778C05f89e1240ef70100Fb0d9e5b2eFD258"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/pull/311 (2025-10-21)
-
 			},
 		}
 	case build.BuildMainnet:
