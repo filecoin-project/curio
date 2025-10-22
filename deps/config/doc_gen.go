@@ -353,7 +353,6 @@ Updates will affect running instances.`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
 DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{
@@ -367,7 +366,6 @@ The SDR queue includes deals which are in the process of entering the sealing pi
 possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 entering the pipeline.
 Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{
@@ -380,7 +378,6 @@ Note: This mechanism will delay taking deal data from markets, providing backpre
 In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
 Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{
@@ -393,7 +390,6 @@ Note: This mechanism will delay taking deal data from markets, providing backpre
 Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
 Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{
@@ -404,7 +400,6 @@ Updates will affect running instances.`,
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{
@@ -414,7 +409,6 @@ Updates will affect running instances.`,
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
 This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{
@@ -424,7 +418,6 @@ Updates will affect running instances.`,
 			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
 This ensures that sectors don't remain open indefinitely, consuming resources.
 Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-Updates will affect running instances.
 Updates will affect running instances.`,
 		},
 		{

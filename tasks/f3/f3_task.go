@@ -211,22 +211,26 @@ func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (f *F3Task) Adder(taskFunc harmonytask.AddTaskFunc) {
-	for a := range f.actors.Get() {
-		spid, err := address.IDFromAddress(address.Address(a))
-		if err != nil {
-			log.Errorw("failed to parse miner address", "miner", a, "error", err)
-			continue
-		}
-
-		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec("INSERT INTO f3_tasks (sp_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", spid, id)
+	f3TheActors := func() {
+		for a := range f.actors.Get() {
+			spid, err := address.IDFromAddress(address.Address(a))
 			if err != nil {
-				return false, err
+				log.Errorw("failed to parse miner address", "miner", a, "error", err)
+				continue
 			}
 
-			return n > 0, nil
-		})
+			taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+				n, err := tx.Exec("INSERT INTO f3_tasks (sp_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", spid, id)
+				if err != nil {
+					return false, err
+				}
+
+				return n > 0, nil
+			})
+		}
 	}
+	f3TheActors()
+	f.actors.OnChange(f3TheActors)
 }
 
 func (f *F3Task) GetSpid(db *harmonydb.DB, taskID int64) string {

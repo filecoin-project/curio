@@ -90,6 +90,16 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 		} else if targetField.Kind() == reflect.Struct && hasNestedDynamics(targetField.Type()) {
 			// For nested structs with Dynamic fields, recursively initialize
 			initializeShadowFromTarget(shadowField.Addr().Interface(), targetField.Addr().Interface())
+		} else if targetField.Kind() == reflect.Ptr && !targetField.IsNil() && !shadowField.IsNil() {
+			// Handle pointers to structs
+			elemType := targetField.Type().Elem()
+			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
+				// Recursively initialize pointer to struct with Dynamic fields
+				initializeShadowFromTarget(shadowField.Elem().Addr().Interface(), targetField.Elem().Addr().Interface())
+			} else if targetField.CanInterface() && shadowField.Type() == targetField.Type() {
+				// Copy regular pointer if types match
+				shadowField.Set(reflect.ValueOf(targetField.Interface()))
+			}
 		} else if targetField.CanInterface() && shadowField.Type() == targetField.Type() {
 			// Copy regular fields only if types match exactly
 			shadowField.Set(reflect.ValueOf(targetField.Interface()))
@@ -134,6 +144,20 @@ func unwrapDynamics(v interface{}) interface{} {
 		} else if field.Kind() == reflect.Struct && hasNestedDynamics(field.Type()) {
 			// Only recursively unwrap structs that contain Dynamic fields
 			shadowField.Set(reflect.ValueOf(unwrapDynamics(field.Interface())))
+		} else if field.Kind() == reflect.Ptr && !field.IsNil() {
+			// Handle pointers - check if the pointed-to type contains Dynamic fields
+			elemType := field.Type().Elem()
+			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
+				// Recursively unwrap the pointed-to struct
+				unwrapped := unwrapDynamics(field.Elem().Interface())
+				unwrappedPtr := reflect.New(reflect.TypeOf(unwrapped))
+				unwrappedPtr.Elem().Set(reflect.ValueOf(unwrapped))
+				shadowField.Set(unwrappedPtr)
+			} else if field.IsValid() && field.CanInterface() {
+				// Regular pointer - copy as-is
+				val := field.Interface()
+				shadowField.Set(reflect.ValueOf(val))
+			}
 		} else if field.IsValid() && field.CanInterface() {
 			// Copy all other fields via interface (handles types with unexported fields)
 			val := field.Interface()
@@ -223,6 +247,21 @@ func wrapDynamics(shadow, target interface{}) error {
 			err := wrapDynamics(shadowField.Interface(), targetField.Addr().Interface())
 			if err != nil {
 				return err
+			}
+		} else if targetField.Kind() == reflect.Ptr && !targetField.IsNil() && !shadowField.IsNil() {
+			// Handle pointers to structs
+			elemType := targetField.Type().Elem()
+			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
+				// Recursively handle pointer to struct with Dynamic fields
+				err := wrapDynamics(shadowField.Elem().Interface(), targetField.Elem().Addr().Interface())
+				if err != nil {
+					return err
+				}
+			} else if shadowField.IsValid() && targetField.CanSet() {
+				// Regular pointer - copy as-is if types match
+				if shadowField.Type().AssignableTo(targetField.Type()) {
+					targetField.Set(shadowField)
+				}
 			}
 		} else {
 			// Copy regular fields - don't copy if types don't match (shouldn't happen)

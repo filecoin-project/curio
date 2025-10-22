@@ -5,6 +5,7 @@ description: The default curio configuration
 # Default Curio Configuration
 
 ```toml
+Error parsing language
 # Subsystems defines configuration settings for various subsystems within the Curio node.
 #
 # type: CurioSubsystemsConfig
@@ -843,7 +844,6 @@ description: The default curio configuration
   # The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
   # DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
   # Updates will affect running instances.
-  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueDealSector = 8
@@ -856,7 +856,6 @@ description: The default curio configuration
   # entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
   # Updates will affect running instances.
-  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSDR = 8
@@ -867,7 +866,6 @@ description: The default curio configuration
   # In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-  # Updates will affect running instances.
   # Updates will affect running instances.
   #
   # type: int
@@ -880,7 +878,6 @@ description: The default curio configuration
   # applied to sectors entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
   # Updates will affect running instances.
-  # Updates will affect running instances.
   #
   # type: int
   #MaxQueuePoRep = 0
@@ -890,7 +887,6 @@ description: The default curio configuration
   # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
   # Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
   # Updates will affect running instances.
-  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSnapEncode = 16
@@ -899,7 +895,6 @@ description: The default curio configuration
   # 0 means unlimited.
   # This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
   # Updates will affect running instances.
-  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSnapProve = 0
@@ -907,7 +902,6 @@ description: The default curio configuration
   # Maximum time an open deal sector should wait for more deals before it starts sealing.
   # This ensures that sectors don't remain open indefinitely, consuming resources.
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-  # Updates will affect running instances.
   # Updates will affect running instances.
   #
   # type: time.Duration
