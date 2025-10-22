@@ -56,6 +56,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethCl
 
 	// Process each piece addition
 	for _, pieceAdd := range pieceAdds {
+		log.Infow("Processing piece add", "dataSet", pieceAdd.DataSet, "addMessageHash", pieceAdd.AddMessageHash)
 		err := processDataSetPieceAdd(ctx, db, ethClient, pieceAdd)
 		if err != nil {
 			log.Warnf("Failed to process piece add for tx %s: %v", pieceAdd.AddMessageHash, err)
@@ -95,14 +96,13 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 }
 
 func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, pieceAdd DataSetPieceAdd) error {
-	resolvedDataSetId := pieceAdd.DataSet
-	if !resolvedDataSetId.Valid {
+	if !pieceAdd.DataSet.Valid {
 		var err error
-		resolvedDataSetId.Int64, err = extractDataSetIdFromReceipt(receipt)
+		pieceAdd.DataSet.Int64, err = extractDataSetIdFromReceipt(receipt)
 		if err != nil {
 			return fmt.Errorf("expeted to find dataSetId in receipt but failed to extract: %w", err)
 		}
-		resolvedDataSetId.Valid = true
+		pieceAdd.DataSet.Valid = true
 		var exists bool
 		// we check if the dataset exists already to avoid foreign key violation
 		err = db.QueryRow(ctx, `
@@ -110,7 +110,7 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 				SELECT 1
 				FROM pdp_data_sets
 				WHERE id = $1
-			)`, resolvedDataSetId.Int64).Scan(&exists)
+			)`, pieceAdd.DataSet.Int64).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("failed to check if data set exists: %w", err)
 		}
@@ -118,7 +118,7 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 			// this is a rare case where the transaction is marked as complete between create_watch being called and this function
 			// if that happens, we return an error which will get logged and ignored
 			// piece addition will get picked up in the next run of the watcher
-			return fmt.Errorf("data set %d not found in pdp_data_sets", resolvedDataSetId.Int64)
+			return fmt.Errorf("data set %d not found in pdp_data_sets", pieceAdd.DataSet.Int64)
 		}
 	}
 	// Get the ABI from the contract metadata
@@ -185,11 +185,15 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 		err := tx.Select(&pieceAddEntries, `
             SELECT data_set, piece, add_message_hash, add_message_index, sub_piece, sub_piece_offset, sub_piece_size, pdp_pieceref
             FROM pdp_data_set_piece_adds
-            WHERE data_set = $1 AND add_message_hash = $2
+            WHERE add_message_hash = $1
             ORDER BY add_message_index ASC, sub_piece_offset ASC
-        `, pieceAdd.DataSet, pieceAdd.AddMessageHash)
+        `, pieceAdd.AddMessageHash)
 		if err != nil {
 			return false, fmt.Errorf("failed to select from pdp_data_set_piece_adds: %w", err)
+		}
+
+		if len(pieceAddEntries) == 0 {
+			return false, fmt.Errorf("no entries found for piece add %s", pieceAdd.AddMessageHash)
 		}
 
 		// For each entry, use the corresponding pieceId from the event
@@ -197,6 +201,10 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 			if entry.AddMessageIndex >= uint64(len(pieceIds)) {
 				return false, fmt.Errorf("index out of bounds: entry index %d exceeds pieceIds length %d",
 					entry.AddMessageIndex, len(pieceIds))
+			}
+			// don't use entry.DataSet as it may be NULL
+			if entry.DataSet.Valid && entry.DataSet.Int64 != pieceAdd.DataSet.Int64 {
+				return false, fmt.Errorf("data set mismatch: expected %d but got %d", pieceAdd.DataSet.Int64, entry.DataSet)
 			}
 
 			pieceId := pieceIds[entry.AddMessageIndex]
@@ -215,7 +223,7 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9
                 )
-            `, resolvedDataSetId.Int64, entry.Piece, pieceId, entry.SubPiece, entry.SubPieceOffset, entry.SubPieceSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
+            `, pieceAdd.DataSet, entry.Piece, pieceId, entry.SubPiece, entry.SubPieceOffset, entry.SubPieceSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into pdp_data_set_pieces: %w", err)
 			}
@@ -225,9 +233,9 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 		// XXX: same here, is there WHERE data_set needed?
 		rowsAffected, err := tx.Exec(`
                       UPDATE pdp_data_set_piece_adds
-                      SET pieces_added = TRUE, data_set = $3
-                      WHERE data_set = $1 AND add_message_hash = $2 AND pieces_added = FALSE
-              `, pieceAdd.DataSet, pieceAdd.AddMessageHash, resolvedDataSetId)
+                      SET pieces_added = TRUE, data_set = $1
+                      WHERE add_message_hash = $2 AND pieces_added = FALSE
+              `, pieceAdd.DataSet, pieceAdd.AddMessageHash)
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_data_set_piece_adds: %w", err)
 		}
