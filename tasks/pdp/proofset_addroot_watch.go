@@ -181,7 +181,6 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Fetch the entries from pdp_data_set_piece_adds
 		var pieceAddEntries []PieceAddEntry
-		// XXX: is the `WHERE data_set` here needed?
 		err := tx.Select(&pieceAddEntries, `
             SELECT data_set, piece, add_message_hash, add_message_index, sub_piece, sub_piece_offset, sub_piece_size, pdp_pieceref
             FROM pdp_data_set_piece_adds
@@ -202,10 +201,10 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 				return false, fmt.Errorf("index out of bounds: entry index %d exceeds pieceIds length %d",
 					entry.AddMessageIndex, len(pieceIds))
 			}
-			// don't use entry.DataSet as it may be NULL
 			if entry.DataSet.Valid && entry.DataSet.Int64 != pieceAdd.DataSet.Int64 {
-				return false, fmt.Errorf("data set mismatch: expected %d but got %d", pieceAdd.DataSet.Int64, entry.DataSet)
+				return false, fmt.Errorf("data set mismatch: expected %d but got %d", pieceAdd.DataSet.Int64, entry.DataSet.Int64)
 			}
+			entry.DataSet = pieceAdd.DataSet // just so we don't use wrong value accidentally
 
 			pieceId := pieceIds[entry.AddMessageIndex]
 			// Insert into pdp_data_set_pieces
@@ -230,7 +229,6 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 		}
 
 		// Mark as processed in pdp_data_set_piece_adds (don't delete, for transaction tracking)
-		// XXX: same here, is there WHERE data_set needed?
 		rowsAffected, err := tx.Exec(`
                       UPDATE pdp_data_set_piece_adds
                       SET pieces_added = TRUE, data_set = $1
