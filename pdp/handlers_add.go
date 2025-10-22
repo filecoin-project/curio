@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
@@ -353,7 +354,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Step 6: Prepare the Ethereum transaction
 	// Pack the method call data
 	// The extraDataBytes variable is now correctly populated above
-	data, err := abiData.Pack("addPieces", dataSetId, pieceDataArray, extraDataBytes)
+	data, err := abiData.Pack("addPieces", dataSetId, common.Address{}, pieceDataArray, extraDataBytes)
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return

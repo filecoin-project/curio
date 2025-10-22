@@ -6,19 +6,6 @@
   },
   {
     "type": "function",
-    "name": "EXTRA_DATA_MAX_SIZE",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MAX_ENQUEUED_REMOVALS",
     "inputs": [],
     "outputs": [
@@ -160,7 +147,7 @@
     "name": "calculateProofFeeForSize",
     "inputs": [
       {
-        "name": "rawSize",
+        "name": "proofSize",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -369,11 +356,6 @@
       },
       {
         "name": "pieceIds",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "rawSizes",
         "type": "uint256[]",
         "internalType": "uint256[]"
       },
