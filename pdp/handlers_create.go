@@ -116,6 +116,9 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		}
 		// insert piece adds with data_set id = NULL as the dataset is pending
 		err = p.insertPieceAdds(tx, nil, txHashLower, reqBody.Pieces, subPieceInfoMap)
+		if err != nil {
+			return false, err
+		}
 
 		return true, err
 	}, harmonydb.OptionRetry())
