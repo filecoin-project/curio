@@ -56,6 +56,9 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealBatchSize:  32,
 			BatchSealSectorSize: "32GiB",
 		},
+		Apis: ApisConfig{
+			ChainApiInfo: NewDynamic([]string{}),
+		},
 		Ingest: CurioIngestConfig{
 			MaxMarketRunningPipelines: NewDynamic(64),
 			MaxQueueDownload:          NewDynamic(8),

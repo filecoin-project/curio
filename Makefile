@@ -255,12 +255,12 @@ docsgen-cli: curio sptool
 	echo '# Default Curio Configuration' >> documentation/en/configuration/default-curio-configuration.md
 	echo '' >> documentation/en/configuration/default-curio-configuration.md
 	echo '```toml' >> documentation/en/configuration/default-curio-configuration.md
-	./curio config default >> documentation/en/configuration/default-curio-configuration.md
+	LANG=en-US ./curio config default >> documentation/en/configuration/default-curio-configuration.md
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
 go-generate:
-	$(GOCC) generate ./...
+	LANG=en-US $(GOCC) generate ./...
 .PHONY: go-generate
 
 gen: gensimple

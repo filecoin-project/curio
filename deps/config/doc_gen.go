@@ -14,7 +14,8 @@ var Doc = map[string][]DocField{
 			Name: "ChainApiInfo",
 			Type: "[]string",
 
-			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.`,
+			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "StorageRPCSecret",
@@ -48,14 +49,6 @@ Updates will affect running instances.`,
 		},
 	},
 	"CommitBatchingConfig": {
-		{
-			Name: "BaseFeeThreshold",
-			Type: "types.FIL",
-
-			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-Updates will affect running instances.`,
-		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
@@ -155,7 +148,8 @@ including collateral and other operational resources.`,
 
 			Comment: `MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 alerts will be triggered for the wallet
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PagerDuty",
@@ -1199,7 +1193,8 @@ If True then all deals coming from unknown clients will be rejected. (Default: f
 			Name: "Enable",
 			Type: "bool",
 
-			Comment: `Enable is a flag to enable or disable the PagerDuty integration.`,
+			Comment: `Enable is a flag to enable or disable the PagerDuty integration.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PagerDutyEventURL",
@@ -1207,14 +1202,16 @@ If True then all deals coming from unknown clients will be rejected. (Default: f
 
 			Comment: `PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 routed to a PagerDuty.com service and processed.
-The default is sufficient for integration with the stock commercial PagerDuty.com company's service.`,
+The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PageDutyIntegrationKey",
 			Type: "string",
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
-identifier in the integration page for the service.`,
+identifier in the integration page for the service.
+Updates will affect running instances.`,
 		},
 	},
 	"PieceLocatorConfig": {
@@ -1232,14 +1229,6 @@ identifier in the integration page for the service.`,
 		},
 	},
 	"PreCommitBatchingConfig": {
-		{
-			Name: "BaseFeeThreshold",
-			Type: "types.FIL",
-
-			Comment: `Base fee value below which we should try to send Precommit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-Updates will affect running instances.`,
-		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
@@ -1262,13 +1251,15 @@ Updates will affect running instances.`,
 			Name: "Enable",
 			Type: "bool",
 
-			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "AlertManagerURL",
 			Type: "string",
 
-			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.`,
+			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+Updates will affect running instances.`,
 		},
 	},
 	"SlackWebhookConfig": {
@@ -1276,14 +1267,16 @@ Updates will affect running instances.`,
 			Name: "Enable",
 			Type: "bool",
 
-			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "WebHookURL",
 			Type: "string",
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
-Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+Updates will affect running instances.`,
 		},
 	},
 	"StorageMarketConfig": {

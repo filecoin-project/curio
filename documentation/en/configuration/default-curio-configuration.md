@@ -954,6 +954,12 @@ description: The default curio configuration
 # type: ApisConfig
 [Apis]
 
+  # ChainApiInfo is the API endpoint for the Lotus daemon.
+  # Updates will affect running instances.
+  #
+  # type: []string
+  #ChainApiInfo = []
+
   # API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
   #
   # type: string
@@ -968,6 +974,7 @@ description: The default curio configuration
   # MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
   # alerts will be triggered for the wallet
   # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+  # Updates will affect running instances.
   #
   # type: types.FIL
   #MinimumWalletBalance = "5 FIL"
@@ -978,6 +985,7 @@ description: The default curio configuration
   [Alerting.PagerDuty]
 
     # Enable is a flag to enable or disable the PagerDuty integration.
+    # Updates will affect running instances.
     #
     # type: bool
     #Enable = false
@@ -985,12 +993,14 @@ description: The default curio configuration
     # PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
     # routed to a PagerDuty.com service and processed.
     # The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
+    # Updates will affect running instances.
     #
     # type: string
     #PagerDutyEventURL = "https://events.pagerduty.com/v2/enqueue"
 
     # PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
     # identifier in the integration page for the service.
+    # Updates will affect running instances.
     #
     # type: string
     #PageDutyIntegrationKey = ""
@@ -1001,11 +1011,13 @@ description: The default curio configuration
   [Alerting.PrometheusAlertManager]
 
     # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    # Updates will affect running instances.
     #
     # type: bool
     #Enable = false
 
     # AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+    # Updates will affect running instances.
     #
     # type: string
     #AlertManagerURL = "http://localhost:9093/api/v2/alerts"
@@ -1016,12 +1028,14 @@ description: The default curio configuration
   [Alerting.SlackWebhook]
 
     # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    # Updates will affect running instances.
     #
     # type: bool
     #Enable = false
 
     # WebHookURL is the URL for the URL for slack Webhook.
     # Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+    # Updates will affect running instances.
     #
     # type: string
     #WebHookURL = ""
@@ -1036,13 +1050,6 @@ description: The default curio configuration
   #
   # type: PreCommitBatchingConfig
   [Batching.PreCommit]
-
-    # Base fee value below which we should try to send Precommit messages immediately
-    # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-    # Updates will affect running instances.
-    #
-    # type: types.FIL
-    #BaseFeeThreshold = "0.005 FIL"
 
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
@@ -1062,13 +1069,6 @@ description: The default curio configuration
   #
   # type: CommitBatchingConfig
   [Batching.Commit]
-
-    # Base fee value below which we should try to send Commit messages immediately
-    # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-    # Updates will affect running instances.
-    #
-    # type: types.FIL
-    #BaseFeeThreshold = "0.005 FIL"
 
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")

@@ -2,54 +2,54 @@ package api
 
 import (
 	"context"
-	"math/big"
+	mathbig "math/big"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	erpc "github.com/ethereum/go-ethereum/rpc"
 )
 
 type EthClientInterface interface {
-	ChainID(ctx context.Context) (*big.Int, error)
-	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
-	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
+	ChainID(ctx context.Context) (*mathbig.Int, error)
+	BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error)
+	BlockByNumber(ctx context.Context, number *mathbig.Int) (*ethtypes.Block, error)
 	BlockNumber(ctx context.Context) (uint64, error)
 	PeerCount(ctx context.Context) (uint64, error)
-	BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*types.Receipt, error)
-	HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error)
-	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
-	TransactionByHash(ctx context.Context, hash common.Hash) (tx *types.Transaction, isPending bool, err error)
-	TransactionSender(ctx context.Context, tx *types.Transaction, block common.Hash, index uint) (common.Address, error)
+	BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*ethtypes.Receipt, error)
+	HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error)
+	HeaderByNumber(ctx context.Context, number *mathbig.Int) (*ethtypes.Header, error)
+	TransactionByHash(ctx context.Context, hash common.Hash) (tx *ethtypes.Transaction, isPending bool, err error)
+	TransactionSender(ctx context.Context, tx *ethtypes.Transaction, block common.Hash, index uint) (common.Address, error)
 	TransactionCount(ctx context.Context, blockHash common.Hash) (uint, error)
-	TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, error)
-	TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
+	TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*ethtypes.Transaction, error)
+	TransactionReceipt(ctx context.Context, txHash common.Hash) (*ethtypes.Receipt, error)
 	SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error)
-	SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error)
-	NetworkID(ctx context.Context) (*big.Int, error)
-	BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error)
-	BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, error)
-	StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error)
+	SubscribeNewHead(ctx context.Context, ch chan<- *ethtypes.Header) (ethereum.Subscription, error)
+	NetworkID(ctx context.Context) (*mathbig.Int, error)
+	BalanceAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (*mathbig.Int, error)
+	BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*mathbig.Int, error)
+	StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *mathbig.Int) ([]byte, error)
 	StorageAtHash(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, error)
-	CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error)
+	CodeAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) ([]byte, error)
 	CodeAtHash(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, error)
-	NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error)
+	NonceAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (uint64, error)
 	NonceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, error)
-	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
-	SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
-	PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, error)
+	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]ethtypes.Log, error)
+	SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- ethtypes.Log) (ethereum.Subscription, error)
+	PendingBalanceAt(ctx context.Context, account common.Address) (*mathbig.Int, error)
 	PendingStorageAt(ctx context.Context, account common.Address, key common.Hash) ([]byte, error)
 	PendingCodeAt(ctx context.Context, account common.Address) ([]byte, error)
 	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
 	PendingTransactionCount(ctx context.Context) (uint, error)
-	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *mathbig.Int) ([]byte, error)
 	CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, error)
 	PendingCallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error)
-	SuggestGasPrice(ctx context.Context) (*big.Int, error)
-	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
-	FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error)
+	SuggestGasPrice(ctx context.Context) (*mathbig.Int, error)
+	SuggestGasTipCap(ctx context.Context) (*mathbig.Int, error)
+	FeeHistory(ctx context.Context, blockCount uint64, lastBlock *mathbig.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error)
 	EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
-	SendTransaction(ctx context.Context, tx *types.Transaction) error
+	SendTransaction(ctx context.Context, tx *ethtypes.Transaction) error
 }
 
 // EthClientStruct is a proxy struct that implements ethclient.Client interface
@@ -65,53 +65,53 @@ type EthClientMethods struct {
 	Client func() *erpc.Client
 
 	// Blockchain Access
-	ChainID            func(ctx context.Context) (*big.Int, error)
-	BlockByHash        func(ctx context.Context, hash common.Hash) (*types.Block, error)
-	BlockByNumber      func(ctx context.Context, number *big.Int) (*types.Block, error)
+	ChainID            func(ctx context.Context) (*mathbig.Int, error)
+	BlockByHash        func(ctx context.Context, hash common.Hash) (*ethtypes.Block, error)
+	BlockByNumber      func(ctx context.Context, number *mathbig.Int) (*ethtypes.Block, error)
 	BlockNumber        func(ctx context.Context) (uint64, error)
 	PeerCount          func(ctx context.Context) (uint64, error)
-	BlockReceipts      func(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*types.Receipt, error)
-	HeaderByHash       func(ctx context.Context, hash common.Hash) (*types.Header, error)
-	HeaderByNumber     func(ctx context.Context, number *big.Int) (*types.Header, error)
-	TransactionByHash  func(ctx context.Context, hash common.Hash) (tx *types.Transaction, isPending bool, err error)
-	TransactionSender  func(ctx context.Context, tx *types.Transaction, block common.Hash, index uint) (common.Address, error)
+	BlockReceipts      func(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*ethtypes.Receipt, error)
+	HeaderByHash       func(ctx context.Context, hash common.Hash) (*ethtypes.Header, error)
+	HeaderByNumber     func(ctx context.Context, number *mathbig.Int) (*ethtypes.Header, error)
+	TransactionByHash  func(ctx context.Context, hash common.Hash) (tx *ethtypes.Transaction, isPending bool, err error)
+	TransactionSender  func(ctx context.Context, tx *ethtypes.Transaction, block common.Hash, index uint) (common.Address, error)
 	TransactionCount   func(ctx context.Context, blockHash common.Hash) (uint, error)
-	TransactionInBlock func(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, error)
-	TransactionReceipt func(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
+	TransactionInBlock func(ctx context.Context, blockHash common.Hash, index uint) (*ethtypes.Transaction, error)
+	TransactionReceipt func(ctx context.Context, txHash common.Hash) (*ethtypes.Receipt, error)
 	SyncProgress       func(ctx context.Context) (*ethereum.SyncProgress, error)
-	SubscribeNewHead   func(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error)
+	SubscribeNewHead   func(ctx context.Context, ch chan<- *ethtypes.Header) (ethereum.Subscription, error)
 
 	// State Access
-	NetworkID     func(ctx context.Context) (*big.Int, error)
-	BalanceAt     func(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error)
-	BalanceAtHash func(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, error)
-	StorageAt     func(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error)
+	NetworkID     func(ctx context.Context) (*mathbig.Int, error)
+	BalanceAt     func(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (*mathbig.Int, error)
+	BalanceAtHash func(ctx context.Context, account common.Address, blockHash common.Hash) (*mathbig.Int, error)
+	StorageAt     func(ctx context.Context, account common.Address, key common.Hash, blockNumber *mathbig.Int) ([]byte, error)
 	StorageAtHash func(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, error)
-	CodeAt        func(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error)
+	CodeAt        func(ctx context.Context, account common.Address, blockNumber *mathbig.Int) ([]byte, error)
 	CodeAtHash    func(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, error)
-	NonceAt       func(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error)
+	NonceAt       func(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (uint64, error)
 	NonceAtHash   func(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, error)
 
 	// Filters
-	FilterLogs          func(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
-	SubscribeFilterLogs func(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
+	FilterLogs          func(ctx context.Context, q ethereum.FilterQuery) ([]ethtypes.Log, error)
+	SubscribeFilterLogs func(ctx context.Context, q ethereum.FilterQuery, ch chan<- ethtypes.Log) (ethereum.Subscription, error)
 
 	// Pending State
-	PendingBalanceAt        func(ctx context.Context, account common.Address) (*big.Int, error)
+	PendingBalanceAt        func(ctx context.Context, account common.Address) (*mathbig.Int, error)
 	PendingStorageAt        func(ctx context.Context, account common.Address, key common.Hash) ([]byte, error)
 	PendingCodeAt           func(ctx context.Context, account common.Address) ([]byte, error)
 	PendingNonceAt          func(ctx context.Context, account common.Address) (uint64, error)
 	PendingTransactionCount func(ctx context.Context) (uint, error)
 
 	// Contract Calling
-	CallContract        func(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+	CallContract        func(ctx context.Context, msg ethereum.CallMsg, blockNumber *mathbig.Int) ([]byte, error)
 	CallContractAtHash  func(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, error)
 	PendingCallContract func(ctx context.Context, msg ethereum.CallMsg) ([]byte, error)
-	SuggestGasPrice     func(ctx context.Context) (*big.Int, error)
-	SuggestGasTipCap    func(ctx context.Context) (*big.Int, error)
-	FeeHistory          func(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error)
+	SuggestGasPrice     func(ctx context.Context) (*mathbig.Int, error)
+	SuggestGasTipCap    func(ctx context.Context) (*mathbig.Int, error)
+	FeeHistory          func(ctx context.Context, blockCount uint64, lastBlock *mathbig.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error)
 	EstimateGas         func(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
-	SendTransaction     func(ctx context.Context, tx *types.Transaction) error
+	SendTransaction     func(ctx context.Context, tx *ethtypes.Transaction) error
 }
 
 // Connection methods
@@ -132,21 +132,21 @@ func (s *EthClientStruct) Client() *erpc.Client {
 
 // Blockchain Access methods
 
-func (s *EthClientStruct) ChainID(ctx context.Context) (*big.Int, error) {
+func (s *EthClientStruct) ChainID(ctx context.Context) (*mathbig.Int, error) {
 	if s.Internal.ChainID == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.ChainID(ctx)
 }
 
-func (s *EthClientStruct) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+func (s *EthClientStruct) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
 	if s.Internal.BlockByHash == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.BlockByHash(ctx, hash)
 }
 
-func (s *EthClientStruct) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+func (s *EthClientStruct) BlockByNumber(ctx context.Context, number *mathbig.Int) (*ethtypes.Block, error) {
 	if s.Internal.BlockByNumber == nil {
 		return nil, ErrNotSupported
 	}
@@ -167,35 +167,35 @@ func (s *EthClientStruct) PeerCount(ctx context.Context) (uint64, error) {
 	return s.Internal.PeerCount(ctx)
 }
 
-func (s *EthClientStruct) BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*types.Receipt, error) {
+func (s *EthClientStruct) BlockReceipts(ctx context.Context, blockNrOrHash erpc.BlockNumberOrHash) ([]*ethtypes.Receipt, error) {
 	if s.Internal.BlockReceipts == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.BlockReceipts(ctx, blockNrOrHash)
 }
 
-func (s *EthClientStruct) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+func (s *EthClientStruct) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error) {
 	if s.Internal.HeaderByHash == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.HeaderByHash(ctx, hash)
 }
 
-func (s *EthClientStruct) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+func (s *EthClientStruct) HeaderByNumber(ctx context.Context, number *mathbig.Int) (*ethtypes.Header, error) {
 	if s.Internal.HeaderByNumber == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.HeaderByNumber(ctx, number)
 }
 
-func (s *EthClientStruct) TransactionByHash(ctx context.Context, hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
+func (s *EthClientStruct) TransactionByHash(ctx context.Context, hash common.Hash) (tx *ethtypes.Transaction, isPending bool, err error) {
 	if s.Internal.TransactionByHash == nil {
 		return nil, false, ErrNotSupported
 	}
 	return s.Internal.TransactionByHash(ctx, hash)
 }
 
-func (s *EthClientStruct) TransactionSender(ctx context.Context, tx *types.Transaction, block common.Hash, index uint) (common.Address, error) {
+func (s *EthClientStruct) TransactionSender(ctx context.Context, tx *ethtypes.Transaction, block common.Hash, index uint) (common.Address, error) {
 	if s.Internal.TransactionSender == nil {
 		return common.Address{}, ErrNotSupported
 	}
@@ -209,14 +209,14 @@ func (s *EthClientStruct) TransactionCount(ctx context.Context, blockHash common
 	return s.Internal.TransactionCount(ctx, blockHash)
 }
 
-func (s *EthClientStruct) TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, error) {
+func (s *EthClientStruct) TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*ethtypes.Transaction, error) {
 	if s.Internal.TransactionInBlock == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.TransactionInBlock(ctx, blockHash, index)
 }
 
-func (s *EthClientStruct) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+func (s *EthClientStruct) TransactionReceipt(ctx context.Context, txHash common.Hash) (*ethtypes.Receipt, error) {
 	if s.Internal.TransactionReceipt == nil {
 		return nil, ErrNotSupported
 	}
@@ -230,7 +230,7 @@ func (s *EthClientStruct) SyncProgress(ctx context.Context) (*ethereum.SyncProgr
 	return s.Internal.SyncProgress(ctx)
 }
 
-func (s *EthClientStruct) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
+func (s *EthClientStruct) SubscribeNewHead(ctx context.Context, ch chan<- *ethtypes.Header) (ethereum.Subscription, error) {
 	if s.Internal.SubscribeNewHead == nil {
 		return nil, ErrNotSupported
 	}
@@ -239,28 +239,28 @@ func (s *EthClientStruct) SubscribeNewHead(ctx context.Context, ch chan<- *types
 
 // State Access methods
 
-func (s *EthClientStruct) NetworkID(ctx context.Context) (*big.Int, error) {
+func (s *EthClientStruct) NetworkID(ctx context.Context) (*mathbig.Int, error) {
 	if s.Internal.NetworkID == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.NetworkID(ctx)
 }
 
-func (s *EthClientStruct) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
+func (s *EthClientStruct) BalanceAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (*mathbig.Int, error) {
 	if s.Internal.BalanceAt == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.BalanceAt(ctx, account, blockNumber)
 }
 
-func (s *EthClientStruct) BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, error) {
+func (s *EthClientStruct) BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*mathbig.Int, error) {
 	if s.Internal.BalanceAtHash == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.BalanceAtHash(ctx, account, blockHash)
 }
 
-func (s *EthClientStruct) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
+func (s *EthClientStruct) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *mathbig.Int) ([]byte, error) {
 	if s.Internal.StorageAt == nil {
 		return nil, ErrNotSupported
 	}
@@ -274,7 +274,7 @@ func (s *EthClientStruct) StorageAtHash(ctx context.Context, account common.Addr
 	return s.Internal.StorageAtHash(ctx, account, key, blockHash)
 }
 
-func (s *EthClientStruct) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
+func (s *EthClientStruct) CodeAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) ([]byte, error) {
 	if s.Internal.CodeAt == nil {
 		return nil, ErrNotSupported
 	}
@@ -288,7 +288,7 @@ func (s *EthClientStruct) CodeAtHash(ctx context.Context, account common.Address
 	return s.Internal.CodeAtHash(ctx, account, blockHash)
 }
 
-func (s *EthClientStruct) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
+func (s *EthClientStruct) NonceAt(ctx context.Context, account common.Address, blockNumber *mathbig.Int) (uint64, error) {
 	if s.Internal.NonceAt == nil {
 		return 0, ErrNotSupported
 	}
@@ -304,14 +304,14 @@ func (s *EthClientStruct) NonceAtHash(ctx context.Context, account common.Addres
 
 // Filter methods
 
-func (s *EthClientStruct) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+func (s *EthClientStruct) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]ethtypes.Log, error) {
 	if s.Internal.FilterLogs == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.FilterLogs(ctx, q)
 }
 
-func (s *EthClientStruct) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+func (s *EthClientStruct) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- ethtypes.Log) (ethereum.Subscription, error) {
 	if s.Internal.SubscribeFilterLogs == nil {
 		return nil, ErrNotSupported
 	}
@@ -320,7 +320,7 @@ func (s *EthClientStruct) SubscribeFilterLogs(ctx context.Context, q ethereum.Fi
 
 // Pending State methods
 
-func (s *EthClientStruct) PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, error) {
+func (s *EthClientStruct) PendingBalanceAt(ctx context.Context, account common.Address) (*mathbig.Int, error) {
 	if s.Internal.PendingBalanceAt == nil {
 		return nil, ErrNotSupported
 	}
@@ -357,7 +357,7 @@ func (s *EthClientStruct) PendingTransactionCount(ctx context.Context) (uint, er
 
 // Contract Calling methods
 
-func (s *EthClientStruct) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+func (s *EthClientStruct) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *mathbig.Int) ([]byte, error) {
 	if s.Internal.CallContract == nil {
 		return nil, ErrNotSupported
 	}
@@ -378,21 +378,21 @@ func (s *EthClientStruct) PendingCallContract(ctx context.Context, msg ethereum.
 	return s.Internal.PendingCallContract(ctx, msg)
 }
 
-func (s *EthClientStruct) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
+func (s *EthClientStruct) SuggestGasPrice(ctx context.Context) (*mathbig.Int, error) {
 	if s.Internal.SuggestGasPrice == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.SuggestGasPrice(ctx)
 }
 
-func (s *EthClientStruct) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+func (s *EthClientStruct) SuggestGasTipCap(ctx context.Context) (*mathbig.Int, error) {
 	if s.Internal.SuggestGasTipCap == nil {
 		return nil, ErrNotSupported
 	}
 	return s.Internal.SuggestGasTipCap(ctx)
 }
 
-func (s *EthClientStruct) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
+func (s *EthClientStruct) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *mathbig.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
 	if s.Internal.FeeHistory == nil {
 		return nil, ErrNotSupported
 	}
@@ -406,7 +406,7 @@ func (s *EthClientStruct) EstimateGas(ctx context.Context, msg ethereum.CallMsg)
 	return s.Internal.EstimateGas(ctx, msg)
 }
 
-func (s *EthClientStruct) SendTransaction(ctx context.Context, tx *types.Transaction) error {
+func (s *EthClientStruct) SendTransaction(ctx context.Context, tx *ethtypes.Transaction) error {
 	if s.Internal.SendTransaction == nil {
 		return ErrNotSupported
 	}
