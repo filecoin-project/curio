@@ -235,7 +235,6 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		&result.RetrievedAt,
 		&result.Status,
 	)
-
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Piece not found or does not belong to service", http.StatusNotFound)
@@ -920,6 +919,8 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 
 	// Schedule deletion of the piece from the data set using a transaction
 	txHashLower := strings.ToLower(txHash.Hex())
+	log.Infow("PDP DeletePiece: Creating transaction tracking record", "txHash", txHashLower)
+
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		_, err := tx.Exec(`
@@ -927,12 +928,16 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			VALUES ($1, $2)
 		`, txHashLower, "pending")
 		if err != nil {
+			log.Errorw("Failed to insert into message_waits_eth",
+				"txHash", txHashLower,
+				"error", err)
 			return false, err
 		}
 
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
+		log.Errorf("Failed to insert database tracking record: %+v", err)
 		http.Error(w, "Failed to schedule delete piece: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1095,7 +1100,6 @@ func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
 
 func (p *PDPService) cleanup(ctx context.Context) {
 	rm := func(ctx context.Context, db *harmonydb.DB) {
-
 		var RefIDs []int64
 
 		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(piece_ref), '{}') AS ref_ids
