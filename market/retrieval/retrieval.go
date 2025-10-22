@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
+	ipld "github.com/ipld/go-ipld-prime"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
@@ -23,9 +24,11 @@ type Provider struct {
 	cpr *cachedreader.CachedPieceReader
 }
 
-const piecePrefix = "/piece/"
-const ipfsPrefix = "/ipfs/"
-const infoPage = "/info"
+const (
+	piecePrefix = "/piece/"
+	ipfsPrefix  = "/ipfs/"
+	infoPage    = "/info"
+)
 
 func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *Provider {
 	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
@@ -37,6 +40,15 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 		bs:  bs,
 		fr:  fr,
 		cpr: cpr,
+	}
+}
+
+// NewRetrievalProviderWithLinkSystem creates a Provider with a custom LinkSystem for testing
+func NewRetrievalProviderWithLinkSystem(ctx context.Context, lsys ipld.LinkSystem) *Provider {
+	fr := frisbii.NewHttpIpfs(ctx, lsys)
+
+	return &Provider{
+		fr: fr,
 	}
 }
 
@@ -54,8 +66,8 @@ func logRequest(next http.HandlerFunc) http.HandlerFunc {
 
 func Router(mux *chi.Mux, rp *Provider) {
 	mux.Get(piecePrefix+"{cid}", logRequest(rp.handleByPieceCid))
-	mux.Get(ipfsPrefix+"{cid}", logRequest(rp.fr.ServeHTTP))
-	mux.Head(ipfsPrefix+"{cid}", logRequest(rp.fr.ServeHTTP))
+	mux.Get(ipfsPrefix+"*", logRequest(rp.fr.ServeHTTP))
+	mux.Head(ipfsPrefix+"*", logRequest(rp.fr.ServeHTTP))
 	mux.Get(infoPage, logRequest(handleInfo))
 }
 
