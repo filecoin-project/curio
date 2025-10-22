@@ -85,7 +85,7 @@ type PieceIngester struct {
 	addToID              map[address.Address]int64
 	idToAddr             map[abi.ActorID]address.Address
 	minerDetails         map[int64]*mdetails
-	maxWaitTime          time.Duration
+	maxWaitTime          *config.Dynamic[time.Duration]
 	expectedSealDuration abi.ChainEpoch
 }
 
@@ -146,7 +146,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		ctx:                  ctx,
 		db:                   db,
 		api:                  api,
-		maxWaitTime:          cfg.Ingest.MaxDealWaitTime.Get(),
+		maxWaitTime:          cfg.Ingest.MaxDealWaitTime,
 		addToID:              addToID,
 		minerDetails:         minerDetails,
 		idToAddr:             idToAddr,
@@ -190,7 +190,7 @@ func (p *PieceIngester) Seal() error {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
 		}
-		if time.Since(*sector.openedAt) > p.maxWaitTime {
+		if time.Since(*sector.openedAt) > p.maxWaitTime.Get() {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
