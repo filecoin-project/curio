@@ -174,7 +174,7 @@ type Deps struct {
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
-	EthClient         *lazy.Lazy[*api.EthClientStruct]
+	EthClient         *lazy.Lazy[api.EthClientInterface]
 	Sender            *message.Sender
 }
 
@@ -261,7 +261,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.EthClient == nil {
-		deps.EthClient = lazy.MakeLazy(func() (*api.EthClientStruct, error) {
+		deps.EthClient = lazy.MakeLazy(func() (api.EthClientInterface, error) {
 			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 				cfgApiInfo = config.NewDynamic([]string{v})
@@ -594,7 +594,7 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*api.EthClientStruct], error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[api.EthClientInterface], error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
@@ -617,7 +617,7 @@ func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.Curi
 		return nil, nil, nil, nil, nil, err
 	}
 
-	ethClient := lazy.MakeLazy(func() (*api.EthClientStruct, error) {
+	ethClient := lazy.MakeLazy(func() (api.EthClientInterface, error) {
 		return GetEthClient(cctx, cfgApiInfo)
 	})
 

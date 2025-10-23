@@ -51,6 +51,7 @@ func (d *Dynamic[T]) OnChange(fn func()) {
 	}
 }
 
+// It locks dynamicLocker.
 func (d *Dynamic[T]) Set(value T) {
 	dynamicLocker.Lock()
 	defer dynamicLocker.Unlock()
@@ -58,6 +59,7 @@ func (d *Dynamic[T]) Set(value T) {
 	d.value = value
 }
 
+// It rlocks dynamicLocker.
 func (d *Dynamic[T]) Get() T {
 	if d == nil {
 		var zero T
@@ -69,9 +71,9 @@ func (d *Dynamic[T]) Get() T {
 }
 
 // Equal is used by cmp.Equal for custom comparison.
-// If used from deps, requires a lock.
+// It rlocks dynamicLocker.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
+	return cmp.Equal(d.Get(), other.Get(), BigIntComparer, cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.

@@ -103,11 +103,12 @@ func typeName(e ast.Expr, pkg string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if t.Dir == ast.SEND {
+		switch t.Dir {
+		case ast.SEND:
 			subt = "chan<- " + subt
-		} else if t.Dir == ast.RECV {
+		case ast.RECV:
 			subt = "<-chan " + subt
-		} else {
+		default:
 			subt = "chan " + subt
 		}
 		return subt, nil

@@ -404,7 +404,7 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 	return false
 }
 
-func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (*api.EthClientStruct, error) {
+func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.EthClientInterface, error) {
 	version := "v1"
 	var ethClientDynamic = config.NewDynamic([]*ethclient.Client{})
 	updateDynamic := func() error {
@@ -460,12 +460,12 @@ func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (*api.E
 		}
 	})
 
-	var ethClient api.EthClientStruct
+	var ethClient api.EthClientInterfaceStruct
 	EthClientProxy(ethClientDynamic, &ethClient)
 	return &ethClient, nil
 }
 
-func EthClientProxy(ins *config.Dynamic[[]*ethclient.Client], outstr *api.EthClientStruct) {
+func EthClientProxy(ins *config.Dynamic[[]*ethclient.Client], outstr api.EthClientInterface) {
 	providerCount := len(ins.Get())
 
 	var healthyLk sync.Mutex
