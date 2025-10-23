@@ -1,6 +1,5 @@
 # curio
 ```
-Error parsing language
 NAME:
    curio - Filecoin decentralized storage network provider
 
@@ -43,7 +42,6 @@ GLOBAL OPTIONS:
 
 ## curio cli
 ```
-Error parsing language
 NAME:
    curio cli - Execute cli commands
 
@@ -68,7 +66,6 @@ OPTIONS:
 
 ### curio cli info
 ```
-Error parsing language
 NAME:
    curio cli info - Get Curio node info
 
@@ -81,7 +78,6 @@ OPTIONS:
 
 ### curio cli storage
 ```
-Error parsing language
 NAME:
    curio cli storage - manage sector storage
 
@@ -109,7 +105,6 @@ OPTIONS:
 
 #### curio cli storage attach
 ```
-Error parsing language
 NAME:
    curio cli storage attach - attach local storage path
 
@@ -154,7 +149,6 @@ OPTIONS:
 
 #### curio cli storage detach
 ```
-Error parsing language
 NAME:
    curio cli storage detach - detach local storage path
 
@@ -168,7 +162,6 @@ OPTIONS:
 
 #### curio cli storage list
 ```
-Error parsing language
 NAME:
    curio cli storage list - list local storage paths
 
@@ -182,7 +175,6 @@ OPTIONS:
 
 #### curio cli storage find
 ```
-Error parsing language
 NAME:
    curio cli storage find - find sector in the storage system
 
@@ -195,7 +187,6 @@ OPTIONS:
 
 #### curio cli storage generate-vanilla-proof
 ```
-Error parsing language
 NAME:
    curio cli storage generate-vanilla-proof - generate vanilla proof for a sector
 
@@ -208,7 +199,6 @@ OPTIONS:
 
 #### curio cli storage redeclare
 ```
-Error parsing language
 NAME:
    curio cli storage redeclare - redeclare sectors in a local storage path
 
@@ -226,7 +216,6 @@ OPTIONS:
 
 ### curio cli log
 ```
-Error parsing language
 NAME:
    curio cli log - Manage logging
 
@@ -244,7 +233,6 @@ OPTIONS:
 
 #### curio cli log list
 ```
-Error parsing language
 NAME:
    curio cli log list - List log systems
 
@@ -257,7 +245,6 @@ OPTIONS:
 
 #### curio cli log set-level
 ```
-Error parsing language
 NAME:
    curio cli log set-level - Set log level
 
@@ -291,7 +278,6 @@ OPTIONS:
 
 ### curio cli wait-api
 ```
-Error parsing language
 NAME:
    curio cli wait-api - Wait for Curio api to come online
 
@@ -305,7 +291,6 @@ OPTIONS:
 
 ### curio cli stop
 ```
-Error parsing language
 NAME:
    curio cli stop - Stop a running Curio process
 
@@ -318,7 +303,6 @@ OPTIONS:
 
 ### curio cli cordon
 ```
-Error parsing language
 NAME:
    curio cli cordon - Cordon a machine, set it to maintenance mode
 
@@ -331,7 +315,6 @@ OPTIONS:
 
 ### curio cli uncordon
 ```
-Error parsing language
 NAME:
    curio cli uncordon - Uncordon a machine, resume scheduling
 
@@ -344,7 +327,6 @@ OPTIONS:
 
 ### curio cli index-sample
 ```
-Error parsing language
 NAME:
    curio cli index-sample - Provides a sample of CIDs from an indexed piece
 
@@ -358,7 +340,6 @@ OPTIONS:
 
 ## curio run
 ```
-Error parsing language
 NAME:
    curio run - Start a Curio process
 
@@ -376,7 +357,6 @@ OPTIONS:
 
 ## curio config
 ```
-Error parsing language
 NAME:
    curio config - Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
 
@@ -400,7 +380,6 @@ OPTIONS:
 
 ### curio config default
 ```
-Error parsing language
 NAME:
    curio config default - Print default node config
 
@@ -414,7 +393,6 @@ OPTIONS:
 
 ### curio config set
 ```
-Error parsing language
 NAME:
    curio config set - Set a config layer or the base by providing a filename or stdin.
 
@@ -428,7 +406,6 @@ OPTIONS:
 
 ### curio config get
 ```
-Error parsing language
 NAME:
    curio config get - Get a config layer by name. You may want to pipe the output to a file, or use 'less'
 
@@ -441,7 +418,6 @@ OPTIONS:
 
 ### curio config list
 ```
-Error parsing language
 NAME:
    curio config list - List config layers present in the DB.
 
@@ -454,7 +430,6 @@ OPTIONS:
 
 ### curio config interpret
 ```
-Error parsing language
 NAME:
    curio config interpret - Interpret stacked config layers by this version of curio, with system-generated comments.
 
@@ -468,7 +443,6 @@ OPTIONS:
 
 ### curio config remove
 ```
-Error parsing language
 NAME:
    curio config remove - Remove a named config layer.
 
@@ -481,7 +455,6 @@ OPTIONS:
 
 ### curio config edit
 ```
-Error parsing language
 NAME:
    curio config edit - edit a config layer
 
@@ -499,7 +472,6 @@ OPTIONS:
 
 ### curio config new-cluster
 ```
-Error parsing language
 NAME:
    curio config new-cluster - Create new configuration for a new cluster
 
@@ -512,7 +484,6 @@ OPTIONS:
 
 ## curio test
 ```
-Error parsing language
 NAME:
    curio test - Utility functions for testing
 
@@ -530,7 +501,6 @@ OPTIONS:
 
 ### curio test window-post
 ```
-Error parsing language
 NAME:
    curio test window-post - Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
 
@@ -549,7 +519,6 @@ OPTIONS:
 
 #### curio test window-post here
 ```
-Error parsing language
 NAME:
    curio test window-post here - Compute WindowPoSt for performance and configuration testing.
 
@@ -570,7 +539,6 @@ OPTIONS:
 
 #### curio test window-post task
 ```
-Error parsing language
 NAME:
    curio test window-post task - Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.
 
@@ -586,7 +554,6 @@ OPTIONS:
 
 #### curio test window-post vanilla
 ```
-Error parsing language
 NAME:
    curio test window-post vanilla - Compute WindowPoSt vanilla proofs and verify them.
 
@@ -603,7 +570,6 @@ OPTIONS:
 
 ### curio test debug
 ```
-Error parsing language
 NAME:
    curio test debug - Collection of debugging utilities
 
@@ -622,7 +588,6 @@ OPTIONS:
 
 #### curio test debug ipni-piece-chunks
 ```
-Error parsing language
 NAME:
    curio test debug ipni-piece-chunks - generate ipni chunks from a file
 
@@ -635,7 +600,6 @@ OPTIONS:
 
 #### curio test debug debug-snsvc
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc
 
@@ -670,7 +634,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc deposit
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc deposit - Deposit FIL into the Router contract (client)
 
@@ -685,7 +648,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc client-initiate-withdrawal
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc client-initiate-withdrawal - Initiate a withdrawal request from the client's deposit
 
@@ -700,7 +662,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc client-complete-withdrawal
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc client-complete-withdrawal - Complete a pending client withdrawal after the withdrawal window elapses
 
@@ -714,7 +675,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc client-cancel-withdrawal
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc client-cancel-withdrawal - Cancel a pending client withdrawal request
 
@@ -728,7 +688,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc redeem-client
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc redeem-client - Redeem a client voucher (service role)
 
@@ -746,7 +705,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc redeem-provider
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc redeem-provider - Redeem a provider voucher (provider role)
 
@@ -764,7 +722,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc service-initiate-withdrawal
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc service-initiate-withdrawal - Initiate a withdrawal request from the service pool
 
@@ -779,7 +736,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc service-complete-withdrawal
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc service-complete-withdrawal - Complete a pending service withdrawal after the withdrawal window elapses
 
@@ -793,7 +749,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc service-cancel-withdrawal
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc service-cancel-withdrawal - Cancel a pending service withdrawal request
 
@@ -807,7 +762,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc service-deposit
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc service-deposit - Deposit funds into the service pool (service role)
 
@@ -822,7 +776,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc get-client-state
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc get-client-state - Query the state of a client
 
@@ -836,7 +789,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc get-provider-state
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc get-provider-state - Query the state of a provider
 
@@ -850,7 +802,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc get-service-state
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc get-service-state - Query the service state
 
@@ -863,7 +814,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc create-client-voucher
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc create-client-voucher - Create a client voucher
 
@@ -878,7 +828,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc create-provider-voucher
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc create-provider-voucher - Create a provider voucher
 
@@ -895,7 +844,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc propose-service-actor
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc propose-service-actor - Propose a new service actor
 
@@ -910,7 +858,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc accept-service-actor
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc accept-service-actor - Accept a proposed service actor
 
@@ -924,7 +871,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc validate-client-voucher
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc validate-client-voucher - Validate a client voucher signature
 
@@ -941,7 +887,6 @@ OPTIONS:
 
 ##### curio test debug debug-snsvc validate-provider-voucher
 ```
-Error parsing language
 NAME:
    curio test debug debug-snsvc validate-provider-voucher - Validate a provider voucher signature
 
@@ -958,7 +903,6 @@ OPTIONS:
 
 #### curio test debug proofsvc-client
 ```
-Error parsing language
 NAME:
    curio test debug proofsvc-client - Interact with the remote proof service
 
@@ -977,7 +921,6 @@ OPTIONS:
 
 ##### curio test debug proofsvc-client create-voucher
 ```
-Error parsing language
 NAME:
    curio test debug proofsvc-client create-voucher - Create a client voucher
 
@@ -992,7 +935,6 @@ OPTIONS:
 
 ##### curio test debug proofsvc-client submit
 ```
-Error parsing language
 NAME:
    curio test debug proofsvc-client submit - Submit a proof request
 
@@ -1011,7 +953,6 @@ OPTIONS:
 
 ##### curio test debug proofsvc-client status
 ```
-Error parsing language
 NAME:
    curio test debug proofsvc-client status - Check proof status
 
@@ -1025,7 +966,6 @@ OPTIONS:
 
 ## curio web
 ```
-Error parsing language
 NAME:
    curio web - Start Curio web interface
 
@@ -1045,7 +985,6 @@ OPTIONS:
 
 ## curio guided-setup
 ```
-Error parsing language
 NAME:
    curio guided-setup - Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
 
@@ -1058,7 +997,6 @@ OPTIONS:
 
 ## curio seal
 ```
-Error parsing language
 NAME:
    curio seal - Manage the sealing pipeline
 
@@ -1076,7 +1014,6 @@ OPTIONS:
 
 ### curio seal start
 ```
-Error parsing language
 NAME:
    curio seal start - Start new sealing operations manually
 
@@ -1096,7 +1033,6 @@ OPTIONS:
 
 ### curio seal events
 ```
-Error parsing language
 NAME:
    curio seal events - List pipeline events
 
@@ -1112,7 +1048,6 @@ OPTIONS:
 
 ## curio unseal
 ```
-Error parsing language
 NAME:
    curio unseal - Manage unsealed data
 
@@ -1132,7 +1067,6 @@ OPTIONS:
 
 ### curio unseal info
 ```
-Error parsing language
 NAME:
    curio unseal info - Get information about unsealed data
 
@@ -1145,7 +1079,6 @@ OPTIONS:
 
 ### curio unseal list-sectors
 ```
-Error parsing language
 NAME:
    curio unseal list-sectors - List data from the sectors_unseal_pipeline and sectors_meta tables
 
@@ -1160,7 +1093,6 @@ OPTIONS:
 
 ### curio unseal set-target-state
 ```
-Error parsing language
 NAME:
    curio unseal set-target-state - Set the target unseal state for a sector
 
@@ -1190,7 +1122,6 @@ OPTIONS:
 
 ### curio unseal check
 ```
-Error parsing language
 NAME:
    curio unseal check - Check data integrity in unsealed sector files
 
@@ -1208,7 +1139,6 @@ OPTIONS:
 
 ## curio market
 ```
-Error parsing language
 NAME:
    curio market
 
@@ -1228,7 +1158,6 @@ OPTIONS:
 
 ### curio market seal
 ```
-Error parsing language
 NAME:
    curio market seal - start sealing a deal sector early
 
@@ -1243,7 +1172,6 @@ OPTIONS:
 
 ### curio market add-url
 ```
-Error parsing language
 NAME:
    curio market add-url - Add URL to fetch data for offline deals
 
@@ -1259,7 +1187,6 @@ OPTIONS:
 
 ### curio market move-to-escrow
 ```
-Error parsing language
 NAME:
    curio market move-to-escrow - Moves funds from the deal collateral wallet into escrow with the storage market actor
 
@@ -1275,7 +1202,6 @@ OPTIONS:
 
 ### curio market ddo
 ```
-Error parsing language
 NAME:
    curio market ddo - Create a new offline verified DDO deal for Curio
 
@@ -1292,7 +1218,6 @@ OPTIONS:
 
 ## curio fetch-params
 ```
-Error parsing language
 NAME:
    curio fetch-params - Fetch proving parameters
 
@@ -1305,7 +1230,6 @@ OPTIONS:
 
 ## curio calc
 ```
-Error parsing language
 NAME:
    curio calc - Math Utils
 
@@ -1324,7 +1248,6 @@ OPTIONS:
 
 ### curio calc batch-cpu
 ```
-Error parsing language
 NAME:
    curio calc batch-cpu - Analyze and display the layout of batch sealer threads
 
@@ -1344,7 +1267,6 @@ OPTIONS:
 
 ### curio calc supraseal-config
 ```
-Error parsing language
 NAME:
    curio calc supraseal-config - Generate a supra_seal configuration
 
@@ -1365,7 +1287,6 @@ OPTIONS:
 
 ## curio toolbox
 ```
-Error parsing language
 NAME:
    curio toolbox - Tool Box for Curio
 
@@ -1383,7 +1304,6 @@ OPTIONS:
 
 ### curio toolbox fix-msg
 ```
-Error parsing language
 NAME:
    curio toolbox fix-msg - Updated DB with message data missing from chain node
 
@@ -1397,7 +1317,6 @@ OPTIONS:
 
 ### curio toolbox register-pdp-service-provider
 ```
-Error parsing language
 NAME:
    curio toolbox register-pdp-service-provider - Register a PDP service provider with Filecoin Service Registry Contract
 
