@@ -162,7 +162,7 @@ func metricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract path prefix to avoid unbounded cardinality in Prometheus
 		pathPrefix := getPathPrefix(r.URL.Path)
-		
+
 		// Record request count and increment active requests
 		ctx, _ := tag.New(r.Context(), tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix), tag.Upsert(remoteblockstore.HttpMethodKey, r.Method))
 		stats.Record(ctx, remoteblockstore.HttpRequestCount.M(1))
