@@ -108,7 +108,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 		return nil, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
 	}
 	if len(pieces) == 0 {
-		return nil, fmt.Errorf("no pieces with cid %s found", c)
+		return nil, format.ErrNotFound{Cid: c}
 	}
 
 	// Get a reader over one of the pieces and extract the block data
@@ -149,7 +149,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	}
 
 	if merr == nil {
-		merr = fmt.Errorf("no block with cid %s found", c)
+		merr = format.ErrNotFound{Cid: c}
 	}
 
 	return nil, merr
