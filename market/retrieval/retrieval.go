@@ -38,6 +38,7 @@ const maxParallelRequests = 256
 
 var (
 	ipfsRequestLimiter  = make(chan struct{}, maxParallelRequests)
+	ipfsHeadRequestLimiter  = make(chan struct{}, maxParallelRequests/2)
 	pieceRequestLimiter = make(chan struct{}, maxParallelRequests)
 )
 
@@ -240,9 +241,13 @@ func Router(mux *chi.Mux, rp *Provider) {
 
 		// IPFS endpoints with limiter
 		r.Group(func(r chi.Router) {
+			r.Use(limiterMiddleware(ipfsHeadRequestLimiter))
+			r.Head(ipfsPrefix+"*", rp.fr.ServeHTTP)
+		})
+
+		r.Group(func(r chi.Router) {
 			r.Use(limiterMiddleware(ipfsRequestLimiter))
 			r.Get(ipfsPrefix+"*", rp.fr.ServeHTTP)
-			r.Head(ipfsPrefix+"*", rp.fr.ServeHTTP)
 		})
 
 		// Info endpoint without limiter
