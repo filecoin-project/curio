@@ -3,15 +3,20 @@ package retrieval
 import (
 	"context"
 	"net/http"
+	"path"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	lru "github.com/hashicorp/golang-lru/arc/v2"
-	"github.com/ipfs/go-graphsync/storeutil"
 	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
 	ipld "github.com/ipld/go-ipld-prime"
 	"github.com/snadrus/must"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
@@ -61,23 +66,85 @@ func NewRetrievalProviderWithLinkSystem(ctx context.Context, lsys ipld.LinkSyste
 	}
 }
 
-// logRequest logs incoming HTTP requests with their headers
-func logRequest(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		log.Infow("HTTP request",
-			"method", r.Method,
-			"url", r.URL.String(),
-			"remote_addr", r.RemoteAddr,
-			"headers", r.Header)
-		next(w, r)
+// responseWriterWrapper wraps http.ResponseWriter to capture status code and bytes written
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	statusCode   int
+	bytesWritten int64
+}
+
+func (rw *responseWriterWrapper) WriteHeader(statusCode int) {
+	rw.statusCode = statusCode
+	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (rw *responseWriterWrapper) Write(b []byte) (int, error) {
+	n, err := rw.ResponseWriter.Write(b)
+	rw.bytesWritten += int64(n)
+	return n, err
+}
+
+// getPathPrefix extracts the first path element to avoid cardinality explosion in metrics
+// Examples: "/piece/abc123" -> "/piece/", "/ipfs/QmABC" -> "/ipfs/", "/info" -> "/info", "/" -> "/"
+func getPathPrefix(urlPath string) string {
+	// Clean the path to remove any .. or . elements
+	cleaned := path.Clean(urlPath)
+
+	if cleaned == "/" || cleaned == "" {
+		return "/"
 	}
+
+	// Split the path and get the first element
+	parts := strings.Split(strings.TrimPrefix(cleaned, "/"), "/")
+	if len(parts) > 0 && parts[0] != "" {
+		return "/" + parts[0] + "/"
+	}
+
+	return "/"
+}
+
+// metricsMiddleware records HTTP metrics for requests
+func metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract path prefix to avoid unbounded cardinality in Prometheus
+		pathPrefix := getPathPrefix(r.URL.Path)
+
+		// Record request count
+		ctx, _ := tag.New(r.Context(), tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix))
+		stats.Record(ctx, remoteblockstore.HttpRequestCount.M(1))
+
+		// Wrap response writer to capture status and bytes
+		wrapper := &responseWriterWrapper{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK, // default if WriteHeader is not called
+		}
+
+		// Serve the request
+		next.ServeHTTP(wrapper, r.WithContext(ctx))
+
+		// Record response metrics
+		statusCodeStr := strconv.Itoa(wrapper.statusCode)
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(remoteblockstore.HttpStatusCodeKey, statusCodeStr),
+			tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix),
+		},
+			remoteblockstore.HttpResponseStatusCount.M(1),
+			remoteblockstore.HttpResponseBytesCount.M(wrapper.bytesWritten),
+		)
+
+		log.Debugw("HTTP request", "method", r.Method, "path", r.URL.Path, "pathPrefix", pathPrefix, "status", wrapper.statusCode, "bytes", wrapper.bytesWritten)
+	})
 }
 
 func Router(mux *chi.Mux, rp *Provider) {
-	mux.Get(piecePrefix+"{cid}", logRequest(rp.handleByPieceCid))
-	mux.Get(ipfsPrefix+"*", logRequest(rp.fr.ServeHTTP))
-	mux.Head(ipfsPrefix+"*", logRequest(rp.fr.ServeHTTP))
-	mux.Get(infoPage, logRequest(handleInfo))
+	// Group retrieval routes with metrics middleware
+	mux.Group(func(r chi.Router) {
+		r.Use(metricsMiddleware)
+		r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
+		r.Get(ipfsPrefix+"*", rp.fr.ServeHTTP)
+		r.Head(ipfsPrefix+"*", rp.fr.ServeHTTP)
+		r.Get(infoPage, handleInfo)
+	})
 }
 
 func handleInfo(rw http.ResponseWriter, r *http.Request) {
@@ -85,7 +152,6 @@ func handleInfo(rw http.ResponseWriter, r *http.Request) {
 
 	_, _ = rw.Write([]byte(infoOut))
 }
-
 
 type BlockstoreCacheWrap[T any] struct {
 	Sub interface {
@@ -101,7 +167,13 @@ func (b *BlockstoreCacheWrap[T]) Contains(mhString T) bool {
 }
 
 func (b *BlockstoreCacheWrap[T]) Get(mhString T) (blocks.Block, bool) {
-	return b.Sub.Get(mhString)
+	block, ok := b.Sub.Get(mhString)
+	if ok {
+		stats.Record(context.Background(), remoteblockstore.BlockstoreCacheHits.M(1))
+	} else {
+		stats.Record(context.Background(), remoteblockstore.BlockstoreCacheMisses.M(1))
+	}
+	return block, ok
 }
 
 func (b *BlockstoreCacheWrap[T]) Remove(mhString T) bool {
