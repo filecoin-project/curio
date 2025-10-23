@@ -25,9 +25,10 @@ func run() error {
 	state := stGlobal
 
 	type field struct {
-		Name    string
-		Type    string
-		Comment string
+		Name      string
+		Type      string
+		Comment   string
+		IsDynamic bool
 	}
 
 	var currentType string
@@ -73,6 +74,13 @@ func run() error {
 
 			name := f[0]
 			typ := f[1]
+			isDynamic := false
+			if strings.HasPrefix(typ, "*Dynamic[") {
+				isDynamic = true
+				typ = strings.TrimPrefix(typ, "*Dynamic[")
+				typ = strings.TrimSuffix(typ, "]")
+				comment = append(comment, "Updates will affect running instances.")
+			}
 
 			if len(comment) > 0 && strings.HasPrefix(comment[0], fmt.Sprintf("%s is DEPRECATED", name)) {
 				// don't document deprecated fields
@@ -80,9 +88,10 @@ func run() error {
 			}
 
 			out[currentType] = append(out[currentType], field{
-				Name:    name,
-				Type:    typ,
-				Comment: strings.Join(comment, "\n"),
+				Name:      name,
+				Type:      typ,
+				Comment:   strings.Join(comment, "\n"),
+				IsDynamic: isDynamic,
 			})
 		}
 	}

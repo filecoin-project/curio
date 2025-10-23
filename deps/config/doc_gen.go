@@ -326,7 +326,8 @@ If this limit is exceeded, the system will apply backpressure to delay processin
 			Comment: `MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
 waiting for a machine to pick up their task (owner_id is null).
 If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
-0 means unlimited. (Default: 8)`,
+0 means unlimited. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueCommP",

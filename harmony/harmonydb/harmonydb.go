@@ -21,8 +21,6 @@ import (
 	"github.com/yugabyte/pgx/v5/pgconn"
 	"github.com/yugabyte/pgx/v5/pgxpool"
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/curio/deps/config"
 )
 
 type ITestID string
@@ -43,11 +41,32 @@ type DB struct {
 
 var logger = logging.Logger("harmonydb")
 
+type Config struct {
+	// HOSTS is a list of hostnames to nodes running YugabyteDB
+	// in a cluster. Only 1 is required
+	Hosts []string
+
+	// The Yugabyte server's username with full credentials to operate on Lotus' Database. Blank for default.
+	Username string
+
+	// The password for the related username. Blank for default.
+	Password string
+
+	// The database (logical partition) within Yugabyte. Blank for default.
+	Database string
+
+	// The port to find Yugabyte. Blank for default.
+	Port string
+
+	// Load Balance the connection over multiple nodes
+	LoadBalance bool
+}
+
 // NewFromConfig is a convenience function.
 // In usage:
 //
 //	db, err := NewFromConfig(config.HarmonyDB)  // in binary init
-func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
+func NewFromConfig(cfg Config) (*DB, error) {
 	return New(
 		cfg.Hosts,
 		cfg.Username,

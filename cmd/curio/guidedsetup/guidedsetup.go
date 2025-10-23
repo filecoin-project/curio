@@ -202,7 +202,7 @@ type MigrationData struct {
 	selectTemplates *promptui.SelectTemplates
 	MinerConfigPath string
 	DB              *harmonydb.DB
-	HarmonyCfg      config.HarmonyDB
+	HarmonyCfg      harmonydb.Config
 	MinerID         address.Address
 	full            api.Chain
 	cctx            *cli.Context
