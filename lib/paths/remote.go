@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/jellydator/ttlcache/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -45,6 +46,8 @@ type Remote struct {
 	fetching map[abi.SectorID]chan struct{}
 
 	pfHandler PartialFileHandler
+
+	findSectorCache *ttlcache.Cache
 }
 
 func (r *Remote) RemoveCopies(ctx context.Context, s abi.SectorID, typ storiface.SectorFileType) error {
@@ -80,6 +83,11 @@ func (r *Remote) RemoveCopies(ctx context.Context, s abi.SectorID, typ storiface
 }
 
 func NewRemote(local Store, index SectorIndex, auth http.Header, fetchLimit int, pfHandler PartialFileHandler) *Remote {
+
+	findSectorCache := ttlcache.NewCache()
+	findSectorCache.SetTTL(10 * time.Minute)
+	findSectorCache.SetCacheSizeLimit(65_000)
+
 	return &Remote{
 		local: local,
 		index: index,
@@ -89,6 +97,8 @@ func NewRemote(local Store, index SectorIndex, auth http.Header, fetchLimit int,
 
 		fetching:  map[abi.SectorID]chan struct{}{},
 		pfHandler: pfHandler,
+
+		findSectorCache: findSectorCache,
 	}
 }
 
@@ -605,6 +615,8 @@ func (r *Remote) CheckIsUnsealed(ctx context.Context, s storiface.SectorRef, off
 func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size abi.PaddedPieceSize) (func(startOffsetAligned, endOffsetAligned storiface.PaddedByteIndex) (io.ReadCloser, error), error) {
 	ft := storiface.FTUnsealed
 
+	ctx = context.WithValue(ctx, FindSectorCacheKey, r.findSectorCache)
+
 	// check if we have the unsealed sector file locally
 	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
@@ -912,6 +924,8 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 // ReaderSeq creates a simple sequential reader for a file. Does not work for
 // file types which are a directory (e.g. FTCache).
 func (r *Remote) ReaderSeq(ctx context.Context, s storiface.SectorRef, ft storiface.SectorFileType) (io.ReadCloser, error) {
+	ctx = context.WithValue(ctx, FindSectorCacheKey, r.findSectorCache)
+	
 	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
 		return nil, xerrors.Errorf("acquire local: %w", err)

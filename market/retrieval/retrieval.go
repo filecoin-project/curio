@@ -5,15 +5,19 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	lru "github.com/hashicorp/golang-lru/arc/v2"
 	"github.com/ipfs/go-graphsync/storeutil"
+	blocks "github.com/ipfs/go-block-format"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
 	ipld "github.com/ipld/go-ipld-prime"
+	"github.com/snadrus/must"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
+	"github.com/filecoin-project/lotus/blockstore"
 )
 
 var log = logging.Logger("retrievals")
@@ -31,9 +35,13 @@ const (
 	infoPage    = "/info"
 )
 
+var RetrievalBlockCache = must.One(lru.NewARC[blockstore.MhString, blocks.Block](4096))
+
 func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *Provider {
 	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
-	lsys := storeutil.LinkSystemForBlockstore(bs)
+	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(bs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
+
+	lsys := storeutil.LinkSystemForBlockstore(cbs)
 	fr := frisbii.NewHttpIpfs(ctx, lsys)
 
 	return &Provider{
@@ -77,3 +85,33 @@ func handleInfo(rw http.ResponseWriter, r *http.Request) {
 
 	_, _ = rw.Write([]byte(infoOut))
 }
+
+
+type BlockstoreCacheWrap[T any] struct {
+	Sub interface {
+		Remove(mhString T)
+		Contains(mhString T) bool
+		Get(mhString T) (blocks.Block, bool)
+		Add(mhString T, block blocks.Block)
+	}
+}
+
+func (b *BlockstoreCacheWrap[T]) Contains(mhString T) bool {
+	return b.Sub.Contains(mhString)
+}
+
+func (b *BlockstoreCacheWrap[T]) Get(mhString T) (blocks.Block, bool) {
+	return b.Sub.Get(mhString)
+}
+
+func (b *BlockstoreCacheWrap[T]) Remove(mhString T) bool {
+	b.Sub.Remove(mhString)
+	return true
+}
+
+func (b *BlockstoreCacheWrap[T]) Add(mhString T, block blocks.Block) (evicted bool) {
+	b.Sub.Add(mhString, block)
+	return true
+}
+
+var _ blockstore.BlockstoreCache = (*BlockstoreCacheWrap[blockstore.MhString])(nil)
