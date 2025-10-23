@@ -409,7 +409,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				}
 			}
 
-			addr, err := maurl.FromURL(u)
+			addr, err := FromURLWithPort(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}

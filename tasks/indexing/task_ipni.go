@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
@@ -437,7 +440,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 				}
 			}
 
-			addr, err := maurl.FromURL(u)
+			addr, err := FromURLWithPort(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
@@ -767,3 +770,66 @@ func (I *IPNITask) GetSpid(db *harmonydb.DB, taskID int64) string {
 
 var _ = harmonytask.Reg(&IPNITask{})
 var _ harmonytask.TaskInterface = &IPNITask{}
+
+func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
+	h := u.Hostname()
+	var addr *multiaddr.Multiaddr
+	if n := net.ParseIP(h); n != nil {
+		ipAddr, err := manet.FromIP(n)
+		if err != nil {
+			return nil, err
+		}
+		addr = &ipAddr
+	} else {
+		// domain name
+		ma, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_DNS).Name, h)
+		if err != nil {
+			return nil, err
+		}
+		mab := multiaddr.Cast(ma.Bytes())
+		addr = &mab
+	}
+	pv := u.Port()
+	if pv != "" {
+		port, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, pv)
+		if err != nil {
+			return nil, err
+		}
+		wport := multiaddr.Join(*addr, port)
+		addr = &wport
+	} else {
+		// default ports for http and https
+		var port *multiaddr.Component
+		var err error
+		switch u.Scheme {
+		case "http":
+			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "80")
+			if err != nil {
+				return nil, err
+			}
+		case "https":
+			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "443")
+		}
+		if err != nil {
+			return nil, err
+		}
+		wport := multiaddr.Join(*addr, port)
+		addr = &wport
+	}
+
+	http, err := multiaddr.NewComponent(u.Scheme, "")
+	if err != nil {
+		return nil, err
+	}
+
+	joint := multiaddr.Join(*addr, http)
+	if u.Path != "" {
+		httppath, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_HTTP_PATH).Name, url.PathEscape(u.Path))
+		if err != nil {
+			return nil, err
+		}
+		joint = multiaddr.Join(joint, httppath)
+	}
+
+	return joint, nil
+}
