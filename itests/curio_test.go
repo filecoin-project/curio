@@ -95,7 +95,7 @@ func TestCurioHappyPath(t *testing.T) {
 	sectorSizeInt, err := units.RAMInBytes("2KiB")
 	require.NoError(t, err)
 
-	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
+	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0, 1.0)
 	require.NoError(t, err)
 
 	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, fapi)
