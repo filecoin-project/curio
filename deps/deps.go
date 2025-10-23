@@ -319,7 +319,10 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`, err, deps.Cfg.Apis.StorageRPCSecret)
 	}
 	if deps.Stor == nil {
-		deps.Stor = paths.NewRemote(deps.LocalStore, deps.Si, http.Header(sa), 1000, &paths.DefaultPartialFileHandler{})
+		deps.Stor, err = paths.NewRemote(deps.LocalStore, deps.Si, http.Header(sa), 1000, &paths.DefaultPartialFileHandler{})
+		if err != nil {
+			return xerrors.Errorf("creating remote store: %w", err)
+		}
 	}
 
 	if deps.Maddrs == nil {
