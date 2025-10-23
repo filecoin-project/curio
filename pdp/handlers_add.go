@@ -2,7 +2,6 @@ package pdp
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -322,16 +321,10 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	extraDataBytes := []byte{}
-	if payload.ExtraData != nil {
-		extraDataHexStr := *payload.ExtraData
-		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
-		if err != nil {
-			log.Errorf("Failed to decode hex extraData: %v", err)
-			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
-			return
-		}
-		extraDataBytes = decodedBytes
+	extraDataBytes, err := decodeExtraData(payload.ExtraData)
+	if err != nil {
+		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Step 4: Prepare piece information

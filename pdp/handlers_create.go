@@ -198,16 +198,10 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Decode extraData if provided
-	extraDataBytes := []byte{}
-	if reqBody.ExtraData != nil {
-		extraDataHexStr := *reqBody.ExtraData
-		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
-		if err != nil {
-			log.Errorf("Failed to decode hex extraData: %v", err)
-			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
-			return
-		}
-		extraDataBytes = decodedBytes
+	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
+	if err != nil {
+		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
