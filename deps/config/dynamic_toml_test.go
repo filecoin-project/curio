@@ -669,8 +669,6 @@ func TestEdgeCases(t *testing.T) {
 // TestHelperFunctions tests helper functions
 func TestHelperFunctions(t *testing.T) {
 	t.Run("isDynamicTypeForMarshal", func(t *testing.T) {
-		type TestDynamic = Dynamic[int]
-
 		// Dynamic type
 		dynType := reflect.TypeOf((*Dynamic[int])(nil)).Elem()
 		assert.True(t, isDynamicTypeForMarshal(dynType))
