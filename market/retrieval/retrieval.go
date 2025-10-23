@@ -6,6 +6,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	lru "github.com/hashicorp/golang-lru/arc/v2"
@@ -26,6 +28,9 @@ import (
 )
 
 var log = logging.Logger("retrievals")
+
+// activeRequestCounters stores atomic counters for active requests per path+method
+var activeRequestCounters sync.Map // map[string]*atomic.Int64
 
 type Provider struct {
 	db  *harmonydb.DB
@@ -81,7 +86,7 @@ func (rw *responseWriterWrapper) WriteHeader(statusCode int) {
 
 func (rw *responseWriterWrapper) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
-	
+
 	if !rw.isHead {
 		rw.bytesWritten += int64(n)
 	}
@@ -108,15 +113,64 @@ func getPathPrefix(urlPath string) string {
 	return "/"
 }
 
+// getActiveRequestCounter gets or creates an atomic counter for a specific path+method combination
+func getActiveRequestCounter(pathPrefix, method string) *atomic.Int64 {
+	key := pathPrefix + ":" + method
+
+	// Try to load existing counter
+	if counter, ok := activeRequestCounters.Load(key); ok {
+		return counter.(*atomic.Int64)
+	}
+
+	// Create new counter
+	counter := &atomic.Int64{}
+	actual, loaded := activeRequestCounters.LoadOrStore(key, counter)
+	if loaded {
+		return actual.(*atomic.Int64)
+	}
+	return counter
+}
+
+// incrementActiveRequests atomically increments the active request counter and records the metric
+func incrementActiveRequests(ctx context.Context, pathPrefix, method string) *atomic.Int64 {
+	counter := getActiveRequestCounter(pathPrefix, method)
+	newValue := counter.Add(1)
+
+	// Record the new active request count
+	_ = stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix),
+		tag.Upsert(remoteblockstore.HttpMethodKey, method),
+	}, remoteblockstore.HttpActiveRequests.M(newValue))
+
+	return counter
+}
+
+// decrementActiveRequests atomically decrements the active request counter and records the metric
+func decrementActiveRequests(ctx context.Context, counter *atomic.Int64, pathPrefix, method string) {
+	newValue := counter.Add(-1)
+
+	// Record the new active request count
+	_ = stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix),
+		tag.Upsert(remoteblockstore.HttpMethodKey, method),
+	}, remoteblockstore.HttpActiveRequests.M(newValue))
+}
+
 // metricsMiddleware records HTTP metrics for requests
 func metricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract path prefix to avoid unbounded cardinality in Prometheus
 		pathPrefix := getPathPrefix(r.URL.Path)
 
-		// Record request count
+		// Record request count and increment active requests
 		ctx, _ := tag.New(r.Context(), tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix), tag.Upsert(remoteblockstore.HttpMethodKey, r.Method))
 		stats.Record(ctx, remoteblockstore.HttpRequestCount.M(1))
+
+		// Increment active requests counter
+		counter := incrementActiveRequests(ctx, pathPrefix, r.Method)
+
+		// Ensure we decrement when done
+		defer decrementActiveRequests(ctx, counter, pathPrefix, r.Method)
 
 		// Wrap response writer to capture status and bytes
 		wrapper := &responseWriterWrapper{
