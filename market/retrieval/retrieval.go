@@ -71,6 +71,7 @@ type responseWriterWrapper struct {
 	http.ResponseWriter
 	statusCode   int
 	bytesWritten int64
+	isHead       bool
 }
 
 func (rw *responseWriterWrapper) WriteHeader(statusCode int) {
@@ -80,7 +81,11 @@ func (rw *responseWriterWrapper) WriteHeader(statusCode int) {
 
 func (rw *responseWriterWrapper) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
-	rw.bytesWritten += int64(n)
+	
+	if !rw.isHead {
+		rw.bytesWritten += int64(n)
+	}
+
 	return n, err
 }
 
@@ -110,13 +115,14 @@ func metricsMiddleware(next http.Handler) http.Handler {
 		pathPrefix := getPathPrefix(r.URL.Path)
 
 		// Record request count
-		ctx, _ := tag.New(r.Context(), tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix))
+		ctx, _ := tag.New(r.Context(), tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix), tag.Upsert(remoteblockstore.HttpMethodKey, r.Method))
 		stats.Record(ctx, remoteblockstore.HttpRequestCount.M(1))
 
 		// Wrap response writer to capture status and bytes
 		wrapper := &responseWriterWrapper{
 			ResponseWriter: w,
 			statusCode:     http.StatusOK, // default if WriteHeader is not called
+			isHead:         r.Method == http.MethodHead,
 		}
 
 		// Serve the request
@@ -127,6 +133,7 @@ func metricsMiddleware(next http.Handler) http.Handler {
 		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(remoteblockstore.HttpStatusCodeKey, statusCodeStr),
 			tag.Upsert(remoteblockstore.HttpPathKey, pathPrefix),
+			tag.Upsert(remoteblockstore.HttpMethodKey, r.Method),
 		},
 			remoteblockstore.HttpResponseStatusCount.M(1),
 			remoteblockstore.HttpResponseBytesCount.M(wrapper.bytesWritten),

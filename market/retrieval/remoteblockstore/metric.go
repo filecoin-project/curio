@@ -12,6 +12,7 @@ var (
 	// Tag keys
 	HttpStatusCodeKey, _ = tag.NewKey("status_code")
 	HttpPathKey, _       = tag.NewKey("path")
+	HttpMethodKey, _     = tag.NewKey("method")
 )
 
 // Distribution
@@ -139,12 +140,12 @@ var (
 	HttpRequestCountView = &view.View{
 		Measure:     HttpRequestCount,
 		Aggregation: view.Count(),
-		TagKeys:     []tag.Key{HttpPathKey},
+		TagKeys:     []tag.Key{HttpPathKey, HttpMethodKey},
 	}
 	HttpResponseStatusCountView = &view.View{
 		Measure:     HttpResponseStatusCount,
 		Aggregation: view.Count(),
-		TagKeys:     []tag.Key{HttpStatusCodeKey, HttpPathKey},
+		TagKeys:     []tag.Key{HttpStatusCodeKey, HttpPathKey, HttpMethodKey},
 	}
 	HttpResponseBytesCountView = &view.View{
 		Measure:     HttpResponseBytesCount,
