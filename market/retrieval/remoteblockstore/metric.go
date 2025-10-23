@@ -3,8 +3,15 @@ package remoteblockstore
 import (
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 
 	lotusmetrics "github.com/filecoin-project/lotus/metrics"
+)
+
+var (
+	// Tag keys
+	HttpStatusCodeKey, _ = tag.NewKey("status_code")
+	HttpPathKey, _       = tag.NewKey("path")
 )
 
 // Distribution
@@ -53,6 +60,13 @@ var (
 	HttpRblsHasSuccessResponseCount     = stats.Int64("http/rbls_has_success_response_count", "Counter of successful RemoteBlockstore Has responses", stats.UnitDimensionless)
 	HttpRblsHasFailResponseCount        = stats.Int64("http/rbls_has_fail_response_count", "Counter of failed RemoteBlockstore Has responses", stats.UnitDimensionless)
 	HttpRblsBytesSentCount              = stats.Int64("http/rbls_bytes_sent_count", "Counter of the number of bytes sent by bitswap since startup", stats.UnitBytes)
+	// Blockstore cache metrics
+	BlockstoreCacheHits   = stats.Int64("http/blockstore_cache_hits", "Counter of blockstore cache hits", stats.UnitDimensionless)
+	BlockstoreCacheMisses = stats.Int64("http/blockstore_cache_misses", "Counter of blockstore cache misses", stats.UnitDimensionless)
+	// HTTP request metrics
+	HttpRequestCount        = stats.Int64("http/request_count", "Counter of HTTP requests", stats.UnitDimensionless)
+	HttpResponseStatusCount = stats.Int64("http/response_status_count", "Counter of HTTP response status codes", stats.UnitDimensionless)
+	HttpResponseBytesCount  = stats.Int64("http/response_bytes_count", "Sum of HTTP response content-length", stats.UnitBytes)
 )
 
 var (
@@ -141,6 +155,29 @@ var (
 		Measure:     HttpRblsBytesSentCount,
 		Aggregation: view.Sum(),
 	}
+	BlockstoreCacheHitsView = &view.View{
+		Measure:     BlockstoreCacheHits,
+		Aggregation: view.Sum(),
+	}
+	BlockstoreCacheMissesView = &view.View{
+		Measure:     BlockstoreCacheMisses,
+		Aggregation: view.Sum(),
+	}
+	HttpRequestCountView = &view.View{
+		Measure:     HttpRequestCount,
+		Aggregation: view.Count(),
+		TagKeys:     []tag.Key{HttpPathKey},
+	}
+	HttpResponseStatusCountView = &view.View{
+		Measure:     HttpResponseStatusCount,
+		Aggregation: view.Count(),
+		TagKeys:     []tag.Key{HttpStatusCodeKey, HttpPathKey},
+	}
+	HttpResponseBytesCountView = &view.View{
+		Measure:     HttpResponseBytesCount,
+		Aggregation: view.Sum(),
+		TagKeys:     []tag.Key{HttpStatusCodeKey, HttpPathKey},
+	}
 )
 
 // RetrievalViews groups all retrieval-related default views.
@@ -166,6 +203,11 @@ func init() {
 		HttpRblsHasSuccessResponseCountView,
 		HttpRblsHasFailResponseCountView,
 		HttpRblsBytesSentCountView,
+		BlockstoreCacheHitsView,
+		BlockstoreCacheMissesView,
+		HttpRequestCountView,
+		HttpResponseStatusCountView,
+		HttpResponseBytesCountView,
 
 		lotusmetrics.DagStorePRBytesDiscardedView,
 		lotusmetrics.DagStorePRBytesRequestedView,
