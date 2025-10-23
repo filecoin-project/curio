@@ -10,11 +10,13 @@ import (
 	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
+	lru "github.com/hashicorp/golang-lru/arc/v2"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
 	ipld "github.com/ipld/go-ipld-prime"
+	"github.com/snadrus/must"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 
@@ -43,9 +45,13 @@ const (
 	infoPage    = "/info"
 )
 
+var RetrievalBlockCache = must.One(lru.NewARC[blockstore.MhString, blocks.Block](4096))
+
 func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *Provider {
 	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
-	lsys := storeutil.LinkSystemForBlockstore(bs)
+	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(bs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
+
+	lsys := storeutil.LinkSystemForBlockstore(cbs)
 	fr := frisbii.NewHttpIpfs(ctx, lsys)
 
 	return &Provider{
