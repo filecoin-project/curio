@@ -74,6 +74,9 @@ func Routes(r *chi.Mux, p *PDPService) {
 		// POST /pdp/data-sets - Create a new data set
 		r.Post("/", p.handleCreateDataSet)
 
+		// POST /pdp/data-sets/create-and-add - Create a new data set and add pieces at the same time
+		r.Post("/create-and-add", p.handleCreateDataSetAndAddPieces)
+
 		// GET /pdp/data-sets/created/{txHash} - Get the status of a data set creation
 		r.Get("/created/{txHash}", p.handleGetDataSetCreationStatus)
 
@@ -287,53 +290,6 @@ func (p *PDPService) getSenderAddress(ctx context.Context) (common.Address, erro
 	}
 	address := common.HexToAddress(addressStr)
 	return address, nil
-}
-
-// insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
-func (p *PDPService) insertMessageWaitsAndDataSetCreate(ctx context.Context, txHashHex string, serviceLabel string) error {
-	// Begin a database transaction
-	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Insert into message_waits_eth
-		log.Debugw("Inserting into message_waits_eth",
-			"txHash", txHashHex,
-			"status", "pending")
-		_, err := tx.Exec(`
-            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
-            VALUES ($1, $2)
-        `, txHashHex, "pending")
-		if err != nil {
-			log.Errorw("Failed to insert into message_waits_eth",
-				"txHash", txHashHex,
-				"error", err)
-			return false, err // Return false to rollback the transaction
-		}
-
-		// Insert into pdp_data_set_creates
-		log.Debugw("Inserting into pdp_data_set_creates",
-			"txHash", txHashHex,
-			"service", serviceLabel)
-		_, err = tx.Exec(`
-            INSERT INTO pdp_data_set_creates (create_message_hash, service)
-            VALUES ($1, $2)
-        `, txHashHex, serviceLabel)
-		if err != nil {
-			log.Errorw("Failed to insert into pdp_data_set_creates",
-				"txHash", txHashHex,
-				"error", err)
-			return false, err // Return false to rollback the transaction
-		}
-
-		log.Infow("Successfully inserted orphaned transaction for watching",
-			"txHash", txHashHex,
-			"service", serviceLabel,
-			"waiter_machine_id", "NULL")
-		// Return true to commit the transaction
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // handleGetDataSetCreationStatus handles the GET request to retrieve the status of a data set creation
