@@ -481,7 +481,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	// find first subpiece with subpiece_offset >= pieceChallengeOffset
 	challSubPiece, challSubPieceIdx, ok := lo.FindLastIndexOf(subPieces, func(subPiece subPieceMeta) bool {
-		return subPiece.SubPieceOffset < pieceChallengeOffset
+		return subPiece.SubPieceOffset <= pieceChallengeOffset
 	})
 	if !ok {
 		return contract.IPDPTypesProof{}, xerrors.New("no subpiece found")
