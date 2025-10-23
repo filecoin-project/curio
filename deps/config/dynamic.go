@@ -70,10 +70,18 @@ func (d *Dynamic[T]) Get() T {
 	return d.value
 }
 
+func (d *Dynamic[T]) GetWithoutLock() T {
+	if d == nil {
+		var zero T
+		return zero
+	}
+	return d.value
+}
+
 // Equal is used by cmp.Equal for custom comparison.
-// It rlocks dynamicLocker.
+// It doesn't lock dynamicLocker as this typically is used for an update test.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.Get(), other.Get(), BigIntComparer, cmpopts.EquateEmpty())
+	return cmp.Equal(d.GetWithoutLock(), other.GetWithoutLock(), BigIntComparer, cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
