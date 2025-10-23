@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"testing"
 	"time"
 
@@ -46,7 +48,32 @@ import (
 	"github.com/filecoin-project/lotus/node"
 )
 
+// printAllGoroutines prints all goroutine stack traces for debugging deadlocks
+func printAllGoroutines(t *testing.T, label string) {
+	t.Logf("=== %s: All Goroutines ===", label)
+
+	// Get all goroutine stack traces
+	buf := make([]byte, 1024*1024) // 1MB buffer
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, len(buf)*2)
+	}
+
+	t.Logf("Goroutine stack traces:\n%s", string(buf))
+
+	// Also print goroutine count
+	t.Logf("Total goroutines: %d", runtime.NumGoroutine())
+}
+
 func TestCurioHappyPath(t *testing.T) {
+	// Enable Go's built-in mutex profiling for deadlock detection
+	runtime.SetMutexProfileFraction(1)
+	debug.SetTraceback("all")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -248,7 +275,18 @@ func TestCurioHappyPath(t *testing.T) {
 		StartEpoch sql.NullInt64 `db:"start_epoch"`
 	}
 
+	// Set up panic recovery to print goroutines on failure
+	defer func() {
+		if r := recover(); r != nil {
+			printAllGoroutines(t, "PANIC RECOVERY")
+			panic(r) // Re-panic to maintain original behavior
+		}
+	}()
+
 	require.Eventuallyf(t, func() bool {
+		// Print goroutines periodically during the test
+		printAllGoroutines(t, "DURING TEST")
+
 		h, err := full.ChainHead(ctx)
 		require.NoError(t, err)
 		t.Logf("head: %d", h.Height())

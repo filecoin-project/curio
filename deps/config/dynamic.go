@@ -242,8 +242,8 @@ func (c *changeNotifier) Lock() {
 	c.updating = true
 }
 func (c *changeNotifier) Unlock() {
-	c.cdmx.Lock()
 	c.RWMutex.Unlock()
+	c.cdmx.Lock()
 	defer c.cdmx.Unlock()
 
 	c.updating = false
