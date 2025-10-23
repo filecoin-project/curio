@@ -15,7 +15,7 @@ import (
 	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
-	ipld "github.com/ipld/go-ipld-prime"
+	"github.com/ipld/go-ipld-prime"
 	"github.com/snadrus/must"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
