@@ -68,6 +68,7 @@ var (
 	HttpRequestCount        = stats.Int64("http/request_count", "Counter of HTTP requests", stats.UnitDimensionless)
 	HttpResponseStatusCount = stats.Int64("http/response_status_count", "Counter of HTTP response status codes", stats.UnitDimensionless)
 	HttpResponseBytesCount  = stats.Int64("http/response_bytes_count", "Sum of HTTP response content-length", stats.UnitBytes)
+	HttpActiveRequests      = stats.Int64("http/active_requests", "Number of active/in-flight HTTP requests", stats.UnitDimensionless)
 )
 
 var (
@@ -179,6 +180,11 @@ var (
 		Aggregation: view.Sum(),
 		TagKeys:     []tag.Key{HttpStatusCodeKey, HttpPathKey},
 	}
+	HttpActiveRequestsView = &view.View{
+		Measure:     HttpActiveRequests,
+		Aggregation: view.LastValue(),
+		TagKeys:     []tag.Key{HttpPathKey, HttpMethodKey},
+	}
 )
 
 // RetrievalViews groups all retrieval-related default views.
@@ -209,6 +215,7 @@ func init() {
 		HttpRequestCountView,
 		HttpResponseStatusCountView,
 		HttpResponseBytesCountView,
+		HttpActiveRequestsView,
 
 		lotusmetrics.DagStorePRBytesDiscardedView,
 		lotusmetrics.DagStorePRBytesRequestedView,
