@@ -330,7 +330,8 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Step 4: Prepare piece information
 	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
-		http.Error(w, "Failed to transform add pieces request: "+err.Error(), http.StatusBadRequest)
+		log.Warnf("Failed to process AddPieces request data: %+v", err)
+		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
 	}
 
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
