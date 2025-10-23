@@ -11,10 +11,10 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-// NewProofSetWatch runes processing steps for proofset creation and piece addtion
+// NewDatasetSetWatch runes processing steps for data set creation and piece addtion
 // These two are run in sequence to allow for combined create-and-add flow to first
-// create the proofset, then add the pieces to it.
-func NewProofSetWatch(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
+// create the data set, then add the pieces to it.
+func NewDataSetWatch(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {
