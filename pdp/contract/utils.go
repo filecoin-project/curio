@@ -160,6 +160,7 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 		log.Debugw("Failed to create a meta data service from listener, returning metadata not found", "error", err)
 		return false, "", nil
 	}
+
 	out, err := mDataService.GetDataSetMetadata(nil, dataSetId, key)
 	if err != nil {
 		return false, "", err
