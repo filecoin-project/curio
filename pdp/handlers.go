@@ -913,6 +913,8 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 
 	// Schedule deletion of the piece from the data set using a transaction
 	txHashLower := strings.ToLower(txHash.Hex())
+	log.Infow("PDP DeletePiece: Creating transaction tracking record", "txHash", txHashLower)
+
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		_, err := tx.Exec(`
@@ -920,12 +922,16 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			VALUES ($1, $2)
 		`, txHashLower, "pending")
 		if err != nil {
+			log.Errorw("Failed to insert into message_waits_eth",
+				"txHash", txHashLower,
+				"error", err)
 			return false, err
 		}
 
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
+		log.Errorf("Failed to insert database tracking record: %+v", err)
 		http.Error(w, "Failed to schedule delete piece: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

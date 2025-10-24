@@ -123,7 +123,6 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 		return true, err
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		log.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -262,9 +261,8 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 		return true, nil
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
-		log.Errorf("Failed to insert into message_waits_eth and pdp_data_set_creates: %+v", err)
+		log.Errorf("Failed to insert database tracking records: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -288,7 +286,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		log.Errorw("Failed to insert into message_waits_eth",
 			"txHash", txHashHex,
 			"error", err)
-		return err // Return false to rollback the transaction
+		return err
 	}
 
 	// Insert into pdp_data_set_creates
@@ -303,13 +301,11 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		log.Errorw("Failed to insert into pdp_data_set_creates",
 			"txHash", txHashHex,
 			"error", err)
-		return err // Return false to rollback the transaction
+		return err
 	}
 
-	log.Infow("Successfully inserted orphaned transaction for watching",
+	log.Infow("Successfully inserted transaction tracking records",
 		"txHash", txHashHex,
-		"service", serviceLabel,
-		"waiter_machine_id", "NULL")
-	// Return true to commit the transaction
+		"service", serviceLabel)
 	return nil
 }
