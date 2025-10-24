@@ -232,7 +232,6 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		&result.RetrievedAt,
 		&result.Status,
 	)
-
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Piece not found or does not belong to service", http.StatusNotFound)
@@ -768,34 +767,28 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 	// Step 6: If transaction is confirmed and successful, get assigned piece IDs
 	var confirmedPieceIds []uint64
 	if txStatus == "confirmed" && len(pieceAdds) > 0 && pieceAdds[0].AddMessageOK != nil && *pieceAdds[0].AddMessageOK {
-		// Query pdp_data_set_pieces for confirmed pieces with their IDs
-		pieceCids := make([]string, 0, len(uniquePieceMap))
-		for piece := range uniquePieceMap {
-			pieceCids = append(pieceCids, piece)
-		}
-
-		type ConfirmedPiece struct {
-			PieceID uint64 `db:"piece_id"`
-			Piece   string `db:"piece"`
-		}
-
-		var confirmedPieces []ConfirmedPiece
-		err = p.db.Select(ctx, &confirmedPieces, `
-			SELECT DISTINCT piece_id, piece
+		// Query pdp_data_set_pieces directly using the transaction hash
+		// This gives us the exact pieces added in THIS transaction even if there are duplicate pieces
+		err = p.db.Select(ctx, &confirmedPieceIds, `
+			SELECT DISTINCT piece_id
 			FROM pdp_data_set_pieces
-			WHERE data_set = $1 AND piece = ANY($2)
+			WHERE data_set = $1
+			  AND add_message_hash = $2
 			ORDER BY piece_id
-		`, dataSetId, pieceCids)
+		`, dataSetId, txHash)
 		if err != nil {
-			log.Warnf("Failed to query confirmed pieces: %v", err)
-			// Don't fail the request, just log the warning
-		} else {
-			// Extract just the piece IDs
-			for _, cr := range confirmedPieces {
-				confirmedPieceIds = append(confirmedPieceIds, cr.PieceID)
-			}
+			log.Errorf("Failed to query confirmed pieces: %v", err)
+			http.Error(w, "Failed to query confirmed pieces: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
+
+	if confirmedPieceIds != nil && len(confirmedPieceIds) != len(pieceAdds) {
+		msg := fmt.Sprintf("Mismatch in confirmed piece IDs count (%d) vs number of pieces added (%d) for tx %s", len(confirmedPieceIds), len(pieceAdds), txHash)
+		log.Error(msg)
+		http.Error(w, msg, http.StatusInternalServerError)
+		return
+	} // else confirmedPieceIds is nil because they haven't landed yet, or we got the right number of confirmed pieces
 
 	// Step 7: Build and send response
 	// Check that all pieces have the same PiecesAdded value (consistency check)
@@ -1139,7 +1132,6 @@ func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
 
 func (p *PDPService) cleanup(ctx context.Context) {
 	rm := func(ctx context.Context, db *harmonydb.DB) {
-
 		var RefIDs []int64
 
 		err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(piece_ref), '{}') AS ref_ids
