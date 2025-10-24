@@ -122,14 +122,14 @@ func (mw *MessageWatcherEth) update() {
 		return
 	}
 
-	log.Infow("Processing pending transactions", "count", len(txHashes), "machineID", machineID)
+	log.Debugw("Processing pending transactions", "count", len(txHashes), "machineID", machineID)
 
 	// Track statistics
-	var processed, stillPending, waitingConfirmations, confirmed, errorCount int
+	var stillPending, waitingConfirmations, confirmed, errorCount int
 
+	allProcessStart := time.Now()
 	// Check if any of the transactions we have assigned are now confirmed
 	for _, txHashStr := range txHashes {
-		processed++
 		processStart := time.Now()
 
 		txHash := common.HexToHash(txHashStr)
@@ -257,13 +257,15 @@ func (mw *MessageWatcherEth) update() {
 		}
 	}
 
-	log.Infow("MessageWatcherEth update completed",
-		"processed", processed,
-		"confirmed", confirmed,
-		"stillPending", stillPending,
-		"waitingConfirmations", waitingConfirmations,
-		"errors", errorCount,
-		"total", len(txHashes))
+	if len(txHashes) > 0 {
+		log.Infow("MessageWatcherEth update completed",
+			"confirmed", confirmed,
+			"stillPending", stillPending,
+			"waitingConfirmations", waitingConfirmations,
+			"errors", errorCount,
+			"total", len(txHashes),
+			"duration", time.Since(allProcessStart).Seconds())
+	}
 }
 
 func (mw *MessageWatcherEth) Stop(ctx context.Context) error {
