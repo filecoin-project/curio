@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -18,11 +18,14 @@ import (
 
 var logger = logging.Logger("config-dynamic")
 
-// bigIntComparer is used to compare big.Int values properly
-var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
+// BigIntComparer is used to compare big.Int values properly
+var BigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
 	return x.Cmp(&y) == 0
 })
 
+// Dynamic is a wrapper for configuration values that can change at runtime.
+// Use Get() and Set() methods to access the value with proper synchronization
+// and change detection.
 type Dynamic[T any] struct {
 	value T
 }
@@ -61,23 +64,13 @@ func (d *Dynamic[T]) Get() T {
 	return d.value
 }
 
-// UnmarshalText unmarshals the text into the dynamic value.
-// After initial setting, future updates require a lock on the DynamicMx mutex before calling toml.Decode.
-func (d *Dynamic[T]) UnmarshalText(text []byte) error {
-	return toml.Unmarshal(text, &d.value)
-}
-
-// MarshalTOML marshals the dynamic value to TOML format.
-// If used from deps, requires a lock.
-func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
-	return toml.Marshal(d.value)
-}
-
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, bigIntComparer)
+	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
 }
+
+// MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
 
 type cfgRoot[T any] struct {
 	db       *harmonydb.DB
@@ -241,7 +234,7 @@ func (c *changeNotifier) Unlock() {
 
 	c.updating = false
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], bigIntComparer) {
+		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
