@@ -270,7 +270,6 @@ retryRecordCompletion:
 		var postedTime time.Time
 		var retries uint
 		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)
-
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
@@ -323,17 +322,14 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 
 		return true, nil
 	})
-	if err != nil {
-		if harmonydb.IsErrSerialization(err) {
-			time.Sleep(retryWait)
-			retryWait *= 2
-			goto retryRecordCompletion
+	// This MUST complete or keep getting retried until it does. If restarted, it will be cleaned-up, so no need for alt persistence.
+	if err != nil || !cm {
+		time.Sleep(retryWait)
+		retryWait *= 2
+		if retryWait > time.Second*10 {
+			log.Error("Could not record completion (retrying): ", err)
 		}
-		log.Error("Could not record transaction: ", err)
-		return
-	}
-	if !cm {
-		log.Error("Committing the task records failed")
+		goto retryRecordCompletion
 	}
 }
 
