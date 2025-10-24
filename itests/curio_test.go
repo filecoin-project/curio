@@ -284,9 +284,6 @@ func TestCurioHappyPath(t *testing.T) {
 	}()
 
 	require.Eventuallyf(t, func() bool {
-		// Print goroutines periodically during the test
-		printAllGoroutines(t, "DURING TEST")
-
 		h, err := full.ChainHead(ctx)
 		require.NoError(t, err)
 		t.Logf("head: %d", h.Height())
