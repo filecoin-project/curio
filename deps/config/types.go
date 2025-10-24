@@ -21,31 +21,31 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.02"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.02")),
 			},
 			MaxCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"), // enough for 6 agg and 1nFIL base fee
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")), // enough for 6 agg and 1nFIL base fee
 			},
 			MaxUpdateBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")),
 			},
 
-			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
-			CollateralFromMinerBalance: false,
-			DisableCollateralFallback:  false,
-			MaximizeFeeCap:             true,
+			MaxWindowPoStGasFee:        NewDynamic(types.MustParseFIL("5")),
+			CollateralFromMinerBalance: NewDynamic(false),
+			DisableCollateralFallback:  NewDynamic(false),
+			MaximizeFeeCap:             NewDynamic(true),
 		},
-		Addresses: []CurioAddresses{{
+		Addresses: NewDynamic([]CurioAddresses{{
 			PreCommitControl:   []string{},
 			CommitControl:      []string{},
 			DealPublishControl: []string{},
 			TerminateControl:   []string{},
 			MinerAddresses:     []string{},
 			BalanceManager:     DefaultBalanceManager(),
-		}},
+		}}),
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
 			PartitionCheckTimeout: 20 * time.Minute,
@@ -56,50 +56,51 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealBatchSize:  32,
 			BatchSealSectorSize: "32GiB",
 		},
+		Apis: ApisConfig{
+			ChainApiInfo: NewDynamic([]string{}),
+		},
 		Ingest: CurioIngestConfig{
-			MaxMarketRunningPipelines: 64,
+			MaxMarketRunningPipelines: NewDynamic(64),
 			MaxQueueDownload:          NewDynamic(8),
-			MaxQueueCommP:             8,
+			MaxQueueCommP:             NewDynamic(8),
 
-			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
-			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
-			MaxQueueTrees:      0, // default don't use this limit
-			MaxQueuePoRep:      0, // default don't use this limit
+			MaxQueueDealSector: NewDynamic(8), // default to 8 sectors open(or in process of opening) for deals
+			MaxQueueSDR:        NewDynamic(8), // default to 8 (will cause backpressure even if deal sectors are 0)
+			MaxQueueTrees:      NewDynamic(0), // default don't use this limit
+			MaxQueuePoRep:      NewDynamic(0), // default don't use this limit
 
-			MaxQueueSnapEncode: 16,
-			MaxQueueSnapProve:  0,
+			MaxQueueSnapEncode: NewDynamic(16),
+			MaxQueueSnapProve:  NewDynamic(0),
 
-			MaxDealWaitTime: time.Hour,
+			MaxDealWaitTime: NewDynamic(time.Hour),
 		},
 		Alerting: CurioAlertingConfig{
-			MinimumWalletBalance: types.MustParseFIL("5"),
+			MinimumWalletBalance: NewDynamic(types.MustParseFIL("5")),
 			PagerDuty: PagerDutyConfig{
-				PagerDutyEventURL: "https://events.pagerduty.com/v2/enqueue",
+				PagerDutyEventURL: NewDynamic("https://events.pagerduty.com/v2/enqueue"),
 			},
 			PrometheusAlertManager: PrometheusAlertManagerConfig{
-				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
+				AlertManagerURL: NewDynamic("http://localhost:9093/api/v2/alerts"),
 			},
 		},
 		Batching: CurioBatchingConfig{
 			PreCommit: PreCommitBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          4 * time.Hour,
-				Slack:            6 * time.Hour,
+				Timeout: NewDynamic(4 * time.Hour),
+				Slack:   NewDynamic(6 * time.Hour),
 			},
 			Commit: CommitBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          time.Hour,
-				Slack:            time.Hour,
+				Timeout: NewDynamic(time.Hour),
+				Slack:   NewDynamic(time.Hour),
 			},
 			Update: UpdateBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          time.Hour,
-				Slack:            time.Hour,
+				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
+				Timeout:          NewDynamic(time.Hour),
+				Slack:            NewDynamic(time.Hour),
 			},
 		},
 		Market: MarketConfig{
 			StorageMarketConfig: StorageMarketConfig{
-				PieceLocator: []PieceLocatorConfig{},
+				PieceLocator: NewDynamic([]PieceLocatorConfig{}),
 				Indexing: IndexingConfig{
 					InsertConcurrency: 10,
 					InsertBatchSize:   1000,
@@ -162,7 +163,7 @@ type CurioConfig struct {
 	Fees CurioFees
 
 	// Addresses specifies the list of miner addresses and their related wallet addresses.
-	Addresses []CurioAddresses
+	Addresses *Dynamic[[]CurioAddresses]
 
 	// Proving defines the configuration settings related to proving functionality within the Curio node.
 	Proving CurioProvingConfig
@@ -191,14 +192,14 @@ type CurioConfig struct {
 
 type BatchFeeConfig struct {
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
-	Base types.FIL
+	Base *Dynamic[types.FIL]
 
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
-	PerSector types.FIL
+	PerSector *Dynamic[types.FIL]
 }
 
 func (b *BatchFeeConfig) FeeForSectors(nSectors int) abi.TokenAmount {
-	return big.Add(big.Int(b.Base), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector)))
+	return big.Add(big.Int(b.Base.Get()), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector.Get())))
 }
 
 type CurioSubsystemsConfig struct {
@@ -440,18 +441,18 @@ type CurioFees struct {
 
 	// WindowPoSt is a high-value operation, so the default fee should be high.
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
-	MaxWindowPoStGasFee types.FIL
+	MaxWindowPoStGasFee *Dynamic[types.FIL]
 
 	// Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
-	CollateralFromMinerBalance bool
+	CollateralFromMinerBalance *Dynamic[bool]
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
-	DisableCollateralFallback bool
+	DisableCollateralFallback *Dynamic[bool]
 
 	// MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
 	// This generally doesn't increase message cost, but in highly congested network messages
 	// are much less likely to get stuck in mempool. (Default: true)
-	MaximizeFeeCap bool
+	MaximizeFeeCap *Dynamic[bool]
 }
 
 type CurioAddresses struct {
@@ -520,7 +521,7 @@ type CurioIngestConfig struct {
 	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
 	// If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
 	// 0 means unlimited. (Default: 64)
-	MaxMarketRunningPipelines int
+	MaxMarketRunningPipelines *Dynamic[int]
 
 	// MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
 	// waiting for a machine to pick up their task (owner_id is null).
@@ -532,14 +533,15 @@ type CurioIngestConfig struct {
 	// waiting for a machine to pick up their verification task (owner_id is null).
 	// If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
 	// 0 means unlimited. (Default: 8)
-	MaxQueueCommP int
+	MaxQueueCommP *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for deals to start processing.
 	// 0 = unlimited
 	// Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 	// The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
 	// DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
-	MaxQueueDealSector int
+	// Updates will affect running instances.
+	MaxQueueDealSector *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for SDR to start processing.
 	// 0 = unlimited
@@ -548,7 +550,8 @@ type CurioIngestConfig struct {
 	// possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 	// entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
-	MaxQueueSDR int
+	// Updates will affect running instances.
+	MaxQueueSDR *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for SDRTrees to start processing.
 	// 0 = unlimited
@@ -556,7 +559,8 @@ type CurioIngestConfig struct {
 	// In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 	// applied to sectors entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-	MaxQueueTrees int
+	// Updates will affect running instances.
+	MaxQueueTrees *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for PoRep to start processing.
 	// 0 = unlimited
@@ -564,23 +568,27 @@ type CurioIngestConfig struct {
 	// Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 	// applied to sectors entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-	MaxQueuePoRep int
+	// Updates will affect running instances.
+	MaxQueuePoRep *Dynamic[int]
 
 	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 	// 0 means unlimited.
 	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 	// Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
-	MaxQueueSnapEncode int
+	// Updates will affect running instances.
+	MaxQueueSnapEncode *Dynamic[int]
 
 	// MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 	// 0 means unlimited.
 	// This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
-	MaxQueueSnapProve int
+	// Updates will affect running instances.
+	MaxQueueSnapProve *Dynamic[int]
 
 	// Maximum time an open deal sector should wait for more deals before it starts sealing.
 	// This ensures that sectors don't remain open indefinitely, consuming resources.
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	MaxDealWaitTime time.Duration
+	// Updates will affect running instances.
+	MaxDealWaitTime *Dynamic[time.Duration]
 
 	// DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
 	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
@@ -592,7 +600,7 @@ type CurioAlertingConfig struct {
 	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 	// alerts will be triggered for the wallet
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
-	MinimumWalletBalance types.FIL
+	MinimumWalletBalance *Dynamic[types.FIL]
 
 	// PagerDutyConfig is the configuration for the PagerDuty alerting integration.
 	PagerDuty PagerDutyConfig
@@ -635,38 +643,38 @@ type CurioSealConfig struct {
 
 type PagerDutyConfig struct {
 	// Enable is a flag to enable or disable the PagerDuty integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 	// routed to a PagerDuty.com service and processed.
 	// The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
-	PagerDutyEventURL string
+	PagerDutyEventURL *Dynamic[string]
 
 	// PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 	// identifier in the integration page for the service.
-	PageDutyIntegrationKey string
+	PageDutyIntegrationKey *Dynamic[string]
 }
 
 type PrometheusAlertManagerConfig struct {
 	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
-	AlertManagerURL string
+	AlertManagerURL *Dynamic[string]
 }
 
 type SlackWebhookConfig struct {
 	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// WebHookURL is the URL for the URL for slack Webhook.
 	// Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
-	WebHookURL string
+	WebHookURL *Dynamic[string]
 }
 
 type ApisConfig struct {
 	// ChainApiInfo is the API endpoint for the Lotus daemon.
-	ChainApiInfo []string
+	ChainApiInfo *Dynamic[[]string]
 
 	// API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
 	StorageRPCSecret string
@@ -684,45 +692,37 @@ type CurioBatchingConfig struct {
 }
 
 type PreCommitBatchingConfig struct {
-	// Base fee value below which we should try to send Precommit messages immediately
-	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
-
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type CommitBatchingConfig struct {
-	// Base fee value below which we should try to send Commit messages immediately
-	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
-
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type UpdateBatchingConfig struct {
 	// Base fee value below which we should try to send Commit messages immediately
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
+	BaseFeeThreshold *Dynamic[types.FIL]
 
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type MarketConfig struct {
@@ -748,7 +748,7 @@ type StorageMarketConfig struct {
 	// The server must support "HEAD" request and "GET" request.
 	// 	1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 	//  2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
-	PieceLocator []PieceLocatorConfig
+	PieceLocator *Dynamic[[]PieceLocatorConfig]
 }
 
 type MK12Config struct {

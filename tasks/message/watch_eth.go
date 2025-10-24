@@ -12,8 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -54,7 +54,7 @@ type MessageWatcherEth struct {
 	ethCallTimeout time.Duration
 }
 
-func NewMessageWatcherEth(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chainsched.CurioChainSched, api *ethclient.Client) (*MessageWatcherEth, error) {
+func NewMessageWatcherEth(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chainsched.CurioChainSched, api api.EthClientInterface) (*MessageWatcherEth, error) {
 	mw := &MessageWatcherEth{
 		txMgr:          NewHarmonyEthTxManager(db),
 		ht:             ht,

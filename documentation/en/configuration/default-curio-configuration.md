@@ -328,16 +328,19 @@ description: The default curio configuration
 
   # WindowPoSt is a high-value operation, so the default fee should be high.
   # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
+  # Updates will affect running instances.
   #
   # type: types.FIL
   #MaxWindowPoStGasFee = "5 FIL"
 
   # Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
+  # Updates will affect running instances.
   #
   # type: bool
   #CollateralFromMinerBalance = false
 
   # Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
+  # Updates will affect running instances.
   #
   # type: bool
   #DisableCollateralFallback = false
@@ -345,6 +348,7 @@ description: The default curio configuration
   # MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
   # This generally doesn't increase message cost, but in highly congested network messages
   # are much less likely to get stuck in mempool. (Default: true)
+  # Updates will affect running instances.
   #
   # type: bool
   #MaximizeFeeCap = true
@@ -356,11 +360,13 @@ description: The default curio configuration
   [Fees.MaxPreCommitBatchGasFee]
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #Base = "0 FIL"
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #PerSector = "0.02 FIL"
@@ -372,11 +378,13 @@ description: The default curio configuration
   [Fees.MaxCommitBatchGasFee]
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #Base = "0 FIL"
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #PerSector = "0.03 FIL"
@@ -388,17 +396,20 @@ description: The default curio configuration
   [Fees.MaxUpdateBatchGasFee]
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #Base = "0 FIL"
 
     # Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #PerSector = "0.03 FIL"
 
 
 # Addresses specifies the list of miner addresses and their related wallet addresses.
+# Updates will affect running instances.
 #
 # type: []CurioAddresses
 [[Addresses]]
@@ -616,6 +627,7 @@ description: The default curio configuration
     # The server must support "HEAD" request and "GET" request.
     # 1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
     # 2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
+    # Updates will affect running instances.
     #
     # type: []PieceLocatorConfig
     #PieceLocator = []
@@ -802,6 +814,7 @@ description: The default curio configuration
   # A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
   # If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
   # 0 means unlimited. (Default: 64)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxMarketRunningPipelines = 64
@@ -819,6 +832,7 @@ description: The default curio configuration
   # waiting for a machine to pick up their verification task (owner_id is null).
   # If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
   # 0 means unlimited. (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueCommP = 8
@@ -828,6 +842,7 @@ description: The default curio configuration
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
   # The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
   # DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueDealSector = 8
@@ -839,6 +854,7 @@ description: The default curio configuration
   # possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
   # entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSDR = 8
@@ -849,6 +865,7 @@ description: The default curio configuration
   # In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueTrees = 0
@@ -859,6 +876,7 @@ description: The default curio configuration
   # Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueuePoRep = 0
@@ -867,6 +885,7 @@ description: The default curio configuration
   # 0 means unlimited.
   # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
   # Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSnapEncode = 16
@@ -874,6 +893,7 @@ description: The default curio configuration
   # MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
   # 0 means unlimited.
   # This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSnapProve = 0
@@ -881,6 +901,7 @@ description: The default curio configuration
   # Maximum time an open deal sector should wait for more deals before it starts sealing.
   # This ensures that sectors don't remain open indefinitely, consuming resources.
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+  # Updates will affect running instances.
   #
   # type: time.Duration
   #MaxDealWaitTime = "1h0m0s"
@@ -926,6 +947,12 @@ description: The default curio configuration
 # type: ApisConfig
 [Apis]
 
+  # ChainApiInfo is the API endpoint for the Lotus daemon.
+  # Updates will affect running instances.
+  #
+  # type: []string
+  #ChainApiInfo = []
+
   # API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
   #
   # type: string
@@ -940,6 +967,7 @@ description: The default curio configuration
   # MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
   # alerts will be triggered for the wallet
   # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+  # Updates will affect running instances.
   #
   # type: types.FIL
   #MinimumWalletBalance = "5 FIL"
@@ -950,6 +978,7 @@ description: The default curio configuration
   [Alerting.PagerDuty]
 
     # Enable is a flag to enable or disable the PagerDuty integration.
+    # Updates will affect running instances.
     #
     # type: bool
     #Enable = false
@@ -957,12 +986,14 @@ description: The default curio configuration
     # PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
     # routed to a PagerDuty.com service and processed.
     # The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
+    # Updates will affect running instances.
     #
     # type: string
     #PagerDutyEventURL = "https://events.pagerduty.com/v2/enqueue"
 
     # PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
     # identifier in the integration page for the service.
+    # Updates will affect running instances.
     #
     # type: string
     #PageDutyIntegrationKey = ""
@@ -973,11 +1004,13 @@ description: The default curio configuration
   [Alerting.PrometheusAlertManager]
 
     # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    # Updates will affect running instances.
     #
     # type: bool
     #Enable = false
 
     # AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+    # Updates will affect running instances.
     #
     # type: string
     #AlertManagerURL = "http://localhost:9093/api/v2/alerts"
@@ -988,12 +1021,14 @@ description: The default curio configuration
   [Alerting.SlackWebhook]
 
     # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    # Updates will affect running instances.
     #
     # type: bool
     #Enable = false
 
     # WebHookURL is the URL for the URL for slack Webhook.
     # Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+    # Updates will affect running instances.
     #
     # type: string
     #WebHookURL = ""
@@ -1009,20 +1044,16 @@ description: The default curio configuration
   # type: PreCommitBatchingConfig
   [Batching.PreCommit]
 
-    # Base fee value below which we should try to send Precommit messages immediately
-    # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-    #
-    # type: types.FIL
-    #BaseFeeThreshold = "0.005 FIL"
-
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Timeout = "4h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deal in batch would start expiring
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Slack = "6h0m0s"
@@ -1032,20 +1063,16 @@ description: The default curio configuration
   # type: CommitBatchingConfig
   [Batching.Commit]
 
-    # Base fee value below which we should try to send Commit messages immediately
-    # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-    #
-    # type: types.FIL
-    #BaseFeeThreshold = "0.005 FIL"
-
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Timeout = "1h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Slack = "1h0m0s"
@@ -1057,18 +1084,21 @@ description: The default curio configuration
 
     # Base fee value below which we should try to send Commit messages immediately
     # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+    # Updates will affect running instances.
     #
     # type: types.FIL
     #BaseFeeThreshold = "0.005 FIL"
 
     # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Timeout = "1h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
     # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+    # Updates will affect running instances.
     #
     # type: time.Duration
     #Slack = "1h0m0s"

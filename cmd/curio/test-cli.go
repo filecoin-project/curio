@@ -105,7 +105,7 @@ var wdPostTaskCmd = &cli.Command{
 		}
 
 		var taskIDs []int64
-		for addr := range deps.Maddrs {
+		for addr := range deps.Maddrs.Get() {
 			maddr, err := address.IDFromAddress(address.Address(addr))
 			if err != nil {
 				return xerrors.Errorf("cannot get miner id %w", err)
@@ -257,7 +257,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		}
 		_, _ = wdPoStSubmitTask, derlareRecoverTask
 
-		if len(deps.Maddrs) == 0 {
+		if len(deps.Maddrs.Get()) == 0 {
 			return errors.New("no miners to compute WindowPoSt for")
 		}
 		head, err := deps.Chain.ChainHead(ctx)
@@ -267,7 +267,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 
 		di := dline.NewInfo(head.Height(), cctx.Uint64("deadline"), 0, 0, 0, 10 /*challenge window*/, 0, 0)
 
-		for maddr := range deps.Maddrs {
+		for maddr := range deps.Maddrs.Get() {
 			if spAddr != address.Undef && address.Address(maddr) != spAddr {
 				continue
 			}
@@ -337,7 +337,7 @@ var wdPostVanillaCmd = &cli.Command{
 		}
 		_, _ = wdPoStSubmitTask, derlareRecoverTask
 
-		if len(deps.Maddrs) == 0 {
+		if len(deps.Maddrs.Get()) == 0 {
 			return errors.New("no miners to compute WindowPoSt for")
 		}
 		head, err := deps.Chain.ChainHead(ctx)
@@ -347,7 +347,7 @@ var wdPostVanillaCmd = &cli.Command{
 
 		di := dline.NewInfo(head.Height(), cctx.Uint64("deadline"), 0, 0, 0, 10 /*challenge window*/, 0, 0)
 
-		for maddr := range deps.Maddrs {
+		for maddr := range deps.Maddrs.Get() {
 			if spAddr != address.Undef && address.Address(maddr) != spAddr {
 				continue
 			}
