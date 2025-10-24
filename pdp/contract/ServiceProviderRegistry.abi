@@ -124,19 +124,14 @@
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
       },
       {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
         "name": "capabilityKeys",
         "type": "string[]",
         "internalType": "string[]"
       },
       {
         "name": "capabilityValues",
-        "type": "string[]",
-        "internalType": "string[]"
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
     "outputs": [],
@@ -206,113 +201,6 @@
   },
   {
     "type": "function",
-    "name": "getActiveProvidersByProductType",
-    "inputs": [
-      {
-        "name": "productType",
-        "type": "uint8",
-        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
-      },
-      {
-        "name": "offset",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "limit",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "result",
-        "type": "tuple",
-        "internalType": "struct ServiceProviderRegistryStorage.PaginatedProviders",
-        "components": [
-          {
-            "name": "providers",
-            "type": "tuple[]",
-            "internalType": "struct ServiceProviderRegistryStorage.ProviderWithProduct[]",
-            "components": [
-              {
-                "name": "providerId",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "providerInfo",
-                "type": "tuple",
-                "internalType": "struct ServiceProviderRegistryStorage.ServiceProviderInfo",
-                "components": [
-                  {
-                    "name": "serviceProvider",
-                    "type": "address",
-                    "internalType": "address"
-                  },
-                  {
-                    "name": "payee",
-                    "type": "address",
-                    "internalType": "address"
-                  },
-                  {
-                    "name": "name",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "description",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "isActive",
-                    "type": "bool",
-                    "internalType": "bool"
-                  }
-                ]
-              },
-              {
-                "name": "product",
-                "type": "tuple",
-                "internalType": "struct ServiceProviderRegistryStorage.ServiceProduct",
-                "components": [
-                  {
-                    "name": "productType",
-                    "type": "uint8",
-                    "internalType": "enum ServiceProviderRegistryStorage.ProductType"
-                  },
-                  {
-                    "name": "productData",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "capabilityKeys",
-                    "type": "string[]",
-                    "internalType": "string[]"
-                  },
-                  {
-                    "name": "isActive",
-                    "type": "bool",
-                    "internalType": "bool"
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "name": "hasMore",
-            "type": "bool",
-            "internalType": "bool"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "getAllActiveProviders",
     "inputs": [
       {
@@ -342,96 +230,7 @@
   },
   {
     "type": "function",
-    "name": "getNextProviderId",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getPDPService",
-    "inputs": [
-      {
-        "name": "providerId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "pdpOffering",
-        "type": "tuple",
-        "internalType": "struct ServiceProviderRegistryStorage.PDPOffering",
-        "components": [
-          {
-            "name": "serviceURL",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "minPieceSizeInBytes",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "maxPieceSizeInBytes",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "ipniPiece",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "ipniIpfs",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "storagePricePerTibPerMonth",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "minProvingPeriodInEpochs",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "location",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "paymentTokenAddress",
-            "type": "address",
-            "internalType": "contract IERC20"
-          }
-        ]
-      },
-      {
-        "name": "capabilityKeys",
-        "type": "string[]",
-        "internalType": "string[]"
-      },
-      {
-        "name": "isActive",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getProduct",
+    "name": "getAllProductCapabilities",
     "inputs": [
       {
         "name": "providerId",
@@ -446,19 +245,32 @@
     ],
     "outputs": [
       {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
+        "name": "isActive",
+        "type": "bool",
+        "internalType": "bool"
       },
       {
-        "name": "capabilityKeys",
+        "name": "keys",
         "type": "string[]",
         "internalType": "string[]"
       },
       {
-        "name": "isActive",
-        "type": "bool",
-        "internalType": "bool"
+        "name": "values",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getNextProviderId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -485,48 +297,9 @@
     ],
     "outputs": [
       {
-        "name": "exists",
-        "type": "bool[]",
-        "internalType": "bool[]"
-      },
-      {
         "name": "values",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getProductCapability",
-    "inputs": [
-      {
-        "name": "providerId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "productType",
-        "type": "uint8",
-        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
-      },
-      {
-        "name": "key",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "exists",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "value",
-        "type": "string",
-        "internalType": "string"
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
     "stateMutability": "view"
@@ -700,6 +473,96 @@
   },
   {
     "type": "function",
+    "name": "getProviderWithProduct",
+    "inputs": [
+      {
+        "name": "providerId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ServiceProviderRegistryStorage.ProviderWithProduct",
+        "components": [
+          {
+            "name": "providerId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "providerInfo",
+            "type": "tuple",
+            "internalType": "struct ServiceProviderRegistryStorage.ServiceProviderInfo",
+            "components": [
+              {
+                "name": "serviceProvider",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "payee",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "description",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "isActive",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          },
+          {
+            "name": "product",
+            "type": "tuple",
+            "internalType": "struct ServiceProviderRegistryStorage.ServiceProduct",
+            "components": [
+              {
+                "name": "productType",
+                "type": "uint8",
+                "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+              },
+              {
+                "name": "capabilityKeys",
+                "type": "string[]",
+                "internalType": "string[]"
+              },
+              {
+                "name": "isActive",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          },
+          {
+            "name": "productCapabilityValues",
+            "type": "bytes[]",
+            "internalType": "bytes[]"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getProvidersByIds",
     "inputs": [
       {
@@ -771,6 +634,11 @@
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
       },
       {
+        "name": "onlyActive",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
         "name": "offset",
         "type": "uint256",
         "internalType": "uint256"
@@ -840,11 +708,6 @@
                     "internalType": "enum ServiceProviderRegistryStorage.ProductType"
                   },
                   {
-                    "name": "productData",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
                     "name": "capabilityKeys",
                     "type": "string[]",
                     "internalType": "string[]"
@@ -855,6 +718,11 @@
                     "internalType": "bool"
                   }
                 ]
+              },
+              {
+                "name": "productCapabilityValues",
+                "type": "bytes[]",
+                "internalType": "bytes[]"
               }
             ]
           },
@@ -962,8 +830,8 @@
     "outputs": [
       {
         "name": "value",
-        "type": "string",
-        "internalType": "string"
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "stateMutability": "view"
@@ -1031,11 +899,6 @@
         "name": "productType",
         "type": "uint8",
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
-      },
-      {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
       },
       {
         "name": "isActive",
@@ -1122,19 +985,14 @@
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
       },
       {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
         "name": "capabilityKeys",
         "type": "string[]",
         "internalType": "string[]"
       },
       {
         "name": "capabilityValues",
-        "type": "string[]",
-        "internalType": "string[]"
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
     "outputs": [
@@ -1188,76 +1046,6 @@
   },
   {
     "type": "function",
-    "name": "updatePDPServiceWithCapabilities",
-    "inputs": [
-      {
-        "name": "pdpOffering",
-        "type": "tuple",
-        "internalType": "struct ServiceProviderRegistryStorage.PDPOffering",
-        "components": [
-          {
-            "name": "serviceURL",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "minPieceSizeInBytes",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "maxPieceSizeInBytes",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "ipniPiece",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "ipniIpfs",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "storagePricePerTibPerMonth",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "minProvingPeriodInEpochs",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "location",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "paymentTokenAddress",
-            "type": "address",
-            "internalType": "contract IERC20"
-          }
-        ]
-      },
-      {
-        "name": "capabilityKeys",
-        "type": "string[]",
-        "internalType": "string[]"
-      },
-      {
-        "name": "capabilityValues",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "updateProduct",
     "inputs": [
       {
@@ -1266,19 +1054,14 @@
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
       },
       {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
         "name": "capabilityKeys",
         "type": "string[]",
         "internalType": "string[]"
       },
       {
         "name": "capabilityValues",
-        "type": "string[]",
-        "internalType": "string[]"
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
     "outputs": [],
@@ -1400,12 +1183,6 @@
         "internalType": "address"
       },
       {
-        "name": "productData",
-        "type": "bytes",
-        "indexed": false,
-        "internalType": "bytes"
-      },
-      {
         "name": "capabilityKeys",
         "type": "string[]",
         "indexed": false,
@@ -1413,9 +1190,9 @@
       },
       {
         "name": "capabilityValues",
-        "type": "string[]",
+        "type": "bytes[]",
         "indexed": false,
-        "internalType": "string[]"
+        "internalType": "bytes[]"
       }
     ],
     "anonymous": false
@@ -1462,12 +1239,6 @@
         "internalType": "address"
       },
       {
-        "name": "productData",
-        "type": "bytes",
-        "indexed": false,
-        "internalType": "bytes"
-      },
-      {
         "name": "capabilityKeys",
         "type": "string[]",
         "indexed": false,
@@ -1475,9 +1246,9 @@
       },
       {
         "name": "capabilityValues",
-        "type": "string[]",
+        "type": "bytes[]",
         "indexed": false,
-        "internalType": "string[]"
+        "internalType": "bytes[]"
       }
     ],
     "anonymous": false
@@ -1577,6 +1348,17 @@
     "type": "error",
     "name": "FailedCall",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientCapabilitiesForProduct",
+    "inputs": [
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      }
+    ]
   },
   {
     "type": "error",
