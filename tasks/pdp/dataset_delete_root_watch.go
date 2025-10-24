@@ -107,17 +107,15 @@ func processDataSetPieceDelete(ctx context.Context, db *harmonydb.DB, psd DataSe
 	}
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		n, err := tx.Exec(`UPDATE pdp_dataset_piece SET removed = TRUE, 
+		_, err = tx.Exec(`UPDATE pdp_dataset_piece SET removed = TRUE, 
                          remove_deal_id = $1, 
                          remove_message_hash = $2 
                          WHERE data_set_id = $3 AND piece = ANY($4)`, psd.ID, psd.Hash, psd.DataSet, psd.Pieces)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_dataset_piece: %w", err)
 		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
-		}
-		n, err = tx.Exec(`UPDATE market_mk20_deal
+
+		n, err := tx.Exec(`UPDATE market_mk20_deal
 							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
 							WHERE id = $1;`, psd.ID)
 		if err != nil {
