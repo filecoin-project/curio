@@ -103,10 +103,6 @@ func encodeBool(b bool) []byte {
 	return []byte{0x00}
 }
 
-func decodeBool(b []byte) bool {
-	return len(b) > 0 && b[0] == 0x01
-}
-
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
 // It uses the view contract address if available, otherwise uses the listener address directly.
