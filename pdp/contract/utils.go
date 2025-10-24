@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
-	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -30,38 +29,82 @@ import (
 
 var log = logging.Logger("pdp-contract")
 
-var PDPOfferingAbiType *eabi.Type
-var PDPOfferingArgs eabi.Arguments
+// Standard capability keys for PDP product type (must match ServiceProviderRegistry.sol REQUIRED_PDP_KEYS Bloom filter)
+const (
+	CapServiceURL       = "serviceURL"
+	CapMinPieceSize     = "minPieceSizeInBytes"
+	CapMaxPieceSize     = "maxPieceSizeInBytes"
+	CapIpniPiece        = "ipniPiece" // Optional
+	CapIpniIpfs         = "ipniIpfs"  // Optional
+	CapStoragePrice     = "storagePricePerTibPerDay"
+	CapMinProvingPeriod = "minProvingPeriodInEpochs"
+	CapLocation         = "location"
+	CapPaymentToken     = "paymentTokenAddress"
+)
 
-func init() {
-	// very hacky if you have a better way, tell me about it
-	// ServiceURL                 string
-	// MinPieceSizeInBytes        *big.Int
-	// MaxPieceSizeInBytes        *big.Int
-	// IpniPiece                  bool
-	// IpniIpfs                   bool
-	// StoragePricePerTibPerMonth *big.Int
-	// MinProvingPeriodInEpochs   *big.Int
-	// Location                   string
-	// PaymentTokenAddress        common.Address
-	abiType, err := eabi.NewType("tuple", "struct thing", []eabi.ArgumentMarshaling{
-		{Name: "ServiceURL", Type: "string"},
-		{Name: "MinPieceSizeInBytes", Type: "uint256"},
-		{Name: "MaxPieceSizeInBytes", Type: "uint256"},
-		{Name: "IpniPiece", Type: "bool"},
-		{Name: "IpniIpfs", Type: "bool"},
-		{Name: "StoragePricePerTibPerMonth", Type: "uint256"},
-		{Name: "MinProvingPeriodInEpochs", Type: "uint256"},
-		{Name: "Location", Type: "string"},
-		{Name: "PaymentTokenAddress", Type: "address"},
-	})
-	if err != nil {
-		panic(err)
+// PDPOfferingData converts a PDPOffering-like struct to capability key-value pairs
+type PDPOfferingData struct {
+	ServiceURL               string
+	MinPieceSizeInBytes      *mbig.Int
+	MaxPieceSizeInBytes      *mbig.Int
+	IpniPiece                bool
+	IpniIpfs                 bool
+	StoragePricePerTibPerDay *mbig.Int
+	MinProvingPeriodInEpochs *mbig.Int
+	Location                 string
+	PaymentTokenAddress      common.Address
+}
+
+func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]string) ([]string, [][]byte, error) {
+	// Required PDP keys per REQUIRED_PDP_KEYS Bloom filter in ServiceProviderRegistry.sol
+	keys := []string{
+		CapServiceURL,
+		CapMinPieceSize,
+		CapMaxPieceSize,
+		CapStoragePrice,
+		CapMinProvingPeriod,
+		CapLocation,
+		CapPaymentToken,
 	}
-	PDPOfferingAbiType = &abiType
-	PDPOfferingArgs = eabi.Arguments{
-		{Type: abiType, Name: "param_one"},
+
+	values := [][]byte{
+		[]byte(offering.ServiceURL),
+		offering.MinPieceSizeInBytes.Bytes(),
+		offering.MaxPieceSizeInBytes.Bytes(),
+		offering.StoragePricePerTibPerDay.Bytes(),
+		offering.MinProvingPeriodInEpochs.Bytes(),
+		[]byte(offering.Location),
+		offering.PaymentTokenAddress.Bytes(),
 	}
+
+	// Add optional PDP keys if enabled
+	if offering.IpniPiece {
+		keys = append(keys, CapIpniPiece)
+		values = append(values, encodeBool(true))
+	}
+	if offering.IpniIpfs {
+		keys = append(keys, CapIpniIpfs)
+		values = append(values, encodeBool(true))
+	}
+
+	// Add custom capabilities
+	for k, v := range additionalCaps {
+		keys = append(keys, k)
+		values = append(values, []byte(v))
+	}
+
+	return keys, values, nil
+}
+
+func encodeBool(b bool) []byte {
+	if b {
+		return []byte{0x01}
+	}
+	return []byte{0x00}
+}
+
+func decodeBool(b []byte) bool {
+	return len(b) > 0 && b[0] == 0x01
 }
 
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
@@ -119,7 +162,7 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 	return out.Exists, out.Value, nil
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) error {
+func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
 	if len(name) > 128 {
 		return xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -132,19 +175,25 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 		return xerrors.Errorf("description is too long, max 128 characters allowed")
 	}
 
-	var keys, values []string
-	for k, v := range capabilities {
+	// Convert PDPOffering to capability keys/values
+	keys, values, err := OfferingToCapabilities(pdpOffering, capabilities)
+	if err != nil {
+		return xerrors.Errorf("failed to convert offering to capabilities: %w", err)
+	}
+
+	// Validate capabilities
+	for _, k := range keys {
 		if len(k) > 32 {
 			return xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
 		}
+	}
+	for _, v := range values {
 		if len(v) > 128 {
-			return xerrors.Errorf("capabilities value %s is too long, max 128 characters allowed", v)
+			return xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
 		}
-		keys = append(keys, k)
-		if len(keys) > 10 {
-			return xerrors.Errorf("too many capabilities, max 10 allowed")
-		}
-		values = append(values, v)
+	}
+	if len(keys) > 10 {
+		return xerrors.Errorf("too many capabilities, max 10 allowed")
 	}
 
 	sender, fSender, privateKey, err := getSender(ctx, db)
@@ -183,14 +232,8 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 		return xerrors.Errorf("failed to get service registry ABI: %w", err)
 	}
 
-	// no idea if that is going to give correct format
-	encodedPDP, err := PDPOfferingArgs.Pack(&pdpOffering)
-	if err != nil {
-		return fmt.Errorf("failed to serialize PDP offering: %w", err)
-	}
-
-	// Prepare EVM calldata
-	calldata, err := srAbi.Pack("registerProvider", common.Address(walletEvm), name, description, uint8(0), encodedPDP, keys, values)
+	// Prepare EVM calldata - registerProvider(address payee, string name, string description, ProductType productType, string[] capabilityKeys, bytes[] capabilityValues)
+	calldata, err := srAbi.Pack("registerProvider", common.Address(walletEvm), name, description, uint8(0), keys, values)
 	if err != nil {
 		return fmt.Errorf("failed to serialize parameters for registerProvider: %w", err)
 	}
@@ -347,20 +390,26 @@ func FSUpdateProvider(ctx context.Context, name, description string, db *harmony
 	return signedTx.Hash().String(), nil
 }
 
-func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (string, error) {
-	var keys, values []string
-	for k, v := range capabilities {
+func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering PDPOfferingData, capabilities map[string]string) (string, error) {
+	// Convert PDPOffering to capability keys/values
+	keys, values, err := OfferingToCapabilities(pdpOffering, capabilities)
+	if err != nil {
+		return "", xerrors.Errorf("failed to convert offering to capabilities: %w", err)
+	}
+
+	// Validate capabilities
+	for _, k := range keys {
 		if len(k) > 32 {
 			return "", xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
 		}
+	}
+	for _, v := range values {
 		if len(v) > 128 {
-			return "", xerrors.Errorf("capabilities value %s is too long, max 128 characters allowed", v)
+			return "", xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
 		}
-		keys = append(keys, k)
-		if len(keys) > 10 {
-			return "", xerrors.Errorf("too many capabilities, max 10 allowed")
-		}
-		values = append(values, v)
+	}
+	if len(keys) > 10 {
+		return "", xerrors.Errorf("too many capabilities, max 10 allowed")
 	}
 
 	sender, _, privateKey, err := getSender(ctx, db)
@@ -378,9 +427,10 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 		return "", xerrors.Errorf("failed to get service registry ABI: %w", err)
 	}
 
-	calldata, err := srAbi.Pack("updatePDPServiceWithCapabilities", pdpOffering, keys, values)
+	// Call updateProduct instead of updatePDPServiceWithCapabilities
+	calldata, err := srAbi.Pack("updateProduct", uint8(0), keys, values)
 	if err != nil {
-		return "", xerrors.Errorf("failed to serialize parameters for updatePDPServiceWithCapabilities: %w", err)
+		return "", xerrors.Errorf("failed to serialize parameters for updateProduct: %w", err)
 	}
 
 	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, mbig.NewInt(0), calldata)
