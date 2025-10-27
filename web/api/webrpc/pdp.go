@@ -15,11 +15,13 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/indexing"
 )
 
 // PDPService represents a PDP service
@@ -245,14 +247,66 @@ type FSRegistryStatus struct {
 }
 
 type FSPDPOffering struct {
-	ServiceURL                 string `json:"service_url"`
-	MinPieceSizeInBytes        int64  `json:"min_size"`
-	MaxPieceSizeInBytes        int64  `json:"max_size"`
-	IpniPiece                  bool   `json:"ipni_piece"`
-	IpniIpfs                   bool   `json:"ipni_ipfs"`
-	StoragePricePerTibPerMonth int64  `json:"price"`
-	MinProvingPeriodInEpochs   int64  `json:"min_proving_period"`
-	Location                   string `json:"location"`
+	ServiceURL               string `json:"service_url"`
+	MinPieceSizeInBytes      int64  `json:"min_size"`
+	MaxPieceSizeInBytes      int64  `json:"max_size"`
+	IpniPiece                bool   `json:"ipni_piece"`
+	IpniIpfs                 bool   `json:"ipni_ipfs"`
+	IpniPeerID               string `json:"ipni_peer_id"` // Base58 encoded PeerID
+	StoragePricePerTibPerDay int64  `json:"price"`
+	MinProvingPeriodInEpochs int64  `json:"min_proving_period"`
+	Location                 string `json:"location"`
+	PaymentTokenAddress      string `json:"payment_token_address"`
+}
+
+// capabilitiesToOffering converts contract capabilities to FSPDPOffering and remaining custom capabilities
+func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map[string]string) {
+	offering := &FSPDPOffering{}
+	customCaps := make(map[string]string)
+
+	for i, key := range keys {
+		if i >= len(values) {
+			break
+		}
+		value := values[i]
+
+		switch key {
+		case contract.CapServiceURL:
+			offering.ServiceURL = string(value)
+		case contract.CapMinPieceSize:
+			offering.MinPieceSizeInBytes = new(big.Int).SetBytes(value).Int64()
+		case contract.CapMaxPieceSize:
+			offering.MaxPieceSizeInBytes = new(big.Int).SetBytes(value).Int64()
+		case contract.CapIpniPiece:
+			offering.IpniPiece = true
+		case contract.CapIpniIpfs:
+			offering.IpniIpfs = true
+		case contract.CapIpniPeerID:
+			offering.IpniPeerID = peer.ID(value).String() // we skip peer.IDFromBytes as it returns an error if bytes are not multihash
+		case contract.CapStoragePrice:
+			offering.StoragePricePerTibPerDay = new(big.Int).SetBytes(value).Int64()
+		case contract.CapMinProvingPeriod:
+			offering.MinProvingPeriodInEpochs = new(big.Int).SetBytes(value).Int64()
+		case contract.CapLocation:
+			offering.Location = string(value)
+		case contract.CapPaymentToken:
+			if len(value) >= 20 {
+				offering.PaymentTokenAddress = common.BytesToAddress(value[len(value)-20:]).Hex()
+			}
+		default:
+			// Custom capability
+			customCaps[key] = string(value)
+		}
+	}
+
+	// Default to USDFC if payment token not set or is zero address
+	if offering.PaymentTokenAddress == "" || offering.PaymentTokenAddress == "0x0000000000000000000000000000000000000000" {
+		if usdfcAddr, err := contract.USDFCAddress(); err == nil {
+			offering.PaymentTokenAddress = usdfcAddr.Hex()
+		}
+	}
+
+	return offering, customCaps
 }
 
 func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error) {
@@ -295,22 +349,33 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 		return nil, fmt.Errorf("failed to get provider: %w", err)
 	}
 
-	pdpOffering, err := registry.GetPDPService(&bind.CallOpts{Context: ctx}, pid)
+	// Check if provider has PDP product (ProductType = 0)
+	hasProduct, err := registry.ProviderHasProduct(&bind.CallOpts{Context: ctx}, pid, uint8(0))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get PDP offering: %w", err)
+		return nil, fmt.Errorf("failed to check if provider has product: %w", err)
 	}
 
-	capabilityValues, err := registry.GetProductCapabilities(&bind.CallOpts{Context: ctx}, pid, uint8(0), pdpOffering.CapabilityKeys)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get capability values: %w", err)
+	// If no PDP product registered, return basic provider info only
+	if !hasProduct {
+		return &FSRegistryStatus{
+			Address:     pdpAddress.Hex(),
+			ID:          pid.Int64(),
+			Active:      provider.Info.IsActive,
+			Payee:       provider.Info.Payee.String(),
+			Name:        provider.Info.Name,
+			Description: provider.Info.Description,
+			PDPService:  nil, // No product registered yet
+		}, nil
 	}
 
-	capabilities := make(map[string]string)
-	for i := range pdpOffering.CapabilityKeys {
-		if capabilityValues.Exists[i] {
-			capabilities[pdpOffering.CapabilityKeys[i]] = capabilityValues.Values[i]
-		}
+	// Use getProviderWithProduct to get full capability data
+	providerWithProduct, err := registry.GetProviderWithProduct(&bind.CallOpts{Context: ctx}, pid, uint8(0))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider with product: %w", err)
 	}
+
+	// Convert capabilities to map, separating standard PDP fields from custom capabilities
+	pdpOffering, capabilities := capabilitiesToOffering(providerWithProduct.Product.CapabilityKeys, providerWithProduct.ProductCapabilityValues)
 
 	return &FSRegistryStatus{
 		Address:      pdpAddress.Hex(),
@@ -320,16 +385,7 @@ func (a *WebRPC) FSRegistryStatus(ctx context.Context) (*FSRegistryStatus, error
 		Name:         provider.Info.Name,
 		Description:  provider.Info.Description,
 		Capabilities: capabilities,
-		PDPService: &FSPDPOffering{
-			ServiceURL:                 pdpOffering.PdpOffering.ServiceURL,
-			MinPieceSizeInBytes:        pdpOffering.PdpOffering.MinPieceSizeInBytes.Int64(),
-			MaxPieceSizeInBytes:        pdpOffering.PdpOffering.MaxPieceSizeInBytes.Int64(),
-			IpniPiece:                  pdpOffering.PdpOffering.IpniPiece,
-			IpniIpfs:                   pdpOffering.PdpOffering.IpniIpfs,
-			StoragePricePerTibPerMonth: pdpOffering.PdpOffering.StoragePricePerTibPerMonth.Int64(),
-			MinProvingPeriodInEpochs:   pdpOffering.PdpOffering.MinProvingPeriodInEpochs.Int64(),
-			Location:                   pdpOffering.PdpOffering.Location,
-		},
+		PDPService:   pdpOffering,
 	}, nil
 }
 
@@ -392,16 +448,29 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("failed to get USDFC address: %w", err)
 	}
 
-	offering := contract.ServiceProviderRegistryStoragePDPOffering{
-		ServiceURL:                 serviceURL.String(),
-		MinPieceSizeInBytes:        big.NewInt(1024 * 1024),             // 1 MiB
-		MaxPieceSizeInBytes:        big.NewInt(64 * 1024 * 1024 * 1024), // 64 GiB
-		IpniPiece:                  true,
-		IpniIpfs:                   true,
-		StoragePricePerTibPerMonth: big.NewInt(5000000000000000000), // 5 USDFC per TiB per month
-		MinProvingPeriodInEpochs:   big.NewInt(1440),                // 12 hours
-		Location:                   location,
-		PaymentTokenAddress:        tokenAddress,
+	var peerID peer.ID
+	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		peerID, err = indexing.PDPInitProvider(tx)
+		if err != nil {
+			return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		return xerrors.Errorf("in transaction: %w", err)
+	}
+
+	offering := contract.PDPOfferingData{
+		ServiceURL:               serviceURL.String(),
+		MinPieceSizeInBytes:      big.NewInt(1024 * 1024),             // 1 MiB
+		MaxPieceSizeInBytes:      big.NewInt(64 * 1024 * 1024 * 1024), // 64 GiB
+		IpniPiece:                true,
+		IpniIpfs:                 true,
+		IpniPeerID:               []byte(peerID),
+		StoragePricePerTibPerDay: big.NewInt(83333333333333333), // 2.5 USDFC per TiB per month
+		MinProvingPeriodInEpochs: big.NewInt(1440),              // 12 hours
+		Location:                 location,
+		PaymentTokenAddress:      tokenAddress,
 	}
 
 	err = contract.FSRegister(ctx, a.deps.DB, a.deps.Chain, eclient, name, description, offering, nil)
@@ -491,8 +560,8 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return fmt.Errorf("maximum piece size must be less than 64 GiB")
 	}
 
-	if pdpOffering.StoragePricePerTibPerMonth < 0 {
-		return fmt.Errorf("storage price per TiB per month must be greater than or equal to 0")
+	if pdpOffering.StoragePricePerTibPerDay < 0 {
+		return fmt.Errorf("storage price per TiB per day must be greater than or equal to 0")
 	}
 
 	if pdpOffering.MinProvingPeriodInEpochs < 0 {
@@ -501,6 +570,18 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 
 	if len(pdpOffering.Location) > 128 {
 		return fmt.Errorf("location cannot be longer than 128 characters")
+	}
+
+	var peerID peer.ID
+	if pdpOffering.IpniIpfs || pdpOffering.IpniPiece {
+		if len(pdpOffering.IpniPeerID) == 0 {
+			return fmt.Errorf("IPNI peer ID cannot be empty if either of IPNI IPFS or IPNI Piece are enabled")
+		}
+		var err error
+		peerID, err = peer.Decode(pdpOffering.IpniPeerID)
+		if err != nil {
+			return fmt.Errorf("invalid IPNI peer ID: %w", err)
+		}
 	}
 
 	pdpAddress, err := a.getPDPAddress(ctx)
@@ -532,16 +613,17 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return xerrors.Errorf("provider is not registered")
 	}
 
-	offering := contract.ServiceProviderRegistryStoragePDPOffering{
-		ServiceURL:                 pdpOffering.ServiceURL,
-		MinPieceSizeInBytes:        big.NewInt(pdpOffering.MinPieceSizeInBytes),
-		MaxPieceSizeInBytes:        big.NewInt(pdpOffering.MaxPieceSizeInBytes),
-		IpniPiece:                  pdpOffering.IpniPiece,
-		IpniIpfs:                   pdpOffering.IpniIpfs,
-		StoragePricePerTibPerMonth: big.NewInt(pdpOffering.StoragePricePerTibPerMonth),
-		MinProvingPeriodInEpochs:   big.NewInt(pdpOffering.MinProvingPeriodInEpochs),
-		Location:                   pdpOffering.Location,
-		PaymentTokenAddress:        common.HexToAddress("0x0000000000000000000000000000000000000000"),
+	offering := contract.PDPOfferingData{
+		ServiceURL:               pdpOffering.ServiceURL,
+		MinPieceSizeInBytes:      big.NewInt(pdpOffering.MinPieceSizeInBytes),
+		MaxPieceSizeInBytes:      big.NewInt(pdpOffering.MaxPieceSizeInBytes),
+		IpniPiece:                pdpOffering.IpniPiece,
+		IpniIpfs:                 pdpOffering.IpniIpfs,
+		IpniPeerID:               []byte(peerID),
+		StoragePricePerTibPerDay: big.NewInt(pdpOffering.StoragePricePerTibPerDay),
+		MinProvingPeriodInEpochs: big.NewInt(pdpOffering.MinProvingPeriodInEpochs),
+		Location:                 pdpOffering.Location,
+		PaymentTokenAddress:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
 	}
 
 	hash, err := contract.FSUpdatePDPService(ctx, a.deps.DB, eclient, offering, capabilities)

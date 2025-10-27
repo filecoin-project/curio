@@ -67,17 +67,17 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	err = P.db.Select(ctx, &tasks, `
-		SELECT 
+		SELECT
 			pr.id,
 			pr.piece_cid,
 			pp.piece_padded_size,
 			ipni_peer.peer_id
-		FROM 
+		FROM
 			pdp_piecerefs pr
 		JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 		JOIN parked_pieces pp ON ppr.piece_id = pp.id
 		CROSS JOIN ipni_peerid ipni_peer
-		WHERE 
+		WHERE
 			pr.ipni_task_id = $1
 			AND ipni_peer.sp_id = $2
 `, taskID, PDP_SP_ID)
@@ -265,7 +265,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
-		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL 
+		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL
 									WHERE id = $1 AND ipni_task_id = $2`, id, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)
@@ -315,7 +315,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				ID int64 `db:"id"`
 			}
 
-			err := tx.Select(&pendings, `SELECT id FROM pdp_piecerefs 
+			err := tx.Select(&pendings, `SELECT id FROM pdp_piecerefs
 												WHERE ipni_task_id IS NULL
 												AND needs_ipni = TRUE
 												ORDER BY created_at ASC LIMIT 1;`)
@@ -329,12 +329,12 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 
 			// Setup PDP IPNI private key if this is our first IPNI task
-			if err := P.initProvider(tx); err != nil {
+			if _, err := PDPInitProvider(tx); err != nil {
 				return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
 			}
 
 			pending := pendings[0]
-			_, err = tx.Exec(`UPDATE pdp_piecerefs SET ipni_task_id = $1 
+			_, err = tx.Exec(`UPDATE pdp_piecerefs SET ipni_task_id = $1
 						 WHERE ipni_task_id IS NULL AND id = $2`, id, pending.ID)
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP ipni task id: %w", err)
@@ -353,40 +353,44 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 // The ipni provider key for pdp is at PDP_SP_ID
-func (P *PDPIPNITask) initProvider(tx *harmonydb.Tx) error {
-	var privKey []byte
-	err := tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&privKey)
+func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
+	var peerID string
+	err := tx.QueryRow(`SELECT peer_id FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&peerID)
 	if err != nil {
 		if err != pgx.ErrNoRows {
-			return xerrors.Errorf("failed to get private libp2p key: %w", err)
+			return "", xerrors.Errorf("failed to get private libp2p key: %w", err)
 		}
 
 		// generate the ipni provider key
 		pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
 		if err != nil {
-			return xerrors.Errorf("failed to generate a new key: %w", err)
+			return "", xerrors.Errorf("failed to generate a new key: %w", err)
 		}
 
-		privKey, err = crypto.MarshalPrivateKey(pk)
+		privKey, err := crypto.MarshalPrivateKey(pk)
 		if err != nil {
-			return xerrors.Errorf("failed to marshal the private key: %w", err)
+			return "", xerrors.Errorf("failed to marshal the private key: %w", err)
 		}
 
 		pid, err := peer.IDFromPublicKey(pk.GetPublic())
 		if err != nil {
-			return xerrors.Errorf("getting peer ID: %w", err)
+			return "", xerrors.Errorf("getting peer ID: %w", err)
 		}
 
 		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, pid.String(), PDP_SP_ID)
 		if err != nil {
-			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
+			return "", xerrors.Errorf("failed to to insert the key into DB: %w", err)
 		}
 
 		if n == 0 {
-			return xerrors.Errorf("failed to insert the key into db")
+			return "", xerrors.Errorf("failed to insert the key into db")
 		}
 	}
-	return nil
+	pid, err := peer.Decode(peerID)
+	if err != nil {
+		return "", xerrors.Errorf("decoding peer ID: %w", err)
+	}
+	return pid, nil
 }
 
 var _ harmonytask.TaskInterface = &PDPIPNITask{}
