@@ -15,11 +15,13 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/indexing"
 )
 
 // PDPService represents a PDP service
@@ -250,6 +252,7 @@ type FSPDPOffering struct {
 	MaxPieceSizeInBytes      int64  `json:"max_size"`
 	IpniPiece                bool   `json:"ipni_piece"`
 	IpniIpfs                 bool   `json:"ipni_ipfs"`
+	IpniPeerID               []byte `json:"ipni_peer_id"`
 	StoragePricePerTibPerDay int64  `json:"price"`
 	MinProvingPeriodInEpochs int64  `json:"min_proving_period"`
 	Location                 string `json:"location"`
@@ -278,6 +281,8 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			offering.IpniPiece = true
 		case contract.CapIpniIpfs:
 			offering.IpniIpfs = true
+		case contract.CapIpniPeerID:
+			offering.IpniPeerID = value
 		case contract.CapStoragePrice:
 			offering.StoragePricePerTibPerDay = new(big.Int).SetBytes(value).Int64()
 		case contract.CapMinProvingPeriod:
@@ -443,12 +448,25 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("failed to get USDFC address: %w", err)
 	}
 
+	var peerID peer.ID
+	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		peerID, err = indexing.PDPInitProvider(tx)
+		if err != nil {
+			return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		return xerrors.Errorf("in transaction: %w", err)
+	}
+
 	offering := contract.PDPOfferingData{
 		ServiceURL:               serviceURL.String(),
 		MinPieceSizeInBytes:      big.NewInt(1024 * 1024),             // 1 MiB
 		MaxPieceSizeInBytes:      big.NewInt(64 * 1024 * 1024 * 1024), // 64 GiB
 		IpniPiece:                true,
 		IpniIpfs:                 true,
+		IpniPeerID:               []byte(peerID),
 		StoragePricePerTibPerDay: big.NewInt(83333333333333333), // 2.5 USDFC per TiB per month
 		MinProvingPeriodInEpochs: big.NewInt(1440),              // 12 hours
 		Location:                 location,

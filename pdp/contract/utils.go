@@ -34,8 +34,9 @@ const (
 	CapServiceURL       = "serviceURL"
 	CapMinPieceSize     = "minPieceSizeInBytes"
 	CapMaxPieceSize     = "maxPieceSizeInBytes"
-	CapIpniPiece        = "ipniPiece" // Optional
-	CapIpniIpfs         = "ipniIpfs"  // Optional
+	CapIpniPiece        = "ipniPiece"  // Optional
+	CapIpniIpfs         = "ipniIpfs"   // Optional
+	CapIpniPeerID       = "IPNIPeerID" // Requred if either CapIpniIpfs or CapIpniPiece is true
 	CapStoragePrice     = "storagePricePerTibPerDay"
 	CapMinProvingPeriod = "minProvingPeriodInEpochs"
 	CapLocation         = "location"
@@ -49,6 +50,7 @@ type PDPOfferingData struct {
 	MaxPieceSizeInBytes      *mbig.Int
 	IpniPiece                bool
 	IpniIpfs                 bool
+	IpniPeerID               []byte
 	StoragePricePerTibPerDay *mbig.Int
 	MinProvingPeriodInEpochs *mbig.Int
 	Location                 string
@@ -85,6 +87,13 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 	if offering.IpniIpfs {
 		keys = append(keys, CapIpniIpfs)
 		values = append(values, encodeBool(true))
+	}
+	if offering.IpniIpfs || offering.IpniPiece {
+		if len(offering.IpniPeerID) == 0 {
+			return nil, nil, xerrors.Errorf("IpniPeerID is required if either IpniIpfs or IpniPiece is true")
+		}
+		keys = append(keys, CapIpniPeerID)
+		values = append(values, []byte(offering.IpniPeerID))
 	}
 
 	// Add custom capabilities
@@ -188,8 +197,8 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 			return xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
 		}
 	}
-	if len(keys) > 10 {
-		return xerrors.Errorf("too many capabilities, max 10 allowed")
+	if len(keys) > 32 {
+		return xerrors.Errorf("too many capabilities, max 32 allowed")
 	}
 
 	sender, fSender, privateKey, err := getSender(ctx, db)
