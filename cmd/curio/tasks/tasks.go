@@ -253,14 +253,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	}
 	maddrs.OnChange(forMiners)
 
-	if cfg.Subsystems.EnableBalanceManager {
-		balMgrTask, err := storage_market.NewBalanceManager(full, miners, cfg, sender)
-		if err != nil {
-			return nil, err
-		}
-		activeTasks = append(activeTasks, balMgrTask)
-	}
-
 	{
 		var sdeps cuhttp.ServiceDeps
 		// Market tasks

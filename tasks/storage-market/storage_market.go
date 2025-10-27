@@ -47,11 +47,6 @@ import (
 var log = logging.Logger("storage-market")
 
 const (
-	mk12Str = "mk12"
-	mk20Str = "mk20"
-)
-
-const (
 	pollerCommP = iota
 	pollerPSD
 	pollerFindDeal

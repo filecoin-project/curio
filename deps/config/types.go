@@ -395,9 +395,6 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine. (Default: 8)
 	IndexingMaxTasks int
 
-	// EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)
-	EnableBalanceManager bool
-
 	// BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
 	// for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 	// enabling this option. (Default: false)
