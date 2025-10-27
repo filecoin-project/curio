@@ -35,19 +35,6 @@ type ServiceProviderRegistryServiceProviderInfoView struct {
 	Info       ServiceProviderRegistryStorageServiceProviderInfo
 }
 
-// ServiceProviderRegistryStoragePDPOffering is an auto generated low-level Go binding around an user-defined struct.
-type ServiceProviderRegistryStoragePDPOffering struct {
-	ServiceURL                 string
-	MinPieceSizeInBytes        *big.Int
-	MaxPieceSizeInBytes        *big.Int
-	IpniPiece                  bool
-	IpniIpfs                   bool
-	StoragePricePerTibPerMonth *big.Int
-	MinProvingPeriodInEpochs   *big.Int
-	Location                   string
-	PaymentTokenAddress        common.Address
-}
-
 // ServiceProviderRegistryStoragePaginatedProviders is an auto generated low-level Go binding around an user-defined struct.
 type ServiceProviderRegistryStoragePaginatedProviders struct {
 	Providers []ServiceProviderRegistryStorageProviderWithProduct
@@ -56,15 +43,15 @@ type ServiceProviderRegistryStoragePaginatedProviders struct {
 
 // ServiceProviderRegistryStorageProviderWithProduct is an auto generated low-level Go binding around an user-defined struct.
 type ServiceProviderRegistryStorageProviderWithProduct struct {
-	ProviderId   *big.Int
-	ProviderInfo ServiceProviderRegistryStorageServiceProviderInfo
-	Product      ServiceProviderRegistryStorageServiceProduct
+	ProviderId              *big.Int
+	ProviderInfo            ServiceProviderRegistryStorageServiceProviderInfo
+	Product                 ServiceProviderRegistryStorageServiceProduct
+	ProductCapabilityValues [][]byte
 }
 
 // ServiceProviderRegistryStorageServiceProduct is an auto generated low-level Go binding around an user-defined struct.
 type ServiceProviderRegistryStorageServiceProduct struct {
 	ProductType    uint8
-	ProductData    []byte
 	CapabilityKeys []string
 	IsActive       bool
 }
@@ -80,7 +67,7 @@ type ServiceProviderRegistryStorageServiceProviderInfo struct {
 
 // ServiceProviderRegistryMetaData contains all meta data concerning the ServiceProviderRegistry contract.
 var ServiceProviderRegistryMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"MAX_CAPABILITIES\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_CAPABILITY_KEY_LENGTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_CAPABILITY_VALUE_LENGTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"REGISTRATION_FEE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"activeProductTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"activeProviderCount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"addressToProviderId\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"eip712Domain\",\"inputs\":[],\"outputs\":[{\"name\":\"fields\",\"type\":\"bytes1\",\"internalType\":\"bytes1\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"version\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"chainId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"verifyingContract\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"salt\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"extensions\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getActiveProvidersByProductType\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"result\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.PaginatedProviders\",\"components\":[{\"name\":\"providers\",\"type\":\"tuple[]\",\"internalType\":\"structServiceProviderRegistryStorage.ProviderWithProduct[]\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerInfo\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]},{\"name\":\"product\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProduct\",\"components\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllActiveProviders\",\"inputs\":[{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"providerIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProviderId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPDPService\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"pdpOffering\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.PDPOffering\",\"components\":[{\"name\":\"serviceURL\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"minPieceSizeInBytes\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxPieceSizeInBytes\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"ipniPiece\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"ipniIpfs\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"storagePricePerTibPerMonth\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"minProvingPeriodInEpochs\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"location\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"paymentTokenAddress\",\"type\":\"address\",\"internalType\":\"contractIERC20\"}]},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProduct\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProductCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"outputs\":[{\"name\":\"exists\",\"type\":\"bool[]\",\"internalType\":\"bool[]\"},{\"name\":\"values\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProductCapability\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"exists\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvider\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistry.ServiceProviderInfoView\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderByAddress\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistry.ServiceProviderInfoView\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderCount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderIdByAddress\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderPayee\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvidersByIds\",\"inputs\":[{\"name\":\"providerIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"providerInfos\",\"type\":\"tuple[]\",\"internalType\":\"structServiceProviderRegistry.ServiceProviderInfoView[]\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]},{\"name\":\"validIds\",\"type\":\"bool[]\",\"internalType\":\"bool[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvidersByProductType\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"result\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.PaginatedProviders\",\"components\":[{\"name\":\"providers\",\"type\":\"tuple[]\",\"internalType\":\"structServiceProviderRegistryStorage.ProviderWithProduct[]\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerInfo\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]},{\"name\":\"product\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProduct\",\"components\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"isProviderActive\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"isRegisteredProvider\",\"inputs\":[{\"name\":\"provider\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"migrate\",\"inputs\":[{\"name\":\"newVersion\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providerHasProduct\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providerProducts\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providers\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"registerProvider\",\"inputs\":[{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"outputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"removeProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"removeProvider\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updatePDPServiceWithCapabilities\",\"inputs\":[{\"name\":\"pdpOffering\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.PDPOffering\",\"components\":[{\"name\":\"serviceURL\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"minPieceSizeInBytes\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"maxPieceSizeInBytes\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"ipniPiece\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"ipniIpfs\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"storagePricePerTibPerMonth\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"minProvingPeriodInEpochs\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"location\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"paymentTokenAddress\",\"type\":\"address\",\"internalType\":\"contractIERC20\"}]},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateProviderInfo\",\"inputs\":[{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"ContractUpgraded\",\"inputs\":[{\"name\":\"version\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"EIP712DomainChanged\",\"inputs\":[],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProductAdded\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"indexed\":true,\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"productData\",\"type\":\"bytes\",\"indexed\":false,\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProductRemoved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"indexed\":true,\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProductUpdated\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"indexed\":true,\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"productData\",\"type\":\"bytes\",\"indexed\":false,\"internalType\":\"bytes\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderInfoUpdated\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderRegistered\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderRemoved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"MAX_CAPABILITIES\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_CAPABILITY_KEY_LENGTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_CAPABILITY_VALUE_LENGTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"REGISTRATION_FEE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"activeProductTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"activeProviderCount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"addressToProviderId\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"eip712Domain\",\"inputs\":[],\"outputs\":[{\"name\":\"fields\",\"type\":\"bytes1\",\"internalType\":\"bytes1\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"version\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"chainId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"verifyingContract\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"salt\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"extensions\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllActiveProviders\",\"inputs\":[{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"providerIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getAllProductCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"values\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProviderId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProductCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"keys\",\"type\":\"string[]\",\"internalType\":\"string[]\"}],\"outputs\":[{\"name\":\"values\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvider\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistry.ServiceProviderInfoView\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderByAddress\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistry.ServiceProviderInfoView\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderCount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderIdByAddress\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderPayee\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProviderWithProduct\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ProviderWithProduct\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerInfo\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]},{\"name\":\"product\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProduct\",\"components\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]},{\"name\":\"productCapabilityValues\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvidersByIds\",\"inputs\":[{\"name\":\"providerIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"providerInfos\",\"type\":\"tuple[]\",\"internalType\":\"structServiceProviderRegistry.ServiceProviderInfoView[]\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"info\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]}]},{\"name\":\"validIds\",\"type\":\"bool[]\",\"internalType\":\"bool[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProvidersByProductType\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"onlyActive\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"result\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.PaginatedProviders\",\"components\":[{\"name\":\"providers\",\"type\":\"tuple[]\",\"internalType\":\"structServiceProviderRegistryStorage.ProviderWithProduct[]\",\"components\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"providerInfo\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProviderInfo\",\"components\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]},{\"name\":\"product\",\"type\":\"tuple\",\"internalType\":\"structServiceProviderRegistryStorage.ServiceProduct\",\"components\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}]},{\"name\":\"productCapabilityValues\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}]},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"isProviderActive\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"isRegisteredProvider\",\"inputs\":[{\"name\":\"provider\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"migrate\",\"inputs\":[{\"name\":\"newVersion\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"value\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providerHasProduct\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providerProducts\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providers\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"registerProvider\",\"inputs\":[{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}],\"outputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"removeProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"removeProvider\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"bytes[]\",\"internalType\":\"bytes[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateProviderInfo\",\"inputs\":[{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"ContractUpgraded\",\"inputs\":[{\"name\":\"version\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"EIP712DomainChanged\",\"inputs\":[],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProductAdded\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"indexed\":true,\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"bytes[]\",\"indexed\":false,\"internalType\":\"bytes[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProductRemoved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"indexed\":true,\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProductUpdated\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"indexed\":true,\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"},{\"name\":\"capabilityKeys\",\"type\":\"string[]\",\"indexed\":false,\"internalType\":\"string[]\"},{\"name\":\"capabilityValues\",\"type\":\"bytes[]\",\"indexed\":false,\"internalType\":\"bytes[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderInfoUpdated\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderRegistered\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"serviceProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProviderRemoved\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InsufficientCapabilitiesForProduct\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
 }
 
 // ServiceProviderRegistryABI is the input ABI used to generate the binding from.
@@ -578,37 +565,6 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) Eip712Doma
 	return _ServiceProviderRegistry.Contract.Eip712Domain(&_ServiceProviderRegistry.CallOpts)
 }
 
-// GetActiveProvidersByProductType is a free data retrieval call binding the contract method 0x213c63b1.
-//
-// Solidity: function getActiveProvidersByProductType(uint8 productType, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,bytes,string[],bool))[],bool) result)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetActiveProvidersByProductType(opts *bind.CallOpts, productType uint8, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
-	var out []interface{}
-	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getActiveProvidersByProductType", productType, offset, limit)
-
-	if err != nil {
-		return *new(ServiceProviderRegistryStoragePaginatedProviders), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(ServiceProviderRegistryStoragePaginatedProviders)).(*ServiceProviderRegistryStoragePaginatedProviders)
-
-	return out0, err
-
-}
-
-// GetActiveProvidersByProductType is a free data retrieval call binding the contract method 0x213c63b1.
-//
-// Solidity: function getActiveProvidersByProductType(uint8 productType, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,bytes,string[],bool))[],bool) result)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetActiveProvidersByProductType(productType uint8, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
-	return _ServiceProviderRegistry.Contract.GetActiveProvidersByProductType(&_ServiceProviderRegistry.CallOpts, productType, offset, limit)
-}
-
-// GetActiveProvidersByProductType is a free data retrieval call binding the contract method 0x213c63b1.
-//
-// Solidity: function getActiveProvidersByProductType(uint8 productType, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,bytes,string[],bool))[],bool) result)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetActiveProvidersByProductType(productType uint8, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
-	return _ServiceProviderRegistry.Contract.GetActiveProvidersByProductType(&_ServiceProviderRegistry.CallOpts, productType, offset, limit)
-}
-
 // GetAllActiveProviders is a free data retrieval call binding the contract method 0x2f67c065.
 //
 // Solidity: function getAllActiveProviders(uint256 offset, uint256 limit) view returns(uint256[] providerIds, bool hasMore)
@@ -654,6 +610,56 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetAllActi
 	return _ServiceProviderRegistry.Contract.GetAllActiveProviders(&_ServiceProviderRegistry.CallOpts, offset, limit)
 }
 
+// GetAllProductCapabilities is a free data retrieval call binding the contract method 0xa6771f8b.
+//
+// Solidity: function getAllProductCapabilities(uint256 providerId, uint8 productType) view returns(bool isActive, string[] keys, bytes[] values)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetAllProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8) (struct {
+	IsActive bool
+	Keys     []string
+	Values   [][]byte
+}, error) {
+	var out []interface{}
+	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getAllProductCapabilities", providerId, productType)
+
+	outstruct := new(struct {
+		IsActive bool
+		Keys     []string
+		Values   [][]byte
+	})
+	if err != nil {
+		return *outstruct, err
+	}
+
+	outstruct.IsActive = *abi.ConvertType(out[0], new(bool)).(*bool)
+	outstruct.Keys = *abi.ConvertType(out[1], new([]string)).(*[]string)
+	outstruct.Values = *abi.ConvertType(out[2], new([][]byte)).(*[][]byte)
+
+	return *outstruct, err
+
+}
+
+// GetAllProductCapabilities is a free data retrieval call binding the contract method 0xa6771f8b.
+//
+// Solidity: function getAllProductCapabilities(uint256 providerId, uint8 productType) view returns(bool isActive, string[] keys, bytes[] values)
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetAllProductCapabilities(providerId *big.Int, productType uint8) (struct {
+	IsActive bool
+	Keys     []string
+	Values   [][]byte
+}, error) {
+	return _ServiceProviderRegistry.Contract.GetAllProductCapabilities(&_ServiceProviderRegistry.CallOpts, providerId, productType)
+}
+
+// GetAllProductCapabilities is a free data retrieval call binding the contract method 0xa6771f8b.
+//
+// Solidity: function getAllProductCapabilities(uint256 providerId, uint8 productType) view returns(bool isActive, string[] keys, bytes[] values)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetAllProductCapabilities(providerId *big.Int, productType uint8) (struct {
+	IsActive bool
+	Keys     []string
+	Values   [][]byte
+}, error) {
+	return _ServiceProviderRegistry.Contract.GetAllProductCapabilities(&_ServiceProviderRegistry.CallOpts, providerId, productType)
+}
+
 // GetNextProviderId is a free data retrieval call binding the contract method 0xd1329d4e.
 //
 // Solidity: function getNextProviderId() view returns(uint256)
@@ -685,194 +691,35 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetNextPro
 	return _ServiceProviderRegistry.Contract.GetNextProviderId(&_ServiceProviderRegistry.CallOpts)
 }
 
-// GetPDPService is a free data retrieval call binding the contract method 0xc439fd57.
-//
-// Solidity: function getPDPService(uint256 providerId) view returns((string,uint256,uint256,bool,bool,uint256,uint256,string,address) pdpOffering, string[] capabilityKeys, bool isActive)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetPDPService(opts *bind.CallOpts, providerId *big.Int) (struct {
-	PdpOffering    ServiceProviderRegistryStoragePDPOffering
-	CapabilityKeys []string
-	IsActive       bool
-}, error) {
-	var out []interface{}
-	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getPDPService", providerId)
-
-	outstruct := new(struct {
-		PdpOffering    ServiceProviderRegistryStoragePDPOffering
-		CapabilityKeys []string
-		IsActive       bool
-	})
-	if err != nil {
-		return *outstruct, err
-	}
-
-	outstruct.PdpOffering = *abi.ConvertType(out[0], new(ServiceProviderRegistryStoragePDPOffering)).(*ServiceProviderRegistryStoragePDPOffering)
-	outstruct.CapabilityKeys = *abi.ConvertType(out[1], new([]string)).(*[]string)
-	outstruct.IsActive = *abi.ConvertType(out[2], new(bool)).(*bool)
-
-	return *outstruct, err
-
-}
-
-// GetPDPService is a free data retrieval call binding the contract method 0xc439fd57.
-//
-// Solidity: function getPDPService(uint256 providerId) view returns((string,uint256,uint256,bool,bool,uint256,uint256,string,address) pdpOffering, string[] capabilityKeys, bool isActive)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetPDPService(providerId *big.Int) (struct {
-	PdpOffering    ServiceProviderRegistryStoragePDPOffering
-	CapabilityKeys []string
-	IsActive       bool
-}, error) {
-	return _ServiceProviderRegistry.Contract.GetPDPService(&_ServiceProviderRegistry.CallOpts, providerId)
-}
-
-// GetPDPService is a free data retrieval call binding the contract method 0xc439fd57.
-//
-// Solidity: function getPDPService(uint256 providerId) view returns((string,uint256,uint256,bool,bool,uint256,uint256,string,address) pdpOffering, string[] capabilityKeys, bool isActive)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetPDPService(providerId *big.Int) (struct {
-	PdpOffering    ServiceProviderRegistryStoragePDPOffering
-	CapabilityKeys []string
-	IsActive       bool
-}, error) {
-	return _ServiceProviderRegistry.Contract.GetPDPService(&_ServiceProviderRegistry.CallOpts, providerId)
-}
-
-// GetProduct is a free data retrieval call binding the contract method 0xaca0988f.
-//
-// Solidity: function getProduct(uint256 providerId, uint8 productType) view returns(bytes productData, string[] capabilityKeys, bool isActive)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProduct(opts *bind.CallOpts, providerId *big.Int, productType uint8) (struct {
-	ProductData    []byte
-	CapabilityKeys []string
-	IsActive       bool
-}, error) {
-	var out []interface{}
-	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getProduct", providerId, productType)
-
-	outstruct := new(struct {
-		ProductData    []byte
-		CapabilityKeys []string
-		IsActive       bool
-	})
-	if err != nil {
-		return *outstruct, err
-	}
-
-	outstruct.ProductData = *abi.ConvertType(out[0], new([]byte)).(*[]byte)
-	outstruct.CapabilityKeys = *abi.ConvertType(out[1], new([]string)).(*[]string)
-	outstruct.IsActive = *abi.ConvertType(out[2], new(bool)).(*bool)
-
-	return *outstruct, err
-
-}
-
-// GetProduct is a free data retrieval call binding the contract method 0xaca0988f.
-//
-// Solidity: function getProduct(uint256 providerId, uint8 productType) view returns(bytes productData, string[] capabilityKeys, bool isActive)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProduct(providerId *big.Int, productType uint8) (struct {
-	ProductData    []byte
-	CapabilityKeys []string
-	IsActive       bool
-}, error) {
-	return _ServiceProviderRegistry.Contract.GetProduct(&_ServiceProviderRegistry.CallOpts, providerId, productType)
-}
-
-// GetProduct is a free data retrieval call binding the contract method 0xaca0988f.
-//
-// Solidity: function getProduct(uint256 providerId, uint8 productType) view returns(bytes productData, string[] capabilityKeys, bool isActive)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProduct(providerId *big.Int, productType uint8) (struct {
-	ProductData    []byte
-	CapabilityKeys []string
-	IsActive       bool
-}, error) {
-	return _ServiceProviderRegistry.Contract.GetProduct(&_ServiceProviderRegistry.CallOpts, providerId, productType)
-}
-
 // GetProductCapabilities is a free data retrieval call binding the contract method 0xa6433240.
 //
-// Solidity: function getProductCapabilities(uint256 providerId, uint8 productType, string[] keys) view returns(bool[] exists, string[] values)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8, keys []string) (struct {
-	Exists []bool
-	Values []string
-}, error) {
+// Solidity: function getProductCapabilities(uint256 providerId, uint8 productType, string[] keys) view returns(bytes[] values)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8, keys []string) ([][]byte, error) {
 	var out []interface{}
 	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getProductCapabilities", providerId, productType, keys)
 
-	outstruct := new(struct {
-		Exists []bool
-		Values []string
-	})
 	if err != nil {
-		return *outstruct, err
+		return *new([][]byte), err
 	}
 
-	outstruct.Exists = *abi.ConvertType(out[0], new([]bool)).(*[]bool)
-	outstruct.Values = *abi.ConvertType(out[1], new([]string)).(*[]string)
+	out0 := *abi.ConvertType(out[0], new([][]byte)).(*[][]byte)
 
-	return *outstruct, err
+	return out0, err
 
 }
 
 // GetProductCapabilities is a free data retrieval call binding the contract method 0xa6433240.
 //
-// Solidity: function getProductCapabilities(uint256 providerId, uint8 productType, string[] keys) view returns(bool[] exists, string[] values)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProductCapabilities(providerId *big.Int, productType uint8, keys []string) (struct {
-	Exists []bool
-	Values []string
-}, error) {
+// Solidity: function getProductCapabilities(uint256 providerId, uint8 productType, string[] keys) view returns(bytes[] values)
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProductCapabilities(providerId *big.Int, productType uint8, keys []string) ([][]byte, error) {
 	return _ServiceProviderRegistry.Contract.GetProductCapabilities(&_ServiceProviderRegistry.CallOpts, providerId, productType, keys)
 }
 
 // GetProductCapabilities is a free data retrieval call binding the contract method 0xa6433240.
 //
-// Solidity: function getProductCapabilities(uint256 providerId, uint8 productType, string[] keys) view returns(bool[] exists, string[] values)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProductCapabilities(providerId *big.Int, productType uint8, keys []string) (struct {
-	Exists []bool
-	Values []string
-}, error) {
+// Solidity: function getProductCapabilities(uint256 providerId, uint8 productType, string[] keys) view returns(bytes[] values)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProductCapabilities(providerId *big.Int, productType uint8, keys []string) ([][]byte, error) {
 	return _ServiceProviderRegistry.Contract.GetProductCapabilities(&_ServiceProviderRegistry.CallOpts, providerId, productType, keys)
-}
-
-// GetProductCapability is a free data retrieval call binding the contract method 0x1e35bdde.
-//
-// Solidity: function getProductCapability(uint256 providerId, uint8 productType, string key) view returns(bool exists, string value)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProductCapability(opts *bind.CallOpts, providerId *big.Int, productType uint8, key string) (struct {
-	Exists bool
-	Value  string
-}, error) {
-	var out []interface{}
-	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getProductCapability", providerId, productType, key)
-
-	outstruct := new(struct {
-		Exists bool
-		Value  string
-	})
-	if err != nil {
-		return *outstruct, err
-	}
-
-	outstruct.Exists = *abi.ConvertType(out[0], new(bool)).(*bool)
-	outstruct.Value = *abi.ConvertType(out[1], new(string)).(*string)
-
-	return *outstruct, err
-
-}
-
-// GetProductCapability is a free data retrieval call binding the contract method 0x1e35bdde.
-//
-// Solidity: function getProductCapability(uint256 providerId, uint8 productType, string key) view returns(bool exists, string value)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProductCapability(providerId *big.Int, productType uint8, key string) (struct {
-	Exists bool
-	Value  string
-}, error) {
-	return _ServiceProviderRegistry.Contract.GetProductCapability(&_ServiceProviderRegistry.CallOpts, providerId, productType, key)
-}
-
-// GetProductCapability is a free data retrieval call binding the contract method 0x1e35bdde.
-//
-// Solidity: function getProductCapability(uint256 providerId, uint8 productType, string key) view returns(bool exists, string value)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProductCapability(providerId *big.Int, productType uint8, key string) (struct {
-	Exists bool
-	Value  string
-}, error) {
-	return _ServiceProviderRegistry.Contract.GetProductCapability(&_ServiceProviderRegistry.CallOpts, providerId, productType, key)
 }
 
 // GetProvider is a free data retrieval call binding the contract method 0x5c42d079.
@@ -1030,6 +877,37 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProvide
 	return _ServiceProviderRegistry.Contract.GetProviderPayee(&_ServiceProviderRegistry.CallOpts, providerId)
 }
 
+// GetProviderWithProduct is a free data retrieval call binding the contract method 0xadd33358.
+//
+// Solidity: function getProviderWithProduct(uint256 providerId, uint8 productType) view returns((uint256,(address,address,string,string,bool),(uint8,string[],bool),bytes[]))
+func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProviderWithProduct(opts *bind.CallOpts, providerId *big.Int, productType uint8) (ServiceProviderRegistryStorageProviderWithProduct, error) {
+	var out []interface{}
+	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getProviderWithProduct", providerId, productType)
+
+	if err != nil {
+		return *new(ServiceProviderRegistryStorageProviderWithProduct), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(ServiceProviderRegistryStorageProviderWithProduct)).(*ServiceProviderRegistryStorageProviderWithProduct)
+
+	return out0, err
+
+}
+
+// GetProviderWithProduct is a free data retrieval call binding the contract method 0xadd33358.
+//
+// Solidity: function getProviderWithProduct(uint256 providerId, uint8 productType) view returns((uint256,(address,address,string,string,bool),(uint8,string[],bool),bytes[]))
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProviderWithProduct(providerId *big.Int, productType uint8) (ServiceProviderRegistryStorageProviderWithProduct, error) {
+	return _ServiceProviderRegistry.Contract.GetProviderWithProduct(&_ServiceProviderRegistry.CallOpts, providerId, productType)
+}
+
+// GetProviderWithProduct is a free data retrieval call binding the contract method 0xadd33358.
+//
+// Solidity: function getProviderWithProduct(uint256 providerId, uint8 productType) view returns((uint256,(address,address,string,string,bool),(uint8,string[],bool),bytes[]))
+func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProviderWithProduct(providerId *big.Int, productType uint8) (ServiceProviderRegistryStorageProviderWithProduct, error) {
+	return _ServiceProviderRegistry.Contract.GetProviderWithProduct(&_ServiceProviderRegistry.CallOpts, providerId, productType)
+}
+
 // GetProvidersByIds is a free data retrieval call binding the contract method 0x5bfe9146.
 //
 // Solidity: function getProvidersByIds(uint256[] providerIds) view returns((uint256,(address,address,string,string,bool))[] providerInfos, bool[] validIds)
@@ -1075,12 +953,12 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProvide
 	return _ServiceProviderRegistry.Contract.GetProvidersByIds(&_ServiceProviderRegistry.CallOpts, providerIds)
 }
 
-// GetProvidersByProductType is a free data retrieval call binding the contract method 0xfc260f7b.
+// GetProvidersByProductType is a free data retrieval call binding the contract method 0x6ba44226.
 //
-// Solidity: function getProvidersByProductType(uint8 productType, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,bytes,string[],bool))[],bool) result)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProvidersByProductType(opts *bind.CallOpts, productType uint8, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
+// Solidity: function getProvidersByProductType(uint8 productType, bool onlyActive, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,string[],bool),bytes[])[],bool) result)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProvidersByProductType(opts *bind.CallOpts, productType uint8, onlyActive bool, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
 	var out []interface{}
-	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getProvidersByProductType", productType, offset, limit)
+	err := _ServiceProviderRegistry.contract.Call(opts, &out, "getProvidersByProductType", productType, onlyActive, offset, limit)
 
 	if err != nil {
 		return *new(ServiceProviderRegistryStoragePaginatedProviders), err
@@ -1092,18 +970,18 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) GetProvidersByPro
 
 }
 
-// GetProvidersByProductType is a free data retrieval call binding the contract method 0xfc260f7b.
+// GetProvidersByProductType is a free data retrieval call binding the contract method 0x6ba44226.
 //
-// Solidity: function getProvidersByProductType(uint8 productType, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,bytes,string[],bool))[],bool) result)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProvidersByProductType(productType uint8, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
-	return _ServiceProviderRegistry.Contract.GetProvidersByProductType(&_ServiceProviderRegistry.CallOpts, productType, offset, limit)
+// Solidity: function getProvidersByProductType(uint8 productType, bool onlyActive, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,string[],bool),bytes[])[],bool) result)
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) GetProvidersByProductType(productType uint8, onlyActive bool, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
+	return _ServiceProviderRegistry.Contract.GetProvidersByProductType(&_ServiceProviderRegistry.CallOpts, productType, onlyActive, offset, limit)
 }
 
-// GetProvidersByProductType is a free data retrieval call binding the contract method 0xfc260f7b.
+// GetProvidersByProductType is a free data retrieval call binding the contract method 0x6ba44226.
 //
-// Solidity: function getProvidersByProductType(uint8 productType, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,bytes,string[],bool))[],bool) result)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProvidersByProductType(productType uint8, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
-	return _ServiceProviderRegistry.Contract.GetProvidersByProductType(&_ServiceProviderRegistry.CallOpts, productType, offset, limit)
+// Solidity: function getProvidersByProductType(uint8 productType, bool onlyActive, uint256 offset, uint256 limit) view returns(((uint256,(address,address,string,string,bool),(uint8,string[],bool),bytes[])[],bool) result)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) GetProvidersByProductType(productType uint8, onlyActive bool, offset *big.Int, limit *big.Int) (ServiceProviderRegistryStoragePaginatedProviders, error) {
+	return _ServiceProviderRegistry.Contract.GetProvidersByProductType(&_ServiceProviderRegistry.CallOpts, productType, onlyActive, offset, limit)
 }
 
 // IsProviderActive is a free data retrieval call binding the contract method 0x83df54a5.
@@ -1201,16 +1079,16 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) Owner() (c
 
 // ProductCapabilities is a free data retrieval call binding the contract method 0x4368bafb.
 //
-// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(string value)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8, key string) (string, error) {
+// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(bytes value)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8, key string) ([]byte, error) {
 	var out []interface{}
 	err := _ServiceProviderRegistry.contract.Call(opts, &out, "productCapabilities", providerId, productType, key)
 
 	if err != nil {
-		return *new(string), err
+		return *new([]byte), err
 	}
 
-	out0 := *abi.ConvertType(out[0], new(string)).(*string)
+	out0 := *abi.ConvertType(out[0], new([]byte)).(*[]byte)
 
 	return out0, err
 
@@ -1218,15 +1096,15 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProductCapabiliti
 
 // ProductCapabilities is a free data retrieval call binding the contract method 0x4368bafb.
 //
-// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(string value)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) ProductCapabilities(providerId *big.Int, productType uint8, key string) (string, error) {
+// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(bytes value)
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) ProductCapabilities(providerId *big.Int, productType uint8, key string) ([]byte, error) {
 	return _ServiceProviderRegistry.Contract.ProductCapabilities(&_ServiceProviderRegistry.CallOpts, providerId, productType, key)
 }
 
 // ProductCapabilities is a free data retrieval call binding the contract method 0x4368bafb.
 //
-// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(string value)
-func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) ProductCapabilities(providerId *big.Int, productType uint8, key string) (string, error) {
+// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(bytes value)
+func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) ProductCapabilities(providerId *big.Int, productType uint8, key string) ([]byte, error) {
 	return _ServiceProviderRegistry.Contract.ProductCapabilities(&_ServiceProviderRegistry.CallOpts, providerId, productType, key)
 }
 
@@ -1294,10 +1172,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) ProviderHa
 
 // ProviderProducts is a free data retrieval call binding the contract method 0x6bf6d74f.
 //
-// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bytes productData, bool isActive)
+// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bool isActive)
 func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProviderProducts(opts *bind.CallOpts, providerId *big.Int, productType uint8) (struct {
 	ProductType uint8
-	ProductData []byte
 	IsActive    bool
 }, error) {
 	var out []interface{}
@@ -1305,7 +1182,6 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProviderProducts(
 
 	outstruct := new(struct {
 		ProductType uint8
-		ProductData []byte
 		IsActive    bool
 	})
 	if err != nil {
@@ -1313,8 +1189,7 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProviderProducts(
 	}
 
 	outstruct.ProductType = *abi.ConvertType(out[0], new(uint8)).(*uint8)
-	outstruct.ProductData = *abi.ConvertType(out[1], new([]byte)).(*[]byte)
-	outstruct.IsActive = *abi.ConvertType(out[2], new(bool)).(*bool)
+	outstruct.IsActive = *abi.ConvertType(out[1], new(bool)).(*bool)
 
 	return *outstruct, err
 
@@ -1322,10 +1197,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCaller) ProviderProducts(
 
 // ProviderProducts is a free data retrieval call binding the contract method 0x6bf6d74f.
 //
-// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bytes productData, bool isActive)
+// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bool isActive)
 func (_ServiceProviderRegistry *ServiceProviderRegistrySession) ProviderProducts(providerId *big.Int, productType uint8) (struct {
 	ProductType uint8
-	ProductData []byte
 	IsActive    bool
 }, error) {
 	return _ServiceProviderRegistry.Contract.ProviderProducts(&_ServiceProviderRegistry.CallOpts, providerId, productType)
@@ -1333,10 +1207,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistrySession) ProviderProducts
 
 // ProviderProducts is a free data retrieval call binding the contract method 0x6bf6d74f.
 //
-// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bytes productData, bool isActive)
+// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bool isActive)
 func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) ProviderProducts(providerId *big.Int, productType uint8) (struct {
 	ProductType uint8
-	ProductData []byte
 	IsActive    bool
 }, error) {
 	return _ServiceProviderRegistry.Contract.ProviderProducts(&_ServiceProviderRegistry.CallOpts, providerId, productType)
@@ -1433,25 +1306,25 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryCallerSession) ProxiableU
 	return _ServiceProviderRegistry.Contract.ProxiableUUID(&_ServiceProviderRegistry.CallOpts)
 }
 
-// AddProduct is a paid mutator transaction binding the contract method 0x02ff8437.
+// AddProduct is a paid mutator transaction binding the contract method 0x360cc6ac.
 //
-// Solidity: function addProduct(uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) AddProduct(opts *bind.TransactOpts, productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.contract.Transact(opts, "addProduct", productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function addProduct(uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) returns()
+func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) AddProduct(opts *bind.TransactOpts, productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.contract.Transact(opts, "addProduct", productType, capabilityKeys, capabilityValues)
 }
 
-// AddProduct is a paid mutator transaction binding the contract method 0x02ff8437.
+// AddProduct is a paid mutator transaction binding the contract method 0x360cc6ac.
 //
-// Solidity: function addProduct(uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) AddProduct(productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.AddProduct(&_ServiceProviderRegistry.TransactOpts, productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function addProduct(uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) returns()
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) AddProduct(productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.Contract.AddProduct(&_ServiceProviderRegistry.TransactOpts, productType, capabilityKeys, capabilityValues)
 }
 
-// AddProduct is a paid mutator transaction binding the contract method 0x02ff8437.
+// AddProduct is a paid mutator transaction binding the contract method 0x360cc6ac.
 //
-// Solidity: function addProduct(uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) AddProduct(productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.AddProduct(&_ServiceProviderRegistry.TransactOpts, productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function addProduct(uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) returns()
+func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) AddProduct(productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.Contract.AddProduct(&_ServiceProviderRegistry.TransactOpts, productType, capabilityKeys, capabilityValues)
 }
 
 // Initialize is a paid mutator transaction binding the contract method 0x8129fc1c.
@@ -1496,25 +1369,25 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) Migrat
 	return _ServiceProviderRegistry.Contract.Migrate(&_ServiceProviderRegistry.TransactOpts, newVersion)
 }
 
-// RegisterProvider is a paid mutator transaction binding the contract method 0xb47be8ab.
+// RegisterProvider is a paid mutator transaction binding the contract method 0x90d270c2.
 //
-// Solidity: function registerProvider(address payee, string name, string description, uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) payable returns(uint256 providerId)
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) RegisterProvider(opts *bind.TransactOpts, payee common.Address, name string, description string, productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.contract.Transact(opts, "registerProvider", payee, name, description, productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function registerProvider(address payee, string name, string description, uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) payable returns(uint256 providerId)
+func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) RegisterProvider(opts *bind.TransactOpts, payee common.Address, name string, description string, productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.contract.Transact(opts, "registerProvider", payee, name, description, productType, capabilityKeys, capabilityValues)
 }
 
-// RegisterProvider is a paid mutator transaction binding the contract method 0xb47be8ab.
+// RegisterProvider is a paid mutator transaction binding the contract method 0x90d270c2.
 //
-// Solidity: function registerProvider(address payee, string name, string description, uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) payable returns(uint256 providerId)
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) RegisterProvider(payee common.Address, name string, description string, productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.RegisterProvider(&_ServiceProviderRegistry.TransactOpts, payee, name, description, productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function registerProvider(address payee, string name, string description, uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) payable returns(uint256 providerId)
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) RegisterProvider(payee common.Address, name string, description string, productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.Contract.RegisterProvider(&_ServiceProviderRegistry.TransactOpts, payee, name, description, productType, capabilityKeys, capabilityValues)
 }
 
-// RegisterProvider is a paid mutator transaction binding the contract method 0xb47be8ab.
+// RegisterProvider is a paid mutator transaction binding the contract method 0x90d270c2.
 //
-// Solidity: function registerProvider(address payee, string name, string description, uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) payable returns(uint256 providerId)
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) RegisterProvider(payee common.Address, name string, description string, productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.RegisterProvider(&_ServiceProviderRegistry.TransactOpts, payee, name, description, productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function registerProvider(address payee, string name, string description, uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) payable returns(uint256 providerId)
+func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) RegisterProvider(payee common.Address, name string, description string, productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.Contract.RegisterProvider(&_ServiceProviderRegistry.TransactOpts, payee, name, description, productType, capabilityKeys, capabilityValues)
 }
 
 // RemoveProduct is a paid mutator transaction binding the contract method 0xa9d239b6.
@@ -1601,46 +1474,25 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) Transf
 	return _ServiceProviderRegistry.Contract.TransferOwnership(&_ServiceProviderRegistry.TransactOpts, newOwner)
 }
 
-// UpdatePDPServiceWithCapabilities is a paid mutator transaction binding the contract method 0x0b5c0125.
+// UpdateProduct is a paid mutator transaction binding the contract method 0xa128c005.
 //
-// Solidity: function updatePDPServiceWithCapabilities((string,uint256,uint256,bool,bool,uint256,uint256,string,address) pdpOffering, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) UpdatePDPServiceWithCapabilities(opts *bind.TransactOpts, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.contract.Transact(opts, "updatePDPServiceWithCapabilities", pdpOffering, capabilityKeys, capabilityValues)
+// Solidity: function updateProduct(uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) returns()
+func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) UpdateProduct(opts *bind.TransactOpts, productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.contract.Transact(opts, "updateProduct", productType, capabilityKeys, capabilityValues)
 }
 
-// UpdatePDPServiceWithCapabilities is a paid mutator transaction binding the contract method 0x0b5c0125.
+// UpdateProduct is a paid mutator transaction binding the contract method 0xa128c005.
 //
-// Solidity: function updatePDPServiceWithCapabilities((string,uint256,uint256,bool,bool,uint256,uint256,string,address) pdpOffering, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) UpdatePDPServiceWithCapabilities(pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.UpdatePDPServiceWithCapabilities(&_ServiceProviderRegistry.TransactOpts, pdpOffering, capabilityKeys, capabilityValues)
+// Solidity: function updateProduct(uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) returns()
+func (_ServiceProviderRegistry *ServiceProviderRegistrySession) UpdateProduct(productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.Contract.UpdateProduct(&_ServiceProviderRegistry.TransactOpts, productType, capabilityKeys, capabilityValues)
 }
 
-// UpdatePDPServiceWithCapabilities is a paid mutator transaction binding the contract method 0x0b5c0125.
+// UpdateProduct is a paid mutator transaction binding the contract method 0xa128c005.
 //
-// Solidity: function updatePDPServiceWithCapabilities((string,uint256,uint256,bool,bool,uint256,uint256,string,address) pdpOffering, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) UpdatePDPServiceWithCapabilities(pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.UpdatePDPServiceWithCapabilities(&_ServiceProviderRegistry.TransactOpts, pdpOffering, capabilityKeys, capabilityValues)
-}
-
-// UpdateProduct is a paid mutator transaction binding the contract method 0x8c9a7b56.
-//
-// Solidity: function updateProduct(uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactor) UpdateProduct(opts *bind.TransactOpts, productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.contract.Transact(opts, "updateProduct", productType, productData, capabilityKeys, capabilityValues)
-}
-
-// UpdateProduct is a paid mutator transaction binding the contract method 0x8c9a7b56.
-//
-// Solidity: function updateProduct(uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistrySession) UpdateProduct(productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.UpdateProduct(&_ServiceProviderRegistry.TransactOpts, productType, productData, capabilityKeys, capabilityValues)
-}
-
-// UpdateProduct is a paid mutator transaction binding the contract method 0x8c9a7b56.
-//
-// Solidity: function updateProduct(uint8 productType, bytes productData, string[] capabilityKeys, string[] capabilityValues) returns()
-func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) UpdateProduct(productType uint8, productData []byte, capabilityKeys []string, capabilityValues []string) (*types.Transaction, error) {
-	return _ServiceProviderRegistry.Contract.UpdateProduct(&_ServiceProviderRegistry.TransactOpts, productType, productData, capabilityKeys, capabilityValues)
+// Solidity: function updateProduct(uint8 productType, string[] capabilityKeys, bytes[] capabilityValues) returns()
+func (_ServiceProviderRegistry *ServiceProviderRegistryTransactorSession) UpdateProduct(productType uint8, capabilityKeys []string, capabilityValues [][]byte) (*types.Transaction, error) {
+	return _ServiceProviderRegistry.Contract.UpdateProduct(&_ServiceProviderRegistry.TransactOpts, productType, capabilityKeys, capabilityValues)
 }
 
 // UpdateProviderInfo is a paid mutator transaction binding the contract method 0xd1c21b5b.
@@ -2312,15 +2164,14 @@ type ServiceProviderRegistryProductAdded struct {
 	ProviderId       *big.Int
 	ProductType      uint8
 	ServiceProvider  common.Address
-	ProductData      []byte
 	CapabilityKeys   []string
-	CapabilityValues []string
+	CapabilityValues [][]byte
 	Raw              types.Log // Blockchain specific contextual infos
 }
 
-// FilterProductAdded is a free log retrieval operation binding the contract event 0xc03038a9ecf24bce3ca992cd5fc58cfc5eef92df68bdcce2a38ad62026932e6e.
+// FilterProductAdded is a free log retrieval operation binding the contract event 0xf736f1c7fa0eb68f0384383abc0d4dcc8208127acfb5c87f03f965f2a8a69686.
 //
-// Solidity: event ProductAdded(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, bytes productData, string[] capabilityKeys, string[] capabilityValues)
+// Solidity: event ProductAdded(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, string[] capabilityKeys, bytes[] capabilityValues)
 func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) FilterProductAdded(opts *bind.FilterOpts, providerId []*big.Int, productType []uint8) (*ServiceProviderRegistryProductAddedIterator, error) {
 
 	var providerIdRule []interface{}
@@ -2339,9 +2190,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) FilterProductAd
 	return &ServiceProviderRegistryProductAddedIterator{contract: _ServiceProviderRegistry.contract, event: "ProductAdded", logs: logs, sub: sub}, nil
 }
 
-// WatchProductAdded is a free log subscription operation binding the contract event 0xc03038a9ecf24bce3ca992cd5fc58cfc5eef92df68bdcce2a38ad62026932e6e.
+// WatchProductAdded is a free log subscription operation binding the contract event 0xf736f1c7fa0eb68f0384383abc0d4dcc8208127acfb5c87f03f965f2a8a69686.
 //
-// Solidity: event ProductAdded(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, bytes productData, string[] capabilityKeys, string[] capabilityValues)
+// Solidity: event ProductAdded(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, string[] capabilityKeys, bytes[] capabilityValues)
 func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) WatchProductAdded(opts *bind.WatchOpts, sink chan<- *ServiceProviderRegistryProductAdded, providerId []*big.Int, productType []uint8) (event.Subscription, error) {
 
 	var providerIdRule []interface{}
@@ -2385,9 +2236,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) WatchProductAdd
 	}), nil
 }
 
-// ParseProductAdded is a log parse operation binding the contract event 0xc03038a9ecf24bce3ca992cd5fc58cfc5eef92df68bdcce2a38ad62026932e6e.
+// ParseProductAdded is a log parse operation binding the contract event 0xf736f1c7fa0eb68f0384383abc0d4dcc8208127acfb5c87f03f965f2a8a69686.
 //
-// Solidity: event ProductAdded(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, bytes productData, string[] capabilityKeys, string[] capabilityValues)
+// Solidity: event ProductAdded(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, string[] capabilityKeys, bytes[] capabilityValues)
 func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) ParseProductAdded(log types.Log) (*ServiceProviderRegistryProductAdded, error) {
 	event := new(ServiceProviderRegistryProductAdded)
 	if err := _ServiceProviderRegistry.contract.UnpackLog(event, "ProductAdded", log); err != nil {
@@ -2622,15 +2473,14 @@ type ServiceProviderRegistryProductUpdated struct {
 	ProviderId       *big.Int
 	ProductType      uint8
 	ServiceProvider  common.Address
-	ProductData      []byte
 	CapabilityKeys   []string
-	CapabilityValues []string
+	CapabilityValues [][]byte
 	Raw              types.Log // Blockchain specific contextual infos
 }
 
-// FilterProductUpdated is a free log retrieval operation binding the contract event 0x43123f971453cebc3b94b1b06a1d26d7a5a5b6bf650f3adb0aadfa678103c975.
+// FilterProductUpdated is a free log retrieval operation binding the contract event 0x19305e69de03c2e3298427ad2c225fef7bc07a55c9a1a6b930f5d21ad6f22148.
 //
-// Solidity: event ProductUpdated(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, bytes productData, string[] capabilityKeys, string[] capabilityValues)
+// Solidity: event ProductUpdated(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, string[] capabilityKeys, bytes[] capabilityValues)
 func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) FilterProductUpdated(opts *bind.FilterOpts, providerId []*big.Int, productType []uint8) (*ServiceProviderRegistryProductUpdatedIterator, error) {
 
 	var providerIdRule []interface{}
@@ -2649,9 +2499,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) FilterProductUp
 	return &ServiceProviderRegistryProductUpdatedIterator{contract: _ServiceProviderRegistry.contract, event: "ProductUpdated", logs: logs, sub: sub}, nil
 }
 
-// WatchProductUpdated is a free log subscription operation binding the contract event 0x43123f971453cebc3b94b1b06a1d26d7a5a5b6bf650f3adb0aadfa678103c975.
+// WatchProductUpdated is a free log subscription operation binding the contract event 0x19305e69de03c2e3298427ad2c225fef7bc07a55c9a1a6b930f5d21ad6f22148.
 //
-// Solidity: event ProductUpdated(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, bytes productData, string[] capabilityKeys, string[] capabilityValues)
+// Solidity: event ProductUpdated(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, string[] capabilityKeys, bytes[] capabilityValues)
 func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) WatchProductUpdated(opts *bind.WatchOpts, sink chan<- *ServiceProviderRegistryProductUpdated, providerId []*big.Int, productType []uint8) (event.Subscription, error) {
 
 	var providerIdRule []interface{}
@@ -2695,9 +2545,9 @@ func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) WatchProductUpd
 	}), nil
 }
 
-// ParseProductUpdated is a log parse operation binding the contract event 0x43123f971453cebc3b94b1b06a1d26d7a5a5b6bf650f3adb0aadfa678103c975.
+// ParseProductUpdated is a log parse operation binding the contract event 0x19305e69de03c2e3298427ad2c225fef7bc07a55c9a1a6b930f5d21ad6f22148.
 //
-// Solidity: event ProductUpdated(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, bytes productData, string[] capabilityKeys, string[] capabilityValues)
+// Solidity: event ProductUpdated(uint256 indexed providerId, uint8 indexed productType, address serviceProvider, string[] capabilityKeys, bytes[] capabilityValues)
 func (_ServiceProviderRegistry *ServiceProviderRegistryFilterer) ParseProductUpdated(log types.Log) (*ServiceProviderRegistryProductUpdated, error) {
 	event := new(ServiceProviderRegistryProductUpdated)
 	if err := _ServiceProviderRegistry.contract.UnpackLog(event, "ProductUpdated", log); err != nil {

@@ -244,6 +244,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             max_size: parseInt(this.pdpMaxPieceSize, 10),
             ipni_piece: this.pdpIpniPiece,
             ipni_ipfs: this.pdpIpniIpfs,
+            ipni_peer_id: this.status?.pdp_service?.ipni_peer_id || '',
             price: parseInt(this.pdpPrice, 10),
             min_proving_period: parseInt(this.pdpMinProvingPeriod, 10),
             location: this.pdpLocation.trim(),
@@ -300,7 +301,9 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ${this.renderKV('Max Piece Size', this.formatBytes(pdp.max_size))}
                 ${this.renderKV('IPNI Piece', String(!!pdp.ipni_piece))}
                 ${this.renderKV('IPNI IPFS', String(!!pdp.ipni_ipfs))}
-                ${this.renderKV('Price (per TiB per month)', this.unitsToUSDFCPerTiBPerMonth(pdp.price))}
+                ${this.renderKV('IPNI Peer ID', pdp.ipni_peer_id)}
+                ${this.renderKV('Price (per TiB per day)', this.unitsToUSDFCPerTiBPerDay(pdp.price))}
+                ${this.renderKV('Price (per TiB per month)', (parseFloat(this.unitsToUSDFCPerTiBPerDay(pdp.price)) * 30).toFixed(4))}
                 ${this.renderKV('Min Proving Period (epochs)', pdp.min_proving_period)}
                 ${this.renderKV('Location', pdp.location)}
                 ${this.renderKV('Capabilities', this.renderCapabilities(capabilities))}
@@ -321,16 +324,14 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         return 1e18;
     }
 
-    unitsToUSDFCPerTiBPerMonth(value) {
-        const inUSDFC =
-            value  / this.UNIT_PER_USDFC;
-        return inUSDFC.toFixed(4); // Limit to 4 decimal places
+    unitsToUSDFCPerTiBPerDay(value) {
+        const inUSDFC = value / this.UNIT_PER_USDFC;
+        return inUSDFC.toFixed(4);
     }
 
-    USDFCToUnitsPerGiBPerEpoch(value) {
-        const inUnits =
-            (value * this.UNIT_PER_USDFC);
-        return Math.round(inUnits); // Round to the nearest integer
+    USDFCToUnitsPerTibPerDay(value) {
+        const inUnits = value * this.UNIT_PER_USDFC;
+        return Math.round(inUnits);
     }
 
     render() {
@@ -383,7 +384,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                     ${this.status !== null ? html`<button class="btn btn-danger me-2" @click=${this.openDeregisterModal}>Deregister Provider</button>` : ''}
                     <p></p>
                 `}`}
-                
+
                 ${this.showRegisterModal ? html`
                     <div class="modal-backdrop" @click=${(e)=>{ if(e.target===e.currentTarget) this.closeRegister(); }}>
                         <div class="modal-card">
@@ -418,7 +419,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                         </div>
                     </div>
                 ` : ''}
-                
+
                 ${this.showUpdateModal ? html`
                     <div class="modal-backdrop" @click=${(e)=>{ if(e.target===e.currentTarget) this.closeUpdate(); }}>
                         <div class="modal-card">
@@ -509,14 +510,16 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                         />
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Storage Price (per TiB per month in USDFC)</label>
+                                        <label class="form-label">Storage Price (per TiB per day in USDFC)</label>
                                         <input
                                                 class="form-control"
                                                 type="number"
-                                                .value=${this.unitsToUSDFCPerTiBPerMonth(this.pdpPrice)}
-                                                @input=${e => this.pdpPrice = this.USDFCToUnitsPerGiBPerEpoch(parseFloat(e.target.value))}
+                                                step="0.0001"
+                                                .value=${this.unitsToUSDFCPerTiBPerDay(this.pdpPrice)}
+                                                @input=${e => this.pdpPrice = this.USDFCToUnitsPerTibPerDay(parseFloat(e.target.value))}
                                                 required
                                         />
+                                        <div class="form-text">Approximately ${(parseFloat(this.unitsToUSDFCPerTiBPerDay(this.pdpPrice)) * 30).toFixed(2)} USDFC per TiB per month</div>
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">Minimum Proving Period (Epochs)</label>
@@ -562,7 +565,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                         </div>
                     </div>
                 ` : ''}
-                
+
                 ${this.showDeregisterModal ? html`
                 <div class="modal-backdrop" @click=${(e) => { if (e.target === e.currentTarget) this.closeDeregisterModal(); }}>
                     <div class="modal-card">
