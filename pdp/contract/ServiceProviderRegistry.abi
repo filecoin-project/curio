@@ -738,6 +738,101 @@
   },
   {
     "type": "function",
+    "name": "getProvidersWithProductByIds",
+    "inputs": [
+      {
+        "name": "providerIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "productType",
+        "type": "uint8",
+        "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "providersWithProducts",
+        "type": "tuple[]",
+        "internalType": "struct ServiceProviderRegistryStorage.ProviderWithProduct[]",
+        "components": [
+          {
+            "name": "providerId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "providerInfo",
+            "type": "tuple",
+            "internalType": "struct ServiceProviderRegistryStorage.ServiceProviderInfo",
+            "components": [
+              {
+                "name": "serviceProvider",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "payee",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "description",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "isActive",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          },
+          {
+            "name": "product",
+            "type": "tuple",
+            "internalType": "struct ServiceProviderRegistryStorage.ServiceProduct",
+            "components": [
+              {
+                "name": "productType",
+                "type": "uint8",
+                "internalType": "enum ServiceProviderRegistryStorage.ProductType"
+              },
+              {
+                "name": "capabilityKeys",
+                "type": "string[]",
+                "internalType": "string[]"
+              },
+              {
+                "name": "isActive",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          },
+          {
+            "name": "productCapabilityValues",
+            "type": "bytes[]",
+            "internalType": "bytes[]"
+          }
+        ]
+      },
+      {
+        "name": "validIds",
+        "type": "bool[]",
+        "internalType": "bool[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "initialize",
     "inputs": [],
     "outputs": [],

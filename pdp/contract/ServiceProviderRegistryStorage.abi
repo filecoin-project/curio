@@ -73,8 +73,8 @@
     "outputs": [
       {
         "name": "value",
-        "type": "string",
-        "internalType": "string"
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "stateMutability": "view"
@@ -118,11 +118,6 @@
         "name": "productType",
         "type": "uint8",
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
-      },
-      {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
       },
       {
         "name": "isActive",
