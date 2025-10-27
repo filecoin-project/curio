@@ -244,6 +244,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             max_size: parseInt(this.pdpMaxPieceSize, 10),
             ipni_piece: this.pdpIpniPiece,
             ipni_ipfs: this.pdpIpniIpfs,
+            ipni_peer_id: this.status?.pdp_service?.ipni_peer_id || '',
             price: parseInt(this.pdpPrice, 10),
             min_proving_period: parseInt(this.pdpMinProvingPeriod, 10),
             location: this.pdpLocation.trim(),
@@ -300,6 +301,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ${this.renderKV('Max Piece Size', this.formatBytes(pdp.max_size))}
                 ${this.renderKV('IPNI Piece', String(!!pdp.ipni_piece))}
                 ${this.renderKV('IPNI IPFS', String(!!pdp.ipni_ipfs))}
+                ${this.renderKV('IPNI Peer ID', pdp.ipni_peer_id)}
                 ${this.renderKV('Price (per TiB per day)', this.unitsToUSDFCPerTiBPerDay(pdp.price))}
                 ${this.renderKV('Price (per TiB per month)', (parseFloat(this.unitsToUSDFCPerTiBPerDay(pdp.price)) * 30).toFixed(4))}
                 ${this.renderKV('Min Proving Period (epochs)', pdp.min_proving_period)}
@@ -382,7 +384,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                     ${this.status !== null ? html`<button class="btn btn-danger me-2" @click=${this.openDeregisterModal}>Deregister Provider</button>` : ''}
                     <p></p>
                 `}`}
-                
+
                 ${this.showRegisterModal ? html`
                     <div class="modal-backdrop" @click=${(e)=>{ if(e.target===e.currentTarget) this.closeRegister(); }}>
                         <div class="modal-card">
@@ -417,7 +419,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                         </div>
                     </div>
                 ` : ''}
-                
+
                 ${this.showUpdateModal ? html`
                     <div class="modal-backdrop" @click=${(e)=>{ if(e.target===e.currentTarget) this.closeUpdate(); }}>
                         <div class="modal-card">
@@ -563,7 +565,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                         </div>
                     </div>
                 ` : ''}
-                
+
                 ${this.showDeregisterModal ? html`
                 <div class="modal-backdrop" @click=${(e) => { if (e.target === e.currentTarget) this.closeDeregisterModal(); }}>
                     <div class="modal-card">

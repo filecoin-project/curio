@@ -252,7 +252,7 @@ type FSPDPOffering struct {
 	MaxPieceSizeInBytes      int64  `json:"max_size"`
 	IpniPiece                bool   `json:"ipni_piece"`
 	IpniIpfs                 bool   `json:"ipni_ipfs"`
-	IpniPeerID               []byte `json:"ipni_peer_id"`
+	IpniPeerID               string `json:"ipni_peer_id"` // Base58 encoded PeerID
 	StoragePricePerTibPerDay int64  `json:"price"`
 	MinProvingPeriodInEpochs int64  `json:"min_proving_period"`
 	Location                 string `json:"location"`
@@ -282,7 +282,7 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 		case contract.CapIpniIpfs:
 			offering.IpniIpfs = true
 		case contract.CapIpniPeerID:
-			offering.IpniPeerID = value
+			offering.IpniPeerID = peer.ID(value).String() // we skip peer.IDFromBytes as it returns an error if bytes are not multihash
 		case contract.CapStoragePrice:
 			offering.StoragePricePerTibPerDay = new(big.Int).SetBytes(value).Int64()
 		case contract.CapMinProvingPeriod:
@@ -572,6 +572,18 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		return fmt.Errorf("location cannot be longer than 128 characters")
 	}
 
+	var peerID peer.ID
+	if pdpOffering.IpniIpfs || pdpOffering.IpniPiece {
+		if len(pdpOffering.IpniPeerID) == 0 {
+			return fmt.Errorf("IPNI peer ID cannot be empty if either of IPNI IPFS or IPNI Piece are enabled")
+		}
+		var err error
+		peerID, err = peer.Decode(pdpOffering.IpniPeerID)
+		if err != nil {
+			return fmt.Errorf("invalid IPNI peer ID: %w", err)
+		}
+	}
+
 	pdpAddress, err := a.getPDPAddress(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get PDP address: %w", err)
@@ -607,6 +619,7 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 		MaxPieceSizeInBytes:      big.NewInt(pdpOffering.MaxPieceSizeInBytes),
 		IpniPiece:                pdpOffering.IpniPiece,
 		IpniIpfs:                 pdpOffering.IpniIpfs,
+		IpniPeerID:               []byte(peerID),
 		StoragePricePerTibPerDay: big.NewInt(pdpOffering.StoragePricePerTibPerDay),
 		MinProvingPeriodInEpochs: big.NewInt(pdpOffering.MinProvingPeriodInEpochs),
 		Location:                 pdpOffering.Location,
