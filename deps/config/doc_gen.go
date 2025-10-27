@@ -812,12 +812,6 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 also be bounded by resources available on the machine. (Default: 8)`,
 		},
 		{
-			Name: "EnableBalanceManager",
-			Type: "bool",
-
-			Comment: `EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)`,
-		},
-		{
 			Name: "BindSDRTreeToNode",
 			Type: "bool",
 
