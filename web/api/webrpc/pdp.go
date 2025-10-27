@@ -275,9 +275,9 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 		case contract.CapMaxPieceSize:
 			offering.MaxPieceSizeInBytes = new(big.Int).SetBytes(value).Int64()
 		case contract.CapIpniPiece:
-			offering.IpniPiece = len(value) > 0 && value[0] == 0x01
+			offering.IpniPiece = true
 		case contract.CapIpniIpfs:
-			offering.IpniIpfs = len(value) > 0 && value[0] == 0x01
+			offering.IpniIpfs = true
 		case contract.CapStoragePrice:
 			offering.StoragePricePerTibPerDay = new(big.Int).SetBytes(value).Int64()
 		case contract.CapMinProvingPeriod:
