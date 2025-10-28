@@ -368,17 +368,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		data,
 	)
 
-	// Step 8: Send the transaction using SenderETH
-	reason := "pdp-addpieces"
-	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
-	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		log.Errorf("Failed to send transaction: %+v", err)
-		return
-	}
-
-	// Step 9: check for indexing requirements on data set.
-	// Get listenerAddr from blockchain contract
+	// Step 8: Check for indexing requirements
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
 	if err != nil {
 		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
@@ -393,14 +383,22 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 	mustIndex, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, p.ethClient, dataSetId, "withIPFSIndexing")
 	if err != nil {
-		// Hard to differenctiate between unsupported listener type OR internal error
-		// So we log on debug and skip indexing attempt
+		// Hard to differentiate between unsupported listener type OR internal error
+		// So we log and skip indexing attempt
 		mustIndex = false
-		log.Infow("Failed to get data set metadata, skipping indexing ", "error", err, "dataSetId", dataSetId)
+		log.Warnw("Failed to get data set metadata, skipping indexing", "error", err, "dataSetId", dataSetId)
 	}
 
-	// Step 9: Insert into message_waits_eth and pdp_data_set_pieces
-	// Ensure consistent lowercase transaction hash
+	// Step 9: Send the transaction
+	reason := "pdp-addpieces"
+	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
+	if err != nil {
+		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to send transaction: %+v", err)
+		return
+	}
+
+	// Step 10: Insert database tracking records
 	txHashLower := strings.ToLower(txHash.Hex())
 	log.Infow("PDP AddPieces: Inserting transaction tracking",
 		"txHash", txHashLower,
