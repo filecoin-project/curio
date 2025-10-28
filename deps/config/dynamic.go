@@ -51,12 +51,24 @@ func (d *Dynamic[T]) OnChange(fn func()) {
 	}
 }
 
-// It locks dynamicLocker.
+// It locks dynamicLocker, unless we're already in an updating context.
 func (d *Dynamic[T]) Set(value T) {
-	dynamicLocker.Lock()
-	defer dynamicLocker.Unlock()
-	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
-	d.value = value
+	// Check if we're already in an updating context (changeMonitor)
+	dynamicLocker.RLock()
+	updating := dynamicLocker.updating
+	dynamicLocker.RUnlock()
+
+	if updating {
+		// We're in changeMonitor context, don't acquire the lock to avoid deadlock
+		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+		d.value = value
+	} else {
+		// Normal case - acquire the lock
+		dynamicLocker.Lock()
+		defer dynamicLocker.Unlock()
+		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+		d.value = value
+	}
 }
 
 // It rlocks dynamicLocker.
@@ -202,15 +214,37 @@ func (r *cfgRoot[T]) changeMonitor() {
 			continue
 		}
 
-		// 2. lock "dynamic" mutex
+		// 2. Apply layers and detect changes without deadlock
 		func() {
+			// Set a flag to indicate we're in change monitor context
 			dynamicLocker.Lock()
-			defer dynamicLocker.Unlock()
+			dynamicLocker.updating = true
+			dynamicLocker.Unlock()
+
+			// Apply layers - Dynamic.Set() will detect the updating flag and skip locking
 			err := ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
+				// Reset updating flag on error
+				dynamicLocker.Lock()
+				dynamicLocker.updating = false
+				dynamicLocker.Unlock()
 				return
 			}
+
+			// Process change notifications
+			dynamicLocker.Lock()
+			dynamicLocker.updating = false
+			for k, v := range dynamicLocker.latest {
+				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
+					if notifier := dynamicLocker.notifier[k]; notifier != nil {
+						go notifier()
+					}
+				}
+			}
+			dynamicLocker.originally = make(map[uintptr]any)
+			dynamicLocker.latest = make(map[uintptr]any)
+			dynamicLocker.Unlock()
 		}()
 		time.Sleep(30 * time.Second)
 	}
