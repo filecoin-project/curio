@@ -63,10 +63,18 @@ func (pr *PrefetchReader) Read(p []byte) (n int, err error) {
 		// Check if worker is done
 		select {
 		case <-pr.workerDone:
+			// Worker is done, but check if there's still data in buffer
 			if errPtr := pr.err.Load(); errPtr != nil {
 				return 0, *errPtr
 			}
-			return 0, io.EOF
+			// Re-check buffer state after worker completion
+			readPos = pr.readPtr.Load()
+			writePos = pr.writePtr.Load()
+			if readPos == writePos {
+				return 0, io.EOF
+			}
+			// There's still data, continue with read logic
+			goto readData
 		default:
 			// Check for errors again
 			if errPtr := pr.err.Load(); errPtr != nil {
@@ -77,6 +85,8 @@ func (pr *PrefetchReader) Read(p []byte) (n int, err error) {
 		time.Sleep(defaultSleepDuration)
 		writePos = pr.writePtr.Load()
 	}
+
+readData:
 
 	// Calculate available bytes
 	available := writePos - readPos

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jellydator/ttlcache/v2"
 	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -555,7 +556,40 @@ func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface.I
 	return nil
 }
 
-func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
+func (dbi *DBIndex) StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
+	if ctx.Value(FindSectorCacheKey) == nil || allowFetch {
+		stats.Record(ctx, FindSectorUncached.M(1))
+		return dbi.findSectorUncached(ctx, sector, ft, ssize, allowFetch)
+	}
+
+	findSectorCache := ctx.Value(FindSectorCacheKey).(*ttlcache.Cache)
+
+	cacheKey := fmt.Sprintf("%d-%d-%d", sector.Miner, sector.Number, ft)
+
+	info, err := findSectorCache.Get(cacheKey)
+	if err == nil {
+		// Cache hit - return the cached result
+		if cachedInfo, ok := info.([]storiface.SectorStorageInfo); ok {
+			stats.Record(ctx, FindSectorCacheHits.M(1))
+			return cachedInfo, nil
+		}
+	}
+
+	// Cache miss - fetch from index and cache the result
+	stats.Record(ctx, FindSectorCacheMisses.M(1))
+
+	si, err := dbi.findSectorUncached(ctx, sector, ft, ssize, allowFetch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the result for future use
+	_ = findSectorCache.Set(cacheKey, si)
+
+	return si, nil
+}
+
+func (dbi *DBIndex) findSectorUncached(ctx context.Context, s abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
 
 	var result []storiface.SectorStorageInfo
 

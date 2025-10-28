@@ -45,12 +45,7 @@ func (p *SectorReader) ReadPiece(ctx context.Context, sector storiface.SectorRef
 		return nil, xerrors.Errorf("size is not a valid piece size: %w", err)
 	}
 
-	// acquire a lock purely for reading unsealed sectors
 	ctx, cancel := context.WithCancel(ctx)
-	if err := p.index.StorageLock(ctx, sector.ID, storiface.FTUnsealed, storiface.FTNone); err != nil {
-		cancel()
-		return nil, xerrors.Errorf("acquiring read sector lock: %w", err)
-	}
 
 	// Reader returns a reader getter for an unsealed piece at the given offset in the given sector.
 	// The returned reader will be nil if none of the workers has an unsealed sector file containing
@@ -138,14 +133,7 @@ func (p *SectorReader) IsUnsealed(ctx context.Context, sector storiface.SectorRe
 		return false, xerrors.Errorf("size is not a valid piece size: %w", err)
 	}
 
-	ctxLock, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if err := p.index.StorageLock(ctxLock, sector.ID, storiface.FTUnsealed, storiface.FTNone); err != nil {
-		return false, xerrors.Errorf("acquiring read sector lock: %w", err)
-	}
-
-	return p.storage.CheckIsUnsealed(ctxLock, sector, abi.PaddedPieceSize(offset.Padded()), size.Padded())
+	return p.storage.CheckIsUnsealed(ctx, sector, abi.PaddedPieceSize(offset.Padded()), size.Padded())
 }
 
 type funcCloser func() error
