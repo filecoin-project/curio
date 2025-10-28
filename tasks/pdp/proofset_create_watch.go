@@ -35,12 +35,12 @@ func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClie
 		return xerrors.Errorf("failed to select data set creates: %w", err)
 	}
 
-	log.Infow("DataSetCreate watcher checking pending data sets", "count", len(dataSetCreates))
-
 	if len(dataSetCreates) == 0 {
 		// No pending data set creates
 		return nil
 	}
+
+	log.Infow("DataSetCreate watcher has pending data sets", "count", len(dataSetCreates))
 
 	// Process each data set create
 	for _, psc := range dataSetCreates {
