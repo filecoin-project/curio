@@ -376,8 +376,9 @@ func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
 		if err != nil {
 			return "", xerrors.Errorf("getting peer ID: %w", err)
 		}
+		peerID = pid.String()
 
-		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, pid.String(), PDP_SP_ID)
+		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, peerID, PDP_SP_ID)
 		if err != nil {
 			return "", xerrors.Errorf("failed to to insert the key into DB: %w", err)
 		}
