@@ -349,7 +349,13 @@ func (db *DB) upgrade() error {
 			if len(strings.TrimSpace(s)) == 0 {
 				continue
 			}
-			megaSql += s + ";"
+			trimmed := strings.TrimSpace(s)
+			// Only add semicolon if the statement doesn't already end with one
+			if !strings.HasSuffix(trimmed, ";") {
+				megaSql += s + ";"
+			} else {
+				megaSql += s
+			}
 		}
 		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {

@@ -246,7 +246,8 @@ $$ LANGUAGE plpgsql;
 
 
 -- Update raw_size for existing deals (One time backfill migration)
-BEGIN;
+DO $$
+BEGIN
     UPDATE market_mk12_deals d
     SET raw_size = mpd.raw_size
         FROM market_piece_deal mpd
@@ -270,7 +271,7 @@ BEGIN;
     WHERE d.uuid = p.uuid
       AND d.raw_size IS NULL
       AND p.raw_size IS NOT NULL;
-COMMIT;
+END $$;
 
 -- This is main MK20 Deal table. Rows are added per deal and some
 -- modification is allowed later
