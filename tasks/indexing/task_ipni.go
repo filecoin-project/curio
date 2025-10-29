@@ -620,24 +620,11 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			// Skip IPNI if deal says not to announce or not to index (fast retrievals). If we announce without
 			// indexing, it will cause issue with retrievals.
 			if !p.Announce || !p.ShouldIndex {
-				var n int
-				if isRM {
-					n, err = tx.Exec(`UPDATE piece_cleanup SET complete = TRUE WHERE id = $1`, p.UUID)
-				} else {
-					if p.Mk20 {
-						n, err = tx.Exec(`UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1`, p.UUID)
-					} else {
-						n, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
-					}
-				}
-				if err != nil {
-					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
-				}
-				if n != 1 {
-					return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
-				}
 				stop = false // we found a task to schedule, keep going
-				return true, nil
+				markComplete = &p.UUID
+				mk20 = p.Mk20
+				isRM = p.IsRM
+				return false, nil
 			}
 
 			var privKey []byte
