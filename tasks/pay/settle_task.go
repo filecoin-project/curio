@@ -68,7 +68,7 @@ func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, fmt.Errorf("failed to get provider: %w", err)
 	}
 
-	payee := provider.Payee
+	payee := provider.Info.Payee
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
 
