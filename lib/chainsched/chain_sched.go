@@ -33,9 +33,13 @@ type NodeAPI interface {
 type CurioChainSched struct {
 	api NodeAPI
 
+	wlk      sync.RWMutex
+	watchers []UpdateFunc
+
 	callbacks []UpdateFunc
 	lk        sync.RWMutex
-	started   bool
+
+	started bool
 
 	notificationTimeout time.Duration
 }
@@ -63,6 +67,16 @@ func (s *CurioChainSched) AddHandler(ch UpdateFunc) error {
 		return xerrors.Errorf("cannot add handler after start")
 	}
 	s.callbacks = append(s.callbacks, ch)
+	return nil
+}
+
+func (s *CurioChainSched) AddWatcher(ch UpdateFunc) error {
+	s.wlk.Lock()
+	defer s.wlk.Unlock()
+	if s.started {
+		return xerrors.Errorf("cannot add watcher handler after start")
+	}
+	s.watchers = append(s.watchers, ch)
 	return nil
 }
 
@@ -197,10 +211,22 @@ func (s *CurioChainSched) update(ctx context.Context, revert, apply *types.TipSe
 		return
 	}
 
+	s.wlk.RLock()
+	watchersCopy := make([]UpdateFunc, len(s.watchers))
+	copy(watchersCopy, s.watchers)
+	s.wlk.RUnlock()
+
 	s.lk.RLock()
 	callbacksCopy := make([]UpdateFunc, len(s.callbacks))
 	copy(callbacksCopy, s.callbacks)
 	s.lk.RUnlock()
+
+	// Update all watchers so handlers can react to the new tipset in the same tipset
+	for _, ch := range watchersCopy {
+		if err := ch(ctx, revert, apply); err != nil {
+			log.Errorf("handling head updates in CurioChainSched: %+v", err)
+		}
+	}
 
 	for _, ch := range callbacksCopy {
 		if err := ch(ctx, revert, apply); err != nil {
