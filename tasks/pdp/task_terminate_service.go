@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -44,6 +45,32 @@ func (t *TerminateServiceTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 			return true, nil
 		}
 		return false, xerrors.Errorf("failed to select data set: %w", err)
+	}
+
+	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(sAddr, t.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
+	}
+
+	ds, err := fwssv.GetDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetId))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get data set %d: %w", dataSetId, err)
+	}
+
+	if ds.PdpEndEpoch.Int64() != 0 {
+		n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set 
+									SET after_terminate_service = TRUE,
+									    terminate_service_task_id = NULL,
+									    termination_epoch = $2
+									WHERE terminate_service_task_id = $1`, taskID, ds.PdpEndEpoch.Int64())
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+		}
+
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+		}
 	}
 
 	sender, err := getPDPOwner(ctx, t.db)

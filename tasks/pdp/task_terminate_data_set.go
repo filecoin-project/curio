@@ -132,7 +132,7 @@ func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(time.Hour, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(context.Background(), taskFunc)
 		}),
 	}
@@ -174,7 +174,12 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 
 			pending := pendings[0]
 
-			n, err := tx.Exec(`UPDATE pdp_delete_data_set SET terminate_service_task_id = $1 WHERE id = $2 AND terminate_service_task_id IS NULL AND after_terminate_service = FALSE`, taskID, pending)
+			n, err := tx.Exec(`UPDATE pdp_delete_data_set 
+									SET terminate_service_task_id = $1 
+									WHERE id = $2 
+									  AND delete_data_set_task_id IS NULL 
+									  AND after_delete_data_set = FALSE
+									  AND after_terminate_service = TRUE`, taskID, pending)
 
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)

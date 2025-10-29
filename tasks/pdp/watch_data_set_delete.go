@@ -35,7 +35,12 @@ func NewDataSetDeleteWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs 
 func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	var deletes []dataSetDelete
 
-	err := db.Select(ctx, &deletes, `SELECT id, delete_tx_hash FROM pdp_delete_data_set WHERE termination_epoch IS NOT NULL AND terminated = FALSE`)
+	err := db.Select(ctx, &deletes, `SELECT id, delete_tx_hash 
+										FROM pdp_delete_data_set 
+										WHERE termination_epoch IS NOT NULL 
+										  AND terminated = FALSE
+										  AND after_delete_data_set = TRUE
+										  AND delete_tx_hash IS NOT NULL`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending data sets: %w", err)
 	}

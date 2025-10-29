@@ -61,9 +61,8 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 					railIds = append(railIds, r.RailId)
 				}
 
-				// If rail terminated in the last 15 days, we should try to settle it
-				// TODO: Rethink this to be more generic
-				if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*15) {
+				// If rail terminated in the last 30 days, we should consider it for settlement
+				if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*30) {
 					railIds = append(railIds, r.RailId)
 				}
 			}

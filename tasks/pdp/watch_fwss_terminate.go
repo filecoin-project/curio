@@ -82,6 +82,11 @@ func processPendingTermination(ctx context.Context, db *harmonydb.DB, client *et
 		return xerrors.Errorf("failed to get data set %d: %w", term.DataSetId, err)
 	}
 
+	if ds.PdpEndEpoch.Int64() == 0 {
+		// Huston! we have a serious problem
+		return xerrors.Errorf("data set %d has no termination epoch", term.DataSetId)
+	}
+
 	n, err := db.Exec(ctx, `UPDATE pdp_delete_data_set SET termination_epoch = $1 WHERE id = $2`, ds.PdpEndEpoch.Int64(), term.DataSetId)
 	if err != nil {
 		return xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
