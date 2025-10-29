@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"fmt"
 	"context"
 	"errors"
 	"math/big"
@@ -109,6 +110,12 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
+
+	defer func () {
+		if err != nil {
+			err = fmt.Errorf("failed to set up initial proving period for dataset %d: %w", dataSetId, err)
+		}
+	}()
 
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ipp.ethClient)

@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"fmt"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -168,6 +169,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details: %w", err)
 	}
+
+	defer func () {
+		if err != nil {
+			err = fmt.Errorf("failed to submit possesion proof for dataset %d: %w", dataSetId, err)
+		}
+	}()
 
 	pdpContracts := contract.ContractAddresses()
 	pdpVerifierAddress := pdpContracts.PDPVerifier
