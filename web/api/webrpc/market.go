@@ -1208,8 +1208,8 @@ func (a *WebRPC) DealPipelineRemove(ctx context.Context, id string) error {
 func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var pipelines []struct {
-			Url    string        `db:"url"`
-			Sector sql.NullInt64 `db:"sector"`
+			Url    sql.NullString `db:"url"`
+			Sector sql.NullInt64  `db:"sector"`
 
 			CommpTaskID    sql.NullInt64 `db:"commp_task_id"`
 			AggrTaskID     sql.NullInt64 `db:"agg_task_id"`
@@ -1269,10 +1269,10 @@ func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
 
 		// If sector is null, remove related pieceref
 		for _, pipeline := range pipelines {
-			if !pipeline.Sector.Valid {
+			if !pipeline.Sector.Valid && pipeline.Url.Valid {
 				const prefix = "pieceref:"
-				if strings.HasPrefix(pipeline.Url, prefix) {
-					refIDStr := pipeline.Url[len(prefix):]
+				if strings.HasPrefix(pipeline.Url.String, prefix) {
+					refIDStr := pipeline.Url.String[len(prefix):]
 					refID, err := strconv.ParseInt(refIDStr, 10, 64)
 					if err != nil {
 						return false, fmt.Errorf("invalid refID in URL: %v", err)
@@ -1294,7 +1294,7 @@ func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error 
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// First, get deal_pipeline.url, task_ids, and sector values
 		var (
-			url    string
+			url    sql.NullString
 			sector sql.NullInt64
 
 			commpTaskID    sql.NullInt64
@@ -1363,11 +1363,11 @@ func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error 
 		}
 
 		// If sector is null, remove related pieceref
-		if !sector.Valid {
+		if !sector.Valid && url.Valid {
 			// Extract refID from deal_pipeline.url (format: "pieceref:[refid]")
 			const prefix = "pieceref:"
-			if strings.HasPrefix(url, prefix) {
-				refIDStr := url[len(prefix):]
+			if strings.HasPrefix(url.String, prefix) {
+				refIDStr := url.String[len(prefix):]
 				refID, err := strconv.ParseInt(refIDStr, 10, 64)
 				if err != nil {
 					return false, fmt.Errorf("invalid refID in URL: %v", err)
