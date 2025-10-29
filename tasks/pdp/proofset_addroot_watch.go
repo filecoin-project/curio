@@ -179,6 +179,15 @@ func extractAndInsertPiecesFromReceipt(ctx context.Context, db *harmonydb.DB, re
 
 	// Begin a database transaction
 	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Update data set for initialization upon first add
+		_, err = tx.Exec(`
+			UPDATE pdp_data_sets SET init_ready = true
+			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
+			`, pieceAdd.DataSet)
+		if err != nil {
+			return false, err
+		}
+
 		// Fetch the entries from pdp_data_set_piece_adds
 		var pieceAddEntries []PieceAddEntry
 		err := tx.Select(&pieceAddEntries, `

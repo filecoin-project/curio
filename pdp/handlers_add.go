@@ -421,15 +421,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			return false, err // Return false to rollback the transaction
 		}
 
-		// Update data set for initialization upon first add
-		_, err = txdb.Exec(`
-			UPDATE pdp_data_sets SET init_ready = true
-			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
-			`, dataSetIdUint64)
-		if err != nil {
-			return false, err
-		}
-
 		// Insert into pdp_data_set_pieces
 		err = p.insertPieceAdds(txdb, &dataSetIdUint64, txHashLower, payload.Pieces, subPieceInfoMap)
 		if err != nil {
