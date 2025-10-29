@@ -100,7 +100,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	err = ipp.db.QueryRow(ctx, `
         SELECT id
         FROM pdp_data_sets
-        WHERE challenge_request_task_id = $1 
+        WHERE challenge_request_task_id = $1
     `, taskID).Scan(&dataSetId)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No matching data set, task is done (something weird happened, and e.g another task was spawned in place of this one)
@@ -124,7 +124,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if leafCount.Cmp(big.NewInt(0)) == 0 {
 		// No leaves in the data set yet, skip initialization
 		// Return done=false to retry later (the task will be retried by the scheduler)
-		return false, nil
+		return false, xerrors.Errorf("data set %d has no leaves", dataSetId)
 	}
 
 	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
