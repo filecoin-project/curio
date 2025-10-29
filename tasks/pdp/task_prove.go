@@ -228,12 +228,10 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		log.Infof("PDP Prove Task: dataSetId: %d, taskID: %d, proofs: %s", dataSetId, taskID, proofStr)
 	} */
 
-	// If gas used is 0 fee is maximized
-	gasFee := big.NewInt(0)
 	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
 
 	calcProofFeeResult := make([]any, 0)
-	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetId), gasFee)
+	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
@@ -296,7 +294,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		"taskID", taskID,
 		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
-		"gasFeeEstimate", gasFee,
 		"proofFee initial", new(big.Int).Div(proofFee, big.NewInt(3)),
 		"proofFee 3x", proofFee,
 		"txEth", txEth,
@@ -307,7 +304,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		"taskID", taskID,
 		"proofCount", len(proofs),
 		"dataLen", len(data),
-		"gasFeeEstimate", gasFee,
 		"proofFee", proofFee,
 	)
 
