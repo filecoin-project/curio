@@ -7,13 +7,15 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
+
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
 )
 
 type termination struct {

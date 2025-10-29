@@ -10,6 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -17,8 +20,6 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/message"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
 )
 
 type TerminateServiceTask struct {
