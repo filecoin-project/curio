@@ -29,6 +29,8 @@ type CreateMinerChainAPI interface {
 	StateMinerCreationDeposit(ctx context.Context, tsk types.TipSetKey) (types.BigInt, error)
 }
 
+const DepositMarginFactor = 1.5
+
 func CreateStorageMiner(ctx context.Context, chain CreateMinerChainAPI, owner, worker, sender address.Address, ssize abi.SectorSize, confidence uint64) (address.Address, error) {
 	// make sure the sender account exists on chain
 	_, err := chain.StateLookupID(ctx, owner, types.EmptyTSK)
@@ -36,13 +38,21 @@ func CreateStorageMiner(ctx context.Context, chain CreateMinerChainAPI, owner, w
 		return address.Undef, xerrors.Errorf("sender must exist on chain: %w", err)
 	}
 
+	// read the recommended deposit & add a 2% margin
+	deposit, err := chain.StateMinerCreationDeposit(ctx, types.EmptyTSK)
+	if err != nil {
+		return address.Undef, xerrors.Errorf("getting miner creation deposit: %w", err)
+	}
+
+	scaledDeposit := types.BigDiv(types.BigMul(deposit, types.NewInt(uint64(1.5*100))), types.NewInt(100))
+
 	// make sure the worker account exists on chain
 	_, err = chain.StateLookupID(ctx, worker, types.EmptyTSK)
 	if err != nil {
 		signed, err := chain.MpoolPushMessage(ctx, &types.Message{
 			From:  sender,
 			To:    worker,
-			Value: types.NewInt(0),
+			Value: scaledDeposit,
 		}, nil)
 		if err != nil {
 			return address.Undef, xerrors.Errorf("push worker init: %w", err)
