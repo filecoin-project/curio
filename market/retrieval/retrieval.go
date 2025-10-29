@@ -224,7 +224,18 @@ func metricsMiddleware(next http.Handler) http.Handler {
 			remoteblockstore.HttpResponseBytesCount.M(wrapper.bytesWritten),
 		)
 
-		log.Debugw("HTTP request", "method", r.Method, "path", r.URL.Path, "pathPrefix", pathPrefix, "status", wrapper.statusCode, "bytes", wrapper.bytesWritten)
+		// Temporarily info logging the request details, this can be switched to debug later
+		log.Infow(
+			"HTTP request",
+			"remoteAddr", r.RemoteAddr,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"pathPrefix", pathPrefix,
+			"query", r.URL.RawQuery,
+			"headers", r.Header,
+			"status", wrapper.statusCode,
+			"bytes", wrapper.bytesWritten,
+		)
 	})
 }
 
