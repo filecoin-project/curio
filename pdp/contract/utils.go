@@ -413,8 +413,8 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 			return "", xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
 		}
 	}
-	if len(keys) > 10 {
-		return "", xerrors.Errorf("too many capabilities, max 10 allowed")
+	if len(keys) > 32 {
+		return "", xerrors.Errorf("too many capabilities, max 32 allowed")
 	}
 
 	sender, _, privateKey, err := getSender(ctx, db)
