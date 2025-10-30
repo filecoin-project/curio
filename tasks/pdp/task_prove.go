@@ -170,7 +170,7 @@ func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
 	// As ordering can get even more tricky if you consider that transactions are sent async.
 	_, err := p.db.Exec(ctx, `
 		UPDATE pdp_data_sets
-		SET challenge_request_msg_hash = NULL, prove_at_epoch = NUL, init_ready = FALSE,
+		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = FALSE,
 			prev_challenge_request_epoch = NULL
 		WHERE id = $1
 		`, dataSetId)
