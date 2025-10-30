@@ -57,7 +57,7 @@ type PDPOfferingData struct {
 	PaymentTokenAddress      common.Address
 }
 
-func encodeBigInt(i *mbig.Int) []byte {
+func encodeBigIntCapability(i *mbig.Int) []byte {
 	if i == nil {
 		return nil
 	}
@@ -81,10 +81,10 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 
 	values := [][]byte{
 		[]byte(offering.ServiceURL),
-		encodeBigInt(offering.MinPieceSizeInBytes),
-		encodeBigInt(offering.MaxPieceSizeInBytes),
-		encodeBigInt(offering.StoragePricePerTibPerDay),
-		encodeBigInt(offering.MinProvingPeriodInEpochs),
+		encodeBigIntCapability(offering.MinPieceSizeInBytes),
+		encodeBigIntCapability(offering.MaxPieceSizeInBytes),
+		encodeBigIntCapability(offering.StoragePricePerTibPerDay),
+		encodeBigIntCapability(offering.MinProvingPeriodInEpochs),
 		[]byte(offering.Location),
 		offering.PaymentTokenAddress.Bytes(),
 	}
