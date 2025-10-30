@@ -574,13 +574,15 @@ func (a *WebRPC) FSUpdatePDP(ctx context.Context, pdpOffering *FSPDPOffering, ca
 
 	var peerID peer.ID
 	if pdpOffering.IpniIpfs || pdpOffering.IpniPiece {
-		if len(pdpOffering.IpniPeerID) == 0 {
-			return fmt.Errorf("IPNI peer ID cannot be empty if either of IPNI IPFS or IPNI Piece are enabled")
-		}
-		var err error
-		peerID, err = peer.Decode(pdpOffering.IpniPeerID)
+		_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			peerID, err = indexing.PDPInitProvider(tx)
+			if err != nil {
+				return false, xerrors.Errorf("initializing PDP IPNI provider: %w", err)
+			}
+			return true, nil
+		})
 		if err != nil {
-			return fmt.Errorf("invalid IPNI peer ID: %w", err)
+			return xerrors.Errorf("in transaction: %w", err)
 		}
 	}
 
