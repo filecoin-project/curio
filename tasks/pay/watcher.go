@@ -78,9 +78,10 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		}
 
 		settledUpto := view.SettledUpTo.Int64()
+		requiresDeletion := view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 || // If the rail is already terminated either by us or the payer, schedule deletion if required
+			!(settle.SettledAt-10 < settledUpto && settledUpto < settle.SettledAt+10) // If settledUpto is +-10 of settle.SettledAt, rail was settled
 
-		// If settledUpto is +-10 of settle.SettledAt, rail was settled
-		if settle.SettledAt-10 < settledUpto && settledUpto < settle.SettledAt+10 {
+		if !requiresDeletion {
 			continue
 		}
 
@@ -94,7 +95,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 			continue
 		}
 
-		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1)`, dataSet.Int64())
+		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSet.Int64())
 		if err != nil {
 			return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
 		}

@@ -46,38 +46,27 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 		return xerrors.Errorf("failed to get current block number: %w", err)
 	}
 
-	offset := big.NewInt(0)
-	limit := big.NewInt(100)
-
 	for _, payee := range payees {
-		for {
-			rails, err := payment.GetRailsForPayeeAndToken(&bind.CallOpts{Context: ctx}, payee, tokenAddress, offset, limit)
-			if err != nil {
-				return xerrors.Errorf("failed to get Rails for: %w", err)
-			}
-
-			for _, r := range rails.Results {
-				if !r.IsTerminated {
-					railIds = append(railIds, r.RailId)
-				}
-
-				// If rail terminated in the last 30 days, we should consider it for settlement
-				if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*30) {
-					railIds = append(railIds, r.RailId)
-				}
-			}
-
-			// If total - (offset+length) > 0, then run one more loop
-			if big.NewInt(0).Sub(rails.Total, big.NewInt(0).Add(rails.NextOffset, big.NewInt(int64(len(rails.Results))))).Int64() > 0 {
-				offset = rails.NextOffset
-				continue
-			}
-			break
+		rails, err := payment.GetRailsForPayeeAndToken(&bind.CallOpts{Context: ctx}, payee, tokenAddress, big.NewInt(0), big.NewInt(0))
+		if err != nil {
+			return xerrors.Errorf("failed to get Rails for: %w", err)
 		}
+
+		for _, r := range rails.Results {
+			if !r.IsTerminated {
+				railIds = append(railIds, r.RailId)
+			}
+
+			// If rail terminated in the last 30 days, we should consider it for settlement
+			if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*30) {
+				railIds = append(railIds, r.RailId)
+			}
+		}
+
 	}
 
 	var toSettle []*big.Int
-	gracePeriod := big.NewInt(2 * builtin.EpochsInDay)
+	bufferPeriod := big.NewInt(2 * builtin.EpochsInDay)
 	for _, rail := range railIds {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
@@ -97,7 +86,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 		} else {
 			//If rail is not terminated, settle if SettledUpTo+LockupPeriod-2days > current block
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-			thresholdWithGrace := big.NewInt(0).Sub(threshold, gracePeriod)
+			thresholdWithGrace := big.NewInt(0).Sub(threshold, bufferPeriod)
 
 			if thresholdWithGrace.Uint64() < current {
 				toSettle = append(toSettle, rail)

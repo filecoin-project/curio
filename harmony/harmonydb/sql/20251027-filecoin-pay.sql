@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS filecoin_payment_transactions (
 );
 
 CREATE TABLE IF NOT EXISTS pdp_delete_data_set (
-    id SERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     terminate_service_task_id BIGINT,
     after_terminate_service BOOLEAN NOT NULL DEFAULT FALSE,
