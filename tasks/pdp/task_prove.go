@@ -154,7 +154,6 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 	return pt
 }
 
-
 func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
 	// cleanup all proving related columns
 	// set init_ready to false so that next new piece enables proving
@@ -169,7 +168,7 @@ func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
 	// Now the dataset won't get proven until one more piece gets added to set `init_ready = TRUE`.
 	// Better pattern here would be to react to events emitted in our messages from the transactions we send to PDPVerifier.
 	// As ordering can get even more tricky if you consider that transactions are sent async.
-	_ , err := p.db.Exec(ctx, `
+	_, err := p.db.Exec(ctx, `
 		UPDATE pdp_data_sets
 		SET challenge_request_msg_hash = NULL, prove_at_epoch = NUL, init_ready = FALSE,
 			prev_challenge_request_epoch = NULL
@@ -389,7 +388,6 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	callOpts := &bind.CallOpts{
 		Context: ctx,
 	}
-
 
 	challenges := lo.Times(numChallenges, func(i int) int64 {
 		return generateChallengeIndex(seed, dataSetId, i, totalLeaves)
