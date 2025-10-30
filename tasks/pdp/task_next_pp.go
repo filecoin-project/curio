@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -107,6 +108,12 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
 
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("failed to set up next proving period for dataset %d: %w", dataSetId, err)
+		}
+	}()
+
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
 	if err != nil {
@@ -209,7 +216,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	}
 
 	// Task completed successfully
-	log.Infow("Next challenge window scheduled", "epoch", next_prove_at)
+	log.Infow("Next challenge window scheduled", "epoch", next_prove_at, "dataSetId", dataSetId)
 
 	return true, nil
 }
