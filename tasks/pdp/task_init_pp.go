@@ -1,9 +1,9 @@
 package pdp
 
 import (
-	"fmt"
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -111,7 +111,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
 
-	defer func () {
+	defer func() {
 		if err != nil {
 			err = fmt.Errorf("failed to set up initial proving period for dataset %d: %w", dataSetId, err)
 		}

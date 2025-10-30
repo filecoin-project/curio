@@ -341,7 +341,7 @@ func readMinerConfig(d *MigrationData) {
 		return err
 	}
 
-	dirs := map[string]struct{}{"~/.lotusminer": struct{}{}, "~/.lotus-miner-local-net": struct{}{}}
+	dirs := map[string]struct{}{"~/.lotusminer": {}, "~/.lotus-miner-local-net": {}}
 	if v := os.Getenv("LOTUS_MINER_PATH"); v != "" {
 		dirs[v] = struct{}{}
 	}

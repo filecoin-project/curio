@@ -1,11 +1,11 @@
 package pdp
 
 import (
-	"fmt"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"math/bits"
@@ -170,7 +170,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get task details: %w", err)
 	}
 
-	defer func () {
+	defer func() {
 		if err != nil {
 			err = fmt.Errorf("failed to submit possesion proof for dataset %d: %w", dataSetId, err)
 		}
