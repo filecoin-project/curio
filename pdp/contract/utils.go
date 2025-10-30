@@ -57,6 +57,16 @@ type PDPOfferingData struct {
 	PaymentTokenAddress      common.Address
 }
 
+func encodeBigInt(i *mbig.Int) []byte {
+	if i == nil {
+		return nil
+	}
+	if i.Sign() == 0 {
+		return []byte{0x00}
+	}
+	return i.Bytes()
+}
+
 func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]string) ([]string, [][]byte, error) {
 	// Required PDP keys per REQUIRED_PDP_KEYS Bloom filter in ServiceProviderRegistry.sol
 	keys := []string{
@@ -71,10 +81,10 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 
 	values := [][]byte{
 		[]byte(offering.ServiceURL),
-		offering.MinPieceSizeInBytes.Bytes(),
-		offering.MaxPieceSizeInBytes.Bytes(),
-		offering.StoragePricePerTibPerDay.Bytes(),
-		offering.MinProvingPeriodInEpochs.Bytes(),
+		encodeBigInt(offering.MinPieceSizeInBytes),
+		encodeBigInt(offering.MaxPieceSizeInBytes),
+		encodeBigInt(offering.StoragePricePerTibPerDay),
+		encodeBigInt(offering.MinProvingPeriodInEpochs),
 		[]byte(offering.Location),
 		offering.PaymentTokenAddress.Bytes(),
 	}
