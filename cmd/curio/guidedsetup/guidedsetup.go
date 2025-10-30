@@ -9,22 +9,27 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/go-units"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/text/message"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
@@ -36,6 +41,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/createminer"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -92,6 +98,9 @@ var GuidedsetupCmd = &cli.Command{
 				step(&migrationData)
 			}
 		}
+
+		// Optional steps
+		optionalSteps(&migrationData)
 
 		for _, closer := range migrationData.closers {
 			closer()
@@ -751,4 +760,445 @@ func getDBDetails(d *MigrationData) {
 			return
 		}
 	}
+}
+
+func optionalSteps(d *MigrationData) {
+	for {
+		i, _, err := (&promptui.Select{
+			Label: d.T("Optional setup steps (you can skip these and configure later):"),
+			Items: []string{
+				d.T("Skip optional steps"),
+				d.T("Storage"),
+				d.T("PDP")},
+			Templates: d.selectTemplates,
+		}).Run()
+		if err != nil {
+			if err.Error() == "^C" {
+				os.Exit(1)
+			}
+			return
+		}
+		switch i {
+		case 0:
+			return
+		case 1:
+			optionalStorageStep(d)
+		case 2:
+			optionalPDPStep(d)
+		}
+	}
+}
+
+func optionalStorageStep(d *MigrationData) {
+	d.say(header, "Storage Configuration")
+	d.say(plain, "Manage storage paths for this server.")
+
+	// Get storage.json path
+	curioRepoPath := os.Getenv("CURIO_REPO_PATH")
+	if curioRepoPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			d.say(notice, "Error getting home directory: %s", err.Error())
+			return
+		}
+		curioRepoPath = path.Join(homeDir, ".curio")
+	}
+	storageJSONPath := path.Join(curioRepoPath, "storage.json")
+
+	// Read existing storage paths
+	localPaths := []string{}
+	storageCfg, err := readStorageConfig(storageJSONPath)
+	if err == nil {
+		for _, p := range storageCfg.StoragePaths {
+			localPaths = append(localPaths, p.Path)
+		}
+	}
+
+	for {
+		items := []string{d.T("Go Back")}
+		items = append(items, d.T("Add new storage path"))
+		for _, p := range localPaths {
+			items = append(items, d.T("Delete %s", p))
+		}
+
+		i, _, err := (&promptui.Select{
+			Label:     d.T("Storage paths for this server:"),
+			Items:     items,
+			Templates: d.selectTemplates,
+		}).Run()
+		if err != nil {
+			if err.Error() == "^C" {
+				os.Exit(1)
+			}
+			return
+		}
+
+		if i == 0 {
+			return
+		} else if i == 1 {
+			// Add new storage path
+			pathStr, err := (&promptui.Prompt{
+				Label: d.T("Enter storage path to add"),
+			}).Run()
+			if err != nil {
+				d.say(notice, "No path provided")
+				continue
+			}
+
+			expandedPath, err := homedir.Expand(pathStr)
+			if err != nil {
+				d.say(notice, "Error expanding path: %s", err.Error())
+				continue
+			}
+
+			// Check if path already exists
+			exists := false
+			for _, p := range localPaths {
+				if p == expandedPath {
+					exists = true
+					break
+				}
+			}
+			if exists {
+				d.say(notice, "Path already exists")
+				continue
+			}
+
+			// Ask for storage type
+			storageType, _, err := (&promptui.Select{
+				Label: d.T("Storage type for %s", expandedPath),
+				Items: []string{
+					d.T("Seal (fast storage for sealing operations)"),
+					d.T("Store (long-term storage for sealed sectors)"),
+					d.T("Both (seal and store)")},
+				Templates: d.selectTemplates,
+			}).Run()
+			if err != nil {
+				continue
+			}
+
+			// Add to storage.json
+			if storageCfg == nil {
+				storageCfg = &storiface.StorageConfig{StoragePaths: []storiface.LocalPath{}}
+			}
+			storageCfg.StoragePaths = append(storageCfg.StoragePaths, storiface.LocalPath{Path: expandedPath})
+			localPaths = append(localPaths, expandedPath)
+
+			// Write storage.json
+			if err := writeStorageConfig(storageJSONPath, *storageCfg); err != nil {
+				d.say(notice, "Error writing storage.json: %s", err.Error())
+				continue
+			}
+
+			storageTypeStr := []string{"seal", "store", "both"}[storageType]
+			d.say(plain, "Storage path %s added as %s. You'll need to initialize it with: curio cli storage attach --init --%s %s", expandedPath, storageTypeStr, storageTypeStr, expandedPath)
+			stepCompleted(d, d.T("Storage path added"))
+		} else {
+			// Delete storage path
+			pathToDelete := localPaths[i-2]
+			i, _, err := (&promptui.Select{
+				Label: d.T("Really delete %s?", pathToDelete),
+				Items: []string{
+					d.T("Yes, delete it"),
+					d.T("No, keep it")},
+				Templates: d.selectTemplates,
+			}).Run()
+			if err != nil || i == 1 {
+				continue
+			}
+
+			// Remove from storage.json
+			newPaths := []storiface.LocalPath{}
+			for _, p := range storageCfg.StoragePaths {
+				if p.Path != pathToDelete {
+					newPaths = append(newPaths, p)
+				}
+			}
+			storageCfg.StoragePaths = newPaths
+
+			// Update localPaths list
+			newLocalPaths := []string{}
+			for _, p := range localPaths {
+				if p != pathToDelete {
+					newLocalPaths = append(newLocalPaths, p)
+				}
+			}
+			localPaths = newLocalPaths
+
+			// Write storage.json
+			if err := writeStorageConfig(storageJSONPath, *storageCfg); err != nil {
+				d.say(notice, "Error writing storage.json: %s", err.Error())
+				continue
+			}
+
+			d.say(plain, "Storage path %s removed from configuration", pathToDelete)
+			stepCompleted(d, d.T("Storage path deleted"))
+		}
+	}
+}
+
+func optionalPDPStep(d *MigrationData) {
+	d.say(header, "PDP (Proof of Data Possession) Configuration")
+	d.say(plain, "This will configure PDP settings for your Curio cluster.")
+	d.say(plain, "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp")
+
+	// Check if PDP layer already exists
+	var existingPDPConfig string
+	err := d.DB.QueryRow(d.ctx, "SELECT config FROM harmony_config WHERE title='pdp'").Scan(&existingPDPConfig)
+	hasPDPLayer := err == nil
+
+	if hasPDPLayer {
+		i, _, err := (&promptui.Select{
+			Label: d.T("PDP layer already exists. What would you like to do?"),
+			Items: []string{
+				d.T("Reconfigure PDP"),
+				d.T("Skip PDP setup")},
+			Templates: d.selectTemplates,
+		}).Run()
+		if err != nil || i == 1 {
+			return
+		}
+	}
+
+	// Step 1: Configure PDP layer
+	d.say(plain, "Creating PDP configuration layer...")
+
+	curioCfg := config.DefaultCurioConfig()
+	if hasPDPLayer {
+		_, err = deps.LoadConfigWithUpgrades(existingPDPConfig, curioCfg)
+		if err != nil {
+			d.say(notice, "Error loading existing PDP config: %s", err.Error())
+			return
+		}
+	}
+
+	// Enable PDP subsystems
+	curioCfg.Subsystems.EnablePDP = true
+	curioCfg.Subsystems.EnableParkPiece = true
+	curioCfg.Subsystems.EnableCommP = true
+	curioCfg.Subsystems.EnableMoveStorage = true
+
+	// Configure HTTP
+	d.say(plain, "Configuring HTTP settings for PDP...")
+
+	domain, err := (&promptui.Prompt{
+		Label:   d.T("Enter your domain name (e.g., market.mydomain.com)"),
+		Default: "market.mydomain.com",
+	}).Run()
+	if err != nil {
+		d.say(notice, "No domain provided, skipping HTTP configuration")
+		return
+	}
+
+	listenAddr, err := (&promptui.Prompt{
+		Label:   d.T("Listen address for HTTP server"),
+		Default: "0.0.0.0:443",
+	}).Run()
+	if err != nil {
+		listenAddr = "0.0.0.0:443"
+	}
+
+	curioCfg.HTTP.Enable = true
+	curioCfg.HTTP.DomainName = domain
+	curioCfg.HTTP.ListenAddress = listenAddr
+
+	// Generate PDP config TOML
+	cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+	if err != nil {
+		d.say(notice, "Error generating PDP config: %s", err.Error())
+		return
+	}
+
+	// Save to database
+	_, err = d.DB.Exec(d.ctx, `INSERT INTO harmony_config (title, config) VALUES ('pdp', $1) ON CONFLICT (title) DO UPDATE SET config = $1`, string(cb))
+	if err != nil {
+		d.say(notice, "Error saving PDP config: %s", err.Error())
+		return
+	}
+
+	stepCompleted(d, d.T("PDP configuration layer created"))
+
+	// Step 2: Import wallet private key
+	d.say(plain, "Setting up PDP wallet...")
+	d.say(plain, "You need a delegated Filecoin wallet address to use with PDP.")
+
+	// Check if PDP key already exists
+	var existingKeyAddress string
+	err = d.DB.QueryRow(d.ctx, `SELECT address FROM eth_keys WHERE role = 'pdp'`).Scan(&existingKeyAddress)
+	hasExistingKey := err == nil
+
+	// Build menu items
+	menuItems := []string{}
+	useExistingIndex := -1
+	importKeyIndex := -1
+	skipIndex := -1
+
+	if hasExistingKey {
+		// Show last 8 characters of address for identification
+		addressSuffix := existingKeyAddress
+		if len(addressSuffix) > 8 {
+			addressSuffix = "..." + addressSuffix[len(addressSuffix)-8:]
+		}
+		useExistingIndex = len(menuItems)
+		menuItems = append(menuItems, d.T("Use existing key, ending in %s", addressSuffix))
+	}
+
+	importKeyIndex = len(menuItems)
+	menuItems = append(menuItems, d.T("Import delegated wallet private key"))
+	skipIndex = len(menuItems)
+	menuItems = append(menuItems, d.T("Skip wallet setup for now"))
+
+	i, _, err := (&promptui.Select{
+		Label:     d.T("How would you like to proceed?"),
+		Items:     menuItems,
+		Templates: d.selectTemplates,
+	}).Run()
+	if err != nil || i == skipIndex {
+		d.say(plain, "You can set up the wallet later using the Curio GUI or CLI")
+		return
+	}
+
+	if i == useExistingIndex {
+		// Use existing key
+		d.say(plain, "Using existing PDP wallet key: %s", existingKeyAddress)
+		stepCompleted(d, d.T("PDP wallet configured"))
+	} else if i == importKeyIndex {
+		// Import or create - show instructions first
+		d.say(plain, "You can either:")
+		d.say(plain, "Create a new delegated wallet using Lotus:")
+		d.say(code, "lotus wallet new delegated")
+		d.say(plain, "   Then export its private key with:")
+		d.say(code, "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32")
+		d.say(plain, "")
+		d.say(plain, "Enter your delegated wallet private key (hex format):")
+
+		privateKeyHex, err := (&promptui.Prompt{
+			Label: d.T("Private key"),
+		}).Run()
+		if err != nil || privateKeyHex == "" {
+			d.say(notice, "No private key provided")
+			return
+		}
+		importPDPPrivateKey(d, privateKeyHex, hasExistingKey)
+	}
+
+	d.say(plain, "")
+	d.say(plain, "PDP setup complete!")
+	d.say(plain, "To start Curio with PDP enabled, run:")
+	d.say(code, "curio run --layers=gui,pdp")
+	d.say(plain, "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.")
+	d.say(plain, "")
+	d.say(notice, "Next steps:")
+	if domain != "" {
+		d.say(plain, "1. Test your PDP service with: pdptool ping --service-url https://%s --service-name public", domain)
+	} else {
+		d.say(plain, "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public")
+	}
+	d.say(plain, "2. Register your FWSS node")
+	d.say(plain, "3. Explore FWSS & PDP tools at https://www.filecoin.services")
+	d.say(plain, "4. Join the community: Filecoin Slack #fil-pdp")
+}
+
+func importPDPPrivateKey(d *MigrationData, hexPrivateKey string, replaceExisting bool) {
+	hexPrivateKey = strings.TrimSpace(hexPrivateKey)
+	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0x")
+	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0X")
+
+	if hexPrivateKey == "" {
+		d.say(notice, "Private key cannot be empty")
+		return
+	}
+
+	// Decode hex private key
+	privateKeyBytes, err := hex.DecodeString(hexPrivateKey)
+	if err != nil {
+		d.say(notice, "Failed to decode private key: %s", err.Error())
+		return
+	}
+
+	// Convert to ECDSA and derive address
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		d.say(notice, "Invalid private key: %s", err.Error())
+		return
+	}
+
+	address := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
+
+	// Insert or update eth_keys table
+	_, err = d.DB.BeginTransaction(d.ctx, func(tx *harmonydb.Tx) (bool, error) {
+		if replaceExisting {
+			// Delete existing key first
+			_, err = tx.Exec(`DELETE FROM eth_keys WHERE role = 'pdp'`)
+			if err != nil {
+				return false, fmt.Errorf("failed to delete existing PDP key: %v", err)
+			}
+		} else {
+			// Check if PDP key already exists
+			var existingAddress bool
+			err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
+			if err != nil {
+				return false, xerrors.Errorf("failed to check existing PDP key: %v", err)
+			}
+			if existingAddress {
+				return false, fmt.Errorf("PDP key already exists. Use 'Import a different key' option to replace it")
+			}
+		}
+
+		// Insert the new PDP key
+		_, err = tx.Exec(`INSERT INTO eth_keys (address, private_key, role) VALUES ($1, $2, 'pdp')`, address, privateKeyBytes)
+		if err != nil {
+			return false, fmt.Errorf("failed to insert PDP key: %v", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		d.say(notice, "Failed to import PDP key: %s", err.Error())
+		return
+	}
+
+	d.say(plain, "PDP wallet imported successfully!")
+	d.say(plain, "Ethereum address (0x): %s", address)
+	stepCompleted(d, d.T("PDP wallet imported"))
+}
+
+func readStorageConfig(path string) (*storiface.StorageConfig, error) {
+	expandedPath, err := homedir.Expand(path)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(expandedPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg storiface.StorageConfig
+	err = json.NewDecoder(file).Decode(&cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+
+func writeStorageConfig(path string, cfg storiface.StorageConfig) error {
+	expandedPath, err := homedir.Expand(path)
+	if err != nil {
+		return err
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(expandedPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(expandedPath, b, 0644)
 }
