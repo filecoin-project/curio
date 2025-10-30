@@ -209,7 +209,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	}
 
 	// Task completed successfully
-	log.Infow("Next challenge window scheduled", "epoch", next_prove_at)
+	log.Infow("Next challenge window scheduled", "epoch", next_prove_at, "dataSetId", dataSetId)
 
 	return true, nil
 }
