@@ -78,8 +78,8 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		}
 
 		settledUpto := view.SettledUpTo.Int64()
-		requiresDeletion := view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 || // If the rail is already terminated either by us or the payer, schedule deletion if required
-			!(settle.SettledAt-10 < settledUpto && settledUpto < settle.SettledAt+10) // If settledUpto is +-10 of settle.SettledAt, rail was settled
+		requiresDeletion := (view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0) || // If the rail is already terminated either by us or the payer, schedule deletion if required
+			(settle.SettledAt-10 > settledUpto && settledUpto > settle.SettledAt) // If settledUpto is +-10 of settle.SettledAt, rail was settled
 
 		if !requiresDeletion {
 			continue
