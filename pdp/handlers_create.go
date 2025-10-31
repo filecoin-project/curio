@@ -62,7 +62,17 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	pieceDataArray, subPieceInfoMap, _, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	// Check if indexing is needed by decoding the extraData
+	mustIndex, err := CheckIfIndexingNeededFromExtraData(extraDataBytes)
+	if err != nil {
+		log.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
+		mustIndex = false
+	}
+	if mustIndex {
+		log.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
+	}
+
+	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
@@ -119,6 +129,14 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		err = p.insertPieceAdds(tx, nil, txHashLower, reqBody.Pieces, subPieceInfoMap)
 		if err != nil {
 			return false, err
+		}
+
+		// Enable indexing if the extraData indicates indexing is needed
+		if mustIndex {
+			log.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
+			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
+				return false, err
+			}
 		}
 
 		return true, err
