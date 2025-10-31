@@ -67,20 +67,19 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	err = P.db.Select(ctx, &tasks, `
-		SELECT
-			pr.id,
-			pr.piece_cid,
-			pp.piece_padded_size,
-			ipni_peer.peer_id
-		FROM
-			pdp_piecerefs pr
-		JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
-		JOIN parked_pieces pp ON ppr.piece_id = pp.id
-		CROSS JOIN ipni_peerid ipni_peer
-		WHERE
-			pr.ipni_task_id = $1
-			AND ipni_peer.sp_id = $2
-`, taskID, PDP_SP_ID)
+									SELECT
+										pr.id,
+										pr.piece_cid,
+										pp.piece_padded_size,
+										ipni_peer.peer_id
+									FROM
+										pdp_piecerefs pr
+									JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
+									JOIN parked_pieces pp ON ppr.piece_id = pp.id
+									CROSS JOIN ipni_peerid ipni_peer
+									WHERE
+										pr.ipni_task_id = $1
+										AND ipni_peer.sp_id = $2`, taskID, PDP_SP_ID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
 	}
@@ -90,6 +89,17 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	task := tasks[0]
+
+	var alreadyPublished bool
+	err = P.db.QueryRow(ctx, `SELECT is_rm FROM ipni WHERE piece_cid = $1 AND piece_size = $2 ORDER BY order_number DESC LIMIT 1)`, task.PieceCID, task.Size).Scan(&alreadyPublished)
+	if err != nil {
+		return false, xerrors.Errorf("checking if piece is already published: %w", err)
+	}
+
+	if alreadyPublished {
+		log.Infow("IPNI task already published", "task_id", taskID, "piece_cid", task.PieceCID)
+		return true, nil
+	}
 
 	pcid, err := cid.Parse(task.PieceCID)
 	if err != nil {

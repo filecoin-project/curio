@@ -85,32 +85,32 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 
 			// Delete all piece refs for this data set
 			/*
-					pdp_data_sets (id)
-					│   ON DELETE CASCADE
-					├── pdp_data_set_pieces.data_set           -- CASCADE
-					│      ├─(TRIGGER) increment/decrement_data_set_refcount()
-					│      └─ pdp_data_set_pieces.pdp_pieceref → pdp_piecerefs(id)  -- ON DELETE SET NULL
-					│
-					├── pdp_data_set_piece_adds.data_set       -- CASCADE
-					│
-					└── pdp_prove_tasks.data_set               -- CASCADE
+				pdp_data_sets (id)
+				│   ON DELETE CASCADE
+				├── pdp_data_set_pieces.data_set           -- CASCADE
+				│      ├─(TRIGGER) increment/decrement_data_set_refcount()
+				│      └─ pdp_data_set_pieces.pdp_pieceref → pdp_piecerefs(id)  -- ON DELETE SET NULL
+				│
+				├── pdp_data_set_piece_adds.data_set       -- CASCADE
+				│
+				└── pdp_prove_tasks.data_set               -- CASCADE
 
-					What this means at delete time:
-					1. We run:
-					 "DELETE FROM curio.pdp_data_sets WHERE id = $1;"
+				What this means at delete time:
+				1. We run:
+				 "DELETE FROM curio.pdp_data_sets WHERE id = $1;"
 
-					2. Postgres automatically:
-						a. Deletes all matching rows in pdp_data_set_pieces (CASCADE).
-						b. Deletes all matching rows in pdp_data_set_piece_adds (CASCADE).
-						c. Deletes all matching rows in pdp_prove_tasks (CASCADE).
+				2. Postgres automatically:
+					a. Deletes all matching rows in pdp_data_set_pieces (CASCADE).
+					b. Deletes all matching rows in pdp_data_set_piece_adds (CASCADE).
+					c. Deletes all matching rows in pdp_prove_tasks (CASCADE).
 
-					3. While removing pdp_data_set_pieces rows:
-						a. The row’s FK pdp_data_set_pieces.pdp_pieceref → pdp_piecerefs(id) is ON DELETE SET NULL (so we do not delete pdp_piecerefs).
-						b. Triggers on pdp_data_set_pieces
-							pdp_data_set_piece_insert (increments refcount)
-							pdp_data_set_piece_delete (decrements refcount)
-							pdp_data_set_piece_update (adjusts)
-						update pdp_piecerefs.data_set_refcount accordingly, so refcounts drop when pieces are removed.
+				3. While removing pdp_data_set_pieces rows:
+					a. The row’s FK pdp_data_set_pieces.pdp_pieceref → pdp_piecerefs(id) is ON DELETE SET NULL (so we do not delete pdp_piecerefs).
+					b. Triggers on pdp_data_set_pieces
+						pdp_data_set_piece_insert (increments refcount)
+						pdp_data_set_piece_delete (decrements refcount)
+						pdp_data_set_piece_update (adjusts)
+					update pdp_piecerefs.data_set_refcount accordingly, so refcounts drop when pieces are removed.
 
 				pdp_pieceRefs will be cleaned up by watch_piece_delete.go process. It will also remove index entries and publish IPNI announcements.
 			*/
@@ -120,29 +120,9 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 				return false, xerrors.Errorf("failed to delete data set %d: %w", detail.ID, err)
 			}
 
-			_, err = tx.Exec(`WITH refs AS (
-								  SELECT COALESCE(array_agg(piece_ref), '{}'::bigint[]) AS ref_ids
-								  FROM curio.pdp_piecerefs
-								  WHERE data_set_refcount = 0
-								)
-								DELETE FROM curio.parked_piece_refs
-								WHERE ref_id = ANY ((SELECT ref_ids FROM refs));`)
+			_, err = tx.Exec(`DELETE FROM  pdp_delete_data_set WHERE id = $1 AND delete_tx_hash = $2`, detail.ID, detail.TxHash)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece refs: %w", err)
-			}
-
-			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE data_set_refcount = 0`)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete pdp_piecerefs: %w", err)
-			}
-
-			n, err := tx.Exec(`UPDATE pdp_delete_data_set SET terminated = TRUE WHERE id = $1 AND delete_tx_hash = $2`, detail.ID, detail.TxHash)
-			if err != nil {
-				return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
-			}
-
-			if n != 1 {
-				return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+				return false, xerrors.Errorf("failed to delete row from pdp_delete_data_set: %w", err)
 			}
 
 			return true, nil
