@@ -246,7 +246,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 
 		pieceDataArray = append(pieceDataArray, pieceData)
 	}
-	return pieceDataArray, subPieceInfoMap, nil, nil
+	return pieceDataArray, subPieceInfoMap, subPieceCidList, nil
 }
 
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
