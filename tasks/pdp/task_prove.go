@@ -155,13 +155,39 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 	return pt
 }
 
+func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
+	// cleanup all proving related columns
+	// set init_ready to false so that next new piece enables proving
+	//
+	// This creates a bit of an edge case when piece deletions, additions and proving happen in the same time window:
+	// - data set gets used, pieces are added and proven
+	// - all pieces are deleted from it
+	// - nextProvingPeriod gets called on an empty dataset
+	// - a new piece gets added, it sets `init_ready = TRUE`, but it is true already
+	// - prove task fires, detects that proving set is empty, challenge epoch is 0 (as the proving set is empty),
+	// 		proving gets disabled
+	// Now the dataset won't get proven until one more piece gets added to set `init_ready = TRUE`.
+	// Better pattern here would be to react to events emitted in our messages from the transactions we send to PDPVerifier.
+	// As ordering can get even more tricky if you consider that transactions are sent async.
+	_, err := p.db.Exec(ctx, `
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = FALSE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+		`, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed set values disabling proving: %w", err)
+	}
+	return nil
+}
+
 func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	// Retrieve data set and challenge epoch for the task
 	var dataSetId int64
 
-	err = p.db.QueryRow(context.Background(), `
+	err = p.db.QueryRow(ctx, `
         SELECT data_set
         FROM pdp_prove_tasks
         WHERE task_id = $1
@@ -194,12 +220,38 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
 	}
 
+	if challengeEpoch.Sign() == 0 { // if challengeEpoch is 0 (NO_CHALLENGE_SCHEDULED), we need to disable proving
+		log.Infow("disabling proving", "dataSetId", dataSetId, "taskID", taskID, "reason", "no challenge epoch")
+		err = p.disableProving(ctx, dataSetId)
+		if err != nil {
+			return false, xerrors.Errorf("failed to disable proving (caused by no challenge epoch): %w", err)
+		}
+		return true, nil
+	}
+
+	totalLeafCount, err := pdpVerifier.GetChallengeRange(callOpts, big.NewInt(dataSetId))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get data set leaf count: %w", err)
+	}
+	if !totalLeafCount.IsUint64() {
+		return false, xerrors.Errorf("total leaf count is not uint64")
+	}
+	totalLeaves := totalLeafCount.Uint64()
+	if totalLeaves == 0 {
+		log.Infow("disabling proving", "dataSetId", dataSetId, "taskID", taskID, "reason", "no leaves")
+		err = p.disableProving(ctx, dataSetId)
+		if err != nil {
+			return false, xerrors.Errorf("failed to disable proving (caused by no leaves): %w", err)
+		}
+		return true, nil
+	}
+
 	seed, err := p.fil.StateGetRandomnessDigestFromBeacon(ctx, abi.ChainEpoch(challengeEpoch.Int64()), chainTypes.EmptyTSK)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get chain randomness from beacon for pdp prove: %w", err)
 	}
 
-	proofs, err := p.GenerateProofs(ctx, pdpVerifier, dataSetId, seed, contract.NumChallenges)
+	proofs, err := p.GenerateProofs(ctx, pdpVerifier, dataSetId, seed, totalLeaves, contract.NumChallenges)
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate proofs: %w", err)
 	}
@@ -337,18 +389,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, numChallenges int) ([]contract.IPDPTypesProof, error) {
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, totalLeaves uint64, numChallenges int) ([]contract.IPDPTypesProof, error) {
 	proofs := make([]contract.IPDPTypesProof, numChallenges)
 
 	callOpts := &bind.CallOpts{
 		Context: ctx,
 	}
-
-	totalLeafCount, err := pdpService.GetChallengeRange(callOpts, big.NewInt(dataSetId))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get data set leaf count: %w", err)
-	}
-	totalLeaves := totalLeafCount.Uint64()
 
 	challenges := lo.Times(numChallenges, func(i int) int64 {
 		return generateChallengeIndex(seed, dataSetId, i, totalLeaves)
