@@ -369,24 +369,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	)
 
 	// Step 8: Check for indexing requirements
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	mustIndex, err := CheckIfIndexingNeeded(p.ethClient, dataSetIdUint64)
 	if err != nil {
-		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
+		log.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, dataSetId)
-	if err != nil {
-		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	mustIndex, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, p.ethClient, dataSetId, "withIPFSIndexing")
-	if err != nil {
-		// Hard to differentiate between unsupported listener type OR internal error
-		// So we log and skip indexing attempt
-		mustIndex = false
-		log.Warnw("Failed to get data set metadata, skipping indexing", "error", err, "dataSetId", dataSetId)
+	if mustIndex {
+		log.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
 	}
 
 	// Step 9: Send the transaction
@@ -429,16 +419,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 		if mustIndex {
 			log.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
-			// Note: it's possible to update a duplicate piece that has already completed the indexing step
-			// but task_pdp_indexing handles pieces that have already been indexed smoothly
-			_, err := txdb.Exec(`
-				UPDATE pdp_piecerefs
-				SET needs_indexing = TRUE
-				WHERE service = $1
-					AND piece_cid = ANY($2)
-					AND needs_indexing = FALSE
-				`, serviceLabel, subPieceCidList)
-			if err != nil {
+			if err := EnableIndexingForPiecesInTx(txdb, serviceLabel, subPieceCidList); err != nil {
 				return false, err
 			}
 		}
