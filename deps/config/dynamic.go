@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -18,11 +18,14 @@ import (
 
 var logger = logging.Logger("config-dynamic")
 
-// bigIntComparer is used to compare big.Int values properly
-var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
+// BigIntComparer is used to compare big.Int values properly
+var BigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
 	return x.Cmp(&y) == 0
 })
 
+// Dynamic is a wrapper for configuration values that can change at runtime.
+// Use Get() and Set() methods to access the value with proper synchronization
+// and change detection.
 type Dynamic[T any] struct {
 	value T
 }
@@ -48,36 +51,52 @@ func (d *Dynamic[T]) OnChange(fn func()) {
 	}
 }
 
+// It locks dynamicLocker, unless we're already in an updating context.
 func (d *Dynamic[T]) Set(value T) {
-	dynamicLocker.Lock()
-	defer dynamicLocker.Unlock()
-	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
-	d.value = value
+	// Check if we're already in an updating context (changeMonitor)
+	dynamicLocker.RLock()
+	updating := dynamicLocker.updating
+	dynamicLocker.RUnlock()
+
+	if updating {
+		// We're in changeMonitor context, don't acquire the lock to avoid deadlock
+		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+		d.value = value
+	} else {
+		// Normal case - acquire the lock
+		dynamicLocker.Lock()
+		defer dynamicLocker.Unlock()
+		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+		d.value = value
+	}
 }
 
+// It rlocks dynamicLocker.
 func (d *Dynamic[T]) Get() T {
+	if d == nil {
+		var zero T
+		return zero
+	}
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
 	return d.value
 }
 
-// UnmarshalText unmarshals the text into the dynamic value.
-// After initial setting, future updates require a lock on the DynamicMx mutex before calling toml.Decode.
-func (d *Dynamic[T]) UnmarshalText(text []byte) error {
-	return toml.Unmarshal(text, &d.value)
-}
-
-// MarshalTOML marshals the dynamic value to TOML format.
-// If used from deps, requires a lock.
-func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
-	return toml.Marshal(d.value)
+func (d *Dynamic[T]) GetWithoutLock() T {
+	if d == nil {
+		var zero T
+		return zero
+	}
+	return d.value
 }
 
 // Equal is used by cmp.Equal for custom comparison.
-// If used from deps, requires a lock.
+// It doesn't lock dynamicLocker as this typically is used for an update test.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, bigIntComparer)
+	return cmp.Equal(d.GetWithoutLock(), other.GetWithoutLock(), BigIntComparer, cmpopts.EquateEmpty())
 }
+
+// MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
 
 type cfgRoot[T any] struct {
 	db       *harmonydb.DB
@@ -195,15 +214,37 @@ func (r *cfgRoot[T]) changeMonitor() {
 			continue
 		}
 
-		// 2. lock "dynamic" mutex
+		// 2. Apply layers and detect changes without deadlock
 		func() {
+			// Set a flag to indicate we're in change monitor context
 			dynamicLocker.Lock()
-			defer dynamicLocker.Unlock()
+			dynamicLocker.updating = true
+			dynamicLocker.Unlock()
+
+			// Apply layers - Dynamic.Set() will detect the updating flag and skip locking
 			err := ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
+				// Reset updating flag on error
+				dynamicLocker.Lock()
+				dynamicLocker.updating = false
+				dynamicLocker.Unlock()
 				return
 			}
+
+			// Process change notifications
+			dynamicLocker.Lock()
+			dynamicLocker.updating = false
+			for k, v := range dynamicLocker.latest {
+				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
+					if notifier := dynamicLocker.notifier[k]; notifier != nil {
+						go notifier()
+					}
+				}
+			}
+			dynamicLocker.originally = make(map[uintptr]any)
+			dynamicLocker.latest = make(map[uintptr]any)
+			dynamicLocker.Unlock()
 		}()
 		time.Sleep(30 * time.Second)
 	}
@@ -235,13 +276,13 @@ func (c *changeNotifier) Lock() {
 	c.updating = true
 }
 func (c *changeNotifier) Unlock() {
-	c.cdmx.Lock()
 	c.RWMutex.Unlock()
+	c.cdmx.Lock()
 	defer c.cdmx.Unlock()
 
 	c.updating = false
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], bigIntComparer) {
+		if !cmp.Equal(v, c.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
@@ -249,6 +290,25 @@ func (c *changeNotifier) Unlock() {
 	}
 	c.originally = make(map[uintptr]any)
 	c.latest = make(map[uintptr]any)
+}
+
+type reportHandler struct {
+	changes  []string
+	newValue any
+	oldValue any
+}
+
+func (r *reportHandler) PushStep(path cmp.PathStep) {
+	r.changes = append(r.changes, path.String())
+	r.newValue, r.oldValue = path.Values()
+}
+func (r *reportHandler) Report(result cmp.Result) {
+	if !result.Equal() {
+		logger.Infof("Dynamic configuration %s updated from %v to %v", strings.Join(r.changes, "."), r.oldValue, r.newValue)
+	}
+}
+func (r *reportHandler) PopStep() {
+	r.changes = r.changes[:len(r.changes)-1]
 }
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 	if !c.updating {

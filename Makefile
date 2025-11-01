@@ -255,12 +255,12 @@ docsgen-cli: curio sptool
 	echo '# Default Curio Configuration' >> documentation/en/configuration/default-curio-configuration.md
 	echo '' >> documentation/en/configuration/default-curio-configuration.md
 	echo '```toml' >> documentation/en/configuration/default-curio-configuration.md
-	./curio config default >> documentation/en/configuration/default-curio-configuration.md
+	LANG=en-US ./curio config default >> documentation/en/configuration/default-curio-configuration.md
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
 go-generate:
-	$(GOCC) generate ./...
+	LANG=en-US $(GOCC) generate ./...
 .PHONY: go-generate
 
 gen: gensimple
@@ -313,6 +313,9 @@ $(lotus_src_dir):
 update/lotus: $(lotus_src_dir)
 	cd $(lotus_src_dir) && git pull
 .PHONY: update/lotus
+
+docker/testdb:
+	docker run -d --name yugabyte -p7001:7000 -p9000:9000 -p15433:15433 -p5433:5433 -p9042:9042  yugabytedb/yugabyte bin/yugabyted start  --background=false
 
 docker/lotus-all-in-one: info/lotus-all-in-one | $(lotus_src_dir)
 	cd $(lotus_src_dir) && $(curio_docker_build_cmd) -f Dockerfile --target lotus-all-in-one \

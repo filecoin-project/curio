@@ -55,5 +55,8 @@ if __name__ == "__main__":
     os.putenv("LOTUS_DOCS_GENERATION", "1")
 
     os.putenv("CURIO_VERSION_IGNORE_COMMIT", "1")
+    
+    # Set LANG=en-US to ensure help text is generated in English
+    os.putenv("LANG", "en-US")
     generate_lotus_cli('curio')
     generate_lotus_cli('sptool')

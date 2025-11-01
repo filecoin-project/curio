@@ -22,6 +22,7 @@ import (
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -51,7 +52,7 @@ type WinPostTask struct {
 	paramsReady func() (bool, error)
 
 	api    WinPostAPI
-	actors map[dtypes.MinerAddress]bool
+	actors *config.Dynamic[map[dtypes.MinerAddress]bool]
 
 	mineTF promise.Promise[harmonytask.AddTaskFunc]
 }
@@ -75,7 +76,7 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors *config.Dynamic[map[dtypes.MinerAddress]bool]) *WinPostTask {
 	t := &WinPostTask{
 		max:         max,
 		db:          db,
@@ -677,7 +678,7 @@ func (t *WinPostTask) mineBasic(ctx context.Context) {
 
 		baseEpoch := workBase.TipSet.Height()
 
-		for act := range t.actors {
+		for act := range t.actors.Get() {
 			spID, err := address.IDFromAddress(address.Address(act))
 			if err != nil {
 				log.Errorf("failed to get spID from address %s: %s", act, err)
