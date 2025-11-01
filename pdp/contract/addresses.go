@@ -14,7 +14,16 @@ import (
 
 type PDPContracts struct {
 	PDPVerifier                common.Address
-	AllowedPublicRecordKeepers []common.Address
+	AllowedPublicRecordKeepers RecordKeeperAddresses
+}
+
+type RecordKeeperAddresses struct {
+	FWSService common.Address
+	Simple     common.Address
+}
+
+func (a RecordKeeperAddresses) List() []common.Address {
+	return []common.Address{a.FWSService, a.Simple}
 }
 
 func ContractAddresses() PDPContracts {
@@ -22,15 +31,15 @@ func ContractAddresses() PDPContracts {
 	case build.BuildCalibnet:
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C"), // PDPVerifier Proxy v3.1.0 - https://github.com/FilOzone/pdp/releases/tag/v3.1.0
-			AllowedPublicRecordKeepers: []common.Address{
-				common.HexToAddress("0x02925630df557F957f70E112bA06e50965417CA0"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/pull/332 (2025-10-27)
+			AllowedPublicRecordKeepers: RecordKeeperAddresses{
+				FWSService: common.HexToAddress("0x02925630df557F957f70E112bA06e50965417CA0"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/pull/332 (2025-10-27)
 			},
 		}
 	case build.BuildMainnet:
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x1790d465d1FABE85b530B116f385091d52a12a3b"),
-			AllowedPublicRecordKeepers: []common.Address{
-				common.HexToAddress("0x81DFD9813aDd354f03704F31419b0c6268d46232"), // FilecoinWarmStorageService
+			AllowedPublicRecordKeepers: RecordKeeperAddresses{
+				FWSService: common.HexToAddress("0x81DFD9813aDd354f03704F31419b0c6268d46232"),
 			},
 		}
 	default:
@@ -53,7 +62,7 @@ func IsPublicService(serviceLabel string) bool {
 // Returns true if the address is allowed, or if there's no whitelist for the network
 func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 	// Check if the recordkeeper is in the whitelist
-	for _, allowed := range ContractAddresses().AllowedPublicRecordKeepers {
+	for _, allowed := range ContractAddresses().AllowedPublicRecordKeepers.List() {
 		if recordKeeper == allowed {
 			return true
 		}
