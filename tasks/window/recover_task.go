@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/dline"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -35,7 +36,7 @@ type WdPostRecoverDeclareTask struct {
 
 	maxDeclareRecoveriesGasFee types.FIL
 	as                         *multictladdr.MultiAddressSelector
-	actors                     map[dtypes.MinerAddress]bool
+	actors                     *config.Dynamic[map[dtypes.MinerAddress]bool]
 
 	startCheckTF promise.Promise[harmonytask.AddTaskFunc]
 }
@@ -65,7 +66,7 @@ func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	pcs *chainsched.CurioChainSched,
 
 	maxDeclareRecoveriesGasFee types.FIL,
-	actors map[dtypes.MinerAddress]bool) (*WdPostRecoverDeclareTask, error) {
+	actors *config.Dynamic[map[dtypes.MinerAddress]bool]) (*WdPostRecoverDeclareTask, error) {
 	t := &WdPostRecoverDeclareTask{
 		sender:       sender,
 		db:           db,
@@ -249,7 +250,7 @@ func (w *WdPostRecoverDeclareTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 func (w *WdPostRecoverDeclareTask) processHeadChange(ctx context.Context, revert, apply *types.TipSet) error {
 	tf := w.startCheckTF.Val(ctx)
 
-	for act := range w.actors {
+	for act := range w.actors.Get() {
 		maddr := address.Address(act)
 
 		aid, err := address.IDFromAddress(maddr)

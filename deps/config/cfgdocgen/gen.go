@@ -79,7 +79,17 @@ func run() error {
 				isDynamic = true
 				typ = strings.TrimPrefix(typ, "*Dynamic[")
 				typ = strings.TrimSuffix(typ, "]")
-				comment = append(comment, "Updates will affect running instances.")
+				// Only add the update notice if it's not already in the comments
+				hasUpdateNotice := false
+				for _, c := range comment {
+					if strings.Contains(c, "Updates will affect running instances.") {
+						hasUpdateNotice = true
+						break
+					}
+				}
+				if !hasUpdateNotice {
+					comment = append(comment, "Updates will affect running instances.")
+				}
 			}
 
 			if len(comment) > 0 && strings.HasPrefix(comment[0], fmt.Sprintf("%s is DEPRECATED", name)) {

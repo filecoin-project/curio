@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -46,11 +47,6 @@ import (
 var log = logging.Logger("storage-market")
 
 const (
-	mk12Str = "mk12"
-	mk20Str = "mk20"
-)
-
-const (
 	pollerCommP = iota
 	pollerPSD
 	pollerFindDeal
@@ -70,7 +66,7 @@ type CurioStorageDealMarket struct {
 	cfg         *config.CurioConfig
 	db          *harmonydb.DB
 	pin         storageingest.Ingester
-	miners      []address.Address
+	miners      *config.Dynamic[[]address.Address]
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	MK20Handler *mk20.MK20
@@ -116,7 +112,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	urls := make(map[string]http.Header)
 	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
@@ -139,13 +135,14 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	d.MK12Handler, err = mk12.NewMK12Handler(d.miners, d.db, d.si, d.api, d.cfg, d.as)
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as)
 	if err != nil {
 		return err
 	}
+	prevMiners := d.miners.Get()
 
 	if d.MK12Handler != nil {
-		for _, miner := range d.miners {
+		for _, miner := range d.miners.Get() { // Not Dynamic for MK12
 			_, err = d.MK12Handler.GetAsk(ctx, miner)
 			if err != nil {
 				if strings.Contains(err.Error(), "no ask found") {
@@ -165,6 +162,12 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				}
 			}
 		}
+		d.miners.OnChange(func() {
+			newMiners := d.miners.Get()
+			if !cmp.Equal(prevMiners, newMiners, config.BigIntComparer) {
+				log.Errorf("Miners changed from %d to %d. . Restart required for Market 1.2 Ingest to work.", len(prevMiners), len(newMiners))
+			}
+		})
 	}
 
 	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
@@ -172,17 +175,22 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		return err
 	}
 
-	if len(d.miners) > 0 {
+	if len(prevMiners) > 0 {
 		if d.cfg.Ingest.DoSnap {
-			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners, d.cfg)
+			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, prevMiners, d.cfg)
 		} else {
-			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners, d.cfg)
+			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, prevMiners, d.cfg)
 		}
 		if err != nil {
 			return err
 		}
 	}
-
+	d.miners.OnChange(func() {
+		newMiners := d.miners.Get()
+		if len(prevMiners) != len(newMiners) && (len(prevMiners) == 0 || len(newMiners) == 0) {
+			log.Errorf("Miners changed from %d to %d. . Restart required for Market Ingest to work.", len(prevMiners), len(newMiners))
+		}
+	})
 	go d.runPoller(ctx)
 
 	return nil
