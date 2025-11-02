@@ -663,22 +663,28 @@ func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size
 
 			cleanupIdle := func() {
 				lastRefs := 1
+				timer := time.NewTimer(LocalReaderTimeout)
+				defer timer.Stop()
 
-				for range time.After(LocalReaderTimeout) {
-					refsLk.Lock()
-					if refs == 0 && lastRefs == 0 && pf != nil { // pf can't really be nil here, but better be safe
-						log.Infow("closing idle partial file", "path", path)
-						err := pf.Close()
-						if err != nil {
-							log.Errorw("closing idle partial file", "path", path, "error", err)
+				for {
+					select {
+					case <-timer.C:
+						refsLk.Lock()
+						if refs == 0 && lastRefs == 0 && pf != nil { // pf can't really be nil here, but better be safe
+							log.Infow("closing idle partial file", "path", path)
+							err := pf.Close()
+							if err != nil {
+								log.Errorw("closing idle partial file", "path", path, "error", err)
+							}
+
+							pf = nil
+							refsLk.Unlock()
+							return
 						}
-
-						pf = nil
+						lastRefs = refs
 						refsLk.Unlock()
-						return
+						timer.Reset(LocalReaderTimeout)
 					}
-					lastRefs = refs
-					refsLk.Unlock()
 				}
 			}
 
@@ -817,22 +823,28 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 
 		cleanupIdle := func() {
 			lastRefs := 1
+			timer := time.NewTimer(LocalReaderTimeout)
+			defer timer.Stop()
 
-			for range time.After(LocalReaderTimeout) {
-				refsLk.Lock()
-				if refs == 0 && lastRefs == 0 && f != nil {
-					log.Infow("closing idle partial file", "path", path)
-					err := f.Close()
-					if err != nil {
-						log.Errorw("closing idle partial file", "path", path, "error", err)
+			for {
+				select {
+				case <-timer.C:
+					refsLk.Lock()
+					if refs == 0 && lastRefs == 0 && f != nil {
+						log.Infow("closing idle partial file", "path", path)
+						err := f.Close()
+						if err != nil {
+							log.Errorw("closing idle partial file", "path", path, "error", err)
+						}
+
+						f = nil
+						refsLk.Unlock()
+						return
 					}
-
-					f = nil
+					lastRefs = refs
 					refsLk.Unlock()
-					return
+					timer.Reset(LocalReaderTimeout)
 				}
-				lastRefs = refs
-				refsLk.Unlock()
 			}
 		}
 

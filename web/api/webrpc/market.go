@@ -536,28 +536,35 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 }
 
 type PieceDeal struct {
-	ID          string        `db:"id" json:"id"`
-	BoostDeal   bool          `db:"boost_deal" json:"boost_deal"`
-	LegacyDeal  bool          `db:"legacy_deal" json:"legacy_deal"`
-	SpId        int64         `db:"sp_id" json:"sp_id"`
-	ChainDealId int64         `db:"chain_deal_id" json:"chain_deal_id"`
-	Sector      int64         `db:"sector_num" json:"sector"`
-	Offset      sql.NullInt64 `db:"piece_offset" json:"offset"`
-	Length      int64         `db:"piece_length" json:"length"`
-	RawSize     int64         `db:"raw_size" json:"raw_size"`
-	Miner       string        `json:"miner"`
-	MK20        bool          `db:"-" json:"mk20"`
+	// Cache line 1 (0-64 bytes): Hot path - identification fields used together
+	ID    string `db:"id" json:"id"`       // 16 bytes - used with SpId (line 621-623)
+	SpId  int64  `db:"sp_id" json:"sp_id"` // 8 bytes - checked early (line 614), used with ID (line 617)
+	Miner string `json:"miner"`            // 16 bytes - set based on SpId (line 615, 625)
+	// Cache line 2: Additional 8-byte types grouped together
+	ChainDealId int64 `db:"chain_deal_id" json:"chain_deal_id"` // 8 bytes
+	Sector      int64 `db:"sector_num" json:"sector"`           // 8 bytes
+	Length      int64 `db:"piece_length" json:"length"`         // 8 bytes
+	RawSize     int64 `db:"raw_size" json:"raw_size"`           // 8 bytes
+	// sql.NullInt64 (16 bytes)
+	Offset sql.NullInt64 `db:"piece_offset" json:"offset"` // 16 bytes
+	// Cache line 3 (64+ bytes): Bools grouped together at the end to minimize padding
+	MK20       bool `db:"-" json:"mk20"`                  // Used with ID check (line 621-623) - hot path
+	BoostDeal  bool `db:"boost_deal" json:"boost_deal"`   // Less frequently accessed
+	LegacyDeal bool `db:"legacy_deal" json:"legacy_deal"` // Less frequently accessed
 }
 
 type PieceInfo struct {
-	PieceCidv2 string       `json:"piece_cid_v2"`
-	PieceCid   string       `json:"piece_cid"`
-	Size       int64        `json:"size"`
-	CreatedAt  time.Time    `json:"created_at"`
-	Indexed    bool         `json:"indexed"`
-	IndexedAT  time.Time    `json:"indexed_at"`
-	IPNIAd     []string     `json:"ipni_ads"`
-	Deals      []*PieceDeal `json:"deals"`
+	// Cache line 1 (0-64 bytes): Hot path - piece identification used together
+	PieceCidv2 string   `json:"piece_cid_v2"` // 16 bytes - used together with PieceCid (line 584)
+	PieceCid   string   `json:"piece_cid"`    // 16 bytes - used with PieceCidv2 (line 584)
+	Size       int64    `json:"size"`         // 8 bytes - used with PieceCid (line 587, 604)
+	IPNIAd     []string `json:"ipni_ads"`     // 24 bytes - used for results
+	// Cache line 2 (64+ bytes): Display
+	CreatedAt time.Time `json:"created_at"` // 24 bytes - used for display
+	IndexedAT time.Time `json:"indexed_at"` // 24 bytes - used for display
+	Indexed   bool      `json:"indexed"`    // Used for display
+	// Cache line 3
+	Deals []PieceDeal `json:"deals"` // 24 bytes - used for results
 }
 
 func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
@@ -588,7 +595,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 	}
 
-	pieceDeals := []*PieceDeal{}
+	pieceDeals := []PieceDeal{}
 
 	err = a.deps.DB.Select(ctx, &pieceDeals, `SELECT 
 														id, 

@@ -139,7 +139,9 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	//never commit P2 message before, check ticket expiration
 	ticketEarliest := head.Height() - policy.MaxPreCommitRandomnessLookback
 
-	params := miner.PreCommitSectorBatchParams2{}
+	params := miner.PreCommitSectorBatchParams2{
+		Sectors: make([]miner.SectorPreCommitInfo, 0, len(sectorParamsArr)),
+	}
 	collateral := big.Zero()
 
 	// 2. Prepare preCommit info and PreCommitSectorBatchParams

@@ -55,21 +55,22 @@ func (s *SectorInfo) SectorID() abi.SectorID {
 
 // ClientRequest holds the client request information
 type ClientRequest struct {
-	SpID         int64 `db:"sp_id"`
-	SectorNumber int64 `db:"sector_num"`
-
-	RequestCID           *string `db:"request_cid"`
-	RequestUploaded      bool    `db:"request_uploaded"`
-	RequestPartitionCost int64   `db:"request_partition_cost"`
-	RequestType          string  `db:"request_type"`
-
-	PaymentWallet *int64 `db:"payment_wallet"`
-	PaymentNonce  *int64 `db:"payment_nonce"`
-
-	RequestSent  bool   `db:"request_sent"`
-	ResponseData []byte `db:"response_data"`
-
-	Done bool `db:"done"`
+	// Cache line 1 (0-64 bytes): Hot path - sector identification and early checks
+	SpID                 int64 `db:"sp_id"`                  // 8 bytes - used with SectorNumber (line 140, 265)
+	SectorNumber         int64 `db:"sector_num"`             // 8 bytes - used with SpID (line 140, 265)
+	RequestPartitionCost int64 `db:"request_partition_cost"` // 8 bytes - used together
+	// Pointers (8 bytes each)
+	RequestCID    *string `db:"request_cid"`    // 8 bytes - used with RequestUploaded (line 141)
+	PaymentWallet *int64  `db:"payment_wallet"` // 8 bytes - used with PaymentNonce (line 141)
+	PaymentNonce  *int64  `db:"payment_nonce"`  // 8 bytes - used with PaymentWallet (line 141)
+	// Strings (16 bytes)
+	RequestType string `db:"request_type"` // 16 bytes - used less frequently
+	// Slices (24 bytes)
+	ResponseData []byte `db:"response_data"` // 24 bytes - used less frequently
+	// Cache line 2 (64+ bytes): Bools grouped together for early checks
+	RequestUploaded bool `db:"request_uploaded"` // Used in early check (line 141)
+	RequestSent     bool `db:"request_sent"`     // Used in early check (line 142)
+	Done            bool `db:"done"`             // Used in early check (line 142)
 }
 
 type TaskClientPoll struct {
@@ -154,11 +155,14 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		const pollInterval = 10 * time.Second
 		defer ownedCancel()
 
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(pollInterval):
+			case <-ticker.C:
 				if !stillOwned() {
 					// close the owned context
 					return

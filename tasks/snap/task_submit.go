@@ -180,6 +180,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		AggregateProofType:         nil,
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
 		RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
+		SectorUpdates:              make([]miner13.SectorUpdateManifest, 0, len(tasks)),
+		SectorProofs:               make([][]byte, 0, len(tasks)),
 	}
 
 	collateral := big.Zero()
@@ -279,7 +281,7 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		}
 
 		// Process pieces, prepare PAMs
-		var pams []miner.PieceActivationManifest
+		pams := make([]miner.PieceActivationManifest, 0, len(pieces))
 		var verifiedSize int64
 		pieceCheckFailed := false
 		for _, piece := range pieces {
