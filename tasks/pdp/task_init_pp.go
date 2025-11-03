@@ -138,7 +138,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 			UPDATE pdp_data_sets
 			SET init_ready = FALSE
 			WHERE id = $1
-			`)
+			`, dataSetId)
 		if err != nil {
 			return false, xerrors.Errorf("failed to disable proving (caused by no leaves): %w", err)
 		}
