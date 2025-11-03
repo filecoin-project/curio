@@ -93,7 +93,7 @@ func (a *WebRPC) maybeUpgradePieceCid(ctx context.Context, c cid.Cid) (bool, cid
 	// raw_size = if mpd.raw_size == 0, then Padded(piece_length).Unpadded() else mpd.raw_size
 	var rawSize uint64
 	var pieceLength uint64
-	
+
 	err := a.deps.DB.QueryRow(ctx, `
 		SELECT COALESCE(raw_size, 0), piece_length 
 		FROM market_piece_deal 
@@ -102,12 +102,11 @@ func (a *WebRPC) maybeUpgradePieceCid(ctx context.Context, c cid.Cid) (bool, cid
 	if err != nil {
 		return false, c, xerrors.Errorf("failed to lookup piece info: %w", err)
 	}
-	
+
 	if rawSize == 0 {
 		rawSize = uint64(abi.PaddedPieceSize(pieceLength).Unpadded())
 	}
 
-	
 	pcid2, err := commcidv2.PieceCidV2FromV1(c, rawSize)
 	if err != nil {
 		return false, c, err
@@ -132,9 +131,9 @@ func IsCidV1PieceCid(c cid.Cid) bool {
 			return false
 		}
 	/* case multicodec.FilCommitmentSealed:
-		if filMh != multicodec.PoseidonBls12_381A2Fc1 {
-			return false
-		} */
+	if filMh != multicodec.PoseidonBls12_381A2Fc1 {
+		return false
+	} */
 	default:
 		// Neither unsealed nor sealed commitment
 		return false
