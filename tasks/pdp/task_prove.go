@@ -95,7 +95,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
                     INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
                     WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE AND p.prove_at_epoch < $1
                     LIMIT 2
-                `, apply.Height())
+                `, apply.Height()-1) // -1 to delay it by a block to reduce chance for `premature proof` due to reorgs
 				if err != nil {
 					return false, xerrors.Errorf("failed to select data sets: %w", err)
 				}
@@ -198,6 +198,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	defer func() {
 		if err != nil {
+			log.Errorw("Proof submission failed", "dataSetId", dataSetId, "error", err)
 			err = fmt.Errorf("failed to submit possesion proof for dataset %d: %w", dataSetId, err)
 		}
 	}()
