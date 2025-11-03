@@ -113,6 +113,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 
 	defer func() {
 		if err != nil {
+			log.Errorw("Initial challenge window scheduling failed", "dataSetId", dataSetId, "error", err)
 			err = fmt.Errorf("failed to set up initial proving period for dataset %d: %w", dataSetId, err)
 		}
 	}()

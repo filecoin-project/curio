@@ -198,6 +198,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	defer func() {
 		if err != nil {
+			log.Errorw("Proof submission failed", "dataSetId", dataSetId, "error", err)
 			err = fmt.Errorf("failed to submit possesion proof for dataset %d: %w", dataSetId, err)
 		}
 	}()

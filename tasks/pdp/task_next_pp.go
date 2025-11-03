@@ -110,6 +110,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	defer func() {
 		if err != nil {
+			log.Errorw("Next challange window scheduling failed", "dataSetId", dataSetId, "error", err)
 			err = fmt.Errorf("failed to set up next proving period for dataset %d: %w", dataSetId, err)
 		}
 	}()
