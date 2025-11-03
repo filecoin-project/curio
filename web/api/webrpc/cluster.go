@@ -12,6 +12,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 type MachineSummary struct {
@@ -34,62 +36,58 @@ type MachineSummary struct {
 
 func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) {
 	// Then machine summary
-	rows, err := a.deps.DB.Query(ctx, `
-						SELECT 
-							hm.id,
-							hm.host_and_port,
-							CURRENT_TIMESTAMP - hm.last_contact AS last_contact,
-							hm.cpu,
-							hm.ram,
-							hm.gpu,
-							hm.unschedulable,
-							hm.restart_request,
-							hmd.machine_name,
-							hmd.tasks,
-							hmd.layers,
-							hmd.startup_time
-						FROM 
-							harmony_machines hm
-						LEFT JOIN 
-							harmony_machine_details hmd ON hm.id = hmd.machine_id
-						ORDER BY 
-							hmd.machine_name ASC;`)
-	if err != nil {
-		return nil, err // Handle error
-	}
-	defer rows.Close()
-
 	var summaries []MachineSummary
-	for rows.Next() {
-		var m MachineSummary
-		var lastContact time.Duration
-		var ram int64
-		var uptime time.Time
-		var restartRequest *time.Time
+	var row struct {
+		ID            int64        `db:"id"`
+		Address       string       `db:"host_and_port"`
+		LastContact   time.Duration `db:"last_contact"`
+		CPU           int          `db:"cpu"`
+		RAM           int64        `db:"ram"`
+		GPU           int          `db:"gpu"`
+		Unschedulable bool         `db:"unschedulable"`
+		RestartReq    *time.Time   `db:"restart_request"`
+		MachineName   string       `db:"machine_name"`
+		Tasks         string       `db:"tasks"`
+		Layers        string       `db:"layers"`
+		StartupTime   time.Time    `db:"startup_time"`
+	}
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
-			return nil, err // Handle error
+	err := a.deps.DB.SelectForEach(ctx, &row, harmonydb.SqlAndArgs{
+		SQL: `SELECT hm.id, hm.host_and_port, CURRENT_TIMESTAMP - hm.last_contact AS last_contact, hm.cpu, hm.ram, hm.gpu, hm.unschedulable, hm.restart_request, hmd.machine_name, hmd.tasks, hmd.layers, hmd.startup_time FROM harmony_machines hm LEFT JOIN harmony_machine_details hmd ON hm.id = hmd.machine_id ORDER BY hmd.machine_name ASC`,
+		Args: nil,
+	}, func() error {
+		m := MachineSummary{
+			ID:            row.ID,
+			Address:       row.Address,
+			Cpu:           row.CPU,
+			Gpu:           row.GPU,
+			Unschedulable: row.Unschedulable,
+			Name:          row.MachineName,
+			Tasks:         strings.TrimSuffix(strings.TrimPrefix(row.Tasks, ","), ","),
+			Layers:        strings.TrimSuffix(strings.TrimPrefix(row.Layers, ","), ","),
 		}
-		m.SinceContact = lastContact.Round(time.Second).String()
-		m.RamHumanized = humanize.Bytes(uint64(ram))
-		m.Uptime = humanize.Time(uptime)
-		m.Tasks = strings.TrimSuffix(strings.TrimPrefix(m.Tasks, ","), ",")
-		m.Layers = strings.TrimSuffix(strings.TrimPrefix(m.Layers, ","), ",")
+		m.SinceContact = row.LastContact.Round(time.Second).String()
+		m.RamHumanized = humanize.Bytes(uint64(row.RAM))
+		m.Uptime = humanize.Time(row.StartupTime)
 
 		if m.Unschedulable {
 			var runningTasks int
 			if err := a.deps.DB.QueryRow(ctx, "SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1", m.ID).Scan(&runningTasks); err != nil {
-				return nil, err
+				return err
 			}
 			m.RunningTasks = runningTasks
 		}
 
-		if restartRequest != nil {
-			m.RestartRequest = humanize.Time(*restartRequest)
+		if row.RestartReq != nil {
+			m.RestartRequest = humanize.Time(*row.RestartReq)
 			m.Restarting = true
 		}
 
 		summaries = append(summaries, m)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return summaries, nil
 }
@@ -107,36 +105,49 @@ type TaskHistorySummary struct {
 }
 
 func (a *WebRPC) ClusterTaskHistory(ctx context.Context, limit, offset int) ([]TaskHistorySummary, error) {
-	rows, err := a.deps.DB.Query(ctx, "SELECT id, name, task_id, posted, work_start, work_end, result, err, completed_by_host_and_port FROM harmony_task_history ORDER BY work_end DESC LIMIT $1 OFFSET $2", limit, offset)
-	if err != nil {
-		return nil, err // Handle error
-	}
-	defer rows.Close()
-
 	var summaries []TaskHistorySummary
-	for rows.Next() {
-		var t TaskHistorySummary
-		var posted, start, end time.Time
+	var row struct {
+		ID          int64     `db:"id"`
+		Name        string    `db:"name"`
+		TaskID      int64     `db:"task_id"`
+		Posted      time.Time `db:"posted"`
+		WorkStart   time.Time `db:"work_start"`
+		WorkEnd     time.Time `db:"work_end"`
+		Result      bool      `db:"result"`
+		Err         string    `db:"err"`
+		CompletedBy string    `db:"completed_by_host_and_port"`
+	}
 
-		if err := rows.Scan(&t.TaskID, &t.Name, &t.TaskID, &posted, &start, &end, &t.Result, &t.Err, &t.CompletedBy); err != nil {
-			return nil, err // Handle error
+	err := a.deps.DB.SelectForEach(ctx, &row, harmonydb.SqlAndArgs{
+		SQL:  "SELECT id, name, task_id, posted, work_start, work_end, result, err, completed_by_host_and_port FROM harmony_task_history ORDER BY work_end DESC LIMIT $1 OFFSET $2",
+		Args: []any{limit, offset},
+	}, func() error {
+		t := TaskHistorySummary{
+			TaskID:      row.TaskID,
+			Name:        row.Name,
+			Result:      row.Result,
+			Err:         row.Err,
+			CompletedBy: row.CompletedBy,
 		}
 
-		t.Posted = posted.Local().Round(time.Second).Format("02 Jan 06 15:04")
-		t.Start = start.Local().Round(time.Second).Format("02 Jan 06 15:04")
-		//t.End = end.Local().Round(time.Second).Format("02 Jan 06 15:04")
+		t.Posted = row.Posted.Local().Round(time.Second).Format("02 Jan 06 15:04")
+		t.Start = row.WorkStart.Local().Round(time.Second).Format("02 Jan 06 15:04")
 
-		t.Queued = start.Sub(posted).Round(time.Second).String()
+		t.Queued = row.WorkStart.Sub(row.Posted).Round(time.Second).String()
 		if t.Queued == "0s" {
-			t.Queued = start.Sub(posted).Round(time.Millisecond).String()
+			t.Queued = row.WorkStart.Sub(row.Posted).Round(time.Millisecond).String()
 		}
 
-		t.Took = end.Sub(start).Round(time.Second).String()
+		t.Took = row.WorkEnd.Sub(row.WorkStart).Round(time.Second).String()
 		if t.Took == "0s" {
-			t.Took = end.Sub(start).Round(time.Millisecond).String()
+			t.Took = row.WorkEnd.Sub(row.WorkStart).Round(time.Millisecond).String()
 		}
 
 		summaries = append(summaries, t)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return summaries, nil
 }

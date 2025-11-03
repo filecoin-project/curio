@@ -130,42 +130,46 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		//   - Live + Unproven
 
 		if len(toRemove) > 0 { // pins
-			var pinnedSectors []struct {
+			var sector struct {
 				SpID      int64 `db:"sp_id"`
 				SectorNum int64 `db:"sector_num"`
 			}
 
-			err = tx.Select(&pinnedSectors, `SELECT sp_id, sector_num FROM storage_gc_pins`)
-			if err != nil {
-				return false, xerrors.Errorf("select gc pins: %w", err)
-			}
-
-			for _, sector := range pinnedSectors {
+			err = tx.SelectForEach(&sector, harmonydb.SqlAndArgs{
+				SQL:  `SELECT sp_id, sector_num FROM storage_gc_pins`,
+				Args: nil,
+			}, func() error {
 				if toRemove[abi.ActorID(sector.SpID)] == nil {
-					continue
+					return nil
 				}
 
 				toRemove[abi.ActorID(sector.SpID)].Unset(uint64(sector.SectorNum))
+				return nil
+			})
+			if err != nil {
+				return false, xerrors.Errorf("iterating pinned sectors: %w", err)
 			}
 		}
 
 		if len(toRemove) > 0 { // sealing pipeline
-			var pipelineSectors []struct {
+			var sector struct {
 				SpID      int64 `db:"sp_id"`
 				SectorNum int64 `db:"sector_number"`
 			}
 
-			err = tx.Select(&pipelineSectors, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline`)
-			if err != nil {
-				return false, xerrors.Errorf("select sd pipeline: %w", err)
-			}
-
-			for _, sector := range pipelineSectors {
+			err = tx.SelectForEach(&sector, harmonydb.SqlAndArgs{
+				SQL:  `SELECT sp_id, sector_number FROM sectors_sdr_pipeline`,
+				Args: nil,
+			}, func() error {
 				if toRemove[abi.ActorID(sector.SpID)] == nil {
-					continue
+					return nil
 				}
 
 				toRemove[abi.ActorID(sector.SpID)].Unset(uint64(sector.SectorNum))
+				return nil
+			})
+			if err != nil {
+				return false, xerrors.Errorf("iterating pipeline sectors: %w", err)
 			}
 		}
 
@@ -263,32 +267,36 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			         WHERE m.target_unseal_state = false AND sl.sector_filetype= 1
 		*/
 
-		var unsealedSectors []struct {
+		var sector struct {
 			SpID      int64  `db:"sp_id"`
 			SectorNum int64  `db:"sector_num"`
 			StorageID string `db:"storage_id"`
 		}
 
-		err = tx.Select(&unsealedSectors, `SELECT m.sector_num, m.sp_id, sl.storage_id FROM sectors_meta m
+		hasAny := false
+		err = tx.SelectForEach(&sector, harmonydb.SqlAndArgs{
+			SQL: `SELECT m.sector_num, m.sp_id, sl.storage_id FROM sectors_meta m
 			INNER JOIN sector_location sl ON m.sp_id = sl.miner_id AND m.sector_num = sl.sector_num
 			LEFT JOIN sectors_unseal_pipeline sup ON m.sp_id = sup.sp_id AND m.sector_num = sup.sector_number
-			WHERE m.target_unseal_state = false AND sl.sector_filetype= 1 AND sup.sector_number IS NULL`) // FTUnsealed = 1
-		if err != nil {
-			return false, xerrors.Errorf("select unsealed sectors: %w", err)
-		}
-
-		for _, sector := range unsealedSectors {
+			WHERE m.target_unseal_state = false AND sl.sector_filetype= 1 AND sup.sector_number IS NULL`, // FTUnsealed = 1
+			Args: nil,
+		}, func() error {
 			n, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
 				VALUES ($1, $2, 1, $3) ON CONFLICT DO NOTHING`, sector.SpID, sector.SectorNum, sector.StorageID)
 			if err != nil {
-				return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+				return xerrors.Errorf("insert storage_removal_marks: %w", err)
 			}
 			if n > 0 {
+				hasAny = true
 				log.Infow("file marked for GC", "miner", sector.SpID, "sector", sector.SectorNum, "filetype", 1, "storage_id", sector.StorageID, "reason", "unseal-target-state")
 			}
+			return nil
+		})
+		if err != nil {
+			return false, err
 		}
 
-		return len(unsealedSectors) > 0, nil
+		return hasAny, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
 		return false, xerrors.Errorf("unseal stage transaction: %w", err)
@@ -333,59 +341,64 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("get finality tipset: %w", err)
 	}
 
-	var minerIDs []int64
-	if err = s.db.Select(ctx, &minerIDs, `SELECT DISTINCT sp_id FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid`); err != nil {
-		return false, xerrors.Errorf("distinct miners from snap sectors: %w", err)
+	finalityMinerStates := make(map[abi.ActorID]miner.State)
+	var minerID struct {
+		SpID int64 `db:"sp_id"`
 	}
 
-	finalityMinerStates := make(map[abi.ActorID]miner.State)
-	for _, mID := range minerIDs {
-		maddr, err := address.NewIDAddress(uint64(mID))
+	err = s.db.SelectForEach(ctx, &minerID, harmonydb.SqlAndArgs{
+		SQL:  `SELECT DISTINCT sp_id FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid`,
+		Args: nil,
+	}, func() error {
+		maddr, err := address.NewIDAddress(uint64(minerID.SpID))
 		if err != nil {
-			return false, xerrors.Errorf("creating miner address for %d: %w", mID, err)
+			return xerrors.Errorf("creating miner address for %d: %w", minerID.SpID, err)
 		}
 
 		mact, err := s.api.StateGetActor(ctx, maddr, finalityTipset.Key())
 		if err != nil {
-			return false, xerrors.Errorf("get miner actor %s at finality: %w", maddr, err)
+			return xerrors.Errorf("get miner actor %s at finality: %w", maddr, err)
 		}
 
 		mState, err := miner.Load(astor, mact)
 		if err != nil {
-			return false, xerrors.Errorf("load miner actor state %s at finality: %w", maddr, err)
+			return xerrors.Errorf("load miner actor state %s at finality: %w", maddr, err)
 		}
 
-		finalityMinerStates[abi.ActorID(mID)] = mState
+		finalityMinerStates[abi.ActorID(minerID.SpID)] = mState
+		return nil
+	})
+	if err != nil {
+		return false, xerrors.Errorf("iterating miner IDs: %w", err)
 	}
 
 	// SELECT sp_id, sector_num FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid
-	var snapSectors []struct {
+	marks := map[abi.SectorID]struct{}{}
+	var sector struct {
 		SpID      int64 `db:"sp_id"`
 		SectorNum int64 `db:"sector_num"`
 	}
-	err = s.db.Select(ctx, &snapSectors, `SELECT sp_id, sector_num FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid ORDER BY sp_id, sector_num`)
-	if err != nil {
-		return false, xerrors.Errorf("select snap sectors: %w", err)
-	}
-	marks := map[abi.SectorID]struct{}{}
 
-	for _, sector := range snapSectors {
+	err = s.db.SelectForEach(ctx, &sector, harmonydb.SqlAndArgs{
+		SQL:  `SELECT sp_id, sector_num FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid ORDER BY sp_id, sector_num`,
+		Args: nil,
+	}, func() error {
 		mstate, ok := finalityMinerStates[abi.ActorID(sector.SpID)]
 		if !ok {
-			continue
+			return nil
 		}
 
 		s, err := mstate.GetSector(abi.SectorNumber(sector.SectorNum))
 		if err != nil {
-			return false, xerrors.Errorf("get sector %d: %w", sector.SectorNum, err)
+			return xerrors.Errorf("get sector %d: %w", sector.SectorNum, err)
 		}
 		if s == nil {
 			log.Warnw("sector is nil", "miner", sector.SpID, "sector", sector.SectorNum)
-			continue
+			return nil
 		}
 
 		if s.SectorKeyCID == nil {
-			continue
+			return nil
 		}
 
 		si := abi.SectorID{
@@ -395,10 +408,14 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 		if u := sectorsWithUpdate[si]; u != (storiface.FTUpdate | storiface.FTUpdateCache) {
 			log.Warnw("sector has no update files", "miner", sector.SpID, "sector", sector.SectorNum)
-			continue
+			return nil
 		}
 
 		marks[si] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
 
 	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {

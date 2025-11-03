@@ -32,17 +32,14 @@ type PDPService struct {
 
 // PDPServices retrieves the list of PDP services from the database
 func (a *WebRPC) PDPServices(ctx context.Context) ([]PDPService, error) {
-	services := []PDPService{}
+	var services []PDPService
 
-	// Use w.deps.DB.Select to retrieve the services
-	err := a.deps.DB.Select(ctx, &services, `SELECT id, service_label, pubkey FROM pdp_services ORDER BY id ASC`)
-	if err != nil {
-		log.Errorf("PDPServices: failed to select services: %v", err)
-		return nil, fmt.Errorf("failed to retrieve services")
-	}
-
-	// Convert pubkey bytes to PEM format string in the JSON response
-	for i, svc := range services {
+	var svc PDPService
+	err := a.deps.DB.SelectForEach(ctx, &svc, harmonydb.SqlAndArgs{
+		SQL:  `SELECT id, service_label, pubkey FROM pdp_services ORDER BY id ASC`,
+		Args: nil,
+	}, func() error {
+		// Convert pubkey bytes to PEM format string in the JSON response
 		pubKeyBytes := svc.PubKey
 
 		// Encode the public key to PEM format
@@ -52,7 +49,15 @@ func (a *WebRPC) PDPServices(ctx context.Context) ([]PDPService, error) {
 		}
 
 		pemBytes := pem.EncodeToMemory(block)
-		services[i].PubKeyStr = string(pemBytes)
+		// Copy service to keep it beyond callback
+		svcCopy := svc
+		svcCopy.PubKeyStr = string(pemBytes)
+		services = append(services, svcCopy)
+		return nil
+	})
+	if err != nil {
+		log.Errorf("PDPServices: failed to select services: %v", err)
+		return nil, fmt.Errorf("failed to retrieve services")
 	}
 
 	return services, nil

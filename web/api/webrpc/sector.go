@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -612,26 +613,28 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	if len(taskIDs) > 0 {
 		ids := lo.Keys(taskIDs)
 
-		var dbtasks []struct {
+		var dbtask struct {
 			OwnerID     *string   `db:"owner_id"`
 			HostAndPort *string   `db:"host_and_port"`
 			TaskID      int64     `db:"id"`
 			Name        string    `db:"name"`
 			UpdateTime  time.Time `db:"update_time"`
 		}
-		err = a.deps.DB.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
+		err = a.deps.DB.SelectForEach(ctx, &dbtask, harmonydb.SqlAndArgs{
+			SQL:  `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`,
+			Args: []any{ids},
+		}, func() error {
+			htasks = append(htasks, SectorInfoTaskSummary{
+				Name:        dbtask.Name,
+				SincePosted: time.Since(dbtask.UpdateTime.Local()).Round(time.Second).String(),
+				Owner:       dbtask.HostAndPort,
+				OwnerID:     dbtask.OwnerID,
+				ID:          dbtask.TaskID,
+			})
+			return nil
+		})
 		if err != nil {
 			return nil, xerrors.Errorf("failed to fetch task names: %v", err)
-		}
-
-		for _, tn := range dbtasks {
-			htasks = append(htasks, SectorInfoTaskSummary{
-				Name:        tn.Name,
-				SincePosted: time.Since(tn.UpdateTime.Local()).Round(time.Second).String(),
-				Owner:       tn.HostAndPort,
-				OwnerID:     tn.OwnerID,
-				ID:          tn.TaskID,
-			})
 		}
 	}
 

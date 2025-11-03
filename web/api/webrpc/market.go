@@ -730,27 +730,17 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 	}
 
 	// Query the parked_piece_refs table for references
-	rows, err := a.deps.DB.Query(ctx, `
-        SELECT ref_id, piece_id, data_url, data_headers
-        FROM parked_piece_refs WHERE piece_id = $1
-    `, pps.ID)
+	var ref ParkedPieceRef
+	err = a.deps.DB.SelectForEach(ctx, &ref, harmonydb.SqlAndArgs{
+		SQL:  `SELECT ref_id, piece_id, data_url, data_headers FROM parked_piece_refs WHERE piece_id = $1`,
+		Args: []any{pps.ID},
+	}, func() error {
+		refCopy := ref
+		pps.Refs = append(pps.Refs, refCopy)
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query parked piece refs: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var ref ParkedPieceRef
-		var dataHeaders []byte
-		err := rows.Scan(&ref.RefID, &ref.PieceID, &ref.DataURL, &dataHeaders)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan parked piece ref: %w", err)
-		}
-		ref.DataHeaders = json.RawMessage(dataHeaders)
-		pps.Refs = append(pps.Refs, ref)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over parked piece refs: %w", err)
 	}
 
 	return &pps, nil
@@ -911,8 +901,11 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	size := commp.PieceInfo().Size
 
 	var mk12Deals []*MK12Deal
+	var uuids []string
 
-	err = a.deps.DB.Select(ctx, &mk12Deals, `
+	var deal MK12Deal
+	err = a.deps.DB.SelectForEach(ctx, &deal, harmonydb.SqlAndArgs{
+		SQL: `
 										SELECT
 											uuid,
 											sp_id,
@@ -965,23 +958,26 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 											NULL AS error,                    -- NULL handled by Go (sql.NullString)
 										    TRUE AS is_ddo
 										FROM market_direct_deals
-										WHERE piece_cid = $1 AND piece_size = $2`, pieceCid, size)
+										WHERE piece_cid = $1 AND piece_size = $2`,
+		Args: []any{pieceCid, size},
+	}, func() error {
+		deal.Addr = must.One(address.NewIDAddress(uint64(deal.SpId))).String()
+		// Copy deal to keep it beyond callback
+		dealCopy := deal
+		mk12Deals = append(mk12Deals, &dealCopy)
+		uuids = append(uuids, deal.UUID)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Collect UUIDs from deals
-	uuids := make([]string, len(mk12Deals))
-	for i, deal := range mk12Deals {
-		deal.Addr = must.One(address.NewIDAddress(uint64(deal.SpId))).String()
-
-		uuids[i] = deal.UUID
-	}
-
 	// Fetch pipelines matching the UUIDs
-	var pipelines []MK12DealPipeline
+	pipelineMap := make(map[string]MK12DealPipeline)
 	if len(uuids) > 0 {
-		err = a.deps.DB.Select(ctx, &pipelines, `
+		var pipeline MK12DealPipeline
+		err = a.deps.DB.SelectForEach(ctx, &pipeline, harmonydb.SqlAndArgs{
+			SQL: `
             SELECT
                 uuid,
                 sp_id,
@@ -1012,46 +1008,45 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
                 created_at
             FROM market_mk12_deal_pipeline
             WHERE uuid = ANY($1)
-        `, uuids)
+        `,
+			Args: []any{uuids},
+		}, func() error {
+			// Copy pipeline to keep it beyond callback
+			pipelineCopy := pipeline
+			pipelineMap[pipeline.UUID] = pipelineCopy
+			return nil
+		})
 		if err != nil {
 			return nil, xerrors.Errorf("failed to query mk12 pipelines: %w", err)
 		}
 	}
 
-	pipelineMap := make(map[string]MK12DealPipeline)
-	for _, pipeline := range pipelines {
-		pipeline := pipeline
-		pipelineMap[pipeline.UUID] = pipeline
-	}
+	var ids []string
+	var mk20deals []*MK20StorageDeal
 
-	var mk20Deals []*mk20.DBDeal
-	err = a.deps.DB.Select(ctx, &mk20Deals, `SELECT 
+	var dbdeal mk20.DBDeal
+	err = a.deps.DB.SelectForEach(ctx, &dbdeal, harmonydb.SqlAndArgs{
+		SQL: `SELECT 
 													id, 
 													client,
 													data,
 													ddo_v1,
 													retrieval_v1,
-													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid.String())
-	if err != nil {
-		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
-	}
-
-	ids := make([]string, len(mk20Deals))
-	mk20deals := make([]*MK20StorageDeal, len(mk20Deals))
-
-	for i, dbdeal := range mk20Deals {
+													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`,
+		Args: []any{pcid.String()},
+	}, func() error {
 		deal, err := dbdeal.ToDeal()
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("converting deal: %w", err)
 		}
-		ids[i] = deal.Identifier.String()
+		ids = append(ids, deal.Identifier.String())
 
 		var Err sql.NullString
 
 		if len(dbdeal.DDOv1) > 0 && string(dbdeal.DDOv1) != "null" {
 			var dddov1 mk20.DBDDOV1
 			if err := json.Unmarshal(dbdeal.DDOv1, &dddov1); err != nil {
-				return nil, fmt.Errorf("unmarshal ddov1: %w", err)
+				return fmt.Errorf("unmarshal ddov1: %w", err)
 			}
 			if dddov1.Error != "" {
 				Err.String = dddov1.Error
@@ -1059,10 +1054,14 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 			}
 		}
 
-		mk20deals[i] = &MK20StorageDeal{
+		mk20deals = append(mk20deals, &MK20StorageDeal{
 			Deal:   deal,
 			DDOErr: Err,
-		}
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
 	}
 
 	var mk20Pipelines []MK20DDOPipeline
@@ -1502,80 +1501,47 @@ FROM tasks
 
 func (a *WebRPC) MK12BulkRestartFailedMarketTasks(ctx context.Context, taskType string) error {
 	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		var rows *harmonydb.Query
-		var err error
+		var taskIDs []int64
+		var taskIDRow struct {
+			TaskID int64 `db:"task_id"`
+		}
 
+		var sqlQuery harmonydb.SqlAndArgs
 		switch taskType {
 		case "downloading":
-			rows, err = tx.Query(`
-							SELECT pp.task_id
-							FROM market_mk12_deal_pipeline dp
-							LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
-							LEFT JOIN harmony_task h ON h.id = pp.task_id
-							WHERE dp.complete = false
-							  AND pp.task_id IS NOT NULL
-							  AND dp.after_commp = false
-							  AND h.id IS NULL
-						`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT pp.task_id FROM market_mk12_deal_pipeline dp LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid LEFT JOIN harmony_task h ON h.id = pp.task_id WHERE dp.complete = false AND pp.task_id IS NOT NULL AND dp.after_commp = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "commp":
-			rows, err = tx.Query(`
-							SELECT dp.commp_task_id
-							FROM market_mk12_deal_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
-							WHERE dp.complete = false
-							  AND dp.commp_task_id IS NOT NULL
-							  AND dp.after_commp = false
-							  AND h.id IS NULL
-						`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.commp_task_id AS task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.commp_task_id WHERE dp.complete = false AND dp.commp_task_id IS NOT NULL AND dp.after_commp = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "psd":
-			rows, err = tx.Query(`
-							SELECT dp.psd_task_id
-							FROM market_mk12_deal_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.psd_task_id
-							WHERE dp.complete = false
-							  AND dp.psd_task_id IS NOT NULL
-							  AND dp.after_psd = false
-							  AND h.id IS NULL
-						`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.psd_task_id AS task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.psd_task_id WHERE dp.complete = false AND dp.psd_task_id IS NOT NULL AND dp.after_psd = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "find_deal":
-			rows, err = tx.Query(`
-							SELECT dp.find_deal_task_id
-							FROM market_mk12_deal_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.find_deal_task_id
-							WHERE dp.complete = false
-							  AND dp.find_deal_task_id IS NOT NULL
-							  AND dp.after_find_deal = false
-							  AND h.id IS NULL
-						`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.find_deal_task_id AS task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.find_deal_task_id WHERE dp.complete = false AND dp.find_deal_task_id IS NOT NULL AND dp.after_find_deal = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "index":
-			rows, err = tx.Query(`
-							SELECT dp.indexing_task_id
-							FROM market_mk12_deal_pipeline dp
-							LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
-							WHERE dp.complete = false
-							  AND dp.indexing_task_id IS NOT NULL
-							  AND dp.after_find_deal = true
-							  AND h.id IS NULL
-						`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.indexing_task_id AS task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id WHERE dp.complete = false AND dp.indexing_task_id IS NOT NULL AND dp.after_find_deal = true AND h.id IS NULL`,
+				Args: nil,
+			}
 		default:
 			return false, fmt.Errorf("unknown task type: %s", taskType)
 		}
 
+		err := tx.SelectForEach(&taskIDRow, sqlQuery, func() error {
+			taskIDs = append(taskIDs, taskIDRow.TaskID)
+			return nil
+		})
 		if err != nil {
-			return false, fmt.Errorf("failed to query failed tasks: %w", err)
-		}
-		defer rows.Close()
-
-		var taskIDs []int64
-		for rows.Next() {
-			var tid int64
-			if err := rows.Scan(&tid); err != nil {
-				return false, fmt.Errorf("failed to scan task_id: %w", err)
-			}
-			taskIDs = append(taskIDs, tid)
-		}
-
-		if err := rows.Err(); err != nil {
 			return false, fmt.Errorf("row iteration error: %w", err)
 		}
 
@@ -1628,112 +1594,74 @@ func (a *WebRPC) MK12BulkRestartFailedMarketTasks(ctx context.Context, taskType 
 
 func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskType string) error {
 	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		var rows *harmonydb.Query
-		var err error
-
 		// We'll select pipeline fields directly based on the stage conditions
+		type pipelineInfo struct {
+			UUID           string        `db:"uuid"`
+			URL            string        `db:"url"`
+			Sector         sql.NullInt64 `db:"sector"`
+			CommpTaskID    sql.NullInt64 `db:"commp_task_id"`
+			PsdTaskID      sql.NullInt64 `db:"psd_task_id"`
+			FindDealTaskID sql.NullInt64 `db:"find_deal_task_id"`
+			IndexingTaskID sql.NullInt64 `db:"indexing_task_id"`
+		}
+
+		var pipelines []pipelineInfo
+		var p pipelineInfo
+
+		var sqlQuery harmonydb.SqlAndArgs
 		switch taskType {
 		case "downloading":
-			rows, err = tx.Query(`
-				SELECT dp.uuid, dp.url, dp.sector,
-				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
-				FROM market_mk12_deal_pipeline dp
-				LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
-				LEFT JOIN harmony_task h ON h.id = pp.task_id
-				WHERE dp.complete = false
-				  AND pp.task_id IS NOT NULL
-				  AND dp.after_commp = false
-				  AND h.id IS NULL
-			`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.uuid, dp.url, dp.sector, dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id FROM market_mk12_deal_pipeline dp LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid LEFT JOIN harmony_task h ON h.id = pp.task_id WHERE dp.complete = false AND pp.task_id IS NOT NULL AND dp.after_commp = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "commp":
-			rows, err = tx.Query(`
-				SELECT dp.uuid, dp.url, dp.sector,
-				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
-				FROM market_mk12_deal_pipeline dp
-				LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
-				WHERE dp.complete = false
-				  AND dp.commp_task_id IS NOT NULL
-				  AND dp.after_commp = false
-				  AND h.id IS NULL
-			`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.uuid, dp.url, dp.sector, dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.commp_task_id WHERE dp.complete = false AND dp.commp_task_id IS NOT NULL AND dp.after_commp = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "psd":
-			rows, err = tx.Query(`
-				SELECT dp.uuid, dp.url, dp.sector,
-				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
-				FROM market_mk12_deal_pipeline dp
-				LEFT JOIN harmony_task h ON h.id = dp.psd_task_id
-				WHERE dp.complete = false
-				  AND dp.psd_task_id IS NOT NULL
-				  AND dp.after_psd = false
-				  AND h.id IS NULL
-			`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.uuid, dp.url, dp.sector, dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.psd_task_id WHERE dp.complete = false AND dp.psd_task_id IS NOT NULL AND dp.after_psd = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "find_deal":
-			rows, err = tx.Query(`
-				SELECT dp.uuid, dp.url, dp.sector,
-				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
-				FROM market_mk12_deal_pipeline dp
-				LEFT JOIN harmony_task h ON h.id = dp.find_deal_task_id
-				WHERE dp.complete = false
-				  AND dp.find_deal_task_id IS NOT NULL
-				  AND dp.after_find_deal = false
-				  AND h.id IS NULL
-			`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.uuid, dp.url, dp.sector, dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.find_deal_task_id WHERE dp.complete = false AND dp.find_deal_task_id IS NOT NULL AND dp.after_find_deal = false AND h.id IS NULL`,
+				Args: nil,
+			}
 		case "index":
-			rows, err = tx.Query(`
-				SELECT dp.uuid, dp.url, dp.sector,
-				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
-				FROM market_mk12_deal_pipeline dp
-				LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
-				WHERE dp.complete = false
-				  AND dp.indexing_task_id IS NOT NULL
-				  AND dp.after_find_deal = true
-				  AND h.id IS NULL
-			`)
+			sqlQuery = harmonydb.SqlAndArgs{
+				SQL:  `SELECT dp.uuid, dp.url, dp.sector, dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id FROM market_mk12_deal_pipeline dp LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id WHERE dp.complete = false AND dp.indexing_task_id IS NOT NULL AND dp.after_find_deal = true AND h.id IS NULL`,
+				Args: nil,
+			}
 		default:
 			return false, fmt.Errorf("unknown task type: %s", taskType)
 		}
 
+		err := tx.SelectForEach(&p, sqlQuery, func() error {
+			pCopy := p
+			pipelines = append(pipelines, pCopy)
+			return nil
+		})
 		if err != nil {
-			return false, fmt.Errorf("failed to query failed pipelines: %w", err)
-		}
-		defer rows.Close()
-
-		type pipelineInfo struct {
-			uuid           string
-			url            string
-			sector         sql.NullInt64
-			commpTaskID    sql.NullInt64
-			psdTaskID      sql.NullInt64
-			findDealTaskID sql.NullInt64
-			indexingTaskID sql.NullInt64
-		}
-
-		var pipelines []pipelineInfo
-		for rows.Next() {
-			var p pipelineInfo
-			if err := rows.Scan(&p.uuid, &p.url, &p.sector, &p.commpTaskID, &p.psdTaskID, &p.findDealTaskID, &p.indexingTaskID); err != nil {
-				return false, fmt.Errorf("failed to scan pipeline info: %w", err)
-			}
-			pipelines = append(pipelines, p)
-		}
-		if err := rows.Err(); err != nil {
 			return false, fmt.Errorf("row iteration error: %w", err)
 		}
 
 		for _, p := range pipelines {
 			// Gather task IDs
 			var taskIDs []int64
-			if p.commpTaskID.Valid {
-				taskIDs = append(taskIDs, p.commpTaskID.Int64)
+			if p.CommpTaskID.Valid {
+				taskIDs = append(taskIDs, p.CommpTaskID.Int64)
 			}
-			if p.psdTaskID.Valid {
-				taskIDs = append(taskIDs, p.psdTaskID.Int64)
+			if p.PsdTaskID.Valid {
+				taskIDs = append(taskIDs, p.PsdTaskID.Int64)
 			}
-			if p.findDealTaskID.Valid {
-				taskIDs = append(taskIDs, p.findDealTaskID.Int64)
+			if p.FindDealTaskID.Valid {
+				taskIDs = append(taskIDs, p.FindDealTaskID.Int64)
 			}
-			if p.indexingTaskID.Valid {
-				taskIDs = append(taskIDs, p.indexingTaskID.Int64)
+			if p.IndexingTaskID.Valid {
+				taskIDs = append(taskIDs, p.IndexingTaskID.Int64)
 			}
 
 			if len(taskIDs) > 0 {
@@ -1744,7 +1672,7 @@ func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 				}
 				if runningTasks > 0 {
 					// This should not happen if they are failed, but just in case
-					return false, fmt.Errorf("cannot remove deal pipeline %s: tasks are still running", p.uuid)
+					return false, fmt.Errorf("cannot remove deal pipeline %s: tasks are still running", p.UUID)
 				}
 			}
 
@@ -1756,33 +1684,33 @@ func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 								)
 								UPDATE market_direct_deals
 								SET error = $1
-								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, "Deal pipeline removed by SP", p.uuid)
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, "Deal pipeline removed by SP", p.UUID)
 			if err != nil {
 				return false, xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
 			}
 
-			_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, p.uuid)
+			_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, p.UUID)
 			if err != nil {
 				return false, err
 			}
 
 			// If sector is null, remove related pieceref
-			if !p.sector.Valid {
+			if !p.Sector.Valid {
 				const prefix = "pieceref:"
-				if strings.HasPrefix(p.url, prefix) {
-					refIDStr := p.url[len(prefix):]
+				if strings.HasPrefix(p.URL, prefix) {
+					refIDStr := p.URL[len(prefix):]
 					refID, err := strconv.ParseInt(refIDStr, 10, 64)
 					if err != nil {
-						return false, fmt.Errorf("invalid refID in URL for pipeline %s: %v", p.uuid, err)
+						return false, fmt.Errorf("invalid refID in URL for pipeline %s: %v", p.UUID, err)
 					}
 					_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
 					if err != nil {
-						return false, fmt.Errorf("failed to remove parked_piece_refs for pipeline %s: %w", p.uuid, err)
+						return false, fmt.Errorf("failed to remove parked_piece_refs for pipeline %s: %w", p.UUID, err)
 					}
 				}
 			}
 
-			log.Infow("removed failed pipeline", "uuid", p.uuid)
+			log.Infow("removed failed pipeline", "uuid", p.UUID)
 		}
 
 		return true, nil

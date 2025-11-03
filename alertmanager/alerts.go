@@ -646,33 +646,23 @@ func chainSyncCheck(al *alerts) {
 	rpcInfos := map[string]minimalApiInfo{} // config name -> api info
 	confNameToAddr := map[string]string{}   // config name -> api address
 
-	// Get all config from DB
-	rows, err := al.db.Query(al.ctx, `SELECT title, config FROM harmony_config`)
-	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("getting db configs: %w", err)
-		return
+	var titleConfig struct {
+		Title  string `db:"title"`
+		Config string `db:"config"`
 	}
-
-	configs := make(map[string]string)
-	for rows.Next() {
-		var title, cfg string
-		if err := rows.Scan(&title, &cfg); err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("scanning db configs: %w", err)
-			return
-		}
-		configs[title] = cfg
-	}
-
-	// Parse all configs minimal to get API
-	for name, tomlStr := range configs {
+	err := al.db.SelectForEach(al.ctx, &titleConfig, harmonydb.SqlAndArgs{
+		SQL:  `SELECT title, config FROM harmony_config`,
+		Args: nil,
+	}, func() error {
+		name, tomlStr := titleConfig.Title, titleConfig.Config
 		var info minimalApiInfo
 		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
 			al.alertMap[Name].err = xerrors.Errorf("unmarshaling %s config: %w", name, err)
-			continue
+			return nil
 		}
 
 		if len(info.Apis.ChainApiInfo) == 0 {
-			continue
+			return nil
 		}
 
 		rpcInfos[name] = info
@@ -681,6 +671,11 @@ func chainSyncCheck(al *alerts) {
 			ai := cliutil.ParseApiInfo(addr)
 			confNameToAddr[name] = ai.Addr
 		}
+		return nil
+	})
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting db configs: %w", err)
+		return
 	}
 
 	dedup := map[string]bool{} // for dedup by address

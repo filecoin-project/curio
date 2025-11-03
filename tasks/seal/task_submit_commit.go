@@ -185,28 +185,6 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			return false, xerrors.Errorf("expected proofs type to be same (%d) for all sectors in a batch but found %d", regProof, sectorParams.RegSealProof)
 		}
 
-		var pieces []struct {
-			PieceIndex int64           `db:"piece_index"`
-			PieceCID   string          `db:"piece_cid"`
-			PieceSize  int64           `db:"piece_size"`
-			Proposal   json.RawMessage `db:"f05_deal_proposal"`
-			Manifest   json.RawMessage `db:"direct_piece_activation_manifest"`
-			DealID     abi.DealID      `db:"f05_deal_id"`
-		}
-
-		err = s.db.Select(ctx, &pieces, `
-		SELECT piece_index,
-		       piece_cid,
-		       piece_size,
-		       f05_deal_proposal,
-		       direct_piece_activation_manifest,
-		       COALESCE(f05_deal_id, 0) AS f05_deal_id
-		FROM sectors_sdr_initial_pieces
-		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, sectorParams.SpID, sectorParams.SectorNumber)
-		if err != nil {
-			return false, xerrors.Errorf("getting pieces: %w", err)
-		}
-
 		pci, err := s.api.StateSectorPreCommitInfo(ctx, maddr, abi.SectorNumber(sectorParams.SectorNumber), ts.Key())
 		if err != nil {
 			return false, xerrors.Errorf("getting precommit info: %w", err)
@@ -215,32 +193,52 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			return false, xerrors.Errorf("precommit info not found on chain")
 		}
 
+		var piece struct {
+			PieceIndex int64           `db:"piece_index"`
+			PieceCID   string          `db:"piece_cid"`
+			PieceSize  int64           `db:"piece_size"`
+			Proposal   json.RawMessage `db:"f05_deal_proposal"`
+			Manifest   json.RawMessage `db:"direct_piece_activation_manifest"`
+			DealID     abi.DealID      `db:"f05_deal_id"`
+		}
+
 		var verifiedSize abi.PaddedPieceSize
 
 		var pams []miner.PieceActivationManifest
 
 		var sectorFailed bool
 
-		for _, piece := range pieces {
+		err = s.db.SelectForEach(ctx, &piece, harmonydb.SqlAndArgs{
+			SQL: `
+		SELECT piece_index,
+		       piece_cid,
+		       piece_size,
+		       f05_deal_proposal,
+		       direct_piece_activation_manifest,
+		       COALESCE(f05_deal_id, 0) AS f05_deal_id
+		FROM sectors_sdr_initial_pieces
+		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`,
+			Args: []any{sectorParams.SpID, sectorParams.SectorNumber},
+		}, func() error {
 			var pam *miner.PieceActivationManifest
 			if piece.Proposal != nil {
 				var prop *market.DealProposal
 				err = json.Unmarshal(piece.Proposal, &prop)
 				if err != nil {
-					return false, xerrors.Errorf("marshalling json to deal proposal: %w", err)
+					return xerrors.Errorf("marshalling json to deal proposal: %w", err)
 				}
 				alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
 				if err != nil {
-					return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
+					return xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
 				}
 				clid, err := s.api.StateLookupID(ctx, prop.Client, types.EmptyTSK)
 				if err != nil {
-					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+					return xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
 				}
 
 				clientId, err := address.IDFromAddress(clid)
 				if err != nil {
-					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+					return xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
 				}
 
 				var vac *miner2.VerifiedAllocationKey
@@ -253,7 +251,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 				payload, err := cborutil.Dump(piece.DealID)
 				if err != nil {
-					return false, xerrors.Errorf("serializing deal id: %w", err)
+					return xerrors.Errorf("serializing deal id: %w", err)
 				}
 
 				pam = &miner.PieceActivationManifest{
@@ -270,7 +268,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			} else {
 				err = json.Unmarshal(piece.Manifest, &pam)
 				if err != nil {
-					return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
+					return xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 				}
 			}
 			unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
@@ -281,11 +279,12 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
                                  task_id_commit_msg = NULL, after_commit_msg = FALSE
                              WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), sectorParams.SpID, sectorParams.SectorNumber)
 					if err2 != nil {
-						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+						return xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
 					}
 					log.Errorw("allocation check failed with an unrecoverable issue", "sp", sectorParams.SpID, "sector", sectorParams.SectorNumber, "err", err)
 					sectorFailed = true
-					break
+					// Return nil to stop iteration early - we'll check sectorFailed after
+					return nil
 				}
 			}
 			if pam.VerifiedAllocationKey != nil {
@@ -295,6 +294,10 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			}
 
 			pams = append(pams, *pam)
+			return nil
+		})
+		if err != nil && !sectorFailed {
+			return false, xerrors.Errorf("processing pieces: %w", err)
 		}
 
 		if sectorFailed {

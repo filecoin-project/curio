@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -92,20 +93,21 @@ func forEachConfig[T any](a *WebRPC, cb func(name string, v T) error) error {
 func (a *WebRPC) loadConfigs(ctx context.Context) (map[string]string, error) {
 	//err := db.QueryRow(cctx.Context, `SELECT config FROM harmony_config WHERE title=$1`, layer).Scan(&text)
 
-	rows, err := a.deps.DB.Query(ctx, `SELECT title, config FROM harmony_config`)
-	if err != nil {
-		return nil, xerrors.Errorf("getting db configs: %w", err)
+	configs := make(map[string]string)
+	var cfg struct {
+		Title  string `db:"title"`
+		Config string `db:"config"`
 	}
 
-	defer rows.Close()
-
-	configs := make(map[string]string)
-	for rows.Next() {
-		var title, config string
-		if err := rows.Scan(&title, &config); err != nil {
-			return nil, xerrors.Errorf("scanning db configs: %w", err)
-		}
-		configs[title] = config
+	err := a.deps.DB.SelectForEach(ctx, &cfg, harmonydb.SqlAndArgs{
+		SQL:  `SELECT title, config FROM harmony_config`,
+		Args: nil,
+	}, func() error {
+		configs[cfg.Title] = cfg.Config
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("getting db configs: %w", err)
 	}
 
 	return configs, nil

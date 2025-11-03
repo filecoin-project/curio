@@ -9,6 +9,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -34,62 +35,63 @@ type BalanceMgrRule struct {
 
 // BalanceMgrRules returns all balance-manager rules.
 func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) {
-	const q = `SELECT id, subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance,
-        last_msg_cid, last_msg_sent_at, last_msg_landed_at, active_task_id FROM balance_manager_addresses ORDER BY id`
-
-	rows, err := a.deps.DB.Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var out []BalanceMgrRule
-	for rows.Next() {
-		var (
-			id                                                                int64
-			subjectAddr, secondAddr, actionType, subjectType, lowStr, highStr string
-			lastMsgCID                                                        sql.NullString
-			lastMsgSentAt, lastMsgLandedAt                                    sql.NullTime
-			taskID                                                            sql.NullInt64
-		)
-		if err := rows.Scan(&id, &subjectAddr, &secondAddr, &actionType, &subjectType, &lowStr, &highStr, &lastMsgCID, &lastMsgSentAt, &lastMsgLandedAt, &taskID); err != nil {
-			return nil, err
-		}
+	var row struct {
+		ID              int64          `db:"id"`
+		SubjectAddr     string         `db:"subject_address"`
+		SecondAddr      string         `db:"second_address"`
+		ActionType      string         `db:"action_type"`
+		SubjectType     string         `db:"subject_type"`
+		LowStr          string         `db:"low_watermark_fil_balance"`
+		HighStr         string         `db:"high_watermark_fil_balance"`
+		LastMsgCID      sql.NullString `db:"last_msg_cid"`
+		LastMsgSentAt   sql.NullTime   `db:"last_msg_sent_at"`
+		LastMsgLandedAt sql.NullTime   `db:"last_msg_landed_at"`
+		TaskID          sql.NullInt64  `db:"active_task_id"`
+	}
 
+	err := a.deps.DB.SelectForEach(ctx, &row, harmonydb.SqlAndArgs{
+		SQL:  `SELECT id, subject_address, second_address, action_type, subject_type, low_watermark_fil_balance, high_watermark_fil_balance, last_msg_cid, last_msg_sent_at, last_msg_landed_at, active_task_id FROM balance_manager_addresses ORDER BY id`,
+		Args: nil,
+	}, func() error {
 		// Convert watermarks to short FIL strings.
-		lowBig, err := types.ParseFIL(lowStr)
+		lowBig, err := types.ParseFIL(row.LowStr)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		highBig, err := types.ParseFIL(highStr)
+		highBig, err := types.ParseFIL(row.HighStr)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		rule := BalanceMgrRule{
-			ID:             id,
-			SubjectAddress: subjectAddr,
-			SecondAddress:  secondAddr,
-			ActionType:     actionType,
-			SubjectType:    subjectType,
+			ID:             row.ID,
+			SubjectAddress: row.SubjectAddr,
+			SecondAddress:  row.SecondAddr,
+			ActionType:     row.ActionType,
+			SubjectType:    row.SubjectType,
 			LowWatermark:   types.FIL(lowBig).Short(),
 			HighWatermark:  types.FIL(highBig).Short(),
 		}
-		if lastMsgCID.Valid {
-			rule.LastMsgCID = &lastMsgCID.String
+		if row.LastMsgCID.Valid {
+			rule.LastMsgCID = &row.LastMsgCID.String
 		}
-		if lastMsgSentAt.Valid {
-			s := lastMsgSentAt.Time.Format(time.RFC3339)
+		if row.LastMsgSentAt.Valid {
+			s := row.LastMsgSentAt.Time.Format(time.RFC3339)
 			rule.LastMsgSentAt = &s
 		}
-		if lastMsgLandedAt.Valid {
-			s := lastMsgLandedAt.Time.Format(time.RFC3339)
+		if row.LastMsgLandedAt.Valid {
+			s := row.LastMsgLandedAt.Time.Format(time.RFC3339)
 			rule.LastMsgLandedAt = &s
 		}
-		if taskID.Valid {
-			rule.TaskID = &taskID.Int64
+		if row.TaskID.Valid {
+			rule.TaskID = &row.TaskID.Int64
 		}
 		out = append(out, rule)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

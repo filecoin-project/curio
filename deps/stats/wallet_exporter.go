@@ -168,22 +168,22 @@ type walletAddrStr = string
 
 func walletExporterBalances(ctx context.Context, db *harmonydb.DB, api api.FullNode) (map[walletAddrStr]walletName, error) {
 	// get a list of all wallets
-	rows, err := db.Query(ctx, `SELECT wallet, name FROM wallet_names`)
+	names := make(map[walletAddrStr]walletName)
+	var wallet struct {
+		Wallet string `db:"wallet"`
+		Name   string `db:"name"`
+	}
+
+	err := db.SelectForEach(ctx, &wallet, harmonydb.SqlAndArgs{
+		SQL:  `SELECT wallet, name FROM wallet_names`,
+		Args: nil,
+	}, func() error {
+		names[walletAddrStr(wallet.Wallet)] = walletName(wallet.Name)
+		return nil
+	})
 	if err != nil {
 		log.Errorf("failed to get wallets: %v", err)
 		return nil, err
-	}
-	defer rows.Close()
-
-	names := make(map[walletAddrStr]walletName)
-	for rows.Next() {
-		var wallet, name string
-		err = rows.Scan(&wallet, &name)
-		if err != nil {
-			log.Errorf("failed to scan wallet: %v", err)
-			continue
-		}
-		names[wallet] = name
 	}
 
 	resolved := make(map[address.Address]walletAddrStr)
@@ -275,27 +275,25 @@ func walletExporterNewWatchedMsgs(ctx context.Context, db *harmonydb.DB, api api
 		}
 
 		// Get all messages from the message_waits table that have a created_at timestamp greater than the observed-until timestamp
-		rows, err = tx.Query(`SELECT signed_message_cid, created_at FROM message_waits WHERE created_at > $1`, processedUntil)
+		var maxCreatedAt time.Time
+		var msgRow struct {
+			MsgCID    string    `db:"signed_message_cid"`
+			CreatedAt time.Time `db:"created_at"`
+		}
+
+		err = tx.SelectForEach(&msgRow, harmonydb.SqlAndArgs{
+			SQL:  `SELECT signed_message_cid, created_at FROM message_waits WHERE created_at > $1`,
+			Args: []any{processedUntil},
+		}, func() error {
+			if msgRow.CreatedAt.After(maxCreatedAt) {
+				maxCreatedAt = msgRow.CreatedAt
+			}
+			unobservedMsgs = append(unobservedMsgs, msgRow.MsgCID)
+			return nil
+		})
 		if err != nil {
 			return false, err
 		}
-
-		var maxCreatedAt time.Time
-
-		for rows.Next() {
-			var msgCid string
-			var createdAt time.Time
-			err = rows.Scan(&msgCid, &createdAt)
-			if err != nil {
-				rows.Close()
-				return false, err
-			}
-			if createdAt.After(maxCreatedAt) {
-				maxCreatedAt = createdAt
-			}
-			unobservedMsgs = append(unobservedMsgs, msgCid)
-		}
-		rows.Close()
 
 		if maxCreatedAt.After(processedUntil) {
 			_, err = tx.Exec(`UPDATE wallet_exporter_processing SET processed_until = $1`, maxCreatedAt)

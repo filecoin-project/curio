@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime"
 	"time"
 
@@ -88,6 +89,64 @@ func (db *DB) Query(ctx context.Context, sql rawStringOnly, arguments ...any) (*
 // by avoiding the need to allocate a slice of structs.
 func (q *Query) StructScan(s any) error {
 	return dbscan.ScanRow(s, dbscanRows{q.Qry.(pgx.Rows)})
+}
+
+// SqlAndArgs groups SQL query string with its arguments for type safety.
+type SqlAndArgs struct {
+	SQL  rawStringOnly
+	Args []any
+}
+
+// SelectForEach executes a query and iterates over the results, calling the callback
+// function for each row. The query is automatically closed, eliminating the risk of
+// resource leaks. This is memory-efficient as it processes rows one at a time instead
+// of collecting them into a slice.
+//
+// The struct type should match the query result columns. The same struct instance is
+// reused for each row, so you should copy data if you need to keep it beyond the callback.
+//
+// Example:
+//
+//	var task PipelineTask
+//	err := db.SelectForEach(ctx, &task, harmonydb.SqlAndArgs{
+//		SQL: "SELECT ... FROM sectors_sdr_pipeline",
+//		Args: []any{arg1, arg2},
+//	}, func() error {
+//		// Process task here - copy task if you need to keep it
+//		return nil
+//	})
+func (db *DB) SelectForEach(ctx context.Context, s any, sa SqlAndArgs, fn func() error) error {
+	if db.usedInTransaction() {
+		return errTx
+	}
+
+	query, err := db.Query(ctx, sa.SQL, sa.Args...)
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	defer query.Close()
+
+	rv := reflect.ValueOf(s)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	rt := rv.Type()
+
+	for query.Next() {
+		// Zero the struct to prevent stale data from previous iterations.
+		// This is important when structs have fields not included in the SELECT statement.
+		rv.Set(reflect.Zero(rt))
+		if err := query.StructScan(s); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	if err := query.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
+	return nil
 }
 
 type Row interface {
@@ -279,6 +338,38 @@ func (t *Tx) Select(sliceOfStructPtr any, sql rawStringOnly, arguments ...any) e
 	}
 	defer rows.Close()
 	return dbscan.ScanAll(sliceOfStructPtr, dbscanRows{rows.Qry.(pgx.Rows)})
+}
+
+// SelectForEach in a transaction executes a query and iterates over the results,
+// calling the callback function for each row. The query is automatically closed.
+func (t *Tx) SelectForEach(s any, sa SqlAndArgs, fn func() error) error {
+	query, err := t.Query(sa.SQL, sa.Args...)
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	defer query.Close()
+
+	rv := reflect.ValueOf(s)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	rt := rv.Type()
+
+	for query.Next() {
+		// Zero the struct to prevent stale data from previous iterations.
+		// This is important when structs have fields not included in the SELECT statement.
+		rv.Set(reflect.Zero(rt))
+		if err := query.StructScan(s); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	if err := query.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
+	return nil
 }
 
 func IsErrUniqueContraint(err error) bool {

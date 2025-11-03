@@ -98,7 +98,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	ctx := deps.OnSingleNode(context.Background())
 
 	type BlockCID struct {
-		CID string
+		CID string `db:"block_cid"`
 	}
 
 	type MiningTaskDetails struct {
@@ -123,22 +123,10 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	// Second query to fetch from mining_base_block
-	rows, err := t.db.Query(ctx, `SELECT block_cid FROM mining_base_block WHERE task_id = $1`, taskID)
+	err = t.db.Select(ctx, details.BlockCIDs, `SELECT block_cid FROM mining_base_block WHERE task_id = $1`,
+		taskID)
 	if err != nil {
 		return false, xerrors.Errorf("query mining base blocks fail: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid BlockCID
-		if err := rows.Scan(&cid.CID); err != nil {
-			return false, err
-		}
-		details.BlockCIDs = append(details.BlockCIDs, cid)
-	}
-
-	if err := rows.Err(); err != nil {
-		return false, xerrors.Errorf("query mining base blocks fail (rows.Err): %w", err)
 	}
 
 	// construct base

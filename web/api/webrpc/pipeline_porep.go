@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -97,9 +98,18 @@ type minerBitfields struct {
 }
 
 func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, error) {
-	var tasks []PipelineTask
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch chain head: %w", err)
+	}
+	epoch := head.Height()
 
-	err := a.deps.DB.Select(ctx, &tasks, `SELECT 
+	minerBitfieldCache := map[address.Address]minerBitfields{}
+	var sectorList []sectorListEntry
+	var task PipelineTask
+
+	err = a.deps.DB.SelectForEach(ctx, &task, harmonydb.SqlAndArgs{
+		SQL: `SELECT 
 												sp.sp_id, 
 												sp.sector_number,
 												sp.create_time,
@@ -274,53 +284,45 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 											
 											FROM sectors_sdr_pipeline sp
 											ORDER BY sp_id, sector_number;
-											`) // todo where constrain list
-	if err != nil {
-		return nil, xerrors.Errorf("failed to fetch pipeline tasks: %w", err)
-	}
-
-	head, err := a.deps.Chain.ChainHead(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to fetch chain head: %w", err)
-	}
-	epoch := head.Height()
-
-	minerBitfieldCache := map[address.Address]minerBitfields{}
-
-	sectorList := make([]sectorListEntry, 0, len(tasks))
-	for _, task := range tasks {
-		task := task
-
+											`, // todo where constrain list
+		Args: nil,
+	}, func() error {
 		task.CreateTime = task.CreateTime.Local()
 
 		addr, err := address.NewIDAddress(uint64(task.SpID))
 		if err != nil {
-			return nil, xerrors.Errorf("failed to create actor address: %w", err)
+			return xerrors.Errorf("failed to create actor address: %w", err)
 		}
 
 		mbf, ok := minerBitfieldCache[addr]
 		if !ok {
 			mbf, err = a.getMinerBitfields(ctx, addr, a.stor)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to load miner bitfields: %w", err)
+				return xerrors.Errorf("failed to load miner bitfields: %w", err)
 			}
 			minerBitfieldCache[addr] = mbf
 		}
 
 		afterSeed := task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch)
 
+		taskCopy := task
 		sectorList = append(sectorList, sectorListEntry{
-			PipelineTask: task,
+			PipelineTask: taskCopy,
 			Address:      addr,
-			CreateTime:   task.CreateTime.Format(time.DateTime),
+			CreateTime:   taskCopy.CreateTime.Format(time.DateTime),
 			AfterSeed:    afterSeed,
 
-			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(task.SectorNumber))),
-			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(task.SectorNumber))),
-			ChainActive:   must.One(mbf.active.IsSet(uint64(task.SectorNumber))),
-			ChainUnproven: must.One(mbf.unproven.IsSet(uint64(task.SectorNumber))),
-			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(task.SectorNumber))),
+			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(taskCopy.SectorNumber))),
+			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(taskCopy.SectorNumber))),
+			ChainActive:   must.One(mbf.active.IsSet(uint64(taskCopy.SectorNumber))),
+			ChainUnproven: must.One(mbf.unproven.IsSet(uint64(taskCopy.SectorNumber))),
+			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(taskCopy.SectorNumber))),
 		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return sectorList, nil
@@ -391,8 +393,21 @@ func (a *WebRPC) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSumma
 		return nil, err
 	}
 
-	rows, err := a.deps.DB.Query(ctx, `
-	SELECT 
+	var summaries []PorepPipelineSummary
+	var row struct {
+		Actor          int64 `db:"sp_id"`
+		CountSDR       int   `db:"countsdr"`
+		CountTrees     int   `db:"counttrees"`
+		CountPrecommit int   `db:"countprecommitmsg"`
+		CountWaitSeed  int   `db:"countwaitseed"`
+		CountPoRep     int   `db:"countporep"`
+		CountCommitMsg int   `db:"countcommitmsg"`
+		CountDone      int   `db:"countdone"`
+		CountFailed    int   `db:"countfailed"`
+	}
+
+	err = a.deps.DB.SelectForEach(ctx, &row, harmonydb.SqlAndArgs{
+		SQL: `SELECT 
 		sp_id,
 		COUNT(*) FILTER (WHERE after_sdr = false) as CountSDR,
 		COUNT(*) FILTER (WHERE (after_tree_d = false OR after_tree_c = false OR after_tree_r = false) AND after_sdr = true) as CountTrees,
@@ -404,28 +419,29 @@ func (a *WebRPC) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSumma
 		COUNT(*) FILTER (WHERE failed = true) as CountFailed
 	FROM 
 		sectors_sdr_pipeline
-	GROUP BY sp_id`, head.Height())
+	GROUP BY sp_id`,
+		Args: []any{head.Height()},
+	}, func() error {
+		sactor, err := address.NewIDAddress(uint64(row.Actor))
+		if err != nil {
+			return xerrors.Errorf("failed to create actor address: %w", err)
+		}
+
+		summaries = append(summaries, PorepPipelineSummary{
+			Actor:             sactor.String(),
+			CountSDR:          row.CountSDR,
+			CountTrees:        row.CountTrees,
+			CountPrecommitMsg: row.CountPrecommit,
+			CountWaitSeed:     row.CountWaitSeed,
+			CountPoRep:        row.CountPoRep,
+			CountCommitMsg:    row.CountCommitMsg,
+			CountDone:         row.CountDone,
+			CountFailed:       row.CountFailed,
+		})
+		return nil
+	})
 	if err != nil {
 		return nil, xerrors.Errorf("query: %w", err)
-	}
-	defer rows.Close()
-
-	var summaries []PorepPipelineSummary
-	for rows.Next() {
-		var summary PorepPipelineSummary
-		var actor int64
-		if err := rows.Scan(&actor, &summary.CountSDR, &summary.CountTrees, &summary.CountPrecommitMsg, &summary.CountWaitSeed, &summary.CountPoRep, &summary.CountCommitMsg, &summary.CountDone, &summary.CountFailed); err != nil {
-			return nil, xerrors.Errorf("scan: %w", err)
-		}
-
-		sactor, err := address.NewIDAddress(uint64(actor))
-		if err != nil {
-			return nil, xerrors.Errorf("failed to create actor address: %w", err)
-		}
-
-		summary.Actor = sactor.String()
-
-		summaries = append(summaries, summary)
 	}
 	return summaries, nil
 }
