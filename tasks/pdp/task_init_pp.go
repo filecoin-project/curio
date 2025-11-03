@@ -130,9 +130,20 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to get leaf count for data set %d: %w", dataSetId, err)
 	}
 	if leafCount.Cmp(big.NewInt(0)) == 0 {
-		// No leaves in the data set yet, skip initialization
-		// Return done=false to retry later (the task will be retried by the scheduler)
-		return false, xerrors.Errorf("data set %d has no leaves", dataSetId)
+		// No leaves in the data set, we cannot prove anything
+		// Initialization is only triggered when thre are leaves (after add piece lands), or we strongly suspect that there are
+		// So we disable proving for this dataset if we end up having no leaves
+		log.Warnw("Initial challange window scheduling skipped", "dataSetId", dataSetId, "reason", "no leaves")
+		_, err = ipp.db.Exec(ctx, `
+			UPDATE pdp_data_sets
+			SET init_ready = FALSE
+			WHERE id = $1
+			`)
+		if err != nil {
+			return false, xerrors.Errorf("failed to disable proving (caused by no leaves): %w", err)
+		}
+
+		return true, nil
 	}
 
 	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
@@ -245,6 +256,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to perform database transaction: %w", err)
 	}
+	log.Infow("Initial challenge window scheduled", "dataSetId", dataSetId, "epoch", init_prove_at)
 
 	// Task completed successfully
 	return true, nil
