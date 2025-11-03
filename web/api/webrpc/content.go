@@ -3,12 +3,14 @@ package webrpc
 import (
 	"context"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 // ContentInfo represents information about content location

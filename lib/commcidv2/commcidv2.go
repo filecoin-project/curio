@@ -233,4 +233,3 @@ func IsPieceCidV2(c cid.Cid) bool {
 
 	return true
 }
-
