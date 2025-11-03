@@ -1030,8 +1030,6 @@ func optionalPDPStep(d *MigrationData) {
 	// Build menu items
 	menuItems := []string{}
 	useExistingIndex := -1
-	importKeyIndex := -1
-	skipIndex := -1
 
 	if hasExistingKey {
 		// Show last 8 characters of address for identification
@@ -1043,9 +1041,9 @@ func optionalPDPStep(d *MigrationData) {
 		menuItems = append(menuItems, d.T("Use existing key, ending in %s", addressSuffix))
 	}
 
-	importKeyIndex = len(menuItems)
+	importKeyIndex := len(menuItems)
 	menuItems = append(menuItems, d.T("Import delegated wallet private key"))
-	skipIndex = len(menuItems)
+	skipIndex := len(menuItems)
 	menuItems = append(menuItems, d.T("Skip wallet setup for now"))
 
 	i, _, err := (&promptui.Select{
@@ -1146,7 +1144,7 @@ func importPDPPrivateKey(d *MigrationData, hexPrivateKey string) {
 	stepCompleted(d, d.T("PDP wallet imported"))
 }
 
-func readStorageConfig(path string) (*storiface.StorageConfig, error) {
+func readStorageConfig(path string) (s *storiface.StorageConfig, errOut error) {
 	expandedPath, err := homedir.Expand(path)
 	if err != nil {
 		return nil, err
@@ -1156,7 +1154,12 @@ func readStorageConfig(path string) (*storiface.StorageConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			errOut = err
+		}
+	}()
 
 	var cfg storiface.StorageConfig
 	err = json.NewDecoder(file).Decode(&cfg)
