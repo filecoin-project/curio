@@ -29,7 +29,6 @@ import (
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/text/message"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
@@ -977,6 +976,7 @@ func optionalPDPStep(d *MigrationData) {
 	curioCfg.Subsystems.EnableParkPiece = true
 	curioCfg.Subsystems.EnableCommP = true
 	curioCfg.Subsystems.EnableMoveStorage = true
+	curioCfg.Subsystems.NoUnsealedDecode = true
 
 	// Configure HTTP
 	d.say(plain, "Configuring HTTP settings for PDP...")
@@ -1058,14 +1058,14 @@ func optionalPDPStep(d *MigrationData) {
 		return
 	}
 
-	if i == useExistingIndex {
+	switch i {
+	case useExistingIndex:
 		// Use existing key
 		d.say(plain, "Using existing PDP wallet key: %s", existingKeyAddress)
 		stepCompleted(d, d.T("PDP wallet configured"))
-	} else if i == importKeyIndex {
+	case importKeyIndex:
 		// Import or create - show instructions first
-		d.say(plain, "You can either:")
-		d.say(plain, "Create a new delegated wallet using Lotus:")
+		d.say(plain, "You can create a new delegated wallet using Lotus:")
 		d.say(code, "lotus wallet new delegated")
 		d.say(plain, "   Then export its private key with:")
 		d.say(code, "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32")
@@ -1079,7 +1079,9 @@ func optionalPDPStep(d *MigrationData) {
 			d.say(notice, "No private key provided")
 			return
 		}
-		importPDPPrivateKey(d, privateKeyHex, hasExistingKey)
+		importPDPPrivateKey(d, privateKeyHex)
+	case skipIndex:
+		d.say(plain, "You can set up the wallet later using the Curio GUI or CLI")
 	}
 
 	d.say(plain, "")
@@ -1099,7 +1101,7 @@ func optionalPDPStep(d *MigrationData) {
 	d.say(plain, "4. Join the community: Filecoin Slack #fil-pdp")
 }
 
-func importPDPPrivateKey(d *MigrationData, hexPrivateKey string, replaceExisting bool) {
+func importPDPPrivateKey(d *MigrationData, hexPrivateKey string) {
 	hexPrivateKey = strings.TrimSpace(hexPrivateKey)
 	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0x")
 	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0X")
@@ -1127,24 +1129,6 @@ func importPDPPrivateKey(d *MigrationData, hexPrivateKey string, replaceExisting
 
 	// Insert or update eth_keys table
 	_, err = d.DB.BeginTransaction(d.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		if replaceExisting {
-			// Delete existing key first
-			_, err = tx.Exec(`DELETE FROM eth_keys WHERE role = 'pdp'`)
-			if err != nil {
-				return false, fmt.Errorf("failed to delete existing PDP key: %v", err)
-			}
-		} else {
-			// Check if PDP key already exists
-			var existingAddress bool
-			err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
-			if err != nil {
-				return false, xerrors.Errorf("failed to check existing PDP key: %v", err)
-			}
-			if existingAddress {
-				return false, fmt.Errorf("PDP key already exists. Use 'Import a different key' option to replace it")
-			}
-		}
-
 		// Insert the new PDP key
 		_, err = tx.Exec(`INSERT INTO eth_keys (address, private_key, role) VALUES ($1, $2, 'pdp')`, address, privateKeyBytes)
 		if err != nil {
