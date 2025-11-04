@@ -209,15 +209,25 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		return xerrors.Errorf("unmarshaling private key: %w", err)
 	}
 
-	for _, piece := range pieces {
-		var skipCleanup bool
-		err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceCID, piece.ID).Scan(&skipCleanup)
-		if err != nil {
-			return xerrors.Errorf("failed to check if piece is referenced: %w", err)
-		}
+	var deleteIndex bool
 
+	for _, piece := range pieces {
 		// Create RM ad
 		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			var skipCleanup bool
+			err = tx.QueryRow(`SELECT EXISTS (
+										SELECT 1 
+										FROM pdp_piecerefs 
+										WHERE id = $1 AND data_set_refcount = 0
+									) OR EXISTS (
+										SELECT 1 
+										FROM pdp_piecerefs 
+										WHERE piece_cid = $2 AND id != $1
+										LIMIT 1)`, piece.ID, piece.PieceCID).Scan(&skipCleanup)
+			if err != nil {
+				return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
+			}
+
 			// Let's drop the PDP piece ref
 			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
 			if err != nil {
@@ -331,6 +341,8 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
 			}
 
+			deleteIndex = true
+
 			return true, nil
 
 		}, harmonydb.OptionRetry())
@@ -339,14 +351,16 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			return xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
 		}
 
-		pcid, err := cid.Parse(piece.PieceCID)
-		if err != nil {
-			return xerrors.Errorf("failed to parse piece CID: %w", err)
-		}
+		if deleteIndex {
+			pcid, err := cid.Parse(piece.PieceCID)
+			if err != nil {
+				return xerrors.Errorf("failed to parse piece CID: %w", err)
+			}
 
-		err = idx.RemoveIndexes(ctx, pcid)
-		if err != nil {
-			return xerrors.Errorf("failed to remove indexes for piece %s: %w", piece.PieceCID, err)
+			err = idx.RemoveIndexes(ctx, pcid)
+			if err != nil {
+				return xerrors.Errorf("failed to remove indexes for piece %s: %w", piece.PieceCID, err)
+			}
 		}
 	}
 
