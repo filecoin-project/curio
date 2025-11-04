@@ -26,3 +26,35 @@ func IsPieceCidV2(c cid.Cid) bool {
 
 	return true
 }
+
+func IsCidV1PieceCid(c cid.Cid) bool {
+	decoded, err := multihash.Decode(c.Hash())
+	if err != nil {
+		return false
+	}
+
+	filCodec := multicodec.Code(c.Type())
+	filMh := multicodec.Code(decoded.Code)
+
+	// Check if it's a valid Filecoin commitment type
+	switch filCodec {
+	case multicodec.FilCommitmentUnsealed:
+		if filMh != multicodec.Sha2_256Trunc254Padded {
+			return false
+		}
+	/* case multicodec.FilCommitmentSealed:
+	if filMh != multicodec.PoseidonBls12_381A2Fc1 {
+		return false
+	} */
+	default:
+		// Neither unsealed nor sealed commitment
+		return false
+	}
+
+	// Commitments must be exactly 32 bytes
+	if len(decoded.Digest) != 32 {
+		return false
+	}
+
+	return true
+}

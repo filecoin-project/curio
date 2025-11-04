@@ -3,9 +3,8 @@ package webrpc
 import (
 	"context"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
-	"github.com/multiformats/go-multicodec"
-	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -29,7 +28,7 @@ func (a *WebRPC) FindContentByCID(ctx context.Context, cs string) ([]ContentInfo
 		return nil, err
 	}
 
-	if commcidv2.IsPieceCidV2(cid) || IsCidV1PieceCid(cid) {
+	if commcidv2.IsPieceCidV2(cid) || commcidv2.IsCidV1PieceCid(cid) {
 		_, pcid2, err := a.maybeUpgradePieceCid(ctx, cid)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to upgrade piece cid: %w", err)
@@ -86,7 +85,7 @@ func (a *WebRPC) maybeUpgradePieceCid(ctx context.Context, c cid.Cid) (bool, cid
 		return true, c, nil
 	}
 
-	if !IsCidV1PieceCid(c) {
+	if !commcidv2.IsCidV1PieceCid(c) {
 		return false, c, nil
 	}
 
@@ -109,42 +108,10 @@ func (a *WebRPC) maybeUpgradePieceCid(ctx context.Context, c cid.Cid) (bool, cid
 		rawSize = uint64(abi.PaddedPieceSize(pieceLength).Unpadded())
 	}
 
-	pcid2, err := commcidv2.PieceCidV2FromV1(c, rawSize)
+	pcid2, err := commcid.PieceCidV2FromV1(c, rawSize)
 	if err != nil {
 		return false, c, err
 	}
 
 	return true, pcid2, nil
-}
-
-func IsCidV1PieceCid(c cid.Cid) bool {
-	decoded, err := multihash.Decode(c.Hash())
-	if err != nil {
-		return false
-	}
-
-	filCodec := multicodec.Code(c.Type())
-	filMh := multicodec.Code(decoded.Code)
-
-	// Check if it's a valid Filecoin commitment type
-	switch filCodec {
-	case multicodec.FilCommitmentUnsealed:
-		if filMh != multicodec.Sha2_256Trunc254Padded {
-			return false
-		}
-	/* case multicodec.FilCommitmentSealed:
-	if filMh != multicodec.PoseidonBls12_381A2Fc1 {
-		return false
-	} */
-	default:
-		// Neither unsealed nor sealed commitment
-		return false
-	}
-
-	// Commitments must be exactly 32 bytes
-	if len(decoded.Digest) != 32 {
-		return false
-	}
-
-	return true
 }
