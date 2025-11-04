@@ -56,7 +56,7 @@ class ContentPage extends LitElement {
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             <div class="container">
-                <h2>Find CID</h2>
+                <h2>Find IPFS CID</h2>
                 <div class="search-container">
                     <input
                         autofocus

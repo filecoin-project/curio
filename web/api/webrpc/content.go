@@ -52,29 +52,29 @@ func (a *WebRPC) FindContentByCID(ctx context.Context, cs string) ([]ContentInfo
 
 	var res []ContentInfo
 	for _, offset := range offsets {
-		off, err := a.deps.IndexStore.GetOffset(ctx, offset.PieceCidV2, mh)
+		off, err := a.deps.IndexStore.GetOffset(ctx, offset.PieceCid, mh)
 		if err != nil {
-			_, pcid2, err := a.maybeUpgradePieceCid(ctx, offset.PieceCidV2)
+			_, pcid2, err := a.maybeUpgradePieceCid(ctx, offset.PieceCid)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to upgrade piece cid: %w", err)
 			}
 			res = append(res, ContentInfo{
 				PieceCID: pcid2.String(),
 				Offset:   off,
-				Size:     uint64(offset.BlockSize),
+				Size:     offset.BlockSize,
 				Err:      err.Error(),
 			})
 			continue
 		}
 
-		_, pcid2, err := a.maybeUpgradePieceCid(ctx, offset.PieceCidV2)
+		_, pcid2, err := a.maybeUpgradePieceCid(ctx, offset.PieceCid)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to upgrade piece cid: %w", err)
 		}
 		res = append(res, ContentInfo{
 			PieceCID: pcid2.String(),
 			Offset:   off,
-			Size:     uint64(offset.BlockSize),
+			Size:     offset.BlockSize,
 		})
 	}
 
