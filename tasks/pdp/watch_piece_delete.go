@@ -211,7 +211,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 
 	for _, piece := range pieces {
 		var skipCleanup bool
-		err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceRef).Scan(&skipCleanup)
+		err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceCID, piece.ID).Scan(&skipCleanup)
 		if err != nil {
 			return xerrors.Errorf("failed to check if piece is referenced: %w", err)
 		}
