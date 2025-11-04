@@ -154,12 +154,6 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 		}
 
 		if hasEnt {
-			err = c.indexStore.UpdatePieceCidV1ToV2(ctx, p.PieceCID, pieceCid)
-			if err != nil {
-				return xerrors.Errorf("updating piece cid v1 to v2: %w", err)
-			}
-			log.Infow("piece cid v1 to v2 updated", "piece", p.PieceCID, "task", taskID)
-			have++
 			continue
 		}
 

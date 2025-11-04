@@ -102,7 +102,7 @@ func TestNewIndexStore(t *testing.T) {
 	// Add index to the store
 	var eg errgroup.Group
 	eg.Go(func() error {
-		serr := idxStore.AddIndex(ctx, pcid2, recs)
+		serr := idxStore.AddIndex(ctx, pcid1, recs)
 		return serr
 	})
 
@@ -132,10 +132,18 @@ func TestNewIndexStore(t *testing.T) {
 	pcids, err := idxStore.PiecesContainingMultihash(ctx, m)
 	require.NoError(t, err)
 	require.Len(t, pcids, 1)
-	require.Equal(t, pcids[0].PieceCidV2.String(), pcid2.String())
+	require.Equal(t, pcids[0].PieceCid.String(), pcid1.String())
+
+	// Migrate V1 to V2
+	err = idxStore.UpdatePieceCidV1ToV2(ctx, pcid1, pcid2)
+	require.NoError(t, err)
+	pcids, err = idxStore.PiecesContainingMultihash(ctx, m)
+	require.NoError(t, err)
+	require.Len(t, pcids, 1)
+	require.Equal(t, pcids[0].PieceCid.String(), pcid2.String())
 
 	// Remove all indexes from the store
-	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCidV2)
+	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCid)
 	require.NoError(t, err)
 
 	err = idxStore.session.Query("SELECT * FROM piece_by_aggregate").Exec()
