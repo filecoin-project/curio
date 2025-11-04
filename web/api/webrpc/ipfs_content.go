@@ -3,10 +3,10 @@ package webrpc
 import (
 	"context"
 
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/commcidv2"
