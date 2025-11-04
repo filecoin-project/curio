@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
@@ -43,9 +42,65 @@ var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, error) {
 	mx := mux.NewRouter()
 
-	// Add CORS middleware if origins are configured
-	if len(deps.Cfg.HTTP.CORSOrigins) > 0 {
-		mx.Use(handlers.CORS(handlers.AllowedOrigins(deps.Cfg.HTTP.CORSOrigins)))
+	// Single CORS middleware that handles all CORS logic
+	// Wrap the entire router to ensure middleware runs for all requests including unmatched routes
+	corsHandler := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Handle OPTIONS preflight requests - always return 204, even if CORS not configured
+			if r.Method == http.MethodOptions {
+				if len(deps.Cfg.HTTP.CORSOrigins) > 0 {
+					origin := r.Header.Get("Origin")
+					var allowedOrigin string
+					allowed := false
+
+					// Check if origin is allowed
+					for _, ao := range deps.Cfg.HTTP.CORSOrigins {
+						if ao == "*" || ao == origin {
+							allowedOrigin = ao
+							allowed = true
+							break
+						}
+					}
+
+					if allowed {
+						if allowedOrigin == "*" {
+							w.Header().Set("Access-Control-Allow-Origin", "*")
+						} else {
+							w.Header().Set("Access-Control-Allow-Origin", origin)
+						}
+					}
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+					requestHeaders := r.Header.Get("Access-Control-Request-Headers")
+					if requestHeaders != "" {
+						w.Header().Set("Access-Control-Allow-Headers", requestHeaders)
+					} else {
+						w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
+					}
+					w.Header().Set("Access-Control-Max-Age", "86400")
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			// Set CORS headers for non-OPTIONS requests if CORS is configured
+			if len(deps.Cfg.HTTP.CORSOrigins) > 0 {
+				origin := r.Header.Get("Origin")
+				if origin != "" {
+					for _, ao := range deps.Cfg.HTTP.CORSOrigins {
+						if ao == "*" || ao == origin {
+							if ao == "*" {
+								w.Header().Set("Access-Control-Allow-Origin", "*")
+							} else {
+								w.Header().Set("Access-Control-Allow-Origin", origin)
+							}
+							break
+						}
+					}
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		})
 	}
 
 	if !devMode {
@@ -95,7 +150,7 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 	})
 
 	return &http.Server{
-		Handler: http.HandlerFunc(mx.ServeHTTP),
+		Handler: corsHandler(mx),
 		BaseContext: func(listener net.Listener) context.Context {
 			ctx, _ := tag.New(context.Background(), tag.Upsert(metrics.APIInterface, "curio"))
 			return ctx
