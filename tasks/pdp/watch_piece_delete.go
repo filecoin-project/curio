@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
@@ -56,43 +57,27 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *
 func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 
 	var pendingDeletes []struct {
-		DataSetID int64  `db:"data_set"`
-		PieceID   int64  `db:"piece_id"`
-		TxHash    string `db:"rm_message_hash"`
+		DataSetID int64        `db:"data_set"`
+		PieceID   int64        `db:"piece_id"`
+		TxHash    string       `db:"rm_message_hash"`
+		TxSuccess sql.NullBool `db:"tx_success"`
 	}
 
-	err := db.Select(ctx, &pendingDeletes, `SELECT data_set, piece_id, rm_message_hex FROM pdp_data_set_pieces WHERE rm_message_hash IS NOT NULL AND removed = FALSE`)
+	err := db.Select(ctx, &pendingDeletes, `SELECT 
+    												psp.data_set, 
+    												psp.piece_id, 
+    												psp.rm_message_hex,
+													mwe.tx_success
+												FROM pdp_data_set_pieces psp
+												LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
+												WHERE psp.rm_message_hash IS NOT NULL 
+												  AND psp.removed = FALSE`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
 
-	for _, piece := range pendingDeletes {
-		err = processPendingPieceDelete(ctx, db, ethClient, piece.DataSetID, piece.PieceID, piece.TxHash)
-		if err != nil {
-			return xerrors.Errorf("failed to process pending piece delete: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func processPendingPieceDelete(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, dataSetID, pieceID int64, txHex string) error {
-	var success bool
-	err := db.QueryRow(ctx, `
-        SELECT tx_success
-        FROM message_waits_eth
-        WHERE signed_tx_hash = $1
-        AND tx_success IS NOT NULL
-    `, txHex).Scan(&success)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", txHex, err)
-	}
-
-	if !success {
-		return xerrors.Errorf("tx %s failed", txHex)
+	if len(pendingDeletes) == 0 {
+		return nil
 	}
 
 	pdpAddress := contract.ContractAddresses().PDPVerifier
@@ -102,29 +87,39 @@ func processPendingPieceDelete(ctx context.Context, db *harmonydb.DB, ethClient 
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	removals, err := verifier.GetScheduledRemovals(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetID))
-	if err != nil {
-		return xerrors.Errorf("failed to get scheduled removals: %w", err)
-	}
+	for _, piece := range pendingDeletes {
+		if !piece.TxSuccess.Valid {
+			log.Debugf("tx %s not found in message_waits_eth", piece.TxHash)
+		}
 
-	contains := lo.Contains(removals, big.NewInt(pieceID))
-	if !contains {
-		// Huston! we have a serious problem
-		return xerrors.Errorf("piece %d is not scheduled for removal", pieceID)
-	}
+		if !piece.TxSuccess.Bool {
+			return xerrors.Errorf("failed to process pending piece delete as transaction %s failed: %w", piece.TxHash, err)
+		}
 
-	n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces 
+		removals, err := verifier.GetScheduledRemovals(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID))
+		if err != nil {
+			return xerrors.Errorf("failed to get scheduled removals: %w", err)
+		}
+
+		contains := lo.Contains(removals, big.NewInt(piece.PieceID))
+		if !contains {
+			// Huston! we have a serious problem
+			return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
+		}
+
+		n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces 
 								SET removed = TRUE 
 								WHERE data_set = $1 
 								  AND piece_id = $2 
 								  AND rm_message_hash = $3
-								  AND removed = FALSE`, dataSetID, pieceID)
-	if err != nil {
-		return xerrors.Errorf("failed to update pdp_data_set_pieces: %w", err)
-	}
+								  AND removed = FALSE`, piece.DataSetID, piece.PieceID, piece.TxHash)
+		if err != nil {
+			return xerrors.Errorf("failed to update pdp_data_set_pieces: %w", err)
+		}
 
-	if n != 1 {
-		return xerrors.Errorf("expected to update 1 row but updated %d", n)
+		if n != 1 {
+			return xerrors.Errorf("expected to update 1 row but updated %d", n)
+		}
 	}
 
 	return nil
