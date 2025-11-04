@@ -210,19 +210,29 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 	}
 
 	for _, piece := range pieces {
-		// Deleting Index
-		pcid, err := cid.Parse(piece.PieceCID)
+		var skipCleanup bool
+		err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceRef).Scan(&skipCleanup)
 		if err != nil {
-			return xerrors.Errorf("failed to parse piece CID: %w", err)
-		}
-
-		err = idx.RemoveIndexes(ctx, pcid)
-		if err != nil {
-			return xerrors.Errorf("failed to remove indexes for piece %s: %w", piece.PieceCID, err)
+			return xerrors.Errorf("failed to check if piece is referenced: %w", err)
 		}
 
 		// Create RM ad
 		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			// Let's drop the PDP piece ref
+			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
+			}
+
+			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
+			}
+
+			if skipCleanup {
+				return true, nil
+			}
+
 			var contextID []byte
 			var metadata []byte
 			var isRMAd bool
@@ -321,23 +331,22 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
 			}
 
-			// Let's drop the PDP piece ref
-			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
-			}
-
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
-			}
-
 			return true, nil
 
 		}, harmonydb.OptionRetry())
 
 		if err != nil {
 			return xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
+		}
+
+		pcid, err := cid.Parse(piece.PieceCID)
+		if err != nil {
+			return xerrors.Errorf("failed to parse piece CID: %w", err)
+		}
+
+		err = idx.RemoveIndexes(ctx, pcid)
+		if err != nil {
+			return xerrors.Errorf("failed to remove indexes for piece %s: %w", piece.PieceCID, err)
 		}
 	}
 
