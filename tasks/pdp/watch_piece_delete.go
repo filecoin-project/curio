@@ -228,17 +228,6 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
 			}
 
-			// Let's drop the PDP piece ref
-			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
-			}
-
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
-			}
-
 			if skipCleanup {
 				return true, nil
 			}
@@ -339,6 +328,17 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 
 			if err != nil {
 				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+			}
+
+			// Let's drop the PDP piece ref
+			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
+			}
+
+			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
 			}
 
 			deleteIndex = true
