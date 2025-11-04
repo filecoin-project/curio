@@ -17,7 +17,7 @@ build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
 		$(MAKE) curio-libfilecoin; \
 	else \
-		$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
+		FFI_USE_FVM=1 $(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
 	fi
 	@touch $@
 
@@ -99,6 +99,17 @@ CLEAN+=build/.update-modules
 
 deps: $(BUILD_DEPS)
 .PHONY: deps
+
+## Test targets
+
+test-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
+test-deps: $(BUILD_DEPS)
+	@echo "Built dependencies with FVM support for testing"
+.PHONY: test-deps
+
+test: test-deps
+	go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
+.PHONY: test
 
 ## ldflags -s -w strips binary
 
