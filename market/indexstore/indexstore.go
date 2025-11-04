@@ -408,7 +408,6 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 		for iter.Scan(&r) {
 			m := multihash.Multihash(r)
 			hashes = append(hashes, m)
-
 			// Allocate new r, preallocating the typical size of a multihash (36 bytes)
 			r = make([]byte, 0, 36)
 		}

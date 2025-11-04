@@ -8,9 +8,9 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/market/storageingest"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -51,7 +51,7 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
 		}
-		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, deals[i].RawSize)
+		pcid2, err := commcid.PieceCidV2FromV1(pcid, deals[i].RawSize)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to get commp: %w", err)
 		}

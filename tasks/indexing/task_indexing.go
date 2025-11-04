@@ -24,6 +24,7 @@ import (
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
 	"github.com/filecoin-project/go-data-segment/fr32"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/deps/config"
@@ -32,7 +33,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -231,7 +231,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	pc2, err := commcidv2.PieceCidV2FromV1(pieceCid, uint64(task.RawSize))
+	pc2, err := commcid.PieceCidV2FromV1(pieceCid, uint64(task.RawSize))
 	if err != nil {
 		return false, xerrors.Errorf("getting piece commP: %w", err)
 	}
