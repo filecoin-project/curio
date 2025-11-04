@@ -154,6 +154,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 		}
 
 		if hasEnt {
+			have++
 			continue
 		}
 
