@@ -214,21 +214,36 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 	for _, piece := range pieces {
 		// Create RM ad
 		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var skipCleanup bool
-			err = tx.QueryRow(`SELECT EXISTS (
-										SELECT 1 
-										FROM pdp_piecerefs 
-										WHERE id = $1 AND data_set_refcount = 0
-									) OR EXISTS (
-										SELECT 1 
-										FROM pdp_piecerefs 
-										WHERE piece_cid = $2 AND id != $1
-										LIMIT 1)`, piece.ID, piece.PieceCID).Scan(&skipCleanup)
+			var refCount0 bool
+			err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0)`, piece.ID).Scan(&refCount0)
 			if err != nil {
 				return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
 			}
 
+			if !refCount0 {
+				log.Debugf("Piece %s with pdp_piecerefs ID %d is referenced by a dataSet, skipping cleanup", piece.PieceCID, piece.ID)
+				return false, nil
+			}
+
+			var skipCleanup bool
+			err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceCID, piece.ID).Scan(&skipCleanup)
+			if err != nil {
+				return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
+			}
+
+			// Let's drop the PDP piece ref even if we don't publish the removal ad
+			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
+			}
+
+			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
+			}
+
 			if skipCleanup {
+				log.Debugf("Skipping IPNI removal ad for piece %s as it is referenced by another piece", piece.PieceCID)
 				return true, nil
 			}
 
@@ -328,17 +343,6 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 
 			if err != nil {
 				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
-			}
-
-			// Let's drop the PDP piece ref
-			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
-			}
-
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
 			}
 
 			deleteIndex = true
