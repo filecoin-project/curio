@@ -232,9 +232,13 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			}
 
 			// Let's drop the PDP piece ref even if we don't publish the removal ad
-			_, err = tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1`, piece.PieceRef)
+			n, err := tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0`, piece.PieceRef)
 			if err != nil {
 				return false, xerrors.Errorf("failed to delete PDP piece ref %d: %w", piece.PieceRef, err)
+			}
+
+			if n != 1 {
+				return false, xerrors.Errorf("expected to delete 1 row but deleted %d", n)
 			}
 
 			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
