@@ -208,7 +208,8 @@ Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "a
 			Name: "Addresses",
 			Type: "[]CurioAddresses",
 
-			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.`,
+			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Proving",
@@ -317,7 +318,8 @@ are much less likely to get stuck in mempool. (Default: true)`,
 			Comment: `MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
 A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
 If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
-0 means unlimited. (Default: 64)`,
+0 means unlimited. (Default: 64)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueDownload",
@@ -336,7 +338,8 @@ Updates will affect running instances.`,
 			Comment: `MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
 waiting for a machine to pick up their verification task (owner_id is null).
 If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
-0 means unlimited. (Default: 8)`,
+0 means unlimited. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueDealSector",
@@ -346,7 +349,8 @@ If this limit is exceeded, the system will apply backpressure, delaying new deal
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
-DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)`,
+DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSDR",
@@ -358,7 +362,8 @@ Note: This mechanism will delay taking deal data from markets, providing backpre
 The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
 possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueTrees",
@@ -369,7 +374,8 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueuePoRep",
@@ -380,7 +386,8 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSnapEncode",
@@ -389,7 +396,8 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
+Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSnapProve",
@@ -397,7 +405,8 @@ Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
 
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
-This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)`,
+This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxDealWaitTime",
@@ -405,7 +414,8 @@ This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying
 
 			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
 This ensures that sectors don't remain open indefinitely, consuming resources.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "DoSnap",
@@ -800,12 +810,6 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 
 			Comment: `The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. (Default: 8)`,
-		},
-		{
-			Name: "EnableBalanceManager",
-			Type: "bool",
-
-			Comment: `EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)`,
 		},
 		{
 			Name: "BindSDRTreeToNode",

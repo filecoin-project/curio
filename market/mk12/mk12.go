@@ -703,8 +703,8 @@ FROM joined
 		return false, xerrors.Errorf("failed to query market pipeline backpressure stats: %w", err)
 	}
 
-	if cfg.MaxMarketRunningPipelines != 0 && runningPipelines > int64(cfg.MaxMarketRunningPipelines) {
-		log.Infow("backpressure", "reason", "too many running market pipelines", "running_pipelines", runningPipelines, "max", cfg.MaxMarketRunningPipelines)
+	if cfg.MaxMarketRunningPipelines.Get() != 0 && runningPipelines > int64(cfg.MaxMarketRunningPipelines.Get()) {
+		log.Infow("backpressure", "reason", "too many running market pipelines", "running_pipelines", runningPipelines, "max", cfg.MaxMarketRunningPipelines.Get())
 		return true, nil
 	}
 
@@ -713,8 +713,8 @@ FROM joined
 		return true, nil
 	}
 
-	if cfg.MaxQueueCommP != 0 && verifyPending > int64(cfg.MaxQueueCommP) {
-		log.Infow("backpressure", "reason", "too many pending CommP tasks", "pending_commp", verifyPending, "max", cfg.MaxQueueCommP)
+	if cfg.MaxQueueCommP.Get() != 0 && verifyPending > int64(cfg.MaxQueueCommP.Get()) {
+		log.Infow("backpressure", "reason", "too many pending CommP tasks", "pending_commp", verifyPending, "max", cfg.MaxQueueCommP.Get())
 		return true, nil
 	}
 
@@ -750,18 +750,18 @@ FROM joined
 			return false, xerrors.Errorf("counting buffered sectors: %w", err)
 		}
 
-		if cfg.MaxQueueDealSector != 0 && waitDealSectors > cfg.MaxQueueDealSector {
-			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+		if cfg.MaxQueueDealSector.Get() != 0 && waitDealSectors > cfg.MaxQueueDealSector.Get() {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector.Get())
 			return true, nil
 		}
 
-		if cfg.MaxQueueSnapEncode != 0 && bufferedEncode > cfg.MaxQueueSnapEncode {
-			log.Infow("backpressure", "reason", "too many encode tasks", "buffered", bufferedEncode, "max", cfg.MaxQueueSnapEncode)
+		if cfg.MaxQueueSnapEncode.Get() != 0 && bufferedEncode > cfg.MaxQueueSnapEncode.Get() {
+			log.Infow("backpressure", "reason", "too many encode tasks", "buffered", bufferedEncode, "max", cfg.MaxQueueSnapEncode.Get())
 			return true, nil
 		}
 
-		if cfg.MaxQueueSnapProve != 0 && bufferedProve > cfg.MaxQueueSnapProve {
-			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve)
+		if cfg.MaxQueueSnapProve.Get() != 0 && bufferedProve > cfg.MaxQueueSnapProve.Get() {
+			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve.Get())
 			return true, nil
 		}
 	} else {
@@ -802,21 +802,21 @@ FROM joined
 			return false, xerrors.Errorf("counting buffered sectors: %w", err)
 		}
 
-		if cfg.MaxQueueDealSector != 0 && waitDealSectors > cfg.MaxQueueDealSector {
-			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+		if cfg.MaxQueueDealSector.Get() != 0 && waitDealSectors > cfg.MaxQueueDealSector.Get() {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector.Get())
 			return true, nil
 		}
 
-		if bufferedSDR > cfg.MaxQueueSDR {
-			log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR)
+		if bufferedSDR > cfg.MaxQueueSDR.Get() {
+			log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR.Get())
 			return true, nil
 		}
-		if cfg.MaxQueueTrees != 0 && bufferedTrees > cfg.MaxQueueTrees {
-			log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees)
+		if cfg.MaxQueueTrees.Get() != 0 && bufferedTrees > cfg.MaxQueueTrees.Get() {
+			log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees.Get())
 			return true, nil
 		}
-		if cfg.MaxQueuePoRep != 0 && bufferedPoRep > cfg.MaxQueuePoRep {
-			log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep)
+		if cfg.MaxQueuePoRep.Get() != 0 && bufferedPoRep > cfg.MaxQueuePoRep.Get() {
+			log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep.Get())
 			return true, nil
 		}
 	}

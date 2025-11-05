@@ -7,10 +7,11 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -18,11 +19,14 @@ import (
 
 var logger = logging.Logger("config-dynamic")
 
-// bigIntComparer is used to compare big.Int values properly
-var bigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
+// BigIntComparer is used to compare big.Int values properly
+var BigIntComparer = cmp.Comparer(func(x, y big.Int) bool {
 	return x.Cmp(&y) == 0
 })
 
+// Dynamic is a wrapper for configuration values that can change at runtime.
+// Use Get() and Set() methods to access the value with proper synchronization
+// and change detection.
 type Dynamic[T any] struct {
 	value T
 }
@@ -55,29 +59,32 @@ func (d *Dynamic[T]) Set(value T) {
 	d.value = value
 }
 
+// SetWithoutLock sets the value without acquiring a lock.
+// Only use this when you're already holding the top-level write lock (e.g., during ApplyLayers).
+func (d *Dynamic[T]) SetWithoutLock(value T) {
+	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+	d.value = value
+}
+
 func (d *Dynamic[T]) Get() T {
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
 	return d.value
 }
 
-// UnmarshalText unmarshals the text into the dynamic value.
-// After initial setting, future updates require a lock on the DynamicMx mutex before calling toml.Decode.
-func (d *Dynamic[T]) UnmarshalText(text []byte) error {
-	return toml.Unmarshal(text, &d.value)
-}
-
-// MarshalTOML marshals the dynamic value to TOML format.
-// If used from deps, requires a lock.
-func (d *Dynamic[T]) MarshalTOML() ([]byte, error) {
-	return toml.Marshal(d.value)
+// GetWithoutLock gets the value without acquiring a lock.
+// Only use this when you're already holding the top-level write lock (e.g., during FixTOML).
+func (d *Dynamic[T]) GetWithoutLock() T {
+	return d.value
 }
 
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, bigIntComparer)
+	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
 }
+
+// MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
 
 type cfgRoot[T any] struct {
 	db       *harmonydb.DB
@@ -195,11 +202,13 @@ func (r *cfgRoot[T]) changeMonitor() {
 			continue
 		}
 
-		// 2. lock "dynamic" mutex
+		// 2. Apply layers while holding the top-level lock to prevent readers from seeing
+		//    inconsistent state. FixTOML uses GetWithoutLock() and TransparentDecode uses
+		//    SetWithoutLock() to avoid deadlocks.
 		func() {
 			dynamicLocker.Lock()
 			defer dynamicLocker.Unlock()
-			err := ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
+			err = ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
 				return
@@ -217,8 +226,8 @@ var dynamicLocker = changeNotifier{diff: diff{
 }
 
 type changeNotifier struct {
-	sync.RWMutex      // this protects the dynamic[T] reads from getting a race with the updating
-	updating     bool // determines which mode we are in: updating or querying
+	sync.RWMutex       // this protects the dynamic[T] reads from getting a race with the updating
+	updating     int32 // atomic: 1 if updating, 0 if not. determines which mode we are in: updating or querying
 
 	diff
 
@@ -232,16 +241,16 @@ type diff struct {
 
 func (c *changeNotifier) Lock() {
 	c.RWMutex.Lock()
-	c.updating = true
+	atomic.StoreInt32(&c.updating, 1)
 }
 func (c *changeNotifier) Unlock() {
 	c.cdmx.Lock()
 	c.RWMutex.Unlock()
 	defer c.cdmx.Unlock()
 
-	c.updating = false
+	atomic.StoreInt32(&c.updating, 0)
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], bigIntComparer) {
+		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
@@ -250,8 +259,9 @@ func (c *changeNotifier) Unlock() {
 	c.originally = make(map[uintptr]any)
 	c.latest = make(map[uintptr]any)
 }
+
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
-	if !c.updating {
+	if atomic.LoadInt32(&c.updating) == 0 {
 		return
 	}
 	c.cdmx.Lock()

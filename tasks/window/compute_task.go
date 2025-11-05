@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -73,7 +74,7 @@ type WdPostTask struct {
 
 	windowPoStTF promise.Promise[harmonytask.AddTaskFunc]
 
-	actors               map[dtypes.MinerAddress]bool
+	actors               *config.Dynamic[map[dtypes.MinerAddress]bool]
 	max                  int
 	parallel             chan struct{}
 	challengeReadTimeout time.Duration
@@ -93,7 +94,7 @@ func NewWdPostTask(db *harmonydb.DB,
 	verifier storiface.Verifier,
 	paramck func() (bool, error),
 	pcs *chainsched.CurioChainSched,
-	actors map[dtypes.MinerAddress]bool,
+	actors *config.Dynamic[map[dtypes.MinerAddress]bool],
 	max int,
 	parallel int,
 	challengeReadTimeout time.Duration,
@@ -451,7 +452,7 @@ func (t *WdPostTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 func (t *WdPostTask) processHeadChange(ctx context.Context, revert, apply *types.TipSet) error {
-	for act := range t.actors {
+	for act := range t.actors.Get() {
 		maddr := address.Address(act)
 
 		aid, err := address.IDFromAddress(maddr)

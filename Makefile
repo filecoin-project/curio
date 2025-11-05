@@ -161,6 +161,9 @@ batch-build: curio
 calibnet-sptool: CURIO_TAGS+= calibnet
 calibnet-sptool: sptool
 
+calibnet-curio: CURIO_TAGS+= calibnet
+calibnet-curio: curio
+
 install: install-curio install-sptool
 .PHONY: install
 
@@ -255,7 +258,7 @@ docsgen-cli: curio sptool
 	echo '# Default Curio Configuration' >> documentation/en/configuration/default-curio-configuration.md
 	echo '' >> documentation/en/configuration/default-curio-configuration.md
 	echo '```toml' >> documentation/en/configuration/default-curio-configuration.md
-	./curio config default >> documentation/en/configuration/default-curio-configuration.md
+	LANG=en-US ./curio config default >> documentation/en/configuration/default-curio-configuration.md
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
