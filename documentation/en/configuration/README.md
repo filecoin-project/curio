@@ -32,7 +32,7 @@ Flexibility: Configuration layers allow different parts of the system or differe
 
 ### Layer Stacking&#x20;
 
-The configuration layers are stack in the supplied order. The `base` layer is always applied by default so it can be skipped.
+The configuration layers are stack in the supplied order. The `base` layer is always applied by default so you don't need to specify it. 
 
 For example, if a Curio node is started with the following layers:
 
@@ -168,3 +168,9 @@ To update a configuration field, users must first enable it by checking the corr
 
 <figure><img src="../.gitbook/assets/config-edit.png" alt="Configuration edit"><figcaption><p>Curio GUI configuration editor</p></figcaption></figure>
 
+# Dynamic Configuration
+  Changing some settings requires restarting those server nodes, costing time and SLA.
+ Fortunately, most settings can now be changed dynamically. These are labelled in the UI or documents as:
+-  "Updates will affect running instances"
+Once saved by UI, CLI, or direct SQL update, allow 30 seconds for an update. Note: bad values (that are out of range or do not parse) will cause immediate and widespread effect, although the next update can fix these.
+Rare combinations of services, fields, and values are not dynamic (such as adding a first miner address while Market 2 is running) will error that a restart is required to accept this change. 
