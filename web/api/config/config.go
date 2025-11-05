@@ -77,14 +77,14 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	sch := ref.Reflect(config.UnwrapDynamics(config.CurioConfig{}))
-	// add comments
-	for k, doc := range config.Doc {
-		item, ok := sch.Definitions[k]
-		if !ok {
-			continue
+
+	// Helper to add comments to a schema's properties
+	addComments := func(targetSchema *jsonschema.Schema, docEntries []config.DocField) {
+		if targetSchema == nil || targetSchema.Properties == nil {
+			return
 		}
-		for _, line := range doc {
-			item, ok := item.Properties.Get(line.Name)
+		for _, line := range docEntries {
+			item, ok := targetSchema.Properties.Get(line.Name)
 			if !ok {
 				continue
 			}
@@ -98,6 +98,26 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 				}
 				extra["options"] = opt
 				item.Extras = extra
+			}
+		}
+	}
+
+	// Add comments to definitions
+	for k, doc := range config.Doc {
+		if item, ok := sch.Definitions[k]; ok {
+			addComments(item, doc)
+		}
+	}
+
+	// Add comments to inline schemas in root Properties (like Ingest -> CurioIngestConfig)
+	// Map root property names to their corresponding Doc key
+	inlineSchemaMap := map[string]string{
+		"Ingest": "CurioIngestConfig",
+	}
+	for propName, docKey := range inlineSchemaMap {
+		if prop, ok := sch.Properties.Get(propName); ok {
+			if doc, ok := config.Doc[docKey]; ok {
+				addComments(prop, doc)
 			}
 		}
 	}
