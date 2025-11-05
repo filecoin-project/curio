@@ -100,11 +100,15 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	size := int64(pi.Size)
 	details.PieceSize = size
 
-	maddr, err := address.NewIDAddress(uint64(details.SpID))
-	if err != nil {
-		return nil, err
+	if details.SpID <= 0 {
+		details.Miner = "PDP"
+	} else {
+		maddr, err := address.NewIDAddress(uint64(details.SpID))
+		if err != nil {
+			return nil, err
+		}
+		details.Miner = maddr.String()
 	}
-	details.Miner = maddr.String()
 
 	if !details.PreviousAd.Valid {
 		details.Previous = ""
@@ -190,6 +194,9 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	}
 
 	for i := range summary {
+		if summary[i].SpId <= 0 {
+			summary[i].Miner = "PDP"
+		}
 		maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert ID address: %w", err)
