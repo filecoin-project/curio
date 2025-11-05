@@ -67,7 +67,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 					Pattern: "1 fil/0.03 fil/0.31/1 attofil",
 				}
 			}
-			if i == reflect.TypeOf(time.Second) { // Override the Pattern for types.FIL
+			if i == reflect.TypeOf(time.Second) { // Override the Pattern for duration
 				return &jsonschema.Schema{
 					Type:    "string",
 					Pattern: "0h0m0s",
@@ -76,7 +76,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 			return nil
 		},
 	}
-	sch := ref.Reflect(config.CurioConfig{})
+	sch := ref.Reflect(config.UnwrapDynamics(config.CurioConfig{}))
 	// add comments
 	for k, doc := range config.Doc {
 		item, ok := sch.Definitions[k]
@@ -104,11 +104,32 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 
 	var allOpt func(s *jsonschema.Schema)
 	allOpt = func(s *jsonschema.Schema) {
+		if s == nil {
+			return
+		}
 		s.Required = []string{}
-		for _, v := range s.Definitions {
-			v.Required = []string{}
 
+		// Recurse into Properties (handles inline schemas like Ingest)
+		if s.Properties != nil {
+			// Iterate using Oldest/Next pattern (OrderedMap doesn't have Keys method)
+			for pair := s.Properties.Oldest(); pair != nil; pair = pair.Next() {
+				allOpt(pair.Value) // Recursively process property schemas
+			}
+		}
+
+		// Recurse into Definitions
+		for _, v := range s.Definitions {
 			allOpt(v)
+		}
+
+		// Recurse into other nested schema structures
+		for _, v := range []*jsonschema.Schema{s.Items, s.AdditionalProperties, s.Not, s.If, s.Then, s.Else} {
+			allOpt(v)
+		}
+		for _, v := range []interface{}{s.AllOf, s.AnyOf, s.OneOf} {
+			for _, sub := range v.([]*jsonschema.Schema) {
+				allOpt(sub)
+			}
 		}
 	}
 	allOpt(sch)

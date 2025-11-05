@@ -161,6 +161,9 @@ batch-build: curio
 calibnet-sptool: CURIO_TAGS+= calibnet
 calibnet-sptool: sptool
 
+calibnet-curio: CURIO_TAGS+= calibnet
+calibnet-curio: curio
+
 install: install-curio install-sptool
 .PHONY: install
 

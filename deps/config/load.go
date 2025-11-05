@@ -540,7 +540,7 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 	}
 
 	l := len(lengthDetector.Addresses)
-	addrs := cfg.Addresses.Get()
+	addrs := cfg.Addresses.GetWithoutLock()
 	il := len(addrs)
 
 	for l > il {
@@ -556,7 +556,7 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 		})
 		il++
 	}
-	cfg.Addresses.Set(addrs)
+	cfg.Addresses.SetWithoutLock(addrs)
 	return nil
 }
 

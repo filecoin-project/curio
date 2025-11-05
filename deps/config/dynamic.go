@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -58,9 +59,22 @@ func (d *Dynamic[T]) Set(value T) {
 	d.value = value
 }
 
+// SetWithoutLock sets the value without acquiring a lock.
+// Only use this when you're already holding the top-level write lock (e.g., during ApplyLayers).
+func (d *Dynamic[T]) SetWithoutLock(value T) {
+	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+	d.value = value
+}
+
 func (d *Dynamic[T]) Get() T {
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
+	return d.value
+}
+
+// GetWithoutLock gets the value without acquiring a lock.
+// Only use this when you're already holding the top-level write lock (e.g., during FixTOML).
+func (d *Dynamic[T]) GetWithoutLock() T {
 	return d.value
 }
 
@@ -188,11 +202,13 @@ func (r *cfgRoot[T]) changeMonitor() {
 			continue
 		}
 
-		// 2. lock "dynamic" mutex
+		// 2. Apply layers while holding the top-level lock to prevent readers from seeing
+		//    inconsistent state. FixTOML uses GetWithoutLock() and TransparentDecode uses
+		//    SetWithoutLock() to avoid deadlocks.
 		func() {
 			dynamicLocker.Lock()
 			defer dynamicLocker.Unlock()
-			err := ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
+			err = ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
 				return
@@ -210,8 +226,8 @@ var dynamicLocker = changeNotifier{diff: diff{
 }
 
 type changeNotifier struct {
-	sync.RWMutex      // this protects the dynamic[T] reads from getting a race with the updating
-	updating     bool // determines which mode we are in: updating or querying
+	sync.RWMutex       // this protects the dynamic[T] reads from getting a race with the updating
+	updating     int32 // atomic: 1 if updating, 0 if not. determines which mode we are in: updating or querying
 
 	diff
 
@@ -225,14 +241,14 @@ type diff struct {
 
 func (c *changeNotifier) Lock() {
 	c.RWMutex.Lock()
-	c.updating = true
+	atomic.StoreInt32(&c.updating, 1)
 }
 func (c *changeNotifier) Unlock() {
 	c.cdmx.Lock()
 	c.RWMutex.Unlock()
 	defer c.cdmx.Unlock()
 
-	c.updating = false
+	atomic.StoreInt32(&c.updating, 0)
 	for k, v := range c.latest {
 		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
 			if notifier := c.notifier[k]; notifier != nil {
@@ -243,8 +259,9 @@ func (c *changeNotifier) Unlock() {
 	c.originally = make(map[uintptr]any)
 	c.latest = make(map[uintptr]any)
 }
+
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
-	if !c.updating {
+	if atomic.LoadInt32(&c.updating) == 0 {
 		return
 	}
 	c.cdmx.Lock()
