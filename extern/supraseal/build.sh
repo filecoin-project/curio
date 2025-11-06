@@ -13,24 +13,33 @@ do
     esac
 done
 
-# Function to check GCC version
+# Function to check GCC version - enforces GCC 12 for compatibility
 check_gcc_version() {
     local gcc_version=$(gcc -dumpversion | cut -d. -f1)
-    if [ "$gcc_version" != "11" ]; then
-        if command -v gcc-11 &> /dev/null && command -v g++-11 &> /dev/null; then
-            echo "GCC version is not 11. Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 11."
-            export CC=gcc-11
-            export CXX=g++-11
-            export NVCC_PREPEND_FLAGS='-ccbin /usr/bin/g++-11'
-        else
-            echo "Error: GCC 11 is required but not found. Please install GCC 11 and try again."
-            echo "You can typically install it using your package manager. For example:"
-            echo "  On Ubuntu: sudo apt-get install gcc-11 g++-11"
-            echo "  On Fedora: sudo dnf install gcc-11 gcc-c++-11"
-            echo "  On Arch: Install gcc11 from AUR"
-            exit 1
-        fi
+    local target_gcc_version=12
+    
+    # Check if default GCC is version 12
+    if [ "$gcc_version" -eq "$target_gcc_version" ]; then
+        echo "Using GCC $gcc_version"
+        return 0
     fi
+    
+    # If not GCC 12, try to find and use gcc-12
+    if command -v gcc-12 &> /dev/null && command -v g++-12 &> /dev/null; then
+        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 12 for compatibility."
+        export CC=gcc-12
+        export CXX=g++-12
+        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-12"
+        return 0
+    fi
+    
+    # GCC 12 not found
+    echo "Error: GCC 12 is required but not found."
+    echo "Current GCC version: $gcc_version"
+    echo "Please install GCC 12:"
+    echo "  On Ubuntu/Debian: sudo apt-get install gcc-12 g++-12"
+    echo "  On Fedora: sudo dnf install gcc-12 gcc-c++-12"
+    exit 1
 }
 
 # Call the function to check GCC version
@@ -51,9 +60,55 @@ CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
 
-CUDA=$(dirname $(dirname $(which $NVCC)))
+# Detect CUDA installation path - explicitly search for CUDA 13 first
+CUDA=""
+# Try common CUDA 13 installation paths first, then fallback to checking PATH
+for cuda_path in /usr/local/cuda-13.0 /usr/local/cuda-13 /usr/local/cuda /opt/cuda; do
+    if [ -d "$cuda_path" ] && [ -f "$cuda_path/bin/nvcc" ]; then
+        # Check if this is actually CUDA 13
+        CUDA_VER_CHECK=$($cuda_path/bin/nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+        if [ "$CUDA_VER_CHECK" = "13" ]; then
+            CUDA=$cuda_path
+            NVCC=$cuda_path/bin/nvcc
+            break
+        fi
+    fi
+done
+
+# If not found in standard paths, check if nvcc in PATH is CUDA 13
+if [ -z "$CUDA" ] && command -v nvcc &> /dev/null; then
+    CUDA_VER_CHECK=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+    if [ "$CUDA_VER_CHECK" = "13" ]; then
+        CUDA=$(dirname $(dirname $(which nvcc)))
+        NVCC=nvcc
+    fi
+fi
+
+if [ -z "$CUDA" ]; then
+    echo "Error: CUDA 13 not found."
+    echo "Please install CUDA 13 Toolkit:"
+    echo "  Download from: https://developer.nvidia.com/cuda-13-download-archive"
+    echo ""
+    echo "Checked locations:"
+    echo "  - /usr/local/cuda-13.0"
+    echo "  - /usr/local/cuda-13"
+    echo "  - /usr/local/cuda"
+    echo "  - PATH (found: $(which nvcc 2>/dev/null || echo 'not found'))"
+    if command -v nvcc &> /dev/null; then
+        echo ""
+        echo "Note: Found nvcc in PATH, but it's version $(nvcc --version | grep release | sed -n 's/.*release \([0-9.]*\).*/\1/p'), not 13.x"
+    fi
+    exit 1
+fi
+
+# Ensure CUDA bin directory is in PATH
+export PATH=$CUDA/bin:$PATH
+
+echo "Found CUDA 13 at: $CUDA"
 SPDK="deps/spdk-v24.05"
-CUDA_ARCH="-arch=sm_80 -gencode arch=compute_70,code=sm_70 -t0"
+# CUDA 13 architectures - removed compute_70 (Volta) as it's no longer supported in CUDA 13+
+# sm_80: Ampere (A100), sm_86: Ampere (RTX 30xx), sm_89: Ada Lovelace (RTX 40xx, L40), sm_90: Hopper (H100)
+CUDA_ARCH="-arch=sm_80 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90 -t0"
 CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
         awk '{ if($2=="__cplusplus" && $3<"2017") print "-std=c++17"; }'`
 
@@ -162,9 +217,12 @@ mkdir -p deps
 if [ ! -d $SPDK ]; then
     git clone --branch v24.05 https://github.com/spdk/spdk --recursive $SPDK
     (cd $SPDK
-     sudo scripts/pkgdep.sh
+     # Set environment variable to allow pip to install in externally-managed Python environments
+     # This is needed for Ubuntu 24.04+ which implements PEP 668
+     export PIP_BREAK_SYSTEM_PACKAGES=1
+     sudo -E scripts/pkgdep.sh
      ./configure --with-virtio --with-vhost --without-fuse --without-crypto
-     make -j 10)
+     make -j$(nproc))
 fi
 if [ ! -d "deps/sppark" ]; then
     git clone --branch v0.1.10 https://github.com/supranational/sppark.git deps/sppark
