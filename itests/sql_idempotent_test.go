@@ -20,8 +20,7 @@ func TestSQLIdempotent(t *testing.T) {
 		require.NoError(t, fmt.Errorf("SQL DDL file failed idempotent check: %s, %w", name, err))
 	}
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	cdb, err := harmonydb.NewFromConfigWithTest(t)
 	require.NoError(t, err)
 
 	ctx := context.Background()

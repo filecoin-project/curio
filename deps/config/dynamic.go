@@ -55,9 +55,7 @@ func (d *Dynamic[T]) OnChange(fn func()) {
 // It locks dynamicLocker, unless we're already in an updating context.
 func (d *Dynamic[T]) Set(value T) {
 	// Check if we're already in an updating context (changeMonitor)
-	dynamicLocker.RLock()
-	updating := dynamicLocker.updating
-	dynamicLocker.RUnlock()
+	updating := atomic.LoadInt32(&dynamicLocker.updating)
 
 	if updating != 0 {
 		// We're in changeMonitor context, don't acquire the lock to avoid deadlock
@@ -230,15 +228,13 @@ func (r *cfgRoot[T]) changeMonitor() {
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
 				// Reset updating flag on error
-				dynamicLocker.Lock()
-				dynamicLocker.updating = 0
-				dynamicLocker.Unlock()
+				atomic.StoreInt32(&dynamicLocker.updating, 0)
 				return
 			}
 
 			// Process change notifications
 			dynamicLocker.Lock()
-			dynamicLocker.updating = 0
+			atomic.StoreInt32(&dynamicLocker.updating, 0)
 			for k, v := range dynamicLocker.latest {
 				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 					if notifier := dynamicLocker.notifier[k]; notifier != nil {
@@ -262,8 +258,14 @@ var dynamicLocker = changeNotifier{diff: diff{
 }
 
 type changeNotifier struct {
-	sync.RWMutex       // this protects the dynamic[T] reads from getting a race with the updating
-	updating     int32 // atomic: 1 if updating, 0 if not. determines which mode we are in: updating or querying
+	sync.RWMutex // Protects Dynamic[T] reads/writes during config updates
+
+	// updating is an atomic flag (1=updating, 0=idle) that indicates whether
+	// changeMonitor is currently applying new config layers. When set, Dynamic.Set()
+	// skips locking to avoid deadlock, since changeMonitor already holds the write lock.
+	// This allows config reload (via TransparentDecode) to update Dynamic values without
+	// re-acquiring locks. Always access via atomic.LoadInt32/StoreInt32.
+	updating int32
 
 	diff
 
