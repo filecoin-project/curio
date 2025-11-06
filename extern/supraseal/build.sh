@@ -60,43 +60,49 @@ CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
 
-# Detect CUDA installation path - explicitly search for CUDA 13 first
+# Detect CUDA installation path - search for CUDA 12+ (required for modern architectures)
 CUDA=""
-# Try common CUDA 13 installation paths first, then fallback to checking PATH
-for cuda_path in /usr/local/cuda-13.0 /usr/local/cuda-13 /usr/local/cuda /opt/cuda; do
+MIN_CUDA_VERSION=12
+
+# Try common CUDA installation paths
+for cuda_path in /usr/local/cuda-13.0 /usr/local/cuda-13 /usr/local/cuda-12.6 /usr/local/cuda-12 /usr/local/cuda /opt/cuda; do
     if [ -d "$cuda_path" ] && [ -f "$cuda_path/bin/nvcc" ]; then
-        # Check if this is actually CUDA 13
+        # Check CUDA version
         CUDA_VER_CHECK=$($cuda_path/bin/nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
-        if [ "$CUDA_VER_CHECK" = "13" ]; then
+        if [ "$CUDA_VER_CHECK" -ge "$MIN_CUDA_VERSION" ] 2>/dev/null; then
             CUDA=$cuda_path
             NVCC=$cuda_path/bin/nvcc
+            CUDA_VERSION=$CUDA_VER_CHECK
             break
         fi
     fi
 done
 
-# If not found in standard paths, check if nvcc in PATH is CUDA 13
+# If not found in standard paths, check if nvcc in PATH is CUDA 12+
 if [ -z "$CUDA" ] && command -v nvcc &> /dev/null; then
     CUDA_VER_CHECK=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
-    if [ "$CUDA_VER_CHECK" = "13" ]; then
+    if [ "$CUDA_VER_CHECK" -ge "$MIN_CUDA_VERSION" ] 2>/dev/null; then
         CUDA=$(dirname $(dirname $(which nvcc)))
         NVCC=nvcc
+        CUDA_VERSION=$CUDA_VER_CHECK
     fi
 fi
 
 if [ -z "$CUDA" ]; then
-    echo "Error: CUDA 13 not found."
-    echo "Please install CUDA 13 Toolkit:"
-    echo "  Download from: https://developer.nvidia.com/cuda-13-download-archive"
+    echo "Error: CUDA $MIN_CUDA_VERSION or newer not found."
+    echo "Please install CUDA Toolkit (version 12.0 or later):"
+    echo "  Download from: https://developer.nvidia.com/cuda-downloads"
     echo ""
     echo "Checked locations:"
     echo "  - /usr/local/cuda-13.0"
     echo "  - /usr/local/cuda-13"
+    echo "  - /usr/local/cuda-12.6"
+    echo "  - /usr/local/cuda-12"
     echo "  - /usr/local/cuda"
     echo "  - PATH (found: $(which nvcc 2>/dev/null || echo 'not found'))"
     if command -v nvcc &> /dev/null; then
         echo ""
-        echo "Note: Found nvcc in PATH, but it's version $(nvcc --version | grep release | sed -n 's/.*release \([0-9.]*\).*/\1/p'), not 13.x"
+        echo "Note: Found nvcc in PATH, but it's version $(nvcc --version | grep release | sed -n 's/.*release \([0-9.]*\).*/\1/p'), need $MIN_CUDA_VERSION.x or newer"
     fi
     exit 1
 fi
@@ -104,7 +110,7 @@ fi
 # Ensure CUDA bin directory is in PATH
 export PATH=$CUDA/bin:$PATH
 
-echo "Found CUDA 13 at: $CUDA"
+echo "Found CUDA $CUDA_VERSION at: $CUDA"
 SPDK="deps/spdk-v24.05"
 # CUDA 13 architectures - removed compute_70 (Volta) as it's no longer supported in CUDA 13+
 # sm_80: Ampere (A100), sm_86: Ampere (RTX 30xx), sm_89: Ada Lovelace (RTX 40xx, L40), sm_90: Hopper (H100)

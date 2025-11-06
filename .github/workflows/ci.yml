@@ -353,23 +353,35 @@ jobs:
         id: cache-cuda
         uses: actions/cache@v4
         with:
-          path: /usr/local/cuda-13.0
-          key: cuda-13.0-ubuntu-24.04-${{ runner.os }}
+          path: |
+            /usr/local/cuda
+            /usr/local/cuda-*
+          key: cuda-toolkit-ubuntu-24.04-${{ runner.os }}-v1
       
-      - name: Install CUDA 13.0
+      - name: Install CUDA Toolkit from NVIDIA Repository
         if: steps.cache-cuda.outputs.cache-hit != 'true'
         run: |
-          # Download and install CUDA 13.0
-          wget https://developer.download.nvidia.com/compute/cuda/13.0.0/local_installers/cuda_13.0.0_530.30.02_linux.run
-          sudo sh cuda_13.0.0_530.30.02_linux.run --silent --toolkit --override
-          rm cuda_13.0.0_530.30.02_linux.run
+          # Install CUDA using official NVIDIA repository for Ubuntu 24.04
+          # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
+          
+          # Download and install the CUDA keyring package
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          rm cuda-keyring_1.1-1_all.deb
+          
+          # Update package list and install CUDA toolkit
+          sudo apt-get update
+          sudo apt-get -y install cuda-toolkit
+          
+          # Create symlink to standard location if needed
+          sudo ln -sf /usr/local/cuda /usr/local/cuda-13.0
       
       - name: Set up CUDA environment
         run: |
-          echo "/usr/local/cuda-13.0/bin" >> $GITHUB_PATH
-          echo "CUDA_HOME=/usr/local/cuda-13.0" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          /usr/local/cuda-13.0/bin/nvcc --version
+          echo "/usr/local/cuda/bin" >> $GITHUB_PATH
+          echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          nvcc --version
       
       - name: Install libconfig++
         run: |
