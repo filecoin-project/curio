@@ -18,6 +18,8 @@ import (
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -153,13 +155,12 @@ func (r *cachedSectionReader) Close() error {
 func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
 	// Get all deals containing this piece
 
-	commp, err := commcidv2.CommPFromPCidV2(pieceCidV2)
+	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
 	if err != nil {
-		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+		return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pieceCid := commp.PCidV1()
-	pieceSize := commp.PieceInfo().Size
+	pieceSize := padreader.PaddedSize(rawSize).Padded()
 
 	var deals []struct {
 		ID       string                  `db:"id"`
@@ -336,7 +337,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 		return nil, 0, fmt.Errorf("subpiece not found in any aggregate piece")
 	}
 
-	pi, err := commcidv2.CommPFromPCidV2(pieceCidV2)
+	_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
 	if err != nil {
 		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
 	}
@@ -351,7 +352,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 		}
 
 		sr := io.NewSectionReader(reader, int64(p.Offset), int64(p.Size))
-		return SubPieceReader{r: reader, sr: sr}, pi.PayloadSize(), nil
+		return SubPieceReader{r: reader, sr: sr}, rawSize, nil
 	}
 
 	return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", merr)
@@ -388,7 +389,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		if !singlePiece {
 			return nil, 0, fmt.Errorf("more than 1 piece metadata found for piece cid %s, please use piece cid v2", pieceCidV2.String())
 		}
-		pcid2, err := commcidv2.PieceCidV2FromV1(pieceCidV2, uint64(rawSize))
+		pcid2, err := commcid.PieceCidV2FromV1(pieceCidV2, uint64(rawSize))
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to convert piece cid v1 to v2: %w", err)
 		}
@@ -397,13 +398,12 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 	cacheKey := pieceCidV2.String()
 
-	commp, err := commcidv2.CommPFromPCidV2(pieceCidV2)
+	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
 	if err != nil {
-		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+		return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pieceCid := commp.PCidV1()
-	pieceSize := commp.PieceInfo().Size
+	pieceSize := padreader.PaddedSize(rawSize).Padded()
 
 	// First check if we have a cached error for this piece
 	cpr.pieceErrorCacheMu.Lock()

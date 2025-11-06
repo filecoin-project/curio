@@ -321,7 +321,12 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 		panic(err)
 	}
 
-	tpcid := cid.NewCidV1(cid.FilCommitmentUnsealed, digest)
+	tpcid, err := commcid.DataCommitmentV1ToCID(digest)
+	if err != nil {
+		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "chunk", chunk, "error", err)
+		http.Error(w, "failed to generate piece cid"+err.Error(), int(UploadServerError))
+		return
+	}
 	var pnum, refID int64
 
 	// Generate piece park details with tmp pieceCID and Size
@@ -697,7 +702,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	tpcid, err := commcid.DataCommitmentV1ToCID(digest)
 	if err != nil {
 		log.Errorw("failed to generate tmp pieceCID", "deal", id, "error", err)
-		http.Error(w, "", int(UploadServerError))
+		http.Error(w, "failed to generate piece cid"+err.Error(), int(UploadServerError))
 		return
 	}
 

@@ -24,13 +24,13 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	fcrypto "github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 
 	"github.com/filecoin-project/lotus/lib/sigs"
 )
@@ -288,21 +288,13 @@ func ValidatePieceCID(c cid.Cid) error {
 		return xerrors.Errorf("piece cid is not raw")
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(c)
+	_, rawSize, err := commcid.PieceCidV1FromV2(c)
 	if err != nil {
 		return xerrors.Errorf("invalid piece cid: %w", err)
 	}
 
-	if commp.PieceInfo().Size == 0 {
-		return xerrors.Errorf("piece size is 0")
-	}
-
-	if commp.PayloadSize() == 0 {
+	if rawSize == 0 {
 		return xerrors.Errorf("payload size is 0")
-	}
-
-	if padreader.PaddedSize(commp.PayloadSize()).Padded() != commp.PieceInfo().Size {
-		return xerrors.Errorf("invalid piece size")
 	}
 
 	return nil
@@ -318,22 +310,22 @@ func (d *Deal) RawSize() (uint64, error) {
 	if d.Data == nil {
 		return 0, xerrors.Errorf("no data")
 	}
-	commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
+	_, rawSize, err := commcid.PieceCidV1FromV2(d.Data.PieceCID)
 	if err != nil {
 		return 0, xerrors.Errorf("invalid piece cid: %w", err)
 	}
-	return commp.PayloadSize(), nil
+	return rawSize, nil
 }
 
 func (d *Deal) Size() (abi.PaddedPieceSize, error) {
 	if d.Data == nil {
 		return 0, xerrors.Errorf("no data")
 	}
-	commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
+	_, rawSize, err := commcid.PieceCidV1FromV2(d.Data.PieceCID)
 	if err != nil {
 		return 0, xerrors.Errorf("invalid piece cid: %w", err)
 	}
-	return commp.PieceInfo().Size, nil
+	return padreader.PaddedSize(rawSize).Padded(), nil
 }
 
 func (d *Deal) PieceInfo() (*PieceInfo, error) {
@@ -341,14 +333,14 @@ func (d *Deal) PieceInfo() (*PieceInfo, error) {
 }
 
 func GetPieceInfo(c cid.Cid) (*PieceInfo, error) {
-	commp, err := commcidv2.CommPFromPCidV2(c)
+	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(c)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid piece cid: %w", err)
 	}
 	return &PieceInfo{
-		PieceCIDV1: commp.PCidV1(),
-		Size:       commp.PieceInfo().Size,
-		RawSize:    commp.PayloadSize(),
+		PieceCIDV1: pieceCid,
+		Size:       padreader.PaddedSize(rawSize).Padded(),
+		RawSize:    rawSize,
 	}, nil
 }
 

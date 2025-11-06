@@ -14,10 +14,10 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -528,7 +528,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 
 		if pieces[i].DataRawSize.Valid {
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(pieces[i].DataRawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieces[i].DataRawSize.Int64))
+
 			if err != nil {
 				return nil, xerrors.Errorf("failed to generate piece cid v2: %w", err)
 			}

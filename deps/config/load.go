@@ -10,9 +10,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/BurntSushi/toml"
@@ -89,7 +87,8 @@ func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interfac
 		cfg = ccfg
 	}
 
-	md, err := toml.Decode(buf.String(), cfg)
+	// Use TransparentDecode for configs with Dynamic fields
+	md, err := TransparentDecode(buf.String(), cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -315,23 +314,19 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 	}
 	var nodeStr, defStr string
 	if cfgDef != nil {
-		buf := new(bytes.Buffer)
-		e := toml.NewEncoder(buf)
-		if err := e.Encode(cfgDef); err != nil {
+		defBytes, err := TransparentMarshal(cfgDef)
+		if err != nil {
 			return nil, xerrors.Errorf("encoding default config: %w", err)
 		}
-
-		defStr = buf.String()
+		defStr = string(defBytes)
 	}
 
 	{
-		buf := new(bytes.Buffer)
-		e := toml.NewEncoder(buf)
-		if err := e.Encode(cfgCur); err != nil {
+		nodeBytes, err := TransparentMarshal(cfgCur)
+		if err != nil {
 			return nil, xerrors.Errorf("encoding node config: %w", err)
 		}
-
-		nodeStr = buf.String()
+		nodeStr = string(nodeBytes)
 	}
 
 	if updateOpts.comment {
@@ -451,23 +446,15 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 		opts := []cmp.Option{
 			// This equality function compares big.Int
 			cmpopts.IgnoreUnexported(big.Int{}),
-			cmp.Comparer(func(x, y []string) bool {
-				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
-				if tx.Kind() == reflect.Slice && ty.Kind() == reflect.Slice && tx.Elem().Kind() == reflect.String && ty.Elem().Kind() == reflect.String {
-					sort.Strings(x)
-					sort.Strings(y)
-					return strings.Join(x, "\n") == strings.Join(y, "\n")
-				}
-				return false
-			}),
-			cmp.Comparer(func(x, y time.Duration) bool {
-				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
-				return tx.Kind() == ty.Kind()
-			}),
+			// Treat nil and empty slices/maps as equal for all types
+			cmpopts.EquateEmpty(),
+			// Use BigIntComparer for proper big.Int comparison
+			BigIntComparer,
 		}
 
 		if !cmp.Equal(cfgUpdated, cfgCur, opts...) {
-			return nil, xerrors.Errorf("updated config didn't match current config")
+			diff := cmp.Diff(cfgUpdated, cfgCur, opts...)
+			return nil, xerrors.Errorf("updated config didn't match current config:\n%s", diff)
 		}
 	}
 
@@ -510,8 +497,9 @@ func findDocSect(root, section, name string) *DocField {
 		found := false
 		for _, field := range docSection {
 			if field.Name == e {
-				lastField = &field                               // Store reference to the section field
-				docSection = Doc[strings.Trim(field.Type, "[]")] // Move to the next section
+				lastField = &field // Store reference to the section field
+				t := strings.Trim(field.Type, "[]")
+				docSection = Doc[t] // Move to the next section
 				found = true
 				break
 			}
@@ -552,10 +540,11 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 	}
 
 	l := len(lengthDetector.Addresses)
-	il := len(cfg.Addresses)
+	addrs := cfg.Addresses.GetWithoutLock()
+	il := len(addrs)
 
 	for l > il {
-		cfg.Addresses = append(cfg.Addresses, CurioAddresses{
+		addrs = append(addrs, CurioAddresses{
 			PreCommitControl:      []string{},
 			CommitControl:         []string{},
 			DealPublishControl:    []string{},
@@ -567,6 +556,7 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 		})
 		il++
 	}
+	cfg.Addresses.SetWithoutLock(addrs)
 	return nil
 }
 
@@ -590,7 +580,7 @@ func LoadConfigWithUpgradesGeneric[T any](text string, curioConfigWithDefaults T
 		return toml.MetaData{}, err
 	}
 
-	return toml.Decode(newText, &curioConfigWithDefaults)
+	return TransparentDecode(newText, curioConfigWithDefaults)
 }
 
 type ConfigText struct {
