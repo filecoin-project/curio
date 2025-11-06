@@ -59,7 +59,7 @@ func (d *Dynamic[T]) Set(value T) {
 	updating := dynamicLocker.updating
 	dynamicLocker.RUnlock()
 
-	if updating {
+	if updating != 0 {
 		// We're in changeMonitor context, don't acquire the lock to avoid deadlock
 		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
 		d.value = value
@@ -231,14 +231,14 @@ func (r *cfgRoot[T]) changeMonitor() {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
 				// Reset updating flag on error
 				dynamicLocker.Lock()
-				dynamicLocker.updating = false
+				dynamicLocker.updating = 0
 				dynamicLocker.Unlock()
 				return
 			}
 
 			// Process change notifications
 			dynamicLocker.Lock()
-			dynamicLocker.updating = false
+			dynamicLocker.updating = 0
 			for k, v := range dynamicLocker.latest {
 				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 					if notifier := dynamicLocker.notifier[k]; notifier != nil {

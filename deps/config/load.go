@@ -18,7 +18,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/samber/lo"
-	"github.com/zondax/golem/pkg/logger"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
