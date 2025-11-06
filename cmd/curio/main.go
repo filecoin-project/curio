@@ -46,11 +46,12 @@ func SetupLogLevels() {
 
 func setupCloseHandler() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	// Register our handler first, before runApp's handler
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT)
 	go func() {
 		<-c
 		fmt.Println("\r- Ctrl+C pressed in Terminal")
-		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 2)
 		panic(1)
 	}()
 }
@@ -229,12 +230,6 @@ var fetchParamCmd = &cli.Command{
 }
 
 func runApp(app *cli.App) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-c
-		os.Exit(1)
-	}()
 
 	if err := app.Run(os.Args); err != nil {
 		if os.Getenv("LOTUS_DEV") != "" {

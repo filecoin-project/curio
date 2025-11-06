@@ -21,6 +21,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
@@ -180,7 +182,7 @@ func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
 			}
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(s.RawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(s.RawSize.Int64))
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
 			}
@@ -352,7 +354,7 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 		if err != nil {
 			return &StorageDealSummary{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 		}
-		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(d.RawSize.Int64))
+		pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(d.RawSize.Int64))
 		if err != nil {
 			return &StorageDealSummary{}, xerrors.Errorf("failed to get commP from piece info: %w", err)
 		}
@@ -410,7 +412,7 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
 			}
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
 			}
@@ -583,20 +585,20 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		return nil, xerrors.Errorf("invalid piece CID V2: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(piece)
+	pcid, rawSize, err := commcid.PieceCidV1FromV2(piece)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get commP from piece CID: %w", err)
+		return nil, xerrors.Errorf("failed to get pieceCidv1 from piece CID v2: %w", err)
 	}
 
-	pi := commp.PieceInfo()
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	ret := &PieceInfo{
 		PieceCidv2: piece.String(),
-		PieceCid:   pi.PieceCID.String(),
-		Size:       int64(pi.Size),
+		PieceCid:   pcid.String(),
+		Size:       int64(size),
 	}
 
-	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pi.PieceCID.String(), pi.Size).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
+	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pcid.String(), size).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 	}
@@ -614,7 +616,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 														piece_length, 
 														raw_size 
 													FROM market_piece_deal
-													WHERE piece_cid = $1 AND piece_length = $2`, pi.PieceCID.String(), pi.Size)
+													WHERE piece_cid = $1 AND piece_length = $2`, pcid.String(), size)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get piece deals: %w", err)
 	}
@@ -637,6 +639,11 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	ret.Deals = pieceDeals
 
 	b := new(bytes.Buffer)
+
+	pi := abi.PieceInfo{
+		PieceCID: pcid,
+		Size:     size,
+	}
 
 	err = pi.MarshalCBOR(b)
 	if err != nil {
@@ -718,12 +725,12 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 		return nil, xerrors.Errorf("invalid piece CID V2: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(pcid)
+	pcid1, rawSize, err := commcid.PieceCidV1FromV2(pcid)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get commP from piece CID: %w", err)
+		return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pi := commp.PieceInfo()
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	var pps ParkedPieceState
 
@@ -731,7 +738,7 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 	err = a.deps.DB.QueryRow(ctx, `
         SELECT id, created_at, piece_cid, piece_padded_size, piece_raw_size, complete, task_id, cleanup_task_id
         FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2
-    `, pi.PieceCID.String(), pi.Size).Scan(
+    `, pcid1.String(), size).Scan(
 		&pps.ID, &pps.CreatedAt, &pps.PieceCID, &pps.PiecePaddedSize, &pps.PieceRawSize,
 		&pps.Complete, &pps.TaskID, &pps.CleanupTaskID,
 	)
@@ -915,13 +922,12 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		return nil, xerrors.Errorf("invalid piece CID V2: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(pcid)
+	pcid1, rawSize, err := commcid.PieceCidV1FromV2(pcid)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pieceCid = commp.PieceInfo().PieceCID.String()
-	size := commp.PieceInfo().Size
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	var mk12Deals []*MK12Deal
 
@@ -978,7 +984,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 											NULL AS error,                    -- NULL handled by Go (sql.NullString)
 										    TRUE AS is_ddo
 										FROM market_direct_deals
-										WHERE piece_cid = $1 AND piece_size = $2`, pieceCid, size)
+										WHERE piece_cid = $1 AND piece_size = $2`, pcid.String(), size)
 	if err != nil {
 		return nil, err
 	}
@@ -1044,7 +1050,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 													data,
 													ddo_v1,
 													retrieval_v1,
-													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid.String())
+													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid1.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
 	}
@@ -1843,7 +1849,7 @@ func (a *WebRPC) MK12DDOStorageDealList(ctx context.Context, limit int, offset i
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
 			}
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
 			if err != nil {
 				return nil, xerrors.Errorf("failed to convert v1 piece CID to v2: %w", err)
 			}
