@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -100,7 +101,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	err = ipp.db.QueryRow(ctx, `
         SELECT id
         FROM pdp_data_sets
-        WHERE challenge_request_task_id = $1 
+        WHERE challenge_request_task_id = $1
     `, taskID).Scan(&dataSetId)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No matching data set, task is done (something weird happened, and e.g another task was spawned in place of this one)
@@ -109,6 +110,13 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
+
+	defer func() {
+		if err != nil {
+			log.Errorw("Initial challenge window scheduling failed", "dataSetId", dataSetId, "error", err)
+			err = fmt.Errorf("failed to set up initial proving period for dataset %d: %w", dataSetId, err)
+		}
+	}()
 
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ipp.ethClient)
@@ -122,9 +130,20 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to get leaf count for data set %d: %w", dataSetId, err)
 	}
 	if leafCount.Cmp(big.NewInt(0)) == 0 {
-		// No leaves in the data set yet, skip initialization
-		// Return done=false to retry later (the task will be retried by the scheduler)
-		return false, nil
+		// No leaves in the data set, we cannot prove anything
+		// Initialization is only triggered when thre are leaves (after add piece lands), or we strongly suspect that there are
+		// So we disable proving for this dataset if we end up having no leaves
+		log.Warnw("Initial challange window scheduling skipped", "dataSetId", dataSetId, "reason", "no leaves")
+		_, err = ipp.db.Exec(ctx, `
+			UPDATE pdp_data_sets
+			SET init_ready = FALSE
+			WHERE id = $1
+			`, dataSetId)
+		if err != nil {
+			return false, xerrors.Errorf("failed to disable proving (caused by no leaves): %w", err)
+		}
+
+		return true, nil
 	}
 
 	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
@@ -237,6 +256,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to perform database transaction: %w", err)
 	}
+	log.Infow("Initial challenge window scheduled", "dataSetId", dataSetId, "epoch", init_prove_at)
 
 	// Task completed successfully
 	return true, nil

@@ -57,6 +57,16 @@ type PDPOfferingData struct {
 	PaymentTokenAddress      common.Address
 }
 
+func encodeBigIntCapability(i *mbig.Int) []byte {
+	if i == nil {
+		return nil
+	}
+	if i.Sign() == 0 {
+		return []byte{0x00}
+	}
+	return i.Bytes()
+}
+
 func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]string) ([]string, [][]byte, error) {
 	// Required PDP keys per REQUIRED_PDP_KEYS Bloom filter in ServiceProviderRegistry.sol
 	keys := []string{
@@ -71,10 +81,10 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 
 	values := [][]byte{
 		[]byte(offering.ServiceURL),
-		offering.MinPieceSizeInBytes.Bytes(),
-		offering.MaxPieceSizeInBytes.Bytes(),
-		offering.StoragePricePerTibPerDay.Bytes(),
-		offering.MinProvingPeriodInEpochs.Bytes(),
+		encodeBigIntCapability(offering.MinPieceSizeInBytes),
+		encodeBigIntCapability(offering.MaxPieceSizeInBytes),
+		encodeBigIntCapability(offering.StoragePricePerTibPerDay),
+		encodeBigIntCapability(offering.MinProvingPeriodInEpochs),
 		[]byte(offering.Location),
 		offering.PaymentTokenAddress.Bytes(),
 	}
@@ -414,8 +424,8 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 			return "", xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
 		}
 	}
-	if len(keys) > 10 {
-		return "", xerrors.Errorf("too many capabilities, max 10 allowed")
+	if len(keys) > 32 {
+		return "", xerrors.Errorf("too many capabilities, max 32 allowed")
 	}
 
 	sender, _, privateKey, err := getSender(ctx, db)

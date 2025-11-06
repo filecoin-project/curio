@@ -11,10 +11,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	logger "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
+
+var logCreate = logger.Logger("pdp/create")
 
 // handleCreateDataSetAndAddPieces handles the creation of a new data set and adding pieces at the same time
 func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *http.Request) {
@@ -62,9 +65,19 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	pieceDataArray, subPieceInfoMap, _, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	// Check if indexing is needed by decoding the extraData
+	mustIndex, err := CheckIfIndexingNeededFromExtraData(extraDataBytes)
 	if err != nil {
-		log.Warnf("Failed to process AddPieces request data: %+v", err)
+		logCreate.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
+		mustIndex = false
+	}
+	if mustIndex {
+		logCreate.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
+	}
+
+	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	if err != nil {
+		logCreate.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -100,12 +113,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		log.Errorf("Failed to send transaction: %+v", err)
+		logCreate.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	txHashLower := strings.ToLower(txHash.Hex())
-	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
+	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
@@ -121,10 +134,18 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 			return false, err
 		}
 
+		// Enable indexing if the extraData indicates indexing is needed
+		if mustIndex {
+			logCreate.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
+			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
+				return false, err
+			}
+		}
+
 		return true, err
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
+		logCreate.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -142,7 +163,7 @@ func decodeExtraData(extraDataString *string) ([]byte, error) {
 	extraDataHexStr := *extraDataString
 	decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
 	if err != nil {
-		log.Errorf("Failed to decode hex extraData: %v", err)
+		logCreate.Errorf("Failed to decode hex extraData: %v", err)
 		return nil, err
 	}
 	return decodedBytes, nil
@@ -241,13 +262,13 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		log.Errorf("Failed to send transaction: %+v", err)
+		logCreate.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	// Step 6: Insert into message_waits_eth and pdp_data_set_creates
 	txHashLower := strings.ToLower(txHash.Hex())
-	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
+	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
@@ -262,7 +283,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorf("Failed to insert database tracking records: %+v", err)
+		logCreate.Errorf("Failed to insert database tracking records: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -275,7 +296,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 // insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
 func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string) error {
 	// Insert into message_waits_eth
-	log.Debugw("Inserting into message_waits_eth",
+	logCreate.Debugw("Inserting into message_waits_eth",
 		"txHash", txHashHex,
 		"status", "pending")
 	_, err := tx.Exec(`
@@ -283,14 +304,14 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
             VALUES ($1, $2)
         `, txHashHex, "pending")
 	if err != nil {
-		log.Errorw("Failed to insert into message_waits_eth",
+		logCreate.Errorw("Failed to insert into message_waits_eth",
 			"txHash", txHashHex,
 			"error", err)
 		return err
 	}
 
 	// Insert into pdp_data_set_creates
-	log.Debugw("Inserting into pdp_data_set_creates",
+	logCreate.Debugw("Inserting into pdp_data_set_creates",
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	_, err = tx.Exec(`
@@ -298,13 +319,13 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
             VALUES ($1, $2)
         `, txHashHex, serviceLabel)
 	if err != nil {
-		log.Errorw("Failed to insert into pdp_data_set_creates",
+		logCreate.Errorw("Failed to insert into pdp_data_set_creates",
 			"txHash", txHashHex,
 			"error", err)
 		return err
 	}
 
-	log.Infow("Successfully inserted transaction tracking records",
+	logCreate.Infow("Successfully inserted transaction tracking records",
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	return nil

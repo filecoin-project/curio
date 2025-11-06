@@ -580,7 +580,6 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
-
 }
 
 func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *http.Request) {
@@ -626,28 +625,47 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	pcid, err := cid.Parse(req.PieceCID)
+
+	// Accept PieceCID v2 in the API
+	pieceCidV2, size, err := asPieceCIDv2(req.PieceCID, 0)
+	if err != nil {
+		http.Error(w, "Invalid request body: invalid pieceCid: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Convert to v1 for database comparison (database stores v1)
+	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
 	if err != nil {
 		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
 		return
 	}
 
-	digest, err := commcid.CIDToDataCommitmentV1(pcid)
+	// Get digest for insertion
+	digest, err := commcid.CIDToDataCommitmentV1(pieceCidV1)
 	if err != nil {
 		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
 		return
 	}
 
+	// Query database for stored piece info
 	var dPcidStr string
-	var pSize, pref int64
+	var pref int64
+	var rawSize uint64
 
-	err = p.db.QueryRow(ctx, `SELECT piece_cid, piece_size, piece_ref FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID).Scan(&dPcidStr, &pSize)
+	err = p.db.QueryRow(ctx, `SELECT piece_cid, piece_ref, raw_size FROM pdp_piece_streaming_uploads WHERE id = $1 AND service = $2 AND complete = TRUE`, uploadUUID.String(), serviceID).Scan(&dPcidStr, &pref, &rawSize)
 	if err != nil {
 		log.Errorw("Failed to query pdp_piece_streaming_uploads", "error", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
+	// Validate size matches (prevents attack with smaller tree)
+	if size != rawSize {
+		http.Error(w, "Invalid request body: pieceCid size does not match uploaded piece size", http.StatusBadRequest)
+		return
+	}
+
+	// Parse database PieceCID (v1 format)
 	dPcid, err := cid.Parse(dPcidStr)
 	if err != nil {
 		log.Errorw("Failed to parse pieceCid", "error", err)
@@ -655,7 +673,8 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if !pcid.Equals(dPcid) {
+	// Compare v1 CIDs (database stores v1)
+	if !pieceCidV1.Equals(dPcid) {
 		http.Error(w, "Invalid request body: pieceCid does not match the calculated pieceCid for the uploaded piece", http.StatusBadRequest)
 		return
 	}
@@ -663,8 +682,8 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`
        INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, piece_ref)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-   `, uploadUUID.String(), serviceID, pcid.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, pSize, pref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, size, pref)
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}

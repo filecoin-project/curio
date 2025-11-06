@@ -85,14 +85,14 @@ CREATE TABLE pdp_proof_sets (
     challenge_request_msg_hash TEXT,
 
     -- the proving period for this proofset and the challenge window duration
-    proving_period BIGINT, 
+    proving_period BIGINT,
     challenge_window BIGINT,
 
     -- the epoch at which the next challenge window starts and proofs can be submitted
     -- initialized to NULL indicating a special proving period init task handles challenge generation
     prove_at_epoch BIGINT,
 
-    -- flag indicating that the proving period is ready for init.  Currently set after first add 
+    -- flag indicating that the proving period is ready for init.  Currently set after first add
     -- Set to true after first root add
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -143,7 +143,7 @@ CREATE TABLE pdp_proofset_roots (
     CONSTRAINT pdp_proofset_roots_root_id_unique PRIMARY KEY (proofset, root_id, subroot_offset),
 
     FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
-    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
+    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up -- CHANGED TO DELETE CASCADE 20251029
 );
 
 -- proofset root adds - tracking add-root messages which didn't land yet, so don't have a known root_id
@@ -165,7 +165,7 @@ CREATE TABLE pdp_proofset_root_adds (
     CONSTRAINT pdp_proofset_root_adds_root_id_unique PRIMARY KEY (proofset, add_message_hash, subroot_offset),
 
     FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
-    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
+    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up -- CHANGED TO DELETE CASCADE 20251029
 );
 
 -- proofset_refcount tracking

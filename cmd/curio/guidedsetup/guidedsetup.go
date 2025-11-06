@@ -6,15 +6,11 @@
 package guidedsetup
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
-	"math/bits"
-	"net/http"
 	"os"
 	"os/signal"
 	"path"
@@ -35,7 +31,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/api"
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -43,7 +38,6 @@ import (
 	"github.com/filecoin-project/curio/lib/createminer"
 
 	lapi "github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/node/repo"
 )
@@ -177,7 +171,6 @@ var migrationSteps = []migrationStep{
 	yugabyteConnect, // Miner is updated
 	configToDB,      // work on base configuration migration.
 	doc,
-	oneLastThing,
 	complete,
 	afterRan,
 }
@@ -189,7 +182,6 @@ var newMinerSteps = []newMinerStep{
 	stepCreateActor,
 	stepNewMinerConfig,
 	doc,
-	oneLastThing,
 	completeInit,
 	afterRan,
 }
@@ -200,7 +192,6 @@ var nonSPSteps = []nonSPStep{
 	stepPresteps,
 	stepNewMinerConfig,
 	doc,
-	oneLastThing,
 	completeNonSP,
 	afterRan,
 }
@@ -318,101 +309,6 @@ func configToDB(d *MigrationData) {
 	}
 }
 
-// bucket returns the power's 4 highest bits (rounded down).
-func bucket(power *lapi.MinerPower) uint64 {
-	rawQAP := power.TotalPower.QualityAdjPower.Uint64()
-	magnitude := lo.Max([]int{bits.Len64(rawQAP), 5})
-
-	// shifting erases resolution so we cannot distinguish SPs of similar scales.
-	return rawQAP >> (uint64(magnitude) - 4) << (uint64(magnitude - 4))
-}
-
-type uploadType int
-
-const uploadTypeIndividual uploadType = 0
-const uploadTypeAggregate uploadType = 1
-
-// const uploadTypeHint uploadType = 2
-const uploadTypeNothing uploadType = 3
-
-func oneLastThing(d *MigrationData) {
-	d.say(section, "The Curio team wants to improve the software you use. Tell the team you're using `%s`.", "curio")
-	i, _, err := (&promptui.Select{
-		Label: d.T("Select what you want to share with the Curio team."),
-		Items: []string{
-			d.T("Individual Data: Miner ID, Curio version, chain (%s or %s). Signed.", "mainnet", "calibration"),
-			d.T("Aggregate-Anonymous: version, chain, and Miner power (bucketed)."),
-			d.T("Hint: I am someone running Curio on whichever chain."),
-			d.T("Nothing.")},
-		Templates: d.selectTemplates,
-	}).Run()
-	preference := uploadType(i)
-	if err != nil {
-		d.say(notice, "Aborting remaining steps.", err.Error())
-		os.Exit(1)
-	}
-	if preference != uploadTypeNothing {
-		msgMap := map[string]any{
-			"domain": "curio-newuser",
-			"net":    build.BuildTypeString(),
-		}
-		if preference == uploadTypeIndividual || preference == uploadTypeAggregate {
-			// articles of incorporation
-			power, err := d.full.StateMinerPower(context.Background(), d.MinerID, types.EmptyTSK)
-			if err != nil {
-				d.say(notice, "Error getting miner power: %s", err.Error())
-				os.Exit(1)
-			}
-			msgMap["version"] = build.BuildVersion
-			msgMap["net"] = build.BuildType
-			msgMap["power"] = map[uploadType]uint64{
-				uploadTypeIndividual: power.MinerPower.QualityAdjPower.Uint64(),
-				uploadTypeAggregate:  bucket(power)}[preference]
-
-			if preference == uploadTypeIndividual { // Sign it
-				msgMap["miner_id"] = d.MinerID
-				msg, err := json.Marshal(msgMap)
-				if err != nil {
-					d.say(notice, "Error marshalling message: %s", err.Error())
-					os.Exit(1)
-				}
-				mi, err := d.full.StateMinerInfo(context.Background(), d.MinerID, types.EmptyTSK)
-				if err != nil {
-					d.say(notice, "Error getting miner info: %s", err.Error())
-					os.Exit(1)
-				}
-				sig, err := d.full.WalletSign(context.Background(), mi.Worker, msg)
-				if err != nil {
-					d.say(notice, "Error signing message: %s", err.Error())
-					os.Exit(1)
-				}
-				msgMap["signature"] = base64.StdEncoding.EncodeToString(sig.Data)
-			}
-		}
-		msg, err := json.Marshal(msgMap)
-		if err != nil {
-			d.say(notice, "Error marshalling message: %s", err.Error())
-			os.Exit(1)
-		}
-
-		resp, err := http.DefaultClient.Post(DeveloperFocusRequestURL, "application/json", bytes.NewReader(msg))
-		if err != nil {
-			d.say(notice, "Error sending message: %s", err.Error())
-		}
-		if resp != nil {
-			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != 200 {
-				b, err := io.ReadAll(resp.Body)
-				if err == nil {
-					d.say(notice, "Error sending message: Status %s, Message: ", resp.Status, string(b))
-				}
-			} else {
-				stepCompleted(d, d.T("Message sent."))
-			}
-		}
-	}
-}
-
 func doc(d *MigrationData) {
 	d.say(plain, "Documentation: ")
 	d.say(plain, "The '%s' layer stores common configuration. All curio instances can include it in their %s argument.", "base", "--layers")
@@ -445,7 +341,7 @@ func readMinerConfig(d *MigrationData) {
 		return err
 	}
 
-	dirs := map[string]struct{}{"~/.lotusminer": struct{}{}, "~/.lotus-miner-local-net": struct{}{}}
+	dirs := map[string]struct{}{"~/.lotusminer": {}, "~/.lotus-miner-local-net": {}}
 	if v := os.Getenv("LOTUS_MINER_PATH"); v != "" {
 		dirs[v] = struct{}{}
 	}

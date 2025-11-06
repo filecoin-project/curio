@@ -285,7 +285,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 		reader, size, err := cpr.getPieceReaderFromSector(readerCtx, pieceCid)
 		if err != nil {
-			log.Warnw("failed to get piece reader from sector", "piececid", pieceCid, "err", err)
+			log.Infow("failed to get piece reader from sector", "piececid", pieceCid, "err", err)
 
 			serr := err
 

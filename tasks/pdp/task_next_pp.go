@@ -3,7 +3,9 @@ package pdp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -89,6 +91,20 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 	return n
 }
 
+func (n *NextProvingPeriodTask) kickToInit(ctx context.Context, dataSetId int64) error {
+	log.Infow("moving proving for dataset to init state", "dataSetId", dataSetId)
+	_, err := n.db.Exec(ctx, `
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = TRUE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+		`, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed set values to trigger proving re-init: %w", err)
+	}
+	return nil
+}
+
 func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	// Select the data set where challenge_request_task_id = taskID
@@ -106,6 +122,13 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	if err != nil {
 		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
+
+	defer func() {
+		if err != nil {
+			log.Errorw("Next challange window scheduling failed", "dataSetId", dataSetId, "error", err)
+			err = fmt.Errorf("failed to set up next proving period for dataset %d: %w", dataSetId, err)
+		}
+	}()
 
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
@@ -125,6 +148,14 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	}
 	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetId))
 	if err != nil {
+		// not my favourite way to handle this but pragmatic
+		// for some reason we are in a proving loop running but it is not initialized
+		if strings.Contains(err.Error(), "0x999010d5") { // Error.ProvingPeriodNotInitialized
+			if err := n.kickToInit(ctx, dataSetId); err != nil {
+				return false, xerrors.Errorf("failed to kick back to init: %w", err)
+			}
+			return true, nil // true as this task is done
+		}
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 
@@ -209,7 +240,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	}
 
 	// Task completed successfully
-	log.Infow("Next challenge window scheduled", "epoch", next_prove_at)
+	log.Infow("Next challenge window scheduled", "epoch", next_prove_at, "dataSetId", dataSetId)
 
 	return true, nil
 }

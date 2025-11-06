@@ -32,14 +32,14 @@ func ContractAddresses() PDPContracts {
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C"), // PDPVerifier Proxy v3.1.0 - https://github.com/FilOzone/pdp/releases/tag/v3.1.0
 			AllowedPublicRecordKeepers: RecordKeeperAddresses{
-				FWSService: common.HexToAddress("0x02925630df557F957f70E112bA06e50965417CA0"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/pull/332 (2025-10-27)
+				FWSService: common.HexToAddress("0x02925630df557F957f70E112bA06e50965417CA0"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
 	case build.BuildMainnet:
 		return PDPContracts{
-			PDPVerifier: common.HexToAddress("0x1790d465d1FABE85b530B116f385091d52a12a3b"),
+			PDPVerifier: common.HexToAddress("0xBADd0B92C1c71d02E7d520f64c0876538fa2557F"), // PDPVerifier Proxy v3.1.0 - https://github.com/FilOzone/pdp/releases/tag/v3.1.0
 			AllowedPublicRecordKeepers: RecordKeeperAddresses{
-				FWSService: common.HexToAddress("0x81DFD9813aDd354f03704F31419b0c6268d46232"),
+				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
 	default:
@@ -70,8 +70,8 @@ func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 	return false
 }
 
-const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const ServiceRegistryCalibnet = "0x839e5c9988e4e9977d40708d0094103c0839Ac9D" // FWSS Registry Proxy - https://github.com/FilOzone/filecoin-services/pull/332
+const ServiceRegistryMainnet = "0xf55dDbf63F1b55c3F1D4FA7e339a68AB7b64A5eB"  // ServiceProviderRegistry Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
+const ServiceRegistryCalibnet = "0x839e5c9988e4e9977d40708d0094103c0839Ac9D" // ServiceProviderRegistry Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 
 func ServiceRegistryAddress() (common.Address, error) {
 	switch build.BuildType {

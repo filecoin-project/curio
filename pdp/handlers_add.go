@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
+	logger "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
@@ -47,6 +48,8 @@ type SubPieceInfo struct {
 	PDPPieceRefID  int64
 	SubPieceOffset uint64
 }
+
+var logAdd = logger.Logger("pdp/add")
 
 // returns PieceData, SubPieceInfo, and a list of subPieceCids
 func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel string, pieces []AddPieceRequest) ([]PieceData, map[string]*SubPieceInfo, []string, error) {
@@ -246,7 +249,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 
 		pieceDataArray = append(pieceDataArray, pieceData)
 	}
-	return pieceDataArray, subPieceInfoMap, nil, nil
+	return pieceDataArray, subPieceInfoMap, subPieceCidList, nil
 }
 
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
@@ -330,7 +333,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Step 4: Prepare piece information
 	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
-		log.Warnf("Failed to process AddPieces request data: %+v", err)
+		logAdd.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
 	}
 
@@ -369,24 +372,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	)
 
 	// Step 8: Check for indexing requirements
-	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, p.ethClient)
+	mustIndex, err := CheckIfIndexingNeeded(p.ethClient, dataSetIdUint64)
 	if err != nil {
-		log.Errorw("Failed to instantiate PDPVerifier contract", "error", err, "dataSetId", dataSetId)
+		logAdd.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, dataSetId)
-	if err != nil {
-		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	mustIndex, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, p.ethClient, dataSetId, "withIPFSIndexing")
-	if err != nil {
-		// Hard to differentiate between unsupported listener type OR internal error
-		// So we log and skip indexing attempt
-		mustIndex = false
-		log.Warnw("Failed to get data set metadata, skipping indexing", "error", err, "dataSetId", dataSetId)
+	if mustIndex {
+		logAdd.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
 	}
 
 	// Step 9: Send the transaction
@@ -394,20 +387,20 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		log.Errorf("Failed to send transaction: %+v", err)
+		logAdd.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	// Step 10: Insert database tracking records
 	txHashLower := strings.ToLower(txHash.Hex())
-	log.Infow("PDP AddPieces: Inserting transaction tracking",
+	logAdd.Infow("PDP AddPieces: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"dataSetId", dataSetIdUint64,
 		"pieceCount", len(payload.Pieces))
 
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
-		log.Debugw("Inserting AddPieces into message_waits_eth",
+		logAdd.Debugw("Inserting AddPieces into message_waits_eth",
 			"txHash", txHashLower,
 			"status", "pending")
 		_, err := txdb.Exec(`
@@ -415,19 +408,10 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
             VALUES ($1, $2)
         `, txHashLower, "pending")
 		if err != nil {
-			log.Errorw("Failed to insert AddPieces into message_waits_eth",
+			logAdd.Errorw("Failed to insert AddPieces into message_waits_eth",
 				"txHash", txHashLower,
 				"error", err)
 			return false, err // Return false to rollback the transaction
-		}
-
-		// Update data set for initialization upon first add
-		_, err = txdb.Exec(`
-			UPDATE pdp_data_sets SET init_ready = true
-			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
-			`, dataSetIdUint64)
-		if err != nil {
-			return false, err
 		}
 
 		// Insert into pdp_data_set_pieces
@@ -437,17 +421,8 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		if mustIndex {
-			log.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
-			// Note: it's possible to update a duplicate piece that has already completed the indexing step
-			// but task_pdp_indexing handles pieces that have already been indexed smoothly
-			_, err := txdb.Exec(`
-				UPDATE pdp_piecerefs
-				SET needs_indexing = TRUE
-				WHERE service = $1
-					AND piece_cid = ANY($2)
-					AND needs_indexing = FALSE
-				`, serviceLabel, subPieceCidList)
-			if err != nil {
+			logAdd.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
+			if err := EnableIndexingForPiecesInTx(txdb, serviceLabel, subPieceCidList); err != nil {
 				return false, err
 			}
 		}
@@ -455,7 +430,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
+		logAdd.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
