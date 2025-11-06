@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS filecoin_payment_transactions (
     tx_hash TEXT PRIMARY KEY,
-    rail_ids BIGINT[] NOT NULL,
+    rail_ids BIGINT[] NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pdp_delete_data_set (
