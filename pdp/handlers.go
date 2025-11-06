@@ -1068,7 +1068,7 @@ func asPieceCIDv1(cidStr string) (cid.Cid, error) {
 func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
 	pieceCid, err := cid.Decode(cidStr)
 	if err != nil {
-		return cid.Undef, 0, fmt.Errorf("failed to decode subPieceCid: %w", err)
+		return cid.Undef, 0, fmt.Errorf("failed to decode PieceCid: %w", err)
 	}
 	switch pieceCid.Prefix().MhType {
 	case uint64(multicodec.Sha2_256Trunc254Padded):
@@ -1084,7 +1084,7 @@ func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
 		// get the size from the CID, not the argument
 		_, size, err := commcid.PieceCidV2ToDataCommitment(pieceCid)
 		if err != nil {
-			return cid.Undef, 0, err
+			return cid.Undef, 0, fmt.Errorf("failed to get size from Sha2_256Trunc254Padded PieceCid: %w", err)
 		}
 		return pieceCid, size, nil
 	default:

@@ -219,7 +219,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	reason := "pdp-proving-init"
 	txHash, err := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
-		log.Errorf("failed to send transaction at %d, InitChallengeWindowStart %d, ChallengeWindow %d, MaxProvingPeriod %d, Buffer %d, InitReadyAt %d, ExpectedInitChallenge %d, ExpectedInitReadyAt %d: %w", currentBlock, config.InitChallengeWindowStart.Uint64(), config.ChallengeWindow.Uint64(), config.MaxProvingPeriod, buffer, init_prove_at.Uint64(), expectedInitWdStart, expectedMid, err)
+		log.Errorf("failed to send transaction at %d, InitChallengeWindowStart %d, ChallengeWindow %d, MaxProvingPeriod %d, Buffer %d, InitReadyAt %d, ExpectedInitChallenge %d, ExpectedInitReadyAt %d: %+v", currentBlock, config.InitChallengeWindowStart.Uint64(), config.ChallengeWindow.Uint64(), config.MaxProvingPeriod, buffer, init_prove_at.Uint64(), expectedInitWdStart, expectedMid, err)
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
