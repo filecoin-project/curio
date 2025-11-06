@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/go-state-types/builtin"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -19,9 +20,8 @@ import (
 )
 
 type settled struct {
-	Hash      string  `db:"tx_hash"`
-	Rails     []int64 `db:"rail_ids"`
-	SettledAt int64   `db:"settled_at"`
+	Hash  string  `db:"tx_hash"`
+	Rails []int64 `db:"rail_ids"`
 }
 
 func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
@@ -39,7 +39,7 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	var settles []settled
 
-	err := db.Select(ctx, &settles, `SELECT tx_hash, rail_ids, settled_at FROM filecoin_payment_transactions`)
+	err := db.Select(ctx, &settles, `SELECT tx_hash, rail_ids FROM filecoin_payment_transactions`)
 	if err != nil {
 		return xerrors.Errorf("failed to get settled message hash from DB: %w", err)
 	}
@@ -71,15 +71,31 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		return xerrors.Errorf("failed to create payments: %w", err)
 	}
 
+	current, err := ethClient.BlockNumber(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to get current block number: %w", err)
+	}
+
 	for _, railId := range settle.Rails {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
 		if err != nil {
 			return xerrors.Errorf("failed to get rail: %w", err)
 		}
 
-		settledUpto := view.SettledUpTo.Int64()
-		requiresDeletion := view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 || // If the rail is already terminated either by us or the payer, schedule deletion if required
-			!(settle.SettledAt-10 < settledUpto && settledUpto < settle.SettledAt+10) // If settledUpto is +-10 of settle.SettledAt, rail was settled
+		var requiresDeletion bool
+
+		// If the rail is already terminated either by us or the payer, schedule deletion if required
+		if view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
+			requiresDeletion = true
+		}
+
+		// If the rail is not terminated, check if we are 1 day before the lockup period ends. If so, schedule deletion
+		threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
+		thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
+
+		if thresholdWithGrace.Uint64() < current {
+			requiresDeletion = true
+		}
 
 		if !requiresDeletion {
 			continue
@@ -102,6 +118,8 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		if n != 1 {
 			return xerrors.Errorf("expected to insert 1 row, inserted %d", n)
 		}
+
+		log.Infow("Rail was not settled completely, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
 	}
 
 	// Delete the settle message from the DB

@@ -7,8 +7,8 @@ import (
 	"github.com/filecoin-project/curio/build"
 )
 
-const PaymentContractMainnet = ""
-const PaymentContractCalibnet = ""
+const PaymentContractMainnet = "0x23b1e018F08BB982348b15a86ee926eEBf7F4DAa"
+const PaymentContractCalibnet = "0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0"
 
 func PaymentContractAddress() (common.Address, error) {
 	switch build.BuildType {

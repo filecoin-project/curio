@@ -66,7 +66,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	}
 
 	var toSettle []*big.Int
-	bufferPeriod := big.NewInt(2 * builtin.EpochsInDay)
+	bufferPeriod := big.NewInt(builtin.EpochsInDay)
 	for _, rail := range railIds {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
@@ -84,7 +84,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 				toSettle = append(toSettle, rail)
 			}
 		} else {
-			//If rail is not terminated, settle if SettledUpTo+LockupPeriod-2days > current block
+			//If rail is not terminated, settle if SettledUpTo+LockupPeriod-1day > current block
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
 			thresholdWithGrace := big.NewInt(0).Sub(threshold, bufferPeriod)
 
@@ -130,10 +130,11 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	for txToSend, railIDs := range transactionsToSend {
 		tx, err := sender.Send(ctx, from, txToSend, "settleRail")
 		if err != nil {
-			return xerrors.Errorf("failed to send transaction: %w", err)
+			log.Errorw("failed to send settle transaction", "error", err)
+			continue
 		}
 		log.Infow("sent the settle transaction with hash %s", tx.Hex())
-		n, err := db.Exec(ctx, `INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids, settled_at) VALUES ($1, $2, $3)`, tx.Hex(), railIDs, current)
+		n, err := db.Exec(ctx, `INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, tx.Hex(), railIDs, current)
 		if err != nil {
 			return xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
 		}

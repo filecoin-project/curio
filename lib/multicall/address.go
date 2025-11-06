@@ -7,8 +7,8 @@ import (
 	"github.com/filecoin-project/curio/build"
 )
 
-const MultiCallAddressMainnet = ""
-const MultiCallAddressCalibnet = ""
+const MultiCallAddressMainnet = "0xcA11bde05977b3631167028862bE2a173976CA11"
+const MultiCallAddressCalibnet = "0xcA11bde05977b3631167028862bE2a173976CA11"
 
 func MultiCallAddress() (common.Address, error) {
 	switch build.BuildType {

@@ -22,21 +22,21 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 )
 
-type TerminateServiceTask struct {
+type TerminateFWSSTask struct {
 	db        *harmonydb.DB
 	ethClient *ethclient.Client
 	sender    *message.SenderETH
 }
 
-func NewTerminateServiceTask(db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *TerminateServiceTask {
-	return &TerminateServiceTask{
+func NewTerminateServiceTask(db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *TerminateFWSSTask {
+	return &TerminateFWSSTask{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
 	}
 }
 
-func (t *TerminateServiceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	var dataSetId int64
@@ -63,7 +63,7 @@ func (t *TerminateServiceTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 		n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set 
 									SET after_terminate_service = TRUE,
 									    terminate_service_task_id = NULL,
-									    termination_epoch = $2
+									    service_termination_epoch = $2
 									WHERE terminate_service_task_id = $1`, taskID, ds.PdpEndEpoch.Int64())
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
@@ -121,11 +121,11 @@ func (t *TerminateServiceTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 	return true, nil
 }
 
-func (t *TerminateServiceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TerminateFWSSTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
 }
 
-func (t *TerminateServiceTask) TypeDetails() harmonytask.TaskTypeDetails {
+func (t *TerminateFWSSTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "TerminateFWSS",
 		Cost: resources.Resources{
@@ -140,7 +140,7 @@ func (t *TerminateServiceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (t *TerminateServiceTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
+func (t *TerminateFWSSTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
 
 	for !stop {
@@ -149,7 +149,7 @@ func (t *TerminateServiceTask) schedule(ctx context.Context, addTaskFunc harmony
 
 			var pendings []int64
 
-			err := tx.Select(&pendings, `SELECT id FROM pdp_delete_data_set WHERE terminate_service_task_id IS NULL AND after_terminate_service = FALSE`)
+			err := tx.Select(&pendings, `SELECT id FROM pdp_delete_data_set WHERE terminate_service_task_id IS NULL AND after_terminate_service = FALSE LIMIT 1`)
 
 			if err != nil {
 				return false, xerrors.Errorf("failed to select pending data sets: %w", err)
@@ -172,7 +172,7 @@ func (t *TerminateServiceTask) schedule(ctx context.Context, addTaskFunc harmony
 				return false, xerrors.Errorf("updated %d rows", n)
 			}
 
-			log.Debugw("scheduled terminate service task", "dataSetID", pending)
+			log.Debugw("scheduled terminate service task", "dataSetId", pending)
 
 			stop = false
 			return true, nil
@@ -181,10 +181,10 @@ func (t *TerminateServiceTask) schedule(ctx context.Context, addTaskFunc harmony
 	return nil
 }
 
-func (t *TerminateServiceTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (t *TerminateFWSSTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-var _ harmonytask.TaskInterface = &TerminateServiceTask{}
-var _ = harmonytask.Reg(&TerminateServiceTask{})
+var _ harmonytask.TaskInterface = &TerminateFWSSTask{}
+var _ = harmonytask.Reg(&TerminateFWSSTask{})
 
 func getPDPOwner(ctx context.Context, db *harmonydb.DB) (common.Address, error) {
 	var owner string

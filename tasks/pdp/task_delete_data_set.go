@@ -153,16 +153,16 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 
 			var pendings []struct {
 				ID               int64 `db:"id"`
-				TerminationEpoch int64 `db:"termination_epoch"`
+				TerminationEpoch int64 `db:"service_termination_epoch"`
 			}
 
 			err = tx.Select(&pendings, `SELECT id, 
-       												termination_epoch 
+       												service_termination_epoch 
 											FROM pdp_delete_data_set 
 											WHERE delete_data_set_task_id IS NULL 
 											  AND after_delete_data_set = FALSE 
-											  AND termination_epoch IS NOT NULL
-											  AND termination_epoch >= $1`, current)
+											  AND service_termination_epoch IS NOT NULL
+											  AND service_termination_epoch >= $1`, current)
 
 			if err != nil {
 				return false, xerrors.Errorf("failed to select pending data sets: %w", err)
@@ -190,7 +190,7 @@ func (t *DeleteDataSetTask) schedule(ctx context.Context, addTaskFunc harmonytas
 				return false, xerrors.Errorf("updated %d rows", n)
 			}
 
-			log.Debugw("scheduled terminate data set task", "dataSetID", pending)
+			log.Debugw("scheduled terminate data set task", "dataSetId", pending.ID)
 
 			stop = false
 			return true, nil
