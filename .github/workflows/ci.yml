@@ -296,7 +296,6 @@ jobs:
     needs: [ci-lint]
     
     env:
-      CUDA_VERSION: "13.0"
       GCC_VERSION: "12"
     
     steps:
@@ -373,15 +372,35 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cuda-toolkit
           
-          # Create symlink to standard location if needed
-          sudo ln -sf /usr/local/cuda /usr/local/cuda-13.0
+          # Verify installation and find CUDA location
+          if [ -d "/usr/local/cuda" ]; then
+            echo "CUDA installed at /usr/local/cuda"
+            ls -la /usr/local/cuda*/bin/nvcc || true
+          else
+            echo "ERROR: CUDA installation not found"
+            exit 1
+          fi
       
       - name: Set up CUDA environment
         run: |
+          # Verify CUDA installation exists
+          if [ ! -d "/usr/local/cuda" ]; then
+            echo "ERROR: /usr/local/cuda not found"
+            exit 1
+          fi
+          
+          # Export PATH locally to verify nvcc works
+          export PATH="/usr/local/cuda/bin:$PATH"
+          export CUDA_HOME=/usr/local/cuda
+          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+          
+          # Verify nvcc is available
+          nvcc --version
+          
+          # Set environment for subsequent steps
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          nvcc --version
       
       - name: Install libconfig++
         run: |
@@ -414,12 +433,16 @@ jobs:
       - name: Build Supraseal
         working-directory: extern/supraseal
         run: |
-          # Ensure we're using GCC 12 and CUDA 13
+          # Ensure we're using GCC 12 and CUDA
           export CC=gcc-12
           export CXX=g++-12
-          export CUDA=/usr/local/cuda-13.0
-          export PATH=/usr/local/cuda-13.0/bin:$PATH
-          export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:$LD_LIBRARY_PATH
+          export CUDA=/usr/local/cuda
+          export PATH=/usr/local/cuda/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+          
+          # Verify CUDA is accessible
+          which nvcc
+          nvcc --version
           
           # Run the build script
           ./build.sh
@@ -450,7 +473,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: supraseal-binaries-ubuntu24-gcc12-cuda13
+          name: supraseal-binaries-ubuntu24-gcc12-cuda
           path: |
             extern/supraseal/bin/seal
             extern/supraseal/bin/pc2
@@ -462,7 +485,7 @@ jobs:
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
         with:
-          name: supraseal-library-ubuntu24-gcc12-cuda13
+          name: supraseal-library-ubuntu24-gcc12-cuda
           path: extern/supraseal/obj/libsupraseal.a
           retention-days: 30
       
@@ -473,14 +496,14 @@ jobs:
           echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
           echo "- OS: Ubuntu 24.04" >> $GITHUB_STEP_SUMMARY
           echo "- GCC: $(gcc --version | head -1)" >> $GITHUB_STEP_SUMMARY
-          echo "- CUDA: $(/usr/local/cuda-13.0/bin/nvcc --version | grep release)" >> $GITHUB_STEP_SUMMARY
+          echo "- CUDA: $(nvcc --version | grep release)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Built Binaries:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           ls -lh extern/supraseal/bin/ >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All binaries compiled successfully with GCC 12 and CUDA 13!" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All binaries compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
 
   gen-check:
     runs-on: ubuntu-latest
