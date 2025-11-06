@@ -18,11 +18,12 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
-	"github.com/filecoin-project/lotus/lib/lazy"
 
 	curioapi "github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/filecoin-project/lotus/lib/lazy"
 )
 
 // EthClientInterface defines the minimal interface needed for GetDealID

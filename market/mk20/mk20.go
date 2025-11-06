@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
+	curioapi "github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -30,7 +31,6 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 
-	curioapi "github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
