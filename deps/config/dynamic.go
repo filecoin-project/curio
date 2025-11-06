@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -71,7 +72,13 @@ func (d *Dynamic[T]) Set(value T) {
 	}
 }
 
-// It rlocks dynamicLocker.
+// SetWithoutLock sets the value without acquiring a lock.
+// Only use this when you're already holding the top-level write lock (e.g., during ApplyLayers).
+func (d *Dynamic[T]) SetWithoutLock(value T) {
+	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+	d.value = value
+}
+
 func (d *Dynamic[T]) Get() T {
 	if d == nil {
 		var zero T
@@ -82,18 +89,16 @@ func (d *Dynamic[T]) Get() T {
 	return d.value
 }
 
+// GetWithoutLock gets the value without acquiring a lock.
+// Only use this when you're already holding the top-level write lock (e.g., during FixTOML).
 func (d *Dynamic[T]) GetWithoutLock() T {
-	if d == nil {
-		var zero T
-		return zero
-	}
 	return d.value
 }
 
 // Equal is used by cmp.Equal for custom comparison.
 // It doesn't lock dynamicLocker as this typically is used for an update test.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.GetWithoutLock(), other.GetWithoutLock(), BigIntComparer, cmpopts.EquateEmpty())
+	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
@@ -214,15 +219,14 @@ func (r *cfgRoot[T]) changeMonitor() {
 			continue
 		}
 
-		// 2. Apply layers and detect changes without deadlock
+		// 2. Apply layers while holding the top-level lock to prevent readers from seeing
+		//    inconsistent state. FixTOML uses GetWithoutLock() and TransparentDecode uses
+		//    SetWithoutLock() to avoid deadlocks.
 		func() {
 			// Set a flag to indicate we're in change monitor context
 			dynamicLocker.Lock()
-			dynamicLocker.updating = true
-			dynamicLocker.Unlock()
-
-			// Apply layers - Dynamic.Set() will detect the updating flag and skip locking
-			err := ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
+			defer dynamicLocker.Unlock()
+			err = ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
 				// Reset updating flag on error
@@ -258,8 +262,8 @@ var dynamicLocker = changeNotifier{diff: diff{
 }
 
 type changeNotifier struct {
-	sync.RWMutex      // this protects the dynamic[T] reads from getting a race with the updating
-	updating     bool // determines which mode we are in: updating or querying
+	sync.RWMutex       // this protects the dynamic[T] reads from getting a race with the updating
+	updating     int32 // atomic: 1 if updating, 0 if not. determines which mode we are in: updating or querying
 
 	diff
 
@@ -273,14 +277,14 @@ type diff struct {
 
 func (c *changeNotifier) Lock() {
 	c.RWMutex.Lock()
-	c.updating = true
+	atomic.StoreInt32(&c.updating, 1)
 }
 func (c *changeNotifier) Unlock() {
 	c.RWMutex.Unlock()
 	c.cdmx.Lock()
 	defer c.cdmx.Unlock()
 
-	c.updating = false
+	atomic.StoreInt32(&c.updating, 0)
 	for k, v := range c.latest {
 		if !cmp.Equal(v, c.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 			if notifier := c.notifier[k]; notifier != nil {
@@ -311,7 +315,7 @@ func (r *reportHandler) PopStep() {
 	r.changes = r.changes[:len(r.changes)-1]
 }
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
-	if !c.updating {
+	if atomic.LoadInt32(&c.updating) == 0 {
 		return
 	}
 	c.cdmx.Lock()

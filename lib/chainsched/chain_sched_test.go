@@ -541,3 +541,84 @@ func TestMultipleChanges(t *testing.T) {
 	// Initial current + one call for the batch
 	require.Equal(t, 2, callCount)
 }
+
+func TestWatchersExecutedFirst(t *testing.T) {
+	notifCh := make(chan []*api.HeadChange, 10)
+	mockAPI := &mockNodeAPI{
+		notifCh: notifCh,
+	}
+	sched := New(mockAPI)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var executionOrderMu sync.Mutex
+	var executionOrder []string
+
+	// Add handlers
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+				executionOrderMu.Lock()
+				defer executionOrderMu.Unlock()
+				executionOrder = append(executionOrder, "handler")
+				return nil
+			})
+			if err != nil {
+				errors <- err
+			}
+		}(i)
+	}
+
+	// Add watchers
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			err := sched.AddWatcher(func(ctx context.Context, revert, apply *types.TipSet) error {
+				executionOrderMu.Lock()
+				defer executionOrderMu.Unlock()
+				executionOrder = append(executionOrder, "watcher")
+				return nil
+			})
+			if err != nil {
+				errors <- err
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Should have no errors
+	for err := range errors {
+		require.NoError(t, err)
+	}
+
+	// Start the scheduler
+	go sched.Run(ctx)
+
+	// Send an initial notification
+	testTipSet := makeMockTipSet(100)
+	notifCh <- []*api.HeadChange{{
+		Type: store.HCCurrent,
+		Val:  testTipSet,
+	}}
+
+	// Allow some time for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify execution order: watchers should run before handlers
+	executionOrderMu.Lock()
+	require.Len(t, executionOrder, 10)
+	require.NotContains(t, executionOrder[:5], "handler")
+	require.NotContains(t, executionOrder[5:], "watcher")
+	require.Equal(t, executionOrder[:5], []string{"watcher", "watcher", "watcher", "watcher", "watcher"})
+	require.Equal(t, executionOrder[5:], []string{"handler", "handler", "handler", "handler", "handler"})
+	executionOrderMu.Unlock()
+}

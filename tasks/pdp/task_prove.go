@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -30,7 +31,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -559,14 +559,14 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
 		}
 
-		com, err := commcidv2.CommPFromPCidV2(pcid)
+		com, _, err := commcid.PieceCidV2ToDataCommitment(pcid)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece commitment: %w", err)
 		}
 
 		// Verify proof with original root
-		if [32]byte(com.Digest()) != proofs.Root {
-			return contract.IPDPTypesProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com.Digest(), proofs.Root)
+		if [32]byte(com) != proofs.Root {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com, proofs.Root)
 		}
 
 		out = contract.IPDPTypesProof{

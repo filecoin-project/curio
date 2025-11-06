@@ -17,6 +17,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -1188,7 +1189,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 				log.Errorf("failed to get piece deal: %w", err)
 			}
 
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, rawSize)
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
 			if err != nil {
 				return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
 			}
@@ -1240,7 +1241,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 			log.Errorf("failed to parse piece CID: %w", err)
 		}
 
-		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
+		pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
 		if err != nil {
 			log.Errorf("failed to convert to piece cid v2: %w", err)
 		}

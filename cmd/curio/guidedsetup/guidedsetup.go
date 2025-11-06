@@ -471,7 +471,7 @@ func stepCreateActor(d *MigrationData) {
 				Label: d.T("Select the Sector Size"),
 				Items: []string{
 					d.T("64 GiB"),
-					d.T("32 GiB"),
+					d.T("32 GiB (recommended for mainnet)"),
 					d.T("8 MiB"),
 					d.T("2 KiB"),
 				},

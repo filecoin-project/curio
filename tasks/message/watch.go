@@ -49,7 +49,7 @@ func NewMessageWatcher(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chains
 		updateCh: make(chan struct{}),
 	}
 	go mw.run()
-	if err := pcs.AddHandler(mw.processHeadChange); err != nil {
+	if err := pcs.AddWatcher(mw.processHeadChange); err != nil {
 		return nil, err
 	}
 	return mw, nil

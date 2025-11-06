@@ -1020,7 +1020,7 @@ func TestUnwrapDynamics(t *testing.T) {
 			Field: NewDynamic(42),
 		}
 
-		unwrapped := unwrapDynamics(cfg)
+		unwrapped := UnwrapDynamics(cfg)
 
 		// Check that the result has the inner type
 		unwrappedVal := reflect.ValueOf(unwrapped)
@@ -1040,7 +1040,7 @@ func TestUnwrapDynamics(t *testing.T) {
 			Dynamic: NewDynamic("test"),
 		}
 
-		unwrapped := unwrapDynamics(cfg)
+		unwrapped := UnwrapDynamics(cfg)
 
 		unwrappedVal := reflect.ValueOf(unwrapped)
 		regularField := unwrappedVal.Field(0)
@@ -1067,7 +1067,7 @@ func TestUnwrapDynamics(t *testing.T) {
 			Count: NewDynamic(10),
 		}
 
-		unwrapped := unwrapDynamics(cfg)
+		unwrapped := UnwrapDynamics(cfg)
 
 		unwrappedVal := reflect.ValueOf(unwrapped)
 		innerField := unwrappedVal.Field(0)
@@ -1093,7 +1093,7 @@ func TestUnwrapDynamics(t *testing.T) {
 			Field2: "test",
 		}
 
-		unwrapped := unwrapDynamics(cfg)
+		unwrapped := UnwrapDynamics(cfg)
 
 		// Should return the same struct
 		unwrappedConfig := unwrapped.(Config)
@@ -1373,7 +1373,7 @@ func TestAdditionalEdgeCases(t *testing.T) {
 	t.Run("unwrapDynamics with non-struct", func(t *testing.T) {
 		// Test with non-struct value
 		val := 42
-		result := unwrapDynamics(val)
+		result := UnwrapDynamics(val)
 		assert.Equal(t, 42, result.(int))
 	})
 
@@ -1537,7 +1537,7 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 
 		// Since FakeDynamic doesn't have the Get method, unwrapDynamics won't detect it as Dynamic
 		// This tests the path but FakeDynamic won't be treated as Dynamic
-		result := unwrapDynamics(cfg)
+		result := UnwrapDynamics(cfg)
 		assert.NotNil(t, result)
 	})
 
@@ -1621,7 +1621,7 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 		}
 
 		// unwrapDynamics should handle nil Dynamic fields
-		result := unwrapDynamics(cfg)
+		result := UnwrapDynamics(cfg)
 		assert.NotNil(t, result)
 
 		// Verify the result has the expected structure
@@ -1740,7 +1740,7 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 		}
 
 		// Test unwrapping with nested pointers to structs containing dynamics
-		result := unwrapDynamics(cfg)
+		result := UnwrapDynamics(cfg)
 		assert.NotNil(t, result)
 
 		resultVal := reflect.ValueOf(result)

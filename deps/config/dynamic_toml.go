@@ -11,7 +11,7 @@ import (
 // Dynamic[T] fields are unwrapped and their inner values are marshaled directly.
 func TransparentMarshal(v interface{}) ([]byte, error) {
 	// Create a shadow struct with Dynamic fields unwrapped
-	shadow := unwrapDynamics(v)
+	shadow := UnwrapDynamics(v)
 	return toml.Marshal(shadow)
 }
 
@@ -107,8 +107,8 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 	}
 }
 
-// unwrapDynamics recursively unwraps Dynamic[T] fields for marshaling
-func unwrapDynamics(v interface{}) interface{} {
+// UnwrapDynamics recursively unwraps Dynamic[T] fields for marshaling
+func UnwrapDynamics(v interface{}) interface{} {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
@@ -143,13 +143,13 @@ func unwrapDynamics(v interface{}) interface{} {
 			}
 		} else if field.Kind() == reflect.Struct && hasNestedDynamics(field.Type()) {
 			// Only recursively unwrap structs that contain Dynamic fields
-			shadowField.Set(reflect.ValueOf(unwrapDynamics(field.Interface())))
+			shadowField.Set(reflect.ValueOf(UnwrapDynamics(field.Interface())))
 		} else if field.Kind() == reflect.Ptr && !field.IsNil() {
 			// Handle pointers - check if the pointed-to type contains Dynamic fields
 			elemType := field.Type().Elem()
 			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
 				// Recursively unwrap the pointed-to struct
-				unwrapped := unwrapDynamics(field.Elem().Interface())
+				unwrapped := UnwrapDynamics(field.Elem().Interface())
 				unwrappedPtr := reflect.New(reflect.TypeOf(unwrapped))
 				unwrappedPtr.Elem().Set(reflect.ValueOf(unwrapped))
 				shadowField.Set(unwrappedPtr)
@@ -314,7 +314,10 @@ func hasNestedDynamics(t reflect.Type) bool {
 	return false
 }
 
-// extractDynamicValue gets the inner value from a Dynamic[T] using reflection
+// extractDynamicValue gets the inner value from a Dynamic[T] using reflection.
+// Always uses GetWithoutLock() because TransparentDecode is only called:
+// 1. During startup (FromReader) - no concurrent readers, safe
+// 2. During ApplyLayers with treeCopy (not live deps config) - lock is held, safe
 func extractDynamicValue(v reflect.Value) reflect.Value {
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -323,10 +326,14 @@ func extractDynamicValue(v reflect.Value) reflect.Value {
 		v = v.Elem()
 	}
 
-	// Call Get() method
-	getMethod := v.Addr().MethodByName("Get")
+	// Always use GetWithoutLock() - TransparentDecode is never called with live deps config after startup
+	getMethod := v.Addr().MethodByName("GetWithoutLock")
 	if !getMethod.IsValid() {
-		return reflect.Value{}
+		// Fallback to Get() if GetWithoutLock() doesn't exist (shouldn't happen in normal usage)
+		getMethod = v.Addr().MethodByName("Get")
+		if !getMethod.IsValid() {
+			return reflect.Value{}
+		}
 	}
 
 	results := getMethod.Call(nil)
@@ -363,8 +370,8 @@ func setDynamicValue(dynamicField, valueField reflect.Value) {
 		dynamicField = dynamicField.Elem()
 	}
 
-	// Call Set() method
-	setMethod := dynamicField.Addr().MethodByName("Set")
+	// Call SetWithoutLock() method (we're already holding the top-level lock during ApplyLayers)
+	setMethod := dynamicField.Addr().MethodByName("SetWithoutLock")
 	if !setMethod.IsValid() {
 		return
 	}
