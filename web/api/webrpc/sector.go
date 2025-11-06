@@ -941,10 +941,3 @@ func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 	}
 	return nil
 }
-
-func derefOrZero[T any](a *T) T {
-	if a == nil {
-		return *new(T)
-	}
-	return *a
-}
