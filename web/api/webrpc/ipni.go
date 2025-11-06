@@ -343,11 +343,11 @@ type EntryInfo struct {
 	PieceCID string `db:"piece_cid"`
 	FromCar  bool   `db:"from_car"`
 
-	FirstCID    *string `db:"first_cid"`
-	StartOffset *int64  `db:"start_offset"`
-	NumBlocks   int64   `db:"num_blocks"`
+	FirstCID    sql.NullString `db:"first_cid"`
+	StartOffset sql.NullInt64  `db:"start_offset"`
+	NumBlocks   int64          `db:"num_blocks"`
 
-	PrevCID *string `db:"prev_cid"`
+	PrevCID sql.NullString `db:"prev_cid"`
 
 	Err  *string
 	Size int64

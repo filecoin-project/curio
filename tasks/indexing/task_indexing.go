@@ -71,27 +71,27 @@ func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore
 }
 
 type itask struct {
-	// Cache line 1 (0-64 bytes): Hot path fields - early checks and piece identification
-	UUID     string              `db:"uuid"`       // 16 bytes - checked early (line 169, 226, 582)
-	PieceCid string              `db:"piece_cid"`  // 16 bytes - checked early (line 161, 226, 231, 236, 582)
-	SpID     int64               `db:"sp_id"`      // 8 bytes - used with Sector (line 226, 250-256, 582)
-	Sector   abi.SectorNumber    `db:"sector"`     // 8 bytes - used with SpID (line 226, 250-256, 582)
-	Size     abi.PaddedPieceSize `db:"piece_size"` // 8 bytes - used with PieceCid (line 161, 236, 256, 582)
-	RawSize  int64               `db:"raw_size"`   // 8 bytes - used with Size (line 236, 582)
-	// Cache line 2 (64-128 bytes): Sector operations and deal processing
-	Proof       abi.RegisteredSealProof `db:"reg_seal_proof"` // 8 bytes - used with SpID/Sector (line 255, 582)
-	Offset      int64                   `db:"sector_offset"`  // 8 bytes - used with Size/RawSize (line 256, 582)
-	ChainDealId abi.DealID              `db:"chain_deal_id"`  // 8 bytes - used in deal processing (line 582)
-	PieceRef    int64                   // 8 bytes - used with Mk20 (line 217, 582)
-	Url         sql.NullString          `db:"url"` // 16 bytes - used conditionally (line 199-217)
-	// Cache line 3 (128+ bytes): Less frequently accessed
-	IndexingCreatedAt time.Time `db:"indexing_created_at"` // 24 bytes - used for ordering
-	// Bools grouped together at the end to minimize padding
-	ShouldIndex bool `db:"should_index"` // Used early (line 221)
-	Mk20        bool `db:"mk20"`         // Used early and frequently (line 169, 243, 286, 580, 596, 616)
-	IsDDO       bool `db:"is_ddo"`       // Used with Mk20 in deal processing (line 582)
-	Announce    bool `db:"announce"`     // Used less frequently
-	IsRM        bool `db:"is_rm"`        // Used less frequently
+	// Cache line 1 (bytes 0-64): Hot path - piece identification, checked early
+	UUID     string              `db:"uuid"`       // 16 bytes (0-16) - checked early (line 169, 226, 582)
+	PieceCid string              `db:"piece_cid"`  // 16 bytes (16-32) - checked early (line 161, 226, 231, 236, 582)
+	SpID     int64               `db:"sp_id"`      // 8 bytes (32-40) - used with Sector (line 226, 250-256, 582)
+	Sector   abi.SectorNumber    `db:"sector"`     // 8 bytes (40-48) - used with SpID (line 226, 250-256, 582)
+	Size     abi.PaddedPieceSize `db:"piece_size"` // 8 bytes (48-56) - used with PieceCid (line 161, 236, 256, 582)
+	// Cache line 2 (bytes 64-128): Sector operations and deal processing
+	RawSize     sql.NullInt64           `db:"raw_size"`       // 16 bytes (56-72, overlaps) - used with Size (line 236, 582)
+	Proof       abi.RegisteredSealProof `db:"reg_seal_proof"` // 8 bytes (72-80) - used with SpID/Sector (line 255, 582)
+	Offset      int64                   `db:"sector_offset"`  // 8 bytes (80-88) - used with Size/RawSize (line 256, 582)
+	ChainDealId abi.DealID              `db:"chain_deal_id"`  // 8 bytes (88-96) - used in deal processing (line 582)
+	PieceRef    int64                   // 8 bytes (96-104) - used with Mk20 (line 217, 582)
+	Url         sql.NullString          `db:"url"` // 24 bytes (104-128) - used conditionally (line 199-217)
+	// Cache line 3 (bytes 128+): Less frequently accessed
+	IndexingCreatedAt time.Time `db:"indexing_created_at"` // 24 bytes (128-152) - used for ordering
+	// Bools: frequently accessed first, rare ones at end
+	Mk20        bool `db:"mk20"`         // used early and frequently (line 169, 243, 286, 580, 596, 616)
+	ShouldIndex bool `db:"should_index"` // used early (line 221)
+	IsDDO       bool `db:"is_ddo"`       // used with Mk20 in deal processing (line 582)
+	Announce    bool `db:"announce"`     // used less frequently
+	IsRM        bool `db:"is_rm"`        // used less frequently
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -235,7 +235,12 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	pc2, err := commcidv2.PieceCidV2FromV1(pieceCid, uint64(task.RawSize))
+	// Validate raw_size is present (required for PieceCID v2 calculation)
+	if !task.RawSize.Valid {
+		return false, xerrors.Errorf("raw_size is required but NULL for piece %s (uuid: %s)", task.PieceCid, task.UUID)
+	}
+
+	pc2, err := commcidv2.PieceCidV2FromV1(pieceCid, uint64(task.RawSize.Int64))
 	if err != nil {
 		return false, xerrors.Errorf("getting piece commP: %w", err)
 	}
@@ -579,15 +584,18 @@ func IndexAggregate(pieceCid cid.Cid,
 // recordCompletion add the piece metadata and piece deal to the DB and
 // records the completion of an indexing task in the database
 func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID harmonytask.TaskID, indexed bool) error {
+	// Extract raw_size value (should be valid at this point since we validated earlier)
+	rawSize := task.RawSize.Int64
+
 	if task.Mk20 {
 		_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, task.PieceRef, false, task.ChainDealId)
+			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, rawSize, indexed, task.PieceRef, false, task.ChainDealId)
 		if err != nil {
 			return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 		}
 	} else {
 		_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, nil, false, task.ChainDealId)
+			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, rawSize, indexed, nil, false, task.ChainDealId)
 		if err != nil {
 			return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 		}

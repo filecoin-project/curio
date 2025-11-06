@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -133,13 +134,13 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		PieceCIDv2 string `db:"piece_cid"`
 		FromCar    bool   `db:"from_car"`
 
-		FirstCID    *string `db:"first_cid"`
-		StartOffset *int64  `db:"start_offset"`
-		NumBlocks   int64   `db:"num_blocks"`
+		FirstCID    sql.NullString `db:"first_cid"`
+		StartOffset sql.NullInt64  `db:"start_offset"`
+		NumBlocks   int64          `db:"num_blocks"`
 
 		IsPDP bool `db:"is_pdp"`
 
-		PrevCID *string `db:"prev_cid"`
+		PrevCID sql.NullString `db:"prev_cid"`
 	}
 
 	var ipniChunks []ipniChunk
@@ -191,8 +192,8 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	p.noSkipCache.Add(pieceCidv2, time.Now().Add(NoSkipCacheTTL))
 
 	var next ipld.Link
-	if chunk.PrevCID != nil {
-		prevChunk, err = cid.Parse(*chunk.PrevCID)
+	if chunk.PrevCID.Valid {
+		prevChunk, err = cid.Parse(chunk.PrevCID.String)
 		if err != nil {
 			return nil, xerrors.Errorf("parsing previous CID: %w", err)
 		}
@@ -204,15 +205,15 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		if chunk.NumBlocks != 1 {
 			return nil, xerrors.Errorf("Expected 1 block for PDP piece announcement, got %d", chunk.NumBlocks)
 		}
-		if chunk.PrevCID != nil {
-			return nil, xerrors.Errorf("Expected no previous chunk for PDP piece announcement, got %s", *chunk.PrevCID)
+		if chunk.PrevCID.Valid {
+			return nil, xerrors.Errorf("Expected no previous chunk for PDP piece announcement, got %s", chunk.PrevCID.String)
 		}
 
-		if chunk.FirstCID == nil {
+		if !chunk.FirstCID.Valid {
 			return nil, xerrors.Errorf("chunk does not have first CID")
 		}
 
-		cb, err := hex.DecodeString(*chunk.FirstCID)
+		cb, err := hex.DecodeString(chunk.FirstCID.String)
 		if err != nil {
 			return nil, xerrors.Errorf("decoding first CID: %w", err)
 		}
@@ -248,11 +249,11 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	}
 
 	if !chunk.FromCar {
-		if chunk.FirstCID == nil {
+		if !chunk.FirstCID.Valid {
 			return nil, xerrors.Errorf("chunk does not have first CID")
 		}
 
-		cb, err := hex.DecodeString(*chunk.FirstCID)
+		cb, err := hex.DecodeString(chunk.FirstCID.String)
 		if err != nil {
 			return nil, xerrors.Errorf("decoding first CID: %w", err)
 		}
@@ -262,7 +263,11 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		return p.reconstructChunkFromDB(ctx, block, pieceCidv2, firstHash, next, chunk.NumBlocks, speculated)
 	}
 
-	return p.reconstructChunkFromCar(ctx, block, pieceCidv2, *chunk.StartOffset, next, chunk.NumBlocks, speculated)
+	if !chunk.StartOffset.Valid {
+		return nil, xerrors.Errorf("chunk does not have start offset")
+	}
+
+	return p.reconstructChunkFromCar(ctx, block, pieceCidv2, chunk.StartOffset.Int64, next, chunk.NumBlocks, speculated)
 }
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.

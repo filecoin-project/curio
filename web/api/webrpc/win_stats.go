@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -9,15 +10,15 @@ import (
 )
 
 type WinStats struct {
-	Actor       int64      `db:"sp_id"`
-	Epoch       int64      `db:"epoch"`
-	Block       string     `db:"mined_cid"`
-	TaskID      int64      `db:"task_id"`
-	SubmittedAt *time.Time `db:"submitted_at"`
-	Included    *bool      `db:"included"`
+	Actor       int64        `db:"sp_id"`
+	Epoch       int64        `db:"epoch"`
+	Block       string       `db:"mined_cid"`
+	TaskID      int64        `db:"task_id"`
+	SubmittedAt sql.NullTime `db:"submitted_at"`
+	Included    sql.NullBool `db:"included"`
 
-	BaseComputeTime *time.Time `db:"base_compute_time"`
-	MinedAt         *time.Time `db:"mined_at"`
+	BaseComputeTime sql.NullTime `db:"base_compute_time"`
+	MinedAt         sql.NullTime `db:"mined_at"`
 
 	SubmittedAtStr string `db:"-"`
 	TaskSuccess    string `db:"-"`
@@ -34,22 +35,22 @@ func (a *WebRPC) WinStats(ctx context.Context) ([]WinStats, error) {
 		return nil, err
 	}
 	for i := range marks {
-		if marks[i].SubmittedAt == nil {
+		if !marks[i].SubmittedAt.Valid {
 			marks[i].SubmittedAtStr = "Not Submitted"
 		} else {
-			marks[i].SubmittedAtStr = marks[i].SubmittedAt.Format(time.RFC822)
+			marks[i].SubmittedAtStr = marks[i].SubmittedAt.Time.Format(time.RFC822)
 		}
 
-		if marks[i].Included == nil {
+		if !marks[i].Included.Valid {
 			marks[i].IncludedStr = "Not Checked"
-		} else if *marks[i].Included {
+		} else if marks[i].Included.Bool {
 			marks[i].IncludedStr = "Included"
 		} else {
 			marks[i].IncludedStr = "Not Included"
 		}
 
-		if marks[i].BaseComputeTime != nil && marks[i].MinedAt != nil {
-			marks[i].ComputeTime = marks[i].MinedAt.Sub(*marks[i].BaseComputeTime).Truncate(10 * time.Millisecond).String()
+		if marks[i].BaseComputeTime.Valid && marks[i].MinedAt.Valid {
+			marks[i].ComputeTime = marks[i].MinedAt.Time.Sub(marks[i].BaseComputeTime.Time).Truncate(10 * time.Millisecond).String()
 		}
 
 		var taskRes []struct {

@@ -389,11 +389,11 @@ func (c *CheckIndexesTask) checkIPNI(ctx context.Context, taskID harmonytask.Tas
 		SpID      int64               `db:"sp_id"`
 		PieceSize abi.PaddedPieceSize `db:"piece_size"`
 
-		UUID      string    `db:"uuid"`
-		Offline   bool      `db:"offline"`
-		URL       *string   `db:"url"`
-		Headers   []byte    `db:"url_headers"`
-		CreatedAt time.Time `db:"created_at"`
+		UUID      string         `db:"uuid"`
+		Offline   bool           `db:"offline"`
+		URL       sql.NullString `db:"url"`
+		Headers   []byte         `db:"url_headers"`
+		CreatedAt time.Time      `db:"created_at"`
 	}
 	err = c.db.Select(ctx, &toCheck, `SELECT DISTINCT piece_cid, sp_id, piece_size,
                 uuid, offline, url, url_headers, created_at

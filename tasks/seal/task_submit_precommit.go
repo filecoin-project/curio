@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/ipfs/go-cid"
@@ -93,7 +94,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		SpID                     int64                   `db:"sp_id"`
 		SectorNumber             int64                   `db:"sector_number"`
 		RegSealProof             abi.RegisteredSealProof `db:"reg_seal_proof"`
-		UserSectorDurationEpochs *int64                  `db:"user_sector_duration_epochs"`
+		UserSectorDurationEpochs sql.NullInt64           `db:"user_sector_duration_epochs"`
 		TicketEpoch              abi.ChainEpoch          `db:"ticket_epoch"`
 		SealedCID                string                  `db:"tree_r_cid"`
 		UnsealedCID              string                  `db:"tree_d_cid"`
@@ -196,8 +197,8 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		}
 
 		expiration := sectorParams.TicketEpoch + miner12.MaxSectorExpirationExtension
-		if sectorParams.UserSectorDurationEpochs != nil {
-			expiration = sectorParams.TicketEpoch + abi.ChainEpoch(*sectorParams.UserSectorDurationEpochs)
+		if sectorParams.UserSectorDurationEpochs.Valid {
+			expiration = sectorParams.TicketEpoch + abi.ChainEpoch(sectorParams.UserSectorDurationEpochs.Int64)
 		}
 
 		var pieces []struct {

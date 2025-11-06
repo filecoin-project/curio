@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/samber/lo"
@@ -47,8 +48,8 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			FileType  int64  `db:"sector_filetype"`
 			StorageID string `db:"storage_id"`
 
-			CreatedAt  time.Time  `db:"created_at"`
-			ApprovedAt *time.Time `db:"approved_at"`
+			CreatedAt  time.Time    `db:"created_at"`
+			ApprovedAt sql.NullTime `db:"approved_at"`
 		}
 
 		err := s.db.Select(ctx, &marks, `SELECT sp_id, sector_num, sector_filetype, storage_id, created_at, approved_at FROM storage_removal_marks WHERE approved = true ORDER BY created_at LIMIT 1`)
@@ -60,7 +61,7 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		}
 
 		mark := marks[0]
-		if mark.ApprovedAt == nil {
+		if !mark.ApprovedAt.Valid {
 			return false, xerrors.Errorf("approved file approved_at was nil")
 		}
 

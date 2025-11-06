@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"net/url"
@@ -156,7 +157,7 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	var tasks []struct {
 		TaskID    harmonytask.TaskID `db:"commp_task_id"`
 		StorageID string             `db:"storage_id"`
-		Url       *string            `db:"url"`
+		Url       sql.NullString     `db:"url"`
 	}
 
 	indIDs := make([]int64, len(ids))
@@ -192,8 +193,8 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		}
 
 		for _, task := range tasks {
-			if task.Url != nil {
-				goUrl, err := url.Parse(*task.Url)
+			if task.Url.Valid {
+				goUrl, err := url.Parse(task.Url.String)
 				if err != nil {
 					return false, xerrors.Errorf("parsing data URL: %w", err)
 				}
