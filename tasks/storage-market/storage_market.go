@@ -41,6 +41,7 @@ import (
 
 	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -70,7 +71,7 @@ type CurioStorageDealMarket struct {
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	MK20Handler *mk20.MK20
-	ethClient   api.EthClientInterface
+	ethClient   *lazy.Lazy[api.EthClientInterface]
 	si          paths.SectorIndex
 	urls        *config.Dynamic[map[string]http.Header]
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
@@ -112,7 +113,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient api.EthClientInterface, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *lazy.Lazy[api.EthClientInterface], si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	urlsDynamic := config.NewDynamic(make(map[string]http.Header))
 
