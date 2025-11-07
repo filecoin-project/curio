@@ -92,7 +92,7 @@ func (s *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored:    harmonytask.SingletonTaskAdder(time.Hour*48, s),
+		IAmBored:    harmonytask.SingletonTaskAdder(time.Hour*12, s),
 	}
 }
 
