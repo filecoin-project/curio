@@ -178,7 +178,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 	err := db.Select(ctx, &pieces, `SELECT
     										pr.id,
     										pr.piece_cid,
-       										pp.piece_size,
+       										pp.piece_padded_size,
        										pr.piece_ref
 										FROM pdp_piecerefs pr
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
