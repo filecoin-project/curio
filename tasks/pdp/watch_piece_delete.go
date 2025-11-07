@@ -195,7 +195,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		return nil
 	}
 
-	log.Infof("Cleaning up Indexing and IPNI for %d pieces", len(pieces))
+	log.Infof("Cleaning up %d pieces not referenced by any datasets", len(pieces))
 
 	var peerID string
 	var privKeyBytes []byte
