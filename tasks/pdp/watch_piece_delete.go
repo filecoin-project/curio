@@ -90,9 +90,11 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 
 	for _, piece := range pendingDeletes {
 		if !piece.TxSuccess.Valid {
-			log.Debugf("tx %s not found in message_waits_eth", piece.TxHash)
+			log.Debugf("for piece ($d:$d) tx %s not found in message_waits_eth", piece.DataSetID, piece.PieceID, piece.TxHash)
+			continue
 		}
 
+		// NOTE(Kubuxu): this is a bit fragile, as one failing piece will stop everything
 		if !piece.TxSuccess.Bool {
 			return xerrors.Errorf("failed to process pending piece delete as transaction %s failed: %w", piece.TxHash, err)
 		}
