@@ -867,6 +867,17 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// Check if we have this piece or not
+	var found bool
+	err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2)`, dataSetId, pieceID).Scan(&found)
+	if err != nil {
+		http.Error(w, "Failed to query piece existence: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "Piece not found", http.StatusNotFound)
+	}
+
 	// Get the ABI and pack the transaction data
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {

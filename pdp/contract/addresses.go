@@ -14,7 +14,16 @@ import (
 
 type PDPContracts struct {
 	PDPVerifier                common.Address
-	AllowedPublicRecordKeepers []common.Address
+	AllowedPublicRecordKeepers RecordKeeperAddresses
+}
+
+type RecordKeeperAddresses struct {
+	FWSService common.Address
+	Simple     common.Address
+}
+
+func (a RecordKeeperAddresses) List() []common.Address {
+	return []common.Address{a.FWSService, a.Simple}
 }
 
 func ContractAddresses() PDPContracts {
@@ -22,15 +31,15 @@ func ContractAddresses() PDPContracts {
 	case build.BuildCalibnet:
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C"), // PDPVerifier Proxy v3.1.0 - https://github.com/FilOzone/pdp/releases/tag/v3.1.0
-			AllowedPublicRecordKeepers: []common.Address{
-				common.HexToAddress("0x02925630df557F957f70E112bA06e50965417CA0"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
+			AllowedPublicRecordKeepers: RecordKeeperAddresses{
+				FWSService: common.HexToAddress("0x02925630df557F957f70E112bA06e50965417CA0"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
 	case build.BuildMainnet:
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0xBADd0B92C1c71d02E7d520f64c0876538fa2557F"), // PDPVerifier Proxy v3.1.0 - https://github.com/FilOzone/pdp/releases/tag/v3.1.0
-			AllowedPublicRecordKeepers: []common.Address{
-				common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
+			AllowedPublicRecordKeepers: RecordKeeperAddresses{
+				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
 	default:
@@ -53,7 +62,7 @@ func IsPublicService(serviceLabel string) bool {
 // Returns true if the address is allowed, or if there's no whitelist for the network
 func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 	// Check if the recordkeeper is in the whitelist
-	for _, allowed := range ContractAddresses().AllowedPublicRecordKeepers {
+	for _, allowed := range ContractAddresses().AllowedPublicRecordKeepers.List() {
 		if recordKeeper == allowed {
 			return true
 		}
