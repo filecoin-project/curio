@@ -266,7 +266,8 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 									ORDER BY order_number DESC LIMIT 1`, piece.PieceCID, piece.PieceSize).Scan(&contextID, &isRMAd)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
+					log.Debugf("No previous advertisement for piece %s, skipping", piece.PieceCID)
+					return true, nil
 				}
 				return false, xerrors.Errorf("querying previous advertisement: %w", err)
 			}
@@ -274,7 +275,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			if isRMAd {
 				// Already removed, skip
 				log.Infof("Skipping removal ad for piece %s as last ad for this piece requested removal", piece.PieceCID)
-				return false, nil
+				return true, nil
 			}
 
 			var prev string
