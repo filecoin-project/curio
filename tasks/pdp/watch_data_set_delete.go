@@ -36,16 +36,16 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 		Success sql.NullBool `db:"tx_success"`
 	}
 
-	err := db.Select(ctx, &deletes, `SELECT 
-    										pdss.id, 
-    										pdss.delete_tx_hash,
+	err := db.Select(ctx, &deletes, `SELECT
+    										pdds.id,
+    										pdds.delete_tx_hash,
     										mwe.tx_success
-										FROM pdp_delete_data_set pdds 
+										FROM pdp_delete_data_set pdds
 										LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pdds.delete_tx_hash
-										WHERE pdss.service_termination_epoch IS NOT NULL 
-										  AND pdss.terminated = FALSE
-										  AND pdss.after_delete_data_set = TRUE
-										  AND pdss.delete_tx_hash IS NOT NULL`)
+										WHERE pdds.service_termination_epoch IS NOT NULL
+										  AND pdds.terminated = FALSE
+										  AND pdds.after_delete_data_set = TRUE
+										  AND pdds.delete_tx_hash IS NOT NULL`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending data sets: %w", err)
 	}
