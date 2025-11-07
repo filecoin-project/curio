@@ -15,6 +15,7 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
+	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
@@ -27,7 +28,6 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/ipni/go-libipni/metadata"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
