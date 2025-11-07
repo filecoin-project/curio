@@ -27,10 +27,8 @@ RUN apt-get update && apt-get install -y \
     xxd \
     libconfig++-dev \
     libgmp-dev \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Python build tools
-RUN pip3 install --break-system-packages meson ninja pyelftools
 
 # Set up GCC 12 as default
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 && \
@@ -51,8 +49,7 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86
 # Set up CUDA environment
 ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV CUDA_HOME=/usr/local/cuda
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
-ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 
 # Set working directory
 WORKDIR /workspace

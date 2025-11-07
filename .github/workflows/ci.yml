@@ -335,10 +335,11 @@ jobs:
             curl wget git \
             xxd
       
-      - name: Install Python build tools
+      - name: Set up Python virtual environment
         run: |
-          export PIP_BREAK_SYSTEM_PACKAGES=1
-          pip3 install meson ninja pyelftools
+          # Python tools will be installed in venv by build.sh
+          # Just ensure python3-venv is available
+          python3 -m venv --help > /dev/null || sudo apt-get install -y python3-venv
       
       - name: Set up GCC 12 as default
         run: |
@@ -402,6 +403,15 @@ jobs:
         run: |
           sudo apt-get install -y libgmp-dev
       
+      - name: Cache Python venv
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: extern/supraseal/.venv
+          key: supraseal-venv-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
+          restore-keys: |
+            supraseal-venv-ubuntu24-
+      
       - name: Cache SPDK build
         id: cache-spdk
         uses: actions/cache@v4
@@ -414,17 +424,15 @@ jobs:
       - name: Build Supraseal
         working-directory: extern/supraseal
         run: |
-          # Ensure we're using GCC 12 and CUDA 13
+          # Ensure we're using GCC 12 and CUDA
           export CC=gcc-12
           export CXX=g++-12
-          export CUDA=/usr/local/cuda-13.0
-          export PATH=/usr/local/cuda-13.0/bin:$PATH
-          export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:$LD_LIBRARY_PATH
+          export CUDA=/usr/local/cuda
+          export PATH=/usr/local/cuda/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
           
-          # Run the build script
+          # Run the build script (creates and uses Python venv internally)
           ./build.sh
-        env:
-          PIP_BREAK_SYSTEM_PACKAGES: "1"
       
       - name: Verify binaries
         working-directory: extern/supraseal

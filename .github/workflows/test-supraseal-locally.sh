@@ -24,14 +24,14 @@ echo ""
 # Run the container with:
 # - Mount the repo
 # - Set environment variables (CUDA is installed in the image from NVIDIA repos)
-docker run --rm -it \
+# - Python venv will be created by build.sh
+docker run --rm \
     -v "$REPO_ROOT:/workspace" \
     -e CC=gcc-12 \
     -e CXX=g++-12 \
     -e CUDA=/usr/local/cuda \
     -e PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     -e LD_LIBRARY_PATH=/usr/local/cuda/lib64 \
-    -e PIP_BREAK_SYSTEM_PACKAGES=1 \
     -w /workspace \
     supraseal-test:ubuntu24 \
     bash -c '

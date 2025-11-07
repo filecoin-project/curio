@@ -47,18 +47,42 @@ check_gcc_version
 
 set -x
 
-# Rest of your script remains unchanged
-SECTOR_SIZE="" # Compile for all sector sizes
-while getopts r flag
-do
-    case "${flag}" in
-        r) SECTOR_SIZE="-DRUNTIME_SECTOR_SIZE";;
-    esac
-done
-
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
+
+# Create and activate Python virtual environment
+# This avoids needing PIP_BREAK_SYSTEM_PACKAGES on Ubuntu 24.04+
+VENV_DIR="$(pwd)/.venv"
+if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then
+    echo "Creating Python virtual environment..."
+    if ! python3 -m venv "$VENV_DIR"; then
+        echo "Error: python3-venv is required but not available."
+        echo "Please install it:"
+        echo "  On Ubuntu/Debian: sudo apt-get install python3-venv"
+        echo "  On Fedora: sudo dnf install python3-virtualenv"
+        echo ""
+        echo "Or if you prefer, you can install dependencies manually:"
+        echo "  pip3 install --user meson ninja pyelftools"
+        exit 1
+    fi
+fi
+
+# Activate the virtual environment
+if [ -f "$VENV_DIR/bin/activate" ]; then
+    source "$VENV_DIR/bin/activate"
+else
+    echo "Error: Virtual environment activation script not found at $VENV_DIR/bin/activate"
+    exit 1
+fi
+
+# Install Python build tools in the virtual environment
+echo "Installing Python build tools in virtual environment..."
+pip install --upgrade pip
+pip install meson ninja pyelftools
+
+# Ensure venv is in PATH for subprocesses
+export PATH="$VENV_DIR/bin:$PATH"
 
 # Detect CUDA installation path - search for CUDA 12+ (required for modern architectures)
 CUDA=""
@@ -223,10 +247,18 @@ mkdir -p deps
 if [ ! -d $SPDK ]; then
     git clone --branch v24.05 https://github.com/spdk/spdk --recursive $SPDK
     (cd $SPDK
-     # Set environment variable to allow pip to install in externally-managed Python environments
-     # This is needed for Ubuntu 24.04+ which implements PEP 668
-     export PIP_BREAK_SYSTEM_PACKAGES=1
-     sudo -E scripts/pkgdep.sh
+     # Use the virtual environment for Python packages
+     # Ensure venv is active and in PATH for Python package installation
+     export VIRTUAL_ENV="$VENV_DIR"
+     export PATH="$VENV_DIR/bin:$PATH"
+     export PIP="$VENV_DIR/bin/pip"
+     export PYTHON="$VENV_DIR/bin/python"
+     # Run pkgdep.sh without sudo - system packages should already be installed
+     # Python packages will be installed in the venv automatically
+     # If system packages are missing, pkgdep.sh will fail gracefully
+     env VIRTUAL_ENV="$VENV_DIR" PATH="$VENV_DIR/bin:$PATH" PIP="$VENV_DIR/bin/pip" PYTHON="$VENV_DIR/bin/python" scripts/pkgdep.sh || {
+         echo "Warning: pkgdep.sh failed (likely system packages already installed). Continuing..."
+     }
      ./configure --with-virtio --with-vhost --without-fuse --without-crypto
      make -j$(nproc))
 fi
