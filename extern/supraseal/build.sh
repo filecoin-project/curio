@@ -259,7 +259,13 @@ if [ ! -d $SPDK ]; then
      env VIRTUAL_ENV="$VENV_DIR" PATH="$VENV_DIR/bin:$PATH" PIP="$VENV_DIR/bin/pip" PYTHON="$VENV_DIR/bin/python" scripts/pkgdep.sh || {
          echo "Warning: pkgdep.sh failed (likely system packages already installed). Continuing..."
      }
-     ./configure --with-virtio --with-vhost --without-fuse --without-crypto --disable-unit-tests
+     ./configure --with-virtio --with-vhost \
+                 --without-fuse --without-crypto \
+                 --disable-unit-tests --disable-tests \
+                 --disable-examples --disable-apps \
+                 --without-fio --without-xnvme --without-vbdev-compress \
+                 --without-rbd --without-rdma --without-iscsi-initiator \
+                 --without-ocf --without-uring
      make -j$(nproc))
 fi
 if [ ! -d "deps/sppark" ]; then
