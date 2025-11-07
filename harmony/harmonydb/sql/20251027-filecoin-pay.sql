@@ -17,4 +17,10 @@ CREATE TABLE IF NOT EXISTS pdp_delete_data_set (
     delete_tx_hash TEXT,
 
     terminated BOOLEAN NOT NULL DEFAULT FALSE
-)
+);
+
+ALTER TABLE pdp_data_set_pieces ADD COLUMN rm_message_hash TEXT DEFAULT NULL;
+
+ALTER TABLE pdp_data_set_pieces ADD COLUMN removed BOOLEAN DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS pdp_piecerefs_piece_cid_idx ON pdp_piecerefs (piece_cid);
