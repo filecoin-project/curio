@@ -171,7 +171,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 	var pieces []struct {
 		ID        int64  `db:"id"`
 		PieceCID  string `db:"piece_cid"`
-		PieceSize int64  `db:"piece_size"`
+		PieceSize int64  `db:"piece_padded_size"`
 		PieceRef  int64  `db:"piece_ref"`
 	}
 
