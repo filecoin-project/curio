@@ -939,7 +939,16 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			return false, err
 		}
 
-		//XXX: missing update to rm_message_hash?
+		_, err = tx.Exec(`
+			UPDATE pdp_data_set_pieces
+			SET rm_message_hash = $1
+			WHERE data_set = $2 AND piece_id = $3`,
+			txHashLower, dataSetId, pieceID)
+		if err != nil {
+			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceID", pieceID, "error", err)
+			return false, err
+		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {

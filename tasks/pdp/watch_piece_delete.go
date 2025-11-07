@@ -94,7 +94,7 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 			continue
 		}
 
-		// NOTE(Kubuxu): this is a bit fragile, as one failing piece will stop everything
+		// NOTE(Kubuxu): this is a bit fragile, as one failing piece will stop processing of the rest of deleted pieces
 		if !piece.TxSuccess.Bool {
 			return xerrors.Errorf("failed to process pending piece delete as transaction %s failed: %w", piece.TxHash, err)
 		}
