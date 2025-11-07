@@ -66,7 +66,7 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 	err := db.Select(ctx, &pendingDeletes, `SELECT
     												psp.data_set,
     												psp.piece_id,
-    												psp.rm_message_hex,
+    												psp.rm_message_hash,
 													mwe.tx_success
 												FROM pdp_data_set_pieces psp
 												LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
