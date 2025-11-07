@@ -27,6 +27,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/ipni/go-libipni/metadata"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -252,17 +253,15 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			}
 
 			var contextID []byte
-			var metadata []byte
 			var isRMAd bool
 
 			err = tx.QueryRow(`SELECT
     									context_id,
-    									metadata,
     									is_rm
 									FROM ipni
 									WHERE piece_cid = $1
 									  AND piece_size = $2
-									ORDER BY order_number DESC LIMIT 1`, piece.PieceCID, piece.PieceSize).Scan(&contextID, &metadata, &isRMAd)
+									ORDER BY order_number DESC LIMIT 1`, piece.PieceCID, piece.PieceSize).Scan(&contextID, &isRMAd)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return false, nil
@@ -282,10 +281,16 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				return false, xerrors.Errorf("querying previous head: %w", err)
 			}
 
+			mds := metadata.IpfsGatewayHttp{}
+			md, err := mds.MarshalBinary()
+			if err != nil {
+				return false, xerrors.Errorf("marshaling metadata: %w", err)
+			}
+
 			adv := schema.Advertisement{
 				Provider:  peerID,
 				ContextID: contextID,
-				Metadata:  metadata,
+				Metadata:  md,
 				IsRm:      true,
 			}
 
