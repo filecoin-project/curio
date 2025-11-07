@@ -63,14 +63,14 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 		TxSuccess sql.NullBool `db:"tx_success"`
 	}
 
-	err := db.Select(ctx, &pendingDeletes, `SELECT 
-    												psp.data_set, 
-    												psp.piece_id, 
+	err := db.Select(ctx, &pendingDeletes, `SELECT
+    												psp.data_set,
+    												psp.piece_id,
     												psp.rm_message_hex,
 													mwe.tx_success
 												FROM pdp_data_set_pieces psp
 												LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
-												WHERE psp.rm_message_hash IS NOT NULL 
+												WHERE psp.rm_message_hash IS NOT NULL
 												  AND psp.removed = FALSE`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
@@ -107,10 +107,10 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 			return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
 		}
 
-		n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces 
-								SET removed = TRUE 
-								WHERE data_set = $1 
-								  AND piece_id = $2 
+		n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces
+								SET removed = TRUE
+								WHERE data_set = $1
+								  AND piece_id = $2
 								  AND rm_message_hash = $3
 								  AND removed = FALSE`, piece.DataSetID, piece.PieceID, piece.TxHash)
 		if err != nil {
@@ -175,14 +175,14 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		PieceRef  int64  `db:"piece_ref"`
 	}
 
-	err := db.Select(ctx, &pieces, `SELECT 
+	err := db.Select(ctx, &pieces, `SELECT
     										pr.id,
     										pr.piece_cid,
-       										pp.piece_size, 
-       										pr.piece_ref 
+       										pp.piece_size,
+       										pr.piece_ref
 										FROM pdp_piecerefs pr
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
-										    JOIN parked_pieces pp ON ppr.piece_id = pp.id 
+										    JOIN parked_pieces pp ON ppr.piece_id = pp.id
 										WHERE pr.data_set_refcount = 0`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
@@ -255,13 +255,13 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			var metadata []byte
 			var isRMAd bool
 
-			err = tx.QueryRow(`SELECT 
-    									context_id, 
+			err = tx.QueryRow(`SELECT
+    									context_id,
     									metadata,
     									is_rm
-									FROM ipni 
-									WHERE piece_cid = $1 
-									  AND piece_size = $2 
+									FROM ipni
+									WHERE piece_cid = $1
+									  AND piece_size = $2
 									ORDER BY order_number DESC LIMIT 1`, piece.PieceCID, piece.PieceSize).Scan(&contextID, &metadata, &isRMAd)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {

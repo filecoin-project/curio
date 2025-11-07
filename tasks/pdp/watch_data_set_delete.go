@@ -36,13 +36,13 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 		Success sql.NullBool `db:"tx_success"`
 	}
 
-	err := db.Select(ctx, &deletes, `SELECT 
-    										pdss.id, 
+	err := db.Select(ctx, &deletes, `SELECT
+    										pdss.id,
     										pdss.delete_tx_hash,
     										mwe.tx_success
-										FROM pdp_delete_data_set pdds 
+										FROM pdp_delete_data_set pdds
 										LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pdds.delete_tx_hash
-										WHERE pdss.service_termination_epoch IS NOT NULL 
+										WHERE pdss.service_termination_epoch IS NOT NULL
 										  AND pdss.terminated = FALSE
 										  AND pdss.after_delete_data_set = TRUE
 										  AND pdss.delete_tx_hash IS NOT NULL`)
