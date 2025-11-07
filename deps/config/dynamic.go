@@ -199,8 +199,11 @@ func (r *cfgRoot[T]) changeMonitor() {
 	lastTimestamp := time.Time{} // lets do a read at startup
 
 	for {
+		time.Sleep(30 * time.Second)
 		configCount := 0
-		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
+		// Note: We need to prepend "base" layer like GetConfigs does
+		layers := append([]string{"base"}, r.layers...)
+		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title = ANY($2)`, lastTimestamp, layers).Scan(&configCount)
 		if err != nil {
 			logger.Errorf("error selecting configs: %s", err)
 			continue
@@ -232,9 +235,9 @@ func (r *cfgRoot[T]) changeMonitor() {
 				return
 			}
 
-			// Process change notifications
-			dynamicLocker.Lock()
+			// Process change notifications (we already hold the lock)
 			atomic.StoreInt32(&dynamicLocker.updating, 0)
+			dynamicLocker.cdmx.Lock()
 			for k, v := range dynamicLocker.latest {
 				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 					if notifier := dynamicLocker.notifier[k]; notifier != nil {
@@ -244,9 +247,8 @@ func (r *cfgRoot[T]) changeMonitor() {
 			}
 			dynamicLocker.originally = make(map[uintptr]any)
 			dynamicLocker.latest = make(map[uintptr]any)
-			dynamicLocker.Unlock()
+			dynamicLocker.cdmx.Unlock()
 		}()
-		time.Sleep(30 * time.Second)
 	}
 }
 
