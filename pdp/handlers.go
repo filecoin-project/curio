@@ -939,6 +939,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			return false, err
 		}
 
+		//XXX: missing update to rm_merm_message_hash?
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
