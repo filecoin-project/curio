@@ -2027,9 +2027,9 @@
             "fuzzy": true
         },
         {
-            "id": "32 GiB",
-            "message": "32 GiB",
-            "translation": "32 GiB",
+            "id": "32 GiB (recommended for mainnet)",
+            "message": "32 GiB (recommended for mainnet)",
+            "translation": "32 GiB (recommended for mainnet)",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2551,6 +2551,735 @@
                     "expr": "err.Error()"
                 }
             ],
+            "fuzzy": true
+        },
+        {
+            "id": "Optional setup steps (you can skip these and configure later):",
+            "message": "Optional setup steps (you can skip these and configure later):",
+            "translation": "Optional setup steps (you can skip these and configure later):",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Skip optional steps",
+            "message": "Skip optional steps",
+            "translation": "Skip optional steps",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Storage",
+            "message": "Storage",
+            "translation": "Storage",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "PDP",
+            "message": "PDP",
+            "translation": "PDP",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Storage Configuration",
+            "message": "Storage Configuration",
+            "translation": "Storage Configuration",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Manage storage paths for this server.",
+            "message": "Manage storage paths for this server.",
+            "translation": "Manage storage paths for this server.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Error getting home directory: {Error}",
+            "message": "Error getting home directory: {Error}",
+            "translation": "Error getting home directory: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Go Back",
+            "message": "Go Back",
+            "translation": "Go Back",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Add new storage path",
+            "message": "Add new storage path",
+            "translation": "Add new storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Delete {P}",
+            "message": "Delete {P}",
+            "translation": "Delete {P}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "P",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "p"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Storage paths for this server:",
+            "message": "Storage paths for this server:",
+            "translation": "Storage paths for this server:",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enter storage path to add",
+            "message": "Enter storage path to add",
+            "translation": "Enter storage path to add",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No path provided",
+            "message": "No path provided",
+            "translation": "No path provided",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Error expanding path: {Error}",
+            "message": "Error expanding path: {Error}",
+            "translation": "Error expanding path: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Path already exists",
+            "message": "Path already exists",
+            "translation": "Path already exists",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Storage type for {ExpandedPath}",
+            "message": "Storage type for {ExpandedPath}",
+            "translation": "Storage type for {ExpandedPath}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ExpandedPath",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "expandedPath"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Seal (fast storage for sealing operations)",
+            "message": "Seal (fast storage for sealing operations)",
+            "translation": "Seal (fast storage for sealing operations)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Store (long-term storage for sealed sectors)",
+            "message": "Store (long-term storage for sealed sectors)",
+            "translation": "Store (long-term storage for sealed sectors)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Both (seal and store)",
+            "message": "Both (seal and store)",
+            "translation": "Both (seal and store)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Error writing storage.json: {Error}",
+            "message": "Error writing storage.json: {Error}",
+            "translation": "Error writing storage.json: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+            "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+            "translation": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ExpandedPath",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "expandedPath"
+                },
+                {
+                    "id": "StorageTypeStr",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "storageTypeStr"
+                },
+                {
+                    "id": "StorageTypeStr_1",
+                    "string": "%[3]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 3,
+                    "expr": "storageTypeStr"
+                },
+                {
+                    "id": "ExpandedPath_1",
+                    "string": "%[4]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 4,
+                    "expr": "expandedPath"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Storage path added",
+            "message": "Storage path added",
+            "translation": "Storage path added",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Really delete {PathToDelete}?",
+            "message": "Really delete {PathToDelete}?",
+            "translation": "Really delete {PathToDelete}?",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "PathToDelete",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "pathToDelete"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Yes, delete it",
+            "message": "Yes, delete it",
+            "translation": "Yes, delete it",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No, keep it",
+            "message": "No, keep it",
+            "translation": "No, keep it",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Storage path {PathToDelete} removed from configuration",
+            "message": "Storage path {PathToDelete} removed from configuration",
+            "translation": "Storage path {PathToDelete} removed from configuration",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "PathToDelete",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "pathToDelete"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Storage path deleted",
+            "message": "Storage path deleted",
+            "translation": "Storage path deleted",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "PDP (Proof of Data Possession) Configuration",
+            "message": "PDP (Proof of Data Possession) Configuration",
+            "translation": "PDP (Proof of Data Possession) Configuration",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "This will configure PDP settings for your Curio cluster.",
+            "message": "This will configure PDP settings for your Curio cluster.",
+            "translation": "This will configure PDP settings for your Curio cluster.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+            "message": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+            "translation": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "PDP layer already exists. What would you like to do?",
+            "message": "PDP layer already exists. What would you like to do?",
+            "translation": "PDP layer already exists. What would you like to do?",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Reconfigure PDP",
+            "message": "Reconfigure PDP",
+            "translation": "Reconfigure PDP",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Skip PDP setup",
+            "message": "Skip PDP setup",
+            "translation": "Skip PDP setup",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Creating PDP configuration layer...",
+            "message": "Creating PDP configuration layer...",
+            "translation": "Creating PDP configuration layer...",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Error loading existing PDP config: {Error}",
+            "message": "Error loading existing PDP config: {Error}",
+            "translation": "Error loading existing PDP config: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Configuring HTTP settings for PDP...",
+            "message": "Configuring HTTP settings for PDP...",
+            "translation": "Configuring HTTP settings for PDP...",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enter your domain name (e.g., market.mydomain.com)",
+            "message": "Enter your domain name (e.g., market.mydomain.com)",
+            "translation": "Enter your domain name (e.g., market.mydomain.com)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No domain provided, skipping HTTP configuration",
+            "message": "No domain provided, skipping HTTP configuration",
+            "translation": "No domain provided, skipping HTTP configuration",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Listen address for HTTP server",
+            "message": "Listen address for HTTP server",
+            "translation": "Listen address for HTTP server",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Error generating PDP config: {Error}",
+            "message": "Error generating PDP config: {Error}",
+            "translation": "Error generating PDP config: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error saving PDP config: {Error}",
+            "message": "Error saving PDP config: {Error}",
+            "translation": "Error saving PDP config: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "PDP configuration layer created",
+            "message": "PDP configuration layer created",
+            "translation": "PDP configuration layer created",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setting up PDP wallet...",
+            "message": "Setting up PDP wallet...",
+            "translation": "Setting up PDP wallet...",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "You need a delegated Filecoin wallet address to use with PDP.",
+            "message": "You need a delegated Filecoin wallet address to use with PDP.",
+            "translation": "You need a delegated Filecoin wallet address to use with PDP.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Use existing key, ending in {AddressSuffix}",
+            "message": "Use existing key, ending in {AddressSuffix}",
+            "translation": "Use existing key, ending in {AddressSuffix}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "AddressSuffix",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "addressSuffix"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Import delegated wallet private key",
+            "message": "Import delegated wallet private key",
+            "translation": "Import delegated wallet private key",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Skip wallet setup for now",
+            "message": "Skip wallet setup for now",
+            "translation": "Skip wallet setup for now",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "How would you like to proceed?",
+            "message": "How would you like to proceed?",
+            "translation": "How would you like to proceed?",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "You can set up the wallet later using the Curio GUI or CLI",
+            "message": "You can set up the wallet later using the Curio GUI or CLI",
+            "translation": "You can set up the wallet later using the Curio GUI or CLI",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Using existing PDP wallet key: {ExistingKeyAddress}",
+            "message": "Using existing PDP wallet key: {ExistingKeyAddress}",
+            "translation": "Using existing PDP wallet key: {ExistingKeyAddress}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ExistingKeyAddress",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "existingKeyAddress"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "PDP wallet configured",
+            "message": "PDP wallet configured",
+            "translation": "PDP wallet configured",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "You can create a new delegated wallet using Lotus:",
+            "message": "You can create a new delegated wallet using Lotus:",
+            "translation": "You can create a new delegated wallet using Lotus:",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "lotus wallet new delegated",
+            "message": "lotus wallet new delegated",
+            "translation": "lotus wallet new delegated",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Then export its private key with:",
+            "message": "Then export its private key with:",
+            "translation": "Then export its private key with:",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "lotus wallet export \u003caddress\u003e | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+            "message": "lotus wallet export \u003caddress\u003e | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+            "translation": "lotus wallet export \u003caddress\u003e | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enter your delegated wallet private key (hex format):",
+            "message": "Enter your delegated wallet private key (hex format):",
+            "translation": "Enter your delegated wallet private key (hex format):",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Private key",
+            "message": "Private key",
+            "translation": "Private key",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No private key provided",
+            "message": "No private key provided",
+            "translation": "No private key provided",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "PDP setup complete!",
+            "message": "PDP setup complete!",
+            "translation": "PDP setup complete!",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "To start Curio with PDP enabled, run:",
+            "message": "To start Curio with PDP enabled, run:",
+            "translation": "To start Curio with PDP enabled, run:",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "curio run --layers=gui,pdp",
+            "message": "curio run --layers=gui,pdp",
+            "translation": "curio run --layers=gui,pdp",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+            "message": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+            "translation": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Next steps:",
+            "message": "Next steps:",
+            "translation": "Next steps:",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+            "message": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+            "translation": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Domain",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "domain"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+            "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+            "translation": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "2. Register your FWSS node",
+            "message": "2. Register your FWSS node",
+            "translation": "2. Register your FWSS node",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "3. Explore FWSS \u0026 PDP tools at https://www.filecoin.services",
+            "message": "3. Explore FWSS \u0026 PDP tools at https://www.filecoin.services",
+            "translation": "3. Explore FWSS \u0026 PDP tools at https://www.filecoin.services",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "4. Join the community: Filecoin Slack #fil-pdp",
+            "message": "4. Join the community: Filecoin Slack #fil-pdp",
+            "translation": "4. Join the community: Filecoin Slack #fil-pdp",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Private key cannot be empty",
+            "message": "Private key cannot be empty",
+            "translation": "Private key cannot be empty",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to decode private key: {Error}",
+            "message": "Failed to decode private key: {Error}",
+            "translation": "Failed to decode private key: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Invalid private key: {Error}",
+            "message": "Invalid private key: {Error}",
+            "translation": "Invalid private key: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to import PDP key: {Error}",
+            "message": "Failed to import PDP key: {Error}",
+            "translation": "Failed to import PDP key: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "PDP wallet imported successfully!",
+            "message": "PDP wallet imported successfully!",
+            "translation": "PDP wallet imported successfully!",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Ethereum address (0x): {Address}",
+            "message": "Ethereum address (0x): {Address}",
+            "translation": "Ethereum address (0x): {Address}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Address",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "address"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "PDP wallet imported",
+            "message": "PDP wallet imported",
+            "translation": "PDP wallet imported",
+            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {
