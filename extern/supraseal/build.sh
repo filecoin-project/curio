@@ -13,24 +13,33 @@ do
     esac
 done
 
-# Function to check GCC version
+# Function to check GCC version - enforces GCC 12 for compatibility
 check_gcc_version() {
     local gcc_version=$(gcc -dumpversion | cut -d. -f1)
-    if [ "$gcc_version" != "11" ]; then
-        if command -v gcc-11 &> /dev/null && command -v g++-11 &> /dev/null; then
-            echo "GCC version is not 11. Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 11."
-            export CC=gcc-11
-            export CXX=g++-11
-            export NVCC_PREPEND_FLAGS='-ccbin /usr/bin/g++-11'
-        else
-            echo "Error: GCC 11 is required but not found. Please install GCC 11 and try again."
-            echo "You can typically install it using your package manager. For example:"
-            echo "  On Ubuntu: sudo apt-get install gcc-11 g++-11"
-            echo "  On Fedora: sudo dnf install gcc-11 gcc-c++-11"
-            echo "  On Arch: Install gcc11 from AUR"
-            exit 1
-        fi
+    local target_gcc_version=12
+    
+    # Check if default GCC is version 12
+    if [ "$gcc_version" -eq "$target_gcc_version" ]; then
+        echo "Using GCC $gcc_version"
+        return 0
     fi
+    
+    # If not GCC 12, try to find and use gcc-12
+    if command -v gcc-12 &> /dev/null && command -v g++-12 &> /dev/null; then
+        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 12 for compatibility."
+        export CC=gcc-12
+        export CXX=g++-12
+        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-12"
+        return 0
+    fi
+    
+    # GCC 12 not found
+    echo "Error: GCC 12 is required but not found."
+    echo "Current GCC version: $gcc_version"
+    echo "Please install GCC 12:"
+    echo "  On Ubuntu/Debian: sudo apt-get install gcc-12 g++-12"
+    echo "  On Fedora: sudo dnf install gcc-12 gcc-c++-12"
+    exit 1
 }
 
 # Call the function to check GCC version
@@ -38,22 +47,98 @@ check_gcc_version
 
 set -x
 
-# Rest of your script remains unchanged
-SECTOR_SIZE="" # Compile for all sector sizes
-while getopts r flag
-do
-    case "${flag}" in
-        r) SECTOR_SIZE="-DRUNTIME_SECTOR_SIZE";;
-    esac
-done
-
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
 
-CUDA=$(dirname $(dirname $(which $NVCC)))
+# Create and activate Python virtual environment
+# This avoids needing PIP_BREAK_SYSTEM_PACKAGES on Ubuntu 24.04+
+VENV_DIR="$(pwd)/.venv"
+if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then
+    echo "Creating Python virtual environment..."
+    if ! python3 -m venv "$VENV_DIR"; then
+        echo "Error: python3-venv is required but not available."
+        echo "Please install it:"
+        echo "  On Ubuntu/Debian: sudo apt-get install python3-venv"
+        echo "  On Fedora: sudo dnf install python3-virtualenv"
+        echo ""
+        echo "Or if you prefer, you can install dependencies manually:"
+        echo "  pip3 install --user meson ninja pyelftools"
+        exit 1
+    fi
+fi
+
+# Activate the virtual environment
+if [ -f "$VENV_DIR/bin/activate" ]; then
+    source "$VENV_DIR/bin/activate"
+else
+    echo "Error: Virtual environment activation script not found at $VENV_DIR/bin/activate"
+    exit 1
+fi
+
+# Install Python build tools in the virtual environment
+echo "Installing Python build tools in virtual environment..."
+pip install --upgrade pip
+pip install meson ninja pyelftools
+
+# Ensure venv is in PATH for subprocesses
+export PATH="$VENV_DIR/bin:$PATH"
+
+# Detect CUDA installation path - search for CUDA 12+ (required for modern architectures)
+CUDA=""
+MIN_CUDA_VERSION=12
+
+# Try common CUDA installation paths
+for cuda_path in /usr/local/cuda-13.0 /usr/local/cuda-13 /usr/local/cuda-12.6 /usr/local/cuda-12 /usr/local/cuda /opt/cuda; do
+    if [ -d "$cuda_path" ] && [ -f "$cuda_path/bin/nvcc" ]; then
+        # Check CUDA version
+        CUDA_VER_CHECK=$($cuda_path/bin/nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+        if [ "$CUDA_VER_CHECK" -ge "$MIN_CUDA_VERSION" ] 2>/dev/null; then
+            CUDA=$cuda_path
+            NVCC=$cuda_path/bin/nvcc
+            CUDA_VERSION=$CUDA_VER_CHECK
+            break
+        fi
+    fi
+done
+
+# If not found in standard paths, check if nvcc in PATH is CUDA 12+
+if [ -z "$CUDA" ] && command -v nvcc &> /dev/null; then
+    CUDA_VER_CHECK=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+    if [ "$CUDA_VER_CHECK" -ge "$MIN_CUDA_VERSION" ] 2>/dev/null; then
+        CUDA=$(dirname $(dirname $(which nvcc)))
+        NVCC=nvcc
+        CUDA_VERSION=$CUDA_VER_CHECK
+    fi
+fi
+
+if [ -z "$CUDA" ]; then
+    echo "Error: CUDA $MIN_CUDA_VERSION or newer not found."
+    echo "Please install CUDA Toolkit (version 12.0 or later):"
+    echo "  Download from: https://developer.nvidia.com/cuda-downloads"
+    echo ""
+    echo "Checked locations:"
+    echo "  - /usr/local/cuda-13.0"
+    echo "  - /usr/local/cuda-13"
+    echo "  - /usr/local/cuda-12.6"
+    echo "  - /usr/local/cuda-12"
+    echo "  - /usr/local/cuda"
+    echo "  - PATH (found: $(which nvcc 2>/dev/null || echo 'not found'))"
+    if command -v nvcc &> /dev/null; then
+        echo ""
+        echo "Note: Found nvcc in PATH, but it's version $(nvcc --version | grep release | sed -n 's/.*release \([0-9.]*\).*/\1/p'), need $MIN_CUDA_VERSION.x or newer"
+    fi
+    exit 1
+fi
+
+# Ensure CUDA bin directory is in PATH
+export PATH=$CUDA/bin:$PATH
+
+echo "Found CUDA $CUDA_VERSION at: $CUDA"
 SPDK="deps/spdk-v24.05"
-CUDA_ARCH="-arch=sm_80 -gencode arch=compute_70,code=sm_70 -t0"
+# CUDA 13 architectures - removed compute_70 (Volta) as it's no longer supported in CUDA 13+
+# sm_80: Ampere (A100), sm_86: Ampere (RTX 30xx), sm_89: Ada Lovelace (RTX 40xx, L40), sm_90: Hopper (H100)
+CUDA_ARCH="-arch=sm_80 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90 -t0"
 CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
         awk '{ if($2=="__cplusplus" && $3<"2017") print "-std=c++17"; }'`
 
@@ -162,9 +247,26 @@ mkdir -p deps
 if [ ! -d $SPDK ]; then
     git clone --branch v24.05 https://github.com/spdk/spdk --recursive $SPDK
     (cd $SPDK
-     sudo scripts/pkgdep.sh
-     ./configure --with-virtio --with-vhost --without-fuse --without-crypto
-     make -j 10)
+     # Use the virtual environment for Python packages
+     # Ensure venv is active and in PATH for Python package installation
+     export VIRTUAL_ENV="$VENV_DIR"
+     export PATH="$VENV_DIR/bin:$PATH"
+     export PIP="$VENV_DIR/bin/pip"
+     export PYTHON="$VENV_DIR/bin/python"
+     # Run pkgdep.sh without sudo - system packages should already be installed
+     # Python packages will be installed in the venv automatically
+     # If system packages are missing, pkgdep.sh will fail gracefully
+     env VIRTUAL_ENV="$VENV_DIR" PATH="$VENV_DIR/bin:$PATH" PIP="$VENV_DIR/bin/pip" PYTHON="$VENV_DIR/bin/python" scripts/pkgdep.sh || {
+         echo "Warning: pkgdep.sh failed (likely system packages already installed). Continuing..."
+     }
+     ./configure --with-virtio --with-vhost \
+                 --without-fuse --without-crypto \
+                 --disable-unit-tests --disable-tests \
+                 --disable-examples --disable-apps \
+                 --without-fio --without-xnvme --without-vbdev-compress \
+                 --without-rbd --without-rdma --without-iscsi-initiator \
+                 --without-ocf --without-uring
+     make -j$(nproc))
 fi
 if [ ! -d "deps/sppark" ]; then
     git clone --branch v0.1.10 https://github.com/supranational/sppark.git deps/sppark
