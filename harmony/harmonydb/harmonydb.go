@@ -4,12 +4,10 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,9 +23,26 @@ import (
 
 type ITestID string
 
-// ItestNewID see ITestWithID doc
+var itestCounter atomic.Uint64
+
+// ITestNewID generates a unique ID for integration tests based on the test name.
+// This ensures each test gets its own isolated database schema.
 func ITestNewID() ITestID {
-	return ITestID(strconv.Itoa(rand.Intn(99999)))
+	// Use a combination of timestamp and counter to ensure uniqueness
+	// even if tests run in parallel or are re-run quickly
+	counter := itestCounter.Add(1)
+	timestamp := time.Now().UnixNano() / 1000000 // milliseconds
+	return ITestID(fmt.Sprintf("%d_%d", timestamp, counter))
+}
+
+// ITestNewIDForTest generates a unique ID for a specific test using its name.
+// This makes it easier to identify which test created which schema.
+func ITestNewIDForTest(t *testing.T) ITestID {
+	// Sanitize test name to be schema-safe (alphanumeric and underscores only)
+	safeName := schemaRE.ReplaceAllString(t.Name(), "_")
+	counter := itestCounter.Add(1)
+	// Keep it reasonably short but unique
+	return ITestID(fmt.Sprintf("%s_%d", safeName, counter))
 }
 
 type DB struct {
@@ -103,6 +118,12 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 		db.ITestDeleteAll()
 	})
 	return db, nil
+}
+
+// NewFromConfigWithTest is a convenience function that automatically generates
+// a unique schema for each test based on the test name.
+func NewFromConfigWithTest(t *testing.T) (*DB, error) {
+	return NewFromConfigWithITestID(t, ITestNewIDForTest(t))
 }
 
 // New is to be called once per binary to establish the pool.

@@ -7,11 +7,11 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -31,7 +31,7 @@ type DataSetPieceAdd struct {
 }
 
 // NewWatcherPieceAdd sets up the watcher for data set piece additions
-func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethClient *ethclient.Client) {
+func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethClient api.EthClientInterface) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDataSetPieceAdds(ctx, db, ethClient)
 		if err != nil {
@@ -45,7 +45,7 @@ func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethCl
 }
 
 // processPendingDataSetPieceAdds processes piece additions that have been confirmed on-chain
-func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface) error {
 	// Query for pdp_dataset_piece_adds entries where add_message_ok = TRUE
 	var pieceAdds []DataSetPieceAdd
 
@@ -75,7 +75,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	return nil
 }
 
-func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd DataSetPieceAdd, ethClient *ethclient.Client) error {
+func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd DataSetPieceAdd, ethClient api.EthClientInterface) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	var txSuccess bool
