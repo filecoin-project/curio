@@ -45,6 +45,11 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 	// Single CORS middleware that handles all CORS logic
 	// Wrap the entire router to ensure middleware runs for all requests including unmatched routes
 	corsHandler := func(next http.Handler) http.Handler {
+		for _, ao := range deps.Cfg.HTTP.CORSOrigins {
+			if ao == "*" {
+				log.Infof("This CORS configuration allows any website to call irreversable APIs on the Curio node: %s", ao)
+			}
+		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Handle OPTIONS preflight requests - always return 204, even if CORS not configured
 			if r.Method == http.MethodOptions {
@@ -64,6 +69,7 @@ func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, e
 
 					if allowed {
 						if allowedOrigin == "*" {
+
 							w.Header().Set("Access-Control-Allow-Origin", "*")
 						} else {
 							w.Header().Set("Access-Control-Allow-Origin", origin)
