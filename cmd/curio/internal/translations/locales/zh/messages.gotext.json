@@ -2895,6 +2895,12 @@
       "translation": "PDP 钱包已导入",
       "message": "PDP wallet imported",
       "placeholder": null
+    },
+    {
+      "id": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+      "translation": "1. 使用以下命令测试您的 PDP 服务：pdptool ping --service-url https://your-domain.com --service-name public",
+      "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+      "placeholder": null
     }
   ]
 }
