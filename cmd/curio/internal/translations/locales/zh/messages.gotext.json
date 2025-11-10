@@ -2445,6 +2445,18 @@
       "translation": "支付用的代币合约（FIL 使用 IERC20(address(0))）",
       "message": "Token contract for payment (IERC20(address(0)) for FIL)",
       "placeholder": null
+    },
+    {
+      "id": "Compute WindowPoSt vanilla proofs and verify them.",
+      "translation": "计算 WindowPoSt 基础证明并进行验证。",
+      "message": "Compute WindowPoSt vanilla proofs and verify them.",
+      "placeholder": null
+    },
+    {
+      "id": "32 GiB (recommended for mainnet)",
+      "translation": "32 GiB（主网推荐）",
+      "message": "32 GiB (recommended for mainnet)",
+      "placeholder": null
     }
   ]
 }
