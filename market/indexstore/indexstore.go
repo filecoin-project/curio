@@ -95,7 +95,7 @@ func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStor
 
 type ITestID string
 
-// ItestNewID see ITestWithID doc
+// ITestNewID see ITestWithID doc
 func ITestNewID() ITestID {
 	return ITestID(strconv.Itoa(rand.Intn(99999)))
 }
