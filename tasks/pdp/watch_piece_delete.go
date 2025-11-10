@@ -186,7 +186,8 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 										FROM pdp_piecerefs pr
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 										    JOIN parked_pieces pp ON ppr.piece_id = pp.id
-										WHERE pr.data_set_refcount = 0`)
+										WHERE pr.data_set_refcount = 0
+										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '24 hours'`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
