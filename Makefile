@@ -15,9 +15,9 @@ CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
-		$(MAKE) curio-libfilecoin; \
+		FFI_DISABLE_FVM=1 $(MAKE) curio-libfilecoin; \
 	else \
-		FFI_USE_FVM=1 $(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
+		$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
 	fi
 	@touch $@
 
@@ -30,7 +30,6 @@ CLEAN+=build/.filecoin-install
 curio-libfilecoin:
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
-	FFI_USE_OPENCL=1 \
 	FFI_USE_MULTICORE_SDR=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
