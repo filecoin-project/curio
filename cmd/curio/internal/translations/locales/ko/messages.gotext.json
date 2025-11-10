@@ -1019,9 +1019,9 @@
       "placeholder": null
     },
     {
-      "id": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster \u003c miner ID \u003e' to finish the configuration.",
-      "translation": "이 프로세스는 부분적으로 항등원적입니다. 새로운 채굴자 액터가 생성되었고 후속 단계가 실패하는 경우 사용자는 구성을 완료하기 위해 'curio config new-cluster \u003c 채굴자 ID \u003e'를 실행해야 합니다.",
-      "message": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster \u003c miner ID \u003e' to finish the configuration.",
+      "id": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.",
+      "translation": "이 프로세스는 부분적으로 항등원적입니다. 새로운 채굴자 액터가 생성되었고 후속 단계가 실패하는 경우 사용자는 구성을 완료하기 위해 'curio config new-cluster < 채굴자 ID >'를 실행해야 합니다.",
+      "message": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.",
       "placeholder": null
     },
     {
@@ -1517,9 +1517,9 @@
       "placeholder": null
     },
     {
-      "id": "\u003csector\u003e",
-      "translation": "\u003c섹터\u003e",
-      "message": "\u003csector\u003e",
+      "id": "<sector>",
+      "translation": "<섹터>",
+      "message": "<sector>",
       "placeholder": null
     },
     {
@@ -1955,9 +1955,9 @@
       "placeholder": null
     },
     {
-      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
-      "translation": "특정 섹터의 목표 미봉인 상태를 설정합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호\n   \u003ctarget-state\u003e: 목표 상태 (true, false, none 중 하나)\n\n   미봉인 목표 상태는 Curio가 섹터의 미봉인 복사본을 어떻게 유지할지를 나타냅니다.\n\t   목표 상태가 true이면 Curio는 섹터가 미봉인 상태로 유지되도록 보장합니다.\n\t   목표 상태가 false이면 Curio는 섹터에 미봉인 복사본이 없도록 보장합니다.\n\t   목표 상태가 none이면 Curio는 섹터의 현재 상태를 변경하지 않습니다.\n\n   현재, 목표 상태가 다른 상태에서 true로 변경될 때만 Curio는 새로운 미봉인 프로세스를 시작합니다.\n\n   목표 상태가 false이고 미봉인 섹터 파일이 존재하는 경우, GC 마크 단계는 미봉인 섹터 파일에 대한 제거 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다.",
-      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "id": "Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "특정 섹터의 목표 미봉인 상태를 설정합니다.\n   <miner-id>: 스토리지 제공자 ID\n   <sector-number>: 섹터 번호\n   <target-state>: 목표 상태 (true, false, none 중 하나)\n\n   미봉인 목표 상태는 Curio가 섹터의 미봉인 복사본을 어떻게 유지할지를 나타냅니다.\n\t   목표 상태가 true이면 Curio는 섹터가 미봉인 상태로 유지되도록 보장합니다.\n\t   목표 상태가 false이면 Curio는 섹터에 미봉인 복사본이 없도록 보장합니다.\n\t   목표 상태가 none이면 Curio는 섹터의 현재 상태를 변경하지 않습니다.\n\n   현재, 목표 상태가 다른 상태에서 true로 변경될 때만 Curio는 새로운 미봉인 프로세스를 시작합니다.\n\n   목표 상태가 false이고 미봉인 섹터 파일이 존재하는 경우, GC 마크 단계는 미봉인 섹터 파일에 대한 제거 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다.",
+      "message": "Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
       "placeholder": null
     },
     {
@@ -1967,9 +1967,9 @@
       "placeholder": null
     },
     {
-      "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
-      "translation": "특정 섹터에 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호",
-      "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+      "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number",
+      "translation": "특정 섹터에 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\n   <miner-id>: 스토리지 제공자 ID\n   <sector-number>: 섹터 번호",
+      "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number",
       "placeholder": null
     },
     {
@@ -2486,6 +2486,450 @@
       "id": "32 GiB (recommended for mainnet)",
       "translation": "32 GiB (메인넷 권장)",
       "message": "32 GiB (recommended for mainnet)",
+      "placeholder": null
+    },
+    {
+      "id": "Optional setup steps (you can skip these and configure later):",
+      "translation": "선택적 설정 단계 (건너뛰고 나중에 구성할 수 있습니다):",
+      "message": "Optional setup steps (you can skip these and configure later):",
+      "placeholder": null
+    },
+    {
+      "id": "Skip optional steps",
+      "translation": "선택적 단계를 건너뛰기",
+      "message": "Skip optional steps",
+      "placeholder": null
+    },
+    {
+      "id": "Storage",
+      "translation": "스토리지",
+      "message": "Storage",
+      "placeholder": null
+    },
+    {
+      "id": "PDP",
+      "translation": "PDP",
+      "message": "PDP",
+      "placeholder": null
+    },
+    {
+      "id": "Storage Configuration",
+      "translation": "스토리지 구성",
+      "message": "Storage Configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Manage storage paths for this server.",
+      "translation": "이 서버의 스토리지 경로를 관리합니다.",
+      "message": "Manage storage paths for this server.",
+      "placeholder": null
+    },
+    {
+      "id": "Error getting home directory: {Error}",
+      "translation": "홈 디렉터리를 가져오는 중 오류 발생: {Error}",
+      "message": "Error getting home directory: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Go Back",
+      "translation": "뒤로 가기",
+      "message": "Go Back",
+      "placeholder": null
+    },
+    {
+      "id": "Add new storage path",
+      "translation": "새 스토리지 경로 추가",
+      "message": "Add new storage path",
+      "placeholder": null
+    },
+    {
+      "id": "Delete {P}",
+      "translation": "{P} 삭제",
+      "message": "Delete {P}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage paths for this server:",
+      "translation": "이 서버의 스토리지 경로:",
+      "message": "Storage paths for this server:",
+      "placeholder": null
+    },
+    {
+      "id": "Enter storage path to add",
+      "translation": "추가할 스토리지 경로 입력",
+      "message": "Enter storage path to add",
+      "placeholder": null
+    },
+    {
+      "id": "No path provided",
+      "translation": "경로가 제공되지 않았습니다",
+      "message": "No path provided",
+      "placeholder": null
+    },
+    {
+      "id": "Path already exists",
+      "translation": "경로가 이미 존재합니다",
+      "message": "Path already exists",
+      "placeholder": null
+    },
+    {
+      "id": "Storage type for {ExpandedPath}",
+      "translation": "{ExpandedPath}의 스토리지 유형",
+      "message": "Storage type for {ExpandedPath}",
+      "placeholder": null
+    },
+    {
+      "id": "Seal (fast storage for sealing operations)",
+      "translation": "Seal (시일 작업을 위한 고속 스토리지)",
+      "message": "Seal (fast storage for sealing operations)",
+      "placeholder": null
+    },
+    {
+      "id": "Store (long-term storage for sealed sectors)",
+      "translation": "Store (시일된 섹터의 장기 저장용 스토리지)",
+      "message": "Store (long-term storage for sealed sectors)",
+      "placeholder": null
+    },
+    {
+      "id": "Both (seal and store)",
+      "translation": "Both (시일 및 저장용)",
+      "message": "Both (seal and store)",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing storage.json: {Error}",
+      "translation": "storage.json을 쓰는 중 오류 발생: {Error}",
+      "message": "Error writing storage.json: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+      "translation": "스토리지 경로 {ExpandedPath}가 {StorageTypeStr}(으)로 추가되었습니다. 다음 명령으로 초기화해야 합니다: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+      "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path added",
+      "translation": "스토리지 경로가 추가되었습니다",
+      "message": "Storage path added",
+      "placeholder": null
+    },
+    {
+      "id": "Really delete {PathToDelete}?",
+      "translation": "{PathToDelete}을(를) 정말 삭제하시겠습니까?",
+      "message": "Really delete {PathToDelete}?",
+      "placeholder": null
+    },
+    {
+      "id": "Yes, delete it",
+      "translation": "예, 삭제합니다",
+      "message": "Yes, delete it",
+      "placeholder": null
+    },
+    {
+      "id": "No, keep it",
+      "translation": "아니요, 유지합니다",
+      "message": "No, keep it",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {PathToDelete} removed from configuration",
+      "translation": "스토리지 경로 {PathToDelete}이(가) 구성에서 제거되었습니다",
+      "message": "Storage path {PathToDelete} removed from configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path deleted",
+      "translation": "스토리지 경로가 삭제되었습니다",
+      "message": "Storage path deleted",
+      "placeholder": null
+    },
+    {
+      "id": "PDP (Proof of Data Possession) Configuration",
+      "translation": "PDP (데이터 보유 증명) 구성",
+      "message": "PDP (Proof of Data Possession) Configuration",
+      "placeholder": null
+    },
+    {
+      "id": "This will configure PDP settings for your Curio cluster.",
+      "translation": "Curio 클러스터의 PDP 설정을 구성합니다.",
+      "message": "This will configure PDP settings for your Curio cluster.",
+      "placeholder": null
+    },
+    {
+      "id": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+      "translation": "자세한 문서는 다음을 참조하세요: https://docs.curiostorage.org/experimental-features/enable-pdp",
+      "message": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+      "placeholder": null
+    },
+    {
+      "id": "PDP layer already exists. What would you like to do?",
+      "translation": "PDP 레이어가 이미 존재합니다. 어떻게 하시겠습니까?",
+      "message": "PDP layer already exists. What would you like to do?",
+      "placeholder": null
+    },
+    {
+      "id": "Reconfigure PDP",
+      "translation": "PDP 재구성",
+      "message": "Reconfigure PDP",
+      "placeholder": null
+    },
+    {
+      "id": "Skip PDP setup",
+      "translation": "PDP 설정 건너뛰기",
+      "message": "Skip PDP setup",
+      "placeholder": null
+    },
+    {
+      "id": "Creating PDP configuration layer...",
+      "translation": "PDP 구성 레이어를 생성 중...",
+      "message": "Creating PDP configuration layer...",
+      "placeholder": null
+    },
+    {
+      "id": "Error loading existing PDP config: {Error}",
+      "translation": "기존 PDP 구성 로드 중 오류 발생: {Error}",
+      "message": "Error loading existing PDP config: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Configuring HTTP settings for PDP...",
+      "translation": "PDP를 위한 HTTP 설정 구성 중...",
+      "message": "Configuring HTTP settings for PDP...",
+      "placeholder": null
+    },
+    {
+      "id": "Enter your domain name (e.g., market.mydomain.com)",
+      "translation": "도메인 이름을 입력하세요 (예: market.mydomain.com)",
+      "message": "Enter your domain name (e.g., market.mydomain.com)",
+      "placeholder": null
+    },
+    {
+      "id": "No domain provided, skipping HTTP configuration",
+      "translation": "도메인이 제공되지 않아 HTTP 구성을 건너뜁니다",
+      "message": "No domain provided, skipping HTTP configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Listen address for HTTP server",
+      "translation": "HTTP 서버의 수신 주소",
+      "message": "Listen address for HTTP server",
+      "placeholder": null
+    },
+    {
+      "id": "Error generating PDP config: {Error}",
+      "translation": "PDP 구성 생성 중 오류 발생: {Error}",
+      "message": "Error generating PDP config: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Error saving PDP config: {Error}",
+      "translation": "PDP 구성 저장 중 오류 발생: {Error}",
+      "message": "Error saving PDP config: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP configuration layer created",
+      "translation": "PDP 구성 레이어가 생성되었습니다",
+      "message": "PDP configuration layer created",
+      "placeholder": null
+    },
+    {
+      "id": "Setting up PDP wallet...",
+      "translation": "PDP 지갑을 설정 중...",
+      "message": "Setting up PDP wallet...",
+      "placeholder": null
+    },
+    {
+      "id": "You need a delegated Filecoin wallet address to use with PDP.",
+      "translation": "PDP를 사용하려면 위임된 Filecoin 지갑 주소가 필요합니다.",
+      "message": "You need a delegated Filecoin wallet address to use with PDP.",
+      "placeholder": null
+    },
+    {
+      "id": "Use existing key, ending in {AddressSuffix}",
+      "translation": "기존 키 사용 ({AddressSuffix}로 끝남)",
+      "message": "Use existing key, ending in {AddressSuffix}",
+      "placeholder": null
+    },
+    {
+      "id": "Import delegated wallet private key",
+      "translation": "위임된 지갑 개인 키 가져오기",
+      "message": "Import delegated wallet private key",
+      "placeholder": null
+    },
+    {
+      "id": "Skip wallet setup for now",
+      "translation": "지갑 설정을 지금은 건너뛰기",
+      "message": "Skip wallet setup for now",
+      "placeholder": null
+    },
+    {
+      "id": "How would you like to proceed?",
+      "translation": "어떻게 진행하시겠습니까?",
+      "message": "How would you like to proceed?",
+      "placeholder": null
+    },
+    {
+      "id": "You can set up the wallet later using the Curio GUI or CLI",
+      "translation": "Curio GUI 또는 CLI를 사용하여 나중에 지갑을 설정할 수 있습니다",
+      "message": "You can set up the wallet later using the Curio GUI or CLI",
+      "placeholder": null
+    },
+    {
+      "id": "Using existing PDP wallet key: {ExistingKeyAddress}",
+      "translation": "기존 PDP 지갑 키 사용 중: {ExistingKeyAddress}",
+      "message": "Using existing PDP wallet key: {ExistingKeyAddress}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP wallet configured",
+      "translation": "PDP 지갑이 구성되었습니다",
+      "message": "PDP wallet configured",
+      "placeholder": null
+    },
+    {
+      "id": "You can create a new delegated wallet using Lotus:",
+      "translation": "Lotus를 사용하여 새 위임 지갑을 생성할 수 있습니다:",
+      "message": "You can create a new delegated wallet using Lotus:",
+      "placeholder": null
+    },
+    {
+      "id": "lotus wallet new delegated",
+      "translation": "lotus wallet new delegated",
+      "message": "lotus wallet new delegated",
+      "placeholder": null
+    },
+    {
+      "id": "Then export its private key with:",
+      "translation": "그런 다음 다음 명령으로 개인 키를 내보내세요:",
+      "message": "Then export its private key with:",
+      "placeholder": null
+    },
+    {
+      "id": "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+      "translation": "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+      "message": "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+      "placeholder": null
+    },
+    {
+      "id": "Enter your delegated wallet private key (hex format):",
+      "translation": "위임된 지갑 개인 키를 입력하세요 (16진수 형식):",
+      "message": "Enter your delegated wallet private key (hex format):",
+      "placeholder": null
+    },
+    {
+      "id": "Private key",
+      "translation": "개인 키",
+      "message": "Private key",
+      "placeholder": null
+    },
+    {
+      "id": "No private key provided",
+      "translation": "개인 키가 제공되지 않았습니다",
+      "message": "No private key provided",
+      "placeholder": null
+    },
+    {
+      "id": "PDP setup complete!",
+      "translation": "PDP 설정이 완료되었습니다!",
+      "message": "PDP setup complete!",
+      "placeholder": null
+    },
+    {
+      "id": "To start Curio with PDP enabled, run:",
+      "translation": "PDP를 활성화하여 Curio를 시작하려면 다음을 실행하세요:",
+      "message": "To start Curio with PDP enabled, run:",
+      "placeholder": null
+    },
+    {
+      "id": "curio run --layers=gui,pdp",
+      "translation": "curio run --layers=gui,pdp",
+      "message": "curio run --layers=gui,pdp",
+      "placeholder": null
+    },
+    {
+      "id": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+      "translation": "PDP 작업을 위해 FIL/tFIL을 0x 지갑 주소로 보내야 합니다.",
+      "message": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+      "placeholder": null
+    },
+    {
+      "id": "Next steps:",
+      "translation": "다음 단계:",
+      "message": "Next steps:",
+      "placeholder": null
+    },
+    {
+      "id": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+      "translation": "1. 다음 명령으로 PDP 서비스를 테스트하세요: pdptool ping --service-url https://{Domain} --service-name public",
+      "message": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+      "placeholder": null
+    },
+    {
+      "id": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+      "translation": "1. 다음 명령으로 PDP 서비스를 테스트하세요: pdptool ping --service-url https://your-domain.com --service-name public",
+      "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+      "placeholder": null
+    },
+    {
+      "id": "2. Register your FWSS node",
+      "translation": "2. FWSS 노드 등록",
+      "message": "2. Register your FWSS node",
+      "placeholder": null
+    },
+    {
+      "id": "3. Explore FWSS & PDP tools at https://www.filecoin.services",
+      "translation": "3. https://www.filecoin.services 에서 FWSS 및 PDP 도구 탐색",
+      "message": "3. Explore FWSS & PDP tools at https://www.filecoin.services",
+      "placeholder": null
+    },
+    {
+      "id": "4. Join the community: Filecoin Slack #fil-pdp",
+      "translation": "4. 커뮤니티에 참여하세요: Filecoin Slack #fil-pdp",
+      "message": "4. Join the community: Filecoin Slack #fil-pdp",
+      "placeholder": null
+    },
+    {
+      "id": "Private key cannot be empty",
+      "translation": "개인 키는 비워 둘 수 없습니다",
+      "message": "Private key cannot be empty",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to decode private key: {Error}",
+      "translation": "개인 키 디코딩 실패: {Error}",
+      "message": "Failed to decode private key: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Invalid private key: {Error}",
+      "translation": "잘못된 개인 키: {Error}",
+      "message": "Invalid private key: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to import PDP key: {Error}",
+      "translation": "PDP 키 가져오기 실패: {Error}",
+      "message": "Failed to import PDP key: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP wallet imported successfully!",
+      "translation": "PDP 지갑이 성공적으로 가져와졌습니다!",
+      "message": "PDP wallet imported successfully!",
+      "placeholder": null
+    },
+    {
+      "id": "Ethereum address (0x): {Address}",
+      "translation": "이더리움 주소 (0x): {Address}",
+      "message": "Ethereum address (0x): {Address}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP wallet imported",
+      "translation": "PDP 지갑이 가져와졌습니다",
+      "message": "PDP wallet imported",
       "placeholder": null
     }
   ]

@@ -989,9 +989,9 @@
       "placeholder": null
     },
     {
-      "id": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster \u003c miner ID \u003e' to finish the configuration.",
-      "translation": "该过程部分幂等。一旦创建了新的矿工角色，并且随后的步骤失败，用户需要运行 'curio config new-cluster \u003c 矿工 ID \u003e' 来完成配置。",
-      "message": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster \u003c miner ID \u003e' to finish the configuration.",
+      "id": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.",
+      "translation": "该过程部分幂等。一旦创建了新的矿工角色，并且随后的步骤失败，用户需要运行 'curio config new-cluster < 矿工 ID >' 来完成配置。",
+      "message": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.",
       "placeholder": null
     },
     {
@@ -1487,9 +1487,9 @@
       "placeholder": null
     },
     {
-      "id": "\u003csector\u003e",
-      "translation": "\u003c扇区\u003e",
-      "message": "\u003csector\u003e",
+      "id": "<sector>",
+      "translation": "<扇区>",
+      "message": "<sector>",
       "placeholder": null
     },
     {
@@ -1925,9 +1925,9 @@
       "placeholder": null
     },
     {
-      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
-      "translation": "为特定扇区设置目标解封状态。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号\n   \u003ctarget-state\u003e: 目标状态（true、false 或 none）\n\n   解封目标状态表示 Curio 应如何维护扇区的未密封副本。\n\t   如果目标状态为 true，Curio 将确保扇区未密封。\n\t   如果目标状态为 false，Curio 将确保扇区没有未密封副本。\n\t   如果目标状态为 none，Curio 将不会更改扇区的当前状态。\n\n   当前，Curio 仅在目标状态从其他状态更改为 true 时启动新的解封进程。\n\n   当目标状态为 false 且存在未密封的扇区文件时，GC 标记步骤将为未密封的扇区文件创建一个删除标记。文件将在删除标记被接受后才会被移除。",
-      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "id": "Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "为特定扇区设置目标解封状态。\n   <miner-id>: 存储提供者 ID\n   <sector-number>: 扇区号\n   <target-state>: 目标状态（true、false 或 none）\n\n   解封目标状态表示 Curio 应如何维护扇区的未密封副本。\n\t   如果目标状态为 true，Curio 将确保扇区未密封。\n\t   如果目标状态为 false，Curio 将确保扇区没有未密封副本。\n\t   如果目标状态为 none，Curio 将不会更改扇区的当前状态。\n\n   当前，Curio 仅在目标状态从其他状态更改为 true 时启动新的解封进程。\n\n   当目标状态为 false 且存在未密封的扇区文件时，GC 标记步骤将为未密封的扇区文件创建一个删除标记。文件将在删除标记被接受后才会被移除。",
+      "message": "Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
       "placeholder": null
     },
     {
@@ -1937,9 +1937,9 @@
       "placeholder": null
     },
     {
-      "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
-      "translation": "为特定扇区创建检查任务，等待其完成并输出结果。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号",
-      "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+      "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number",
+      "translation": "为特定扇区创建检查任务，等待其完成并输出结果。\n   <miner-id>: 存储提供者 ID\n   <sector-number>: 扇区号",
+      "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number",
       "placeholder": null
     },
     {
@@ -2456,6 +2456,450 @@
       "id": "32 GiB (recommended for mainnet)",
       "translation": "32 GiB（主网推荐）",
       "message": "32 GiB (recommended for mainnet)",
+      "placeholder": null
+    },
+    {
+      "id": "Optional setup steps (you can skip these and configure later):",
+      "translation": "可选的设置步骤（可以跳过并稍后配置）：",
+      "message": "Optional setup steps (you can skip these and configure later):",
+      "placeholder": null
+    },
+    {
+      "id": "Skip optional steps",
+      "translation": "跳过可选步骤",
+      "message": "Skip optional steps",
+      "placeholder": null
+    },
+    {
+      "id": "Storage",
+      "translation": "存储",
+      "message": "Storage",
+      "placeholder": null
+    },
+    {
+      "id": "PDP",
+      "translation": "PDP",
+      "message": "PDP",
+      "placeholder": null
+    },
+    {
+      "id": "Storage Configuration",
+      "translation": "存储配置",
+      "message": "Storage Configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Manage storage paths for this server.",
+      "translation": "管理此服务器的存储路径。",
+      "message": "Manage storage paths for this server.",
+      "placeholder": null
+    },
+    {
+      "id": "Error getting home directory: {Error}",
+      "translation": "获取主目录时出错：{Error}",
+      "message": "Error getting home directory: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Go Back",
+      "translation": "返回",
+      "message": "Go Back",
+      "placeholder": null
+    },
+    {
+      "id": "Add new storage path",
+      "translation": "添加新的存储路径",
+      "message": "Add new storage path",
+      "placeholder": null
+    },
+    {
+      "id": "Delete {P}",
+      "translation": "删除 {P}",
+      "message": "Delete {P}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage paths for this server:",
+      "translation": "此服务器的存储路径：",
+      "message": "Storage paths for this server:",
+      "placeholder": null
+    },
+    {
+      "id": "Enter storage path to add",
+      "translation": "输入要添加的存储路径",
+      "message": "Enter storage path to add",
+      "placeholder": null
+    },
+    {
+      "id": "No path provided",
+      "translation": "未提供路径",
+      "message": "No path provided",
+      "placeholder": null
+    },
+    {
+      "id": "Path already exists",
+      "translation": "路径已存在",
+      "message": "Path already exists",
+      "placeholder": null
+    },
+    {
+      "id": "Storage type for {ExpandedPath}",
+      "translation": "{ExpandedPath} 的存储类型",
+      "message": "Storage type for {ExpandedPath}",
+      "placeholder": null
+    },
+    {
+      "id": "Seal (fast storage for sealing operations)",
+      "translation": "Seal（用于封装操作的高速存储）",
+      "message": "Seal (fast storage for sealing operations)",
+      "placeholder": null
+    },
+    {
+      "id": "Store (long-term storage for sealed sectors)",
+      "translation": "Store（用于封装扇区的长期存储）",
+      "message": "Store (long-term storage for sealed sectors)",
+      "placeholder": null
+    },
+    {
+      "id": "Both (seal and store)",
+      "translation": "Both（封装和存储）",
+      "message": "Both (seal and store)",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing storage.json: {Error}",
+      "translation": "写入 storage.json 时出错：{Error}",
+      "message": "Error writing storage.json: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+      "translation": "存储路径 {ExpandedPath} 已添加为 {StorageTypeStr}。需要使用以下命令进行初始化：curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+      "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr_1} {ExpandedPath_1}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path added",
+      "translation": "已添加存储路径",
+      "message": "Storage path added",
+      "placeholder": null
+    },
+    {
+      "id": "Really delete {PathToDelete}?",
+      "translation": "确定要删除 {PathToDelete} 吗？",
+      "message": "Really delete {PathToDelete}?",
+      "placeholder": null
+    },
+    {
+      "id": "Yes, delete it",
+      "translation": "是，删除",
+      "message": "Yes, delete it",
+      "placeholder": null
+    },
+    {
+      "id": "No, keep it",
+      "translation": "否，保留",
+      "message": "No, keep it",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {PathToDelete} removed from configuration",
+      "translation": "存储路径 {PathToDelete} 已从配置中移除",
+      "message": "Storage path {PathToDelete} removed from configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path deleted",
+      "translation": "存储路径已删除",
+      "message": "Storage path deleted",
+      "placeholder": null
+    },
+    {
+      "id": "PDP (Proof of Data Possession) Configuration",
+      "translation": "PDP（数据持有证明）配置",
+      "message": "PDP (Proof of Data Possession) Configuration",
+      "placeholder": null
+    },
+    {
+      "id": "This will configure PDP settings for your Curio cluster.",
+      "translation": "此操作将为您的 Curio 集群配置 PDP 设置。",
+      "message": "This will configure PDP settings for your Curio cluster.",
+      "placeholder": null
+    },
+    {
+      "id": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+      "translation": "详细文档请参阅：https://docs.curiostorage.org/experimental-features/enable-pdp",
+      "message": "For detailed documentation, see: https://docs.curiostorage.org/experimental-features/enable-pdp",
+      "placeholder": null
+    },
+    {
+      "id": "PDP layer already exists. What would you like to do?",
+      "translation": "PDP 层已存在。您希望如何操作？",
+      "message": "PDP layer already exists. What would you like to do?",
+      "placeholder": null
+    },
+    {
+      "id": "Reconfigure PDP",
+      "translation": "重新配置 PDP",
+      "message": "Reconfigure PDP",
+      "placeholder": null
+    },
+    {
+      "id": "Skip PDP setup",
+      "translation": "跳过 PDP 设置",
+      "message": "Skip PDP setup",
+      "placeholder": null
+    },
+    {
+      "id": "Creating PDP configuration layer...",
+      "translation": "正在创建 PDP 配置层...",
+      "message": "Creating PDP configuration layer...",
+      "placeholder": null
+    },
+    {
+      "id": "Error loading existing PDP config: {Error}",
+      "translation": "加载现有 PDP 配置时出错：{Error}",
+      "message": "Error loading existing PDP config: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Configuring HTTP settings for PDP...",
+      "translation": "正在配置 PDP 的 HTTP 设置...",
+      "message": "Configuring HTTP settings for PDP...",
+      "placeholder": null
+    },
+    {
+      "id": "Enter your domain name (e.g., market.mydomain.com)",
+      "translation": "请输入您的域名（例如：market.mydomain.com）",
+      "message": "Enter your domain name (e.g., market.mydomain.com)",
+      "placeholder": null
+    },
+    {
+      "id": "No domain provided, skipping HTTP configuration",
+      "translation": "未提供域名，跳过 HTTP 配置",
+      "message": "No domain provided, skipping HTTP configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Listen address for HTTP server",
+      "translation": "HTTP 服务器监听地址",
+      "message": "Listen address for HTTP server",
+      "placeholder": null
+    },
+    {
+      "id": "Error generating PDP config: {Error}",
+      "translation": "生成 PDP 配置时出错：{Error}",
+      "message": "Error generating PDP config: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Error saving PDP config: {Error}",
+      "translation": "保存 PDP 配置时出错：{Error}",
+      "message": "Error saving PDP config: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP configuration layer created",
+      "translation": "已创建 PDP 配置层",
+      "message": "PDP configuration layer created",
+      "placeholder": null
+    },
+    {
+      "id": "Setting up PDP wallet...",
+      "translation": "正在设置 PDP 钱包...",
+      "message": "Setting up PDP wallet...",
+      "placeholder": null
+    },
+    {
+      "id": "You need a delegated Filecoin wallet address to use with PDP.",
+      "translation": "使用 PDP 需要一个委托的 Filecoin 钱包地址。",
+      "message": "You need a delegated Filecoin wallet address to use with PDP.",
+      "placeholder": null
+    },
+    {
+      "id": "Use existing key, ending in {AddressSuffix}",
+      "translation": "使用现有密钥（以 {AddressSuffix} 结尾）",
+      "message": "Use existing key, ending in {AddressSuffix}",
+      "placeholder": null
+    },
+    {
+      "id": "Import delegated wallet private key",
+      "translation": "导入委托钱包私钥",
+      "message": "Import delegated wallet private key",
+      "placeholder": null
+    },
+    {
+      "id": "Skip wallet setup for now",
+      "translation": "暂时跳过钱包设置",
+      "message": "Skip wallet setup for now",
+      "placeholder": null
+    },
+    {
+      "id": "How would you like to proceed?",
+      "translation": "您希望如何继续？",
+      "message": "How would you like to proceed?",
+      "placeholder": null
+    },
+    {
+      "id": "You can set up the wallet later using the Curio GUI or CLI",
+      "translation": "您可以稍后通过 Curio GUI 或 CLI 设置钱包",
+      "message": "You can set up the wallet later using the Curio GUI or CLI",
+      "placeholder": null
+    },
+    {
+      "id": "Using existing PDP wallet key: {ExistingKeyAddress}",
+      "translation": "使用现有的 PDP 钱包密钥：{ExistingKeyAddress}",
+      "message": "Using existing PDP wallet key: {ExistingKeyAddress}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP wallet configured",
+      "translation": "PDP 钱包已配置",
+      "message": "PDP wallet configured",
+      "placeholder": null
+    },
+    {
+      "id": "You can create a new delegated wallet using Lotus:",
+      "translation": "您可以使用 Lotus 创建新的委托钱包：",
+      "message": "You can create a new delegated wallet using Lotus:",
+      "placeholder": null
+    },
+    {
+      "id": "lotus wallet new delegated",
+      "translation": "lotus wallet new delegated",
+      "message": "lotus wallet new delegated",
+      "placeholder": null
+    },
+    {
+      "id": "Then export its private key with:",
+      "translation": "然后使用以下命令导出其私钥：",
+      "message": "Then export its private key with:",
+      "placeholder": null
+    },
+    {
+      "id": "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+      "translation": "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+      "message": "lotus wallet export <address> | xxd -r -p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32",
+      "placeholder": null
+    },
+    {
+      "id": "Enter your delegated wallet private key (hex format):",
+      "translation": "请输入您的委托钱包私钥（十六进制格式）：",
+      "message": "Enter your delegated wallet private key (hex format):",
+      "placeholder": null
+    },
+    {
+      "id": "Private key",
+      "translation": "私钥",
+      "message": "Private key",
+      "placeholder": null
+    },
+    {
+      "id": "No private key provided",
+      "translation": "未提供私钥",
+      "message": "No private key provided",
+      "placeholder": null
+    },
+    {
+      "id": "PDP setup complete!",
+      "translation": "PDP 设置完成！",
+      "message": "PDP setup complete!",
+      "placeholder": null
+    },
+    {
+      "id": "To start Curio with PDP enabled, run:",
+      "translation": "要启用 PDP 并启动 Curio，请运行：",
+      "message": "To start Curio with PDP enabled, run:",
+      "placeholder": null
+    },
+    {
+      "id": "curio run --layers=gui,pdp",
+      "translation": "curio run --layers=gui,pdp",
+      "message": "curio run --layers=gui,pdp",
+      "placeholder": null
+    },
+    {
+      "id": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+      "translation": "请确保将 FIL/tFIL 发送至您的 0x 钱包地址以进行 PDP 操作。",
+      "message": "Make sure to send FIL/tFIL to your 0x wallet address for PDP operations.",
+      "placeholder": null
+    },
+    {
+      "id": "Next steps:",
+      "translation": "下一步：",
+      "message": "Next steps:",
+      "placeholder": null
+    },
+    {
+      "id": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+      "translation": "1. 使用以下命令测试您的 PDP 服务：pdptool ping --service-url https://{Domain} --service-name public",
+      "message": "1. Test your PDP service with: pdptool ping --service-url https://{Domain} --service-name public",
+      "placeholder": null
+    },
+    {
+      "id": "2. Register your FWSS node",
+      "translation": "2. 注册您的 FWSS 节点",
+      "message": "2. Register your FWSS node",
+      "placeholder": null
+    },
+    {
+      "id": "3. Explore FWSS & PDP tools at https://www.filecoin.services",
+      "translation": "3. 在 https://www.filecoin.services 浏览 FWSS 和 PDP 工具",
+      "message": "3. Explore FWSS & PDP tools at https://www.filecoin.services",
+      "placeholder": null
+    },
+    {
+      "id": "4. Join the community: Filecoin Slack #fil-pdp",
+      "translation": "4. 加入社区：Filecoin Slack #fil-pdp",
+      "message": "4. Join the community: Filecoin Slack #fil-pdp",
+      "placeholder": null
+    },
+    {
+      "id": "Private key cannot be empty",
+      "translation": "私钥不能为空",
+      "message": "Private key cannot be empty",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to decode private key: {Error}",
+      "translation": "私钥解码失败：{Error}",
+      "message": "Failed to decode private key: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Invalid private key: {Error}",
+      "translation": "无效的私钥：{Error}",
+      "message": "Invalid private key: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to import PDP key: {Error}",
+      "translation": "导入 PDP 密钥失败：{Error}",
+      "message": "Failed to import PDP key: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP wallet imported successfully!",
+      "translation": "成功导入 PDP 钱包！",
+      "message": "PDP wallet imported successfully!",
+      "placeholder": null
+    },
+    {
+      "id": "Ethereum address (0x): {Address}",
+      "translation": "以太坊地址 (0x)：{Address}",
+      "message": "Ethereum address (0x): {Address}",
+      "placeholder": null
+    },
+    {
+      "id": "PDP wallet imported",
+      "translation": "PDP 钱包已导入",
+      "message": "PDP wallet imported",
+      "placeholder": null
+    },
+    {
+      "id": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
+      "translation": "1. 使用以下命令测试您的 PDP 服务：pdptool ping --service-url https://your-domain.com --service-name public",
+      "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
       "placeholder": null
     }
   ]
