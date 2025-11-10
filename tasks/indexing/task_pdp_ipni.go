@@ -16,10 +16,14 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-varint"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -28,7 +32,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -79,6 +82,10 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 											task_id = $1;`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		return true, nil
 	}
 
 	if len(tasks) != 1 {
@@ -235,10 +242,12 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	pcid2 := pinfo.PieceCID
 
-	pi, err := commcidv2.CommPFromPCidV2(pcid2)
+	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(pcid2)
 	if err != nil {
-		return false, xerrors.Errorf("getting piece info from piece cid: %w", err)
+		return false, xerrors.Errorf("getting piece cid v1 from piece cid v2: %w", err)
 	}
+
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	var lnk ipld.Link
 
@@ -263,7 +272,11 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		eg.Go(func() error {
 			defer close(addFail)
 			for rec := range recs {
-				serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), rec.Size)
+				// CAR sections are [varint (length), CID, blockData]
+				combinedSize := rec.Size + uint64(rec.Cid.ByteLen())
+				lenSize := uint64(varint.UvarintSize(combinedSize))
+				sectionSize := combinedSize + lenSize
+				serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), sectionSize)
 				if serr != nil {
 					addFail <- struct{}{}
 					return serr
@@ -303,7 +316,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				if !found {
 					return false, xerrors.Errorf("no sub pieces for aggregate mk20 deal")
 				}
-				_, _, interrupted, err = IndexAggregate(pcid2, reader, pi.PieceInfo().Size, subPieces, recs, addFail)
+				_, _, interrupted, err = IndexAggregate(pcid2, reader, size, subPieces, recs, addFail)
 			} else {
 				return false, xerrors.Errorf("invalid aggregate type")
 			}
@@ -337,7 +350,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	} else {
 		chk := chunker.NewInitialChunker()
-		err = chk.Accept(pcid2.Hash(), 0, uint64(pi.PieceInfo().Size))
+		err = chk.Accept(pcid2.Hash(), 0, uint64(size))
 		if err != nil {
 			return false, xerrors.Errorf("adding index to chunk: %w", err)
 		}
@@ -446,7 +459,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pi.PieceInfo().PieceCID.String(), pi.PieceInfo().Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pieceCid.String(), size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
 		if err != nil {

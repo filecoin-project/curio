@@ -85,7 +85,7 @@ type PieceIngester struct {
 	addToID              map[address.Address]int64
 	idToAddr             map[abi.ActorID]address.Address
 	minerDetails         map[int64]*mdetails
-	maxWaitTime          time.Duration
+	maxWaitTime          *config.Dynamic[time.Duration]
 	expectedSealDuration abi.ChainEpoch
 }
 
@@ -190,7 +190,7 @@ func (p *PieceIngester) Seal() error {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
 		}
-		if time.Since(*sector.openedAt) > p.maxWaitTime {
+		if time.Since(*sector.openedAt) > p.maxWaitTime.Get() {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
@@ -254,6 +254,11 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		psize = piece.DealProposal.PieceSize
 	}
 
+	// check raw size
+	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() {
+		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
+	}
+
 	var propJson []byte
 
 	dataHdrJson, err := json.Marshal(header)
@@ -308,11 +313,6 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 	mid, ok := p.addToID[maddr]
 	if !ok {
 		return nil, nil, xerrors.Errorf("miner not found")
-	}
-
-	// Reject incorrect sized online deals except verified deal less than 1 MiB because verified deals can be 1 MiB minimum even if rawSize is much lower
-	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() && (!vd.isVerified || psize > abi.PaddedPieceSize(1<<20)) {
-		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
 	// Try to allocate the piece to an open sector

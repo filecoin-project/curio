@@ -1268,7 +1268,7 @@ const zhData string = "" + // Size: 17061 bytes
 	"rio 上运行来测试窗口后调度器。如果所有重试都失败，则需要按 ctrl+c 退出。\x04\x00\x01 \x22\x02计算 Window" +
 	"PoSt 的截止日期\x02用于计算 WindowPoSt 的存储提供者 ID\x02计算 WindowPoSt 以进行性能和配置测试。\x02" +
 	"注意：此命令旨在用于验证 PoSt 计算性能。\x0a它不会向链发送任何消息。由于它可以计算任何截止日期，输出的时间可能与链不符。\x02[" +
-	"截止日期索引]\x02计算 WindowPoSt 的分区\x02计算 WindowPoSt 基本证明并进行验证。\x02调试工具集合\x02" +
+	"截止日期索引]\x02计算 WindowPoSt 的分区\x02计算 WindowPoSt 基础证明并进行验证。\x02调试工具集合\x02" +
 	"Curio 工具箱\x02已使用链节点中缺失的消息数据更新数据库\x02更新等待队列中的消息数据\x02在 Filecoin 服务注册合约中注册" +
 	" PDP 服务提供商\x02服务提供商名称\x02服务提供商描述\x02服务提供商的 URL\x02最小分片大小\x02最大分片大小\x02支持" +
 	" IPNI 分片 CID 索引\x02支持 IPNI IPFS CID 索引\x02每 TiB 每月的存储价格（USDFC 计价），默认值为 1" +
@@ -1348,4 +1348,4 @@ const zhData string = "" + // Size: 17061 bytes
 	".toml。\x04\x00\x01 \x15\x02层%[1]s已创建。\x04\x00\x01 \x13\x02要使用配置：\x02运行Cu" +
 	"rio：使用机器或cgroup隔离，使用命令（附带示例层选择）："
 
-	// Total table size 63077 bytes (61KiB); checksum: C15E9402
+	// Total table size 63077 bytes (61KiB); checksum: FE9D23AC

@@ -14,12 +14,12 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -131,7 +131,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 	var have, missing int64
 
 	for p, cents := range toCheck {
-		pieceCid, err := commcidv2.PieceCidV2FromV1(p.PieceCID, uint64(cents[0].RawSize))
+		pieceCid, err := commcid.PieceCidV2FromV1(p.PieceCID, uint64(cents[0].RawSize))
 		if err != nil {
 			return xerrors.Errorf("getting piece commP: %w", err)
 		}
@@ -154,11 +154,6 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 		}
 
 		if hasEnt {
-			err = c.indexStore.UpdatePieceCidV1ToV2(ctx, p.PieceCID, pieceCid)
-			if err != nil {
-				return xerrors.Errorf("updating piece cid v1 to v2: %w", err)
-			}
-			log.Infow("piece cid v1 to v2 updated", "piece", p.PieceCID, "task", taskID)
 			have++
 			continue
 		}

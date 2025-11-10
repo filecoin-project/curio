@@ -547,7 +547,7 @@ func stepNewMinerConfig(d *MigrationData) {
 
 	// Only add miner address for SP setup
 	if !d.nonSP {
-		curioCfg.Addresses = append(curioCfg.Addresses, config.CurioAddresses{
+		curioCfg.Addresses.Set([]config.CurioAddresses{{
 			PreCommitControl:      []string{},
 			CommitControl:         []string{},
 			DealPublishControl:    []string{},
@@ -556,7 +556,7 @@ func stepNewMinerConfig(d *MigrationData) {
 			DisableWorkerFallback: false,
 			MinerAddresses:        []string{d.MinerID.String()},
 			BalanceManager:        config.DefaultBalanceManager(),
-		})
+		}})
 	}
 
 	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
@@ -612,9 +612,9 @@ func stepNewMinerConfig(d *MigrationData) {
 	// If 'base' layer is not present
 	if !lo.Contains(titles, "base") {
 		if !d.nonSP {
-			curioCfg.Addresses = lo.Filter(curioCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
+			curioCfg.Addresses.Set(lo.Filter(curioCfg.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
 				return len(a.MinerAddresses) > 0
-			})
+			}))
 		}
 		cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 		if err != nil {
@@ -669,10 +669,10 @@ func stepNewMinerConfig(d *MigrationData) {
 		os.Exit(1)
 	}
 
-	baseCfg.Addresses = append(baseCfg.Addresses, curioCfg.Addresses...)
-	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
+	baseCfg.Addresses.Set(append(baseCfg.Addresses.Get(), curioCfg.Addresses.Get()...))
+	baseCfg.Addresses.Set(lo.Filter(baseCfg.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
 		return len(a.MinerAddresses) > 0
-	})
+	}))
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	if err != nil {

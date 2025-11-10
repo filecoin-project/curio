@@ -416,7 +416,7 @@ func (a *WebRPC) DefaultFilterBehaviour(ctx context.Context) (*DefaultFilterBeha
 	var cfgminers []address.Address
 	var cgminer []address.Address
 
-	lo.ForEach(lo.Keys(a.deps.Maddrs), func(item dtypes.MinerAddress, _ int) {
+	lo.ForEach(lo.Keys(a.deps.Maddrs.Get()), func(item dtypes.MinerAddress, _ int) {
 		cfgminers = append(cfgminers, address.Address(item))
 	})
 

@@ -3336,7 +3336,7 @@
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 2,
-                    "expr": "\"mig-\" + curioCfg.Addresses[0].MinerAddresses[0]"
+                    "expr": "\"mig-\" + curioCfg.Addresses.Get()[0].MinerAddresses[0]"
                 }
             ],
             "fuzzy": true
