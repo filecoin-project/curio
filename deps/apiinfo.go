@@ -421,6 +421,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.Et
 			httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 		}
 
+		var clients []*ethclient.Client
 		for _, head := range httpHeads {
 			if cliutil.IsVeryVerbose {
 				_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
@@ -446,10 +447,15 @@ func GetEthClient(cctx *cli.Context, ainfoCfg *config.Dynamic[[]string]) (api.Et
 				log.Warnf("failed to get eth block number: %s", err)
 				continue
 			}
-			ethClientDynamic.Set([]*ethclient.Client{client})
-			return nil
+			clients = append(clients, client)
 		}
-		return errors.New("failed to establish connection with all nodes")
+
+		if len(clients) == 0 {
+			return errors.New("failed to establish connection with all nodes")
+		}
+
+		ethClientDynamic.Set(clients)
+		return nil
 	}
 	if err := updateDynamic(); err != nil {
 		return nil, err
