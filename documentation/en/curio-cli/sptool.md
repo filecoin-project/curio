@@ -601,7 +601,8 @@ OPTIONS:
    --storage-price value                          storage price in attoFIL per epoch per GiB (default: 1)
    --verified                                     whether the deal funds should come from verified client data-cap (default: false)
    --remove-unsealed-copy                         indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
-   --wallet value                                 wallet address to be used to initiate the deal
+   --wallet value                                 wallet address to be used to sign the deal
+   --client-address value                         address to be used to initiate the deal; if empty, the signing wallet will be used
    --skip-ipni-announce                           indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
    --http                                         make the deal over HTTP instead of libp2p (default: false)
    --help, -h                                     show help
@@ -643,7 +644,8 @@ OPTIONS:
    --storage-price value            storage price in attoFIL per epoch per GiB (default: 1)
    --verified                       whether the deal funds should come from verified client data-cap (default: false)
    --remove-unsealed-copy           indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
-   --wallet value                   wallet address to be used to initiate the deal
+   --wallet value                   wallet address to be used to sign the deal
+   --client-address value           address to be used to initiate the deal; if empty, the signing wallet will be used
    --skip-ipni-announce             indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
    --http                           make the deal over HTTP instead of libp2p (default: false)
    --help, -h                       show help
