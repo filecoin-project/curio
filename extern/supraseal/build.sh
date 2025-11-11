@@ -78,8 +78,8 @@ fi
 
 # Install Python build tools in the virtual environment
 echo "Installing Python build tools in virtual environment..."
-pip install --upgrade pip
-pip install meson ninja pyelftools
+"$VENV_DIR/bin/python" -m pip install --upgrade pip
+"$VENV_DIR/bin/python" -m pip install meson ninja pyelftools
 
 # Ensure venv is in PATH for subprocesses
 export PATH="$VENV_DIR/bin:$PATH"
@@ -142,6 +142,12 @@ CUDA_ARCH="-arch=sm_80 -gencode arch=compute_80,code=sm_80 -gencode arch=compute
 CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
         awk '{ if($2=="__cplusplus" && $3<"2017") print "-std=c++17"; }'`
 
+# Always include -std=c++17 for NVCC compatibility, even if compiler defaults to C++17
+# NVCC requires explicit C++17 flag for proper handling of __constant__ variables
+if [ -z "$CXXSTD" ]; then
+    CXXSTD="-std=c++17"
+fi
+
 INCLUDE="-I$SPDK/include -I$SPDK/isa-l/.. -I$SPDK/dpdk/build/include"
 CFLAGS="$SECTOR_SIZE $INCLUDE -g -O2"
 CXXFLAGS="$CFLAGS -march=native $CXXSTD \
@@ -151,6 +157,13 @@ CXXFLAGS="$CFLAGS -march=native $CXXSTD \
           -DSPDK_GIT_COMMIT=4be6d3043 -pthread \
           -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-missing-field-initializers \
           -Wformat -Wformat-security"
+
+# Export CXXFLAGS so it's available to child processes (e.g., cargo build scripts)
+# This ensures C++17 semantics are passed to NVCC when building Rust crates
+export CXXFLAGS
+
+# Export NVCC so it's available to cargo build scripts
+export NVCC
 
 LDFLAGS="-fno-omit-frame-pointer -Wl,-z,relro,-z,now -Wl,-z,noexecstack -fuse-ld=bfd\
          -L$SPDK/build/lib \

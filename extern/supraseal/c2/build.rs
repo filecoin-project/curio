@@ -21,6 +21,8 @@ fn groth16_cuda() {
     }
     nvcc.flag("-Xcompiler").flag("-Wno-subobject-linkage");
     nvcc.flag("-Xcompiler").flag("-Wno-unused-function");
+    // Explicitly set C++17 standard for NVCC to handle __constant__ variables properly
+    nvcc.flag("-std=c++17");
 
     nvcc.file("cuda/groth16_cuda.cu").compile("groth16_cuda");
 
