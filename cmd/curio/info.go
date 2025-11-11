@@ -26,17 +26,35 @@ var infoCmd = &cli.Command{
 		}
 		fmt.Printf("Node Info:\n")
 		fmt.Printf("ID: %d\n", info.ID)
-		fmt.Printf("Name: %s\n", info.Name)
+		if info.Name.Valid {
+			fmt.Printf("Name: %s\n", info.Name.String)
+		}
 		fmt.Printf("CPU: %d\n", info.CPU)
 		fmt.Printf("RAM: %s\n", humanize.Bytes(uint64(info.RAM)))
 		fmt.Printf("GPU: %.2f\n", info.GPU)
 		fmt.Printf("Schedulable: %t\n", !info.Unschedulable)
 		fmt.Printf("HostPort: %s\n", info.HostPort)
-		fmt.Printf("Tasks: %s\n", info.Tasks)
-		fmt.Printf("Layers: %s\n", info.Layers)
-		fmt.Printf("Miners: %s\n", info.Miners)
+		if info.Tasks.Valid {
+			fmt.Printf("Tasks: %s\n", info.Tasks.String)
+		} else {
+			fmt.Printf("Tasks: None\n")
+		}
+		if info.Layers.Valid {
+			fmt.Printf("Layers: %s\n", info.Layers.String)
+		} else {
+			fmt.Printf("Layers: None\n")
+		}
+		if info.Miners.Valid {
+			fmt.Printf("Miners: %s\n", info.Miners.String)
+		} else {
+			fmt.Printf("Miners: None\n")
+		}
 		fmt.Printf("LastContact: %s\n", info.LastContact)
-		fmt.Printf("StartupTime: %s\n", info.StartupTime)
+		if info.StartupTime.Valid {
+			fmt.Printf("StartupTime: %s\n", info.StartupTime.Time)
+		} else {
+			fmt.Printf("StartupTime: N/A\n")
+		}
 		return nil
 	},
 }

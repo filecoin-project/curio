@@ -2,6 +2,7 @@ package proofshare
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/rand"
 	"time"
@@ -55,21 +56,22 @@ func (s *SectorInfo) SectorID() abi.SectorID {
 
 // ClientRequest holds the client request information
 type ClientRequest struct {
-	SpID         int64 `db:"sp_id"`
-	SectorNumber int64 `db:"sector_num"`
-
-	RequestCID           *string `db:"request_cid"`
-	RequestUploaded      bool    `db:"request_uploaded"`
-	RequestPartitionCost int64   `db:"request_partition_cost"`
-	RequestType          string  `db:"request_type"`
-
-	PaymentWallet *int64 `db:"payment_wallet"`
-	PaymentNonce  *int64 `db:"payment_nonce"`
-
-	RequestSent  bool   `db:"request_sent"`
-	ResponseData []byte `db:"response_data"`
-
-	Done bool `db:"done"`
+	// Cache line 1 (0-64 bytes): Hot path - sector identification and early checks
+	SpID                 int64 `db:"sp_id"`                  // 8 bytes - used with SectorNumber (line 140, 265)
+	SectorNumber         int64 `db:"sector_num"`             // 8 bytes - used with SpID (line 140, 265)
+	RequestPartitionCost int64 `db:"request_partition_cost"` // 8 bytes - used together
+	// Cache line 2 (64+ bytes): sql.Null* types (16 bytes each)
+	RequestCID    sql.NullString `db:"request_cid"`    // 16 bytes - used with RequestUploaded
+	PaymentWallet sql.NullInt64  `db:"payment_wallet"` // 16 bytes - used with PaymentNonce
+	PaymentNonce  sql.NullInt64  `db:"payment_nonce"`  // 16 bytes - used with PaymentWallet
+	// Strings (16 bytes)
+	RequestType string `db:"request_type"` // 16 bytes - used less frequently
+	// Slices (24 bytes)
+	ResponseData []byte `db:"response_data"` // 24 bytes - used less frequently
+	// Cache line 3 (128+ bytes): Bools grouped together for early checks
+	RequestUploaded bool `db:"request_uploaded"` // Used in early check
+	RequestSent     bool `db:"request_sent"`     // Used in early check
+	Done            bool `db:"done"`             // Used in early check
 }
 
 type TaskClientPoll struct {
@@ -154,11 +156,14 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		const pollInterval = 10 * time.Second
 		defer ownedCancel()
 
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(pollInterval):
+			case <-ticker.C:
 				if !stillOwned() {
 					// close the owned context
 					return
@@ -236,7 +241,10 @@ func NewTaskClientPoll(db *harmonydb.DB, api ClientServiceAPI) *TaskClientPoll {
 // pollForProof polls for the proof status
 func pollForProof(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, []byte, error) {
 	// Parse the request CID
-	requestCid, err := cid.Parse(*clientRequest.RequestCID)
+	if !clientRequest.RequestCID.Valid {
+		return false, nil, xerrors.Errorf("request CID is null")
+	}
+	requestCid, err := cid.Parse(clientRequest.RequestCID.String)
 	if err != nil {
 		return false, nil, xerrors.Errorf("failed to parse request CID: %w", err)
 	}

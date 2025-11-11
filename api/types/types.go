@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type NodeInfo struct {
 	ID            int
@@ -11,9 +14,9 @@ type NodeInfo struct {
 	LastContact   time.Time
 	Unschedulable bool
 
-	Name        string
-	StartupTime time.Time
-	Tasks       string
-	Layers      string
-	Miners      string
+	Name        sql.NullString // Can be NULL from harmony_machine_details
+	StartupTime sql.NullTime   // Can be NULL from harmony_machine_details
+	Tasks       sql.NullString // Can be NULL from harmony_machine_details
+	Layers      sql.NullString // Can be NULL from harmony_machine_details
+	Miners      sql.NullString // Can be NULL from harmony_machine_details
 }

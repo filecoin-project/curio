@@ -600,8 +600,8 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 	}
 
 	getOpenedAt := func(piece pieceDetails, cur *time.Time) *time.Time {
-		if piece.CreatedAt.Before(*cur) {
-			return piece.CreatedAt
+		if piece.CreatedAt.Time.Before(*cur) {
+			return &piece.CreatedAt.Time
 		}
 		return cur
 	}
@@ -617,7 +617,7 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
-				openedAt:           pi.CreatedAt,
+				openedAt:           &pi.CreatedAt.Time,
 				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
 				pieces: []pieceInfo{
 					{

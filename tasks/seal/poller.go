@@ -123,56 +123,45 @@ NOTE: TaskIDs are ONLY set while the tasks are executing or waiting to execute.
 */
 
 type pollTask struct {
-	SpID                int64                   `db:"sp_id"`
-	SectorNumber        int64                   `db:"sector_number"`
-	RegisteredSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
-
-	TicketEpoch *int64 `db:"ticket_epoch"`
-
-	TaskSDR  *int64 `db:"task_id_sdr"`
-	AfterSDR bool   `db:"after_sdr"`
-
-	TaskTreeD  *int64 `db:"task_id_tree_d"`
-	AfterTreeD bool   `db:"after_tree_d"`
-
-	TaskTreeC  *int64 `db:"task_id_tree_c"`
-	AfterTreeC bool   `db:"after_tree_c"`
-
-	TaskTreeR  *int64 `db:"task_id_tree_r"`
-	AfterTreeR bool   `db:"after_tree_r"`
-
-	TaskSynth  *int64 `db:"task_id_synth"`
-	AfterSynth bool   `db:"after_synth"`
-
-	PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
-
-	TaskPrecommitMsg  *int64 `db:"task_id_precommit_msg"`
-	AfterPrecommitMsg bool   `db:"after_precommit_msg"`
-
-	AfterPrecommitMsgSuccess bool   `db:"after_precommit_msg_success"`
-	SeedEpoch                *int64 `db:"seed_epoch"`
-
-	TaskPoRep  *int64 `db:"task_id_porep"`
-	PoRepProof []byte `db:"porep_proof"`
-	AfterPoRep bool   `db:"after_porep"`
-
-	TaskFinalize  *int64 `db:"task_id_finalize"`
-	AfterFinalize bool   `db:"after_finalize"`
-
-	TaskMoveStorage  *int64 `db:"task_id_move_storage"`
-	AfterMoveStorage bool   `db:"after_move_storage"`
-
-	CommitReadyAt *time.Time `db:"commit_ready_at"`
-
-	TaskCommitMsg  *int64 `db:"task_id_commit_msg"`
-	AfterCommitMsg bool   `db:"after_commit_msg"`
-
-	AfterCommitMsgSuccess bool `db:"after_commit_msg_success"`
-
-	Failed       bool   `db:"failed"`
-	FailedReason string `db:"failed_reason"`
-
-	StartEpoch sql.NullInt64 `db:"start_epoch"`
+	// Cache line 1 (bytes 0-64): Hot path - identification and early checks
+	SpID                int64                   `db:"sp_id"`          // 8 bytes (0-8) - used in all UPDATE statements
+	SectorNumber        int64                   `db:"sector_number"`  // 8 bytes (8-16) - used in all UPDATE statements
+	RegisteredSealProof abi.RegisteredSealProof `db:"reg_seal_proof"` // 8 bytes (16-24)
+	TaskSDR             sql.NullInt64           `db:"task_id_sdr"`    // 16 bytes (25-41, some padding)
+	TaskTreeD           sql.NullInt64           `db:"task_id_tree_d"` // 16 bytes (crosses into cache line 2)
+	Failed              bool                    `db:"failed"`         // 1 byte (24-25) - checked first in line 215 filter
+	AfterSDR            bool                    `db:"after_sdr"`      // 1 byte - checked with TaskSDR
+	AfterTreeD          bool                    `db:"after_tree_d"`   // 1 byte
+	// Cache line 2 (bytes 64-128): Tree stage task IDs (checked in sequence)
+	TaskTreeC   sql.NullInt64 `db:"task_id_tree_c"` // 16 bytes
+	TaskTreeR   sql.NullInt64 `db:"task_id_tree_r"` // 16 bytes
+	TaskSynth   sql.NullInt64 `db:"task_id_synth"`  // 16 bytes
+	TicketEpoch sql.NullInt64 `db:"ticket_epoch"`   // 16 bytes
+	AfterTreeC  bool          `db:"after_tree_c"`   // 1 byte
+	AfterTreeR  bool          `db:"after_tree_r"`   // 1 byte
+	AfterSynth  bool          `db:"after_synth"`    // 1 byte
+	// Cache line 3 (bytes 128-192): PreCommit and timing
+	TaskPrecommitMsg         sql.NullInt64 `db:"task_id_precommit_msg"`       // 16 bytes
+	AfterPrecommitMsg        bool          `db:"after_precommit_msg"`         // 1 byte
+	AfterPrecommitMsgSuccess bool          `db:"after_precommit_msg_success"` // 1 byte
+	SeedEpoch                sql.NullInt64 `db:"seed_epoch"`                  // 16 bytes
+	PreCommitReadyAt         sql.NullTime  `db:"precommit_ready_at"`          // 32 bytes (crosses into cache line 4)
+	// Cache line 4 (bytes 192-256): PoRep and Finalize stages
+	TaskPoRep     sql.NullInt64 `db:"task_id_porep"`    // 16 bytes
+	TaskFinalize  sql.NullInt64 `db:"task_id_finalize"` // 16 bytes
+	StartEpoch    sql.NullInt64 `db:"start_epoch"`      // 16 bytes
+	AfterPoRep    bool          `db:"after_porep"`      // 1 byte
+	AfterFinalize bool          `db:"after_finalize"`   // 1 byte
+	// Cache line 5 (bytes 256-320): Commit and storage stages
+	TaskMoveStorage       sql.NullInt64 `db:"task_id_move_storage"`     // 16 bytes
+	CommitReadyAt         sql.NullTime  `db:"commit_ready_at"`          // 32 bytes
+	TaskCommitMsg         sql.NullInt64 `db:"task_id_commit_msg"`       // 16 bytes
+	AfterMoveStorage      bool          `db:"after_move_storage"`       // 1 byte
+	AfterCommitMsg        bool          `db:"after_commit_msg"`         // 1 byte
+	AfterCommitMsgSuccess bool          `db:"after_commit_msg_success"` // 1 byte
+	// Larger fields at end
+	PoRepProof   []byte `db:"porep_proof"`   // 24 bytes - only used in specific stages
+	FailedReason string `db:"failed_reason"` // 16 bytes - only used when Failed=true
 }
 
 func (s *SealPoller) poll(ctx context.Context) error {
@@ -252,7 +241,7 @@ func (s *SealPoller) poll(ctx context.Context) error {
 }
 
 func (s *SealPoller) pollStartSDR(ctx context.Context, task pollTask) {
-	if !task.AfterSDR && task.TaskSDR == nil && s.pollers[pollerSDR].IsSet() {
+	if !task.AfterSDR && !task.TaskSDR.Valid && s.pollers[pollerSDR].IsSet() {
 		s.pollers[pollerSDR].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_sdr = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL`, id, task.SpID, task.SectorNumber)
 			if err != nil {
@@ -272,7 +261,7 @@ func (t pollTask) afterSDR() bool {
 }
 
 func (s *SealPoller) pollStartSDRTreeD(ctx context.Context, task pollTask) {
-	if !task.AfterTreeD && task.TaskTreeD == nil && s.pollers[pollerTreeD].IsSet() && task.afterSDR() {
+	if !task.AfterTreeD && !task.TaskTreeD.Valid && s.pollers[pollerTreeD].IsSet() && task.afterSDR() {
 		s.pollers[pollerTreeD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_tree_d = $1 WHERE sp_id = $2 AND sector_number = $3 AND after_sdr = TRUE AND task_id_tree_d IS NULL`, id, task.SpID, task.SectorNumber)
 			if err != nil {
@@ -292,7 +281,7 @@ func (t pollTask) afterTreeD() bool {
 }
 
 func (s *SealPoller) pollStartSDRTreeRC(ctx context.Context, task pollTask) {
-	if !task.AfterTreeC && !task.AfterTreeR && task.TaskTreeC == nil && task.TaskTreeR == nil && s.pollers[pollerTreeRC].IsSet() && task.afterTreeD() {
+	if !task.AfterTreeC && !task.AfterTreeR && !task.TaskTreeC.Valid && !task.TaskTreeR.Valid && s.pollers[pollerTreeRC].IsSet() && task.afterTreeD() {
 		s.pollers[pollerTreeRC].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_tree_c = $1, task_id_tree_r = $1
                             WHERE sp_id = $2 AND sector_number = $3 AND after_tree_d = TRUE AND task_id_tree_c IS NULL AND task_id_tree_r IS NULL`, id, task.SpID, task.SectorNumber)
@@ -313,7 +302,7 @@ func (t pollTask) afterTreeRC() bool {
 }
 
 func (s *SealPoller) pollStartSynth(ctx context.Context, task pollTask) {
-	if !task.AfterSynth && task.TaskSynth == nil && s.pollers[pollerSyntheticProofs].IsSet() && task.AfterTreeR && task.afterTreeRC() {
+	if !task.AfterSynth && !task.TaskSynth.Valid && s.pollers[pollerSyntheticProofs].IsSet() && task.AfterTreeR && task.afterTreeRC() {
 		s.pollers[pollerSyntheticProofs].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_synth = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_synth IS NULL`, id, task.SpID, task.SectorNumber)
 			if err != nil {
@@ -341,9 +330,9 @@ func (t pollTask) afterPrecommitMsgSuccess() bool {
 }
 
 func (s *SealPoller) pollStartPoRep(ctx context.Context, task pollTask, ts *types.TipSet) {
-	if s.pollers[pollerPoRep].IsSet() && task.afterPrecommitMsgSuccess() && task.SeedEpoch != nil &&
-		task.TaskPoRep == nil && !task.AfterPoRep &&
-		ts.Height() >= abi.ChainEpoch(*task.SeedEpoch+seedEpochConfidence) {
+	if s.pollers[pollerPoRep].IsSet() && task.afterPrecommitMsgSuccess() && task.SeedEpoch.Valid &&
+		!task.TaskPoRep.Valid && !task.AfterPoRep &&
+		ts.Height() >= abi.ChainEpoch(task.SeedEpoch.Int64+seedEpochConfidence) {
 
 		s.pollers[pollerPoRep].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_porep = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_porep IS NULL`, id, task.SpID, task.SectorNumber)
@@ -364,7 +353,7 @@ func (t pollTask) afterPoRep() bool {
 }
 
 func (s *SealPoller) pollStartFinalize(ctx context.Context, task pollTask, ts *types.TipSet) {
-	if s.pollers[pollerFinalize].IsSet() && task.afterPoRep() && !task.AfterFinalize && task.TaskFinalize == nil {
+	if s.pollers[pollerFinalize].IsSet() && task.afterPoRep() && !task.AfterFinalize && !task.TaskFinalize.Valid {
 		s.pollers[pollerFinalize].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_finalize = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_finalize IS NULL`, id, task.SpID, task.SectorNumber)
 			if err != nil {
@@ -384,7 +373,7 @@ func (t pollTask) afterFinalize() bool {
 }
 
 func (s *SealPoller) pollStartMoveStorage(ctx context.Context, task pollTask) {
-	if s.pollers[pollerMoveStorage].IsSet() && task.afterFinalize() && !task.AfterMoveStorage && task.TaskMoveStorage == nil {
+	if s.pollers[pollerMoveStorage].IsSet() && task.afterFinalize() && !task.AfterMoveStorage && !task.TaskMoveStorage.Valid {
 		s.pollers[pollerMoveStorage].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_move_storage = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_move_storage IS NULL`, id, task.SpID, task.SectorNumber)
 			if err != nil {

@@ -95,30 +95,36 @@ func (a *WebRPC) SetStorageAsk(ctx context.Context, ask *StorageAsk) error {
 }
 
 type MK12Pipeline struct {
-	UUID           string        `db:"uuid" json:"uuid"`
-	SpID           int64         `db:"sp_id" json:"sp_id"`
-	Started        bool          `db:"started" json:"started"`
-	PieceCid       string        `db:"piece_cid" json:"piece_cid"`
-	PieceSize      int64         `db:"piece_size" json:"piece_size"`
-	PieceCidV2     string        `db:"-" json:"piece_cid_v2"`
-	RawSize        sql.NullInt64 `db:"raw_size" json:"raw_size"`
-	Offline        bool          `db:"offline" json:"offline"`
-	URL            *string       `db:"url" json:"url"`
-	Headers        []byte        `db:"headers" json:"headers"`
-	CommTaskID     *int64        `db:"commp_task_id" json:"commp_task_id"`
-	AfterCommp     bool          `db:"after_commp" json:"after_commp"`
-	PSDTaskID      *int64        `db:"psd_task_id" json:"psd_task_id"`
-	AfterPSD       bool          `db:"after_psd" json:"after_psd"`
-	PSDWaitTime    *time.Time    `db:"psd_wait_time" json:"psd_wait_time"`
-	FindDealTaskID *int64        `db:"find_deal_task_id" json:"find_deal_task_id"`
-	AfterFindDeal  bool          `db:"after_find_deal" json:"after_find_deal"`
-	Sector         *int64        `db:"sector" json:"sector"`
-	Offset         *int64        `db:"sector_offset" json:"sector_offset"`
-	CreatedAt      time.Time     `db:"created_at" json:"created_at"`
-	Indexed        bool          `db:"indexed" json:"indexed"`
-	Announce       bool          `db:"announce" json:"announce"`
-	Complete       bool          `db:"complete" json:"complete"`
-	Miner          string        `json:"miner"`
+	// Cache line 1 (bytes 0-64): Hot path - piece identification and early checks
+	UUID      string `db:"uuid" json:"uuid"`             // 16 bytes (0-16)
+	SpID      int64  `db:"sp_id" json:"sp_id"`           // 8 bytes (16-24)
+	PieceCid  string `db:"piece_cid" json:"piece_cid"`   // 16 bytes (24-40)
+	PieceSize int64  `db:"piece_size" json:"piece_size"` // 8 bytes (40-48)
+	Offline   bool   `db:"offline" json:"offline"`       // 1 byte (48-49) - checked early for download decisions
+	Started   bool   `db:"started" json:"started"`       // 1 byte (49-50) - checked early
+	// Cache line 2 (bytes 64-128): Task IDs and stage tracking (sql.NullInt64 = 16 bytes)
+	CommTaskID     sql.NullInt64 `db:"commp_task_id" json:"commp_task_id"`         // 16 bytes
+	PSDTaskID      sql.NullInt64 `db:"psd_task_id" json:"psd_task_id"`             // 16 bytes
+	FindDealTaskID sql.NullInt64 `db:"find_deal_task_id" json:"find_deal_task_id"` // 16 bytes
+	AfterCommp     bool          `db:"after_commp" json:"after_commp"`             // 1 byte
+	AfterPSD       bool          `db:"after_psd" json:"after_psd"`                 // 1 byte
+	AfterFindDeal  bool          `db:"after_find_deal" json:"after_find_deal"`     // 1 byte
+	// Cache line 3 (bytes 128-192): Sector placement and sizing (sql.NullInt64 = 16 bytes)
+	RawSize sql.NullInt64 `db:"raw_size" json:"raw_size"`           // 16 bytes
+	Sector  sql.NullInt64 `db:"sector" json:"sector"`               // 16 bytes
+	Offset  sql.NullInt64 `db:"sector_offset" json:"sector_offset"` // 16 bytes
+	// Cache line 4 (bytes 192-256): Timing information
+	PSDWaitTime sql.NullTime `db:"psd_wait_time" json:"psd_wait_time"` // 32 bytes (sql.NullTime)
+	CreatedAt   time.Time    `db:"created_at" json:"created_at"`       // 24 bytes
+	// Cache line 5+ (bytes 256+): Data URL and larger fields (sql.NullString = 24 bytes)
+	URL        sql.NullString `db:"url" json:"url"`         // 24 bytes - only for online deals
+	PieceCidV2 string         `db:"-" json:"piece_cid_v2"`  // 16 bytes - computed field
+	Miner      string         `json:"miner"`                // 16 bytes - display field
+	Headers    []byte         `db:"headers" json:"headers"` // 24 bytes - only for online deals
+	// Status bools: rarely checked ones at end
+	Indexed  bool `db:"indexed" json:"indexed"`   // checked for indexing
+	Announce bool `db:"announce" json:"announce"` // checked for IPNI announce
+	Complete bool `db:"complete" json:"complete"` // checked for completion
 }
 
 func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int) ([]*MK12Pipeline, error) {
@@ -538,28 +544,35 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 }
 
 type PieceDeal struct {
-	ID          string        `db:"id" json:"id"`
-	BoostDeal   bool          `db:"boost_deal" json:"boost_deal"`
-	LegacyDeal  bool          `db:"legacy_deal" json:"legacy_deal"`
-	SpId        int64         `db:"sp_id" json:"sp_id"`
-	ChainDealId int64         `db:"chain_deal_id" json:"chain_deal_id"`
-	Sector      int64         `db:"sector_num" json:"sector"`
-	Offset      sql.NullInt64 `db:"piece_offset" json:"offset"`
-	Length      int64         `db:"piece_length" json:"length"`
-	RawSize     int64         `db:"raw_size" json:"raw_size"`
-	Miner       string        `json:"miner"`
-	MK20        bool          `db:"-" json:"mk20"`
+	// Cache line 1 (0-64 bytes): Hot path - identification fields used together
+	ID    string `db:"id" json:"id"`       // 16 bytes - used with SpId (line 621-623)
+	SpId  int64  `db:"sp_id" json:"sp_id"` // 8 bytes - checked early (line 614), used with ID (line 617)
+	Miner string `json:"miner"`            // 16 bytes - set based on SpId (line 615, 625)
+	// Cache line 2: Additional 8-byte types grouped together
+	ChainDealId int64 `db:"chain_deal_id" json:"chain_deal_id"` // 8 bytes
+	Sector      int64 `db:"sector_num" json:"sector"`           // 8 bytes
+	Length      int64 `db:"piece_length" json:"length"`         // 8 bytes
+	RawSize     int64 `db:"raw_size" json:"raw_size"`           // 8 bytes
+	// sql.NullInt64 (16 bytes)
+	Offset sql.NullInt64 `db:"piece_offset" json:"offset"` // 16 bytes
+	// Cache line 3 (64+ bytes): Bools grouped together at the end to minimize padding
+	MK20       bool `db:"-" json:"mk20"`                  // Used with ID check (line 621-623) - hot path
+	BoostDeal  bool `db:"boost_deal" json:"boost_deal"`   // Less frequently accessed
+	LegacyDeal bool `db:"legacy_deal" json:"legacy_deal"` // Less frequently accessed
 }
 
 type PieceInfo struct {
-	PieceCidv2 string       `json:"piece_cid_v2"`
-	PieceCid   string       `json:"piece_cid"`
-	Size       int64        `json:"size"`
-	CreatedAt  time.Time    `json:"created_at"`
-	Indexed    bool         `json:"indexed"`
-	IndexedAT  time.Time    `json:"indexed_at"`
-	IPNIAd     []string     `json:"ipni_ads"`
-	Deals      []*PieceDeal `json:"deals"`
+	// Cache line 1 (0-64 bytes): Hot path - piece identification used together
+	PieceCidv2 string   `json:"piece_cid_v2"` // 16 bytes - used together with PieceCid (line 584)
+	PieceCid   string   `json:"piece_cid"`    // 16 bytes - used with PieceCidv2 (line 584)
+	Size       int64    `json:"size"`         // 8 bytes - used with PieceCid (line 587, 604)
+	IPNIAd     []string `json:"ipni_ads"`     // 24 bytes - used for results
+	// Cache line 2 (64+ bytes): Display
+	CreatedAt time.Time `json:"created_at"` // 24 bytes - used for display
+	IndexedAT time.Time `json:"indexed_at"` // 24 bytes - used for display
+	Indexed   bool      `json:"indexed"`    // Used for display
+	// Cache line 3
+	Deals []PieceDeal `json:"deals"` // 24 bytes - used for results
 }
 
 func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
@@ -590,7 +603,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 	}
 
-	pieceDeals := []*PieceDeal{}
+	pieceDeals := []PieceDeal{}
 
 	err = a.deps.DB.Select(ctx, &pieceDeals, `SELECT 
 														id, 

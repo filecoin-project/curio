@@ -2,6 +2,7 @@ package proofshare
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 
@@ -73,9 +74,9 @@ func (t *TaskClientUpload) adderSnap(add harmonytask.AddTaskFunc) {
 
 				// claim [sectors] pipeline entries
 				var sectors []struct {
-					SpID         int64  `db:"sp_id"`
-					SectorNumber int64  `db:"sector_number"`
-					TaskIDProve  *int64 `db:"task_id_prove"`
+					SpID         int64         `db:"sp_id"`
+					SectorNumber int64         `db:"sector_number"`
+					TaskIDProve  sql.NullInt64 `db:"task_id_prove"`
 				}
 
 				cutoffTime := time.Now().Add(-time.Duration(minPendingSeconds) * time.Second)
@@ -107,11 +108,11 @@ func (t *TaskClientUpload) adderSnap(add harmonytask.AddTaskFunc) {
 					return false, xerrors.Errorf("failed to update sector: %w", err)
 				}
 
-				if sectors[0].TaskIDProve != nil {
-					log.Infow("TaskClientUpload.adderSnap() deleting old task", "oldTaskID", *sectors[0].TaskIDProve, "newTaskID", taskID)
-					_, err := tx.Exec(`DELETE FROM harmony_task WHERE id = $1`, *sectors[0].TaskIDProve)
+				if sectors[0].TaskIDProve.Valid {
+					log.Infow("TaskClientUpload.adderSnap() deleting old task", "oldTaskID", sectors[0].TaskIDProve.Int64, "newTaskID", taskID)
+					_, err := tx.Exec(`DELETE FROM harmony_task WHERE id = $1`, sectors[0].TaskIDProve.Int64)
 					if err != nil {
-						log.Errorw("TaskClientUpload.adderSnap() failed to delete old task", "error", err, "oldTaskID", *sectors[0].TaskIDProve)
+						log.Errorw("TaskClientUpload.adderSnap() failed to delete old task", "error", err, "oldTaskID", sectors[0].TaskIDProve.Int64)
 						return false, xerrors.Errorf("deleting old task: %w", err)
 					}
 				}

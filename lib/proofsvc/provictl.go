@@ -76,10 +76,12 @@ func retryWithBackoff[T any](ctx context.Context, f func() (T, error)) (T, error
 		lastErr = err
 		log.Warnw("operation failed, retrying", "error", err, "backoff", backoff)
 
+		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return zero, xerrors.Errorf("context canceled during backoff: %w (last error: %v)", ctx.Err(), lastErr)
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 
 		// Exponential backoff with a maximum

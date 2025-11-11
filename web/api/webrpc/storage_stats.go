@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"net/url"
 	"sort"
 	"strings"
@@ -249,9 +250,9 @@ type StorageGCMark struct {
 	FileType  int64  `db:"sector_filetype"`
 	StorageID string `db:"storage_id"`
 
-	CreatedAt  time.Time  `db:"created_at"`
-	Approved   bool       `db:"approved"`
-	ApprovedAt *time.Time `db:"approved_at"`
+	CreatedAt  time.Time    `db:"created_at"`
+	Approved   bool         `db:"approved"`
+	ApprovedAt sql.NullTime `db:"approved_at"`
 
 	CanSeal  bool `db:"can_seal"`
 	CanStore bool `db:"can_store"`
