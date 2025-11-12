@@ -90,13 +90,14 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	task := tasks[0]
 
-	var alreadyPublished bool
-	err = P.db.QueryRow(ctx, `SELECT is_rm FROM ipni WHERE piece_cid = $1 AND piece_size = $2 ORDER BY order_number DESC LIMIT 1)`, task.PieceCID, task.Size).Scan(&alreadyPublished)
-	if err != nil {
+	var isRm bool
+	err = P.db.QueryRow(ctx, `SELECT is_rm FROM ipni WHERE piece_cid = $1 AND piece_size = $2 ORDER BY order_number DESC LIMIT 1`, task.PieceCID, task.Size).Scan(&isRm)
+	exists := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, xerrors.Errorf("checking if piece is already published: %w", err)
 	}
 
-	if alreadyPublished {
+	if exists && !isRm {
 		log.Infow("IPNI task already published", "task_id", taskID, "piece_cid", task.PieceCID)
 		return true, nil
 	}
