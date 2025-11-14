@@ -209,7 +209,7 @@ func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethCli
 			}
 
 			// Compare that event log contains the correct payee
-			payee := common.BytesToAddress(vLog.Topics[1].Bytes())
+			payee := DecodeAddressCanonical(vLog.Topics[1].Bytes())
 			if payee != sender {
 				continue
 			}
@@ -408,4 +408,18 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	}
 
 	return signedTx.Hash().String(), nil
+}
+
+// DecodeAddressCanonical decodes a []byte into canonical Ethereum address:
+// - Uses last 20 bytes if len >= 20
+// - Left-pads with zero if shorter
+func DecodeAddressCanonical(input []byte) common.Address {
+    b := make([]byte, 20)
+    inLen := len(input)
+    if inLen >= 20 {
+        copy(b, input[inLen-20:])
+    } else {
+        copy(b[20-inLen:], input)
+    }
+    return common.BytesToAddress(b)
 }
