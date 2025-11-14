@@ -25,7 +25,6 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
-	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
@@ -52,11 +51,11 @@ func secureHeaders(csp string) func(http.Handler) http.Handler {
 			case "off":
 				// Do nothing
 			case "self":
-				w.Header().Set("Content-Security-Policy", "default-src 'self'")
+				w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:")
 			case "inline":
 				fallthrough
 			default:
-				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'")
+				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:")
 			}
 
 			next.ServeHTTP(w, r)
@@ -137,10 +136,12 @@ func isWebSocketUpgrade(r *http.Request) bool {
 }
 
 type ServiceDeps struct {
-	EthSender *message.SenderETH
+	EthSender  *message.SenderETH
+	DealMarket *storage_market.CurioStorageDealMarket
 }
 
-func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *storage_market.CurioStorageDealMarket) error {
+// This starts the public-facing server for market calls.
+func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	cfg := d.Cfg.HTTP
 
 	// Setup the Chi router for more complex routing (if needed in the future)
@@ -152,11 +153,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 	chiRouter.Use(middleware.Recoverer)
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders(cfg.CSP))
-	chiRouter.Use(corsHeaders)
-
-	if cfg.EnableCORS {
-		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + cfg.DomainName})))
-	}
+	chiRouter.Use(corsHeaders) // allows market calls from other domains
 
 	// Set up the compression middleware with custom compression levels
 	compressionMw, err := compressionMiddleware(&cfg.CompressionLevels)
@@ -182,7 +179,9 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 		_, _ = fmt.Fprintf(w, "Service is up and running")
 	})
 
-	chiRouter, err = attachRouters(ctx, chiRouter, d, sd, dm)
+	// TODO: Attach a info page here with details about all the service and endpoints
+
+	chiRouter, err = attachRouters(ctx, chiRouter, d, sd)
 	if err != nil {
 		return xerrors.Errorf("failed to attach routers: %w", err)
 	}
@@ -276,7 +275,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 var _ autocert.Cache = cache{}
 
-func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps, dm *storage_market.CurioStorageDealMarket) (*chi.Mux, error) {
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps) (*chi.Mux, error) {
 	// Attach retrievals
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
@@ -294,13 +293,13 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
 
-	if sd.EthSender != nil {
-		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
-		pdp.Routes(r, pdsvc)
-	}
+	//if sd.EthSender != nil {
+	//	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
+	//	pdp.Routes(r, pdsvc)
+	//}
 
 	// Attach the market handler
-	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, dm)
+	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create new market handler: %w", err)
 	}

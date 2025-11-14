@@ -46,8 +46,8 @@ type ParkPieceTask struct {
 	p2Active func() bool
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int, maxInPark int, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, nil, max, maxInPark, false, p2Active, minFreeStoragePercent)
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, maxInPark, false, p2Active, minFreeStoragePercent)
 }
 
 func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
@@ -84,6 +84,7 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
             FROM parked_pieces 
             WHERE long_term = $1 
               AND complete = FALSE 
+              AND skip = FALSE
               AND task_id IS NULL
         `, p.longTerm)
 		if err != nil {
@@ -104,7 +105,7 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// Update
 				n, err := tx.Exec(
-					`UPDATE parked_pieces SET task_id = $1 WHERE id = $2 AND complete = FALSE AND task_id IS NULL AND long_term = $3`,
+					`UPDATE parked_pieces SET task_id = $1 WHERE id = $2 AND complete = FALSE AND skip = FALSE AND task_id IS NULL AND long_term = $3`,
 					id, pieceID.ID, p.longTerm)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)

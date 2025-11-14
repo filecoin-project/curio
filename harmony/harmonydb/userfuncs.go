@@ -16,7 +16,7 @@ import (
 
 var errTx = errors.New("cannot use a non-transaction func in a transaction")
 
-const InitialSerializationErrorRetryWait = 10 * time.Millisecond
+const InitialSerializationErrorRetryWait = 5 * time.Second
 
 // rawStringOnly is _intentionally_private_ to force only basic strings in SQL queries.
 // In any package, raw strings will satisfy compilation.  Ex:
@@ -289,4 +289,32 @@ func IsErrUniqueContraint(err error) bool {
 func IsErrSerialization(err error) bool {
 	var e2 *pgconn.PgError
 	return errors.As(err, &e2) && e2.Code == pgerrcode.SerializationFailure
+}
+
+// IsErrDDLConflict returns true if the error is a DDL conflict (object already exists or doesn't exist)
+func IsErrDDLConflict(err error) bool {
+	var e2 *pgconn.PgError
+	if !errors.As(err, &e2) {
+		return false
+	}
+
+	// DDL conflict error codes
+	ddlConflictCodes := map[string]bool{
+		"42710": true, // duplicate_object
+		"42712": true, // duplicate_alias
+		"42723": true, // duplicate_function
+		"42P04": true, // duplicate_database
+		"42P06": true, // duplicate_schema
+		"42P07": true, // duplicate_table
+		"42P05": true, // duplicate_prepared_statement
+		"42P03": true, // duplicate_cursor
+		"42701": true, // duplicate_column
+		"42704": true, // undefined_object
+		"42703": true, // undefined_column
+		"42883": true, // undefined_function
+		"42P01": true, // undefined_table
+		"42P02": true, // undefined_parameter
+	}
+
+	return ddlConflictCodes[e2.Code]
 }

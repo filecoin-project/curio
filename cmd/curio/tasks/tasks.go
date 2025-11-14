@@ -64,7 +64,7 @@ var log = logging.Logger("curio/deps")
 
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
 	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
-	as *multictladdr.MultiAddressSelector, addresses map[dtypes.MinerAddress]bool, db *harmonydb.DB,
+	as *multictladdr.MultiAddressSelector, addresses *config.Dynamic[map[dtypes.MinerAddress]bool], db *harmonydb.DB,
 	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
@@ -102,7 +102,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	machine := dependencies.ListenAddr
 	prover := dependencies.Prover
 	iStore := dependencies.IndexStore
-	pp := dependencies.SectorReader
 
 	chainSched := chainsched.New(full)
 
@@ -236,43 +235,47 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
 			if err != nil {
 				return nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
+			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
+			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
 		}
 	}
 
-	miners := make([]address.Address, 0, len(maddrs))
-	for k := range maddrs {
-		miners = append(miners, address.Address(k))
-	}
-
-	if cfg.Subsystems.EnableBalanceManager {
-		balMgrTask, err := storage_market.NewBalanceManager(full, miners, cfg, sender)
-		if err != nil {
-			return nil, err
+	miners := config.NewDynamic(make([]address.Address, 0, len(maddrs.Get())))
+	forMiners := func() {
+		minersTmp := make([]address.Address, 0, len(maddrs.Get()))
+		for k := range maddrs.Get() {
+			minersTmp = append(minersTmp, address.Address(k))
 		}
-		activeTasks = append(activeTasks, balMgrTask)
+		miners.Set(minersTmp)
 	}
+	maddrs.OnChange(forMiners)
 
 	{
+		var sdeps cuhttp.ServiceDeps
 		// Market tasks
 		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, si, full, as)
+			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
 			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err
 			}
 
+			sdeps.DealMarket = dm
+
 			if cfg.Subsystems.EnableCommP {
 				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
+
+			aggTask := storage_market.NewAggregateTask(dm, db, must.One(slrLazy.Val()), lstor, full)
+			activeTasks = append(activeTasks, aggTask)
 
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
@@ -290,30 +293,48 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if err != nil {
 			return nil, err
 		}
-		var sdeps cuhttp.ServiceDeps
 
 		if cfg.Subsystems.EnablePDP {
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+			ethClient := must.One(dependencies.EthClient.Val())
 
-			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
-			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
+			pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
+			pdp.NewWatcherDelete(db, chainSched)
+			pdp.NewWatcherPieceDelete(db, chainSched)
+
+			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
+			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
+
+			addProofSetTask := pdp.NewPDPTaskAddDataSet(db, es, ethClient, full)
+			pdpAddRoot := pdp.NewPDPTaskAddPiece(db, es, ethClient)
+			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, ethClient)
+			pdpDelProofSetTask := pdp.NewPDPTaskDeleteDataSet(db, es, ethClient, full)
+
+			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
+			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
+			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
+
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
-		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask)
+		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
 
 		if cfg.HTTP.Enable {
-			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps, dm)
+			if !cfg.Subsystems.EnableDealMarket {
+				return nil, xerrors.New("deal market must be enabled on HTTP server")
+			}
+			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
 			}
@@ -322,6 +343,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
+
+	pcl := gc.NewPieceCleanupTask(db, iStore)
+	activeTasks = append(activeTasks, pcl)
 
 	log.Infow("This Curio instance handles",
 		"miner_addresses", miners,
@@ -511,50 +535,54 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		return item.TypeDetails().Name
 	})
 
-	miners := lo.Map(maps.Keys(deps.Maddrs), func(item dtypes.MinerAddress, _ int) string {
-		return address.Address(item).String()
-	})
-	sort.Strings(miners)
+	doMachineDetails := func() {
+		miners := lo.Map(maps.Keys(deps.Maddrs.Get()), func(item dtypes.MinerAddress, _ int) string {
+			return address.Address(item).String()
+		})
+		sort.Strings(miners)
 
-	_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
+		_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
 		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
-		strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
-		time.Now(), strings.Join(miners, ","), machineID, machineName)
+			strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
+			time.Now(), strings.Join(miners, ","), machineID, machineName)
 
-	if err != nil {
-		log.Errorf("failed to update machine details: %s", err)
-		return
-	}
-
-	// maybePostWarning
-	if !lo.Contains(taskNames, "WdPost") && !lo.Contains(taskNames, "WinPost") {
-		// Maybe we aren't running a PoSt for these miners?
-		var allMachines []struct {
-			MachineID int    `db:"machine_id"`
-			Miners    string `db:"miners"`
-			Tasks     string `db:"tasks"`
-		}
-		err := deps.DB.Select(context.Background(), &allMachines, `SELECT machine_id, miners, tasks FROM harmony_machine_details`)
 		if err != nil {
-			log.Errorf("failed to get machine details: %s", err)
+			log.Errorf("failed to update machine details: %s", err)
 			return
 		}
 
-		for _, miner := range miners {
-			var myPostIsHandled bool
-			for _, m := range allMachines {
-				if !lo.Contains(strings.Split(m.Miners, ","), miner) {
-					continue
-				}
-				if lo.Contains(strings.Split(m.Tasks, ","), "WdPost") && lo.Contains(strings.Split(m.Tasks, ","), "WinPost") {
-					myPostIsHandled = true
-					break
-				}
+		// maybePostWarning
+		if !lo.Contains(taskNames, "WdPost") && !lo.Contains(taskNames, "WinPost") {
+			// Maybe we aren't running a PoSt for these miners?
+			var allMachines []struct {
+				MachineID int    `db:"machine_id"`
+				Miners    string `db:"miners"`
+				Tasks     string `db:"tasks"`
 			}
-			if !myPostIsHandled {
-				log.Errorf("No PoSt tasks are running for miner %s. Start handling PoSts immediately with:\n\tcurio run --layers=\"post\" ", miner)
+			err := deps.DB.Select(context.Background(), &allMachines, `SELECT machine_id, miners, tasks FROM harmony_machine_details`)
+			if err != nil {
+				log.Errorf("failed to get machine details: %s", err)
+				return
+			}
+
+			for _, miner := range miners {
+				var myPostIsHandled bool
+				for _, m := range allMachines {
+					if !lo.Contains(strings.Split(m.Miners, ","), miner) {
+						continue
+					}
+					if lo.Contains(strings.Split(m.Tasks, ","), "WdPost") && lo.Contains(strings.Split(m.Tasks, ","), "WinPost") {
+						myPostIsHandled = true
+						break
+					}
+				}
+				if !myPostIsHandled {
+					log.Errorf("No PoSt tasks are running for miner %s. Start handling PoSts immediately with:\n\tcurio run --layers=\"post\" ", miner)
+				}
 			}
 		}
 	}
+	doMachineDetails()
+	deps.Maddrs.OnChange(doMachineDetails)
 }

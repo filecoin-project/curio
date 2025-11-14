@@ -557,13 +557,12 @@ func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface.I
 }
 
 func (dbi *DBIndex) StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
-	if ctx.Value(FindSectorCacheKey) == nil || allowFetch == true {
+	if ctx.Value(FindSectorCacheKey) == nil || allowFetch {
 		stats.Record(ctx, FindSectorUncached.M(1))
 		return dbi.findSectorUncached(ctx, sector, ft, ssize, allowFetch)
 	}
 
 	findSectorCache := ctx.Value(FindSectorCacheKey).(*ttlcache.Cache)
-	
 	cacheKey := fmt.Sprintf("%d-%d-%d", sector.Miner, sector.Number, ft)
 
 	info, err := findSectorCache.Get(cacheKey)

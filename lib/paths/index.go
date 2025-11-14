@@ -9,7 +9,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
@@ -25,7 +25,7 @@ type spaceUseCtxKey struct{}
 
 var SpaceUseKey = spaceUseCtxKey{}
 
-type findSectorCacheKey struct {}
+type findSectorCacheKey struct{}
 
 var FindSectorCacheKey = findSectorCacheKey{}
 
@@ -38,7 +38,7 @@ type SectorIndex interface { // part of storage-miner api
 	StorageDeclareSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType, primary bool) error
 	StorageDropSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType) error
 	BatchStorageDeclareSectors(ctx context.Context, declarations []SectorDeclaration) error
-	
+
 	// FindSector can be cached if the ctx propagates a ttlcache instance over FindSectorCacheKey
 	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error)
 

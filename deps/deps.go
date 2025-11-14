@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -21,8 +20,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/kr/pretty"
 	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -62,7 +63,7 @@ var log = logging.Logger("curio/deps")
 func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 	// #1 CLI opts
 	fromCLI := func() (*harmonydb.DB, error) {
-		dbConfig := config.HarmonyDB{
+		dbConfig := harmonydb.Config{
 			Username:    cctx.String("db-user"),
 			Password:    cctx.String("db-password"),
 			Hosts:       strings.Split(cctx.String("db-host"), ","),
@@ -158,7 +159,7 @@ type Deps struct {
 	Bstore            curiochain.CurioBlockstore
 	Verif             storiface.Verifier
 	As                *multictladdr.MultiAddressSelector
-	Maddrs            map[dtypes.MinerAddress]bool
+	Maddrs            *config.Dynamic[map[dtypes.MinerAddress]bool]
 	ProofTypes        map[abi.RegisteredSealProof]bool
 	Stor              *paths.Remote
 	Al                *curioalerting.AlertingSystem
@@ -261,7 +262,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.EthClient == nil {
-		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+		deps.EthClient = lazy.MakeLazy(func() (*ethclient.Client, error) {
 			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 				cfgApiInfo = []string{v}
@@ -311,35 +312,50 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 
 	sa, err := StorageAuth(deps.Cfg.Apis.StorageRPCSecret)
 	if err != nil {
+		log.Errorf("error creating storage auth: %s, %v", err, pretty.Sprint(deps.Cfg))
 		return xerrors.Errorf(`'%w' while parsing the config toml's 
 	[Apis]
 	StorageRPCSecret=%v
 Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`, err, deps.Cfg.Apis.StorageRPCSecret)
 	}
 	if deps.Stor == nil {
-		deps.Stor = paths.NewRemote(deps.LocalStore, deps.Si, http.Header(sa), 1000, &paths.DefaultPartialFileHandler{})
+		deps.Stor, err = paths.NewRemote(deps.LocalStore, deps.Si, http.Header(sa), 1000, &paths.DefaultPartialFileHandler{})
+		if err != nil {
+			return xerrors.Errorf("creating remote store: %w", err)
+		}
 	}
 
 	if deps.Maddrs == nil {
-		deps.Maddrs = map[dtypes.MinerAddress]bool{}
+		deps.Maddrs = config.NewDynamic(map[dtypes.MinerAddress]bool{})
 	}
-	if len(deps.Maddrs) == 0 {
-		for _, s := range deps.Cfg.Addresses {
+	setMaddrs := func() error {
+		tmp := map[dtypes.MinerAddress]bool{}
+		for _, s := range deps.Cfg.Addresses.Get() {
 			for _, s := range s.MinerAddresses {
 				addr, err := address.NewFromString(s)
 				if err != nil {
 					return err
 				}
-				deps.Maddrs[dtypes.MinerAddress(addr)] = true
+				tmp[dtypes.MinerAddress(addr)] = true
 			}
 		}
+		deps.Maddrs.Set(tmp)
+		return nil
+	}
+	if err := setMaddrs(); err != nil {
+		return err
 	}
 
+	deps.Cfg.Addresses.OnChange(func() {
+		if err := setMaddrs(); err != nil {
+			log.Errorf("error setting maddrs: %s", err)
+		}
+	})
 	if deps.ProofTypes == nil {
 		deps.ProofTypes = map[abi.RegisteredSealProof]bool{}
 	}
 	if len(deps.ProofTypes) == 0 {
-		for maddr := range deps.Maddrs {
+		for maddr := range deps.Maddrs.Get() {
 			spt, err := sealProofType(maddr, deps.Chain)
 			if err != nil {
 				return err
@@ -355,7 +371,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.Cfg.Subsystems.EnableWalletExporter {
 		spIDs := []address.Address{}
-		for maddr := range deps.Maddrs {
+		for maddr := range deps.Maddrs.Get() {
 			spIDs = append(spIDs, address.Address(maddr))
 		}
 
@@ -379,6 +395,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
 		if err != nil {
+			return xerrors.Errorf("failed to create index store: %w", err)
+		}
+		err = deps.IndexStore.Start(cctx.Context, false)
+		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
 	}
@@ -389,7 +409,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.CachedPieceReader == nil {
 		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr, deps.IndexStore)
 	}
 
 	if deps.ServeChunker == nil {
@@ -418,20 +438,7 @@ func sealProofType(maddr dtypes.MinerAddress, fnapi api.Chain) (abi.RegisteredSe
 }
 
 func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioConfig) (toml.MetaData, error) {
-	// allow migration from old config format that was limited to 1 wallet setup.
-	newText := strings.Join(lo.Map(strings.Split(text, "\n"), func(line string, _ int) string {
-		if strings.EqualFold(line, "[addresses]") {
-			return "[[addresses]]"
-		}
-		return line
-	}), "\n")
-
-	err := config.FixTOML(newText, curioConfigWithDefaults)
-	if err != nil {
-		return toml.MetaData{}, err
-	}
-
-	return toml.Decode(newText, &curioConfigWithDefaults)
+	return config.LoadConfigWithUpgrades(text, curioConfigWithDefaults)
 }
 
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
@@ -441,36 +448,23 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 	}
 
 	curioConfig := config.DefaultCurioConfig()
-	have := []string{}
-	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
-	for _, layer := range layers {
-		text := ""
-		err := db.QueryRow(ctx, `SELECT config FROM harmony_config WHERE title=$1`, layer).Scan(&text)
-		if err != nil {
-			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
-				return nil, fmt.Errorf("missing layer '%s' ", layer)
-			}
-			if layer == "base" {
-				return nil, errors.New(`curio defaults to a layer named 'base'. 
-				Either use 'migrate' command or edit a base.toml and upload it with: curio config set base.toml`)
-			}
-			return nil, fmt.Errorf("could not read layer '%s': %w", layer, err)
-		}
-
-		meta, err := LoadConfigWithUpgrades(text, curioConfig)
-		if err != nil {
-			return curioConfig, fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
-		}
-		for _, k := range meta.Keys() {
-			have = append(have, strings.Join(k, " "))
-		}
-		log.Debugw("Using layer", "layer", layer, "config", curioConfig)
+	err = ApplyLayers(ctx, db, curioConfig, layers)
+	if err != nil {
+		return nil, err
 	}
-	_ = have // FUTURE: verify that required fields are here.
-	// If config includes 3rd-party config, consider JSONSchema as a way that
-	// 3rd-parties can dynamically include config requirements and we can
-	// validate the config. Because of layering, we must validate @ startup.
+	err = config.EnableChangeDetection(db, curioConfig, layers, config.FixTOML)
+	if err != nil {
+		return nil, err
+	}
 	return curioConfig, nil
+}
+
+func ApplyLayers(ctx context.Context, db *harmonydb.DB, curioConfig *config.CurioConfig, layers []string) error {
+	configs, err := config.GetConfigs(ctx, db, layers)
+	if err != nil {
+		return err
+	}
+	return config.ApplyLayers(ctx, curioConfig, configs, config.FixTOML)
 }
 
 func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
@@ -479,7 +473,7 @@ func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		text := ""
 		err = tx.QueryRow(`SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
 		if err != nil {
-			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+			if strings.Contains(err.Error(), pgx.ErrNoRows.Error()) {
 				return false, fmt.Errorf("missing layer 'base' ")
 			}
 			return false, fmt.Errorf("could not read layer 'base': %w", err)
@@ -607,27 +601,37 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*ethclient.Client], error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	layers := cctx.StringSlice("layers")
 
 	cfg, err := GetConfig(cctx.Context, layers, db)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfg.Apis.ChainApiInfo)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	cfgApiInfo := cfg.Apis.ChainApiInfo
+	if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
+		cfgApiInfo = []string{v}
 	}
-	return db, cfg, full, fullCloser, nil
+
+	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	ethClient := lazy.MakeLazy(func() (*ethclient.Client, error) {
+		return GetEthClient(cctx, cfgApiInfo)
+	})
+
+	return db, cfg, full, fullCloser, ethClient, nil
 }
 func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
-	db, cfg, full, fullCloser, err := GetAPI(ctx, cctx)
+	db, cfg, full, fullCloser, ethClient, err := GetAPI(ctx, cctx)
 	if err != nil {
 		return nil, err
 	}
@@ -638,7 +642,7 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 
 	maddrs := map[dtypes.MinerAddress]bool{}
 	if len(maddrs) == 0 {
-		for _, s := range cfg.Addresses {
+		for _, s := range cfg.Addresses.Get() {
 			for _, s := range s.MinerAddresses {
 				addr, err := address.NewFromString(s)
 				if err != nil {
@@ -650,10 +654,11 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	}
 
 	return &Deps{
-		Cfg:    cfg,
-		DB:     db,
-		Chain:  full,
-		Maddrs: maddrs,
+		Cfg:       cfg,
+		DB:        db,
+		Chain:     full,
+		Maddrs:    config.NewDynamic(maddrs), // ignoring dynamic for a single CLI run
+		EthClient: ethClient,
 	}, nil
 }
 
@@ -683,7 +688,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 			return xerrors.Errorf("Failed to get miner info: %w", err)
 		}
 
-		curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
+		curioConfig.Addresses.Set(append(curioConfig.Addresses.Get(), config.CurioAddresses{
 			PreCommitControl:      []string{},
 			CommitControl:         []string{},
 			DealPublishControl:    []string{},
@@ -692,7 +697,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 			DisableWorkerFallback: false,
 			MinerAddresses:        []string{addr},
 			BalanceManager:        config.DefaultBalanceManager(),
-		})
+		}))
 	}
 
 	{
@@ -708,9 +713,9 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		curioConfig.Apis.ChainApiInfo = append(curioConfig.Apis.ChainApiInfo, info)
 	}
 
-	curioConfig.Addresses = lo.Filter(curioConfig.Addresses, func(a config.CurioAddresses, _ int) bool {
+	curioConfig.Addresses.Set(lo.Filter(curioConfig.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
 		return len(a.MinerAddresses) > 0
-	})
+	}))
 
 	// If no base layer is present
 	if !lo.Contains(titles, "base") {
@@ -739,10 +744,10 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		return xerrors.Errorf("Cannot parse base config: %w", err)
 	}
 
-	baseCfg.Addresses = append(baseCfg.Addresses, curioConfig.Addresses...)
-	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
+	baseCfg.Addresses.Set(append(baseCfg.Addresses.Get(), curioConfig.Addresses.Get()...))
+	baseCfg.Addresses.Set(lo.Filter(baseCfg.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
 		return len(a.MinerAddresses) > 0
-	})
+	}))
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	if err != nil {

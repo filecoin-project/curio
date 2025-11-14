@@ -1,1 +1,1 @@
-ALTER TABLE harmony_task_history ADD COLUMN completed_by_host_and_port varchar(300) NOT NULL;
+ALTER TABLE harmony_task_history ADD COLUMN IF NOT EXISTS completed_by_host_and_port varchar(300) NOT NULL;

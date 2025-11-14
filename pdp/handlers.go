@@ -33,8 +33,7 @@ import (
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
 
-// PDPRoutePath is the base path for PDP routes
-const PDPRoutePath = "/pdp"
+const requestTimeout = 10 * time.Second
 
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
@@ -65,27 +64,30 @@ func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client
 }
 
 // Routes registers the HTTP routes with the provided router
-func Routes(r *chi.Mux, p *PDPService) {
+func Routes(p *PDPService) http.Handler {
+
+	r := chi.NewRouter()
+
 	// Routes for proof sets
-	r.Route(path.Join(PDPRoutePath, "/proof-sets"), func(r chi.Router) {
+	r.Route("/proof-sets", func(r chi.Router) {
 		// POST /pdp/proof-sets - Create a new proof set
-		r.Post("/", p.handleCreateProofSet)
+		r.Method("POST", "/", http.TimeoutHandler(http.HandlerFunc(p.handleCreateProofSet), requestTimeout, "request timeout"))
 
 		// GET /pdp/proof-sets/created/{txHash} - Get the status of a proof set creation
-		r.Get("/created/{txHash}", p.handleGetProofSetCreationStatus)
+		r.Method("GET", "/created/{txHash}", http.TimeoutHandler(http.HandlerFunc(p.handleGetProofSetCreationStatus), requestTimeout, "request timeout"))
 
 		// Individual proof set routes
 		r.Route("/{proofSetID}", func(r chi.Router) {
 			// GET /pdp/proof-sets/{set-id}
-			r.Get("/", p.handleGetProofSet)
+			r.Method("GET", "/", http.TimeoutHandler(http.HandlerFunc(p.handleGetProofSet), requestTimeout, "request timeout"))
 
 			// DEL /pdp/proof-sets/{set-id}
-			r.Delete("/", p.handleDeleteProofSet)
+			r.Method("DELETE", "/", http.TimeoutHandler(http.HandlerFunc(p.handleDeleteProofSet), requestTimeout, "request timeout"))
 
 			// Routes for roots within a proof set
 			r.Route("/roots", func(r chi.Router) {
 				// POST /pdp/proof-sets/{set-id}/roots
-				r.Post("/", p.handleAddRootToProofSet)
+				r.Method("POST", "/", http.TimeoutHandler(http.HandlerFunc(p.handleAddRootToProofSet), requestTimeout, "request timeout"))
 
 				// GET /pdp/proof-sets/{set-id}/roots/added/{txHash}
 				r.Get("/added/{txHash}", p.handleGetRootAdditionStatus)
@@ -93,26 +95,27 @@ func Routes(r *chi.Mux, p *PDPService) {
 				// Individual root routes
 				r.Route("/{rootID}", func(r chi.Router) {
 					// GET /pdp/proof-sets/{set-id}/roots/{root-id}
-					r.Get("/", p.handleGetProofSetRoot)
+					r.Method("GET", "/", http.TimeoutHandler(http.HandlerFunc(p.handleGetProofSetRoot), requestTimeout, "request timeout"))
 
 					// DEL /pdp/proof-sets/{set-id}/roots/{root-id}
-					r.Delete("/", p.handleDeleteProofSetRoot)
+					r.Method("DELETE", "/", http.TimeoutHandler(http.HandlerFunc(p.handleDeleteProofSetRoot), requestTimeout, "request timeout"))
 				})
 			})
 		})
 	})
 
-	r.Get(path.Join(PDPRoutePath, "/ping"), p.handlePing)
+	r.Method("GET", "/ping", http.TimeoutHandler(http.HandlerFunc(p.handlePing), requestTimeout, "request timeout"))
 
 	// Routes for piece storage and retrieval
 	// POST /pdp/piece
-	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
+	r.Method("POST", "/piece", http.TimeoutHandler(http.HandlerFunc(p.handlePiecePost), requestTimeout, "request timeout"))
 
 	// GET /pdp/piece/
-	r.Get(path.Join(PDPRoutePath, "/piece/"), p.handleFindPiece)
+	r.Method("GET", "/piece", http.TimeoutHandler(http.HandlerFunc(p.handleFindPiece), requestTimeout, "request timeout"))
 
 	// PUT /pdp/piece/upload/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
+	r.Put("/piece/upload/{uploadUUID}", p.handlePieceUpload)
+	return r
 }
 
 // Handler functions
@@ -357,7 +360,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
         WHERE create_message_hash = $1
     `, txHash).Scan(&proofSetCreate.CreateMessageHash, &proofSetCreate.OK, &proofSetCreate.ProofSetCreated, &proofSetCreate.Service)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Proof set creation not found for given txHash", http.StatusNotFound)
 			return
 		}
@@ -394,7 +397,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
         WHERE signed_tx_hash = $1
     `, txHash).Scan(&txStatus)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// This should not happen as per foreign key constraints
 			http.Error(w, "Message status not found for given txHash", http.StatusInternalServerError)
 			return

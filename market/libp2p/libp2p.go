@@ -335,7 +335,7 @@ type mk12libp2pAPI interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (minerInfo api.MinerInfo, err error)
 }
 
-func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string, shutdownChan chan struct{}) {
+func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners *config.Dynamic[[]address.Address], machine string, shutdownChan chan struct{}) {
 	//Check in the DB every minute who owns the libp2p ticket
 	//if it was us, and is still us, and we're running DealProvider already do nothing, just keep polling
 	//if it was us, and no longer is us, shut down DealProvider
@@ -440,7 +440,7 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	}
 }
 
-func makeDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
+func makeDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners *config.Dynamic[[]address.Address], machine string) error {
 	h, publicAddr, err := NewLibp2pHost(ctx, db, cfg, machine)
 	if err != nil {
 		return xerrors.Errorf("failed to start libp2p nodes: %s", err)
@@ -469,16 +469,18 @@ func makeDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCo
 
 	go p.Start(ctx, h)
 
-	nonDisabledMiners := lo.Filter(miners, func(addr address.Address, _ int) bool {
-		return !lo.Contains(disabledMiners, addr)
+	go p.checkMinerInfos(ctx, sender, publicAddr.Libp2pAddr, miners, disabledMiners)
+	miners.OnChange(func() {
+		go p.checkMinerInfos(ctx, sender, publicAddr.Libp2pAddr, miners, disabledMiners)
 	})
-
-	go p.checkMinerInfos(ctx, sender, publicAddr.Libp2pAddr, nonDisabledMiners)
 	return nil
 }
 
-func (p *DealProvider) checkMinerInfos(ctx context.Context, sender *message.Sender, announceAddr multiaddr.Multiaddr, miners []address.Address) {
-	for _, m := range miners {
+func (p *DealProvider) checkMinerInfos(ctx context.Context, sender *message.Sender, announceAddr multiaddr.Multiaddr, miners *config.Dynamic[[]address.Address], disabledMiners []address.Address) {
+	nonDisabledMiners := lo.Filter(miners.Get(), func(addr address.Address, _ int) bool {
+		return !lo.Contains(disabledMiners, addr)
+	})
+	for _, m := range nonDisabledMiners {
 		mi, err := p.api.StateMinerInfo(ctx, m, types.EmptyTSK)
 		if err != nil {
 			log.Errorw("failed to get miner info", "miner", m, "error", err)

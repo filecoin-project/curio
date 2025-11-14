@@ -1,4 +1,4 @@
-create table message_waits (
+create table if not exists message_waits (
     signed_message_cid text primary key,
     waiter_machine_id int references harmony_machines (id) on delete set null,
 

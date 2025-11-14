@@ -22,7 +22,6 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync/head"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
-	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -103,8 +102,9 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	for rows.Next() && rows.Err() == nil {
 		var priv []byte
 		var peerID string
+		var sp int64
 		var spID abi.ActorID
-		err := rows.Scan(&priv, &peerID, &spID)
+		err := rows.Scan(&priv, &peerID, &sp)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan the row: %w", err)
 		}
@@ -121,6 +121,10 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 		if id.String() != peerID {
 			return nil, xerrors.Errorf("peer ID mismatch: got %s (calculated), expected %s (DB)", id.String(), peerID)
+		}
+
+		if sp < 0 {
+			spID = abi.ActorID(0)
 		}
 
 		maddr, err := address.NewIDAddress(uint64(spID))
@@ -207,6 +211,7 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		Addresses string
 		Signature []byte
 		Entries   string
+		Metadata  []byte
 	}
 
 	err := p.db.Select(ctx, &ads, `SELECT 
@@ -216,7 +221,8 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 										provider, 
 										addresses, 
 										signature, 
-										entries 
+										entries,
+										metadata
 										FROM ipni 
 										WHERE ad_cid = $1 
 										  AND provider = $2`, ad.String(), provider)
@@ -240,19 +246,13 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		return schema.Advertisement{}, xerrors.Errorf("parsing entry CID: %w", err)
 	}
 
-	mds := metadata.IpfsGatewayHttp{}
-	md, err := mds.MarshalBinary()
-	if err != nil {
-		return schema.Advertisement{}, xerrors.Errorf("marshalling metadata: %w", err)
-	}
-
 	adv := schema.Advertisement{
 		Provider:  a.Provider,
 		Signature: a.Signature,
 		Entries:   cidlink.Link{Cid: e},
 		ContextID: a.ContextID,
 		IsRm:      a.IsRm,
-		Metadata:  md,
+		Metadata:  a.Metadata,
 	}
 
 	if a.Addresses != "" {

@@ -1,15 +1,15 @@
 -- Table for storing IPNI ads
-CREATE TABLE ipni_peerid (
+CREATE TABLE IF NOT EXISTS ipni_peerid (
     priv_key BYTEA NOT NULL PRIMARY KEY,
     peer_id TEXT NOT NULL UNIQUE,
     sp_id BIGINT NOT NULL -- 20241106-market-fixes.sql UNIQUE
 );
 
-CREATE TABLE ipni (
+CREATE TABLE IF NOT EXISTS ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,
     context_id BYTEA NOT NULL, -- abi.PieceInfo in Curio
-    -- metadata column in not required as Curio only supports one type of metadata(HTTP)
+    -- metadata BYTEA NOT NULL DEFAULT '\xa01200' (Added in 20250505-market-mk20.sql)
     is_rm BOOLEAN NOT NULL,
 
     -- skip added in 20241106-market-fixes.sql
@@ -26,11 +26,13 @@ CREATE TABLE ipni (
     piece_cid TEXT NOT NULL, -- For easy look up
     piece_size BIGINT NOT NULL, -- For easy look up
 
+    -- piece_cid_v2 TEXT (Added in 20250505-market-mk20.sql) -- For easy lookup
+
     unique (ad_cid)
 );
 
 -- This index will help speed up the lookup of all ads for a specific provider and ensure fast ordering by order_number
-CREATE INDEX ipni_provider_order_number ON ipni(provider, order_number);
+CREATE INDEX IF NOT EXISTS ipni_provider_order_number ON ipni(provider, order_number);
 
 -- This index will speed up lookups based on the ad_cid, which is frequently used to identify specific ads
 CREATE UNIQUE INDEX ipni_ad_cid ON ipni(ad_cid);
@@ -42,10 +44,10 @@ CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm); -- dropp
 -- CREATE INDEX ipni_entries_skip ON ipni(entries, is_skip, piece_cid);
 
 -- Since the get_ad_chain function relies on both provider and ad_cid to find the order_number, this index will optimize that query:
-CREATE INDEX ipni_provider_ad_cid ON ipni(provider, ad_cid);
+CREATE INDEX IF NOT EXISTS ipni_provider_ad_cid ON ipni(provider, ad_cid);
 
 
-CREATE TABLE ipni_head (
+CREATE TABLE IF NOT EXISTS ipni_head (
     provider TEXT NOT NULL PRIMARY KEY, -- PeerID from libp2p, this is the main identifier
     head TEXT NOT NULL, -- ad_cid from the ipni table, representing the head of the ad chain
 
@@ -54,9 +56,9 @@ CREATE TABLE ipni_head (
 
 -- This table stores metadata for ipni ad entry chunks. This metadata is used to reconstruct the original ad entry from
 -- on-disk .car block headers or from data in the piece index database.
-CREATE TABLE ipni_chunks (
+CREATE TABLE IF NOT EXISTS ipni_chunks (
     cid TEXT PRIMARY KEY, -- CID of the chunk
-    piece_cid TEXT NOT NULL, -- Related Piece CID
+    piece_cid TEXT NOT NULL, -- Related Piece CID V2
     chunk_num INTEGER NOT NULL, -- Chunk number within the piece. Chunk 0 has no "next" link.
     first_cid TEXT, -- In case of db-based chunks, the CID of the first cid in the chunk
     start_offset BIGINT, -- In case of .car-based chunks, the offset in the .car file where the chunk starts
@@ -72,7 +74,7 @@ CREATE TABLE ipni_chunks (
 
 -- IPNI pipeline is kept separate from rest for robustness
 -- and reuse. This allows for removing, recreating ads using CLI.
-CREATE TABLE ipni_task (
+CREATE TABLE IF NOT EXISTS ipni_task (
     sp_id BIGINT NOT NULL,
     sector BIGINT NOT NULL,
     reg_seal_proof INT NOT NULL,
@@ -86,6 +88,8 @@ CREATE TABLE ipni_task (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
     task_id BIGINT DEFAULT NULL,
     complete BOOLEAN DEFAULT FALSE,
+
+    -- id TEXT (Added in 20250505-market-mk20.sql)
 
     PRIMARY KEY (provider, context_id, is_rm)
 );
@@ -175,24 +179,24 @@ BEGIN
 
     -- If a different is_rm exists for the same context_id and provider, insert the new task
     IF FOUND THEN
-            INSERT INTO ipni_task (sp_id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
-            VALUES (_sp_id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
-            RETURN;
+        INSERT INTO ipni_task (sp_id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
+        VALUES (_sp_id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
+        RETURN;
     END IF;
 
-        -- If no conflicting entry is found in ipni_task, check the latest ad in ipni table
+    -- If no conflicting entry is found in ipni_task, check the latest ad in ipni table
     SELECT is_rm INTO _latest_is_rm
     FROM ipni
     WHERE provider = _provider AND context_id = _context_id
     ORDER BY order_number DESC
-        LIMIT 1;
+    LIMIT 1;
 
     -- If the latest ad has the same is_rm value, raise an exception
     IF FOUND AND _latest_is_rm = _is_rm THEN
             RAISE EXCEPTION 'already published';
     END IF;
 
-        -- If all conditions are met, insert the new task into ipni_task
+    -- If all conditions are met, insert the new task into ipni_task
     INSERT INTO ipni_task (sp_id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
     VALUES (_sp_id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
 END;

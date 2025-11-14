@@ -65,7 +65,7 @@ func NewMessageWatcherEth(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *cha
 		ethCallTimeout: defaultEthCallTimeout,
 	}
 	go mw.run()
-	if err := pcs.AddHandler(mw.processHeadChange); err != nil {
+	if err := pcs.AddWatcher(mw.processHeadChange); err != nil {
 		return nil, err
 	}
 	return mw, nil
@@ -257,7 +257,7 @@ func (mw *MessageWatcherEth) update() {
 		}
 	}
 
-	log.Infow("MessageWatcherEth update completed",
+	log.Debugw("MessageWatcherEth update completed",
 		"processed", processed,
 		"confirmed", confirmed,
 		"stillPending", stillPending,

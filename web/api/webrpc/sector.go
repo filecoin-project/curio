@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
+	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
@@ -115,6 +117,7 @@ type SectorPieceMeta struct {
 	PieceIndex int64  `db:"piece_index"`
 	PieceCid   string `db:"piece_cid"`
 	PieceSize  int64  `db:"piece_size"`
+	PieceCidV2 string `db:"-"`
 
 	DealID           *string `db:"deal_id"`
 	DataUrl          *string `db:"data_url"`
@@ -512,6 +515,20 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	for i := range pieces {
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))
 		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(derefOrZero(pieces[i].DataRawSize))))
+
+		pcid, err := cid.Parse(pieces[i].PieceCid)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
+		}
+
+		if pieces[i].DataRawSize != nil {
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(*pieces[i].DataRawSize))
+			if err != nil {
+				return nil, xerrors.Errorf("failed to generate piece cid v2: %w", err)
+			}
+
+			pieces[i].PieceCidV2 = pcid2.String()
+		}
 
 		id, isPiecePark := strings.CutPrefix(derefOrZero(pieces[i].DataUrl), "pieceref:")
 		if !isPiecePark {

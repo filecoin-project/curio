@@ -7,7 +7,7 @@ USAGE:
    sptool [global options] command [command options]
 
 VERSION:
-   1.27.1
+   1.27.2
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -503,6 +503,7 @@ USAGE:
 COMMANDS:
    spark        Manage Smart Contract PeerID used by Spark
    mk12-client  mk12 client for Curio
+   mk20-client  mk20 client for Curio
    help, h      Shows a list of commands or help for one command
 
 OPTIONS:
@@ -887,4 +888,163 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+### sptool toolbox mk20-client
+```
+NAME:
+   sptool toolbox mk20-client - mk20 client for Curio
+
+USAGE:
+   sptool toolbox mk20-client [command options]
+
+COMMANDS:
+   init          Initialise curio mk12 client repo
+   commp         
+   deal          Make a mk20 deal with Curio
+   pdp-deal      Make a mk20 PDP deal with Curio
+   aggregate     Create a new aggregate from a list of CAR files
+   upload        Upload a file to the storage provider
+   chunk-upload  Upload a file in chunks to the storage provider
+   deal-status   Get status of a Mk20 deal
+   help, h       Shows a list of commands or help for one command
+
+OPTIONS:
+   --mk12-client-repo value  repo directory for mk12 client (default: "~/.curio-client") [$CURIO_MK12_CLIENT_REPO]
+   --help, -h                show help
+```
+
+#### sptool toolbox mk20-client init
+```
+NAME:
+   sptool toolbox mk20-client init - Initialise curio mk12 client repo
+
+USAGE:
+   sptool toolbox mk20-client init [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox mk20-client commp
+```
+NAME:
+   sptool toolbox mk20-client commp
+
+USAGE:
+   sptool toolbox mk20-client commp [command options] <inputPath>
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox mk20-client deal
+```
+NAME:
+   sptool toolbox mk20-client deal - Make a mk20 deal with Curio
+
+USAGE:
+   sptool toolbox mk20-client deal [command options]
+
+OPTIONS:
+   --http-url value                               http url to CAR file
+   --http-headers value [ --http-headers value ]  http headers to be passed with the request (e.g key=value)
+   --provider value                               storage provider on-chain address
+   --pcidv2 value                                 pcidv2 of the CAR file
+   --duration value                               duration of the deal in epochs (default: 518400)
+   --contract-address value                       contract address of the deal
+   --contract-verify-method value                 contract verify method of the deal
+   --allocation value                             allocation id of the deal (default: 0)
+   --indexing                                     indicates that an deal should be indexed (default: true)
+   --wallet value                                 wallet address to be used to initiate the deal
+   --announce                                     indicates that deal should be announced to the IPNI(Network Indexer) (default: true)
+   --aggregate value                              aggregate file path for the deal
+   --put                                          used HTTP put as data source (default: false)
+   --help, -h                                     show help
+```
+
+#### sptool toolbox mk20-client pdp-deal
+```
+NAME:
+   sptool toolbox mk20-client pdp-deal - Make a mk20 PDP deal with Curio
+
+USAGE:
+   sptool toolbox mk20-client pdp-deal [command options]
+
+OPTIONS:
+   --http-url value                               http url to CAR file
+   --http-headers value [ --http-headers value ]  http headers to be passed with the request (e.g key=value)
+   --provider value                               PDP providers's URL
+   --pcidv2 value                                 pcidv2 of the CAR file
+   --wallet value                                 wallet address to be used to initiate the deal
+   --aggregate value                              aggregate file path for the deal
+   --put                                          used HTTP put as data source (default: false)
+   --add-piece                                    add piece (default: false)
+   --add-dataset                                  add dataset (default: false)
+   --remove-piece                                 remove piece (default: false)
+   --remove-dataset                               remove dataset (default: false)
+   --record-keeper value                          record keeper address
+   --piece-id value [ --piece-id value ]          root IDs
+   --dataset-id value                             dataset IDs (default: 0)
+   --help, -h                                     show help
+```
+
+#### sptool toolbox mk20-client aggregate
+```
+NAME:
+   sptool toolbox mk20-client aggregate - Create a new aggregate from a list of CAR files
+
+USAGE:
+   sptool toolbox mk20-client aggregate [command options]
+
+OPTIONS:
+   --files value [ --files value ]  list of CAR files to aggregate
+   --piece-size value               piece size of the aggregate (default: 0)
+   --out                            output the aggregate file (default: true)
+   --help, -h                       show help
+```
+
+#### sptool toolbox mk20-client upload
+```
+NAME:
+   sptool toolbox mk20-client upload - Upload a file to the storage provider
+
+USAGE:
+   sptool toolbox mk20-client upload [command options]
+
+OPTIONS:
+   --provider value  PDP providers's URL
+   --deal value      deal id to upload to
+   --help, -h        show help
+```
+
+#### sptool toolbox mk20-client chunk-upload
+```
+NAME:
+   sptool toolbox mk20-client chunk-upload - Upload a file in chunks to the storage provider
+
+USAGE:
+   sptool toolbox mk20-client chunk-upload [command options]
+
+OPTIONS:
+   --provider value    storage provider on-chain address
+   --deal value        deal id to upload to
+   --chunk-size value  chunk size to be used for the upload (default: "4 MiB")
+   --wallet value      wallet address to be used to initiate the deal
+   --help, -h          show help
+```
+
+#### sptool toolbox mk20-client deal-status
+```
+NAME:
+   sptool toolbox mk20-client deal-status - Get status of a Mk20 deal
+
+USAGE:
+   sptool toolbox mk20-client deal-status [command options]
+
+OPTIONS:
+   --provider value  PDP providers's URL
+   --id value        deal id
+   --wallet value    wallet address to be used to initiate the deal
+   --help, -h        show help
 ```

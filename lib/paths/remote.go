@@ -82,11 +82,14 @@ func (r *Remote) RemoveCopies(ctx context.Context, s abi.SectorID, typ storiface
 	return r.Remove(ctx, s, typ, true, keep)
 }
 
-func NewRemote(local Store, index SectorIndex, auth http.Header, fetchLimit int, pfHandler PartialFileHandler) *Remote {
+func NewRemote(local Store, index SectorIndex, auth http.Header, fetchLimit int, pfHandler PartialFileHandler) (*Remote, error) {
 
 	findSectorCache := ttlcache.NewCache()
-	findSectorCache.SetTTL(10 * time.Minute)
+	err := findSectorCache.SetTTL(10 * time.Minute)
 	findSectorCache.SetCacheSizeLimit(65_000)
+	if err != nil {
+		return nil, xerrors.Errorf("setting find sector cache TTL: %w", err)
+	}
 
 	return &Remote{
 		local: local,
@@ -99,7 +102,7 @@ func NewRemote(local Store, index SectorIndex, auth http.Header, fetchLimit int,
 		pfHandler: pfHandler,
 
 		findSectorCache: findSectorCache,
-	}
+	}, nil
 }
 
 func (r *Remote) AcquireSector(ctx context.Context, s storiface.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, pathType storiface.PathType, op storiface.AcquireMode, opts ...storiface.AcquireOption) (storiface.SectorPaths, storiface.SectorPaths, error) {
@@ -925,7 +928,7 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 // file types which are a directory (e.g. FTCache).
 func (r *Remote) ReaderSeq(ctx context.Context, s storiface.SectorRef, ft storiface.SectorFileType) (io.ReadCloser, error) {
 	ctx = context.WithValue(ctx, FindSectorCacheKey, r.findSectorCache)
-	
+
 	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
 		return nil, xerrors.Errorf("acquire local: %w", err)

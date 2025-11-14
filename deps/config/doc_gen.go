@@ -208,7 +208,8 @@ Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "a
 			Name: "Addresses",
 			Type: "[]CurioAddresses",
 
-			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.`,
+			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Proving",
@@ -317,7 +318,8 @@ are much less likely to get stuck in mempool. (Default: true)`,
 			Comment: `MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
 A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
 If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
-0 means unlimited. (Default: 64)`,
+0 means unlimited. (Default: 64)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueDownload",
@@ -326,7 +328,8 @@ If this limit is exceeded, the system will apply backpressure to delay processin
 			Comment: `MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
 waiting for a machine to pick up their task (owner_id is null).
 If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
-0 means unlimited. (Default: 8)`,
+0 means unlimited. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueCommP",
@@ -335,7 +338,8 @@ If this limit is exceeded, the system will apply backpressure to slow the ingest
 			Comment: `MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
 waiting for a machine to pick up their verification task (owner_id is null).
 If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
-0 means unlimited. (Default: 8)`,
+0 means unlimited. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueDealSector",
@@ -345,7 +349,8 @@ If this limit is exceeded, the system will apply backpressure, delaying new deal
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
-DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)`,
+DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSDR",
@@ -357,7 +362,8 @@ Note: This mechanism will delay taking deal data from markets, providing backpre
 The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
 possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueTrees",
@@ -368,7 +374,8 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueuePoRep",
@@ -379,7 +386,8 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSnapEncode",
@@ -388,7 +396,8 @@ Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
+Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxQueueSnapProve",
@@ -396,7 +405,8 @@ Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
 
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
-This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)`,
+This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaxDealWaitTime",
@@ -404,7 +414,8 @@ This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying
 
 			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
 This ensures that sectors don't remain open indefinitely, consuming resources.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "DoSnap",
@@ -836,12 +847,6 @@ Please ensure that ParkPiece task is enabled and relevant resources are availabl
 also be bounded by resources available on the machine. (Default: 8)`,
 		},
 		{
-			Name: "EnableBalanceManager",
-			Type: "bool",
-
-			Comment: `EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)`,
-		},
-		{
 			Name: "BindSDRTreeToNode",
 			Type: "bool",
 
@@ -937,10 +942,13 @@ Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
 Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
 		},
 		{
-			Name: "EnableCORS",
-			Type: "bool",
+			Name: "CORSOrigins",
+			Type: "[]string",
 
-			Comment: `EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.`,
+			Comment: `CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
+If not empty, only the specified origins will be allowed for CORS requests.
+This is required for third-party UI servers.
+"*" allows everyone, it's best to specify the UI servers' hostname.`,
 		},
 		{
 			Name: "CSP",
@@ -985,8 +993,7 @@ allow indexer nodes to process announcements. Default: False`,
 			Name: "ServiceURL",
 			Type: "[]string",
 
-			Comment: `The network indexer web UI URL for viewing published announcements
-TODO: should we use this for checking published heads before publishing? Later commit`,
+			Comment: `The network indexer web UI URL for viewing published announcements`,
 		},
 		{
 			Name: "DirectAnnounceURLs",
@@ -1130,6 +1137,71 @@ CIDGravity filters will not be applied to deals associated with that miner ID.`,
 Default behaviors is to reject the deals (Default: false)`,
 		},
 	},
+	"MK20Config": {
+		{
+			Name: "ExpectedPoRepSealDuration",
+			Type: "time.Duration",
+
+			Comment: `ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")`,
+		},
+		{
+			Name: "ExpectedSnapSealDuration",
+			Type: "time.Duration",
+
+			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")`,
+		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again (Default: false)`,
+		},
+		{
+			Name: "DisabledMiners",
+			Type: "[]string",
+
+			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
+		},
+		{
+			Name: "MaxConcurrentDealSizeGiB",
+			Type: "int64",
+
+			Comment: `MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+(Default: 0 = unlimited)`,
+		},
+		{
+			Name: "DenyUnknownClients",
+			Type: "bool",
+
+			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+If True then all deals coming from unknown clients will be rejected. (Default: false)`,
+		},
+		{
+			Name: "MaxParallelChunkUploads",
+			Type: "int",
+
+			Comment: `MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)`,
+		},
+		{
+			Name: "MinimumChunkSize",
+			Type: "int64",
+
+			Comment: `MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)`,
+		},
+		{
+			Name: "MaximumChunkSize",
+			Type: "int64",
+
+			Comment: `MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)`,
+		},
+	},
 	"MarketConfig": {
 		{
 			Name: "StorageMarketConfig",
@@ -1233,6 +1305,12 @@ Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXX
 			Type: "MK12Config",
 
 			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+		},
+		{
+			Name: "MK20",
+			Type: "MK20Config",
+
+			Comment: `MK20 encompasses all configuration related to deal protocol mk2.0 i.e. market 2.0`,
 		},
 		{
 			Name: "IPNI",

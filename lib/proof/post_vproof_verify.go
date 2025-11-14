@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 
@@ -131,6 +130,7 @@ func verifyWindowPoStVanilla(
 	return true, nil
 }
 
+/*
 // partitionFallbackPoStSectorProofs splits sector proofs into chunks of length cfg.SectorCount.
 func partitionFallbackPoStSectorProofs(cfg *PoStConfig, all []FallbackPoStSectorProof) ([][]FallbackPoStSectorProof, error) {
 	partitionCount := int(math.Ceil(float64(len(all)) / float64(cfg.SectorCount)))
@@ -166,6 +166,7 @@ func partitionFallbackPoStSectorProofs(cfg *PoStConfig, all []FallbackPoStSector
 
 	return out, nil
 }
+*/
 
 // checkCommR is the fallback post condition: comm_r = PoseidonHash2(comm_c, comm_r_last).
 func checkCommR(commC, commRLast, claimed PoseidonDomain) bool {

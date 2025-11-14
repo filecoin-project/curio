@@ -48,7 +48,7 @@ var testDebugIpniChunks = &cli.Command{
 			return xerrors.Errorf("reading block: %w", err)
 		}
 
-		_, err = ck.Finish(c.Context, nil, cid.Undef)
+		_, err = ck.Finish(c.Context, nil, cid.Undef, false)
 		if err != nil {
 			return xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 		}

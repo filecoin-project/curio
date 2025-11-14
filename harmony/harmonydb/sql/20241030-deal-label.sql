@@ -1,2 +1,1 @@
-ALTER TABLE market_mk12_deals
-    ADD COLUMN label BYTEA;
+ALTER TABLE market_mk12_deals ADD COLUMN IF NOT EXISTS label BYTEA;

@@ -1,0 +1,1453 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Curio market APIs",
+        "title": "Curio Market 2.0 API",
+        "contact": {}
+    },
+    "paths": {
+        "/contracts": {
+            "get": {
+                "description": "List of supported DDO contracts",
+                "summary": "List of supported DDO contracts",
+                "responses": {
+                    "200": {
+                        "description": "Array of contract addresses supported by a system or application.",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedContracts"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/info/": {
+            "get": {
+                "description": "- OpenAPI spec UI for the Market 2.0 APIs",
+                "summary": "OpenAPI Spec UI",
+                "responses": {}
+            }
+        },
+        "/info/swagger.json": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in JSON format",
+                "summary": "OpenAPI Spec JSON",
+                "responses": {}
+            }
+        },
+        "/info/swagger.yaml": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in YAML format",
+                "summary": "OpenAPI Spec YAML",
+                "responses": {}
+            }
+        },
+        "/products": {
+            "get": {
+                "description": "List of supported products",
+                "summary": "List of supported products",
+                "responses": {
+                    "200": {
+                        "description": "Array of products supported by the SP",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedProducts"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/sources": {
+            "get": {
+                "description": "List of supported data sources",
+                "summary": "List of supported data sources",
+                "responses": {
+                    "200": {
+                        "description": "Array of dats sources supported by the SP",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedDataSources"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/status/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Current status of MK20 deal per product",
+                "summary": "Status of the MK20 deal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the status response for deal products with their respective deal statuses",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealProductStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/store": {
+            "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Make a mk20 deal",
+                "consumes": [
+                    "application/json"
+                ],
+                "summary": "Make a mk20 deal",
+                "parameters": [
+                    {
+                        "description": "mk20.Deal in json format",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mk20.Deal"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ok represents a successful operation with an HTTP status code of 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "422": {
+                        "description": "ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "423": {
+                        "description": "ErrUnsupportedProduct indicates that the requested product is not supported by the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "424": {
+                        "description": "ErrProductNotEnabled indicates that the requested product is not enabled on the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "425": {
+                        "description": "ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "426": {
+                        "description": "ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "429": {
+                        "description": "ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "430": {
+                        "description": "ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "440": {
+                        "description": "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "441": {
+                        "description": "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "500": {
+                        "description": "ErrServerInternalError indicates an internal server error with a corresponding error code of 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "503": {
+                        "description": "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/update/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Useful for adding adding additional products and updating PoRep duration",
+                "consumes": [
+                    "application/json"
+                ],
+                "summary": "Update the deal details of existing deals.",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "mk20.Deal in json format",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mk20.Deal"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ok represents a successful operation with an HTTP status code of 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "422": {
+                        "description": "ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "423": {
+                        "description": "ErrUnsupportedProduct indicates that the requested product is not supported by the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "424": {
+                        "description": "ErrProductNotEnabled indicates that the requested product is not enabled on the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "425": {
+                        "description": "ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "426": {
+                        "description": "ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "429": {
+                        "description": "ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "430": {
+                        "description": "ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "440": {
+                        "description": "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "441": {
+                        "description": "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "500": {
+                        "description": "ErrServerInternalError indicates an internal server error with a corresponding error code of 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "503": {
+                        "description": "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/upload/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Allows uploading data for deals in a single stream. Suitable for small deals.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "summary": "Upload the deal data",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "raw binary",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "UploadOk indicates a successful upload operation, represented by the HTTP status code 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStartCode"
+                        }
+                    },
+                    "500": {
+                        "description": "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Finalizes the serial upload process once data has been uploaded",
+                "consumes": [
+                    "application/json"
+                ],
+                "summary": "Finalizes the serial upload process",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "mk20.deal in json format",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.Deal"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ok represents a successful operation with an HTTP status code of 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "422": {
+                        "description": "ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "423": {
+                        "description": "ErrUnsupportedProduct indicates that the requested product is not supported by the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "424": {
+                        "description": "ErrProductNotEnabled indicates that the requested product is not enabled on the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "425": {
+                        "description": "ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "426": {
+                        "description": "ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "429": {
+                        "description": "ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "430": {
+                        "description": "ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "440": {
+                        "description": "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "441": {
+                        "description": "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "500": {
+                        "description": "ErrServerInternalError indicates an internal server error with a corresponding error code of 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "503": {
+                        "description": "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/uploads/finalize/{id}": {
+            "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Finalizes the upload process once all the chunks are uploaded.",
+                "consumes": [
+                    "application/json"
+                ],
+                "summary": "Finalizes the upload process",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "mk20.deal in json format",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.Deal"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ok represents a successful operation with an HTTP status code of 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "422": {
+                        "description": "ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "423": {
+                        "description": "ErrUnsupportedProduct indicates that the requested product is not supported by the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "424": {
+                        "description": "ErrProductNotEnabled indicates that the requested product is not enabled on the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "425": {
+                        "description": "ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "426": {
+                        "description": "ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "429": {
+                        "description": "ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "430": {
+                        "description": "ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "440": {
+                        "description": "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "441": {
+                        "description": "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "500": {
+                        "description": "ErrServerInternalError indicates an internal server error with a corresponding error code of 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "503": {
+                        "description": "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/uploads/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Return a json struct detailing the current status of a deal upload.",
+                "summary": "Status of deal upload",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The status of a file upload process, including progress and missing chunks",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "UploadStatusCodeDealNotFound indicates that the requested deal was not found, corresponding to status code 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStatusCode"
+                        }
+                    },
+                    "425": {
+                        "description": "UploadStatusCodeUploadNotStarted indicates that the upload process has not started yet",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStatusCode"
+                        }
+                    },
+                    "500": {
+                        "description": "UploadStatusCodeServerError indicates an internal server error occurred during the upload process, corresponding to status code 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStatusCode"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Initializes the upload for a deal. Each upload must be initialized before chunks can be uploaded for a deal.",
+                "consumes": [
+                    "application/json"
+                ],
+                "summary": "Starts the upload process",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Metadata for initiating an upload operation",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mk20.StartUpload"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "UploadStartCodeOk indicates a successful upload start request with status code 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStartCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStartCode"
+                        }
+                    },
+                    "409": {
+                        "description": "UploadStartCodeAlreadyStarted indicates that the upload process has already been initiated and cannot be started again",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStartCode"
+                        }
+                    },
+                    "500": {
+                        "description": "UploadStartCodeServerError indicates an error occurred on the server while processing an upload start request",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStartCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/uploads/{id}/{chunkNum}": {
+            "put": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Allows uploading chunks for a deal file. Method can be called in parallel to speed up uploads.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "summary": "Upload a file chunk",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "chunkNum",
+                        "name": "chunkNum",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "raw binary",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "UploadOk indicates a successful upload operation, represented by the HTTP status code 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "UploadNotFound represents an error where the requested upload chunk could not be found, typically corresponding to HTTP status 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    },
+                    "409": {
+                        "description": "UploadChunkAlreadyUploaded indicates that the chunk has already been uploaded and cannot be re-uploaded",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    },
+                    "500": {
+                        "description": "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "address.Address": {
+            "type": "object"
+        },
+        "github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId": {
+            "type": "integer",
+            "enum": [
+                0
+            ],
+            "x-enum-varnames": [
+                "NoAllocationID"
+            ]
+        },
+        "http.Header": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            }
+        },
+        "mk20.AggregateType": {
+            "type": "integer",
+            "enum": [
+                0,
+                1
+            ],
+            "x-enum-varnames": [
+                "AggregateTypeNone",
+                "AggregateTypeV1"
+            ]
+        },
+        "mk20.DDOV1": {
+            "type": "object",
+            "properties": {
+                "allocation_id": {
+                    "description": "AllocationId represents an allocation identifier for the deal.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId"
+                        }
+                    ]
+                },
+                "contract_address": {
+                    "description": "ContractAddress specifies the address of the contract governing the deal",
+                    "type": "string"
+                },
+                "contract_verify_method": {
+                    "description": "ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract",
+                    "type": "string"
+                },
+                "contract_verify_method_Params": {
+                    "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "duration": {
+                    "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
+                    "type": "integer"
+                },
+                "notification_address": {
+                    "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
+                    "type": "string"
+                },
+                "notification_payload": {
+                    "description": "NotificationPayload holds the notification data typically in a serialized byte array format.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "piece_manager": {
+                    "description": "Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/address.Address"
+                        }
+                    ]
+                },
+                "provider": {
+                    "description": "Provider specifies the address of the provider",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/address.Address"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.DataSource": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "description": "Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.PieceDataFormat"
+                        }
+                    ]
+                },
+                "piece_cid": {
+                    "description": "PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "example": {
+                        "/": "bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"
+                    }
+                },
+                "source_aggregate": {
+                    "description": "SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceAggregate"
+                        }
+                    ]
+                },
+                "source_http": {
+                    "description": "SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceHTTP"
+                        }
+                    ]
+                },
+                "source_http_put": {
+                    "description": "SourceHttpPut allow clients to push piece data after deal is accepted",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceHttpPut"
+                        }
+                    ]
+                },
+                "source_offline": {
+                    "description": "SourceOffline defines the data source for offline pieces, including raw size information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSourceOffline"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.DataSourceAggregate": {
+            "type": "object",
+            "properties": {
+                "pieces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mk20.DataSource"
+                    }
+                }
+            }
+        },
+        "mk20.DataSourceHTTP": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "description": "URLs lists the HTTP endpoints where the piece data can be fetched.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mk20.HttpUrl"
+                    }
+                }
+            }
+        },
+        "mk20.DataSourceHttpPut": {
+            "type": "object"
+        },
+        "mk20.DataSourceOffline": {
+            "type": "object"
+        },
+        "mk20.Deal": {
+            "type": "object",
+            "properties": {
+                "client": {
+                    "description": "Client wallet string for the deal",
+                    "type": "string"
+                },
+                "data": {
+                    "description": "Data represents the source of piece data and associated metadata.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DataSource"
+                        }
+                    ]
+                },
+                "identifier": {
+                    "description": "Identifier represents a unique identifier for the deal in ULID format.",
+                    "type": "string",
+                    "format": "ulid",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+                },
+                "products": {
+                    "description": "Products represents a collection of product-specific information associated with a deal",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.Products"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.DealCode": {
+            "type": "integer",
+            "enum": [
+                200,
+                401,
+                400,
+                404,
+                430,
+                422,
+                423,
+                424,
+                425,
+                426,
+                500,
+                503,
+                429,
+                440,
+                441
+            ],
+            "x-enum-varnames": [
+                "Ok",
+                "ErrUnAuthorized",
+                "ErrBadProposal",
+                "ErrDealNotFound",
+                "ErrMalformedDataSource",
+                "ErrUnsupportedDataSource",
+                "ErrUnsupportedProduct",
+                "ErrProductNotEnabled",
+                "ErrProductValidationFailed",
+                "ErrDealRejectedByMarket",
+                "ErrServerInternalError",
+                "ErrServiceMaintenance",
+                "ErrServiceOverloaded",
+                "ErrMarketNotEnabled",
+                "ErrDurationTooShort"
+            ]
+        },
+        "mk20.DealProductStatusResponse": {
+            "type": "object",
+            "properties": {
+                "ddo_v1": {
+                    "description": "DDOV1 holds the DealStatusResponse for product \"ddo_v1\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DealStatusResponse"
+                        }
+                    ]
+                },
+                "pdp_v1": {
+                    "description": "PDPV1 represents the DealStatusResponse for the product pdp_v1.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DealStatusResponse"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.DealState": {
+            "type": "string",
+            "enum": [
+                "accepted",
+                "uploading",
+                "processing",
+                "sealing",
+                "indexing",
+                "failed",
+                "complete"
+            ],
+            "x-enum-varnames": [
+                "DealStateAccepted",
+                "DealStateAwaitingUpload",
+                "DealStateProcessing",
+                "DealStateSealing",
+                "DealStateIndexing",
+                "DealStateFailed",
+                "DealStateComplete"
+            ]
+        },
+        "mk20.DealStatusResponse": {
+            "type": "object",
+            "properties": {
+                "errorMsg": {
+                    "description": "ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "State indicates the current processing state of the deal as a DealState value.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DealState"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.FormatAggregate": {
+            "type": "object",
+            "properties": {
+                "sub": {
+                    "description": "Sub holds a slice of DataSource, representing details of sub pieces aggregated under this format.\nThe order must be same as segment index to avoid incorrect indexing of sub pieces in an aggregate",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mk20.DataSource"
+                    }
+                },
+                "type": {
+                    "description": "Type specifies the type of aggregation for data pieces, represented by an AggregateType value.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.AggregateType"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.FormatBytes": {
+            "type": "object"
+        },
+        "mk20.FormatCar": {
+            "type": "object"
+        },
+        "mk20.HttpUrl": {
+            "type": "object",
+            "properties": {
+                "fallback": {
+                    "description": "Fallback indicates whether this URL serves as a fallback option when other URLs fail.",
+                    "type": "boolean"
+                },
+                "headers": {
+                    "description": "HTTPHeaders represents the HTTP headers associated with the URL.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/http.Header"
+                        }
+                    ]
+                },
+                "priority": {
+                    "description": "Priority indicates the order preference for using the URL in requests, with lower values having higher priority.",
+                    "type": "integer"
+                },
+                "url": {
+                    "description": "URL specifies the HTTP endpoint where the piece data can be fetched.",
+                    "type": "string"
+                }
+            }
+        },
+        "mk20.PDPV1": {
+            "type": "object",
+            "properties": {
+                "add_piece": {
+                    "description": "AddPiece indicated that this deal is meant to add Piece to a given DataSet. DataSetID must be defined.",
+                    "type": "boolean"
+                },
+                "create_data_set": {
+                    "description": "CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.",
+                    "type": "boolean"
+                },
+                "data_set_id": {
+                    "description": "DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.",
+                    "type": "integer"
+                },
+                "delete_data_set": {
+                    "description": "DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.\nDataSetID must be defined.",
+                    "type": "boolean"
+                },
+                "delete_piece": {
+                    "description": "DeletePiece indicates whether the Piece of the data should be deleted. DataSetID must be defined.",
+                    "type": "boolean"
+                },
+                "extra_data": {
+                    "description": "ExtraData can be used to send additional information to service contract when Verifier action like AddPiece, DeletePiece, etc. are performed.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "piece_ids": {
+                    "description": "PieceIDs is a list of Piece ids in a proof set.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "record_keeper": {
+                    "description": "RecordKeeper specifies the record keeper contract address for the new PDP dataset.",
+                    "type": "string"
+                }
+            }
+        },
+        "mk20.PieceDataFormat": {
+            "type": "object",
+            "properties": {
+                "aggregate": {
+                    "description": "Aggregate holds a reference to the aggregated format of piece data.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.FormatAggregate"
+                        }
+                    ]
+                },
+                "car": {
+                    "description": "Car represents the optional CAR file format.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.FormatCar"
+                        }
+                    ]
+                },
+                "raw": {
+                    "description": "Raw represents the raw format of the piece data, encapsulated as bytes.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.FormatBytes"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.Products": {
+            "type": "object",
+            "properties": {
+                "ddo_v1": {
+                    "description": "DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DDOV1"
+                        }
+                    ]
+                },
+                "pdp_v1": {
+                    "description": "PDPV1 represents product-specific configuration for PDP version 1 deals.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.PDPV1"
+                        }
+                    ]
+                },
+                "retrieval_v1": {
+                    "description": "RetrievalV1 represents configuration for retrieval settings in the system, including indexing and announcement flags.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.RetrievalV1"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.RetrievalV1": {
+            "type": "object",
+            "properties": {
+                "announce_payload": {
+                    "description": "AnnouncePayload indicates whether the payload should be announced to IPNI.",
+                    "type": "boolean"
+                },
+                "announce_piece": {
+                    "description": "AnnouncePiece indicates whether the piece information should be announced to IPNI.",
+                    "type": "boolean"
+                },
+                "indexing": {
+                    "description": "Indexing indicates if the deal is to be indexed in the provider's system to support CIDs based retrieval",
+                    "type": "boolean"
+                }
+            }
+        },
+        "mk20.StartUpload": {
+            "type": "object",
+            "properties": {
+                "chunk_size": {
+                    "description": "ChunkSize defines the size of each data chunk to be used during the upload process.",
+                    "type": "integer"
+                },
+                "raw_size": {
+                    "description": "RawSize indicates the total size of the data to be uploaded in bytes.",
+                    "type": "integer"
+                }
+            }
+        },
+        "mk20.SupportedContracts": {
+            "type": "object",
+            "properties": {
+                "contracts": {
+                    "description": "Contracts represents a list of supported contract addresses in string format.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "mk20.SupportedDataSources": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "description": "Contracts represents a list of supported contract addresses in string format.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "mk20.SupportedProducts": {
+            "type": "object",
+            "properties": {
+                "products": {
+                    "description": "Contracts represents a list of supported contract addresses in string format.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "mk20.UploadCode": {
+            "type": "integer",
+            "enum": [
+                200,
+                400,
+                404,
+                409,
+                500,
+                429
+            ],
+            "x-enum-varnames": [
+                "UploadOk",
+                "UploadBadRequest",
+                "UploadNotFound",
+                "UploadChunkAlreadyUploaded",
+                "UploadServerError",
+                "UploadRateLimit"
+            ]
+        },
+        "mk20.UploadStartCode": {
+            "type": "integer",
+            "enum": [
+                200,
+                400,
+                404,
+                409,
+                500
+            ],
+            "x-enum-varnames": [
+                "UploadStartCodeOk",
+                "UploadStartCodeBadRequest",
+                "UploadStartCodeDealNotFound",
+                "UploadStartCodeAlreadyStarted",
+                "UploadStartCodeServerError"
+            ]
+        },
+        "mk20.UploadStatus": {
+            "type": "object",
+            "properties": {
+                "missing": {
+                    "description": "Missing represents the number of chunks that are not yet uploaded.",
+                    "type": "integer"
+                },
+                "missing_chunks": {
+                    "description": "MissingChunks is a slice containing the indices of missing chunks.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "total_chunks": {
+                    "description": "TotalChunks represents the total number of chunks required for the upload.",
+                    "type": "integer"
+                },
+                "uploaded": {
+                    "description": "Uploaded represents the number of chunks successfully uploaded.",
+                    "type": "integer"
+                },
+                "uploaded_chunks": {
+                    "description": "UploadedChunks is a slice containing the indices of successfully uploaded chunks.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "mk20.UploadStatusCode": {
+            "type": "integer",
+            "enum": [
+                200,
+                404,
+                425,
+                500
+            ],
+            "x-enum-varnames": [
+                "UploadStatusCodeOk",
+                "UploadStatusCodeDealNotFound",
+                "UploadStatusCodeUploadNotStarted",
+                "UploadStatusCodeServerError"
+            ]
+        }
+    },
+    "securityDefinitions": {
+        "CurioAuth": {
+            "description": "Use the format: `CurioAuth PublicKeyType:PublicKey:Signature`\n\n- `PublicKeyType`: String representation of type of wallet (e.g., \"ed25519\", \"bls\", \"secp256k1\")\n- `PublicKey`: Base64 string of public key bytes\n- `Signature`: Signature is Base64 string of signature bytes.\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.\n- The raw public key bytes (not a human-readable address)\n- The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)\n- These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

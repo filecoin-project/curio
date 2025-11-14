@@ -1,4 +1,4 @@
-create table sector_location
+create table if not exists sector_location
 (
     miner_id         bigint    not null,
     sector_num       bigint    not null,
@@ -19,7 +19,7 @@ alter table sector_location
 alter table sector_location
     alter column read_refs set default 0;
 
-create table storage_path
+create table if not exists storage_path
 (
     "storage_id"  varchar not null
         constraint "storage_path_pkey"

@@ -36,9 +36,9 @@ var activeRequestCounters sync.Map // map[string]*atomic.Int64
 const maxParallelRequests = 256
 
 var (
-	ipfsRequestLimiter  = make(chan struct{}, maxParallelRequests)
-	ipfsHeadRequestLimiter  = make(chan struct{}, maxParallelRequests/2)
-	pieceRequestLimiter = make(chan struct{}, maxParallelRequests)
+	ipfsRequestLimiter     = make(chan struct{}, maxParallelRequests)
+	ipfsHeadRequestLimiter = make(chan struct{}, maxParallelRequests/2)
+	pieceRequestLimiter    = make(chan struct{}, maxParallelRequests)
 )
 
 type Provider struct {

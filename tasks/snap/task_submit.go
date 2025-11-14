@@ -813,7 +813,13 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 			if err != nil {
 				return xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
 			}
-			log.Debugw("marked deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
+			log.Debugw("marked mk12 deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
+
+			n, err = tx.Exec(`UPDATE market_mk20_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, spId, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("update market_mk20_pipeline: %w", err)
+			}
+			log.Debugw("marked mk20 deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
 		}
 	}
 

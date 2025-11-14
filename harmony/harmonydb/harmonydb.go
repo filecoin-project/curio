@@ -21,13 +21,11 @@ import (
 	"github.com/yugabyte/pgx/v5/pgconn"
 	"github.com/yugabyte/pgx/v5/pgxpool"
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/curio/deps/config"
 )
 
 type ITestID string
 
-// ItestNewID see ITestWithID doc
+// ITestNewID see ITestWithID doc
 func ITestNewID() ITestID {
 	return ITestID(strconv.Itoa(rand.Intn(99999)))
 }
@@ -43,11 +41,32 @@ type DB struct {
 
 var logger = logging.Logger("harmonydb")
 
+type Config struct {
+	// HOSTS is a list of hostnames to nodes running YugabyteDB
+	// in a cluster. Only 1 is required
+	Hosts []string
+
+	// The Yugabyte server's username with full credentials to operate on Lotus' Database. Blank for default.
+	Username string
+
+	// The password for the related username. Blank for default.
+	Password string
+
+	// The database (logical partition) within Yugabyte. Blank for default.
+	Database string
+
+	// The port to find Yugabyte. Blank for default.
+	Port string
+
+	// Load Balance the connection over multiple nodes
+	LoadBalance bool
+}
+
 // NewFromConfig is a convenience function.
 // In usage:
 //
 //	db, err := NewFromConfig(config.HarmonyDB)  // in binary init
-func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
+func NewFromConfig(cfg Config) (*DB, error) {
 	return New(
 		cfg.Hosts,
 		cfg.Username,
@@ -92,10 +111,27 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 func New(hosts []string, username, password, database, port string, loadBalance bool, itestID ITestID) (*DB, error) {
 	itest := string(itestID)
 
-	// Join hosts with the port
-	hostPortPairs := make([]string, len(hosts))
-	for i, host := range hosts {
-		hostPortPairs[i] = fmt.Sprintf("%s:%s", host, port)
+	if len(hosts) == 0 {
+		return nil, xerrors.Errorf("no hosts provided")
+	}
+
+	// Debug: Log which path we're taking
+	logger.Infof("Yugabyte connection config: loadBalance=%v, hosts=%v, port=%s", loadBalance, hosts, port)
+
+	// When load balancing is disabled, use only the first host to prevent
+	// Yugabyte client from discovering internal Docker IPs via topology discovery
+	var connectionHost string
+	if loadBalance {
+		// Join all hosts with the port for load balancing
+		hostPortPairs := make([]string, len(hosts))
+		for i, host := range hosts {
+			hostPortPairs[i] = fmt.Sprintf("%s:%s", host, port)
+		}
+		connectionHost = strings.Join(hostPortPairs, ",")
+	} else {
+		// Use only the first host when load balancing is disabled
+		// This prevents topology discovery that would return internal Docker IPs
+		connectionHost = fmt.Sprintf("%s:%s", hosts[0], port)
 	}
 
 	// Construct the connection string
@@ -103,12 +139,17 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 		"postgresql://%s:%s@%s/%s?sslmode=disable",
 		username,
 		password,
-		strings.Join(hostPortPairs, ","),
+		connectionHost,
 		database,
 	)
 
 	if loadBalance {
 		connString += "&load_balance=true"
+	} else {
+		// When load balancing is disabled, explicitly disable it
+		// fallback_to_topology_keys_only=true ensures client only uses specified nodes
+		// Note: Don't set topology_keys= (empty) as Yugabyte rejects empty topology_keys format
+		connString += "&load_balance=false&fallback_to_topology_keys_only=true"
 	}
 
 	schema := "curio"
@@ -122,6 +163,24 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	cfg, err := pgxpool.ParseConfig(connString + "&search_path=" + schema)
 	if err != nil {
 		return nil, err
+	}
+
+	// When load balancing is disabled, restrict the pool to only use the specified host
+	// This prevents Yugabyte client from discovering and connecting to internal Docker IPs
+	if !loadBalance {
+		// Parse port as integer
+		portInt, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid port: %w", err)
+		}
+
+		// Override the connection config to use only our specified host
+		cfg.ConnConfig.Host = hosts[0]
+		cfg.ConnConfig.Port = uint16(portInt)
+
+		// Note: Yugabyte-specific connection parameters (load_balance, fallback_to_topology_keys_only)
+		// must be set in the connection string, not as runtime parameters.
+		// The connection string already has these parameters set above.
 	}
 
 	cfg.ConnConfig.OnNotice = func(conn *pgconn.PgConn, n *pgconn.Notice) {
@@ -268,6 +327,8 @@ retry:
 //go:embed sql
 var fs embed.FS
 
+var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
+
 func (db *DB) upgrade() error {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
@@ -328,13 +389,23 @@ func (db *DB) upgrade() error {
 			if len(strings.TrimSpace(s)) == 0 {
 				continue
 			}
-			megaSql += s + ";"
+			trimmed := strings.TrimSpace(s)
+			// Only add semicolon if the statement doesn't already end with one
+			if !strings.HasSuffix(trimmed, ";") {
+				megaSql += s + ";"
+			} else {
+				megaSql += s
+			}
 		}
 		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {
 			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
 			logger.Error(msg)
 			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
+		}
+
+		if ITestUpgradeFunc != nil {
+			ITestUpgradeFunc(db.pgx, name, megaSql)
 		}
 
 		// Mark Completed.
