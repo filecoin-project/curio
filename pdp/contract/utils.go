@@ -496,16 +496,13 @@ func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient *ethc
 	return signedTx.Hash().String(), nil
 }
 
-// DecodeAddressCanonical decodes a []byte into canonical Ethereum address:
-// - Uses last 20 bytes if len >= 20
-// - Left-pads with zero if shorter
-func DecodeAddressCanonical(input []byte) common.Address {
-    b := make([]byte, 20)
-    inLen := len(input)
-    if inLen >= 20 {
-        copy(b, input[inLen-20:])
-    } else {
-        copy(b[20-inLen:], input)
-    }
-    return common.BytesToAddress(b)
+// DecodeAddressCapability implements the Solidity behavior of
+// address(uint160(BigEndian.decode(input))).
+func DecodeAddressCapability(input []byte) common.Address {
+	// If input is longer, we must take the *head* of the slice first.
+	if len(input) > 32 {
+		input = input[:32]
+	}
+	//Now, common.BytesToAddress handles the uint160 cast perfectly.
+	return common.BytesToAddress(input)
 }
