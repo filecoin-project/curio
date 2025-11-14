@@ -90,7 +90,7 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 
 const (
 	bufSz    = 4 << 20
-	nWorkers = 24
+	nWorkers = 64
 )
 
 func Decode(replica, key io.Reader, out io.Writer) error {

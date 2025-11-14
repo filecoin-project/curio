@@ -3,6 +3,7 @@ package indexstore
 import (
 	"context"
 	"embed"
+	_ "embed"
 	"errors"
 	"fmt"
 	"math"
@@ -53,16 +54,6 @@ type Record struct {
 
 var ErrNotFound = errors.New("not found")
 
-func normalizeMultihashError(m multihash.Multihash, err error) error {
-	if err == nil {
-		return nil
-	}
-	if isNotFoundErr(err) {
-		return fmt.Errorf("multihash %s: %w", m, ErrNotFound)
-	}
-	return err
-}
-
 func isNotFoundErr(err error) bool {
 	if err == nil {
 		return false
@@ -77,7 +68,7 @@ func isNotFoundErr(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
-func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStore {
+func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Timeout = 5 * time.Minute
 	cluster.Consistency = gocql.One
@@ -90,7 +81,7 @@ func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStor
 			InsertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
 			InsertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
 		},
-	}
+	}, nil
 }
 
 type ITestID string
@@ -379,10 +370,6 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 		return nil, fmt.Errorf("getting pieces containing multihash %s: %w", m, err)
 	}
 
-	// No pieces found for multihash, return a "not found" error
-	if len(pieces) == 0 {
-		return nil, normalizeMultihashError(m, ErrNotFound)
-	}
 	return pieces, nil
 }
 

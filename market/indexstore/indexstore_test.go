@@ -36,6 +36,8 @@ func TestNewIndexStore(t *testing.T) {
 	idxStore := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	err := idxStore.Start(ctx, true)
 	require.NoError(t, err)
+	err = idxStore.Start(ctx, true)
+	require.NoError(t, err)
 
 	// Create a car file and calculate commP
 	dir, err := os.MkdirTemp(os.TempDir(), "curio-indexstore")

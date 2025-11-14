@@ -24,7 +24,6 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
-
 	"github.com/filecoin-project/lotus/blockstore"
 )
 

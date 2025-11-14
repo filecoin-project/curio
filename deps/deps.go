@@ -396,6 +396,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		deps.IndexStore = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
 		err = deps.IndexStore.Start(cctx.Context, false)
 		if err != nil {
+			return xerrors.Errorf("failed to create index store: %w", err)
+		}
+		err = deps.IndexStore.Start(cctx.Context, false)
+		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
 	}
