@@ -495,3 +495,24 @@ func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient *ethc
 
 	return signedTx.Hash().String(), nil
 }
+
+func DecodeAddressCapability(input []byte) common.Address {
+	// If input is longer than 32 bytes → return zero
+	if len(input) > 32 {
+		return common.Address{}
+	}
+
+	// 32-byte big-endian buffer
+	var buf [32]byte
+
+	if len(input) == 32 {
+		// Exact fit
+		copy(buf[:], input)
+	} else {
+		// Left pad if shorter
+		copy(buf[32-len(input):], input)
+	}
+
+	// Lowest 20 bytes are the address
+	return common.BytesToAddress(buf[12:])
+}

@@ -290,9 +290,7 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 		case contract.CapLocation:
 			offering.Location = string(value)
 		case contract.CapPaymentToken:
-			if len(value) >= 20 {
-				offering.PaymentTokenAddress = common.BytesToAddress(value[len(value)-20:]).Hex()
-			}
+			offering.PaymentTokenAddress = contract.DecodeAddressCapability(value).Hex()
 		default:
 			// Custom capability
 			customCaps[key] = string(value)
