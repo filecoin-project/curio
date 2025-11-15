@@ -3,6 +3,7 @@ package cachedreader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -312,9 +313,9 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 				var finalErr error
 
 				if retCode == http.StatusNotFound {
-					finalErr = xerrors.Errorf("failed to get piece reader from sector or piece park: %w, %w, %w", err, serr, ErrNotFound)
+					finalErr = fmt.Errorf("failed to get piece reader from sector or piece park: %w, %w, %w", err, serr, ErrNotFound)
 				} else {
-					finalErr = xerrors.Errorf("failed to get piece reader from sector or piece park: %w, %w", err, serr)
+					finalErr = fmt.Errorf("failed to get piece reader from sector or piece park: %w, %w", err, serr)
 				}
 
 				// Record error metric
