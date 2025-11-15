@@ -499,10 +499,8 @@ func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient *ethc
 // DecodeAddressCapability implements the Solidity behavior of
 // address(uint160(BigEndian.decode(input))).
 func DecodeAddressCapability(input []byte) common.Address {
-	// If input is longer, we must take the *head* of the slice first.
 	if len(input) > 32 {
 		input = input[:32]
 	}
-	//Now, common.BytesToAddress handles the uint160 cast perfectly.
 	return common.BytesToAddress(input)
 }
