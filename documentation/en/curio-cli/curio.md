@@ -971,7 +971,7 @@ NAME:
    curio test supra - Supra consensus testing utilities
 
 USAGE:
-   curio test supra command [command options]
+   curio test supra [command options]
 
 COMMANDS:
    tree-r-file  Test tree-r-file
