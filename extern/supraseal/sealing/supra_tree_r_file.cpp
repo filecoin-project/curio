@@ -9,17 +9,6 @@
 #include "../util/util.hpp"
 #include "../pc2/pc2_internal.hpp"
 
-// Forward declaration for renamed file-reader variant compiled from pc2.cu
-template<class C>
-void pc2_hash_files(topology_t& topology,
-                    bool tree_r_only,
-                    streaming_node_reader_t<C>& reader,
-                    size_t nodes_to_read,
-                    size_t batch_size,
-                    size_t stream_count,
-                    const char** data_filenames,
-                    const char* output_dir);
-
 // CUDA-based tree-r from last-layer file(s) using the file-streaming reader
 // Always uses P::PARALLEL_SECTORS == 1
 template<class P>
@@ -35,7 +24,7 @@ static int tree_r_file_impl(const char* last_layer_filename,
 
   std::vector<std::string> layer_filenames;
   layer_filenames.push_back(std::string(last_layer_filename));
-  streaming_node_reader_t<sealing_config_t<1, P>> node_reader(P::GetSectorSize(), layer_filenames);
+  streaming_node_reader_files_t<sealing_config_t<1, P>> node_reader(P::GetSectorSize(), layer_filenames);
 
   node_reader.alloc_slots(stream_count * 2, P::GetNumLayers() * batch_size, true);
 
