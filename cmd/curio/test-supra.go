@@ -143,7 +143,7 @@ var testSnapEncodeCmd = &cli.Command{
 
 			var outBuf bytes.Buffer
 			outBuf.Grow(int(ssize))
-			start = time.Now()
+			start = time.Now() //nolint:staticcheck // false positive: used on line 181
 			if err := cunative.EncodeSnap(spt, commD, commK, bytes.NewReader(sealedBytes), bytes.NewReader(unsealedBytes), &outBuf); err != nil {
 				return xerrors.Errorf("EncodeSnap: %w", err)
 			}

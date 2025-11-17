@@ -46,7 +46,7 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	paths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache, storiface.PathSealing)
+	paths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache, storiface.PathSealing) //nolint:staticcheck // false positive: used on line 383
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -258,7 +258,7 @@ func (sb *SealCalls) EncodeUpdate(
 	// note: teeReader means that we avoid re-reading the sector key, saving I/O bandwidth
 	keyRederForEncode := io.TeeReader(sectorKeyReader, keyFile)
 
-	encodeStart := time.Now()
+	encodeStart := time.Now() //nolint:staticcheck // false positive: used on line 292
 	treeDFile, err := os.Open(treeDPath)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("open tree d file: %w", err)
