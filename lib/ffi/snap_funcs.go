@@ -256,14 +256,14 @@ func (sb *SealCalls) EncodeUpdate(
 
 	// copy r into keyFile
 	// note: teeReader means that we avoid re-reading the sector key, saving I/O bandwidth
-	var keyRederForEncode io.Reader = io.TeeReader(sectorKeyReader, keyFile)
+	keyRederForEncode := io.TeeReader(sectorKeyReader, keyFile)
 
 	encodeStart := time.Now()
 	treeDFile, err := os.Open(treeDPath)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("open tree d file: %w", err)
 	}
-	defer treeDFile.Close()
+	defer func() { _ = treeDFile.Close() }()
 
 	err = cunative.EncodeSnap(sector.ProofType, commD, sectorKeyCid, keyRederForEncode, treeDFile, updateFile)
 

@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/google/uuid"
 	"go.opencensus.io/stats"
@@ -91,16 +90,6 @@ func (u *UrlPieceReader) initiateRequest() error {
 	// Set 'active' to the response body
 	u.active = rd
 	return nil
-}
-
-// sanitize filters the input bytes, allowing only safe printable characters.
-func sanitize(input []byte) string {
-	return strings.Map(func(r rune) rune {
-		if r >= 32 && r <= 126 {
-			return r
-		}
-		return '?'
-	}, string(input))
 }
 
 func (u *UrlPieceReader) Read(p []byte) (n int, err error) {

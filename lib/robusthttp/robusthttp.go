@@ -56,7 +56,7 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 
 		n, err = r.cur.Read(p)
 		if err == io.EOF {
-			r.curCloser.Close()
+			_ = r.curCloser.Close()
 			r.cur = nil
 			log.Errorw("EOF reached in Read", "bytesRead", n)
 			r.finalize(false)
@@ -64,7 +64,7 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 		}
 		if err != nil {
 			log.Errorw("Read error", "error", err)
-			r.curCloser.Close()
+			_ = r.curCloser.Close()
 			r.cur = nil
 
 			if n > 0 {
@@ -78,7 +78,7 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 			continue
 		}
 		if n == 0 {
-			r.curCloser.Close()
+			_ = r.curCloser.Close()
 			r.cur = nil
 			log.Errorw("Read 0 bytes", "bytesRead", n)
 			return 0, xerrors.Errorf("read 0 bytes")
@@ -160,13 +160,13 @@ func (r *robustHttpResponse) startReq() error {
 
 	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
 		log.Errorw("Unexpected HTTP status", "status", resp.StatusCode)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return xerrors.Errorf("http status: %d", resp.StatusCode)
 	}
 
 	if nc == nil {
 		log.Errorw("Connection is nil after client.Do")
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return xerrors.Errorf("nc was nil")
 	}
 

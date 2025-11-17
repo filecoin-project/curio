@@ -861,7 +861,7 @@ func (st *Local) Local(ctx context.Context) ([]storiface.StoragePath, error) {
 		}
 
 		var si storiface.StorageInfo
-		if p.lastSinfo == nil || time.Now().Sub(p.lastSinfoTime) > LocalSinfoTTL {
+		if p.lastSinfo == nil || time.Since(p.lastSinfoTime) > LocalSinfoTTL {
 			var err error
 			si, err = st.index.StorageInfo(ctx, id)
 			if err != nil {

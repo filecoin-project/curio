@@ -152,19 +152,19 @@ var testSnapEncodeCmd = &cli.Command{
 			if err != nil {
 				return xerrors.Errorf("open sealed: %w", err)
 			}
-			defer keyF.Close()
+			defer func() { _ = keyF.Close() }()
 
 			dataF, err := os.Open(unsealedPath)
 			if err != nil {
 				return xerrors.Errorf("open unsealed: %w", err)
 			}
-			defer dataF.Close()
+			defer func() { _ = dataF.Close() }()
 
 			outF, err := os.OpenFile(updatePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 			if err != nil {
 				return xerrors.Errorf("create update: %w", err)
 			}
-			defer outF.Close()
+			defer func() { _ = outF.Close() }()
 
 			if err := cunative.EncodeSnap(spt, commD, commK, keyF, dataF, outF); err != nil {
 				return xerrors.Errorf("EncodeSnap: %w", err)
@@ -176,6 +176,7 @@ var testSnapEncodeCmd = &cli.Command{
 
 			_, _ = io.Copy(io.Discard, keyF)
 			_, _ = io.Copy(io.Discard, dataF)
+			start = time.Now()
 		}
 		elapsed := time.Since(start)
 		mbps := float64(ssize) / elapsed.Seconds() / 1024.0 / 1024.0
