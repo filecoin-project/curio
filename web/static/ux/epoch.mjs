@@ -29,37 +29,10 @@ class EpochComponent extends LitElement {
     }
 
     scheduleNextUpdate() {
-        const delay = this.getDelayUntilNextUpdate();
-
         this._updateTimeout = setTimeout(() => {
             this.loadEpochInfo();
             this.scheduleNextUpdate();
-        }, delay);
-    }
-
-    // try to refresh ~5s into an epoch
-    getDelayUntilNextUpdate() {
-        const now = new Date();
-        let nextUpdate = new Date(now);
-
-        const seconds = now.getSeconds();
-
-        if (seconds < 8) {
-            // Next update at hh:mm:05
-            nextUpdate.setSeconds(5);
-            nextUpdate.setMilliseconds(0);
-        } else if (seconds >= 8 && seconds < 38) {
-            // Next update at hh:mm:35
-            nextUpdate.setSeconds(35);
-            nextUpdate.setMilliseconds(0);
-        } else {
-            // seconds >= 35
-            nextUpdate.setMinutes(nextUpdate.getMinutes() + 1);
-            nextUpdate.setSeconds(5);
-            nextUpdate.setMilliseconds(0);
-        }
-
-        return nextUpdate - now;
+        }, 15000);
     }
 
     async loadEpochInfo() {

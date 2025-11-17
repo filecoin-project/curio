@@ -9,7 +9,7 @@ customElements.define('cluster-task-history', class ClusterTaskHistory extends L
     }
     async loadData() {
         this.data = await RPCCall('ClusterTaskHistory', [20, 0]);
-        setTimeout(() => this.loadData(), 2000);
+        setTimeout(() => this.loadData(), 300);
         this.requestUpdate();
     }
     render() {

@@ -35,11 +35,9 @@ func TestUrlPieceReader_Read(t *testing.T) {
 		tt := tt
 
 		t.Run(tt.name, func(t *testing.T) {
-			reader := UrlPieceReader{
-				Url:     ts.URL,
-				RawSize: tt.rawSize,
-			}
-			buffer, err := io.ReadAll(&reader)
+			reader := NewUrlReader(nil, ts.URL, http.Header{}, tt.rawSize, "test")
+
+			buffer, err := io.ReadAll(reader)
 			if err != nil {
 				if (err != io.EOF && !tt.expectError) || (err == io.EOF && !tt.expectEOF) {
 					t.Errorf("Read() error = %v, expectError %v, expectEOF %v", err, tt.expectError, tt.expectEOF)
@@ -61,10 +59,7 @@ func TestUrlPieceReader_Read_Error(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	reader := UrlPieceReader{
-		Url:     ts.URL,
-		RawSize: 100,
-	}
+	reader := NewUrlReader(nil, ts.URL, http.Header{}, 100, "test")
 	buffer := make([]byte, 200)
 
 	_, err := reader.Read(buffer)
