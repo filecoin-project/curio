@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
+
 const (
 	// MaxCreateDataSetExtraDataSize defines the service-level limit for extraData in CreateDataSet calls (4KB).
 	// Recommended in FilOzone/pdp#224.
@@ -75,10 +76,10 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
-        errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSetAndAddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
-        http.Error(w, errMsg, http.StatusBadRequest)
-        return
-    }
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSetAndAddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
 
 	// Check if indexing is needed by decoding the extraData
 	mustIndex, err := CheckIfIndexingNeededFromExtraData(extraDataBytes)
@@ -240,10 +241,10 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if len(extraDataBytes) > MaxCreateDataSetExtraDataSize {
-        errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSet (%d bytes)", len(extraDataBytes), MaxCreateDataSetExtraDataSize)
-        http.Error(w, errMsg, http.StatusBadRequest)
-        return
-    }
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSet (%d bytes)", len(extraDataBytes), MaxCreateDataSetExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
 
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)

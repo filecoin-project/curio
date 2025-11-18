@@ -330,10 +330,10 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
-        errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for AddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
-        http.Error(w, errMsg, http.StatusBadRequest)
-        return
-    }
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for AddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
 
 	// Step 4: Prepare piece information
 	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
