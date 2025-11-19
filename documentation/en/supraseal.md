@@ -166,13 +166,33 @@ The build should be run on the target machine. Binaries won't be portable betwee
 
 ### Setup NVMe devices for SPDK:
 
-{% hint style="info" %}
-This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
+{% hint style="success" %}
+SPDK setup can be done automatically using the Curio CLI command:
 {% endhint %}
 
 ```bash
+sudo curio batch setup
+```
+
+This command will:
+- Download SPDK if not already available
+- Configure 1GB hugepages (36 pages by default)
+- Bind NVMe devices for use with SupraSeal
+
+You can customize the number of hugepages:
+
+```bash
+sudo curio batch setup --hugepages 36 --min-pages 36
+```
+
+Alternatively, if you need to manually check SPDK status or unbind devices, you can use:
+
+```bash
 cd extern/supraseal/deps/spdk-v24.05/
-env NRHUGE=36 ./scripts/setup.sh
+# Check status
+sudo ./scripts/setup.sh status
+# Manually run setup (not normally needed)
+sudo env NRHUGE=36 ./scripts/setup.sh
 ```
 
 ### Benchmark NVME IOPS

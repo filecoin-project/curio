@@ -307,13 +307,33 @@ Hugepagesize:    1048576 kB
 ### Setup NVMe devices for SPDK:
 ### 为SPDK设置NVMe设备：
 
-{% hint style="info" %}
-这只在批量密封处于测试阶段时需要，Curio的未来版本将自动处理这个问题。
+{% hint style="success" %}
+可以使用 Curio CLI 命令自动完成 SPDK 设置：
 {% endhint %}
 
 ```bash
+sudo curio batch setup
+```
+
+此命令将：
+- 如果尚未可用，则下载 SPDK
+- 配置 1GB 大页面（默认 36 页）
+- 绑定 NVMe 设备以供 SupraSeal 使用
+
+您可以自定义大页面数量：
+
+```bash
+sudo curio batch setup --hugepages 36 --min-pages 36
+```
+
+或者，如果您需要手动检查 SPDK 状态或解绑设备，可以使用：
+
+```bash
 cd extern/supraseal/deps/spdk-v24.05/
-env NRHUGE=36 ./scripts/setup.sh
+# 检查状态
+sudo ./scripts/setup.sh status
+# 手动运行设置（通常不需要）
+sudo env NRHUGE=36 ./scripts/setup.sh
 ```
 
 

@@ -115,13 +115,13 @@ batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
 .PHONY: batchdep
 
-batch: CURIO_TAGS+= supraseal
+batch: CURIO_TAGS+= supraseal_nvme
 batch: CGO_LDFLAGS_ALLOW='.*'
 batch: batchdep batch-build
 .PHONY: batch
 
 
-batch-calibnet: CURIO_TAGS+= supraseal
+batch-calibnet: CURIO_TAGS+= supraseal_nvme
 batch-calibnet: CURIO_TAGS+= calibnet
 batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
 batch-calibnet: batchdep batch-build
