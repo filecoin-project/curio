@@ -313,7 +313,7 @@ $NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK \
 $CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     -c sealing/supra_seal.cpp -o obj/supra_seal.o -Wno-subobject-linkage &
 
-$CXX $CXXFLAGS $INCLUDE -DSTREAMING_NODE_READER_FILES -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
+$CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     -c sealing/supra_tree_r_file.cpp -o obj/supra_tree_r_file.o -Wno-subobject-linkage &
 
 wait
@@ -329,40 +329,7 @@ ar rvs obj/libsupraseal.a \
    obj/sha_ext_mbx2.o \
    obj/sha_ext_mbx2_wrapper.o
 
-# Build binaries in parallel
-# Note: tree_r binaries compile poseidon.cpp which includes constants_*.h files
-# These are guaranteed to be ready after the wait above
-$CXX $CXXFLAGS -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
-    -o bin/seal demos/main.cpp \
-    -Lobj -lsupraseal \
-    $LDFLAGS -Ldeps/blst -lblst -L$CUDA/lib64 -lcudart_static -lgmp -lconfig++ &
-
-# tree-r CPU only (uses poseidon.cpp which includes constants_*.h)
-$CXX $SECTOR_SIZE $CXXSTD -pthread -g -O3 -march=x86-64-v3 -mtune=generic \
-    -Wall -Wextra -Werror -Wno-subobject-linkage \
-    tools/tree_r.cpp poseidon/poseidon.cpp \
-    -o bin/tree_r_cpu -Iposeidon -Ideps/sppark -Ideps/blst/src -L deps/blst -lblst &
-
-# tree-r CPU + GPU
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=x86-64-v3,-mtune=generic \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/tree_r.cpp -o bin/tree_r \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-# tree-d CPU only
-$CXX -DRUNTIME_SECTOR_SIZE $CXXSTD -g -O3 -march=x86-64-v3 -mtune=generic \
-    -Wall -Wextra -Werror -Wno-subobject-linkage \
-    tools/tree_d.cpp \
-    -o bin/tree_d_cpu -Ipc1 -L deps/blst -lblst &
-
-# Standalone GPU pc2
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=x86-64-v3,-mtune=generic \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/pc2.cu -o bin/pc2 \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-wait
+# Wait for all background jobs and check their exit codes
+for job in $(jobs -p); do
+    wait $job || (echo "ERROR: Some binaries failed to build" && exit 1)
+done

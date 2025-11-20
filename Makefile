@@ -52,6 +52,7 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
+BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
 endif
 

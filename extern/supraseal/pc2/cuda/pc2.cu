@@ -306,8 +306,8 @@ void pc2_t<C, Reader>::get_filenames(const char* output_dir,
     }
 }
 
-template<class C>
-void pc2_t<C>::parse_custom_paths(const char* custom_paths,
+template<class C, class Reader>
+void pc2_t<C, Reader>::parse_custom_paths(const char* custom_paths,
                                   std::vector<std::string>& directories,
                                   std::vector<std::string>& p_aux_filenames,
                                   std::vector<std::vector<std::string>>& tree_c_filenames,
@@ -349,8 +349,8 @@ void pc2_t<C>::parse_custom_paths(const char* custom_paths,
     }
 }
 
-template<class C>
-void pc2_t<C>::generate_default_paths(const char* output_dir,
+template<class C, class Reader>
+void pc2_t<C, Reader>::generate_default_paths(const char* output_dir,
                                       const std::string& pc2_replica_output_dir,
                                       std::vector<std::string>& directories,
                                       std::vector<std::string>& p_aux_filenames,
@@ -367,8 +367,8 @@ void pc2_t<C>::generate_default_paths(const char* output_dir,
     }
 }
 
-template<class C>
-void pc2_t<C>::add_paths_for_sector(const char* output_dir,
+template<class C, class Reader>
+void pc2_t<C, Reader>::add_paths_for_sector(const char* output_dir,
                                     size_t sector,
                                     const std::string& pc2_replica_output_dir,
                                     std::vector<std::string>& directories,
@@ -555,8 +555,8 @@ void pc2_t<C, Reader>::hash() {
          secs, (double)total_page_reads / (double)secs);
 }
 
-template<class C>
-void pc2_t<C>::process_writes(int core, size_t max_write_size,
+template<class C, class Reader>
+void pc2_t<C, Reader>::process_writes(int core, size_t max_write_size,
                                  mtx_fifo_t<buf_to_disk_batch_t>& to_disk_fifo,
                                  mtx_fifo_t<buf_to_disk_batch_t>& pool,
                                  std::atomic<bool>& terminate,
@@ -617,7 +617,7 @@ void pc2_t<C>::process_writes(int core, size_t max_write_size,
 
 template<class C>
 struct pc2_batcher_t {
-  typedef typename pc2_t<C>::buf_to_disk_batch_t buf_to_disk_batch_t;
+  typedef typename pc2_t<C, streaming_node_reader_t<C>>::buf_to_disk_batch_t buf_to_disk_batch_t;
 
   buf_to_disk_batch_t* unbundle;
   buf_to_disk_batch_t* bundle;
@@ -1241,8 +1241,8 @@ void pc2_t<C, Reader>::hash_cpu(fr_t* roots, size_t partition, fr_t* input,
   assert (scheduler.is_done());
 }
 
-template<class C>
-void pc2_t<C>::write_roots(fr_t* roots_c, fr_t* roots_r) {
+template<class C, class Reader>
+void pc2_t<C, Reader>::write_roots(fr_t* roots_c, fr_t* roots_r) {
   if (C::GetNumTreeRCFiles() > 1) {
     Poseidon hasher = C::GetNumTreeRCFiles() == 16 ?
                       Poseidon(2) : Poseidon(C::GetNumTreeRCFiles());
@@ -1351,6 +1351,7 @@ void do_pc2_cleanup(const char* output_dir) {
   }
 }
 
+// Explicit template instantiations for NVMe-based reader (library build)
 #ifdef RUNTIME_SECTOR_SIZE
 template void pc2_hash<sealing_config_128_2KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
 template void pc2_hash<sealing_config_128_4KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
