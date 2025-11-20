@@ -197,11 +197,16 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		{
-			u, err := url.Parse(fmt.Sprintf("https://%s:443", P.cfg.HTTP.DomainName))
+			u, err := url.Parse(func() string {
+				if P.cfg.HTTP.ExternalUrl != "" {
+					return P.cfg.HTTP.ExternalUrl
+				}
+				return fmt.Sprintf("https://%s", P.cfg.HTTP.DomainName)
+			}())
 			if err != nil {
 				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
-			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+			if P.cfg.HTTP.ExternalUrl == "" && build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
 				ls := strings.Split(P.cfg.HTTP.ListenAddress, ":")
 				u, err = url.Parse(fmt.Sprintf("http://%s:%s", P.cfg.HTTP.DomainName, ls[1]))
 				if err != nil {

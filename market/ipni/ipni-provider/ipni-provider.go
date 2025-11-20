@@ -164,12 +164,17 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	httpServerAddresses := map[string]multiaddr.Multiaddr{}
 
 	{
-		u, err := url.Parse(fmt.Sprintf("https://%s", d.Cfg.HTTP.DomainName))
+		u, err := url.Parse(func() string {
+			if d.Cfg.HTTP.ExternalUrl != "" {
+				return d.Cfg.HTTP.ExternalUrl
+			}
+			return fmt.Sprintf("https://%s", d.Cfg.HTTP.DomainName)
+		}())
 		if err != nil {
 			return nil, xerrors.Errorf("parsing announce address domain: %w", err)
 		}
 
-		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+		if d.Cfg.HTTP.ExternalUrl == "" && build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
 			ls := strings.Split(d.Cfg.HTTP.ListenAddress, ":")
 			u, err = url.Parse(fmt.Sprintf("http://%s:%s", d.Cfg.HTTP.DomainName, ls[1]))
 			if err != nil {

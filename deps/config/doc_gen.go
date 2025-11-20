@@ -881,6 +881,12 @@ an IP address`,
 HTTP and the reverse proxy will handle TLS termination.`,
 		},
 		{
+			Name: "ExternalUrl",
+			Type: "string",
+
+			Comment: `ExternalUrl is the final URL that external users can access directly.`,
+		},
+		{
 			Name: "ReadTimeout",
 			Type: "time.Duration",
 

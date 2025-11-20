@@ -156,7 +156,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 	chiRouter.Use(corsHeaders)
 
 	if cfg.EnableCORS {
-		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + cfg.DomainName})))
+		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{func() string {
+			if d.Cfg.HTTP.ExternalUrl != "" {
+				return d.Cfg.HTTP.ExternalUrl
+			}
+			return "https://" + d.Cfg.HTTP.DomainName
+		}()})))
 	}
 
 	// Set up the compression middleware with custom compression levels
@@ -219,7 +224,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 
 	// Start the server with TLS
 	go func() {
-		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
+		log.Infof("Starting HTTP(S) server for http(s)://%s on %s", cfg.DomainName, cfg.ListenAddress)
 		var serr error
 		if !cfg.DelegateTLS {
 			serr = server.ListenAndServeTLS("", "")
@@ -227,7 +232,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 			serr = server.ListenAndServe()
 		}
 		if serr != nil {
-			log.Errorf("Failed to start HTTPS server: %s", serr)
+			log.Errorf("Failed to start HTTP(S) server: %s", serr)
 			panic(serr)
 		}
 	}()
@@ -238,7 +243,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 		if err := server.Shutdown(context.Background()); err != nil {
 			log.Errorf("shutting down web server failed: %s", err)
 		}
-		log.Warn("HTTP Server graceful shutdown successful")
+		log.Warn("HTTP(S) Server graceful shutdown successful")
 	}()
 
 	return nil
