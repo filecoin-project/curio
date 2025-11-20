@@ -299,11 +299,16 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			}
 
 			{
-				u, err := url.Parse(fmt.Sprintf("https://%s:443", cfg.DomainName))
+				u, err := url.Parse(func() string {
+					if cfg.ExternalUrl != "" {
+						return cfg.ExternalUrl
+					}
+					return fmt.Sprintf("https://%s", cfg.DomainName)
+				}())
 				if err != nil {
 					return false, xerrors.Errorf("parsing announce address domain: %w", err)
 				}
-				if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+				if cfg.ExternalUrl == "" && build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
 					ls := strings.Split(cfg.ListenAddress, ":")
 					u, err = url.Parse(fmt.Sprintf("http://%s:%s", cfg.DomainName, ls[1]))
 					if err != nil {
