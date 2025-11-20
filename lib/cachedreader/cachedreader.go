@@ -3,7 +3,9 @@ package cachedreader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 )
 
 var ErrNoDeal = errors.New("no deals found")
+var ErrNotFound = errors.New("piece not found")
 
 var log = logging.Logger("cached-reader")
 
@@ -222,7 +225,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 	}
 
 	if len(pieceData) == 0 {
-		return nil, 0, xerrors.Errorf("failed to find piece in parked_pieces for piece cid %s", pieceCid.String())
+		return nil, 0, xerrors.Errorf("failed to find piece in parked_pieces for piece cid %s: %w", pieceCid.String(), ErrNoDeal)
 	}
 
 	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pieceData[0].ID), pieceData[0].PieceRawSize, pieceCid)
@@ -283,9 +286,15 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
 		defer close(r.ready)
 
+		retCode := http.StatusNotFound
+
 		reader, size, err := cpr.getPieceReaderFromSector(readerCtx, pieceCid)
 		if err != nil {
 			log.Infow("failed to get piece reader from sector", "piececid", pieceCid, "err", err)
+
+			if !errors.Is(err, ErrNoDeal) {
+				retCode = http.StatusInternalServerError
+			}
 
 			serr := err
 
@@ -294,7 +303,20 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 			if err != nil {
 				log.Errorw("failed to get piece reader from piece park", "piececid", pieceCid, "err", err)
 
-				finalErr := xerrors.Errorf("failed to get piece reader from sector or piece park: %w, %w", err, serr)
+				// If we already hit any error except ErrNoDeal then we should surface that one even if here we get a 404.
+				// If previous error was 404 but here it is anything but 404 then we should surface that
+				// 404 should only be surfaced if we have 404 from both errors
+				if retCode == http.StatusNotFound && !errors.Is(err, ErrNoDeal) {
+					retCode = http.StatusInternalServerError
+				}
+
+				var finalErr error
+
+				if retCode == http.StatusNotFound {
+					finalErr = fmt.Errorf("failed to get piece reader from sector or piece park: %w, %w, %w", err, serr, ErrNotFound)
+				} else {
+					finalErr = fmt.Errorf("failed to get piece reader from sector or piece park: %w, %w", err, serr)
+				}
 
 				// Record error metric
 				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
