@@ -288,15 +288,19 @@ func (e *TaskEngine) GracefullyTerminate() {
 
 func (e *TaskEngine) poller() {
 	nextWait := POLL_NEXT_DURATION
+	timer := time.NewTimer(nextWait)
+	defer timer.Stop()
+
 	for {
 		stats.Record(context.Background(), TaskMeasures.PollerIterations.M(1))
 
 		select {
-		case <-time.After(nextWait): // Find work periodically
+		case <-timer.C: // Find work periodically
+			nextWait = POLL_DURATION
+			timer.Reset(nextWait)
 		case <-e.ctx.Done(): ///////////////////// Graceful exit
 			return
 		}
-		nextWait = POLL_DURATION
 
 		// Check if the machine is schedulable
 		schedulable, err := e.checkNodeFlags()
@@ -310,6 +314,7 @@ func (e *TaskEngine) poller() {
 		accepted := e.pollerTryAllWork(schedulable)
 		if accepted {
 			nextWait = POLL_NEXT_DURATION
+			timer.Reset(nextWait)
 		}
 
 		if !schedulable {

@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/filecoin-project/go-address"
@@ -75,9 +76,9 @@ type HarmonyTaskHistory struct {
 	Result bool   `db:"result"`
 	Err    string `db:"err"`
 
-	CompletedBy     string  `db:"completed_by_host_and_port"`
-	CompletedById   *int64  `db:"completed_by_machine"`
-	CompletedByName *string `db:"completed_by_machine_name"`
+	CompletedBy     string         `db:"completed_by_host_and_port"`
+	CompletedById   sql.NullInt64  `db:"completed_by_machine"`
+	CompletedByName sql.NullString `db:"completed_by_machine_name"`
 
 	Events []*SectorEvent `db:"-"`
 }
@@ -104,13 +105,13 @@ func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails 
 
 // HarmonyTask represents the current state of a task.
 type HarmonyTask struct {
-	ID         int64     `db:"id"`
-	Name       string    `db:"name"`
-	UpdateTime time.Time `db:"update_time"`
-	PostedTime time.Time `db:"posted_time"`
-	OwnerID    *int64    `db:"owner_id"`
-	OwnerAddr  *string   `db:"owner_addr"`
-	OwnerName  *string   `db:"owner_name"`
+	ID         int64          `db:"id"`
+	Name       string         `db:"name"`
+	UpdateTime time.Time      `db:"update_time"`
+	PostedTime time.Time      `db:"posted_time"`
+	OwnerID    sql.NullInt64  `db:"owner_id"`
+	OwnerAddr  sql.NullString `db:"owner_addr"`
+	OwnerName  sql.NullString `db:"owner_name"`
 }
 
 // HarmonyTaskDetails returns the current state of a task by ID.

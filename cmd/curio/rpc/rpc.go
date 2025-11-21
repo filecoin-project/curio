@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gbrlsnchs/jwt/v3"
@@ -490,9 +491,13 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 		}()
 
 		uiAddress := dependencies.Cfg.Subsystems.GuiAddress
-		if uiAddress == "" || uiAddress[0] == ':' {
-			uiAddress = "localhost" + uiAddress
+		if uiAddress == "" || uiAddress[0] == ':' || uiAddress == "0.0.0.0:4701" {
+			split := strings.Split(uiAddress, ":")
+			if len(split) == 2 {
+				uiAddress = "localhost:" + split[1]
+			}
 		}
+
 		log.Infof("GUI:  http://%s", uiAddress)
 		eg.Go(web.ListenAndServe)
 	}

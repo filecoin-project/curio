@@ -2,6 +2,7 @@ package storage_market
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,7 +54,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		Pcid      string          `db:"piece_cid"`
 		Psize     int64           `db:"piece_size"`
 		RawSize   int64           `db:"raw_size"`
-		URL       *string         `db:"url"`
+		URL       sql.NullString  `db:"url"`
 		Headers   json.RawMessage `db:"headers"`
 		ID        string          `db:"id"`
 		SpID      int64           `db:"sp_id"`
@@ -110,8 +111,8 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 	}
 
-	if piece.URL != nil {
-		dataUrl := *piece.URL
+	if piece.URL.Valid {
+		dataUrl := piece.URL.String
 
 		goUrl, err := url.Parse(dataUrl)
 		if err != nil {
@@ -276,7 +277,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	var tasks []struct {
 		TaskID    harmonytask.TaskID `db:"commp_task_id"`
 		StorageID string             `db:"storage_id"`
-		Url       *string            `db:"url"`
+		Url       sql.NullString     `db:"url"`
 	}
 
 	indIDs := make([]int64, len(ids))
@@ -312,8 +313,8 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		}
 
 		for _, task := range tasks {
-			if task.Url != nil {
-				goUrl, err := url.Parse(*task.Url)
+			if task.Url.Valid {
+				goUrl, err := url.Parse(task.Url.String)
 				if err != nil {
 					return false, xerrors.Errorf("parsing data URL: %w", err)
 				}

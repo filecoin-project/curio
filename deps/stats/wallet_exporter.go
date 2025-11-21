@@ -140,10 +140,14 @@ func attoToNano(atto types.BigInt) int64 {
 
 func StartWalletExporter(ctx context.Context, db *harmonydb.DB, api api.FullNode, spIDs []address.Address) {
 	go func() {
+		ticker := time.NewTicker(WalletExporterInterval)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
-			case <-time.After(WalletExporterInterval):
+				return
+			case <-ticker.C:
 				walletExporterCycle(ctx, db, api, spIDs)
 			}
 		}

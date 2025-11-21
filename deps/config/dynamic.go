@@ -119,7 +119,7 @@ func EnableChangeDetection[T any](db *harmonydb.DB, obj T, layers []string, fixu
 	return nil
 }
 
-// copyWithOriginalDynamics copies the original dynamics from the original object to the new object.
+// CopyWithOriginalDynamics copies the original dynamics from the original object to the new object.
 func CopyWithOriginalDynamics[T any](orig T) (T, error) {
 	typ := reflect.TypeOf(orig)
 	val := reflect.ValueOf(orig)

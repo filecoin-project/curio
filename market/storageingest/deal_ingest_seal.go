@@ -2,6 +2,7 @@ package storageingest
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -254,6 +255,11 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 		psize = piece.DealProposal.PieceSize
 	}
 
+	// check raw size
+	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() {
+		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
+	}
+
 	var propJson []byte
 
 	dataHdrJson, err := json.Marshal(header)
@@ -308,11 +314,6 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb
 	mid, ok := p.addToID[maddr]
 	if !ok {
 		return nil, nil, xerrors.Errorf("miner not found")
-	}
-
-	// Reject incorrect sized online deals except verified deal less than 1 MiB because verified deals can be 1 MiB minimum even if rawSize is much lower
-	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() && (!vd.isVerified || psize > abi.PaddedPieceSize(1<<20)) {
-		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
 	// Try to allocate the piece to an open sector
@@ -443,7 +444,7 @@ type pieceDetails struct {
 	StartEpoch abi.ChainEpoch      `db:"deal_start_epoch"`
 	EndEpoch   abi.ChainEpoch      `db:"deal_end_epoch"`
 	Index      int64               `db:"piece_index"`
-	CreatedAt  *time.Time          `db:"created_at"`
+	CreatedAt  sql.NullTime        `db:"created_at"`
 }
 
 func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSector, error) {
@@ -484,8 +485,9 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 	}
 
 	getOpenedAt := func(piece pieceDetails, cur *time.Time) *time.Time {
-		if piece.CreatedAt.Before(*cur) {
-			return piece.CreatedAt
+		if piece.CreatedAt.Valid && (cur == nil || piece.CreatedAt.Time.Before(*cur)) {
+			t := piece.CreatedAt.Time
+			return &t
 		}
 		return cur
 	}
@@ -501,7 +503,7 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
-				openedAt:           pi.CreatedAt,
+				openedAt:           &pi.CreatedAt.Time,
 				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
 				pieces: []pieceInfo{
 					{

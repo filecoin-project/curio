@@ -95,7 +95,7 @@ func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStor
 
 type ITestID string
 
-// ItestNewID see ITestWithID doc
+// ITestNewID see ITestWithID doc
 func ITestNewID() ITestID {
 	return ITestID(strconv.Itoa(rand.Intn(99999)))
 }
@@ -278,10 +278,12 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 		}
 
 		// Sleep for backoff duration before retrying
+		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 
 		// Exponential backoff

@@ -75,7 +75,8 @@ func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface.ID][]storifa
 		}
 
 		// skip sector info for storage paths with no sectors
-		if !entry.MinerId.Valid {
+		// All sector_location fields must be valid (they come from LEFT JOIN)
+		if !entry.MinerId.Valid || !entry.SectorNum.Valid || !entry.SectorFiletype.Valid {
 			continue
 		}
 
@@ -591,8 +592,6 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, sector abi.SectorID, 
 
 func (dbi *DBIndex) findSectorUncached(ctx context.Context, s abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
 
-	var result []storiface.SectorStorageInfo
-
 	allowList := make(map[string]struct{})
 	storageWithSector := map[string]bool{}
 
@@ -638,11 +637,15 @@ func (dbi *DBIndex) findSectorUncached(ctx context.Context, s abi.SectorID, ft s
 		return nil, xerrors.Errorf("Finding sector storage from DB fails with err: %w", err)
 	}
 
+	result := make([]storiface.SectorStorageInfo, 0, len(rows))
+
 	for _, row := range rows {
 
 		// Parse all urls
-		var urls, burls []string
-		for _, u := range splitString(row.Urls) {
+		splitUrls := splitString(row.Urls)
+		urls := make([]string, 0, len(splitUrls))
+		burls := make([]string, 0, len(splitUrls))
+		for _, u := range splitUrls {
 			rl, err := url.Parse(u)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse url: %w", err)
@@ -762,8 +765,10 @@ func (dbi *DBIndex) findSectorUncached(ctx context.Context, s abi.SectorID, ft s
 				}
 			}
 
-			var urls, burls []string
-			for _, u := range splitString(row.Urls) {
+			splitUrls := splitString(row.Urls)
+			urls := make([]string, 0, len(splitUrls))
+			burls := make([]string, 0, len(splitUrls))
+			for _, u := range splitUrls {
 				rl, err := url.Parse(u)
 				if err != nil {
 					return nil, xerrors.Errorf("failed to parse url: %w", err)
@@ -893,7 +898,7 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface.Sec
 		return nil, xerrors.Errorf("Querying for best storage sectors fails with err %w: ", err)
 	}
 
-	var result []storiface.StorageInfo
+	result := make([]storiface.StorageInfo, 0, len(rows))
 
 	for _, row := range rows {
 		// Matching with 0 as a workaround to avoid having minerID
@@ -1090,6 +1095,9 @@ func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read s
 	lockUuid := uuid.New()
 
 	// retry with exponential backoff and block until lock is acquired
+	timer := time.NewTimer(time.Duration(waitTime) * time.Second)
+	defer timer.Stop()
+
 	for {
 		locked, err := dbi.lock(ctx, sector, read, write, lockUuid)
 		// if err is not nil and is not because we cannot acquire lock, retry
@@ -1105,10 +1113,11 @@ func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read s
 		}
 
 		select {
-		case <-time.After(time.Duration(waitTime) * time.Second):
+		case <-timer.C:
 			if waitTime < maxWaitTime {
 				waitTime *= 2
 			}
+			timer.Reset(time.Duration(waitTime) * time.Second)
 		case <-ctx.Done():
 			return ctx.Err()
 		}

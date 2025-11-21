@@ -132,10 +132,27 @@ func NewFromConfigWithTest(t *testing.T) (*DB, error) {
 func New(hosts []string, username, password, database, port string, loadBalance bool, itestID ITestID) (*DB, error) {
 	itest := string(itestID)
 
-	// Join hosts with the port
-	hostPortPairs := make([]string, len(hosts))
-	for i, host := range hosts {
-		hostPortPairs[i] = fmt.Sprintf("%s:%s", host, port)
+	if len(hosts) == 0 {
+		return nil, xerrors.Errorf("no hosts provided")
+	}
+
+	// Debug: Log which path we're taking
+	logger.Infof("Yugabyte connection config: loadBalance=%v, hosts=%v, port=%s", loadBalance, hosts, port)
+
+	// When load balancing is disabled, use only the first host to prevent
+	// Yugabyte client from discovering internal Docker IPs via topology discovery
+	var connectionHost string
+	if loadBalance {
+		// Join all hosts with the port for load balancing
+		hostPortPairs := make([]string, len(hosts))
+		for i, host := range hosts {
+			hostPortPairs[i] = fmt.Sprintf("%s:%s", host, port)
+		}
+		connectionHost = strings.Join(hostPortPairs, ",")
+	} else {
+		// Use only the first host when load balancing is disabled
+		// This prevents topology discovery that would return internal Docker IPs
+		connectionHost = fmt.Sprintf("%s:%s", hosts[0], port)
 	}
 
 	// Construct the connection string
@@ -143,12 +160,17 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 		"postgresql://%s:%s@%s/%s?sslmode=disable",
 		username,
 		password,
-		strings.Join(hostPortPairs, ","),
+		connectionHost,
 		database,
 	)
 
 	if loadBalance {
 		connString += "&load_balance=true"
+	} else {
+		// When load balancing is disabled, explicitly disable it
+		// fallback_to_topology_keys_only=true ensures client only uses specified nodes
+		// Note: Don't set topology_keys= (empty) as Yugabyte rejects empty topology_keys format
+		connString += "&load_balance=false&fallback_to_topology_keys_only=true"
 	}
 
 	schema := "curio"
@@ -162,6 +184,24 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	cfg, err := pgxpool.ParseConfig(connString + "&search_path=" + schema)
 	if err != nil {
 		return nil, err
+	}
+
+	// When load balancing is disabled, restrict the pool to only use the specified host
+	// This prevents Yugabyte client from discovering and connecting to internal Docker IPs
+	if !loadBalance {
+		// Parse port as integer
+		portInt, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid port: %w", err)
+		}
+
+		// Override the connection config to use only our specified host
+		cfg.ConnConfig.Host = hosts[0]
+		cfg.ConnConfig.Port = uint16(portInt)
+
+		// Note: Yugabyte-specific connection parameters (load_balance, fallback_to_topology_keys_only)
+		// must be set in the connection string, not as runtime parameters.
+		// The connection string already has these parameters set above.
 	}
 
 	cfg.ConnConfig.OnNotice = func(conn *pgconn.PgConn, n *pgconn.Notice) {
