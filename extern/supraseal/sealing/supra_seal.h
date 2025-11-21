@@ -13,11 +13,6 @@ int supra_version();
 // config_file - topology config file. Defaults to supra_config.cfg
 void supra_seal_init(size_t sector_size, const char* config_file);
 
-// Build tree-r from a last-layer file (optionally with a staged data file) and write outputs to output_dir.
-// CUDA-only path; does not require SPDK. Returns 0 on success.
-int tree_r_file(const char* last_layer_filename, const char* data_filename, const char* output_dir,
-                size_t sector_size);
-
 // Perform pc1, storing the sealed layers starting at block_offset.
 int pc1(uint64_t block_offset, size_t num_sectors,
         const uint8_t* replica_ids, const char* parents_filename,

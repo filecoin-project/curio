@@ -6,14 +6,12 @@ import (
 	"errors"
 
 	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/supraffi"
 )
 
 // This allow reflection access to the FFI functions.
@@ -88,15 +86,6 @@ func (FFI) GenerateUpdateProofWithVanilla(
 	vproofs [][]byte,
 ) ([]byte, error) {
 	return ffi.SectorUpdate.GenerateUpdateProofWithVanilla(proofType, key, sealed, unsealed, vproofs)
-}
-
-func (FFI) TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) error {
-	r := supraffi.TreeRFile(lastLayerFilename, dataFilename, outputDir, sectorSize)
-	if r != 0 {
-		return xerrors.Errorf("tree r file: %d", r)
-	}
-
-	return nil
 }
 
 func (FFI) SelfTest(val1 int, val2 cid.Cid) (cid.Cid, error) {

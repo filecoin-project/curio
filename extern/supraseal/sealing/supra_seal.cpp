@@ -30,9 +30,6 @@
 
 #include "../sealing/constants.hpp"
 #include "../nvme/streaming_node_reader_nvme.hpp"
-#ifdef STREAMING_NODE_READER_FILES
-#include "../c1/streaming_node_reader_files.hpp"
-#endif
 
 #include "../c1/c1.hpp"
 #include "../pc1/pc1.hpp"
