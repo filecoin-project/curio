@@ -241,6 +241,7 @@ func workerSnap(wg *sync.WaitGroup, jobs <-chan jobSnap, results chan<- resultSn
 
 		pool.Put(j.rbuf)
 		pool.Put(j.kbuf)
+		pool.Put(rhoInvsBytes) // Return rhoInvsBytes to pool
 
 		results <- resultSnap{obuf, j.size, j.chunkID}
 	}

@@ -76,10 +76,12 @@ func retryWithBackoff[T any](ctx context.Context, f func() (T, error)) (T, error
 		lastErr = err
 		log.Warnw("operation failed, retrying", "error", err, "backoff", backoff)
 
+		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return zero, xerrors.Errorf("context canceled during backoff: %w (last error: %v)", ctx.Err(), lastErr)
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 
 		// Exponential backoff with a maximum
@@ -92,37 +94,68 @@ func CreateWorkAsk(ctx context.Context, resolver *AddressResolver, signer addres
 	defer recordProvictlDuration("CreateWorkAsk", start)
 	priceStr := price.String()
 
-	// Create signature for the work ask
-	signature, err := Sign(ctx, resolver, signer, "work-ask", []byte(priceStr), time.Now())
-	if err != nil {
-		return 0, xerrors.Errorf("failed to sign work ask: %w", err)
-	}
+	backoff := 3 * time.Second
+	maxBackoff := 5 * time.Minute
+	var lastErr error
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s&signature=%s",
-		marketUrl, signer.String(), priceStr, signature), nil)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to create request: %w", err)
-	}
+	for {
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return 0, xerrors.Errorf("context canceled: %w (last error: %v)", ctx.Err(), lastErr)
+			}
+			return 0, xerrors.Errorf("context canceled: %w", ctx.Err())
+		default:
+		}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to send request: %w", err)
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+		// Create signature for the work ask
+		signature, err := Sign(ctx, resolver, signer, "work-ask", []byte(priceStr), time.Now())
+		if err != nil {
+			return 0, xerrors.Errorf("failed to sign work ask: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s&signature=%s",
+			marketUrl, signer.String(), priceStr, signature), nil)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to send request: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			var workAsk common.WorkAsk
+			if err := json.NewDecoder(resp.Body).Decode(&workAsk); err != nil {
+				_ = resp.Body.Close()
+				return 0, xerrors.Errorf("failed to unmarshal response body: %w", err)
+			}
+			_ = resp.Body.Close()
+			return workAsk.ID, nil
+		}
+
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = xerrors.Errorf("too many requests: %s - %s", resp.Status, string(bodyBytes))
+			log.Warnw("create work ask rate limited, retrying", "error", lastErr, "backoff", backoff)
+
+			select {
+			case <-ctx.Done():
+				return 0, xerrors.Errorf("context canceled during backoff: %w (last error: %v)", ctx.Err(), lastErr)
+			case <-time.After(backoff):
+			}
+
+			// Exponential backoff with maximum
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		// For any other non-OK status, return error immediately
 		return 0, xerrors.Errorf("failed to create work ask: %s - %s", resp.Status, string(bodyBytes))
 	}
-
-	var workAsk common.WorkAsk
-	if err := json.NewDecoder(resp.Body).Decode(&workAsk); err != nil {
-		return 0, xerrors.Errorf("failed to unmarshal response body: %w", err)
-	}
-
-	return workAsk.ID, nil
 }
 
 func PollWork(address string) (common.WorkResponse, error) {

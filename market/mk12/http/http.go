@@ -34,7 +34,7 @@ type MK12DealHandler struct {
 	disabledMiners []address.Address
 }
 
-// NewMarketDealHandler creates a new Redirector with a database connection
+// NewMK12DealHandler creates a new Redirector with a database connection
 func NewMK12DealHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_market.CurioStorageDealMarket) (*MK12DealHandler, error) {
 	var disabledMiners []address.Address
 	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {

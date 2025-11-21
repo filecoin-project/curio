@@ -71,23 +71,27 @@ func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore
 }
 
 type itask struct {
-	UUID              string                  `db:"uuid"`
-	SpID              int64                   `db:"sp_id"`
-	Sector            abi.SectorNumber        `db:"sector"`
-	Proof             abi.RegisteredSealProof `db:"reg_seal_proof"`
-	PieceCid          string                  `db:"piece_cid"`
-	Size              abi.PaddedPieceSize     `db:"piece_size"`
-	Offset            int64                   `db:"sector_offset"`
-	RawSize           int64                   `db:"raw_size"`
-	Url               sql.NullString          `db:"url"`
-	ShouldIndex       bool                    `db:"should_index"`
-	IndexingCreatedAt time.Time               `db:"indexing_created_at"`
-	Announce          bool                    `db:"announce"`
-	ChainDealId       abi.DealID              `db:"chain_deal_id"`
-	IsDDO             bool                    `db:"is_ddo"`
-	Mk20              bool                    `db:"mk20"`
-	IsRM              bool                    `db:"is_rm"`
-	PieceRef          int64
+	// Cache line 1 (bytes 0-64): Hot path - piece identification, checked early
+	UUID     string              `db:"uuid"`       // 16 bytes (0-16) - checked early (line 169, 226, 582)
+	PieceCid string              `db:"piece_cid"`  // 16 bytes (16-32) - checked early (line 161, 226, 231, 236, 582)
+	SpID     int64               `db:"sp_id"`      // 8 bytes (32-40) - used with Sector (line 226, 250-256, 582)
+	Sector   abi.SectorNumber    `db:"sector"`     // 8 bytes (40-48) - used with SpID (line 226, 250-256, 582)
+	Size     abi.PaddedPieceSize `db:"piece_size"` // 8 bytes (48-56) - used with PieceCid (line 161, 236, 256, 582)
+	// Cache line 2 (bytes 64-128): Sector operations and deal processing
+	RawSize     sql.NullInt64           `db:"raw_size"`       // 16 bytes (56-72, overlaps) - used with Size (line 236, 582)
+	Proof       abi.RegisteredSealProof `db:"reg_seal_proof"` // 8 bytes (72-80) - used with SpID/Sector (line 255, 582)
+	Offset      int64                   `db:"sector_offset"`  // 8 bytes (80-88) - used with Size/RawSize (line 256, 582)
+	ChainDealId abi.DealID              `db:"chain_deal_id"`  // 8 bytes (88-96) - used in deal processing (line 582)
+	PieceRef    int64                   // 8 bytes (96-104) - used with Mk20 (line 217, 582)
+	Url         sql.NullString          `db:"url"` // 24 bytes (104-128) - used conditionally (line 199-217)
+	// Cache line 3 (bytes 128+): Less frequently accessed
+	IndexingCreatedAt time.Time `db:"indexing_created_at"` // 24 bytes (128-152) - used for ordering
+	// Bools: frequently accessed first, rare ones at end
+	Mk20        bool `db:"mk20"`         // used early and frequently (line 169, 243, 286, 580, 596, 616)
+	ShouldIndex bool `db:"should_index"` // used early (line 221)
+	IsDDO       bool `db:"is_ddo"`       // used with Mk20 in deal processing (line 582)
+	Announce    bool `db:"announce"`     // used less frequently
+	IsRM        bool `db:"is_rm"`        // used less frequently
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -231,7 +235,13 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	pc2, err := commcid.PieceCidV2FromV1(pieceCid, uint64(task.RawSize))
+	// Validate raw_size is present (required for PieceCID v2 calculation)
+	if !task.RawSize.Valid {
+		return false, xerrors.Errorf("raw_size is required but NULL for piece %s (uuid: %s)", task.PieceCid, task.UUID)
+	}
+
+	pc2, err := commcid.PieceCidV2FromV1(pieceCid, uint64(task.RawSize.Int64))
+
 	if err != nil {
 		return false, xerrors.Errorf("getting piece commP: %w", err)
 	}
@@ -575,15 +585,18 @@ func IndexAggregate(pieceCid cid.Cid,
 // recordCompletion add the piece metadata and piece deal to the DB and
 // records the completion of an indexing task in the database
 func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID harmonytask.TaskID, indexed bool) error {
+	// Extract raw_size value (should be valid at this point since we validated earlier)
+	rawSize := task.RawSize.Int64
+
 	if task.Mk20 {
 		_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, task.PieceRef, false, task.ChainDealId)
+			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, rawSize, indexed, task.PieceRef, false, task.ChainDealId)
 		if err != nil {
 			return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 		}
 	} else {
 		_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, nil, false, task.ChainDealId)
+			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, rawSize, indexed, nil, false, task.ChainDealId)
 		if err != nil {
 			return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 		}
@@ -647,14 +660,14 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		Indexing     bool               `db:"indexing"`
 	}
 
-	var tasks []*task
+	var tasks []task
 
 	indIDs := make([]int64, len(ids))
 	for x, id := range ids {
 		indIDs[x] = int64(id)
 	}
 
-	var mk20tasks []*task
+	var mk20tasks []task
 	if storiface.FTPiece != 32 {
 		panic("storiface.FTPiece != 32")
 	}
@@ -664,13 +677,13 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		return nil, xerrors.Errorf("getting mk20 urls: %w", err)
 	}
 
-	for _, t := range mk20tasks {
+	for idx := range mk20tasks {
 
-		if !t.Indexing {
+		if !mk20tasks[idx].Indexing {
 			continue
 		}
 
-		goUrl, err := url.Parse(t.Url)
+		goUrl, err := url.Parse(mk20tasks[idx].Url)
 		if err != nil {
 			return nil, xerrors.Errorf("parsing data URL: %w", err)
 		}
@@ -699,7 +712,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 				return nil, xerrors.Errorf("failed to get storage location from DB: %w", err)
 			}
 
-			t.StorageID = sLocation
+			mk20tasks[idx].StorageID = sLocation
 
 		}
 	}
@@ -708,7 +721,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		panic("storiface.FTUnsealed != 1")
 	}
 
-	var mk12tasks []*task
+	var mk12tasks []task
 
 	err = i.db.Select(ctx, &mk12tasks, `SELECT dp.indexing_task_id, dp.should_index AS indexing, dp.sp_id, dp.sector, l.storage_id
 										FROM market_mk12_deal_pipeline dp
@@ -730,12 +743,12 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		localStorageMap[string(l.ID)] = true
 	}
 
-	for _, t := range tasks {
-		if !t.Indexing {
-			return &t.TaskID, nil
+	for idx := range tasks {
+		if !tasks[idx].Indexing {
+			return &tasks[idx].TaskID, nil
 		}
-		if found, ok := localStorageMap[t.StorageID]; ok && found {
-			return &t.TaskID, nil
+		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
+			return &tasks[idx].TaskID, nil
 		}
 	}
 

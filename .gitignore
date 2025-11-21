@@ -16,6 +16,7 @@ build/.*
 .idea
 .vscode
 /venv
+**/.venv
 scratchpad
 
 # to ensure tests build: itests/ go test -c .

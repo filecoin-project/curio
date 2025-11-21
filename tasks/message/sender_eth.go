@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math/big"
 	"time"
@@ -42,14 +43,14 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	// Get transaction from the database
 	var dbTx struct {
-		FromAddress  string  `db:"from_address"`
-		ToAddress    string  `db:"to_address"`
-		UnsignedTx   []byte  `db:"unsigned_tx"`
-		UnsignedHash string  `db:"unsigned_hash"`
-		Nonce        *uint64 `db:"nonce"`
-		SignedTx     []byte  `db:"signed_tx"`
-		SendSuccess  *bool   `db:"send_success"`
-		SendError    *string `db:"send_error"`
+		FromAddress  string         `db:"from_address"`
+		ToAddress    string         `db:"to_address"`
+		UnsignedTx   []byte         `db:"unsigned_tx"`
+		UnsignedHash string         `db:"unsigned_hash"`
+		Nonce        sql.NullInt64  `db:"nonce"`
+		SignedTx     []byte         `db:"signed_tx"`
+		SendSuccess  sql.NullBool   `db:"send_success"`
+		SendError    sql.NullString `db:"send_error"`
 	}
 
 	err = s.db.QueryRow(ctx,
@@ -112,7 +113,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	var signedTx *types.Transaction
 
-	if dbTx.Nonce == nil {
+	if !dbTx.Nonce.Valid {
 		// Get the latest nonce
 		pendingNonce, err := s.client.PendingNonceAt(ctx, fromAddress)
 		if err != nil {
@@ -367,9 +368,9 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 
 	for {
 		var dbTx struct {
-			SignedHash  *string `db:"signed_hash"`
-			SendSuccess *bool   `db:"send_success"`
-			SendError   *string `db:"send_error"`
+			SignedHash  sql.NullString `db:"signed_hash"`
+			SendSuccess sql.NullBool   `db:"send_success"`
+			SendError   sql.NullString `db:"send_error"`
 		}
 
 		err := s.db.QueryRow(ctx,
@@ -379,7 +380,7 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 			return common.Hash{}, xerrors.Errorf("getting send status for task: %w", err)
 		}
 
-		if dbTx.SendSuccess == nil {
+		if !dbTx.SendSuccess.Valid {
 			time.Sleep(pollInterval)
 			pollLoops++
 			pollInterval *= time.Duration(pollIntervalMul)
@@ -389,14 +390,14 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 			continue
 		}
 
-		if dbTx.SignedHash == nil || dbTx.SendError == nil {
+		if !dbTx.SignedHash.Valid || !dbTx.SendError.Valid {
 			return common.Hash{}, xerrors.Errorf("unexpected null values in send status")
 		}
 
-		if !*dbTx.SendSuccess {
-			sendErr = xerrors.Errorf("send error: %s", *dbTx.SendError)
+		if !dbTx.SendSuccess.Bool {
+			sendErr = xerrors.Errorf("send error: %s", dbTx.SendError.String)
 		} else {
-			signedHash = common.HexToHash(*dbTx.SignedHash)
+			signedHash = common.HexToHash(dbTx.SignedHash.String)
 		}
 
 		break

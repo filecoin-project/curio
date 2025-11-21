@@ -143,11 +143,26 @@ Response:
   "HostPort": "string value",
   "LastContact": "0001-01-01T00:00:00Z",
   "Unschedulable": true,
-  "Name": "string value",
-  "StartupTime": "0001-01-01T00:00:00Z",
-  "Tasks": "string value",
-  "Layers": "string value",
-  "Miners": "string value"
+  "Name": {
+    "String": "string value",
+    "Valid": true
+  },
+  "StartupTime": {
+    "Time": "0001-01-01T00:00:00Z",
+    "Valid": true
+  },
+  "Tasks": {
+    "String": "string value",
+    "Valid": true
+  },
+  "Layers": {
+    "String": "string value",
+    "Valid": true
+  },
+  "Miners": {
+    "String": "string value",
+    "Valid": true
+  }
 }
 ```
 
