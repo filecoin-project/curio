@@ -28,7 +28,16 @@ func init() {
 
 // TreeRFile builds tree-r from a last-layer file (optionally with a staged data file).
 // Used for snap updates, does not require NVMe devices.
+// If the CPU does not support AMD64v4, this will return an error code indicating
+// that the caller should fallback to filecoin-ffi's implementation.
 func TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) int {
+	// Check if CPU supports AMD64v4 (required for supraseal)
+	if !HasAMD64v4() {
+		// Return a special error code to indicate fallback is needed
+		// -1 indicates CPU feature not available, caller should use filecoin-ffi
+		return -1
+	}
+
 	cLastLayerFilename := C.CString(lastLayerFilename)
 	cDataFilename := C.CString(dataFilename)
 	cOutputDir := C.CString(outputDir)

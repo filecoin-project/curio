@@ -141,7 +141,7 @@ CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x sy
 Build and install the batch-capable Curio binary:
 
 ```bash
-make batch
+make curio
 make sptool
 ```
 
@@ -152,8 +152,8 @@ make install
 For calibnet
 
 ```bash
-make batch-calibnet
-make batch-sptool
+make calibnet
+make calibnet-sptool
 ```
 
 ```shell

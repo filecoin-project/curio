@@ -1,4 +1,4 @@
-//go:build supraseal_nvme
+//go:build linux
 
 package supraffi
 

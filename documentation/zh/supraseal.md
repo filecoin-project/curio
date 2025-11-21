@@ -118,13 +118,13 @@ Total                                  : 8006785.90   31276.51      71.91      1
 构建支持批处理的 Curio 二进制文件：
 
 ```bash
-make batch
+make curio
+```
 
+对于 calibnet：
 
+```bash
 make calibnet
-
-
-make batch-calibnet
 ```
 
 {% hint style="warning" %}

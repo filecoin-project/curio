@@ -1,4 +1,4 @@
-//go:build supraseal_nvme
+//go:build linux
 
 package supraffi
 
@@ -44,7 +44,7 @@ import (
 )
 
 // GetHealthInfo retrieves health information for all NVMe devices
-// This function is only available when built with supraseal_nvme tag
+// This function is only available on Linux systems
 func GetHealthInfo() ([]HealthInfo, error) {
 	// Allocate space for raw C struct
 	const maxControllers = 64
