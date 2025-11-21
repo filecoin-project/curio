@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/snadrus/must"
@@ -17,69 +18,63 @@ import (
 )
 
 type PipelineTask struct {
-	SpID         int64 `db:"sp_id"`
-	SectorNumber int64 `db:"sector_number"`
-
-	CreateTime time.Time `db:"create_time"`
-
-	TaskSDR    *int64 `db:"task_id_sdr"`
-	AfterSDR   bool   `db:"after_sdr"`
-	StartedSDR bool   `db:"started_sdr"`
-
-	TaskTreeD    *int64  `db:"task_id_tree_d"`
-	AfterTreeD   bool    `db:"after_tree_d"`
-	StartedTreeD bool    `db:"started_tree_d"`
-	TreeD        *string `db:"tree_d_cid"`
-
-	TaskTreeC     *int64 `db:"task_id_tree_c"`
-	AfterTreeC    bool   `db:"after_tree_c"`
-	StartedTreeRC bool   `db:"started_tree_rc"`
-
-	TaskTreeR  *int64  `db:"task_id_tree_r"`
-	AfterTreeR bool    `db:"after_tree_r"`
-	TreeR      *string `db:"tree_r_cid"`
-
-	TaskSynthetic    *int64 `db:"task_id_synth"`
-	AfterSynthetic   bool   `db:"after_synth"`
-	StartedSynthetic bool   `db:"started_synthetic"`
-
-	PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
-
-	TaskPrecommitMsg    *int64 `db:"task_id_precommit_msg"`
-	AfterPrecommitMsg   bool   `db:"after_precommit_msg"`
-	StartedPrecommitMsg bool   `db:"started_precommit_msg"`
-
-	AfterPrecommitMsgSuccess bool    `db:"after_precommit_msg_success"`
-	PreCommitMsgCid          *string `db:"precommit_msg_cid"`
-	SeedEpoch                *int64  `db:"seed_epoch"`
-
-	TaskPoRep    *int64 `db:"task_id_porep"`
-	PoRepProof   []byte `db:"porep_proof"`
-	AfterPoRep   bool   `db:"after_porep"`
-	StartedPoRep bool   `db:"started_porep"`
-
-	TaskFinalize    *int64 `db:"task_id_finalize"`
-	AfterFinalize   bool   `db:"after_finalize"`
-	StartedFinalize bool   `db:"started_finalize"`
-
-	TaskMoveStorage    *int64 `db:"task_id_move_storage"`
-	AfterMoveStorage   bool   `db:"after_move_storage"`
-	StartedMoveStorage bool   `db:"started_move_storage"`
-
-	CommitReadyAt *time.Time `db:"commit_ready_at"`
-
-	TaskCommitMsg    *int64 `db:"task_id_commit_msg"`
-	AfterCommitMsg   bool   `db:"after_commit_msg"`
-	StartedCommitMsg bool   `db:"started_commit_msg"`
-
-	AfterCommitMsgSuccess bool    `db:"after_commit_msg_success"`
-	CommitMsgCid          *string `db:"commit_msg_cid"`
-
-	Failed       bool   `db:"failed"`
-	FailedReason string `db:"failed_reason"`
-
-	MissingTasks []int64 `db:"missing_tasks"`
-	AllTasks     []int64 `db:"all_tasks"`
+	// Cache line 1 (bytes 0-64): Hot path - identification
+	SpID         int64     `db:"sp_id"`         // 8 bytes (0-8)
+	SectorNumber int64     `db:"sector_number"` // 8 bytes (8-16)
+	CreateTime   time.Time `db:"create_time"`   // 24 bytes (16-40)
+	Failed       bool      `db:"failed"`        // 1 byte (40-41) - checked early
+	// Early stage task IDs (checked together)
+	TaskSDR    sql.NullInt64 `db:"task_id_sdr"` // 16 bytes (41-57, with padding)
+	AfterSDR   bool          `db:"after_sdr"`   // 1 byte
+	StartedSDR bool          `db:"started_sdr"` // 1 byte
+	// Cache line 2 (bytes 64-128): Tree stages (accessed together)
+	TaskTreeD     sql.NullInt64  `db:"task_id_tree_d"`  // 16 bytes
+	TreeD         sql.NullString `db:"tree_d_cid"`      // 24 bytes
+	TaskTreeC     sql.NullInt64  `db:"task_id_tree_c"`  // 16 bytes
+	AfterTreeD    bool           `db:"after_tree_d"`    // 1 byte
+	StartedTreeD  bool           `db:"started_tree_d"`  // 1 byte
+	AfterTreeC    bool           `db:"after_tree_c"`    // 1 byte
+	StartedTreeRC bool           `db:"started_tree_rc"` // 1 byte
+	// Cache line 3 (bytes 128-192): TreeR and Synthetic stages
+	TaskTreeR        sql.NullInt64  `db:"task_id_tree_r"`    // 16 bytes
+	TreeR            sql.NullString `db:"tree_r_cid"`        // 24 bytes
+	TaskSynthetic    sql.NullInt64  `db:"task_id_synth"`     // 16 bytes
+	AfterTreeR       bool           `db:"after_tree_r"`      // 1 byte
+	AfterSynthetic   bool           `db:"after_synth"`       // 1 byte
+	StartedSynthetic bool           `db:"started_synthetic"` // 1 byte
+	// Cache line 4 (bytes 192-256): PreCommit stage
+	PreCommitReadyAt         sql.NullTime  `db:"precommit_ready_at"`          // 32 bytes
+	TaskPrecommitMsg         sql.NullInt64 `db:"task_id_precommit_msg"`       // 16 bytes
+	AfterPrecommitMsg        bool          `db:"after_precommit_msg"`         // 1 byte
+	StartedPrecommitMsg      bool          `db:"started_precommit_msg"`       // 1 byte
+	AfterPrecommitMsgSuccess bool          `db:"after_precommit_msg_success"` // 1 byte
+	// Cache line 5 (bytes 256-320): PreCommit CID and SeedEpoch
+	PreCommitMsgCid sql.NullString `db:"precommit_msg_cid"` // 24 bytes
+	SeedEpoch       sql.NullInt64  `db:"seed_epoch"`        // 16 bytes
+	// PoRep stage (accessed together)
+	TaskPoRep    sql.NullInt64 `db:"task_id_porep"` // 16 bytes
+	AfterPoRep   bool          `db:"after_porep"`   // 1 byte
+	StartedPoRep bool          `db:"started_porep"` // 1 byte
+	// Cache line 6 (bytes 320-384): Finalize and MoveStorage stages
+	TaskFinalize       sql.NullInt64 `db:"task_id_finalize"`     // 16 bytes
+	TaskMoveStorage    sql.NullInt64 `db:"task_id_move_storage"` // 16 bytes
+	AfterFinalize      bool          `db:"after_finalize"`       // 1 byte
+	StartedFinalize    bool          `db:"started_finalize"`     // 1 byte
+	AfterMoveStorage   bool          `db:"after_move_storage"`   // 1 byte
+	StartedMoveStorage bool          `db:"started_move_storage"` // 1 byte
+	// Commit stage (accessed together)
+	CommitReadyAt sql.NullTime `db:"commit_ready_at"` // 32 bytes
+	// Cache line 7 (bytes 384-448): Commit message stage
+	TaskCommitMsg         sql.NullInt64  `db:"task_id_commit_msg"`       // 16 bytes
+	CommitMsgCid          sql.NullString `db:"commit_msg_cid"`           // 24 bytes
+	AfterCommitMsg        bool           `db:"after_commit_msg"`         // 1 byte
+	StartedCommitMsg      bool           `db:"started_commit_msg"`       // 1 byte
+	AfterCommitMsgSuccess bool           `db:"after_commit_msg_success"` // 1 byte
+	// Larger fields at end (rarely accessed or only when needed)
+	FailedReason string  `db:"failed_reason"` // 16 bytes - only used when Failed=true
+	PoRepProof   []byte  `db:"porep_proof"`   // 24 bytes - only used in PoRep stage
+	MissingTasks []int64 `db:"missing_tasks"` // 24 bytes - computed field
+	AllTasks     []int64 `db:"all_tasks"`     // 24 bytes - computed field
 }
 
 type sectorListEntry struct {
@@ -307,7 +302,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 			minerBitfieldCache[addr] = mbf
 		}
 
-		afterSeed := task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch)
+		afterSeed := task.SeedEpoch.Valid && task.SeedEpoch.Int64 <= int64(epoch)
 
 		sectorList = append(sectorList, sectorListEntry{
 			PipelineTask: task,

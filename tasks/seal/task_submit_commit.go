@@ -161,11 +161,13 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	params := miner.ProveCommitSectors3Params{
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
 		RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
+		SectorActivations:          make([]miner.SectorActivationManifest, 0, len(sectorParamsArr)),
+		SectorProofs:               make([][]byte, 0, len(sectorParamsArr)),
 	}
 
 	collateral := big.Zero()
-	var infos []proof.AggregateSealVerifyInfo
-	var sectors []int64
+	infos := make([]proof.AggregateSealVerifyInfo, 0, len(sectorParamsArr))
+	sectors := make([]int64, 0, len(sectorParamsArr))
 
 	for _, sectorParams := range sectorParamsArr {
 		sectorParams := sectorParams
@@ -217,7 +219,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 		var verifiedSize abi.PaddedPieceSize
 
-		var pams []miner.PieceActivationManifest
+		pams := make([]miner.PieceActivationManifest, 0, len(pieces))
 
 		var sectorFailed bool
 

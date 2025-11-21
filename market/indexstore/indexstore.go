@@ -278,10 +278,12 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 		}
 
 		// Sleep for backoff duration before retrying
+		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 
 		// Exponential backoff

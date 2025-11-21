@@ -259,7 +259,7 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		indIDs[x] = int64(id)
 	}
 
-	var tasks []*task
+	var tasks []task
 	if storiface.FTPiece != 32 {
 		panic("storiface.FTPiece != 32")
 	}
@@ -269,9 +269,9 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		return nil, xerrors.Errorf("getting PDP indexing details: %w", err)
 	}
 
-	for _, t := range tasks {
+	for idx := range tasks {
 
-		if !t.Indexing {
+		if !tasks[idx].Indexing {
 			continue
 		}
 
@@ -284,12 +284,12 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 				 AND sl.miner_id = 0
 				 AND sl.sector_filetype = 32
 				WHERE ppr.ref_id = $1
-			`, t.PieceRef).Scan(&sLocation)
+			`, tasks[idx].PieceRef).Scan(&sLocation)
 		if err != nil {
 			return nil, xerrors.Errorf("getting storage_id: %w", err)
 		}
 
-		t.StorageID = sLocation
+		tasks[idx].StorageID = sLocation
 	}
 
 	ls, err := P.sc.LocalStorage(ctx)
@@ -302,12 +302,12 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		localStorageMap[string(l.ID)] = true
 	}
 
-	for _, t := range tasks {
-		if !t.Indexing {
-			return &t.TaskID, nil
+	for idx := range tasks {
+		if !tasks[idx].Indexing {
+			return &tasks[idx].TaskID, nil
 		}
-		if found, ok := localStorageMap[t.StorageID]; ok && found {
-			return &t.TaskID, nil
+		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
+			return &tasks[idx].TaskID, nil
 		}
 	}
 

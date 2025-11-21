@@ -118,9 +118,9 @@ type path struct {
 // which will make it take into account existing sectors when calculating
 // available space for new reservations
 type statExistingSectorForReservation struct {
-	id       abi.SectorID
-	ft       storiface.SectorFileType
-	overhead int64
+	id       abi.SectorID             // 16 bytes - used with ft in sectorPath (line 137-138)
+	ft       storiface.SectorFileType // Used with id (line 137-138)
+	overhead int64                    // Used separately in calculations
 }
 
 func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservation) (stat fsutil.FsStat, newResvOnDisk int64, err error) {
@@ -549,14 +549,19 @@ func (st *Local) reportHealth(ctx context.Context) {
 	// randomize interval by ~10%
 	interval := (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000
 
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
 	for {
 		select {
-		case <-time.After(interval):
+		case <-timer.C:
+			st.reportStorage(ctx)
+			// Update interval for next iteration (randomize again)
+			interval = (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000
+			timer.Reset(interval)
 		case <-ctx.Done():
 			return
 		}
-
-		st.reportStorage(ctx)
 	}
 }
 
