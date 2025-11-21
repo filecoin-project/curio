@@ -85,6 +85,16 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	}
 
 	log.Infow("start supraseal init")
+
+	// Automatically setup SPDK (configure hugepages and bind NVMe devices)
+	log.Infow("checking and setting up SPDK for supraseal")
+	if err := supraffi.CheckAndSetupSPDK(36, 36); err != nil {
+		return nil, nil, nil, xerrors.Errorf("SPDK setup failed: %w. Please ensure you have:\n"+
+			"1. Configured 1GB hugepages (add 'hugepages=36 default_hugepagesz=1G hugepagesz=1G' to /etc/default/grub)\n"+
+			"2. Raw NVMe devices available (no filesystems on them)\n"+
+			"3. Root/sudo access for SPDK setup", err)
+	}
+
 	var configFile string
 	if configFile = os.Getenv(suprasealConfigEnv); configFile == "" {
 		// not set from env (should be the case in most cases), auto-generate a config
@@ -97,7 +107,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 		log.Infow("nvme devices", "nvmeDevices", nvmeDevices)
 		if len(nvmeDevices) == 0 {
-			return nil, nil, nil, xerrors.Errorf("no nvme devices found, run spdk setup.sh")
+			return nil, nil, nil, xerrors.Errorf("no nvme devices found. Please ensure you have raw NVMe devices (without filesystems) available")
 		}
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
