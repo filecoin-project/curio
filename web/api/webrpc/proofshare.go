@@ -28,22 +28,22 @@ import (
 
 // ProofShareMeta holds the data from the proofshare_meta table.
 type ProofShareMeta struct {
-	Enabled       bool           `db:"enabled" json:"enabled"`
-	Wallet        sql.NullString `db:"wallet" json:"wallet"`
-	RequestTaskID sql.NullInt64  `db:"request_task_id" json:"request_task_id"`
-	Price         string         `db:"pprice"         json:"price"`
+	Enabled       bool       `db:"enabled" json:"enabled"`
+	Wallet        NullString `db:"wallet" json:"wallet"`
+	RequestTaskID NullInt64  `db:"request_task_id" json:"request_task_id"`
+	Price         string     `db:"pprice"         json:"price"`
 }
 
 // ProofShareQueueItem represents each row in proofshare_queue.
 type ProofShareQueueItem struct {
-	ServiceID     string        `db:"service_id"     json:"service_id"`
-	ObtainedAt    time.Time     `db:"obtained_at"    json:"obtained_at"`
-	ComputeTaskID sql.NullInt64 `db:"compute_task_id" json:"compute_task_id"`
-	ComputeDone   bool          `db:"compute_done"   json:"compute_done"`
-	SubmitTaskID  sql.NullInt64 `db:"submit_task_id" json:"submit_task_id"`
-	SubmitDone    bool          `db:"submit_done"    json:"submit_done"`
-	WasPoW        bool          `db:"was_pow"        json:"was_pow"`
-	PaymentAmount string        `json:"payment_amount"`
+	ServiceID     string    `db:"service_id"     json:"service_id"`
+	ObtainedAt    time.Time `db:"obtained_at"    json:"obtained_at"`
+	ComputeTaskID NullInt64 `db:"compute_task_id" json:"compute_task_id"`
+	ComputeDone   bool      `db:"compute_done"   json:"compute_done"`
+	SubmitTaskID  NullInt64 `db:"submit_task_id" json:"submit_task_id"`
+	SubmitDone    bool      `db:"submit_done"    json:"submit_done"`
+	WasPoW        bool      `db:"was_pow"        json:"was_pow"`
+	PaymentAmount string    `json:"payment_amount"`
 }
 
 // PSGetMeta returns the current meta row from proofshare_meta (always a single row).
@@ -324,13 +324,13 @@ func (a *WebRPC) addMessageTrackingProvider(ctx context.Context, messageCid cid.
 // ProofShareClientSettings model
 // Matches proofshare_client_settings table columns
 type ProofShareClientSettings struct {
-	SpID               int64          `db:"sp_id"                 json:"sp_id"`
-	Enabled            bool           `db:"enabled"               json:"enabled"`
-	Wallet             sql.NullString `db:"wallet"                json:"wallet"`
-	MinimumPendingSecs int64          `db:"minimum_pending_seconds" json:"minimum_pending_seconds"`
-	DoPoRep            bool           `db:"do_porep"              json:"do_porep"`
-	DoSnap             bool           `db:"do_snap"               json:"do_snap"`
-	Price              string         `db:"pprice"`
+	SpID               int64      `db:"sp_id"                 json:"sp_id"`
+	Enabled            bool       `db:"enabled"               json:"enabled"`
+	Wallet             NullString `db:"wallet"                json:"wallet"`
+	MinimumPendingSecs int64      `db:"minimum_pending_seconds" json:"minimum_pending_seconds"`
+	DoPoRep            bool       `db:"do_porep"              json:"do_porep"`
+	DoSnap             bool       `db:"do_snap"               json:"do_snap"`
+	Price              string     `db:"pprice"`
 
 	Address string `db:"-" json:"address"`
 	FilPerP string `db:"-" json:"price"`
@@ -421,18 +421,18 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 
 // ProofShareClientRequest model
 type ProofShareClientRequest struct {
-	TaskID          int64          `db:"task_id"           json:"task_id"`
-	SpID            int64          `db:"sp_id"`
-	SectorNum       int64          `db:"sector_num"        json:"sector_num"`
-	RequestCID      sql.NullString `db:"request_cid"       json:"request_cid,omitempty"`
-	RequestUploaded bool           `db:"request_uploaded"  json:"request_uploaded"`
-	PaymentWallet   sql.NullInt64  `db:"payment_wallet"    json:"payment_wallet,omitempty"`
-	PaymentNonce    sql.NullInt64  `db:"payment_nonce"     json:"payment_nonce,omitempty"`
-	RequestSent     bool           `db:"request_sent"      json:"request_sent"`
-	ResponseData    []byte         `db:"response_data"     json:"response_data,omitempty"`
-	Done            bool           `db:"done"              json:"done"`
-	CreatedAt       time.Time      `db:"created_at"        json:"created_at"`
-	DoneAt          sql.NullTime   `db:"done_at"           json:"done_at,omitempty"`
+	TaskID          int64      `db:"task_id"           json:"task_id"`
+	SpID            int64      `db:"sp_id"`
+	SectorNum       int64      `db:"sector_num"        json:"sector_num"`
+	RequestCID      NullString `db:"request_cid"       json:"request_cid,omitempty"`
+	RequestUploaded bool       `db:"request_uploaded"  json:"request_uploaded"`
+	PaymentWallet   NullInt64  `db:"payment_wallet"    json:"payment_wallet,omitempty"`
+	PaymentNonce    NullInt64  `db:"payment_nonce"     json:"payment_nonce,omitempty"`
+	RequestSent     bool       `db:"request_sent"      json:"request_sent"`
+	ResponseData    []byte     `db:"response_data"     json:"response_data,omitempty"`
+	Done            bool       `db:"done"              json:"done"`
+	CreatedAt       time.Time  `db:"created_at"        json:"created_at"`
+	DoneAt          NullTime   `db:"done_at"           json:"done_at,omitempty"`
 
 	PaymentAmount *string `db:"-" json:"payment_amount"`
 	SpIDStr       string  `db:"-" json:"sp_id"`
@@ -691,8 +691,8 @@ func (a *WebRPC) PSClientListMessages(ctx context.Context) ([]ClientMessage, err
 	messages := []ClientMessage{}
 	for rows.Next() {
 		var msg ClientMessage
-		var success sql.NullBool
-		var completedAt sql.NullTime
+		var success NullBool
+		var completedAt NullTime
 
 		if err := rows.Scan(&msg.StartedAt, &msg.SignedCID, &msg.Wallet, &msg.Action, &success, &completedAt); err != nil {
 			return nil, xerrors.Errorf("PSClientListMessages: failed to scan row: %w", err)
@@ -877,11 +877,11 @@ func (a *WebRPC) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet st
 // ProviderLastPaymentSummary holds aggregated payment info for a provider.
 type ProviderLastPaymentSummary struct {
 	// Fields directly from SQL
-	WalletID                   int64        `db:"wallet_id" json:"wallet_id"`
-	LastPaymentNonce           int64        `db:"last_payment_nonce" json:"last_payment_nonce"`
-	LatestPaymentValueRaw      *string      `db:"latest_payment_value" json:"-"`       // Raw from DB, not in final JSON
-	LastSettledPaymentValueRaw *string      `db:"last_settled_payment_value" json:"-"` // Raw from DB, not in final JSON
-	SQLLastSettledAt           sql.NullTime `db:"last_settled_at" json:"-"`            // Raw from DB, not in final JSON
+	WalletID                   int64    `db:"wallet_id" json:"wallet_id"`
+	LastPaymentNonce           int64    `db:"last_payment_nonce" json:"last_payment_nonce"`
+	LatestPaymentValueRaw      *string  `db:"latest_payment_value" json:"-"`       // Raw from DB, not in final JSON
+	LastSettledPaymentValueRaw *string  `db:"last_settled_payment_value" json:"-"` // Raw from DB, not in final JSON
+	SQLLastSettledAt           NullTime `db:"last_settled_at" json:"-"`            // Raw from DB, not in final JSON
 
 	// Derived and formatted fields for JSON output
 	Address                 string     `json:"address"`

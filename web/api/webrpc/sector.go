@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 	"strconv"
 	"strings"
 	"time"
@@ -71,23 +70,23 @@ type SnapPipelineTask struct {
 	Failed       bool      `db:"failed"`        // 1 byte (48-49) - checked early
 	DataAssigned bool      `db:"data_assigned"` // 1 byte (49-50) - checked with sector number
 	// Cache line 2 (bytes 64-128): Encode and Prove stages (accessed together)
-	TaskEncode        sql.NullInt64  `db:"task_id_encode"`      // 16 bytes
-	AfterEncode       bool           `db:"after_encode"`        // 1 byte
-	UpdateUnsealedCID sql.NullString `db:"update_unsealed_cid"` // 24 bytes
-	TaskProve         sql.NullInt64  `db:"task_id_prove"`       // 16 bytes
-	AfterProve        bool           `db:"after_prove"`         // 1 byte
+	TaskEncode        NullInt64  `db:"task_id_encode"`      // 16 bytes
+	AfterEncode       bool       `db:"after_encode"`        // 1 byte
+	UpdateUnsealedCID NullString `db:"update_unsealed_cid"` // 24 bytes
+	TaskProve         NullInt64  `db:"task_id_prove"`       // 16 bytes
+	AfterProve        bool       `db:"after_prove"`         // 1 byte
 	// Cache line 3 (bytes 128-192): Submit and message stages
-	UpdateSealedCID      sql.NullString `db:"update_sealed_cid"`       // 24 bytes
-	TaskSubmit           sql.NullInt64  `db:"task_id_submit"`          // 16 bytes
-	AfterSubmit          bool           `db:"after_submit"`            // 1 byte
-	AfterProveMsgSuccess bool           `db:"after_prove_msg_success"` // 1 byte
-	UpdateMsgCid         sql.NullString `db:"prove_msg_cid"`           // 24 bytes (crosses into cache line 4)
+	UpdateSealedCID      NullString `db:"update_sealed_cid"`       // 24 bytes
+	TaskSubmit           NullInt64  `db:"task_id_submit"`          // 16 bytes
+	AfterSubmit          bool       `db:"after_submit"`            // 1 byte
+	AfterProveMsgSuccess bool       `db:"after_prove_msg_success"` // 1 byte
+	UpdateMsgCid         NullString `db:"prove_msg_cid"`           // 24 bytes (crosses into cache line 4)
 	// Cache line 4 (bytes 192-256): Storage and timing
-	TaskMoveStorage  sql.NullInt64 `db:"task_id_move_storage"` // 16 bytes
-	AfterMoveStorage bool          `db:"after_move_storage"`   // 1 byte
-	SubmitAfter      sql.NullTime  `db:"submit_after"`         // 32 bytes
+	TaskMoveStorage  NullInt64 `db:"task_id_move_storage"` // 16 bytes
+	AfterMoveStorage bool      `db:"after_move_storage"`   // 1 byte
+	SubmitAfter      NullTime  `db:"submit_after"`         // 32 bytes
 	// Failure info (only accessed when Failed=true)
-	FailedAt sql.NullTime `db:"failed_at"` // 32 bytes (crosses into cache line 5)
+	FailedAt NullTime `db:"failed_at"` // 32 bytes (crosses into cache line 5)
 	// Rarely accessed fields at end
 	FailedReason    string `db:"failed_reason"`     // 16 bytes - only when Failed=true
 	FailedReasonMsg string `db:"failed_reason_msg"` // 16 bytes - only when Failed=true
@@ -102,50 +101,50 @@ type SectorInfoTaskSummary struct {
 
 type TaskHistory struct {
 	// Cache line 1 (bytes 0-64): Identification and key timing
-	PipelineTaskID int64        `db:"pipeline_task_id"` // 8 bytes (0-8)
-	WorkStart      sql.NullTime `db:"work_start"`       // 32 bytes (8-40)
-	WorkEnd        sql.NullTime `db:"work_end"`         // 32 bytes (40-72, crosses to cache line 2)
+	PipelineTaskID int64    `db:"pipeline_task_id"` // 8 bytes (0-8)
+	WorkStart      NullTime `db:"work_start"`       // 32 bytes (8-40)
+	WorkEnd        NullTime `db:"work_end"`         // 32 bytes (40-72, crosses to cache line 2)
 	// Cache line 2 (bytes 64-128): Task details
-	Name        sql.NullString `db:"name"`                       // 24 bytes
-	CompletedBy sql.NullString `db:"completed_by_host_and_port"` // 24 bytes
-	Result      sql.NullBool   `db:"result"`                     // 2 bytes
+	Name        NullString `db:"name"`                       // 24 bytes
+	CompletedBy NullString `db:"completed_by_host_and_port"` // 24 bytes
+	Result      NullBool   `db:"result"`                     // 2 bytes
 	// Cache line 3 (bytes 128+): Error info and display fields (only accessed when needed)
-	Err  sql.NullString `db:"err"` // 24 bytes - only accessed when Result is false
-	Took string         `db:"-"`   // 16 bytes - display only, computed field
+	Err  NullString `db:"err"` // 24 bytes - only accessed when Result is false
+	Took string     `db:"-"`   // 16 bytes - display only, computed field
 }
 
 // Pieces
 type SectorPieceMeta struct {
 	// Cache line 1 (bytes 0-64): Hot path - piece identification and size
-	PieceIndex  int64         `db:"piece_index"`   // 8 bytes (0-8)
-	PieceSize   int64         `db:"piece_size"`    // 8 bytes (8-16)
-	PieceCid    string        `db:"piece_cid"`     // 16 bytes (16-32)
-	PieceCidV2  string        `db:"-"`             // 16 bytes (32-48) - computed field
-	DataRawSize sql.NullInt64 `db:"data_raw_size"` // 16 bytes (48-64)
+	PieceIndex  int64     `db:"piece_index"`   // 8 bytes (0-8)
+	PieceSize   int64     `db:"piece_size"`    // 8 bytes (8-16)
+	PieceCid    string    `db:"piece_cid"`     // 16 bytes (16-32)
+	PieceCidV2  string    `db:"-"`             // 16 bytes (32-48) - computed field
+	DataRawSize NullInt64 `db:"data_raw_size"` // 16 bytes (48-64)
 	// Cache line 2 (bytes 64-128): Deal identification
-	F05DealID   sql.NullInt64  `db:"f05_deal_id"` // 16 bytes
-	DealID      sql.NullString `db:"deal_id"`     // 24 bytes
-	IsSnapPiece bool           `db:"is_snap"`     // 1 byte - frequently checked with PieceIndex
+	F05DealID   NullInt64  `db:"f05_deal_id"` // 16 bytes
+	DealID      NullString `db:"deal_id"`     // 24 bytes
+	IsSnapPiece bool       `db:"is_snap"`     // 1 byte - frequently checked with PieceIndex
 	// Cache line 3 (bytes 128-192): Data access and F05 info
-	DataUrl       sql.NullString `db:"data_url"`        // 24 bytes
-	F05PublishCid sql.NullString `db:"f05_publish_cid"` // 24 bytes
+	DataUrl       NullString `db:"data_url"`        // 24 bytes
+	F05PublishCid NullString `db:"f05_publish_cid"` // 24 bytes
 	// Cache line 4 (bytes 192-256): DDO and display fields
-	DDOPam         sql.NullString `db:"direct_piece_activation_manifest"` // 24 bytes
-	StrPieceSize   string         `db:"-"`                                // 16 bytes - display only
-	StrDataRawSize string         `db:"-"`                                // 16 bytes - display only
+	DDOPam         NullString `db:"direct_piece_activation_manifest"` // 24 bytes
+	StrPieceSize   string     `db:"-"`                                // 16 bytes - display only
+	StrDataRawSize string     `db:"-"`                                // 16 bytes - display only
 	// Piece park fields (rarely accessed, only for parked pieces)
 	PieceParkDataUrl       string    `db:"-"` // 16 bytes
 	PieceParkCreatedAt     time.Time `db:"-"` // 24 bytes
 	PieceParkID            int64     `db:"-"` // 8 bytes
 	PieceParkTaskID        *int64    `db:"-"` // 8 bytes - still pointer (not from DB)
 	PieceParkCleanupTaskID *int64    `db:"-"` // 8 bytes - still pointer (not from DB)
-	// Bools: frequently checked first, rare ones at end (sql.NullBool = 2 bytes each)
-	MK12Deal           sql.NullBool `db:"boost_deal"`              // 2 bytes - checked often
-	LegacyDeal         sql.NullBool `db:"legacy_deal"`             // 2 bytes - checked often
-	DeleteOnFinalize   sql.NullBool `db:"data_delete_on_finalize"` // 2 bytes - checked during finalize
-	IsParkedPiece      bool         `db:"-"`                       // rare - only for UI display
-	IsParkedPieceFound bool         `db:"-"`                       // rare - only for UI display
-	PieceParkComplete  bool         `db:"-"`                       // rare - only for parked pieces
+	// Bools: frequently checked first, rare ones at end (NullBool = 2 bytes each)
+	MK12Deal           NullBool `db:"boost_deal"`              // 2 bytes - checked often
+	LegacyDeal         NullBool `db:"legacy_deal"`             // 2 bytes - checked often
+	DeleteOnFinalize   NullBool `db:"data_delete_on_finalize"` // 2 bytes - checked during finalize
+	IsParkedPiece      bool     `db:"-"`                       // rare - only for UI display
+	IsParkedPieceFound bool     `db:"-"`                       // rare - only for UI display
+	PieceParkComplete  bool     `db:"-"`                       // rare - only for parked pieces
 }
 
 type FileLocations struct {
@@ -170,16 +169,16 @@ type SectorMeta struct {
 	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`  // 16 bytes (32-48)
 	UpdatedSealedCid   string `db:"cur_sealed_cid"`    // 16 bytes (48-64)
 	// Cache line 2 (bytes 64-128): Message CIDs (accessed for on-chain tracking)
-	PreCommitCid string         `db:"msg_cid_precommit"` // 16 bytes (64-80)
-	CommitCid    string         `db:"msg_cid_commit"`    // 16 bytes (80-96)
-	UpdateCid    sql.NullString `db:"msg_cid_update"`    // 24 bytes (96-120) - null for non-snap sectors
-	// Cache line 3 (bytes 128-192): On-chain metadata (sql.NullInt64 = 16 bytes each)
-	ExpirationEpoch sql.NullInt64 `db:"expiration_epoch"` // 16 bytes
-	Deadline        sql.NullInt64 `db:"deadline"`         // 16 bytes
-	Partition       sql.NullInt64 `db:"partition"`        // 16 bytes
-	// Bools (sql.NullBool = 2 bytes each)
-	IsCC          sql.NullBool `db:"is_cc"`               // 2 bytes
-	UnsealedState sql.NullBool `db:"target_unseal_state"` // 2 bytes
+	PreCommitCid string     `db:"msg_cid_precommit"` // 16 bytes (64-80)
+	CommitCid    string     `db:"msg_cid_commit"`    // 16 bytes (80-96)
+	UpdateCid    NullString `db:"msg_cid_update"`    // 24 bytes (96-120) - null for non-snap sectors
+	// Cache line 3 (bytes 128-192): On-chain metadata (NullInt64 = 16 bytes each)
+	ExpirationEpoch NullInt64 `db:"expiration_epoch"` // 16 bytes
+	Deadline        NullInt64 `db:"deadline"`         // 16 bytes
+	Partition       NullInt64 `db:"partition"`        // 16 bytes
+	// Bools (NullBool = 2 bytes each)
+	IsCC          NullBool `db:"is_cc"`               // 2 bytes
+	UnsealedState NullBool `db:"target_unseal_state"` // 2 bytes
 }
 
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
@@ -558,10 +557,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			DataUrl string `db:"data_url"`
 
 			// parked_pieces
-			CreatedAt     time.Time     `db:"created_at"`
-			Complete      bool          `db:"complete"`
-			ParkTaskID    sql.NullInt64 `db:"task_id"`
-			CleanupTaskID sql.NullInt64 `db:"cleanup_task_id"`
+			CreatedAt     time.Time `db:"created_at"`
+			Complete      bool      `db:"complete"`
+			ParkTaskID    NullInt64 `db:"task_id"`
+			CleanupTaskID NullInt64 `db:"cleanup_task_id"`
 		}
 
 		err = a.deps.DB.Select(ctx, &parkedPiece, `SELECT ppr.piece_id, ppr.data_url, pp.created_at, pp.complete, pp.task_id, pp.cleanup_task_id FROM parked_piece_refs ppr
@@ -597,7 +596,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var htasks []SectorInfoTaskSummary
 	taskIDs := map[int64]struct{}{}
 
-	appendNullInt64 := func(n sql.NullInt64) {
+	appendNullInt64 := func(n NullInt64) {
 		if n.Valid {
 			taskIDs[n.Int64] = struct{}{}
 		}
@@ -694,8 +693,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}
 
 	var taskState []struct {
-		PipelineID    int64         `db:"pipeline_id"`
-		HarmonyTaskID sql.NullInt64 `db:"harmony_task_id"`
+		PipelineID    int64     `db:"pipeline_id"`
+		HarmonyTaskID NullInt64 `db:"harmony_task_id"`
 	}
 	err = a.deps.DB.Select(ctx, &taskState, `WITH task_ids AS (
         SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id

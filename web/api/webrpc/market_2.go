@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,10 +22,10 @@ import (
 )
 
 type MK20StorageDeal struct {
-	Deal   *mk20.Deal     `json:"deal"`
-	DDOErr sql.NullString `json:"ddoerr"`
-	PDPErr sql.NullString `json:"pdperr"`
-	DDOId  sql.NullInt64  `json:"ddoid"`
+	Deal   *mk20.Deal `json:"deal"`
+	DDOErr NullString `json:"ddoerr"`
+	PDPErr NullString `json:"pdperr"`
+	DDOId  NullInt64  `json:"ddoid"`
 }
 
 func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20StorageDeal, error) {
@@ -62,10 +61,10 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20Storag
 			return nil, fmt.Errorf("unmarshal ddov1: %w", err)
 		}
 		if dddov1.Error != "" {
-			ret.DDOErr = sql.NullString{String: dddov1.Error, Valid: true}
+			ret.DDOErr = NullString{String: dddov1.Error, Valid: true}
 		}
 		if dddov1.DealID > 0 {
-			ret.DDOId = sql.NullInt64{Int64: dddov1.DealID, Valid: true}
+			ret.DDOId = NullInt64{Int64: dddov1.DealID, Valid: true}
 		}
 	}
 
@@ -75,7 +74,7 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20Storag
 			return nil, fmt.Errorf("unmarshal pdpv1: %w", err)
 		}
 		if pdpv1.Error != "" {
-			ret.PDPErr = sql.NullString{String: pdpv1.Error, Valid: true}
+			ret.PDPErr = NullString{String: pdpv1.Error, Valid: true}
 		}
 	}
 
@@ -83,12 +82,12 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20Storag
 }
 
 type MK20StorageDealList struct {
-	ID         string         `db:"id" json:"id"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
-	PieceCidV2 sql.NullString `db:"piece_cid_v2" json:"piece_cid_v2"`
-	Processed  bool           `db:"processed" json:"processed"`
-	Error      sql.NullString `db:"error" json:"error"`
-	Miner      sql.NullString `db:"miner" json:"miner"`
+	ID         string     `db:"id" json:"id"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	PieceCidV2 NullString `db:"piece_cid_v2" json:"piece_cid_v2"`
+	Processed  bool       `db:"processed" json:"processed"`
+	Error      NullString `db:"error" json:"error"`
+	Miner      NullString `db:"miner" json:"miner"`
 }
 
 func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int) ([]*MK20StorageDealList, error) {
@@ -467,10 +466,10 @@ func (a *WebRPC) MK20BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 		type pipelineInfo struct {
 			id             string
 			url            string
-			sector         sql.NullInt64
-			commpTaskID    sql.NullInt64
-			aggTaskID      sql.NullInt64
-			indexingTaskID sql.NullInt64
+			sector         NullInt64
+			commpTaskID    NullInt64
+			aggTaskID      NullInt64
+			indexingTaskID NullInt64
 		}
 
 		var pipelines []pipelineInfo
@@ -844,25 +843,25 @@ type MK20PDPPipeline struct {
 
 	Downloaded bool `db:"downloaded" json:"downloaded"`
 
-	CommpTaskId sql.NullInt64 `db:"commp_task_id" json:"commp_task_id"`
-	AfterCommp  bool          `db:"after_commp" json:"after_commp"`
+	CommpTaskId NullInt64 `db:"commp_task_id" json:"commp_task_id"`
+	AfterCommp  bool      `db:"after_commp" json:"after_commp"`
 
-	DealAggregation   int           `db:"deal_aggregation" json:"deal_aggregation"`
-	AggregationIndex  int64         `db:"aggr_index" json:"aggr_index"`
-	AggregationTaskID sql.NullInt64 `db:"agg_task_id" json:"agg_task_id"`
-	Aggregated        bool          `db:"aggregated" json:"aggregated"`
+	DealAggregation   int       `db:"deal_aggregation" json:"deal_aggregation"`
+	AggregationIndex  int64     `db:"aggr_index" json:"aggr_index"`
+	AggregationTaskID NullInt64 `db:"agg_task_id" json:"agg_task_id"`
+	Aggregated        bool      `db:"aggregated" json:"aggregated"`
 
-	AddPieceTaskID sql.NullInt64 `db:"add_piece_task_id" json:"add_piece_task_id"`
-	AfterAddPiece  bool          `db:"after_add_piece" json:"after_add_piece"`
+	AddPieceTaskID NullInt64 `db:"add_piece_task_id" json:"add_piece_task_id"`
+	AfterAddPiece  bool      `db:"after_add_piece" json:"after_add_piece"`
 
 	AfterAddPieceMsg bool `db:"after_add_piece_msg" json:"after_add_piece_msg"`
 
-	SaveCacheTaskID sql.NullInt64 `db:"save_cache_task_id" json:"save_cache_task_id"`
-	AfterSaveCache  bool          `db:"after_save_cache" json:"after_save_cache"`
+	SaveCacheTaskID NullInt64 `db:"save_cache_task_id" json:"save_cache_task_id"`
+	AfterSaveCache  bool      `db:"after_save_cache" json:"after_save_cache"`
 
-	IndexingCreatedAt sql.NullTime  `db:"indexing_created_at" json:"indexing_created_at"`
-	IndexingTaskId    sql.NullInt64 `db:"indexing_task_id" json:"indexing_task_id"`
-	Indexed           bool          `db:"indexed" json:"indexed"`
+	IndexingCreatedAt NullTime  `db:"indexing_created_at" json:"indexing_created_at"`
+	IndexingTaskId    NullInt64 `db:"indexing_task_id" json:"indexing_task_id"`
+	Indexed           bool      `db:"indexed" json:"indexed"`
 
 	Complete  bool      `db:"complete" json:"complete"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
@@ -871,11 +870,11 @@ type MK20PDPPipeline struct {
 }
 
 type MK20PDPDealList struct {
-	ID         string         `db:"id" json:"id"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
-	PieceCidV2 sql.NullString `db:"piece_cid_v2" json:"piece_cid_v2"`
-	Processed  bool           `db:"processed" json:"processed"`
-	Error      sql.NullString `db:"error" json:"error"`
+	ID         string     `db:"id" json:"id"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	PieceCidV2 NullString `db:"piece_cid_v2" json:"piece_cid_v2"`
+	Processed  bool       `db:"processed" json:"processed"`
+	Error      NullString `db:"error" json:"error"`
 }
 
 func (a *WebRPC) MK20PDPStorageDeals(ctx context.Context, limit int, offset int) ([]*MK20PDPDealList, error) {
@@ -1339,12 +1338,12 @@ func (a *WebRPC) MK20BulkRemoveFailedPDPPipelines(ctx context.Context, taskType 
 
 		type pipelineInfo struct {
 			id             string
-			refID          sql.NullInt64
-			commpTaskID    sql.NullInt64
-			aggTaskID      sql.NullInt64
-			addPieceTaskID sql.NullInt64
-			saveCacheTask  sql.NullInt64
-			indexingTaskID sql.NullInt64
+			refID          NullInt64
+			commpTaskID    NullInt64
+			aggTaskID      NullInt64
+			addPieceTaskID NullInt64
+			saveCacheTask  NullInt64
+			indexingTaskID NullInt64
 		}
 
 		var pipelines []pipelineInfo
@@ -1440,13 +1439,13 @@ func (a *WebRPC) MK20PDPPipelineRemove(ctx context.Context, id string) error {
 
 	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var pipelines []struct {
-			Ref sql.NullInt64 `db:"piece_ref"`
+			Ref NullInt64 `db:"piece_ref"`
 
-			CommpTaskID    sql.NullInt64 `db:"commp_task_id"`
-			AggrTaskID     sql.NullInt64 `db:"agg_task_id"`
-			AddPieceTaskID sql.NullInt64 `db:"add_piece_task_id"`
-			SaveCacheTask  sql.NullInt64 `db:"save_cache_task"`
-			IndexingTaskID sql.NullInt64 `db:"indexing_task_id"`
+			CommpTaskID    NullInt64 `db:"commp_task_id"`
+			AggrTaskID     NullInt64 `db:"agg_task_id"`
+			AddPieceTaskID NullInt64 `db:"add_piece_task_id"`
+			SaveCacheTask  NullInt64 `db:"save_cache_task"`
+			IndexingTaskID NullInt64 `db:"indexing_task_id"`
 		}
 
 		err = tx.Select(&pipelines, `SELECT piece_ref, sector, commp_task_id, agg_task_id, indexing_task_id

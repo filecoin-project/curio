@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/filecoin-project/go-address"
 
@@ -85,9 +84,9 @@ func (a *WebRPC) FindEntriesByDataURL(ctx context.Context, dataURL string) ([]Pi
 
 		for rows.Next() {
 			var entry PieceParkRefEntry
-			var sectorNumber sql.NullInt64
-			var pieceIndex sql.NullInt64
-			var dealUUID sql.NullString
+			var sectorNumber NullInt64
+			var pieceIndex NullInt64
+			var dealUUID NullString
 
 			err = rows.Scan(&entry.TableName, &entry.SpID, &sectorNumber, &pieceIndex, &entry.PieceCID, &dealUUID)
 			if err != nil {

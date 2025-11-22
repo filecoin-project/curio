@@ -45,64 +45,56 @@ func New(source io.Reader, bufferDepth int) *PrefetchReader {
 	return pr
 }
 
-func (pr *PrefetchReader) Read(p []byte) (n int, err error) {
+func (pr *PrefetchReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 
-	// Check for errors
-	if errPtr := pr.err.Load(); errPtr != nil {
-		return 0, *errPtr
-	}
+	for {
+		readPos := pr.readPtr.Load()
+		writePos := pr.writePtr.Load()
 
-	readPos := pr.readPtr.Load()
-	writePos := pr.writePtr.Load()
+		if readPos != writePos {
+			// There is buffered data ready to drain into the caller.
+			available := writePos - readPos
+			if available > uint64(len(p)) {
+				available = uint64(len(p))
+			}
 
-	// If no data available, wait
-	for readPos == writePos {
-		// Check if worker is done
-		select {
-		case <-pr.workerDone:
-			// Worker is done, but check if there's still data in buffer
-			if errPtr := pr.err.Load(); errPtr != nil {
-				return 0, *errPtr
+			start := int(readPos % pr.bufferSize)
+			toCopy := int(available)
+			firstChunk := toCopy
+			if start+firstChunk > int(pr.bufferSize) {
+				firstChunk = int(pr.bufferSize) - start
 			}
-			// Re-check buffer state after worker completion
-			readPos = pr.readPtr.Load()
-			writePos = pr.writePtr.Load()
-			if readPos == writePos {
-				return 0, io.EOF
+
+			// Copy the ring buffer tail, then wrap to the head if needed.
+			copy(p[:firstChunk], pr.buffer[start:start+firstChunk])
+			if firstChunk < toCopy {
+				copy(p[firstChunk:toCopy], pr.buffer[:toCopy-firstChunk])
 			}
-			// There's still data, continue with read logic
-			goto readData
-		default:
-			// Check for errors again
-			if errPtr := pr.err.Load(); errPtr != nil {
-				return 0, *errPtr
-			}
+
+			// Publish the new read offset after bytes are consumed.
+			pr.readPtr.Add(available)
+			return int(available), nil
 		}
 
-		time.Sleep(defaultSleepDuration)
-		writePos = pr.writePtr.Load()
+		// No buffered bytes; surface any worker error immediately.
+		if errPtr := pr.err.Load(); errPtr != nil {
+			return 0, *errPtr
+		}
+
+		select {
+		case <-pr.workerDone:
+			// Worker exited without error and buffer is empty: EOF.
+			if errPtr := pr.err.Load(); errPtr != nil {
+				return 0, *errPtr
+			}
+			return 0, io.EOF
+		default:
+			time.Sleep(defaultSleepDuration)
+		}
 	}
-
-readData:
-
-	// Calculate available bytes
-	available := writePos - readPos
-	if available > uint64(len(p)) {
-		available = uint64(len(p))
-	}
-
-	// Copy data from ring buffer
-	for i := uint64(0); i < available; i++ {
-		p[i] = pr.buffer[(readPos+i)%pr.bufferSize]
-	}
-
-	// Update read pointer
-	pr.readPtr.Add(available)
-
-	return int(available), nil
 }
 
 func (pr *PrefetchReader) prefetchWorker() {
@@ -124,7 +116,7 @@ func (pr *PrefetchReader) prefetchWorker() {
 				continue
 			}
 
-			// Calculate space available
+			// Calculate contiguous space we can safely fill this iteration.
 			spaceAvailable := pr.bufferSize - (writePos - readPos)
 			if spaceAvailable > uint64(len(tmpBuf)) {
 				spaceAvailable = uint64(len(tmpBuf))
