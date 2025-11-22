@@ -49,7 +49,7 @@ type AlertTask struct {
 	api     AlertAPI
 	cfg     config.CurioAlertingConfig
 	db      *harmonydb.DB
-	plugins []plugin.Plugin
+	plugins *config.Dynamic[[]plugin.Plugin]
 	al      *curioalerting.AlertingSystem
 }
 
@@ -95,7 +95,7 @@ func NewAlertTask(
 }
 
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	if len(a.plugins) == 0 {
+	if len(a.plugins.Get()) == 0 {
 		log.Warnf("No alert plugins enabled, not sending an alert")
 		return true, nil
 	}
@@ -148,7 +148,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		var errs []error
-		for _, ap := range a.plugins {
+		for _, ap := range a.plugins.Get() {
 			err = ap.SendAlert(payloadData)
 			if err != nil {
 				log.Errorf("Error sending alert: %s", err)

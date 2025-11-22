@@ -16,8 +16,7 @@ func TestDynamicConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sharedITestID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+	cdb, err := harmonydb.NewFromConfigWithTest(t)
 	require.NoError(t, err)
 
 	databaseContents := &config.CurioConfig{

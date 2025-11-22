@@ -17,7 +17,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
@@ -25,6 +24,7 @@ import (
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -42,7 +42,7 @@ type PDPService struct {
 	storage paths.StashStore
 
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient api.EthClientInterface
 	filClient PDPServiceNodeApi
 }
 
@@ -51,7 +51,7 @@ type PDPServiceNodeApi interface {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
+func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec api.EthClientInterface, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
 	return &PDPService{
 		Auth:    &NullAuth{},
 		db:      db,
