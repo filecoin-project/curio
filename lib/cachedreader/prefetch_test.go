@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -103,8 +104,9 @@ func TestPrefetchReader_ReadZeroLength(t *testing.T) {
 func TestPrefetchReader_LargeRead(t *testing.T) {
 	// Create large test data
 	testData := make([]byte, 1024*1024) // 1MB
+
 	for i := range testData {
-		testData[i] = byte(i % 256)
+		testData[i] = byte(rand.Intn(256))
 	}
 
 	source := &mockReader{data: testData}
@@ -142,6 +144,41 @@ func TestPrefetchReader_LargeRead(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestPrefetchReader_DrainsBufferAfterEOF(t *testing.T) {
+	const dataSize = 128 * 1024
+
+	testData := make([]byte, dataSize)
+	for i := range testData {
+		testData[i] = byte(rand.Intn(251))
+	}
+
+	source := &mockReader{data: testData}
+	reader := New(source, dataSize)
+	defer func() {
+		_ = reader.Close()
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	buf := make([]byte, dataSize)
+	n, err := io.ReadFull(reader, buf)
+	if err != nil {
+		t.Fatalf("expected full read, got %v", err)
+	}
+	if n != dataSize {
+		t.Fatalf("expected to read %d bytes, got %d", dataSize, n)
+	}
+	if !bytes.Equal(buf, testData) {
+		t.Fatal("read data doesn't match expected data")
+	}
+
+	var tmp [1]byte
+	n, err = reader.Read(tmp[:])
+	if err != io.EOF {
+		t.Fatalf("expected EOF after draining buffer, got %v (n=%d)", err, n)
 	}
 }
 
@@ -184,18 +221,23 @@ func TestPrefetchReader_ErrorHandling(t *testing.T) {
 	}()
 
 	buf := make([]byte, len(testData))
-	_, firstErr := reader.Read(buf)
-
-	for firstErr == nil {
+	var firstErr error
+	for {
 		_, firstErr = reader.Read(buf)
+		if firstErr != nil {
+			break
+		}
 	}
 
-	if firstErr == nil || firstErr.Error() != "planned error" {
+	if firstErr.Error() != "planned error" {
 		t.Errorf("expected 'planned error', got %v", firstErr)
 	}
 
 	_, secondErr := reader.Read(buf)
-	if secondErr == nil || secondErr != firstErr {
+	if secondErr == nil {
+		t.Fatal("expected error on second read")
+	}
+	if secondErr != firstErr {
 		t.Errorf("expected same error on second read, got %v", secondErr)
 	}
 }

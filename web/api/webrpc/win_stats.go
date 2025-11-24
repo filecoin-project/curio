@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -10,15 +9,15 @@ import (
 )
 
 type WinStats struct {
-	Actor       int64        `db:"sp_id"`
-	Epoch       int64        `db:"epoch"`
-	Block       string       `db:"mined_cid"`
-	TaskID      int64        `db:"task_id"`
-	SubmittedAt sql.NullTime `db:"submitted_at"`
-	Included    sql.NullBool `db:"included"`
+	Actor       int64    `db:"sp_id"`
+	Epoch       int64    `db:"epoch"`
+	Block       string   `db:"mined_cid"`
+	TaskID      int64    `db:"task_id"`
+	SubmittedAt NullTime `db:"submitted_at"`
+	Included    NullBool `db:"included"`
 
-	BaseComputeTime sql.NullTime `db:"base_compute_time"`
-	MinedAt         sql.NullTime `db:"mined_at"`
+	BaseComputeTime NullTime `db:"base_compute_time"`
+	MinedAt         NullTime `db:"mined_at"`
 
 	SubmittedAtStr string `db:"-"`
 	TaskSuccess    string `db:"-"`

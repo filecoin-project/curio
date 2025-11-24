@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -19,21 +18,21 @@ type UpgradeSector struct {
 	SpID      uint64 `db:"sp_id"`
 	SectorNum uint64 `db:"sector_number"`
 
-	TaskIDEncode sql.NullInt64 `db:"task_id_encode"`
-	AfterEncode  bool          `db:"after_encode"`
+	TaskIDEncode NullInt64 `db:"task_id_encode"`
+	AfterEncode  bool      `db:"after_encode"`
 
-	TaskIDProve sql.NullInt64 `db:"task_id_prove"`
-	AfterProve  bool          `db:"after_prove"`
+	TaskIDProve NullInt64 `db:"task_id_prove"`
+	AfterProve  bool      `db:"after_prove"`
 
-	UpdateReadyAt sql.NullTime `db:"update_ready_at"`
+	UpdateReadyAt NullTime `db:"update_ready_at"`
 
-	TaskIDSubmit sql.NullInt64 `db:"task_id_submit"`
-	AfterSubmit  bool          `db:"after_submit"`
+	TaskIDSubmit NullInt64 `db:"task_id_submit"`
+	AfterSubmit  bool      `db:"after_submit"`
 
 	AfterProveSuccess bool `db:"after_prove_msg_success"`
 
-	TaskIDMoveStorage sql.NullInt64 `db:"task_id_move_storage"`
-	AfterMoveStorage  bool          `db:"after_move_storage"`
+	TaskIDMoveStorage NullInt64 `db:"task_id_move_storage"`
+	AfterMoveStorage  bool      `db:"after_move_storage"`
 
 	Failed       bool   `db:"failed"`
 	FailedReason string `db:"failed_reason"`
