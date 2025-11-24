@@ -468,11 +468,6 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 					tag.Upsert(reasonKey, "piece_not_found"),
 				}, CachedReaderMeasures.ReaderErrors.M(1))
 
-				// Record error metric
-				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-					tag.Upsert(reasonKey, "piece_not_found"),
-				}, CachedReaderMeasures.ReaderErrors.M(1))
-
 				// Cache the error in the error cache
 				cpr.pieceErrorCacheMu.Lock()
 				_ = cpr.pieceErrorCache.Set(cacheKey, &cachedError{err: finalErr, pieceCid: pieceCid})
