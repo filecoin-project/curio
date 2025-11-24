@@ -30,15 +30,34 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	type RequestBody struct {
-		RecordKeeper string            `json:"recordKeeper"`
-		Pieces       []AddPieceRequest `json:"pieces"`
-		ExtraData    *string           `json:"extraData,omitempty"`
+	type CreateAddRequestBody struct {
+		Pieces         []AddPieceRequest `json:"pieces"`
+		IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+		RecordKeeper   string            `json:"recordKeeper"`
+		ExtraData      *string           `json:"extraData,omitempty"`
 	}
 
-	var reqBody RequestBody
+	var reqBody CreateAddRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Validate idempotency key
+	if err := validateIdempotencyKey(reqBody.IdempotencyKey); err != nil {
+		http.Error(w, "Invalid idempotency key: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step 4: Check or reserve idempotency key
+	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, reqBody.IdempotencyKey)
+	if err != nil {
+		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if idempotencyResult.Exists {
+		p.handleCreateIdempotencyResponse(w, &idempotencyResult)
 		return
 	}
 
@@ -112,6 +131,10 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	reason := "pdp-create-and-add"
 	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
 	if err != nil {
+		// Clean up reserved idempotency key on transaction failure
+		if reqBody.IdempotencyKey != "" {
+			_ = p.cleanupReservedIdempotencyKey(ctx, reqBody.IdempotencyKey)
+		}
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
 		logCreate.Errorf("Failed to send transaction: %+v", err)
 		return
@@ -124,6 +147,14 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		"recordKeeper", recordKeeperAddr.Hex())
 	// Begin a database transaction
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Update idempotency key with transaction hash
+		if reqBody.IdempotencyKey != "" {
+			if err := p.updateIdempotencyKey(tx, reqBody.IdempotencyKey, txHashLower); err != nil {
+				logCreate.Warnw("Failed to update idempotency key", "error", err)
+				// Don't fail the transaction for idempotency issues
+			}
+		}
+
 		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
 		if err != nil {
 			return false, err
@@ -181,9 +212,10 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Step 2: Parse the request body to get the 'recordKeeper' address and extraData
-	type RequestBody struct {
-		RecordKeeper string  `json:"recordKeeper"`
-		ExtraData    *string `json:"extraData,omitempty"`
+	type CreateDataSetRequestBody struct {
+		IdempotencyKey string  `json:"idempotencyKey,omitempty"`
+		RecordKeeper   string  `json:"recordKeeper"`
+		ExtraData      *string `json:"extraData,omitempty"`
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -195,9 +227,27 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		_ = r.Body.Close()
 	}()
 
-	var reqBody RequestBody
+	var reqBody CreateDataSetRequestBody
 	if err := json.Unmarshal(body, &reqBody); err != nil {
 		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Validate idempotency key
+	if err := validateIdempotencyKey(reqBody.IdempotencyKey); err != nil {
+		http.Error(w, "Invalid idempotency key: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step 4: Check or reserve idempotency key
+	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, reqBody.IdempotencyKey)
+	if err != nil {
+		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if idempotencyResult.Exists {
+		p.handleCreateIdempotencyResponse(w, &idempotencyResult)
 		return
 	}
 
@@ -275,6 +325,13 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	// Begin a database transaction
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Update idempotency key with transaction hash
+		if reqBody.IdempotencyKey != "" {
+			if err := p.updateIdempotencyKey(tx, reqBody.IdempotencyKey, txHashLower); err != nil {
+				logCreate.Warnw("Failed to update idempotency key", "error", err)
+				// Don't fail the transaction for idempotency issues
+			}
+		}
 		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
 		if err != nil {
 			return false, err

@@ -305,8 +305,9 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// AddPiecesPayload defines the structure for the entire add pieces request payload
 	type AddPiecesPayload struct {
-		Pieces    []AddPieceRequest `json:"pieces"`
-		ExtraData *string           `json:"extraData,omitempty"`
+		IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+		Pieces         []AddPieceRequest `json:"pieces"`
+		ExtraData      *string           `json:"extraData,omitempty"`
 	}
 
 	var payload AddPiecesPayload
@@ -318,6 +319,24 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	defer func() {
 		_ = r.Body.Close()
 	}()
+
+	// Step 4: Validate idempotency key
+	if err := validateIdempotencyKey(payload.IdempotencyKey); err != nil {
+		http.Error(w, "Invalid idempotency key: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step 5: Check or reserve idempotency key
+	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, payload.IdempotencyKey)
+	if err != nil {
+		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if idempotencyResult.Exists {
+		p.handleAddIdempotencyResponse(w, &idempotencyResult, dataSetIdStr)
+		return
+	}
 
 	if len(payload.Pieces) == 0 {
 		http.Error(w, "At least one piece must be provided", http.StatusBadRequest)
@@ -386,6 +405,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	reason := "pdp-addpieces"
 	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
+		// Clean up reserved idempotency key on failure
+		if payload.IdempotencyKey != "" {
+			if cleanupErr := p.cleanupReservedIdempotencyKey(ctx, payload.IdempotencyKey); cleanupErr != nil {
+				logAdd.Errorw("Failed to cleanup idempotency key", "error", cleanupErr)
+			}
+		}
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
 		logAdd.Errorf("Failed to send transaction: %+v", err)
 		return
@@ -399,6 +424,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		"pieceCount", len(payload.Pieces))
 
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
+		// Update idempotency key with transaction hash
+		if payload.IdempotencyKey != "" {
+			if err := p.updateIdempotencyKey(txdb, payload.IdempotencyKey, txHashLower); err != nil {
+				logAdd.Errorw("Failed to update idempotency key", "error", err)
+			}
+		}
 		// Insert into message_waits_eth
 		logAdd.Debugw("Inserting AddPieces into message_waits_eth",
 			"txHash", txHashLower,
