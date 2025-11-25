@@ -11,12 +11,8 @@ import (
 	"regexp"
 	"time"
 
-	logger "github.com/ipfs/go-log/v2"
-
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
-
-var logIdempotency = logger.Logger("pdp/idempotency")
 
 // Ensure harmonydb import is used
 var _ = (*harmonydb.DB)(nil)
@@ -200,9 +196,9 @@ func (p *PDPService) cleanupOldIdempotencyRecords(ctx context.Context) {
         AND created_at < NOW() - INTERVAL '1 hour'
     `)
 	if err != nil {
-		logIdempotency.Errorw("Failed to cleanup old reserved idempotency records", "error", err)
+		log.Errorw("Failed to cleanup old reserved idempotency records", "error", err)
 	} else if count > 0 {
-		logIdempotency.Infow("Cleaned up old reserved idempotency records", "count", count)
+		log.Infow("Cleaned up old reserved idempotency records", "count", count)
 	}
 
 	// Clean up old completed records (older than 24 hours)
@@ -212,8 +208,8 @@ func (p *PDPService) cleanupOldIdempotencyRecords(ctx context.Context) {
         AND created_at < NOW() - INTERVAL '24 hours'
     `)
 	if err != nil {
-		logIdempotency.Errorw("Failed to cleanup old completed idempotency records", "error", err)
+		log.Errorw("Failed to cleanup old completed idempotency records", "error", err)
 	} else if count > 0 {
-		logIdempotency.Infow("Cleaned up old completed idempotency records", "count", count)
+		log.Infow("Cleaned up old completed idempotency records", "count", count)
 	}
 }
