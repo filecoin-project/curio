@@ -1,6 +1,8 @@
 CREATE TABLE IF NOT EXISTS sectors_exp_buckets (
-    less_than_days INT NOT NULL PRIMARY KEY ASC
+    less_than_days INT NOT NULL PRIMARY KEY
 );
+
+CREATE INDEX IF NOT EXISTS sectors_exp_buckets_sorted_idx ON sectors_exp_buckets (less_than_days ASC);
 
 -- 1, 2, 3 weeks, useful for rolling deal extensions and main CC sector pool
 -- 180 days, 210 days, useful for rolling cc sector pools
@@ -17,14 +19,13 @@ INSERT INTO sectors_exp_buckets (less_than_days) VALUES (7), (14), (21), (28), (
 CREATE TABLE IF NOT EXISTS sectors_exp_manager_presets (
     name TEXT NOT NULL PRIMARY KEY,
 
-    action_type TEXT NOT NULL,
+    action_type TEXT NOT NULL CHECK (action_type IN ('extend', 'top_up')),
     
     -- info bucket we look at to determine if we need to extend or top up (both action types)
     info_bucket_above_days INT NOT NULL,
-    info_bucket_below_days INT NOT NULL,
+    info_bucket_below_days INT NOT NULL CHECK (info_bucket_above_days < info_bucket_below_days),
     
     -- target and max_extension expiration days in extend case, null for top_up (top_up extends to info_bucket_below_days)
-
     target_expiration_days BIGINT,
     max_candidate_days BIGINT, -- C in 'extend' action type
 
@@ -33,7 +34,14 @@ CREATE TABLE IF NOT EXISTS sectors_exp_manager_presets (
     top_up_count_high_water_mark BIGINT,
 
     cc BOOLEAN, -- if true, only extend/top up CC sectors, if false just deals, if null - both
-    drop_claims BOOLEAN NOT NULL DEFAULT FALSE
+    drop_claims BOOLEAN NOT NULL DEFAULT FALSE,
+    
+    -- Ensure extend action has required fields
+    CHECK (action_type != 'extend' OR (target_expiration_days IS NOT NULL AND max_candidate_days IS NOT NULL)),
+    -- Ensure top_up action has required fields
+    CHECK (action_type != 'top_up' OR (top_up_count_low_water_mark IS NOT NULL AND top_up_count_high_water_mark IS NOT NULL)),
+    -- Ensure low water mark is less than high water mark for top_up
+    CHECK (action_type != 'top_up' OR top_up_count_low_water_mark < top_up_count_high_water_mark)
 );
 
 CREATE TABLE IF NOT EXISTS sectors_exp_manager_sp (
@@ -54,44 +62,12 @@ CREATE TABLE IF NOT EXISTS sectors_exp_manager_sp (
 
 CREATE INDEX IF NOT EXISTS sectors_exp_manager_sp_last_message_cid_idx ON sectors_exp_manager_sp (last_message_cid);
 
-ALTER TABLE sectors_exp_manager_presets 
-    ADD CONSTRAINT IF NOT EXISTS action_type_check 
-    CHECK (action_type IN ('extend', 'top_up'));
-
-ALTER TABLE sectors_exp_manager_presets
-    ADD CONSTRAINT IF NOT EXISTS bucket_range_check
-    CHECK (info_bucket_above_days < info_bucket_below_days);
-
--- Ensure extend action has required fields
-ALTER TABLE sectors_exp_manager_presets
-    ADD CONSTRAINT IF NOT EXISTS extend_fields_check
-    CHECK (
-        action_type != 'extend' OR 
-        (target_expiration_days IS NOT NULL AND max_candidate_days IS NOT NULL)
-    );
-
--- Ensure top_up action has required fields
-ALTER TABLE sectors_exp_manager_presets
-    ADD CONSTRAINT IF NOT EXISTS top_up_fields_check
-    CHECK (
-        action_type != 'top_up' OR 
-        (top_up_count_low_water_mark IS NOT NULL AND top_up_count_high_water_mark IS NOT NULL)
-    );
-
--- Ensure low water mark is less than high water mark for top_up
-ALTER TABLE sectors_exp_manager_presets
-    ADD CONSTRAINT IF NOT EXISTS water_mark_range_check
-    CHECK (
-        action_type != 'top_up' OR 
-        top_up_count_low_water_mark < top_up_count_high_water_mark
-    );
-
 -- insert default presets
 INSERT INTO sectors_exp_manager_presets (name, action_type, info_bucket_above_days, info_bucket_below_days, target_expiration_days, max_candidate_days, top_up_count_low_water_mark, top_up_count_high_water_mark, cc, drop_claims) VALUES
 ('roll_all_near_expiration', 'extend', 0, 14, 28, 21, NULL, NULL, NULL, FALSE), -- any in 0..14 days: extend all 0..21 days -> 28 days
 ('cc_180d_pool',             'top_up', 180, 210, NULL, NULL, 100, 200, TRUE, FALSE), -- if less than 100 CC in 180..210 days: top up to 200 CC in 180..210 days
 ('cc_360d_pool',             'top_up', 360, 390, NULL, NULL, 100, 200, TRUE, FALSE), -- if less than 100 CC in 360..390 days: top up to 200 CC in 360..390 days
-('cc_540d_pool',             'top_up', 540, 570, NULL, NULL, 100, 200, TRUE, FALSE); -- if less than 100 CC in 540..570 days: top up to 200 CC in 540..570 days
+('cc_540d_pool',             'top_up', 540, 570, NULL, NULL, 100, 200, TRUE, FALSE) -- if less than 100 CC in 540..570 days: top up to 200 CC in 540..570 days
 ON CONFLICT DO NOTHING;
 
 ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS min_claim_epoch BIGINT;

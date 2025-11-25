@@ -1427,6 +1427,142 @@ type PartitionDetail struct {
 	FaultyStoragePaths     []StoragePathStat     `json:"faulty_storage_paths"`
 }
 
+// Sector Expiration Buckets API
+
+type SectorExpBucket struct {
+	LessThanDays int `json:"less_than_days" db:"less_than_days"`
+}
+
+func (a *WebRPC) SectorExpBuckets(ctx context.Context) ([]SectorExpBucket, error) {
+	var buckets []SectorExpBucket
+	err := a.deps.DB.Select(ctx, &buckets, `SELECT less_than_days FROM sectors_exp_buckets ORDER BY less_than_days`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration buckets: %w", err)
+	}
+	return buckets, nil
+}
+
+func (a *WebRPC) SectorExpBucketAdd(ctx context.Context, lessThanDays int) error {
+	if lessThanDays <= 0 {
+		return xerrors.Errorf("lessThanDays must be positive")
+	}
+	_, err := a.deps.DB.Exec(ctx, `INSERT INTO sectors_exp_buckets (less_than_days) VALUES ($1) ON CONFLICT DO NOTHING`, lessThanDays)
+	if err != nil {
+		return xerrors.Errorf("failed to add sector expiration bucket: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpBucketDelete(ctx context.Context, lessThanDays int) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_exp_buckets WHERE less_than_days = $1`, lessThanDays)
+	if err != nil {
+		return xerrors.Errorf("failed to delete sector expiration bucket: %w", err)
+	}
+	return nil
+}
+
+type SectorExpBucketCount struct {
+	SpID         int64  `json:"sp_id" db:"sp_id"`
+	SPAddress    string `json:"sp_address"`
+	LessThanDays int    `json:"less_than_days" db:"less_than_days"`
+	TotalCount   int64  `json:"total_count" db:"total_count"`
+	CCCount      int64  `json:"cc_count" db:"cc_count"`
+	DealCount    int64  `json:"deal_count" db:"deal_count"`
+}
+
+func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCount, error) {
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	currentEpoch := head.Height()
+
+	var results []struct {
+		SpID         int64 `db:"sp_id"`
+		LessThanDays int   `db:"less_than_days"`
+		TotalCount   int64 `db:"total_count"`
+		CCCount      int64 `db:"cc_count"`
+	}
+
+	// Calculate counts per SP and bucket
+	// Bucket logic: sectors expiring in ranges between buckets
+	// The query returns cumulative counts (< N days), UI will calculate ranges
+	err = a.deps.DB.Select(ctx, &results, `
+		WITH buckets AS (
+			SELECT less_than_days FROM sectors_exp_buckets
+		),
+		sector_buckets AS (
+			SELECT 
+				sm.sp_id,
+				b.less_than_days,
+				COUNT(*) as total_count,
+				COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
+			FROM sectors_meta sm
+			CROSS JOIN buckets b
+			WHERE sm.expiration_epoch IS NOT NULL
+				AND sm.expiration_epoch > $1
+				AND sm.expiration_epoch < $1 + (b.less_than_days * 2880)
+			GROUP BY sm.sp_id, b.less_than_days
+		)
+		SELECT * FROM sector_buckets
+		ORDER BY sp_id, less_than_days`, currentEpoch)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration bucket counts: %w", err)
+	}
+
+	// Add open-ended bucket for sectors beyond the last bucket
+	var openEndedResults []struct {
+		SpID       int64 `db:"sp_id"`
+		TotalCount int64 `db:"total_count"`
+		CCCount    int64 `db:"cc_count"`
+	}
+
+	err = a.deps.DB.Select(ctx, &openEndedResults, `
+		SELECT 
+			sm.sp_id,
+			COUNT(*) as total_count,
+			COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
+		FROM sectors_meta sm
+		WHERE sm.expiration_epoch IS NOT NULL
+			AND sm.expiration_epoch > $1 + (
+				SELECT COALESCE(MAX(less_than_days), 0) * 2880 FROM sectors_exp_buckets
+			)
+		GROUP BY sm.sp_id
+		ORDER BY sp_id`, currentEpoch)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query open-ended bucket counts: %w", err)
+	}
+
+	// Convert to output format with address
+	output := make([]SectorExpBucketCount, 0, len(results)+len(openEndedResults))
+	for _, r := range results {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		output = append(output, SectorExpBucketCount{
+			SpID:         r.SpID,
+			SPAddress:    addr.String(),
+			LessThanDays: r.LessThanDays,
+			TotalCount:   r.TotalCount,
+			CCCount:      r.CCCount,
+			DealCount:    r.TotalCount - r.CCCount,
+		})
+	}
+
+	// Add open-ended results with special marker (-1)
+	for _, r := range openEndedResults {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		output = append(output, SectorExpBucketCount{
+			SpID:         r.SpID,
+			SPAddress:    addr.String(),
+			LessThanDays: -1, // Special marker for open-ended bucket
+			TotalCount:   r.TotalCount,
+			CCCount:      r.CCCount,
+			DealCount:    r.TotalCount - r.CCCount,
+		})
+	}
+
+	return output, nil
+}
+
 func (a *WebRPC) PartitionDetail(ctx context.Context, sp string, deadlineIdx uint64, partitionIdx uint64) (*PartitionDetail, error) {
 	maddr, err := address.NewFromString(sp)
 	if err != nil {
