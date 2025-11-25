@@ -62,35 +62,35 @@ type sectorSnapListEntry struct {
 }
 
 type SnapPipelineTask struct {
-	SpID         int64     `db:"sp_id"`
-	SectorNumber int64     `db:"sector_number"`
-	StartTime    time.Time `db:"start_time"`
-
-	UpgradeProof int  `db:"upgrade_proof"`
-	DataAssigned bool `db:"data_assigned"`
-
-	UpdateUnsealedCID *string `db:"update_unsealed_cid"`
-	UpdateSealedCID   *string `db:"update_sealed_cid"`
-
-	TaskEncode           *int64  `db:"task_id_encode"`
-	AfterEncode          bool    `db:"after_encode"`
-	TaskProve            *int64  `db:"task_id_prove"`
-	AfterProve           bool    `db:"after_prove"`
-	TaskSubmit           *int64  `db:"task_id_submit"`
-	AfterSubmit          bool    `db:"after_submit"`
-	AfterProveMsgSuccess bool    `db:"after_prove_msg_success"`
-	ProveMsgTsk          []byte  `db:"prove_msg_tsk"`
-	UpdateMsgCid         *string `db:"prove_msg_cid"`
-
-	TaskMoveStorage  *int64 `db:"task_id_move_storage"`
-	AfterMoveStorage bool   `db:"after_move_storage"`
-
-	Failed          bool       `db:"failed"`
-	FailedAt        *time.Time `db:"failed_at"`
-	FailedReason    string     `db:"failed_reason"`
-	FailedReasonMsg string     `db:"failed_reason_msg"`
-
-	SubmitAfter *time.Time `db:"submit_after"`
+	// Cache line 1 (bytes 0-64): Hot path - identification and early checks
+	SpID         int64     `db:"sp_id"`         // 8 bytes (0-8)
+	SectorNumber int64     `db:"sector_number"` // 8 bytes (8-16)
+	StartTime    time.Time `db:"start_time"`    // 24 bytes (16-40)
+	UpgradeProof int       `db:"upgrade_proof"` // 8 bytes (40-48)
+	Failed       bool      `db:"failed"`        // 1 byte (48-49) - checked early
+	DataAssigned bool      `db:"data_assigned"` // 1 byte (49-50) - checked with sector number
+	// Cache line 2 (bytes 64-128): Encode and Prove stages (accessed together)
+	TaskEncode        NullInt64  `db:"task_id_encode"`      // 16 bytes
+	AfterEncode       bool       `db:"after_encode"`        // 1 byte
+	UpdateUnsealedCID NullString `db:"update_unsealed_cid"` // 24 bytes
+	TaskProve         NullInt64  `db:"task_id_prove"`       // 16 bytes
+	AfterProve        bool       `db:"after_prove"`         // 1 byte
+	// Cache line 3 (bytes 128-192): Submit and message stages
+	UpdateSealedCID      NullString `db:"update_sealed_cid"`       // 24 bytes
+	TaskSubmit           NullInt64  `db:"task_id_submit"`          // 16 bytes
+	AfterSubmit          bool       `db:"after_submit"`            // 1 byte
+	AfterProveMsgSuccess bool       `db:"after_prove_msg_success"` // 1 byte
+	UpdateMsgCid         NullString `db:"prove_msg_cid"`           // 24 bytes (crosses into cache line 4)
+	// Cache line 4 (bytes 192-256): Storage and timing
+	TaskMoveStorage  NullInt64 `db:"task_id_move_storage"` // 16 bytes
+	AfterMoveStorage bool      `db:"after_move_storage"`   // 1 byte
+	SubmitAfter      NullTime  `db:"submit_after"`         // 32 bytes
+	// Failure info (only accessed when Failed=true)
+	FailedAt NullTime `db:"failed_at"` // 32 bytes (crosses into cache line 5)
+	// Rarely accessed fields at end
+	FailedReason    string `db:"failed_reason"`     // 16 bytes - only when Failed=true
+	FailedReasonMsg string `db:"failed_reason_msg"` // 16 bytes - only when Failed=true
+	ProveMsgTsk     []byte `db:"prove_msg_tsk"`     // 24 bytes - only in specific stages
 }
 type SectorInfoTaskSummary struct {
 	Name           string
@@ -100,53 +100,51 @@ type SectorInfoTaskSummary struct {
 }
 
 type TaskHistory struct {
-	PipelineTaskID int64      `db:"pipeline_task_id"`
-	Name           *string    `db:"name"`
-	CompletedBy    *string    `db:"completed_by_host_and_port"`
-	Result         *bool      `db:"result"`
-	Err            *string    `db:"err"`
-	WorkStart      *time.Time `db:"work_start"`
-	WorkEnd        *time.Time `db:"work_end"`
-
-	// display
-	Took string `db:"-"`
+	// Cache line 1 (bytes 0-64): Identification and key timing
+	PipelineTaskID int64    `db:"pipeline_task_id"` // 8 bytes (0-8)
+	WorkStart      NullTime `db:"work_start"`       // 32 bytes (8-40)
+	WorkEnd        NullTime `db:"work_end"`         // 32 bytes (40-72, crosses to cache line 2)
+	// Cache line 2 (bytes 64-128): Task details
+	Name        NullString `db:"name"`                       // 24 bytes
+	CompletedBy NullString `db:"completed_by_host_and_port"` // 24 bytes
+	Result      NullBool   `db:"result"`                     // 2 bytes
+	// Cache line 3 (bytes 128+): Error info and display fields (only accessed when needed)
+	Err  NullString `db:"err"` // 24 bytes - only accessed when Result is false
+	Took string     `db:"-"`   // 16 bytes - display only, computed field
 }
 
 // Pieces
 type SectorPieceMeta struct {
-	PieceIndex int64  `db:"piece_index"`
-	PieceCid   string `db:"piece_cid"`
-	PieceSize  int64  `db:"piece_size"`
-	PieceCidV2 string `db:"-"`
-
-	DealID           *string `db:"deal_id"`
-	DataUrl          *string `db:"data_url"`
-	DataRawSize      *int64  `db:"data_raw_size"`
-	DeleteOnFinalize *bool   `db:"data_delete_on_finalize"`
-
-	F05PublishCid *string `db:"f05_publish_cid"`
-	F05DealID     *int64  `db:"f05_deal_id"`
-
-	DDOPam *string `db:"direct_piece_activation_manifest"`
-
-	// display
-	StrPieceSize   string `db:"-"`
-	StrDataRawSize string `db:"-"`
-
-	// piece park
-	IsParkedPiece          bool      `db:"-"`
-	IsParkedPieceFound     bool      `db:"-"`
-	PieceParkID            int64     `db:"-"`
-	PieceParkDataUrl       string    `db:"-"`
-	PieceParkCreatedAt     time.Time `db:"-"`
-	PieceParkComplete      bool      `db:"-"`
-	PieceParkTaskID        *int64    `db:"-"`
-	PieceParkCleanupTaskID *int64    `db:"-"`
-
-	IsSnapPiece bool `db:"is_snap"`
-
-	MK12Deal   *bool `db:"boost_deal"`
-	LegacyDeal *bool `db:"legacy_deal"`
+	// Cache line 1 (bytes 0-64): Hot path - piece identification and size
+	PieceIndex  int64     `db:"piece_index"`   // 8 bytes (0-8)
+	PieceSize   int64     `db:"piece_size"`    // 8 bytes (8-16)
+	PieceCid    string    `db:"piece_cid"`     // 16 bytes (16-32)
+	PieceCidV2  string    `db:"-"`             // 16 bytes (32-48) - computed field
+	DataRawSize NullInt64 `db:"data_raw_size"` // 16 bytes (48-64)
+	// Cache line 2 (bytes 64-128): Deal identification
+	F05DealID   NullInt64  `db:"f05_deal_id"` // 16 bytes
+	DealID      NullString `db:"deal_id"`     // 24 bytes
+	IsSnapPiece bool       `db:"is_snap"`     // 1 byte - frequently checked with PieceIndex
+	// Cache line 3 (bytes 128-192): Data access and F05 info
+	DataUrl       NullString `db:"data_url"`        // 24 bytes
+	F05PublishCid NullString `db:"f05_publish_cid"` // 24 bytes
+	// Cache line 4 (bytes 192-256): DDO and display fields
+	DDOPam         NullString `db:"direct_piece_activation_manifest"` // 24 bytes
+	StrPieceSize   string     `db:"-"`                                // 16 bytes - display only
+	StrDataRawSize string     `db:"-"`                                // 16 bytes - display only
+	// Piece park fields (rarely accessed, only for parked pieces)
+	PieceParkDataUrl       string    `db:"-"` // 16 bytes
+	PieceParkCreatedAt     time.Time `db:"-"` // 24 bytes
+	PieceParkID            int64     `db:"-"` // 8 bytes
+	PieceParkTaskID        *int64    `db:"-"` // 8 bytes - still pointer (not from DB)
+	PieceParkCleanupTaskID *int64    `db:"-"` // 8 bytes - still pointer (not from DB)
+	// Bools: frequently checked first, rare ones at end (NullBool = 2 bytes each)
+	MK12Deal           NullBool `db:"boost_deal"`              // 2 bytes - checked often
+	LegacyDeal         NullBool `db:"legacy_deal"`             // 2 bytes - checked often
+	DeleteOnFinalize   NullBool `db:"data_delete_on_finalize"` // 2 bytes - checked during finalize
+	IsParkedPiece      bool     `db:"-"`                       // rare - only for UI display
+	IsParkedPieceFound bool     `db:"-"`                       // rare - only for UI display
+	PieceParkComplete  bool     `db:"-"`                       // rare - only for parked pieces
 }
 
 type FileLocations struct {
@@ -165,23 +163,22 @@ type LocationTable struct {
 }
 
 type SectorMeta struct {
-	OrigUnsealedCid string `db:"orig_unsealed_cid"`
-	OrigSealedCid   string `db:"orig_sealed_cid"`
-
-	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`
-	UpdatedSealedCid   string `db:"cur_sealed_cid"`
-
-	PreCommitCid string  `db:"msg_cid_precommit"`
-	CommitCid    string  `db:"msg_cid_commit"`
-	UpdateCid    *string `db:"msg_cid_update"`
-
-	IsCC            *bool  `db:"is_cc"`
-	ExpirationEpoch *int64 `db:"expiration_epoch"`
-
-	Deadline  *int64 `db:"deadline"`
-	Partition *int64 `db:"partition"`
-
-	UnsealedState *bool `db:"target_unseal_state"`
+	// Cache line 1 (bytes 0-64): Original and updated CIDs (accessed together for sector comparison)
+	OrigUnsealedCid    string `db:"orig_unsealed_cid"` // 16 bytes (0-16)
+	OrigSealedCid      string `db:"orig_sealed_cid"`   // 16 bytes (16-32)
+	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`  // 16 bytes (32-48)
+	UpdatedSealedCid   string `db:"cur_sealed_cid"`    // 16 bytes (48-64)
+	// Cache line 2 (bytes 64-128): Message CIDs (accessed for on-chain tracking)
+	PreCommitCid string     `db:"msg_cid_precommit"` // 16 bytes (64-80)
+	CommitCid    string     `db:"msg_cid_commit"`    // 16 bytes (80-96)
+	UpdateCid    NullString `db:"msg_cid_update"`    // 24 bytes (96-120) - null for non-snap sectors
+	// Cache line 3 (bytes 128-192): On-chain metadata (NullInt64 = 16 bytes each)
+	ExpirationEpoch NullInt64 `db:"expiration_epoch"` // 16 bytes
+	Deadline        NullInt64 `db:"deadline"`         // 16 bytes
+	Partition       NullInt64 `db:"partition"`        // 16 bytes
+	// Bools (NullBool = 2 bytes each)
+	IsCC          NullBool `db:"is_cc"`               // 2 bytes
+	UnsealedState NullBool `db:"target_unseal_state"` // 2 bytes
 }
 
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
@@ -262,36 +259,36 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var sle *sectorListEntry
 	if len(tasks) > 0 {
 		task := tasks[0]
-		if task.PreCommitMsgCid != nil {
-			si.PreCommitMsg = *task.PreCommitMsgCid
+		if task.PreCommitMsgCid.Valid {
+			si.PreCommitMsg = task.PreCommitMsgCid.String
 		} else {
 			si.PreCommitMsg = ""
 		}
 
-		if task.CommitMsgCid != nil {
-			si.CommitMsg = *task.CommitMsgCid
+		if task.CommitMsgCid.Valid {
+			si.CommitMsg = task.CommitMsgCid.String
 		} else {
 			si.CommitMsg = ""
 		}
 
-		if task.TreeD != nil {
-			si.UnsealedCid = *task.TreeD
-			si.UpdatedUnsealedCid = *task.TreeD
+		if task.TreeD.Valid {
+			si.UnsealedCid = task.TreeD.String
+			si.UpdatedUnsealedCid = task.TreeD.String
 		} else {
 			si.UnsealedCid = ""
 			si.UpdatedUnsealedCid = ""
 		}
 
-		if task.TreeR != nil {
-			si.SealedCid = *task.TreeR
-			si.UpdatedSealedCid = *task.TreeR
+		if task.TreeR.Valid {
+			si.SealedCid = task.TreeR.String
+			si.UpdatedSealedCid = task.TreeR.String
 		} else {
 			si.SealedCid = ""
 			si.UpdatedSealedCid = ""
 		}
 		sle = &sectorListEntry{
 			PipelineTask: tasks[0],
-			AfterSeed:    task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch),
+			AfterSeed:    task.SeedEpoch.Valid && task.SeedEpoch.Int64 <= int64(epoch),
 
 			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(task.SectorNumber))),
 			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(task.SectorNumber))),
@@ -305,18 +302,18 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var sleSnap *sectorSnapListEntry
 	if len(snapTasks) > 0 {
 		task := snapTasks[0]
-		if task.UpdateUnsealedCID != nil {
-			si.UpdatedUnsealedCid = *task.UpdateUnsealedCID
+		if task.UpdateUnsealedCID.Valid {
+			si.UpdatedUnsealedCid = task.UpdateUnsealedCID.String
 		} else {
 			si.UpdatedUnsealedCid = ""
 		}
-		if task.UpdateUnsealedCID != nil {
-			si.UpdatedSealedCid = *task.UpdateUnsealedCID
+		if task.UpdateSealedCID.Valid {
+			si.UpdatedSealedCid = task.UpdateSealedCID.String
 		} else {
 			si.UpdatedSealedCid = ""
 		}
-		if task.UpdateMsgCid != nil {
-			si.UpdateMsg = *task.UpdateMsgCid
+		if task.UpdateMsgCid.Valid {
+			si.UpdateMsg = task.UpdateMsgCid.String
 		} else {
 			si.UpdateMsg = ""
 		}
@@ -429,27 +426,31 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		si.UpdatedSealedCid = sectormeta.UpdatedSealedCid
 		si.PreCommitMsg = sectormeta.PreCommitCid
 		si.CommitMsg = sectormeta.CommitCid
-		if sectormeta.UpdateCid != nil {
-			si.UpdateMsg = *sectormeta.UpdateCid
+		if sectormeta.UpdateCid.Valid {
+			si.UpdateMsg = sectormeta.UpdateCid.String
 		}
-		if sectormeta.IsCC != nil {
-			si.IsSnap = !*sectormeta.IsCC
+		if sectormeta.IsCC.Valid {
+			si.IsSnap = !sectormeta.IsCC.Bool
 		} else {
 			si.IsSnap = false
 		}
 
-		if sectormeta.ExpirationEpoch != nil {
-			si.ExpirationEpoch = sectormeta.ExpirationEpoch
+		if sectormeta.ExpirationEpoch.Valid {
+			e := sectormeta.ExpirationEpoch.Int64
+			si.ExpirationEpoch = &e
 		}
-		if sectormeta.Deadline != nil {
-			d := *sectormeta.Deadline
+		if sectormeta.Deadline.Valid {
+			d := sectormeta.Deadline.Int64
 			si.Deadline = &d
 		}
-		if sectormeta.Partition != nil {
-			p := *sectormeta.Partition
+		if sectormeta.Partition.Valid {
+			p := sectormeta.Partition.Int64
 			si.Partition = &p
 		}
-		si.UnsealedState = sectormeta.UnsealedState
+		if sectormeta.UnsealedState.Valid {
+			u := sectormeta.UnsealedState.Bool
+			si.UnsealedState = &u
+		}
 	}
 
 	var pieces []SectorPieceMeta
@@ -514,15 +515,20 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	for i := range pieces {
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))
-		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(derefOrZero(pieces[i].DataRawSize))))
+		rawSize := int64(0)
+		if pieces[i].DataRawSize.Valid {
+			rawSize = pieces[i].DataRawSize.Int64
+		}
+		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(rawSize)))
 
 		pcid, err := cid.Parse(pieces[i].PieceCid)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
 		}
 
-		if pieces[i].DataRawSize != nil {
-			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(*pieces[i].DataRawSize))
+		if pieces[i].DataRawSize.Valid {
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieces[i].DataRawSize.Int64))
+
 			if err != nil {
 				return nil, xerrors.Errorf("failed to generate piece cid v2: %w", err)
 			}
@@ -530,7 +536,11 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			pieces[i].PieceCidV2 = pcid2.String()
 		}
 
-		id, isPiecePark := strings.CutPrefix(derefOrZero(pieces[i].DataUrl), "pieceref:")
+		dataUrl := ""
+		if pieces[i].DataUrl.Valid {
+			dataUrl = pieces[i].DataUrl.String
+		}
+		id, isPiecePark := strings.CutPrefix(dataUrl, "pieceref:")
 		if !isPiecePark {
 			continue
 		}
@@ -549,8 +559,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			// parked_pieces
 			CreatedAt     time.Time `db:"created_at"`
 			Complete      bool      `db:"complete"`
-			ParkTaskID    *int64    `db:"task_id"`
-			CleanupTaskID *int64    `db:"cleanup_task_id"`
+			ParkTaskID    NullInt64 `db:"task_id"`
+			CleanupTaskID NullInt64 `db:"cleanup_task_id"`
 		}
 
 		err = a.deps.DB.Select(ctx, &parkedPiece, `SELECT ppr.piece_id, ppr.data_url, pp.created_at, pp.complete, pp.task_id, pp.cleanup_task_id FROM parked_piece_refs ppr
@@ -572,41 +582,47 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		pieces[i].PieceParkDataUrl = parkedPiece[0].DataUrl
 		pieces[i].PieceParkCreatedAt = parkedPiece[0].CreatedAt.Local()
 		pieces[i].PieceParkComplete = parkedPiece[0].Complete
-		pieces[i].PieceParkTaskID = parkedPiece[0].ParkTaskID
-		pieces[i].PieceParkCleanupTaskID = parkedPiece[0].CleanupTaskID
+		if parkedPiece[0].ParkTaskID.Valid {
+			t := parkedPiece[0].ParkTaskID.Int64
+			pieces[i].PieceParkTaskID = &t
+		}
+		if parkedPiece[0].CleanupTaskID.Valid {
+			c := parkedPiece[0].CleanupTaskID.Int64
+			pieces[i].PieceParkCleanupTaskID = &c
+		}
 	}
 
 	// TaskIDs
 	var htasks []SectorInfoTaskSummary
 	taskIDs := map[int64]struct{}{}
 
-	appendNonNil := func(id *int64) {
-		if id != nil {
-			taskIDs[*id] = struct{}{}
+	appendNullInt64 := func(n NullInt64) {
+		if n.Valid {
+			taskIDs[n.Int64] = struct{}{}
 		}
 	}
 
 	// Append PoRep task IDs
 	if len(tasks) > 0 {
 		task := tasks[0]
-		appendNonNil(task.TaskSDR)
-		appendNonNil(task.TaskTreeD)
-		appendNonNil(task.TaskTreeC)
-		appendNonNil(task.TaskTreeR)
-		appendNonNil(task.TaskPrecommitMsg)
-		appendNonNil(task.TaskPoRep)
-		appendNonNil(task.TaskFinalize)
-		appendNonNil(task.TaskMoveStorage)
-		appendNonNil(task.TaskCommitMsg)
+		appendNullInt64(task.TaskSDR)
+		appendNullInt64(task.TaskTreeD)
+		appendNullInt64(task.TaskTreeC)
+		appendNullInt64(task.TaskTreeR)
+		appendNullInt64(task.TaskPrecommitMsg)
+		appendNullInt64(task.TaskPoRep)
+		appendNullInt64(task.TaskFinalize)
+		appendNullInt64(task.TaskMoveStorage)
+		appendNullInt64(task.TaskCommitMsg)
 	}
 
 	// Append SnapDeals task IDs
 	if len(snapTasks) > 0 {
 		task := snapTasks[0]
-		appendNonNil(task.TaskEncode)
-		appendNonNil(task.TaskProve)
-		appendNonNil(task.TaskSubmit)
-		appendNonNil(task.TaskMoveStorage)
+		appendNullInt64(task.TaskEncode)
+		appendNullInt64(task.TaskProve)
+		appendNullInt64(task.TaskSubmit)
+		appendNullInt64(task.TaskMoveStorage)
 	}
 
 	if len(taskIDs) > 0 {
@@ -671,14 +687,14 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}
 
 	for i := range th {
-		if th[i].WorkStart != nil && th[i].WorkEnd != nil {
-			th[i].Took = th[i].WorkEnd.Sub(*th[i].WorkStart).Round(time.Second).String()
+		if th[i].WorkStart.Valid && th[i].WorkEnd.Valid {
+			th[i].Took = th[i].WorkEnd.Time.Sub(th[i].WorkStart.Time).Round(time.Second).String()
 		}
 	}
 
 	var taskState []struct {
-		PipelineID    int64  `db:"pipeline_id"`
-		HarmonyTaskID *int64 `db:"harmony_task_id"`
+		PipelineID    int64     `db:"pipeline_id"`
+		HarmonyTaskID NullInt64 `db:"harmony_task_id"`
 	}
 	err = a.deps.DB.Select(ctx, &taskState, `WITH task_ids AS (
         SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
@@ -694,7 +710,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var hasAnyStuckTask bool
 	for _, ts := range taskState {
-		if ts.HarmonyTaskID == nil {
+		if !ts.HarmonyTaskID.Valid {
 			hasAnyStuckTask = true
 			break
 		}
@@ -734,8 +750,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 
 		si.ActivationEpoch = onChainInfo.Activation
-		if si.ExpirationEpoch == nil || *si.ExpirationEpoch != int64(onChainInfo.Expiration) {
-			expr := int64(onChainInfo.Expiration)
+		expr := int64(onChainInfo.Expiration)
+		if si.ExpirationEpoch == nil || *si.ExpirationEpoch != expr {
 			si.ExpirationEpoch = &expr
 		}
 		si.DealWeight = dealWeight
@@ -924,11 +940,4 @@ func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 		return xerrors.Errorf("failed to delete cc scheduler entry: %w", err)
 	}
 	return nil
-}
-
-func derefOrZero[T any](a *T) T {
-	if a == nil {
-		return *new(T)
-	}
-	return *a
 }

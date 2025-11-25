@@ -2,6 +2,7 @@ package sealsupra
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -539,9 +540,9 @@ func (s *SupraSeal) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 type sectorClaim struct {
-	SpID         int64  `db:"sp_id"`
-	SectorNumber int64  `db:"sector_number"`
-	TaskIDSDR    *int64 `db:"task_id_sdr"`
+	SpID         int64         `db:"sp_id"`
+	SectorNumber int64         `db:"sector_number"`
+	TaskIDSDR    sql.NullInt64 `db:"task_id_sdr"`
 }
 
 func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
@@ -589,9 +590,9 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 				return false, xerrors.Errorf("updating task id: %w", err)
 			}
 
-			if t.TaskIDSDR != nil {
+			if t.TaskIDSDR.Valid {
 				// sdr task exists, remove it from the task engine
-				_, err := tx.Exec(`DELETE FROM harmony_task WHERE id = $1`, *t.TaskIDSDR)
+				_, err := tx.Exec(`DELETE FROM harmony_task WHERE id = $1`, t.TaskIDSDR.Int64)
 				if err != nil {
 					return false, xerrors.Errorf("deleting old task: %w", err)
 				}
@@ -677,7 +678,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 			outClaims = append(outClaims, sectorClaim{
 				SpID:         schedule.SpID,
 				SectorNumber: int64(sectorNum),
-				TaskIDSDR:    nil, // New sector, no existing task
+				TaskIDSDR:    sql.NullInt64{}, // New sector, no existing task
 			})
 
 			userDuration := int64(schedule.DurationDays) * builtin.EpochsInDay

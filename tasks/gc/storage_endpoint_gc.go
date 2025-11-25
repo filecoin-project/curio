@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"sync"
 	"time"
@@ -56,7 +57,7 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	var pathRefs []struct {
 		StorageID     storiface.ID `db:"storage_id"`
 		Urls          string       `db:"urls"`
-		LastHeartbeat *time.Time   `db:"last_heartbeat"`
+		LastHeartbeat sql.NullTime `db:"last_heartbeat"`
 	}
 
 	err = s.db.Select(ctx, &pathRefs, `SELECT storage_id, urls, last_heartbeat FROM storage_path`)

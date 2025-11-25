@@ -3,6 +3,7 @@ package pdp
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,13 +34,13 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	// Fetch the pdp_piece_uploads entry associated with the taskID
 	var upload struct {
-		ID             string  `db:"id" json:"id"`
-		Service        string  `db:"service" json:"service"`
-		PieceCID       *string `db:"piece_cid" json:"piece_cid"`
-		NotifyURL      string  `db:"notify_url" json:"notify_url"`
-		PieceRef       int64   `db:"piece_ref" json:"piece_ref"`
-		CheckHashCodec string  `db:"check_hash_codec" json:"check_hash_codec"`
-		CheckHash      []byte  `db:"check_hash" json:"check_hash"`
+		ID             string         `db:"id" json:"id"`
+		Service        string         `db:"service" json:"service"`
+		PieceCID       sql.NullString `db:"piece_cid" json:"piece_cid"`
+		NotifyURL      string         `db:"notify_url" json:"notify_url"`
+		PieceRef       int64          `db:"piece_ref" json:"piece_ref"`
+		CheckHashCodec string         `db:"check_hash_codec" json:"check_hash_codec"`
+		CheckHash      []byte         `db:"check_hash" json:"check_hash"`
 	}
 	err = t.db.QueryRow(ctx, `
         SELECT id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash 
