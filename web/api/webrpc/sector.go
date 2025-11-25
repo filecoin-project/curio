@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -940,4 +942,385 @@ func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 		return xerrors.Errorf("failed to delete cc scheduler entry: %w", err)
 	}
 	return nil
+}
+
+// Sector Dashboard API
+
+type SPSectorStats struct {
+	SpID       int64  `json:"sp_id"`
+	SPAddress  string `json:"sp_address"`
+	TotalCount int64  `json:"total_count"`
+	CCCount    int64  `json:"cc_count"`
+	NonCCCount int64  `json:"non_cc_count"`
+}
+
+func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
+	var stats []struct {
+		SpID       int64 `db:"sp_id"`
+		TotalCount int64 `db:"total_count"`
+		CCCount    int64 `db:"cc_count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &stats, `
+		SELECT 
+			sm.sp_id,
+			COUNT(*) as total_count,
+			COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
+		FROM sectors_meta sm
+		GROUP BY sm.sp_id
+		ORDER BY sm.sp_id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query SP sector stats: %w", err)
+	}
+
+	result := make([]SPSectorStats, 0, len(stats))
+	for _, s := range stats {
+		addr := must.One(address.NewIDAddress(uint64(s.SpID)))
+		result = append(result, SPSectorStats{
+			SpID:       s.SpID,
+			SPAddress:  addr.String(),
+			TotalCount: s.TotalCount,
+			CCCount:    s.CCCount,
+			NonCCCount: s.TotalCount - s.CCCount,
+		})
+	}
+
+	return result, nil
+}
+
+type SectorPipelineStats struct {
+	PipelineType string `json:"pipeline_type"`
+	Stage        string `json:"stage"`
+	Count        int64  `json:"count"`
+}
+
+func (a *WebRPC) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats, error) {
+	var result []SectorPipelineStats
+
+	// PoRep pipeline stats
+	var porepStats []struct {
+		Stage string `db:"stage"`
+		Count int64  `db:"count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &porepStats, `
+		SELECT stage, COUNT(*) as count
+		FROM (
+			SELECT 
+				CASE 
+					WHEN NOT after_sdr THEN 'SDR'
+					WHEN NOT after_tree_d THEN 'TreeD'
+					WHEN NOT after_tree_c THEN 'TreeC'
+					WHEN NOT after_tree_r THEN 'TreeR'
+					WHEN after_synth IS NOT NULL AND NOT after_synth THEN 'Synthetic'
+					WHEN NOT after_precommit_msg THEN 'PreCommit Msg'
+					WHEN NOT after_precommit_msg_success THEN 'Wait Seed'
+					WHEN NOT after_porep THEN 'PoRep'
+					WHEN NOT after_finalize THEN 'Finalize'
+					WHEN NOT after_move_storage THEN 'Move Storage'
+					WHEN NOT after_commit_msg THEN 'Commit Msg'
+					WHEN NOT after_commit_msg_success THEN 'Wait Commit'
+					ELSE 'Complete'
+				END as stage,
+				CASE 
+					WHEN NOT after_sdr THEN 1
+					WHEN NOT after_tree_d THEN 2
+					WHEN NOT after_tree_c THEN 3
+					WHEN NOT after_tree_r THEN 4
+					WHEN after_synth IS NOT NULL AND NOT after_synth THEN 5
+					WHEN NOT after_precommit_msg THEN 6
+					WHEN NOT after_precommit_msg_success THEN 7
+					WHEN NOT after_porep THEN 8
+					WHEN NOT after_finalize THEN 9
+					WHEN NOT after_move_storage THEN 10
+					WHEN NOT after_commit_msg THEN 11
+					WHEN NOT after_commit_msg_success THEN 12
+					ELSE 13
+				END as sort_order
+			FROM sectors_sdr_pipeline
+			WHERE NOT failed
+		) sub
+		GROUP BY stage, sort_order
+		ORDER BY sort_order`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query PoRep pipeline stats: %w", err)
+	}
+
+	for _, s := range porepStats {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "PoRep",
+			Stage:        s.Stage,
+			Count:        s.Count,
+		})
+	}
+
+	// Snap pipeline stats
+	var snapStats []struct {
+		Stage string `db:"stage"`
+		Count int64  `db:"count"`
+	}
+
+	err = a.deps.DB.Select(ctx, &snapStats, `
+		SELECT stage, COUNT(*) as count
+		FROM (
+			SELECT 
+				CASE 
+					WHEN NOT data_assigned THEN 'Data Assignment'
+					WHEN NOT after_encode THEN 'Encode'
+					WHEN NOT after_prove THEN 'Prove'
+					WHEN NOT after_submit THEN 'Submit'
+					WHEN NOT after_prove_msg_success THEN 'Wait Prove Msg'
+					WHEN NOT after_move_storage THEN 'Move Storage'
+					ELSE 'Complete'
+				END as stage,
+				CASE 
+					WHEN NOT data_assigned THEN 1
+					WHEN NOT after_encode THEN 2
+					WHEN NOT after_prove THEN 3
+					WHEN NOT after_submit THEN 4
+					WHEN NOT after_prove_msg_success THEN 5
+					WHEN NOT after_move_storage THEN 6
+					ELSE 7
+				END as sort_order
+			FROM sectors_snap_pipeline
+			WHERE NOT failed
+		) sub
+		GROUP BY stage, sort_order
+		ORDER BY sort_order`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query Snap pipeline stats: %w", err)
+	}
+
+	for _, s := range snapStats {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "Snap",
+			Stage:        s.Stage,
+			Count:        s.Count,
+		})
+	}
+
+	// Failed sectors
+	var failedCount struct {
+		PoRepFailed int64 `db:"porep_failed"`
+		SnapFailed  int64 `db:"snap_failed"`
+	}
+
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT 
+			(SELECT COUNT(*) FROM sectors_sdr_pipeline WHERE failed) as porep_failed,
+			(SELECT COUNT(*) FROM sectors_snap_pipeline WHERE failed) as snap_failed`).Scan(&failedCount.PoRepFailed, &failedCount.SnapFailed)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query failed sectors: %w", err)
+	}
+
+	if failedCount.PoRepFailed > 0 {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "PoRep",
+			Stage:        "Failed",
+			Count:        failedCount.PoRepFailed,
+		})
+	}
+
+	if failedCount.SnapFailed > 0 {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "Snap",
+			Stage:        "Failed",
+			Count:        failedCount.SnapFailed,
+		})
+	}
+
+	return result, nil
+}
+
+type DeadlineStats struct {
+	SpID              int64  `json:"sp_id"`
+	SPAddress         string `json:"sp_address"`
+	Deadline          int64  `json:"deadline"`
+	Count             int64  `json:"count"`
+	AllSectors        int64  `json:"all_sectors"`
+	FaultySectors     int64  `json:"faulty_sectors"`
+	RecoveringSectors int64  `json:"recovering_sectors"`
+	LiveSectors       int64  `json:"live_sectors"`
+	ActiveSectors     int64  `json:"active_sectors"`
+	PostSubmissions   string `json:"post_submissions"`
+}
+
+func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, error) {
+	var stats []struct {
+		SpID     int64 `db:"sp_id"`
+		Deadline int64 `db:"deadline"`
+		Count    int64 `db:"count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &stats, `
+		SELECT sp_id, deadline, COUNT(*) as count
+		FROM sectors_meta
+		WHERE deadline IS NOT NULL
+		GROUP BY sp_id, deadline
+		ORDER BY sp_id, deadline`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query deadline stats: %w", err)
+	}
+
+	// Group by SP for parallel fetching
+	type spDeadlines struct {
+		spID      int64
+		spAddr    address.Address
+		deadlines []int64
+	}
+	spMap := make(map[int64]*spDeadlines)
+	for _, s := range stats {
+		if _, ok := spMap[s.SpID]; !ok {
+			addr := must.One(address.NewIDAddress(uint64(s.SpID)))
+			spMap[s.SpID] = &spDeadlines{
+				spID:      s.SpID,
+				spAddr:    addr,
+				deadlines: []int64{},
+			}
+		}
+		spMap[s.SpID].deadlines = append(spMap[s.SpID].deadlines, s.Deadline)
+	}
+
+	// Fetch deadline info from chain in parallel
+	type deadlineInfo struct {
+		spID              int64
+		deadline          int64
+		allSectors        int64
+		faultySectors     int64
+		recoveringSectors int64
+		liveSectors       int64
+		activeSectors     int64
+		postSubmissions   string
+	}
+
+	var eg errgroup.Group
+	eg.SetLimit(10) // Limit concurrent requests
+
+	deadlineInfoChan := make(chan deadlineInfo, len(stats))
+
+	for _, sp := range spMap {
+		sp := sp
+		eg.Go(func() error {
+			// Get deadlines for this miner
+			deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)
+			if err != nil {
+				// If we can't get deadline info, continue without it
+				log.Warnw("failed to get deadlines", "miner", sp.spAddr, "error", err)
+				return nil
+			}
+
+			// For each deadline we're interested in
+			for _, dlIdx := range sp.deadlines {
+				if dlIdx >= int64(len(deadlines)) {
+					continue
+				}
+
+				dl := deadlines[dlIdx]
+
+				// Get partitions for this deadline
+				parts, err := a.deps.Chain.StateMinerPartitions(ctx, sp.spAddr, uint64(dlIdx), types.EmptyTSK)
+				if err != nil {
+					log.Warnw("failed to get partitions", "miner", sp.spAddr, "deadline", dlIdx, "error", err)
+					continue
+				}
+
+				info := deadlineInfo{
+					spID:     sp.spID,
+					deadline: dlIdx,
+				}
+
+				// Aggregate partition stats
+				for _, part := range parts {
+					allCount := must.One(part.AllSectors.Count())
+					faultyCount := must.One(part.FaultySectors.Count())
+					recoveringCount := must.One(part.RecoveringSectors.Count())
+					liveCount := must.One(part.LiveSectors.Count())
+					activeCount := must.One(part.ActiveSectors.Count())
+
+					info.allSectors += int64(allCount)
+					info.faultySectors += int64(faultyCount)
+					info.recoveringSectors += int64(recoveringCount)
+					info.liveSectors += int64(liveCount)
+					info.activeSectors += int64(activeCount)
+				}
+
+				// Get post submissions bitfield representation
+				postCount := must.One(dl.PostSubmissions.Count())
+				info.postSubmissions = fmt.Sprintf("%d/%d", postCount, len(parts))
+
+				deadlineInfoChan <- info
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, xerrors.Errorf("failed to fetch deadline info: %w", err)
+	}
+	close(deadlineInfoChan)
+
+	// Merge chain info with DB stats
+	chainInfoMap := make(map[string]deadlineInfo)
+	for info := range deadlineInfoChan {
+		key := fmt.Sprintf("%d-%d", info.spID, info.deadline)
+		chainInfoMap[key] = info
+	}
+
+	result := make([]DeadlineStats, 0, len(stats))
+	for _, s := range stats {
+		addr := must.One(address.NewIDAddress(uint64(s.SpID)))
+		ds := DeadlineStats{
+			SpID:      s.SpID,
+			SPAddress: addr.String(),
+			Deadline:  s.Deadline,
+			Count:     s.Count,
+		}
+
+		// Add chain info if available
+		key := fmt.Sprintf("%d-%d", s.SpID, s.Deadline)
+		if info, ok := chainInfoMap[key]; ok {
+			ds.AllSectors = info.allSectors
+			ds.FaultySectors = info.faultySectors
+			ds.RecoveringSectors = info.recoveringSectors
+			ds.LiveSectors = info.liveSectors
+			ds.ActiveSectors = info.activeSectors
+			ds.PostSubmissions = info.postSubmissions
+		}
+
+		result = append(result, ds)
+	}
+
+	return result, nil
+}
+
+type SectorFileTypeStats struct {
+	FileType string `json:"file_type"`
+	Count    int64  `json:"count"`
+}
+
+func (a *WebRPC) SectorFileTypeStats(ctx context.Context) ([]SectorFileTypeStats, error) {
+	var stats []struct {
+		FileType int   `db:"sector_filetype"`
+		Count    int64 `db:"count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &stats, `
+		SELECT sector_filetype, COUNT(DISTINCT (miner_id, sector_num)) as count
+		FROM sector_location
+		GROUP BY sector_filetype
+		ORDER BY sector_filetype`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query file type stats: %w", err)
+	}
+
+	result := make([]SectorFileTypeStats, 0, len(stats))
+	for _, s := range stats {
+		result = append(result, SectorFileTypeStats{
+			FileType: storiface.SectorFileType(s.FileType).String(),
+			Count:    s.Count,
+		})
+	}
+
+	return result, nil
 }
