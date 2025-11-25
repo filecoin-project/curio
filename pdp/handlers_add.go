@@ -94,7 +94,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 
 	// Start a DB transaction
 	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Step 4: Get pdp_piecerefs matching all subPiece cids + make sure those refs belong to serviceLabel
+		// Get pdp_piecerefs matching all subPiece cids + make sure those refs belong to serviceLabel
 		rows, err := tx.Query(`
             SELECT ppr.piece_cid, ppr.id AS pdp_pieceref_id, ppr.piece_ref,
                    pp.piece_padded_size, pp.piece_raw_size
@@ -255,14 +255,14 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Step 1: Verify that the request is authorized using ECDSA JWT
+	// Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
-	// Step 2: Extract dataSetId from the URL
+	// Extract dataSetId from the URL
 	dataSetIdStr := chi.URLParam(r, "dataSetId")
 	if dataSetIdStr == "" {
 		http.Error(w, "Missing data set ID in URL", http.StatusBadRequest)
@@ -301,7 +301,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Convert dataSetId to *big.Int
 	dataSetId := new(big.Int).SetUint64(dataSetIdUint64)
 
-	// Step 3: Parse the request body
+	// Parse the request body
 
 	// AddPiecesPayload defines the structure for the entire add pieces request payload
 	type AddPiecesPayload struct {
@@ -320,7 +320,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		_ = r.Body.Close()
 	}()
 
-	// Step 4: Check or reserve idempotency key
+	// Check or reserve idempotency key
 	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, payload.IdempotencyKey)
 	if err != nil {
 		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)
@@ -343,14 +343,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 4: Prepare piece information
+	// Prepare piece information
 	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
 		logAdd.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
 	}
 
-	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
+	// Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
@@ -358,7 +358,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 6: Prepare the Ethereum transaction
+	// Prepare the Ethereum transaction
 	// Pack the method call data
 	// The extraDataBytes variable is now correctly populated above
 	data, err := abiData.Pack("addPieces", dataSetId, common.Address{}, pieceDataArray, extraDataBytes)
@@ -367,7 +367,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 7: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
+	// Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
 		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
@@ -384,7 +384,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		data,
 	)
 
-	// Step 8: Check for indexing requirements
+	// Check for indexing requirements
 	mustIndex, err := CheckIfIndexingNeeded(p.ethClient, dataSetIdUint64)
 	if err != nil {
 		logAdd.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
@@ -395,7 +395,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		logAdd.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
 	}
 
-	// Step 9: Send the transaction
+	// Send the transaction
 	reason := "pdp-addpieces"
 	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
@@ -410,7 +410,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 10: Insert database tracking records
+	// Insert database tracking records
 	txHashLower := strings.ToLower(txHash.Hex())
 	logAdd.Infow("PDP AddPieces: Inserting transaction tracking",
 		"txHash", txHashLower,
@@ -460,7 +460,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 10: Respond with 201 Created
+	// Respond with 201 Created
 	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }
