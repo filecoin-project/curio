@@ -64,6 +64,7 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 	}
 
 	go p.cleanup(ctx)
+	go p.startIdempotencyCleanup(ctx)
 	return p
 }
 
