@@ -73,6 +73,66 @@ ON CONFLICT DO NOTHING;
 ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS min_claim_epoch BIGINT;
 ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS max_claim_epoch BIGINT;
 
+-- Function to evaluate if a preset condition is met for an SP
+CREATE OR REPLACE FUNCTION eval_ext_mgr_sp_condition(
+    p_sp_id BIGINT,
+    p_preset_name TEXT,
+    p_curr_epoch BIGINT,
+    p_epoch_per_day NUMERIC DEFAULT 2880
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_preset RECORD;
+    v_count BIGINT;
+    v_bucket_above_epoch BIGINT;
+    v_bucket_below_epoch BIGINT;
+BEGIN
+    -- Get preset configuration
+    SELECT * INTO v_preset
+    FROM sectors_exp_manager_presets
+    WHERE name = p_preset_name;
+    
+    IF NOT FOUND THEN
+        RETURN FALSE; -- Preset doesn't exist
+    END IF;
+    
+    -- Calculate epoch boundaries for the info bucket
+    v_bucket_above_epoch := p_curr_epoch + (v_preset.info_bucket_above_days * p_epoch_per_day);
+    v_bucket_below_epoch := p_curr_epoch + (v_preset.info_bucket_below_days * p_epoch_per_day);
+    
+    IF v_preset.action_type = 'extend' THEN
+        -- For 'extend': Check if ANY sector expires in the info bucket range
+        -- Also filter by CC if specified
+        SELECT COUNT(*) INTO v_count
+        FROM sectors_meta
+        WHERE sp_id = p_sp_id
+          AND expiration_epoch IS NOT NULL
+          AND expiration_epoch > v_bucket_above_epoch
+          AND expiration_epoch < v_bucket_below_epoch
+          AND (v_preset.cc IS NULL OR is_cc = v_preset.cc);
+        
+        -- If any sector found in range, condition is met (needs extension)
+        RETURN v_count > 0;
+        
+    ELSIF v_preset.action_type = 'top_up' THEN
+        -- For 'top_up': Count sectors in the info bucket range
+        -- Also filter by CC if specified
+        SELECT COUNT(*) INTO v_count
+        FROM sectors_meta
+        WHERE sp_id = p_sp_id
+          AND expiration_epoch IS NOT NULL
+          AND expiration_epoch > v_bucket_above_epoch
+          AND expiration_epoch < v_bucket_below_epoch
+          AND (v_preset.cc IS NULL OR is_cc = v_preset.cc);
+        
+        -- If count below low water mark, condition is met (needs top-up)
+        RETURN v_count < COALESCE(v_preset.top_up_count_low_water_mark, 0);
+        
+    ELSE
+        RETURN FALSE; -- Unknown action type
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
 CREATE OR REPLACE FUNCTION update_sectors_exp_manager_sp_from_message_waits()
 RETURNS trigger AS $$
 BEGIN

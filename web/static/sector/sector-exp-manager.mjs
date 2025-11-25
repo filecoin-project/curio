@@ -181,6 +181,29 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
             align-items: center;
             gap: 0.5rem;
         }
+        .status-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            display: inline-block;
+            white-space: nowrap;
+        }
+        .status-ok {
+            background-color: #28a745;
+            color: white;
+        }
+        .status-needs-action {
+            background-color: #ffc107;
+            color: black;
+        }
+        .status-loading {
+            background-color: #6c757d;
+            color: white;
+        }
+        .status-error {
+            background-color: #dc3545;
+            color: white;
+        }
     `;
 
     constructor() {
@@ -194,6 +217,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
         this.editingPreset = null;
         this.formData = {};
         this.expandedPresets = new Set();
+        this.conditionStatus = new Map(); // key: "sp_address:preset_name", value: {loading, needsAction}
         this.loadData();
         // Refresh every 30 seconds
         setInterval(() => this.loadData(), 30000);
@@ -212,12 +236,44 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
             this.availableSPs = spStats.map(sp => ({ id: sp.sp_id, address: sp.sp_address }));
             this.loading = false;
             this.requestUpdate();
+            
+            // Load condition status for each SP assignment
+            this.loadConditionStatuses();
         } catch (err) {
             console.error('Failed to load sector expiration manager data:', err);
             this.error = err.message || 'Failed to load data';
             this.loading = false;
             this.requestUpdate();
         }
+    }
+
+    async loadConditionStatuses() {
+        if (!this.spAssignments) return;
+        
+        // Load each condition status separately
+        for (const assignment of this.spAssignments) {
+            const key = `${assignment.sp_address}:${assignment.preset_name}`;
+            this.conditionStatus.set(key, { loading: true, needsAction: null });
+            this.requestUpdate();
+            
+            try {
+                const needsAction = await RPCCall('SectorExpManagerSPEvalCondition', [
+                    assignment.sp_address,
+                    assignment.preset_name
+                ]);
+                this.conditionStatus.set(key, { loading: false, needsAction });
+                this.requestUpdate();
+            } catch (err) {
+                console.error(`Failed to eval condition for ${key}:`, err);
+                this.conditionStatus.set(key, { loading: false, needsAction: null, error: err.message });
+                this.requestUpdate();
+            }
+        }
+    }
+
+    getConditionStatus(spAddress, presetName) {
+        const key = `${spAddress}:${presetName}`;
+        return this.conditionStatus.get(key) || { loading: true, needsAction: null };
     }
 
     openPresetModal(preset = null) {
@@ -597,6 +653,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                     <tr>
                         <th>SP</th>
                         <th>Preset</th>
+                        <th>Status</th>
                         <th>Enabled</th>
                         <th>Last Run</th>
                         <th>Task</th>
@@ -605,38 +662,54 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                     </tr>
                 </thead>
                 <tbody>
-                    ${this.spAssignments.map(assignment => html`
-                        <tr>
-                            <td style="white-space: nowrap;">${assignment.sp_address}</td>
-                            <td style="white-space: nowrap;">${assignment.preset_name}</td>
-                            <td>
-                                <input 
-                                    type="checkbox" 
-                                    ?checked="${assignment.enabled}"
-                                    @change="${(e) => this.toggleSPEnabled(assignment.sp_address, assignment.preset_name, e.target.checked)}"
-                                />
-                            </td>
-                            <td style="white-space: nowrap;">${assignment.last_run_at || '-'}</td>
-                            <td style="white-space: nowrap;">
-                                ${assignment.task_id 
-                                    ? html`<cu-task task_id="${assignment.task_id}"></cu-task>`
-                                    : '-'}
-                            </td>
-                            <td style="white-space: nowrap;">
-                                ${assignment.last_message_cid
-                                    ? html`<fil-message cid="${assignment.last_message_cid}"></fil-message>`
-                                    : '-'}
-                            </td>
-                            <td style="white-space: nowrap;">
-                                <button 
-                                    class="btn btn-sm btn-danger" 
-                                    @click="${() => this.toggleSPAssignment(assignment.sp_address, assignment.preset_name, true)}"
-                                >
-                                    Remove
-                                </button>
-                            </td>
-                        </tr>
-                    `)}
+                    ${this.spAssignments.map(assignment => {
+                        const status = this.getConditionStatus(assignment.sp_address, assignment.preset_name);
+                        return html`
+                            <tr>
+                                <td style="white-space: nowrap;">${assignment.sp_address}</td>
+                                <td style="white-space: nowrap;">${assignment.preset_name}</td>
+                                <td style="white-space: nowrap;">
+                                    ${status.loading ? html`
+                                        <span class="status-badge status-loading">Loading...</span>
+                                    ` : status.error ? html`
+                                        <span class="status-badge status-error" title="${status.error}">Error</span>
+                                    ` : status.needsAction === true ? html`
+                                        <span class="status-badge status-needs-action">Needs Extension</span>
+                                    ` : status.needsAction === false ? html`
+                                        <span class="status-badge status-ok">OK</span>
+                                    ` : html`
+                                        <span class="status-badge status-loading">-</span>
+                                    `}
+                                </td>
+                                <td>
+                                    <input 
+                                        type="checkbox" 
+                                        ?checked="${assignment.enabled}"
+                                        @change="${(e) => this.toggleSPEnabled(assignment.sp_address, assignment.preset_name, e.target.checked)}"
+                                    />
+                                </td>
+                                <td style="white-space: nowrap;">${assignment.last_run_at || '-'}</td>
+                                <td style="white-space: nowrap;">
+                                    ${assignment.task_id 
+                                        ? html`<cu-task task_id="${assignment.task_id}"></cu-task>`
+                                        : '-'}
+                                </td>
+                                <td style="white-space: nowrap;">
+                                    ${assignment.last_message_cid
+                                        ? html`<fil-message cid="${assignment.last_message_cid}"></fil-message>`
+                                        : '-'}
+                                </td>
+                                <td style="white-space: nowrap;">
+                                    <button 
+                                        class="btn btn-sm btn-danger" 
+                                        @click="${() => this.toggleSPAssignment(assignment.sp_address, assignment.preset_name, true)}"
+                                    >
+                                        Remove
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    })}
                 </tbody>
             </table>
         `;
@@ -672,7 +745,7 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
             </div>
 
             <div class="info-block">
-                <h2>SP Assignments</h2>
+                <h3>Extension Manager SP Assignments</h3>
                 ${this.renderSPAssignmentsTable()}
             </div>
 

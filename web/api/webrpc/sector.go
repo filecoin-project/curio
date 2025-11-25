@@ -1643,6 +1643,33 @@ func (a *WebRPC) SectorExpManagerSPDelete(ctx context.Context, spAddress string,
 	return nil
 }
 
+func (a *WebRPC) SectorExpManagerSPEvalCondition(ctx context.Context, spAddress string, presetName string) (bool, error) {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return false, xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return false, xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	currentEpoch := head.Height()
+
+	var needsAction bool
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT eval_ext_mgr_sp_condition($1, $2, $3, 2880)`,
+		spid, presetName, currentEpoch).Scan(&needsAction)
+	if err != nil {
+		return false, xerrors.Errorf("failed to evaluate condition: %w", err)
+	}
+
+	return needsAction, nil
+}
+
 type SectorExpBucketCount struct {
 	SpID         int64  `json:"sp_id" db:"sp_id"`
 	SPAddress    string `json:"sp_address"`
