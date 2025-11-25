@@ -3,16 +3,6 @@ import RPCCall from '/lib/jsonrpc.mjs';
 
 customElements.define('sector-dashboard', class SectorDashboard extends LitElement {
     static styles = css`
-        :host {
-            display: block;
-        }
-        .info-block {
-            margin-bottom: 2rem;
-        }
-        .info-block h2 {
-            font-weight: 400;
-            margin-bottom: 1rem;
-        }
         .stat-overview {
             display: flex;
             gap: 2rem;
@@ -32,35 +22,6 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
             font-size: 0.9rem;
             margin-top: 0.25rem;
         }
-        .row {
-            display: flex;
-            gap: 2rem;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-        }
-        .col-md-auto {
-            flex: 1;
-            min-width: 400px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-        }
-        th {
-            text-align: left;
-            padding: 0.5rem;
-            border-bottom: 1px solid #444;
-            font-weight: 400;
-            color: var(--color-text-dense, #e0e0e0);
-        }
-        td {
-            padding: 0.5rem;
-            border-bottom: 1px solid #333;
-        }
-        tr:hover {
-            background-color: rgba(255, 255, 255, 0.03);
-        }
         .badge-pipeline {
             padding: 0.25rem 0.5rem;
             border-radius: 3px;
@@ -78,18 +39,6 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
         .badge-failed {
             background-color: #603030;
             color: white;
-        }
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: var(--color-text-dense, #e0e0e0);
-        }
-        .error {
-            background-color: var(--color-danger-main, #B63333);
-            color: white;
-            padding: 1rem;
-            border-radius: 4px;
-            margin: 1rem 0;
         }
     `;
 
@@ -180,7 +129,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
         }
 
         return html`
-            <table>
+            <table class="table table-dark">
                 <thead>
                     <tr>
                         <th>SP Address</th>
@@ -220,7 +169,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
         const snapStats = this.pipelineStats.filter(s => s.pipeline_type === 'Snap');
 
         return html`
-            <table>
+            <table class="table table-dark">
                 <thead>
                     <tr>
                         <th>Pipeline</th>
@@ -278,7 +227,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
                             ${totalRecovering > 0 ? html`, <span style="color: var(--color-warning-main, #FFD600);">${totalRecovering} recovering</span>` : ''})
                         </span>
                     </h3>
-                    <table style="margin-bottom: 1.5rem;">
+                    <table class="table table-dark" style="margin-bottom: 1.5rem;">
                         <thead>
                             <tr>
                                 <th>Deadline</th>
@@ -329,7 +278,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
         const total = this.fileTypeStats.reduce((acc, stat) => acc + stat.count, 0);
 
         return html`
-            <table>
+            <table class="table table-dark">
                 <thead>
                     <tr>
                         <th>File Type</th>
@@ -362,7 +311,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
 
         return html`
             <p style="margin-bottom: 0.5rem;">${total.toLocaleString()} sectors marked for removal</p>
-            <table>
+            <table class="table table-dark">
                 <thead>
                     <tr>
                         <th>Miner</th>
@@ -386,11 +335,11 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
 
     render() {
         if (this.loading) {
-            return html`<div class="loading">Loading sector statistics...</div>`;
+            return html`<div style="text-align: center; padding: 2rem;">Loading sector statistics...</div>`;
         }
 
         if (this.error) {
-            return html`<div class="error">Error: ${this.error}</div>`;
+            return html`<div class="error">${this.error}</div>`;
         }
 
         return html`
@@ -406,34 +355,24 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
                 ${this.renderSPTable()}
             </div>
 
-            <div class="row">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Pipeline Status</h2>
-                        ${this.renderPipelineTable()}
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>GC Marks</h2>
-                        ${this.renderGCStats()}
-                    </div>
-                </div>
+            <div class="info-block">
+                <h2>Pipeline Status</h2>
+                ${this.renderPipelineTable()}
+            </div>
+            
+            <div class="info-block">
+                <h2>GC Marks</h2>
+                ${this.renderGCStats()}
             </div>
 
-            <div class="row">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Deadline Distribution</h2>
-                        ${this.renderDeadlineTable()}
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Sector File Types</h2>
-                        ${this.renderFileTypeTable()}
-                    </div>
-                </div>
+            <div class="info-block">
+                <h2>Deadline Distribution</h2>
+                ${this.renderDeadlineTable()}
+            </div>
+            
+            <div class="info-block">
+                <h2>Sector File Types</h2>
+                ${this.renderFileTypeTable()}
             </div>
         `;
     }

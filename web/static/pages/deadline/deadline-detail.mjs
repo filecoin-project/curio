@@ -3,16 +3,6 @@ import RPCCall from '/lib/jsonrpc.mjs';
 
 customElements.define('deadline-detail', class DeadlineDetail extends LitElement {
     static styles = css`
-        :host {
-            display: block;
-        }
-        .info-block {
-            margin-bottom: 2rem;
-        }
-        .info-block h2 {
-            font-weight: 400;
-            margin-bottom: 1rem;
-        }
         .stat-overview {
             display: flex;
             gap: 2rem;
@@ -31,44 +21,6 @@ customElements.define('deadline-detail', class DeadlineDetail extends LitElement
             color: var(--color-text-dense, #e0e0e0);
             font-size: 0.9rem;
             margin-top: 0.25rem;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-        }
-        th {
-            text-align: left;
-            padding: 0.5rem;
-            border-bottom: 1px solid #444;
-            font-weight: 400;
-            color: var(--color-text-dense, #e0e0e0);
-        }
-        td {
-            padding: 0.5rem;
-            border-bottom: 1px solid #333;
-        }
-        tr:hover {
-            background-color: rgba(255, 255, 255, 0.03);
-        }
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: var(--color-text-dense, #e0e0e0);
-        }
-        .error {
-            background-color: var(--color-danger-main, #B63333);
-            color: white;
-            padding: 1rem;
-            border-radius: 4px;
-            margin: 1rem 0;
-        }
-        a {
-            color: var(--color-primary-light, #8BEFE0);
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
         }
     `;
 
@@ -106,11 +58,11 @@ customElements.define('deadline-detail', class DeadlineDetail extends LitElement
 
     render() {
         if (this.loading) {
-            return html`<div class="loading">Loading deadline detail...</div>`;
+            return html`<div style="text-align: center; padding: 2rem;">Loading deadline detail...</div>`;
         }
 
         if (this.error) {
-            return html`<div class="error">Error: ${this.error}</div>`;
+            return html`<div class="error">${this.error}</div>`;
         }
 
         if (!this.data) {
@@ -167,7 +119,7 @@ customElements.define('deadline-detail', class DeadlineDetail extends LitElement
 
             <div class="info-block">
                 <h2>Partitions</h2>
-                <table>
+                <table class="table table-dark">
                     <thead>
                         <tr>
                             <th>Partition</th>
