@@ -3,8 +3,10 @@ package contract
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 	mbig "math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -109,6 +111,13 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 	// Add custom capabilities
 	for k, v := range additionalCaps {
 		keys = append(keys, k)
+		// try hexadecimal
+		if len(v) % 2 == 0 && strings.HasPrefix(v, "0x") {
+			if decoded, err := hex.DecodeString(v[2:]); err == nil {
+				values = append(values, decoded)
+				continue
+			}
+		}
 		values = append(values, []byte(v))
 	}
 
