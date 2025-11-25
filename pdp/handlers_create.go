@@ -32,7 +32,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 	type CreateAddRequestBody struct {
 		Pieces         []AddPieceRequest `json:"pieces"`
-		IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+		IdempotencyKey IdempotencyKey    `json:"idempotencyKey,omitempty"`
 		RecordKeeper   string            `json:"recordKeeper"`
 		ExtraData      *string           `json:"extraData,omitempty"`
 	}
@@ -43,13 +43,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Step 3: Validate idempotency key
-	if err := validateIdempotencyKey(reqBody.IdempotencyKey); err != nil {
-		http.Error(w, "Invalid idempotency key: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Step 4: Check or reserve idempotency key
+	// Step 3: Check or reserve idempotency key
 	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, reqBody.IdempotencyKey)
 	if err != nil {
 		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)
@@ -213,9 +207,9 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	// Step 2: Parse the request body to get the 'recordKeeper' address and extraData
 	type CreateDataSetRequestBody struct {
-		IdempotencyKey string  `json:"idempotencyKey,omitempty"`
-		RecordKeeper   string  `json:"recordKeeper"`
-		ExtraData      *string `json:"extraData,omitempty"`
+		IdempotencyKey IdempotencyKey `json:"idempotencyKey,omitempty"`
+		RecordKeeper   string         `json:"recordKeeper"`
+		ExtraData      *string        `json:"extraData,omitempty"`
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -233,13 +227,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Step 3: Validate idempotency key
-	if err := validateIdempotencyKey(reqBody.IdempotencyKey); err != nil {
-		http.Error(w, "Invalid idempotency key: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Step 4: Check or reserve idempotency key
+	// Step 3: Check or reserve idempotency key
 	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, reqBody.IdempotencyKey)
 	if err != nil {
 		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)

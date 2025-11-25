@@ -305,7 +305,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// AddPiecesPayload defines the structure for the entire add pieces request payload
 	type AddPiecesPayload struct {
-		IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+		IdempotencyKey IdempotencyKey    `json:"idempotencyKey,omitempty"`
 		Pieces         []AddPieceRequest `json:"pieces"`
 		ExtraData      *string           `json:"extraData,omitempty"`
 	}
@@ -320,13 +320,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		_ = r.Body.Close()
 	}()
 
-	// Step 4: Validate idempotency key
-	if err := validateIdempotencyKey(payload.IdempotencyKey); err != nil {
-		http.Error(w, "Invalid idempotency key: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Step 5: Check or reserve idempotency key
+	// Step 4: Check or reserve idempotency key
 	idempotencyResult, err := p.checkOrReserveIdempotencyKey(ctx, payload.IdempotencyKey)
 	if err != nil {
 		http.Error(w, "Failed to check idempotency: "+err.Error(), http.StatusInternalServerError)

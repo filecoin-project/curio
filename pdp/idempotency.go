@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +21,46 @@ var logIdempotency = logger.Logger("pdp/idempotency")
 // Ensure harmonydb import is used
 var _ = (*harmonydb.DB)(nil)
 
+// Pre-compiled regex for idempotency key validation
+var idempotencyKeyRegex = regexp.MustCompile(`^[a-zA-Z0-9\-_]+$`)
+
+// IdempotencyKey represents a validated idempotency key
+type IdempotencyKey string
+
+// UnmarshalJSON implements custom JSON unmarshaling with validation
+func (ik *IdempotencyKey) UnmarshalJSON(data []byte) error {
+	// Handle null case
+	if string(data) == "null" {
+		*ik = ""
+		return nil
+	}
+
+	// Unmarshal raw string
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+
+	// Empty string is allowed (optional field)
+	if str == "" {
+		*ik = ""
+		return nil
+	}
+
+	// Validate length
+	if len(str) > 255 {
+		return errors.New("idempotency key must be 255 characters or less")
+	}
+
+	// Validate format using pre-compiled regex
+	if !idempotencyKeyRegex.MatchString(str) {
+		return errors.New("idempotency key can only contain letters, numbers, hyphens, and underscores")
+	}
+
+	*ik = IdempotencyKey(str)
+	return nil
+}
+
 // IdempotencyResult represents the result of an idempotency check
 type IdempotencyResult struct {
 	Exists     bool
@@ -27,31 +68,8 @@ type IdempotencyResult struct {
 	IsReserved bool // true if key exists but tx_hash is NULL
 }
 
-// validateIdempotencyKey validates the format of client-provided idempotency keys
-func validateIdempotencyKey(key string) error {
-	if key == "" {
-		return nil // Optional field
-	}
-
-	if len(key) > 255 {
-		return errors.New("idempotency key must be 255 characters or less")
-	}
-
-	// Allow UUID v4, v7, ULID, and similar formats
-	// Pattern matches: 550e8400-e29b-41d4-a716-446655440000 (UUID)
-	// Pattern matches: 018f4b8c-9c7b-7f3b-8b3c-4d3e5f6a7b8c (UUID v7)
-	// Pattern matches: 01H8XKZ9N8J8R8KZ9N8J8R8K (ULID)
-	// Pattern matches: custom formats with alphanumerics, hyphens, underscores
-	matched, _ := regexp.MatchString(`^[a-zA-Z0-9\-_]+$`, key)
-	if !matched {
-		return errors.New("idempotency key can only contain letters, numbers, hyphens, and underscores")
-	}
-
-	return nil
-}
-
 // checkOrReserveIdempotencyKey atomically checks for existing key or reserves it
-func (p *PDPService) checkOrReserveIdempotencyKey(ctx context.Context, idempotencyKey string) (IdempotencyResult, error) {
+func (p *PDPService) checkOrReserveIdempotencyKey(ctx context.Context, idempotencyKey IdempotencyKey) (IdempotencyResult, error) {
 	if idempotencyKey == "" {
 		return IdempotencyResult{Exists: false}, nil
 	}
@@ -63,7 +81,7 @@ func (p *PDPService) checkOrReserveIdempotencyKey(ctx context.Context, idempoten
         ON CONFLICT (idempotency_key) 
         DO UPDATE SET tx_hash = EXCLUDED.tx_hash
         RETURNING tx_hash
-    `, idempotencyKey).Scan(&txHash)
+    `, string(idempotencyKey)).Scan(&txHash)
 
 	if err != nil {
 		return IdempotencyResult{}, fmt.Errorf("failed to check/reserve idempotency key: %w", err)
@@ -85,7 +103,7 @@ func (p *PDPService) checkOrReserveIdempotencyKey(ctx context.Context, idempoten
 }
 
 // updateIdempotencyKey updates a reserved key with actual transaction hash
-func (p *PDPService) updateIdempotencyKey(tx *harmonydb.Tx, idempotencyKey, txHash string) error {
+func (p *PDPService) updateIdempotencyKey(tx *harmonydb.Tx, idempotencyKey IdempotencyKey, txHash string) error {
 	if idempotencyKey == "" {
 		return nil
 	}
@@ -94,7 +112,7 @@ func (p *PDPService) updateIdempotencyKey(tx *harmonydb.Tx, idempotencyKey, txHa
         UPDATE pdp_idempotency 
         SET tx_hash = $1 
         WHERE idempotency_key = $2 AND tx_hash IS NULL
-    `, txHash, idempotencyKey)
+    `, txHash, string(idempotencyKey))
 	if err != nil {
 		return fmt.Errorf("failed to update idempotency key: %w", err)
 	}
@@ -103,7 +121,7 @@ func (p *PDPService) updateIdempotencyKey(tx *harmonydb.Tx, idempotencyKey, txHa
 }
 
 // cleanupReservedIdempotencyKey removes a reserved key on operation failure
-func (p *PDPService) cleanupReservedIdempotencyKey(ctx context.Context, idempotencyKey string) error {
+func (p *PDPService) cleanupReservedIdempotencyKey(ctx context.Context, idempotencyKey IdempotencyKey) error {
 	if idempotencyKey == "" {
 		return nil
 	}
@@ -111,7 +129,7 @@ func (p *PDPService) cleanupReservedIdempotencyKey(ctx context.Context, idempote
 	_, err := p.db.Exec(ctx, `
         DELETE FROM pdp_idempotency 
         WHERE idempotency_key = $1 AND tx_hash IS NULL
-    `, idempotencyKey)
+    `, string(idempotencyKey))
 
 	if err != nil {
 		return fmt.Errorf("failed to cleanup idempotency key: %w", err)
