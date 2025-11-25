@@ -117,6 +117,10 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
         .exp-table {
             margin-top: 1rem;
         }
+        .exp-table td:nth-child(even),
+        .exp-table th:nth-child(even) {
+            background-color: rgba(33, 37, 41, 0.7);
+        }
         .sp-group {
             margin-top: 1.5rem;
         }
@@ -150,6 +154,43 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
         .error {
             color: var(--color-danger-main, #B63333);
             padding: 1rem;
+        }
+        .cell-with-bar {
+            padding: 0.5rem 1rem !important;
+        }
+        .cell-content {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .cell-number {
+            flex: 1;
+        }
+        .cell-bar-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.2rem;
+            min-width: 60px;
+        }
+        .cell-percent {
+            font-size: 0.75em;
+            color: var(--color-text-dense, #999);
+        }
+        .cell-bar-container {
+            width: 100%;
+            height: 2.5px;
+            background-color: rgba(128, 128, 128, 0.2);
+            position: relative;
+        }
+        .cell-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 2.5px;
+            background: linear-gradient(90deg, var(--color-secondary-main, #8BEFE0) 0%, var(--color-secondary-light, #4CAF50) 100%);
+            transition: width 0.3s ease;
         }
     `;
 
@@ -422,43 +463,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                 <!-- Always show aggregate "All" view -->
                 <div class="sp-group">
                     <h3>All SPs</h3>
-                    <table class="table table-dark exp-table">
-                        <thead>
-                            <tr>
-                                <th>Bucket (Days)</th>
-                                <th>Total Sectors</th>
-                                <th>CC Sectors</th>
-                                <th>Deal Sectors</th>
-                                <th>Deal %</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${bucketRanges.map(range => {
-                                const bucket = range.highBucket || 'open';
-                                const count = aggregatedData[bucket] || { total_count: 0, cc_count: 0, deal_count: 0 };
-                                const totalCount = count.total_count;
-                                const ccCount = count.cc_count;
-                                const dealCount = count.deal_count;
-                                const dealPercent = totalCount > 0 
-                                    ? ((dealCount / totalCount) * 100).toFixed(1)
-                                    : '0.0';
-                                
-                                const rangeLabel = range.isLast 
-                                    ? `${range.low} < EXP`
-                                    : `${range.low} < EXP < ${range.high}`;
-                                
-                                return html`
-                                    <tr>
-                                        <td>${rangeLabel}</td>
-                                        <td><strong>${totalCount.toLocaleString()}</strong></td>
-                                        <td>${ccCount.toLocaleString()}</td>
-                                        <td>${dealCount.toLocaleString()}</td>
-                                        <td>${dealPercent}%</td>
-                                    </tr>
-                                `;
-                            })}
-                        </tbody>
-                    </table>
+                    ${this.renderSPTable('All SPs', aggregatedData, bucketRanges)}
                 </div>
 
                 <!-- Individual SP selector and tables -->
@@ -481,46 +486,102 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
                 ${allSPs.filter(([spId]) => this.selectedSPs.has(spId)).map(([spId, spData]) => html`
                     <div class="sp-group">
                         <h3>${spData.address}</h3>
-                        <table class="table table-dark exp-table">
-                            <thead>
-                                <tr>
-                                    <th>Bucket (Days)</th>
-                                    <th>Total Sectors</th>
-                                    <th>CC Sectors</th>
-                                    <th>Deal Sectors</th>
-                                    <th>Deal %</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${bucketRanges.map(range => {
-                                    const bucket = range.highBucket || 'open';
-                                    const count = spData.rangeCounts[bucket] || { total_count: 0, cc_count: 0, deal_count: 0 };
-                                    const totalCount = count.total_count;
-                                    const ccCount = count.cc_count;
-                                    const dealCount = count.deal_count;
-                                    const dealPercent = totalCount > 0 
-                                        ? ((dealCount / totalCount) * 100).toFixed(1)
-                                        : '0.0';
-                                    
-                                    const rangeLabel = range.isLast 
-                                        ? `${range.low} < EXP`
-                                        : `${range.low} < EXP < ${range.high}`;
-                                    
-                                    return html`
-                                        <tr>
-                                            <td>${rangeLabel}</td>
-                                            <td><strong>${totalCount.toLocaleString()}</strong></td>
-                                            <td>${ccCount.toLocaleString()}</td>
-                                            <td>${dealCount.toLocaleString()}</td>
-                                            <td>${dealPercent}%</td>
-                                        </tr>
-                                    `;
-                                })}
-                            </tbody>
-                        </table>
+                        ${this.renderSPTable(spData.address, spData.rangeCounts, bucketRanges)}
                     </div>
                 `)}
             </div>
+        `;
+    }
+
+    renderSPTable(title, rangeCounts, bucketRanges) {
+        // Calculate column totals
+        let totalSum = 0;
+        let ccSum = 0;
+        let dealSum = 0;
+        
+        bucketRanges.forEach(range => {
+            const bucket = range.highBucket || 'open';
+            const count = rangeCounts[bucket] || { total_count: 0, cc_count: 0, deal_count: 0 };
+            totalSum += count.total_count;
+            ccSum += count.cc_count;
+            dealSum += count.deal_count;
+        });
+
+        return html`
+            <table class="table table-dark exp-table">
+                <thead>
+                    <tr>
+                        <th>Bucket (Days)</th>
+                        <th>Total Sectors</th>
+                        <th>CC Sectors</th>
+                        <th>Deal Sectors</th>
+                        <th>Deal %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${bucketRanges.map(range => {
+                        const bucket = range.highBucket || 'open';
+                        const count = rangeCounts[bucket] || { total_count: 0, cc_count: 0, deal_count: 0 };
+                        const totalCount = count.total_count;
+                        const ccCount = count.cc_count;
+                        const dealCount = count.deal_count;
+                        
+                        // Calculate percentages of column totals
+                        const totalPercent = totalSum > 0 ? ((totalCount / totalSum) * 100).toFixed(1) : '0.0';
+                        const ccPercent = ccSum > 0 ? ((ccCount / ccSum) * 100).toFixed(1) : '0.0';
+                        const dealPercent = dealSum > 0 ? ((dealCount / dealSum) * 100).toFixed(1) : '0.0';
+                        
+                        // Deal % of row total
+                        const rowDealPercent = totalCount > 0 
+                            ? ((dealCount / totalCount) * 100).toFixed(1)
+                            : '0.0';
+                        
+                        const rangeLabel = range.isLast 
+                            ? `${range.low} < EXP`
+                            : `${range.low} < EXP < ${range.high}`;
+                        
+                        return html`
+                            <tr>
+                                <td>${rangeLabel}</td>
+                                <td class="cell-with-bar">
+                                    <div class="cell-content">
+                                        <span class="cell-number"><strong>${totalCount.toLocaleString()}</strong></span>
+                                        <div class="cell-bar-section">
+                                            <span class="cell-percent">${totalPercent}%</span>
+                                            <div class="cell-bar-container">
+                                                <div class="cell-bar" style="width: ${totalPercent}%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="cell-with-bar">
+                                    <div class="cell-content">
+                                        <span class="cell-number">${ccCount.toLocaleString()}</span>
+                                        <div class="cell-bar-section">
+                                            <span class="cell-percent">${ccPercent}%</span>
+                                            <div class="cell-bar-container">
+                                                <div class="cell-bar" style="width: ${ccPercent}%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="cell-with-bar">
+                                    <div class="cell-content">
+                                        <span class="cell-number">${dealCount.toLocaleString()}</span>
+                                        <div class="cell-bar-section">
+                                            <span class="cell-percent">${dealPercent}%</span>
+                                            <div class="cell-bar-container">
+                                                <div class="cell-bar" style="width: ${dealPercent}%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>${rowDealPercent}%</td>
+                            </tr>
+                        `;
+                    })}
+                </tbody>
+            </table>
         `;
     }
 
