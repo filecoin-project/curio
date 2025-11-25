@@ -1324,3 +1324,248 @@ func (a *WebRPC) SectorFileTypeStats(ctx context.Context) ([]SectorFileTypeStats
 
 	return result, nil
 }
+
+// Deadline Detail Page
+
+type DeadlinePartitionInfo struct {
+	Partition         uint64 `json:"partition"`
+	AllSectors        uint64 `json:"all_sectors"`
+	FaultySectors     uint64 `json:"faulty_sectors"`
+	RecoveringSectors uint64 `json:"recovering_sectors"`
+	LiveSectors       uint64 `json:"live_sectors"`
+	ActiveSectors     uint64 `json:"active_sectors"`
+}
+
+type DeadlineDetail struct {
+	SpID                 int64                   `json:"sp_id"`
+	SPAddress            string                  `json:"sp_address"`
+	Deadline             uint64                  `json:"deadline"`
+	PostSubmissions      string                  `json:"post_submissions"`
+	DisputableProofCount uint64                  `json:"disputable_proof_count"`
+	Partitions           []DeadlinePartitionInfo `json:"partitions"`
+}
+
+func (a *WebRPC) DeadlineDetail(ctx context.Context, sp string, deadlineIdx uint64) (*DeadlineDetail, error) {
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return nil, xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	// Get deadline info from chain
+	deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get deadlines: %w", err)
+	}
+
+	if deadlineIdx >= uint64(len(deadlines)) {
+		return nil, xerrors.Errorf("deadline %d does not exist", deadlineIdx)
+	}
+
+	dl := deadlines[deadlineIdx]
+
+	// Get partitions for this deadline
+	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get partitions: %w", err)
+	}
+
+	partitions := make([]DeadlinePartitionInfo, 0, len(parts))
+	for i, part := range parts {
+		partitions = append(partitions, DeadlinePartitionInfo{
+			Partition:         uint64(i),
+			AllSectors:        must.One(part.AllSectors.Count()),
+			FaultySectors:     must.One(part.FaultySectors.Count()),
+			RecoveringSectors: must.One(part.RecoveringSectors.Count()),
+			LiveSectors:       must.One(part.LiveSectors.Count()),
+			ActiveSectors:     must.One(part.ActiveSectors.Count()),
+		})
+	}
+
+	postCount := must.One(dl.PostSubmissions.Count())
+	return &DeadlineDetail{
+		SpID:                 int64(spid),
+		SPAddress:            maddr.String(),
+		Deadline:             deadlineIdx,
+		PostSubmissions:      fmt.Sprintf("%d/%d", postCount, len(parts)),
+		DisputableProofCount: dl.DisputableProofCount,
+		Partitions:           partitions,
+	}, nil
+}
+
+// Partition Detail Page
+
+type PartitionSectorInfo struct {
+	SectorNumber uint64 `json:"sector_number"`
+	IsFaulty     bool   `json:"is_faulty"`
+	IsRecovering bool   `json:"is_recovering"`
+	IsActive     bool   `json:"is_active"`
+	IsLive       bool   `json:"is_live"`
+}
+
+type StoragePathStat struct {
+	StorageID string   `json:"storage_id"`
+	PathType  string   `json:"path_type"`
+	Urls      []string `json:"urls"`
+	Count     int      `json:"count"`
+}
+
+type PartitionDetail struct {
+	SpID                   int64                 `json:"sp_id"`
+	SPAddress              string                `json:"sp_address"`
+	Deadline               uint64                `json:"deadline"`
+	Partition              uint64                `json:"partition"`
+	AllSectorsCount        uint64                `json:"all_sectors_count"`
+	FaultySectorsCount     uint64                `json:"faulty_sectors_count"`
+	RecoveringSectorsCount uint64                `json:"recovering_sectors_count"`
+	LiveSectorsCount       uint64                `json:"live_sectors_count"`
+	ActiveSectorsCount     uint64                `json:"active_sectors_count"`
+	Sectors                []PartitionSectorInfo `json:"sectors"`
+	FaultyStoragePaths     []StoragePathStat     `json:"faulty_storage_paths"`
+}
+
+func (a *WebRPC) PartitionDetail(ctx context.Context, sp string, deadlineIdx uint64, partitionIdx uint64) (*PartitionDetail, error) {
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return nil, xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	// Get partitions for this deadline
+	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get partitions: %w", err)
+	}
+
+	if partitionIdx >= uint64(len(parts)) {
+		return nil, xerrors.Errorf("partition %d does not exist in deadline %d", partitionIdx, deadlineIdx)
+	}
+
+	part := parts[partitionIdx]
+
+	// Convert bitfields to maps for quick lookup
+	faultyMap := make(map[uint64]bool)
+	recoveringMap := make(map[uint64]bool)
+	activeMap := make(map[uint64]bool)
+	liveMap := make(map[uint64]bool)
+
+	if err := part.FaultySectors.ForEach(func(i uint64) error {
+		faultyMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate faulty sectors: %w", err)
+	}
+
+	if err := part.RecoveringSectors.ForEach(func(i uint64) error {
+		recoveringMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate recovering sectors: %w", err)
+	}
+
+	if err := part.ActiveSectors.ForEach(func(i uint64) error {
+		activeMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate active sectors: %w", err)
+	}
+
+	if err := part.LiveSectors.ForEach(func(i uint64) error {
+		liveMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate live sectors: %w", err)
+	}
+
+	// Get all sectors in partition
+	sectors := make([]PartitionSectorInfo, 0)
+	faultySectorNums := make([]uint64, 0)
+
+	if err := part.AllSectors.ForEach(func(sectorNum uint64) error {
+		isFaulty := faultyMap[sectorNum]
+		if isFaulty {
+			faultySectorNums = append(faultySectorNums, sectorNum)
+		}
+
+		sectors = append(sectors, PartitionSectorInfo{
+			SectorNumber: sectorNum,
+			IsFaulty:     isFaulty,
+			IsRecovering: recoveringMap[sectorNum],
+			IsActive:     activeMap[sectorNum],
+			IsLive:       liveMap[sectorNum],
+		})
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate all sectors: %w", err)
+	}
+
+	// Get storage path stats for faulty sectors
+	var pathStats []StoragePathStat
+	if len(faultySectorNums) > 0 {
+		type pathRow struct {
+			StorageID string `db:"storage_id"`
+			CanSeal   bool   `db:"can_seal"`
+			CanStore  bool   `db:"can_store"`
+			Urls      string `db:"urls"`
+			Count     int    `db:"count"`
+		}
+		var pathRows []pathRow
+
+		err = a.deps.DB.Select(ctx, &pathRows, `
+			SELECT 
+				sl.storage_id,
+				sp.can_seal,
+				sp.can_store,
+				sp.urls,
+				COUNT(DISTINCT sl.sector_num) as count
+			FROM sector_location sl
+			JOIN storage_path sp ON sl.storage_id = sp.storage_id
+			WHERE sl.miner_id = $1 
+				AND sl.sector_num = ANY($2)
+			GROUP BY sl.storage_id, sp.can_seal, sp.can_store, sp.urls
+			ORDER BY count DESC`, spid, faultySectorNums)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to query storage paths: %w", err)
+		}
+
+		pathStats = make([]StoragePathStat, 0, len(pathRows))
+		for _, p := range pathRows {
+			pathType := "None"
+			if p.CanSeal && p.CanStore {
+				pathType = "Seal/Store"
+			} else if p.CanSeal {
+				pathType = "Seal"
+			} else if p.CanStore {
+				pathType = "Store"
+			}
+
+			urls := strings.Split(p.Urls, paths.URLSeparator)
+			pathStats = append(pathStats, StoragePathStat{
+				StorageID: p.StorageID,
+				PathType:  pathType,
+				Urls:      urls,
+				Count:     p.Count,
+			})
+		}
+	}
+
+	return &PartitionDetail{
+		SpID:                   int64(spid),
+		SPAddress:              maddr.String(),
+		Deadline:               deadlineIdx,
+		Partition:              partitionIdx,
+		AllSectorsCount:        must.One(part.AllSectors.Count()),
+		FaultySectorsCount:     must.One(part.FaultySectors.Count()),
+		RecoveringSectorsCount: must.One(part.RecoveringSectors.Count()),
+		LiveSectorsCount:       must.One(part.LiveSectors.Count()),
+		ActiveSectorsCount:     must.One(part.ActiveSectors.Count()),
+		Sectors:                sectors,
+		FaultyStoragePaths:     pathStats,
+	}, nil
+}

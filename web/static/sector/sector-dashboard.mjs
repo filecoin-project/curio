@@ -288,6 +288,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
                                 <th>Faulty</th>
                                 <th>Recovering</th>
                                 <th>Post Sub.</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -307,6 +308,9 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
                                             ${hasChainData ? stat.recovering_sectors.toLocaleString() : '-'}
                                         </td>
                                         <td>${stat.post_submissions || '-'}</td>
+                                        <td>
+                                            <a href="/pages/deadline/?sp=${stat.sp_address}&deadline=${stat.deadline}">Details →</a>
+                                        </td>
                                     </tr>
                                 `;
                             })}
