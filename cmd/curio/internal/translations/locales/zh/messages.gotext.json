@@ -2901,6 +2901,12 @@
       "translation": "1. 使用以下命令测试您的 PDP 服务：pdptool ping --service-url https://your-domain.com --service-name public",
       "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
       "placeholder": null
+    },
+    {
+      "id": "Supra consensus testing utilities",
+      "translation": "超越共识测试工具",
+      "message": "Supra consensus testing utilities",
+      "placeholder": null
     }
   ]
 }

@@ -17,3 +17,7 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 func Decode(replica, key io.Reader, out io.Writer) error {
 	panic("Decode: cunative build tag not enabled")
 }
+
+func EncodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, data io.Reader, out io.Writer) error {
+	panic("EncodeSnap: cunative build tag not enabled")
+}

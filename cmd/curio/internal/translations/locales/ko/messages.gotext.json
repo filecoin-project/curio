@@ -2931,6 +2931,12 @@
       "translation": "PDP 지갑이 가져와졌습니다",
       "message": "PDP wallet imported",
       "placeholder": null
+    },
+    {
+      "id": "Supra consensus testing utilities",
+      "translation": "수프라 합의 테스트 유틸리티",
+      "message": "Supra consensus testing utilities",
+      "placeholder": null
     }
   ]
 }
