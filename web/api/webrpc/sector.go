@@ -1461,6 +1461,188 @@ func (a *WebRPC) SectorExpBucketDelete(ctx context.Context, lessThanDays int) er
 	return nil
 }
 
+// Sector Expiration Manager Presets API
+
+type SectorExpManagerPreset struct {
+	Name                    string `json:"name" db:"name"`
+	ActionType              string `json:"action_type" db:"action_type"`
+	InfoBucketAboveDays     int    `json:"info_bucket_above_days" db:"info_bucket_above_days"`
+	InfoBucketBelowDays     int    `json:"info_bucket_below_days" db:"info_bucket_below_days"`
+	TargetExpirationDays    *int64 `json:"target_expiration_days" db:"target_expiration_days"`
+	MaxCandidateDays        *int64 `json:"max_candidate_days" db:"max_candidate_days"`
+	TopUpCountLowWaterMark  *int64 `json:"top_up_count_low_water_mark" db:"top_up_count_low_water_mark"`
+	TopUpCountHighWaterMark *int64 `json:"top_up_count_high_water_mark" db:"top_up_count_high_water_mark"`
+	CC                      *bool  `json:"cc" db:"cc"`
+	DropClaims              bool   `json:"drop_claims" db:"drop_claims"`
+}
+
+func (a *WebRPC) SectorExpManagerPresets(ctx context.Context) ([]SectorExpManagerPreset, error) {
+	var presets []SectorExpManagerPreset
+	err := a.deps.DB.Select(ctx, &presets, `SELECT * FROM sectors_exp_manager_presets ORDER BY name`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration manager presets: %w", err)
+	}
+	return presets, nil
+}
+
+func (a *WebRPC) SectorExpManagerPresetAdd(ctx context.Context, preset SectorExpManagerPreset) error {
+	_, err := a.deps.DB.Exec(ctx, `
+		INSERT INTO sectors_exp_manager_presets 
+		(name, action_type, info_bucket_above_days, info_bucket_below_days, 
+		 target_expiration_days, max_candidate_days, 
+		 top_up_count_low_water_mark, top_up_count_high_water_mark, cc, drop_claims)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		preset.Name, preset.ActionType, preset.InfoBucketAboveDays, preset.InfoBucketBelowDays,
+		preset.TargetExpirationDays, preset.MaxCandidateDays,
+		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC, preset.DropClaims)
+	if err != nil {
+		return xerrors.Errorf("failed to add sector expiration manager preset: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerPresetUpdate(ctx context.Context, preset SectorExpManagerPreset) error {
+	_, err := a.deps.DB.Exec(ctx, `
+		UPDATE sectors_exp_manager_presets 
+		SET action_type = $2, info_bucket_above_days = $3, info_bucket_below_days = $4,
+		    target_expiration_days = $5, max_candidate_days = $6,
+		    top_up_count_low_water_mark = $7, top_up_count_high_water_mark = $8, 
+		    cc = $9, drop_claims = $10
+		WHERE name = $1`,
+		preset.Name, preset.ActionType, preset.InfoBucketAboveDays, preset.InfoBucketBelowDays,
+		preset.TargetExpirationDays, preset.MaxCandidateDays,
+		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC, preset.DropClaims)
+	if err != nil {
+		return xerrors.Errorf("failed to update sector expiration manager preset: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerPresetDelete(ctx context.Context, name string) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_exp_manager_presets WHERE name = $1`, name)
+	if err != nil {
+		return xerrors.Errorf("failed to delete sector expiration manager preset: %w", err)
+	}
+	return nil
+}
+
+// Sector Expiration Manager SP Assignments API
+
+type SectorExpManagerSP struct {
+	SpID                int64   `json:"sp_id" db:"sp_id"`
+	SPAddress           string  `json:"sp_address"`
+	PresetName          string  `json:"preset_name" db:"preset_name"`
+	Enabled             bool    `json:"enabled" db:"enabled"`
+	LastRunAt           *string `json:"last_run_at" db:"last_run_at"`
+	TaskID              *int64  `json:"task_id" db:"task_id"`
+	LastMessageCID      *string `json:"last_message_cid" db:"last_message_cid"`
+	LastMessageLandedAt *string `json:"last_message_landed_at" db:"last_message_landed_at"`
+}
+
+func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP, error) {
+	var rows []struct {
+		SpID                int64      `db:"sp_id"`
+		PresetName          string     `db:"preset_name"`
+		Enabled             bool       `db:"enabled"`
+		LastRunAt           NullTime   `db:"last_run_at"`
+		TaskID              NullInt64  `db:"task_id"`
+		LastMessageCID      NullString `db:"last_message_cid"`
+		LastMessageLandedAt NullTime   `db:"last_message_landed_at"`
+	}
+	err := a.deps.DB.Select(ctx, &rows, `SELECT * FROM sectors_exp_manager_sp ORDER BY sp_id, preset_name`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration manager SP assignments: %w", err)
+	}
+
+	result := make([]SectorExpManagerSP, 0, len(rows))
+	for _, r := range rows {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		item := SectorExpManagerSP{
+			SpID:       r.SpID,
+			SPAddress:  addr.String(),
+			PresetName: r.PresetName,
+			Enabled:    r.Enabled,
+		}
+		if r.LastRunAt.Valid {
+			t := r.LastRunAt.Time.Format("2006-01-02 15:04:05")
+			item.LastRunAt = &t
+		}
+		if r.TaskID.Valid {
+			item.TaskID = &r.TaskID.Int64
+		}
+		if r.LastMessageCID.Valid {
+			item.LastMessageCID = &r.LastMessageCID.String
+		}
+		if r.LastMessageLandedAt.Valid {
+			t := r.LastMessageLandedAt.Time.Format("2006-01-02 15:04:05")
+			item.LastMessageLandedAt = &t
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (a *WebRPC) SectorExpManagerSPAdd(ctx context.Context, spAddress string, presetName string) error {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		INSERT INTO sectors_exp_manager_sp (sp_id, preset_name, enabled)
+		VALUES ($1, $2, false)
+		ON CONFLICT (sp_id, preset_name) DO NOTHING`,
+		spid, presetName)
+	if err != nil {
+		return xerrors.Errorf("failed to add sector expiration manager SP assignment: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerSPToggle(ctx context.Context, spAddress string, presetName string, enabled bool) error {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		UPDATE sectors_exp_manager_sp SET enabled = $3
+		WHERE sp_id = $1 AND preset_name = $2`,
+		spid, presetName, enabled)
+	if err != nil {
+		return xerrors.Errorf("failed to toggle sector expiration manager SP assignment: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerSPDelete(ctx context.Context, spAddress string, presetName string) error {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		DELETE FROM sectors_exp_manager_sp 
+		WHERE sp_id = $1 AND preset_name = $2`,
+		spid, presetName)
+	if err != nil {
+		return xerrors.Errorf("failed to delete sector expiration manager SP assignment: %w", err)
+	}
+	return nil
+}
+
 type SectorExpBucketCount struct {
 	SpID         int64  `json:"sp_id" db:"sp_id"`
 	SPAddress    string `json:"sp_address"`
