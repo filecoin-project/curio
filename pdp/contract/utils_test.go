@@ -3,6 +3,7 @@ package contract
 import (
 	"bytes"
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -97,6 +98,53 @@ func TestDecodeAddressCapability_PadLeft(t *testing.T) {
 
 		if !bytes.Equal(got.Bytes(), want.Bytes()) {
 			t.Errorf("input %s → expected %s, got %s", tc.input, want.Hex(), got.Hex())
+		}
+	}
+}
+
+func TestOfferingToCapabilities_AdditionalHex(t *testing.T) {
+	offering := PDPOfferingData{
+		"https://pdp.example.com",
+		big.NewInt(32),
+		big.NewInt(0x1000000000000000),
+		false,
+		false,
+		[]byte{1, 1, 1, 1, 1, 1, 1, 1, 1},
+		big.NewInt(6000),
+		big.NewInt(30),
+		"narnia",
+		common.HexToAddress("0x0000000000004946c0e9F43F4Dee607b0eF1fA1c"),
+	}
+	additionalCaps := make(map[string]string)
+	additionalCaps["coolEndorsement"] = "0xccccaaaaddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddaaaacccc"
+	additionalCaps["owner"] = "0x4a6f6B9fF1fc974096f9063a45Fd12bD5B928AD1"
+	keys, values, err := OfferingToCapabilities(offering, additionalCaps)
+	if err != nil {
+		t.Errorf("OfferingToCapabilities returned error %s", err)
+	}
+	if len(keys) != len(values) {
+		t.Errorf("length mismatch: %d keys for %d values", len(keys), len(values))
+	}
+	capabilities := make(map[string][]byte)
+	for i := range len(keys) {
+		if len(keys[i]) == 0 {
+			t.Errorf("Got empty key at index %d", i)
+		}
+		if values[i] == nil {
+			t.Errorf("Got nil value for key %s", keys[i])
+		}
+		if _, contains := capabilities[keys[i]]; contains {
+			t.Errorf("Got duplicate key %s", keys[i])
+		}
+		capabilities[keys[i]] = values[i]
+	}
+	for key, valueStr := range additionalCaps {
+		if value, contains := capabilities[key]; !contains {
+			t.Errorf("keys: Missing '%s' key from additionalCaps", key)
+		} else if expectedLength := (len(valueStr) - 2) / 2; expectedLength != len(value) {
+			t.Errorf("Wrong length for hex capability '%s': expected %d actual %d", key, expectedLength, len(value))
+		} else if !bytes.Equal(value, mustHex(additionalCaps[key])) {
+			t.Errorf("Mismatching value for key '%s': expected %s actual 0x%x", key, valueStr, value)
 		}
 	}
 }

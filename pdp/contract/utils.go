@@ -112,7 +112,7 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 	for k, v := range additionalCaps {
 		keys = append(keys, k)
 		// try hexadecimal
-		if len(v)%2 == 0 && strings.HasPrefix(v, "0x") {
+		if len(v)%2 == 0 && len(v) > 3 && strings.HasPrefix(v, "0x") {
 			if decoded, err := hex.DecodeString(v[2:]); err == nil {
 				values = append(values, decoded)
 				continue
