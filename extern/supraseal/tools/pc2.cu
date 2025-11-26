@@ -70,6 +70,7 @@ void gpu_single_pc2(std::string config_filename,
   // Nodes to read per partition
   size_t nodes_to_read = P::GetNumNodes() / P::GetNumTreeRCFiles();
 
+  // Binaries use NVMe reader only
   streaming_node_reader_t<sealing_config_t<1, P>> node_reader(P::GetSectorSize(), layer_filenames);
 
   // Allocate storage for 2x the streams to support tree-c and tree-r
@@ -84,7 +85,7 @@ void gpu_single_pc2(std::string config_filename,
   }
   pc2_hash<sealing_config_t<1, P>>(
     topology, tree_r_only, node_reader, nodes_to_read, batch_size,
-    stream_count,data_filenames, output_dir.c_str());
+    stream_count, data_filenames, output_dir.c_str());
 }
 
 template<class P>

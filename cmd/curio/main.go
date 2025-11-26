@@ -72,6 +72,7 @@ func main() {
 		ffiCmd,
 		calcCmd,
 		toolboxCmd,
+		batchCmd,
 	}
 
 	jaeger := tracing.SetupJaegerTracing("curio")
