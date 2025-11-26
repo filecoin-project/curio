@@ -11,6 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -195,6 +197,13 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("flushing final batch: %w", err)
 	}
 
+	// Update verifreg claims
+	log.Info("starting verifreg claim crawl")
+	if err := s.updateVerifregClaims(ctx, astor, head.Key()); err != nil {
+		log.Errorw("failed to update verifreg claims", "error", err)
+		// Don't fail the entire task, just log the error
+	}
+
 	// Update the sectors_meta_updates table with current refresh info
 	tskBytes := head.Key().Bytes()
 	_, err = s.db.Exec(ctx, `
@@ -212,6 +221,225 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	log.Infow("completed sector metadata refresh", "epoch", head.Height(), "total_updates", total)
 
 	return true, nil
+}
+
+func (s *SectorMetadata) updateVerifregClaims(ctx context.Context, astor adt.Store, tsk types.TipSetKey) error {
+	// Get verifreg actor
+	verifregAct, err := s.api.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, tsk)
+	if err != nil {
+		return xerrors.Errorf("getting verifreg actor: %w", err)
+	}
+
+	verifregSt, err := verifreg.Load(astor, verifregAct)
+	if err != nil {
+		return xerrors.Errorf("loading verifreg state: %w", err)
+	}
+
+	// Get all unique SP IDs from sectors_meta
+	var spIDs []struct {
+		SpID uint64 `db:"sp_id"`
+	}
+	if err := s.db.Select(ctx, &spIDs, `SELECT DISTINCT sp_id FROM sectors_meta ORDER BY sp_id`); err != nil {
+		return xerrors.Errorf("getting sp ids: %w", err)
+	}
+
+	log.Infow("crawling verifreg claims", "sp_count", len(spIDs))
+
+	type claimUpdate struct {
+		SpID         uint64
+		SectorNum    uint64
+		MinClaimTerm *abi.ChainEpoch
+		MaxClaimTerm *abi.ChainEpoch
+	}
+
+	const batchSize = 1000
+	updateBatch := make([]claimUpdate, 0, batchSize)
+	totalUpdates := 0
+
+	flushClaimBatch := func() error {
+		if len(updateBatch) == 0 {
+			return nil
+		}
+
+		totalUpdates += len(updateBatch)
+		log.Infow("updating sector claims", "total", totalUpdates)
+
+		_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			batch := &pgx.Batch{}
+			for _, update := range updateBatch {
+				if update.MinClaimTerm != nil && update.MaxClaimTerm != nil {
+					batch.Queue("UPDATE sectors_meta SET min_claim_epoch = $1, max_claim_epoch = $2 WHERE sp_id = $3 AND sector_num = $4",
+						int64(*update.MinClaimTerm), int64(*update.MaxClaimTerm), update.SpID, update.SectorNum)
+				} else {
+					// Clear claims if sector no longer has any
+					batch.Queue("UPDATE sectors_meta SET min_claim_epoch = NULL, max_claim_epoch = NULL WHERE sp_id = $1 AND sector_num = $2",
+						update.SpID, update.SectorNum)
+				}
+			}
+
+			br := tx.SendBatch(ctx, batch)
+			defer func() {
+				_ = br.Close()
+			}()
+
+			for i := 0; i < batch.Len(); i++ {
+				_, err := br.Exec()
+				if err != nil {
+					return false, xerrors.Errorf("executing batch update %d: %w", i, err)
+				}
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		return err
+	}
+
+	// Process each SP
+	for _, sp := range spIDs {
+		maddr, err := address.NewIDAddress(sp.SpID)
+		if err != nil {
+			log.Warnw("invalid sp id", "sp_id", sp.SpID, "error", err)
+			continue
+		}
+
+		// Get claim IDs by sector for this miner
+		claimIdsBySector, err := verifregSt.GetClaimIdsBySector(maddr)
+		if err != nil {
+			log.Warnw("failed to get claim IDs by sector", "sp_id", sp.SpID, "error", err)
+			continue
+		}
+
+		if len(claimIdsBySector) == 0 {
+			// No claims for this SP
+			continue
+		}
+
+		// Get all claims for this miner
+		claimsMap, err := verifregSt.GetClaims(maddr)
+		if err != nil {
+			log.Warnw("failed to get claims", "sp_id", sp.SpID, "error", err)
+			continue
+		}
+
+		// Get all sectors for this SP
+		var sectors []struct {
+			SectorNum uint64  `db:"sector_num"`
+			MinClaim  *uint64 `db:"min_claim_epoch"`
+			MaxClaim  *uint64 `db:"max_claim_epoch"`
+		}
+		if err := s.db.Select(ctx, &sectors, `SELECT sector_num, min_claim_epoch, max_claim_epoch FROM sectors_meta WHERE sp_id = $1`, sp.SpID); err != nil {
+			log.Warnw("failed to get sectors", "sp_id", sp.SpID, "error", err)
+			continue
+		}
+
+		// Build a map of existing claim data
+		existingClaims := make(map[uint64]struct {
+			min *uint64
+			max *uint64
+		})
+		for _, sector := range sectors {
+			existingClaims[sector.SectorNum] = struct {
+				min *uint64
+				max *uint64
+			}{min: sector.MinClaim, max: sector.MaxClaim}
+		}
+
+		// Calculate claim terms for each sector
+		for sectorNum, claimIds := range claimIdsBySector {
+			if len(claimIds) == 0 {
+				// If sector previously had claims but now doesn't, clear them
+				existing := existingClaims[uint64(sectorNum)]
+				if existing.min != nil || existing.max != nil {
+					updateBatch = append(updateBatch, claimUpdate{
+						SpID:         sp.SpID,
+						SectorNum:    uint64(sectorNum),
+						MinClaimTerm: nil,
+						MaxClaimTerm: nil,
+					})
+				}
+				continue
+			}
+
+			var minTermEnd *abi.ChainEpoch
+			var maxTermEnd *abi.ChainEpoch
+
+			for _, claimId := range claimIds {
+				claim, ok := claimsMap[claimId]
+				if !ok {
+					log.Warnw("claim not found in map", "sp_id", sp.SpID, "sector", sectorNum, "claim_id", claimId)
+					continue
+				}
+
+				termEnd := claim.TermStart + claim.TermMax
+				if minTermEnd == nil || termEnd < *minTermEnd {
+					minTermEnd = &termEnd
+				}
+				if maxTermEnd == nil || termEnd > *maxTermEnd {
+					maxTermEnd = &termEnd
+				}
+			}
+
+			if minTermEnd == nil || maxTermEnd == nil {
+				continue
+			}
+
+			// Check if we need to update
+			existing := existingClaims[uint64(sectorNum)]
+			needsUpdate := false
+			if existing.min == nil || existing.max == nil {
+				needsUpdate = true
+			} else if uint64(*minTermEnd) != *existing.min || uint64(*maxTermEnd) != *existing.max {
+				needsUpdate = true
+			}
+
+			if needsUpdate {
+				updateBatch = append(updateBatch, claimUpdate{
+					SpID:         sp.SpID,
+					SectorNum:    uint64(sectorNum),
+					MinClaimTerm: minTermEnd,
+					MaxClaimTerm: maxTermEnd,
+				})
+
+				if len(updateBatch) >= batchSize {
+					if err := flushClaimBatch(); err != nil {
+						return xerrors.Errorf("flushing claim batch: %w", err)
+					}
+					updateBatch = updateBatch[:0]
+				}
+			}
+		}
+
+		// Check for sectors that had claims but no longer do
+		for sectorNum, existing := range existingClaims {
+			if existing.min == nil && existing.max == nil {
+				continue // Already has no claims
+			}
+
+			if _, hasClaimsNow := claimIdsBySector[abi.SectorNumber(sectorNum)]; !hasClaimsNow {
+				updateBatch = append(updateBatch, claimUpdate{
+					SpID:         sp.SpID,
+					SectorNum:    sectorNum,
+					MinClaimTerm: nil,
+					MaxClaimTerm: nil,
+				})
+
+				if len(updateBatch) >= batchSize {
+					if err := flushClaimBatch(); err != nil {
+						return xerrors.Errorf("flushing claim batch: %w", err)
+					}
+					updateBatch = updateBatch[:0]
+				}
+			}
+		}
+	}
+
+	// Flush any remaining claim updates
+	if err := flushClaimBatch(); err != nil {
+		return xerrors.Errorf("flushing final claim batch: %w", err)
+	}
+
+	log.Infow("completed verifreg claim crawl", "total_updates", totalUpdates)
+	return nil
 }
 
 func (s *SectorMetadata) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
