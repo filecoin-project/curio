@@ -656,7 +656,6 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                         <th>Status</th>
                         <th>Enabled</th>
                         <th>Last Run</th>
-                        <th>Task</th>
                         <th>Last Message</th>
                         <th>Actions</th>
                     </tr>
@@ -689,11 +688,6 @@ customElements.define('sector-exp-manager', class SectorExpManager extends LitEl
                                     />
                                 </td>
                                 <td style="white-space: nowrap;">${assignment.last_run_at || '-'}</td>
-                                <td style="white-space: nowrap;">
-                                    ${assignment.task_id 
-                                        ? html`<cu-task task_id="${assignment.task_id}"></cu-task>`
-                                        : '-'}
-                                </td>
                                 <td style="white-space: nowrap;">
                                     ${assignment.last_message_cid
                                         ? html`<fil-message cid="${assignment.last_message_cid}"></fil-message>`

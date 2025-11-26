@@ -28,6 +28,7 @@ var log = logging.Logger("metadata")
 const SectorMetadataRefreshInterval = 191 * time.Minute
 
 type SectorMetadataNodeAPI interface {
+	ChainHead(ctx context.Context) (*types.TipSet, error)
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tok types.TipSetKey) (*miner.SectorLocation, error)
 }
@@ -49,6 +50,25 @@ func NewSectorMetadataTask(db *harmonydb.DB, bstore curiochain.CurioBlockstore, 
 
 func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
+
+	// Get last refresh info
+	var lastRefresh []struct {
+		LastRefreshAt    *time.Time `db:"last_refresh_at"`
+		LastRefreshEpoch *int64     `db:"last_refresh_epoch"`
+		LastRefreshTsk   []byte     `db:"last_refresh_tsk"`
+	}
+	if err := s.db.Select(ctx, &lastRefresh, "SELECT last_refresh_at, last_refresh_epoch, last_refresh_tsk FROM sectors_meta_updates LIMIT 1"); err != nil {
+		return false, xerrors.Errorf("getting last refresh info: %w", err)
+	}
+
+	if len(lastRefresh) > 0 && lastRefresh[0].LastRefreshAt != nil {
+		log.Infow("starting sector metadata refresh", "last_refresh_at", lastRefresh[0].LastRefreshAt, "last_refresh_epoch", lastRefresh[0].LastRefreshEpoch)
+	}
+
+	head, err := s.api.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("getting chain head: %w", err)
+	}
 
 	var sectors []struct {
 		SpID      uint64 `db:"sp_id"`
@@ -118,7 +138,7 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 
 		mstate, ok := minerStates[abi.ActorID(sector.SpID)]
 		if !ok {
-			act, err := s.api.StateGetActor(ctx, maddr, types.EmptyTSK)
+			act, err := s.api.StateGetActor(ctx, maddr, head.Key())
 			if err != nil {
 				return false, xerrors.Errorf("getting miner actor: %w", err)
 			}
@@ -147,7 +167,7 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		}
 
 		if sector.Partition == nil || sector.Deadline == nil {
-			loc, err := s.api.StateSectorPartition(ctx, maddr, abi.SectorNumber(sector.SectorNum), types.EmptyTSK)
+			loc, err := s.api.StateSectorPartition(ctx, maddr, abi.SectorNumber(sector.SectorNum), head.Key())
 			if err != nil {
 				return false, xerrors.Errorf("getting sector partition: %w", err)
 			}
@@ -174,6 +194,22 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	if err := flushBatch(); err != nil {
 		return false, xerrors.Errorf("flushing final batch: %w", err)
 	}
+
+	// Update the sectors_meta_updates table with current refresh info
+	tskBytes := head.Key().Bytes()
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO sectors_meta_updates (singleton, last_refresh_at, last_refresh_epoch, last_refresh_tsk)
+		VALUES (FALSE, CURRENT_TIMESTAMP, $1, $2)
+		ON CONFLICT (singleton) DO UPDATE 
+		SET last_refresh_at = CURRENT_TIMESTAMP,
+		    last_refresh_epoch = $1,
+		    last_refresh_tsk = $2
+	`, int64(head.Height()), tskBytes)
+	if err != nil {
+		return false, xerrors.Errorf("updating sectors_meta_updates: %w", err)
+	}
+
+	log.Infow("completed sector metadata refresh", "epoch", head.Height(), "total_updates", total)
 
 	return true, nil
 }

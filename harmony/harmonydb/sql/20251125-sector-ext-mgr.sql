@@ -1,3 +1,11 @@
+CREATE TABLE IF NOT EXISTS sectors_meta_updates (
+    singleton BOOLEAN NOT NULL DEFAULT FALSE CHECK (singleton = FALSE),
+
+    last_refresh_at TIMESTAMP WITH TIME ZONE,
+    last_refresh_epoch BIGINT,
+    last_refresh_tsk BYTEA
+);
+
 CREATE TABLE IF NOT EXISTS sectors_exp_buckets (
     less_than_days INT NOT NULL PRIMARY KEY
 );
@@ -51,7 +59,6 @@ CREATE TABLE IF NOT EXISTS sectors_exp_manager_sp (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
 
     last_run_at TIMESTAMP WITH TIME ZONE,
-    task_id BIGINT,
 
     last_message_cid TEXT,
     last_message_landed_at TIMESTAMP WITH TIME ZONE,

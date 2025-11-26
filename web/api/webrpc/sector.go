@@ -1534,7 +1534,6 @@ type SectorExpManagerSP struct {
 	PresetName          string  `json:"preset_name" db:"preset_name"`
 	Enabled             bool    `json:"enabled" db:"enabled"`
 	LastRunAt           *string `json:"last_run_at" db:"last_run_at"`
-	TaskID              *int64  `json:"task_id" db:"task_id"`
 	LastMessageCID      *string `json:"last_message_cid" db:"last_message_cid"`
 	LastMessageLandedAt *string `json:"last_message_landed_at" db:"last_message_landed_at"`
 }
@@ -1545,7 +1544,6 @@ func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP,
 		PresetName          string     `db:"preset_name"`
 		Enabled             bool       `db:"enabled"`
 		LastRunAt           NullTime   `db:"last_run_at"`
-		TaskID              NullInt64  `db:"task_id"`
 		LastMessageCID      NullString `db:"last_message_cid"`
 		LastMessageLandedAt NullTime   `db:"last_message_landed_at"`
 	}
@@ -1566,9 +1564,6 @@ func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP,
 		if r.LastRunAt.Valid {
 			t := r.LastRunAt.Time.Format("2006-01-02 15:04:05")
 			item.LastRunAt = &t
-		}
-		if r.TaskID.Valid {
-			item.TaskID = &r.TaskID.Int64
 		}
 		if r.LastMessageCID.Valid {
 			item.LastMessageCID = &r.LastMessageCID.String
