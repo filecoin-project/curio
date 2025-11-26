@@ -86,6 +86,14 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 				closer()
 				continue
 			}
+		} else if build.BuildType == build.BuildLocalnet {
+			// For localnet builds, accept any network with "local" prefix
+			if !strings.HasPrefix(string(networkName), "local") {
+				clog.Warnf("Network mismatch for node %s: binary built for localnet but node is on %s",
+					head.addr, networkName)
+				closer()
+				continue
+			}
 		}
 
 		fullNodes = append(fullNodes, v1api)

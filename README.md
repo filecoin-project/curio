@@ -86,6 +86,17 @@ One way to get started with Curio Storage, follow these steps:
     curio guided-setup
     ```
 
+### Building for Different Networks
+
+Curio supports multiple network configurations through build tags:
+
+- **Mainnet** (default): `make clean all`
+- **Calibnet**: `go build -tags calibnet -o curio ./cmd/curio`
+- **Localnet**: `go build -tags localnet -o curio ./cmd/curio` - [Localnet Setup Guide](documentation/en/localnet-setup.md)
+- **2k sectors**: `go build -tags 2k -o curio ./cmd/curio`
+
+For detailed instructions on configuring Curio for local development networks, see the [Localnet Setup Guide](documentation/en/localnet-setup.md).
+
 ## Community and Support
 
 Join our community discussions and seek support via:
