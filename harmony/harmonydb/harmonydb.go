@@ -327,8 +327,46 @@ retry:
 //go:embed sql
 var fs embed.FS
 
+//go:embed revert
+var revertFS embed.FS
+
 var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
 
+// RevertTo reverts the database schema to a previous date (when an upgrade was applied).
+// Note: these dates (YYYYMMDD) are not the SQL date but the date the user did an upgrade.
+func (db *DB) RevertTo(ctx context.Context, date string) error {
+	// Is the date good?
+	dateNum, err := strconv.Atoi(date)
+	if err != nil {
+		return xerrors.Errorf("invalid date: %s", date)
+	}
+	if dateNum < 2000_01_01 || dateNum > 2099_12_31 {
+		return xerrors.Errorf("invalid date: %d", date)
+	}
+	// Ensure all SQL files after that date have a corresponding revert file
+	var toRevert []string
+	err = db.Select(ctx, &toRevert, "SELECT entry FROM base WHERE applied >= $1 ORDER by entry DESC", date)
+	if err != nil {
+		return xerrors.Errorf("cannot select to revert: %w", err)
+	}
+
+	// Ensure all SQL files after that date have a corresponding revert file
+	for _, file := range toRevert {
+		if _, err := revertFS.ReadFile("revert/" + file + ".sql"); err != nil {
+			return xerrors.Errorf("cannot find/read revert file for %s: %w", file, err)
+		}
+	}
+	for _, file := range toRevert {
+		if err := applySqlFile(db, revertFS, file+".sql"); err != nil {
+			return xerrors.Errorf("cannot apply revert file for %s. Start server to advance to this known state. Err: %w", file, err)
+		}
+		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1", file[:8])
+		if err != nil {
+			return xerrors.Errorf("cannot delete from base: %w", err)
+		}
+	}
+	return nil
+}
 func (db *DB) upgrade() error {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
@@ -383,29 +421,9 @@ func (db *DB) upgrade() error {
 		}
 
 		logger.Infow("Upgrading", "file", name, "size", len(file))
-
-		megaSql := ""
-		for _, s := range parseSQLStatements(string(file)) { // Implement the changes.
-			if len(strings.TrimSpace(s)) == 0 {
-				continue
-			}
-			trimmed := strings.TrimSpace(s)
-			// Only add semicolon if the statement doesn't already end with one
-			if !strings.HasSuffix(trimmed, ";") {
-				megaSql += s + ";"
-			} else {
-				megaSql += s
-			}
-		}
-		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
-		if err != nil {
-			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
-			logger.Error(msg)
-			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
-		}
-
-		if ITestUpgradeFunc != nil {
-			ITestUpgradeFunc(db.pgx, name, megaSql)
+		if err := applySqlFile(db, fs, "sql/"+name); err != nil {
+			logger.Error("Cannot apply sql file: " + err.Error())
+			return err
 		}
 
 		// Mark Completed.
@@ -453,4 +471,40 @@ func parseSQLStatements(sqlContent string) []string {
 	}
 
 	return statements
+}
+
+func applySqlFile(db *DB, fs embed.FS, path string) error {
+	file, err := fs.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var megaSQL strings.Builder
+	for _, statement := range parseSQLStatements(string(file)) {
+		trimmed := strings.TrimSpace(statement)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasSuffix(trimmed, ";") {
+			megaSQL.WriteString(statement)
+			megaSQL.WriteString(";")
+		} else {
+			megaSQL.WriteString(statement)
+		}
+	}
+
+	if megaSQL.Len() == 0 {
+		return nil
+	}
+
+	_, err = db.Exec(context.Background(), rawStringOnly(megaSQL.String()))
+	if err != nil {
+		return xerrors.Errorf("cannot apply sql file: %w", err)
+	}
+
+	if ITestUpgradeFunc != nil {
+		ITestUpgradeFunc(db.pgx, path[:8], megaSQL.String())
+	}
+
+	return err
 }

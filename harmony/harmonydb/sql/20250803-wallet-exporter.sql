@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS wallet_exporter_processing (
     processed_until TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
+DELETE FROM wallet_exporter_processing WHERE singleton = TRUE;
 INSERT INTO wallet_exporter_processing (singleton) VALUES (TRUE);
 
 -- presence of a message in this table means that we've already accounted the basic send
