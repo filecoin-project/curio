@@ -20,7 +20,7 @@ import (
 
 var log = logging.Logger("expmgr")
 
-const ExpMgrInterval = 100 * time.Minute
+const ExpMgrInterval = 60 * time.Minute
 
 const MaxExtendsPerMessage = 10_000
 

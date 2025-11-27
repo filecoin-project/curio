@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"golang.org/x/xerrors"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -502,39 +504,69 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 		"target_epoch", bucketBelowEpoch,
 		"worker", mi.Worker)
 
-	// Estimate gas for the message
-	msg, err := e.buildExtendMessage(ctx, maddr, mi.Worker, &params)
+	// Build and estimate gas for messages (handles splitting if needed)
+	// Create a minimal config just for logging in buildExtendMessage
+	extCfg := extendPresetConfig{
+		Name: cfg.Name,
+		SpID: cfg.SpID,
+	}
+	msgs, err := e.buildExtendMessage(ctx, extCfg, maddr, mi.Worker, &params)
 	if err != nil {
-		return false, xerrors.Errorf("building extend message: %w", err)
+		return false, xerrors.Errorf("building extend messages: %w", err)
 	}
 
-	estimatedGas, err := e.chain.GasEstimateMessageGas(ctx, msg, nil, types.EmptyTSK)
-	if err != nil {
-		log.Errorw("failed to estimate gas",
-			"preset", cfg.Name,
-			"sp_id", cfg.SpID,
-			"error", err)
-		// Continue anyway to log what we would do
-	} else {
-		log.Infow("gas estimation",
-			"preset", cfg.Name,
-			"sp_id", cfg.SpID,
-			"gas_limit", estimatedGas.GasLimit,
-			"gas_fee_cap", types.FIL(estimatedGas.GasFeeCap).Short(),
-			"max_fee", types.FIL(estimatedGas.RequiredFunds()).Short())
+	log.Infow("prepared top-up messages",
+		"preset", cfg.Name,
+		"sp_id", cfg.SpID,
+		"message_count", len(msgs))
+
+	// Send all messages
+	mss := &api.MessageSendSpec{
+		MaxFee:         abi.TokenAmount(MaxExtendMsgFee),
+		MaximizeFeeCap: true,
 	}
 
-	// TODO: If gas estimation fails with out-of-gas, split message in half and retry
+	var sentCids []cid.Cid
+	for i, msg := range msgs {
+		msgCid, err := e.sender.Send(ctx, msg, mss, fmt.Sprintf("expmgr-top-up-%s", cfg.Name))
+		if err != nil {
+			return false, xerrors.Errorf("sending message %d: %w", i, err)
+		}
 
-	// Update the database to record we evaluated this
+		sentCids = append(sentCids, msgCid)
+
+		// Insert into message_waits
+		_, err = e.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, msgCid.String())
+		if err != nil {
+			return false, xerrors.Errorf("inserting message %d into message_waits: %w", i, err)
+		}
+
+		log.Infow("sent top-up message",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"message_index", i+1,
+			"total_messages", len(msgs),
+			"msg_cid", msgCid,
+			"worker", mi.Worker,
+			"miner", maddr)
+	}
+
+	// Update the database with the first message CID (trigger will update last_message_landed_at when it lands)
 	_, err = e.db.Exec(ctx, `
 		UPDATE sectors_exp_manager_sp
-		SET last_run_at = CURRENT_TIMESTAMP
-		WHERE sp_id = $1 AND preset_name = $2
-	`, cfg.SpID, cfg.Name)
+		SET last_message_cid = $2,
+		    last_run_at = CURRENT_TIMESTAMP
+		WHERE sp_id = $1 AND preset_name = $3
+	`, cfg.SpID, sentCids[0].String(), cfg.Name)
 	if err != nil {
-		return false, xerrors.Errorf("updating last_run_at: %w", err)
+		return false, xerrors.Errorf("updating sectors_exp_manager_sp: %w", err)
 	}
+
+	log.Infow("completed top-up action",
+		"preset", cfg.Name,
+		"sp_id", cfg.SpID,
+		"total_messages_sent", len(sentCids),
+		"tracked_message_cid", sentCids[0].String())
 
 	return true, nil
 }

@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS sectors_meta_updates (
-    singleton BOOLEAN NOT NULL DEFAULT FALSE CHECK (singleton = FALSE),
+    singleton BOOLEAN PRIMARY KEY NOT NULL DEFAULT FALSE CHECK (singleton = FALSE),
 
     last_refresh_at TIMESTAMP WITH TIME ZONE,
     last_refresh_epoch BIGINT,

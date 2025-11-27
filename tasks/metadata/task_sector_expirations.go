@@ -27,7 +27,7 @@ import (
 
 var log = logging.Logger("metadata")
 
-const SectorMetadataRefreshInterval = 191 * time.Minute
+const SectorMetadataRefreshInterval = 15 * time.Minute
 
 type SectorMetadataNodeAPI interface {
 	ChainHead(ctx context.Context) (*types.TipSet, error)

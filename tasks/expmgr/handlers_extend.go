@@ -3,7 +3,9 @@ package expmgr
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"golang.org/x/xerrors"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
@@ -21,6 +24,10 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+const MaxExtendMsgGasLimit = 7_000_000_000
+
+var MaxExtendMsgFee = types.MustParseFIL("0.5 FIL")
 
 type SectorMeta struct {
 	SectorNum  uint64 `db:"sector_num"`
@@ -454,58 +461,207 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 		"total_sectors", totalSectors,
 		"extensions", len(extensions),
 		"target_epoch", targetExpEpoch,
-		"params", params,
 		"worker", mi.Worker)
 
-	// Estimate gas for the message
-	msg, err := e.buildExtendMessage(ctx, maddr, mi.Worker, &params)
+	// Build and estimate gas for messages (handles splitting if needed)
+	msgs, err := e.buildExtendMessage(ctx, cfg, maddr, mi.Worker, &params)
 	if err != nil {
-		return false, xerrors.Errorf("building extend message: %w", err)
+		return false, xerrors.Errorf("building extend messages: %w", err)
 	}
 
-	estimatedGas, err := e.chain.GasEstimateMessageGas(ctx, msg, nil, types.EmptyTSK)
-	if err != nil {
-		log.Errorw("failed to estimate gas",
-			"preset", cfg.Name,
-			"sp_id", cfg.SpID,
-			"error", err)
-		// Continue anyway to log what we would do
-	} else {
-		log.Infow("gas estimation",
-			"preset", cfg.Name,
-			"sp_id", cfg.SpID,
-			"gas_limit", estimatedGas.GasLimit,
-			"gas_fee_cap", types.FIL(estimatedGas.GasFeeCap).Short(),
-			"max_fee", types.FIL(estimatedGas.RequiredFunds()).Short())
+	log.Infow("prepared extension messages",
+		"preset", cfg.Name,
+		"sp_id", cfg.SpID,
+		"message_count", len(msgs))
+
+	// Send all messages
+	mss := &api.MessageSendSpec{
+		MaxFee:         abi.TokenAmount(MaxExtendMsgFee),
+		MaximizeFeeCap: true,
 	}
 
-	// TODO: If gas estimation fails with out-of-gas, split message in half and retry
+	var sentCids []cid.Cid
+	for i, msg := range msgs {
+		msgCid, err := e.sender.Send(ctx, msg, mss, fmt.Sprintf("expmgr-extend-%s", cfg.Name))
+		if err != nil {
+			return false, xerrors.Errorf("sending message %d: %w", i, err)
+		}
 
-	// Update the database to record we evaluated this
+		sentCids = append(sentCids, msgCid)
+
+		// Insert into message_waits
+		_, err = e.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, msgCid.String())
+		if err != nil {
+			return false, xerrors.Errorf("inserting message %d into message_waits: %w", i, err)
+		}
+
+		log.Infow("sent extension message",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"message_index", i+1,
+			"total_messages", len(msgs),
+			"msg_cid", msgCid,
+			"worker", mi.Worker,
+			"miner", maddr)
+	}
+
+	// Update the database with the first message CID (trigger will update last_message_landed_at when it lands)
 	_, err = e.db.Exec(ctx, `
 		UPDATE sectors_exp_manager_sp
-		SET last_run_at = CURRENT_TIMESTAMP
-		WHERE sp_id = $1 AND preset_name = $2
-	`, cfg.SpID, cfg.Name)
+		SET last_message_cid = $2,
+		    last_run_at = CURRENT_TIMESTAMP
+		WHERE sp_id = $1 AND preset_name = $3
+	`, cfg.SpID, sentCids[0].String(), cfg.Name)
 	if err != nil {
-		return false, xerrors.Errorf("updating last_run_at: %w", err)
+		return false, xerrors.Errorf("updating sectors_exp_manager_sp: %w", err)
 	}
+
+	log.Infow("completed extend action",
+		"preset", cfg.Name,
+		"sp_id", cfg.SpID,
+		"total_messages_sent", len(sentCids),
+		"tracked_message_cid", sentCids[0].String())
 
 	return true, nil
 }
 
-func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, maddr, worker address.Address, params *miner.ExtendSectorExpiration2Params) (*types.Message, error) {
+func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, cfg extendPresetConfig, maddr, worker address.Address, params *miner.ExtendSectorExpiration2Params) ([]*types.Message, error) {
+	var err error
 	sp, err := actors.SerializeParams(params)
 	if err != nil {
 		return nil, xerrors.Errorf("serializing params: %w", err)
 	}
 
-	return &types.Message{
+	msg := &types.Message{
 		From:   worker,
 		To:     maddr,
 		Method: builtin.MethodsMiner.ExtendSectorExpiration2,
 		Value:  big.Zero(),
 		Params: sp,
+	}
+
+	estimatedGas, err := e.chain.GasEstimateMessageGas(ctx, msg, nil, types.EmptyTSK)
+	if err != nil {
+		if strings.Contains(err.Error(), "call ran out of gas") || (err == nil && estimatedGas.GasLimit > MaxExtendMsgGasLimit) {
+			// Split params and recursively build messages
+			log.Infow("message out of gas, splitting",
+				"preset", cfg.Name,
+				"sp_id", cfg.SpID)
+
+			splitParamsList, err := splitParams(params)
+			if err != nil {
+				return nil, xerrors.Errorf("splitting params: %w", err)
+			}
+
+			var allMessages []*types.Message
+			for i, splitParams := range splitParamsList {
+				msgs, err := e.buildExtendMessage(ctx, cfg, maddr, worker, splitParams)
+				if err != nil {
+					return nil, xerrors.Errorf("building split message %d: %w", i, err)
+				}
+				allMessages = append(allMessages, msgs...)
+			}
+
+			log.Infow("successfully split message",
+				"preset", cfg.Name,
+				"sp_id", cfg.SpID,
+				"resulting_messages", len(allMessages))
+
+			return allMessages, nil
+		}
+
+		return nil, xerrors.Errorf("failed to estimate gas: %w", err)
+	}
+
+	log.Infow("gas estimation passed",
+		"preset", cfg.Name,
+		"sp_id", cfg.SpID,
+		"extensions", params.Extensions,
+		"gas_limit", estimatedGas.GasLimit,
+		"gas_fee_cap", types.FIL(estimatedGas.GasFeeCap).Short(),
+		"max_fee", types.FIL(estimatedGas.RequiredFunds()).Short())
+
+	return []*types.Message{msg}, nil
+}
+
+func splitParams(params *miner.ExtendSectorExpiration2Params) ([]*miner.ExtendSectorExpiration2Params, error) {
+	if len(params.Extensions) == 0 {
+		return nil, xerrors.Errorf("no extensions to split")
+	}
+
+	if len(params.Extensions) == 1 {
+		// Only one extension - split by sectors within it
+		ext := params.Extensions[0]
+
+		// Convert sectors bitfield to slice
+		var sectorNums []abi.SectorNumber
+		err := ext.Sectors.ForEach(func(i uint64) error {
+			sectorNums = append(sectorNums, abi.SectorNumber(i))
+			return nil
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("iterating sectors bitfield: %w", err)
+		}
+
+		if len(sectorNums) < 2 {
+			return nil, xerrors.Errorf("cannot split single sector")
+		}
+
+		mid := len(sectorNums) / 2
+
+		// Split SectorsWithClaims based on sector numbers
+		claims1 := make([]miner.SectorClaim, 0)
+		claims2 := make([]miner.SectorClaim, 0)
+
+		sectorSet1 := make(map[abi.SectorNumber]bool)
+		for _, sn := range sectorNums[:mid] {
+			sectorSet1[sn] = true
+		}
+
+		for _, claim := range ext.SectorsWithClaims {
+			if sectorSet1[claim.SectorNumber] {
+				claims1 = append(claims1, claim)
+			} else {
+				claims2 = append(claims2, claim)
+			}
+		}
+
+		return []*miner.ExtendSectorExpiration2Params{
+			{
+				Extensions: []miner.ExpirationExtension2{
+					{
+						Deadline:          ext.Deadline,
+						Partition:         ext.Partition,
+						Sectors:           sectorNumsToBitfield(sectorNums[:mid]),
+						SectorsWithClaims: claims1,
+						NewExpiration:     ext.NewExpiration,
+					},
+				},
+			},
+			{
+				Extensions: []miner.ExpirationExtension2{
+					{
+						Deadline:          ext.Deadline,
+						Partition:         ext.Partition,
+						Sectors:           sectorNumsToBitfield(sectorNums[mid:]),
+						SectorsWithClaims: claims2,
+						NewExpiration:     ext.NewExpiration,
+					},
+				},
+			},
+		}, nil
+	}
+
+	// Multiple extensions - split them in half
+	mid := len(params.Extensions) / 2
+
+	return []*miner.ExtendSectorExpiration2Params{
+		{
+			Extensions: params.Extensions[:mid],
+		},
+		{
+			Extensions: params.Extensions[mid:],
+		},
 	}, nil
 }
 
