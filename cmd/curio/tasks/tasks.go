@@ -37,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
+	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -109,7 +110,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	sender, sendTask := message.NewSender(full, full, db, cfg.Fees.MaximizeFeeCap)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
-	activeTasks = append(activeTasks, sendTask, balanceMgrTask)
+	expmgrTask := expmgr.NewExpMgrTask(db, full, chainSched, sender)
+	activeTasks = append(activeTasks, sendTask, balanceMgrTask, expmgrTask)
 	dependencies.Sender = sender
 
 	// paramfetch
