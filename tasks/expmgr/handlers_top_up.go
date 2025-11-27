@@ -115,15 +115,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 		return false, nil
 	}
 
-	var sectors []struct {
-		SectorNum  uint64 `db:"sector_num"`
-		Expiration int64  `db:"expiration_epoch"`
-		Deadline   uint64 `db:"deadline"`
-		Partition  uint64 `db:"partition"`
-		IsCC       bool   `db:"is_cc"`
-		MinClaim   *int64 `db:"min_claim_epoch"`
-		MaxClaim   *int64 `db:"max_claim_epoch"`
-	}
+	var sectors []SectorMeta
 
 	// Select sectors expiring before the bucket lower bound
 	// Use pre-crawled claim data to filter sectors:
@@ -231,13 +223,22 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 		return false, xerrors.Errorf("loading miner state: %w", err)
 	}
 
-	// Only load verifreg state if we need to drop claims
-	// Check if any sector has claims that might need dropping
-	var needsClaimProcessing bool
-	if cfg.DropClaims {
+	// Check if we need to load verifreg state (for validation or claim processing)
+	var needsVerifregState bool
+
+	// Need verifreg if any sector has claims in DB (for validation)
+	for _, s := range sectors {
+		if s.MinClaim != nil || s.MaxClaim != nil {
+			needsVerifregState = true
+			break
+		}
+	}
+
+	// Also need verifreg if we're dropping claims
+	if !needsVerifregState && cfg.DropClaims {
 		for _, s := range sectors {
 			if s.MaxClaim != nil && abi.ChainEpoch(*s.MaxClaim) < bucketBelowEpoch {
-				needsClaimProcessing = true
+				needsVerifregState = true
 				break
 			}
 		}
@@ -246,8 +247,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	var claimsMap map[verifreg.ClaimId]verifreg.Claim
 	var claimIdsBySector map[abi.SectorNumber][]verifreg.ClaimId
 
-	if needsClaimProcessing {
-		// Get verifreg state for claim handling
+	if needsVerifregState {
+		// Get verifreg state (used for both validation and claim processing)
 		verifregAct, err := e.chain.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
 		if err != nil {
 			return false, xerrors.Errorf("getting verifreg actor: %w", err)
@@ -268,7 +269,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			return false, xerrors.Errorf("getting claim IDs by sector: %w", err)
 		}
 
-		log.Infow("loaded verifreg state for claim processing",
+		log.Infow("loaded verifreg state",
 			"preset", cfg.Name,
 			"sp_id", cfg.SpID,
 			"total_claims", len(claimsMap))
@@ -347,6 +348,16 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 					dbSector = s
 					break
 				}
+			}
+
+			// Validate sector metadata against on-chain state
+			if err := validateSectorAgainstChain(sn, dbSector, si, claimsMap, claimIdsBySector); err != nil {
+				log.Errorw("sector metadata validation failed, bailing for this SP",
+					"preset", cfg.Name,
+					"sp_id", cfg.SpID,
+					"sector", sn,
+					"error", err)
+				return true, nil
 			}
 
 			// Handle claims using pre-crawled data
