@@ -59,7 +59,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	bucketAboveEpoch := currEpoch + abi.ChainEpoch(cfg.InfoBucketAboveDays*epochsPerDay)
 	bucketBelowEpoch := currEpoch + abi.ChainEpoch(cfg.InfoBucketBelowDays*epochsPerDay)
 
-	// Count sectors in the target bucket
+	// Count sectors in the target bucket (exclude sectors in snap pipeline or with open pieces)
 	var count struct {
 		Count int64 `db:"count"`
 	}
@@ -67,21 +67,25 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	if cfg.CC != nil {
 		err = e.db.QueryRow(ctx, `
 			SELECT COUNT(*) as count
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND is_cc = $4`,
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.is_cc = $4
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)`,
 			cfg.SpID, int64(bucketAboveEpoch), int64(bucketBelowEpoch), *cfg.CC).Scan(&count.Count)
 	} else {
 		err = e.db.QueryRow(ctx, `
 			SELECT COUNT(*) as count
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3`,
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)`,
 			cfg.SpID, int64(bucketAboveEpoch), int64(bucketBelowEpoch)).Scan(&count.Count)
 	}
 	if err != nil {
@@ -121,66 +125,75 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	// Use pre-crawled claim data to filter sectors:
 	// - If drop_claims=false: exclude sectors where min_claim_epoch < bucket_below_epoch
 	// - If drop_claims=true: include sectors, we'll check max_claim_epoch later
+	// Exclude sectors in snap pipeline or with open pieces (not yet finalized)
 
 	// Use conditional queries based on CC filter and drop_claims setting
 	if cfg.CC != nil && !cfg.DropClaims {
 		// CC filter + claim filter
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			  AND is_cc = $4
-			  AND (min_claim_epoch IS NULL OR min_claim_epoch > $5)
-			ORDER BY expiration_epoch ASC, deadline, partition, sector_num
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND sm.is_cc = $4
+			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $5)
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
 			LIMIT $6`,
 			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), *cfg.CC, int64(bucketBelowEpoch), needCount)
 	} else if cfg.CC != nil && cfg.DropClaims {
 		// CC filter only
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			  AND is_cc = $4
-			ORDER BY expiration_epoch ASC, deadline, partition, sector_num
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND sm.is_cc = $4
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
 			LIMIT $5`,
 			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), *cfg.CC, needCount)
 	} else if cfg.CC == nil && !cfg.DropClaims {
 		// Claim filter only
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			  AND (min_claim_epoch IS NULL OR min_claim_epoch > $4)
-			ORDER BY expiration_epoch ASC, deadline, partition, sector_num
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $4)
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
 			LIMIT $5`,
 			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), int64(bucketBelowEpoch), needCount)
 	} else {
 		// No filters
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			ORDER BY expiration_epoch ASC, deadline, partition, sector_num
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.expiration_epoch ASC, sm.deadline, sm.partition, sm.sector_num
 			LIMIT $4`,
 			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), needCount)
 	}

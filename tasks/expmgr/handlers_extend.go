@@ -78,61 +78,70 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	var sectors []SectorMeta
 
 	// Use conditional queries based on CC filter and drop_claims setting
+	// Exclude sectors in snap pipeline or with open pieces (not yet finalized)
 	if cfg.CC != nil && !cfg.DropClaims {
 		// CC filter + claim filter
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			  AND is_cc = $4
-			  AND (min_claim_epoch IS NULL OR min_claim_epoch > $5)
-			ORDER BY deadline, partition, sector_num`,
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND sm.is_cc = $4
+			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $5)
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.deadline, sm.partition, sm.sector_num`,
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch), *cfg.CC, int64(targetExpEpoch))
 	} else if cfg.CC != nil && cfg.DropClaims {
 		// CC filter only
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			  AND is_cc = $4
-			ORDER BY deadline, partition, sector_num`,
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND sm.is_cc = $4
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.deadline, sm.partition, sm.sector_num`,
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch), *cfg.CC)
 	} else if cfg.CC == nil && !cfg.DropClaims {
 		// Claim filter only
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			  AND (min_claim_epoch IS NULL OR min_claim_epoch > $4)
-			ORDER BY deadline, partition, sector_num`,
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $4)
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.deadline, sm.partition, sm.sector_num`,
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch), int64(targetExpEpoch))
 	} else {
 		// No filters
 		err = e.db.Select(ctx, &sectors, `
-			SELECT sector_num, expiration_epoch, deadline, partition, is_cc, min_claim_epoch, max_claim_epoch
-			FROM sectors_meta
-			WHERE sp_id = $1
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $2
-			  AND expiration_epoch < $3
-			  AND deadline IS NOT NULL
-			  AND partition IS NOT NULL
-			ORDER BY deadline, partition, sector_num`,
+			SELECT sm.sector_num, sm.expiration_epoch, sm.deadline, sm.partition, sm.is_cc, sm.min_claim_epoch, sm.max_claim_epoch
+			FROM sectors_meta sm
+			WHERE sm.sp_id = $1
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $2
+			  AND sm.expiration_epoch < $3
+			  AND sm.deadline IS NOT NULL
+			  AND sm.partition IS NOT NULL
+			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)
+			ORDER BY sm.deadline, sm.partition, sm.sector_num`,
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch))
 	}
 	if err != nil {

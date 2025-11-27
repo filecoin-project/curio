@@ -109,13 +109,16 @@ BEGIN
     IF v_preset.action_type = 'extend' THEN
         -- For 'extend': Check if ANY sector expires in the info bucket range
         -- Also filter by CC if specified
+        -- Exclude sectors in snap pipeline or with open pieces
         SELECT COUNT(*) INTO v_count
-        FROM sectors_meta
-        WHERE sp_id = p_sp_id
-          AND expiration_epoch IS NOT NULL
-          AND expiration_epoch > v_bucket_above_epoch
-          AND expiration_epoch < v_bucket_below_epoch
-          AND (v_preset.cc IS NULL OR is_cc = v_preset.cc);
+        FROM sectors_meta sm
+        WHERE sm.sp_id = p_sp_id
+          AND sm.expiration_epoch IS NOT NULL
+          AND sm.expiration_epoch > v_bucket_above_epoch
+          AND sm.expiration_epoch < v_bucket_below_epoch
+          AND (v_preset.cc IS NULL OR sm.is_cc = v_preset.cc)
+          AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+          AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num);
         
         -- If any sector found in range, condition is met (needs extension)
         RETURN v_count > 0;
@@ -123,13 +126,16 @@ BEGIN
     ELSIF v_preset.action_type = 'top_up' THEN
         -- For 'top_up': Count sectors in the info bucket range
         -- Also filter by CC if specified
+        -- Exclude sectors in snap pipeline or with open pieces
         SELECT COUNT(*) INTO v_count
-        FROM sectors_meta
-        WHERE sp_id = p_sp_id
-          AND expiration_epoch IS NOT NULL
-          AND expiration_epoch > v_bucket_above_epoch
-          AND expiration_epoch < v_bucket_below_epoch
-          AND (v_preset.cc IS NULL OR is_cc = v_preset.cc);
+        FROM sectors_meta sm
+        WHERE sm.sp_id = p_sp_id
+          AND sm.expiration_epoch IS NOT NULL
+          AND sm.expiration_epoch > v_bucket_above_epoch
+          AND sm.expiration_epoch < v_bucket_below_epoch
+          AND (v_preset.cc IS NULL OR sm.is_cc = v_preset.cc)
+          AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
+          AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num);
         
         -- If count below low water mark, condition is met (needs top-up)
         RETURN v_count < COALESCE(v_preset.top_up_count_low_water_mark, 0);
