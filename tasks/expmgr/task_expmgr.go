@@ -5,6 +5,7 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -47,15 +48,19 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		LastRefreshAt *time.Time `db:"last_refresh_at"`
 	}
 	err = e.db.QueryRow(ctx, `SELECT last_refresh_at FROM sectors_meta_updates LIMIT 1`).Scan(&lastRefresh.LastRefreshAt)
-	if err != nil && err.Error() != "no rows in result set" {
+	if err != nil && err != pgx.ErrNoRows {
 		return false, xerrors.Errorf("getting last metadata refresh: %w", err)
 	}
+	if lastRefresh.LastRefreshAt == nil {
+		log.Warnw("no last refresh time, skipping expiration manager task", "task_id", taskID)
+		return true, nil
+	}
 
-	// Query enabled SP/preset combinations
+	// Query enabled SP/preset combinations with SP-level constraints
 	// Only process entries where:
 	// - enabled = true
-	// - last_message_cid is NULL OR last_message_landed_at is NOT NULL (previous message completed)
-	// - last_message_landed_at < sectors_meta_updates.last_refresh_at OR last_message_cid is NULL (metadata is fresh)
+	// - NO preset for this SP has a pending message (last_message_cid IS NOT NULL AND last_message_landed_at IS NULL)
+	// - The most recent landed message for this SP is older than the last metadata refresh (or no messages sent yet)
 	var assignments []struct {
 		SpID       int64  `db:"sp_id"`
 		PresetName string `db:"preset_name"`
@@ -71,45 +76,36 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		DropClaims              bool   `db:"drop_claims"`
 	}
 
-	if lastRefresh.LastRefreshAt != nil {
-		err = e.db.Select(ctx, &assignments, `
+	err = e.db.Select(ctx, &assignments, `
+		WITH sp_message_status AS (
 			SELECT 
-				sp.sp_id,
-				sp.preset_name,
-				p.action_type,
-				p.info_bucket_above_days,
-				p.info_bucket_below_days,
-				p.target_expiration_days,
-				p.max_candidate_days,
-				p.top_up_count_low_water_mark,
-				p.top_up_count_high_water_mark,
-				p.cc,
-				p.drop_claims
-			FROM sectors_exp_manager_sp sp
-			INNER JOIN sectors_exp_manager_presets p ON sp.preset_name = p.name
-			WHERE sp.enabled = true
-			  AND (sp.last_message_cid IS NULL OR sp.last_message_landed_at IS NOT NULL)
-			  AND (sp.last_message_landed_at IS NULL OR sp.last_message_landed_at < $1)`,
-			lastRefresh.LastRefreshAt)
-	} else {
-		err = e.db.Select(ctx, &assignments, `
-			SELECT 
-				sp.sp_id,
-				sp.preset_name,
-				p.action_type,
-				p.info_bucket_above_days,
-				p.info_bucket_below_days,
-				p.target_expiration_days,
-				p.max_candidate_days,
-				p.top_up_count_low_water_mark,
-				p.top_up_count_high_water_mark,
-				p.cc,
-				p.drop_claims
-			FROM sectors_exp_manager_sp sp
-			INNER JOIN sectors_exp_manager_presets p ON sp.preset_name = p.name
-			WHERE sp.enabled = true
-			  AND (sp.last_message_cid IS NULL OR sp.last_message_landed_at IS NOT NULL)`)
-	}
+				sp_id,
+				MAX(last_message_landed_at) as max_landed_at,
+				BOOL_OR(last_message_cid IS NOT NULL AND last_message_landed_at IS NULL) as has_pending_message
+			FROM sectors_exp_manager_sp
+			WHERE enabled = true
+			GROUP BY sp_id
+		)
+		SELECT 
+			sp.sp_id,
+			sp.preset_name,
+			p.action_type,
+			p.info_bucket_above_days,
+			p.info_bucket_below_days,
+			p.target_expiration_days,
+			p.max_candidate_days,
+			p.top_up_count_low_water_mark,
+			p.top_up_count_high_water_mark,
+			p.cc,
+			p.drop_claims
+		FROM sectors_exp_manager_sp sp
+		INNER JOIN sectors_exp_manager_presets p ON sp.preset_name = p.name
+		INNER JOIN sp_message_status sms ON sp.sp_id = sms.sp_id
+		WHERE sp.enabled = true
+		  AND NOT sms.has_pending_message
+		  AND (sms.max_landed_at IS NULL OR sms.max_landed_at < $1)
+		ORDER BY sp.sp_id, sp.preset_name`,
+		lastRefresh.LastRefreshAt)
 
 	if err != nil {
 		return false, xerrors.Errorf("querying enabled assignments: %w", err)
@@ -128,8 +124,20 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
 
-	// Process each assignment
+	// Track which SPs we've processed to ensure we only process one assignment per SP
+	// This prevents sending multiple extension messages for the same SP in a single run
+	processedSPs := make(map[int64]bool)
+
+	// Process each assignment (already ordered by sp_id, preset_name)
 	for _, assignment := range assignments {
+		// Skip if we've already processed an assignment for this SP in this run
+		if processedSPs[assignment.SpID] {
+			log.Infow("skipping assignment, SP already processed in this run",
+				"sp_id", assignment.SpID,
+				"preset", assignment.PresetName)
+			continue
+		}
+
 		log.Infow("processing assignment",
 			"sp_id", assignment.SpID,
 			"preset", assignment.PresetName,
@@ -161,6 +169,7 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			"action_type", assignment.ActionType)
 
 		// Dispatch to appropriate handler based on action type
+		var processed bool
 		switch assignment.ActionType {
 		case "extend":
 			if assignment.TargetExpirationDays == nil || assignment.MaxCandidateDays == nil {
@@ -170,7 +179,7 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 				continue
 			}
 
-			err = e.handleExtend(ctx, extendPresetConfig{
+			processed, err = e.handleExtend(ctx, extendPresetConfig{
 				Name:                 assignment.PresetName,
 				SpID:                 assignment.SpID,
 				InfoBucketAboveDays:  assignment.InfoBucketAboveDays,
@@ -189,7 +198,7 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 				continue
 			}
 
-			err = e.handleTopUp(ctx, topUpPresetConfig{
+			processed, err = e.handleTopUp(ctx, topUpPresetConfig{
 				Name:                    assignment.PresetName,
 				SpID:                    assignment.SpID,
 				InfoBucketAboveDays:     assignment.InfoBucketAboveDays,
@@ -217,6 +226,12 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			// Continue processing other assignments
 			continue
 		}
+
+		// Mark this SP as processed to skip any further assignments for it in this run
+		processedSPs[assignment.SpID] = processed
+		log.Infow("marked SP as processed",
+			"sp_id", assignment.SpID,
+			"preset", assignment.PresetName)
 	}
 
 	log.Infow("completed expiration manager task", "task_id", taskID)

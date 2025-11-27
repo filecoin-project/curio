@@ -33,7 +33,7 @@ type extendPresetConfig struct {
 	DropClaims           bool
 }
 
-func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) error {
+func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (bool, error) {
 	log.Infow("handling extend preset",
 		"preset", cfg.Name,
 		"sp_id", cfg.SpID,
@@ -43,18 +43,18 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 
 	head, err := e.chain.ChainHead(ctx)
 	if err != nil {
-		return xerrors.Errorf("getting chain head: %w", err)
+		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
 	currEpoch := head.Height()
 
 	nv, err := e.chain.StateNetworkVersion(ctx, types.EmptyTSK)
 	if err != nil {
-		return xerrors.Errorf("getting network version: %w", err)
+		return false, xerrors.Errorf("getting network version: %w", err)
 	}
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
 	if err != nil {
-		return xerrors.Errorf("getting max extension: %w", err)
+		return false, xerrors.Errorf("getting max extension: %w", err)
 	}
 
 	const epochsPerDay = 2880
@@ -134,7 +134,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 			cfg.SpID, int64(currEpoch), int64(maxCandidateEpoch))
 	}
 	if err != nil {
-		return xerrors.Errorf("querying candidate sectors: %w", err)
+		return false, xerrors.Errorf("querying candidate sectors: %w", err)
 	}
 
 	log.Infow("found candidate sectors",
@@ -144,31 +144,31 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 
 	if len(sectors) == 0 {
 		log.Infow("no sectors to extend", "preset", cfg.Name, "sp_id", cfg.SpID)
-		return nil
+		return false, nil
 	}
 
 	maddr, err := address.NewIDAddress(uint64(cfg.SpID))
 	if err != nil {
-		return xerrors.Errorf("creating miner address: %w", err)
+		return false, xerrors.Errorf("creating miner address: %w", err)
 	}
 
 	// Get miner info for max lifetime calculations
 	mi, err := e.chain.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
-		return xerrors.Errorf("getting miner info: %w", err)
+		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
 
 	// Load actor state for sector info
 	mact, err := e.chain.StateGetActor(ctx, maddr, types.EmptyTSK)
 	if err != nil {
-		return xerrors.Errorf("getting miner actor: %w", err)
+		return false, xerrors.Errorf("getting miner actor: %w", err)
 	}
 
 	tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(e.chain), blockstore.NewMemory())
 	adtStore := adt.WrapStore(ctx, cbor.NewCborStore(tbs))
 	mas, err := miner.Load(adtStore, mact)
 	if err != nil {
-		return xerrors.Errorf("loading miner state: %w", err)
+		return false, xerrors.Errorf("loading miner state: %w", err)
 	}
 
 	// Only load verifreg state if we need to drop claims
@@ -190,22 +190,22 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 		// Get verifreg state for claim handling
 		verifregAct, err := e.chain.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
 		if err != nil {
-			return xerrors.Errorf("getting verifreg actor: %w", err)
+			return false, xerrors.Errorf("getting verifreg actor: %w", err)
 		}
 
 		verifregSt, err := verifreg.Load(adtStore, verifregAct)
 		if err != nil {
-			return xerrors.Errorf("loading verifreg state: %w", err)
+			return false, xerrors.Errorf("loading verifreg state: %w", err)
 		}
 
 		claimsMap, err = verifregSt.GetClaims(maddr)
 		if err != nil {
-			return xerrors.Errorf("getting claims: %w", err)
+			return false, xerrors.Errorf("getting claims: %w", err)
 		}
 
 		claimIdsBySector, err = verifregSt.GetClaimIdsBySector(maddr)
 		if err != nil {
-			return xerrors.Errorf("getting claim IDs by sector: %w", err)
+			return false, xerrors.Errorf("getting claim IDs by sector: %w", err)
 		}
 
 		log.Infow("loaded verifreg state for claim processing",
@@ -270,6 +270,10 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 			newExp := targetExpEpoch
 			maxLifetime := si.Activation + maxExtension
 			if newExp > maxLifetime {
+				log.Warnw("new expiration is greater than max lifetime",
+					"sector", sn,
+					"new_expiration", newExp,
+					"max_lifetime", maxLifetime)
 				newExp = maxLifetime
 			}
 
@@ -407,7 +411,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 
 	if len(extensions) == 0 {
 		log.Infow("no sectors can be extended after filtering", "preset", cfg.Name, "sp_id", cfg.SpID)
-		return nil
+		return false, nil
 	}
 
 	params := miner.ExtendSectorExpiration2Params{
@@ -420,12 +424,13 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 		"total_sectors", totalSectors,
 		"extensions", len(extensions),
 		"target_epoch", targetExpEpoch,
+		"params", params,
 		"worker", mi.Worker)
 
 	// Estimate gas for the message
 	msg, err := e.buildExtendMessage(ctx, maddr, mi.Worker, &params)
 	if err != nil {
-		return xerrors.Errorf("building extend message: %w", err)
+		return false, xerrors.Errorf("building extend message: %w", err)
 	}
 
 	estimatedGas, err := e.chain.GasEstimateMessageGas(ctx, msg, nil, types.EmptyTSK)
@@ -453,10 +458,10 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) e
 		WHERE sp_id = $1 AND preset_name = $2
 	`, cfg.SpID, cfg.Name)
 	if err != nil {
-		return xerrors.Errorf("updating last_run_at: %w", err)
+		return false, xerrors.Errorf("updating last_run_at: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, maddr, worker address.Address, params *miner.ExtendSectorExpiration2Params) (*types.Message, error) {

@@ -31,7 +31,7 @@ type topUpPresetConfig struct {
 	DropClaims              bool
 }
 
-func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) error {
+func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bool, error) {
 	log.Infow("handling top_up preset",
 		"preset", cfg.Name,
 		"sp_id", cfg.SpID,
@@ -41,18 +41,18 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 
 	head, err := e.chain.ChainHead(ctx)
 	if err != nil {
-		return xerrors.Errorf("getting chain head: %w", err)
+		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
 	currEpoch := head.Height()
 
 	nv, err := e.chain.StateNetworkVersion(ctx, types.EmptyTSK)
 	if err != nil {
-		return xerrors.Errorf("getting network version: %w", err)
+		return false, xerrors.Errorf("getting network version: %w", err)
 	}
 
 	maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
 	if err != nil {
-		return xerrors.Errorf("getting max extension: %w", err)
+		return false, xerrors.Errorf("getting max extension: %w", err)
 	}
 
 	const epochsPerDay = 2880
@@ -85,7 +85,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 			cfg.SpID, int64(bucketAboveEpoch), int64(bucketBelowEpoch)).Scan(&count.Count)
 	}
 	if err != nil {
-		return xerrors.Errorf("counting sectors in bucket: %w", err)
+		return false, xerrors.Errorf("counting sectors in bucket: %w", err)
 	}
 
 	log.Infow("bucket count",
@@ -100,11 +100,20 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 			"preset", cfg.Name,
 			"sp_id", cfg.SpID,
 			"count", count.Count)
-		return nil
+		return false, nil
 	}
 
 	// Need to top up - select sectors from expiring sooner than the bucket
 	needCount := cfg.TopUpCountHighWaterMark - count.Count
+	if needCount <= 0 {
+		log.Infow("no sectors needed for top-up",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"count", count.Count,
+			"low_water_mark", cfg.TopUpCountLowWaterMark,
+			"high_water_mark", cfg.TopUpCountHighWaterMark)
+		return false, nil
+	}
 
 	var sectors []struct {
 		SectorNum  uint64 `db:"sector_num"`
@@ -184,7 +193,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 			cfg.SpID, int64(currEpoch), int64(bucketAboveEpoch), needCount)
 	}
 	if err != nil {
-		return xerrors.Errorf("querying sectors for top-up: %w", err)
+		return false, xerrors.Errorf("querying sectors for top-up: %w", err)
 	}
 
 	log.Infow("found sectors for top-up",
@@ -195,31 +204,31 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 
 	if len(sectors) == 0 {
 		log.Infow("no sectors available for top-up", "preset", cfg.Name, "sp_id", cfg.SpID)
-		return nil
+		return false, nil
 	}
 
 	maddr, err := address.NewIDAddress(uint64(cfg.SpID))
 	if err != nil {
-		return xerrors.Errorf("creating miner address: %w", err)
+		return false, xerrors.Errorf("creating miner address: %w", err)
 	}
 
 	// Get miner info
 	mi, err := e.chain.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
-		return xerrors.Errorf("getting miner info: %w", err)
+		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
 
 	// Load actor state for sector info
 	mact, err := e.chain.StateGetActor(ctx, maddr, types.EmptyTSK)
 	if err != nil {
-		return xerrors.Errorf("getting miner actor: %w", err)
+		return false, xerrors.Errorf("getting miner actor: %w", err)
 	}
 
 	tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(e.chain), blockstore.NewMemory())
 	adtStore := adt.WrapStore(ctx, cbor.NewCborStore(tbs))
 	mas, err := miner.Load(adtStore, mact)
 	if err != nil {
-		return xerrors.Errorf("loading miner state: %w", err)
+		return false, xerrors.Errorf("loading miner state: %w", err)
 	}
 
 	// Only load verifreg state if we need to drop claims
@@ -241,22 +250,22 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 		// Get verifreg state for claim handling
 		verifregAct, err := e.chain.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
 		if err != nil {
-			return xerrors.Errorf("getting verifreg actor: %w", err)
+			return false, xerrors.Errorf("getting verifreg actor: %w", err)
 		}
 
 		verifregSt, err := verifreg.Load(adtStore, verifregAct)
 		if err != nil {
-			return xerrors.Errorf("loading verifreg state: %w", err)
+			return false, xerrors.Errorf("loading verifreg state: %w", err)
 		}
 
 		claimsMap, err = verifregSt.GetClaims(maddr)
 		if err != nil {
-			return xerrors.Errorf("getting claims: %w", err)
+			return false, xerrors.Errorf("getting claims: %w", err)
 		}
 
 		claimIdsBySector, err = verifregSt.GetClaimIdsBySector(maddr)
 		if err != nil {
-			return xerrors.Errorf("getting claim IDs by sector: %w", err)
+			return false, xerrors.Errorf("getting claim IDs by sector: %w", err)
 		}
 
 		log.Infow("loaded verifreg state for claim processing",
@@ -454,7 +463,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 
 	if len(extensions) == 0 {
 		log.Infow("no sectors can be extended for top-up after filtering", "preset", cfg.Name, "sp_id", cfg.SpID)
-		return nil
+		return false, nil
 	}
 
 	params := miner.ExtendSectorExpiration2Params{
@@ -472,7 +481,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 	// Estimate gas for the message
 	msg, err := e.buildExtendMessage(ctx, maddr, mi.Worker, &params)
 	if err != nil {
-		return xerrors.Errorf("building extend message: %w", err)
+		return false, xerrors.Errorf("building extend message: %w", err)
 	}
 
 	estimatedGas, err := e.chain.GasEstimateMessageGas(ctx, msg, nil, types.EmptyTSK)
@@ -500,8 +509,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) err
 		WHERE sp_id = $1 AND preset_name = $2
 	`, cfg.SpID, cfg.Name)
 	if err != nil {
-		return xerrors.Errorf("updating last_run_at: %w", err)
+		return false, xerrors.Errorf("updating last_run_at: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
