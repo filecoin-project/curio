@@ -351,10 +351,15 @@ func (db *DB) RevertTo(ctx context.Context, date string) error {
 	}
 
 	// Ensure all SQL files after that date have a corresponding revert file
+	allGood := true
 	for _, file := range toRevert {
 		if _, err := revertFS.ReadFile("revert/" + file + ".sql"); err != nil {
-			return xerrors.Errorf("cannot find/read revert file for %s: %w", file, err)
+			allGood = false
+			logger.Error("cannot find/read revert file for %s. Start server to advance to this known state. Err: %w", file, err)
 		}
+	}
+	if !allGood {
+		return xerrors.New("cannot revert to date: some revert files are missing")
 	}
 	for _, file := range toRevert {
 		if err := applySqlFile(db, revertFS, file+".sql"); err != nil {
