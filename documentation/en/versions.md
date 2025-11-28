@@ -36,6 +36,11 @@ Configurations and the number of machines needed: A: Lotus, Curio (numerous), Yu
 * Curio's DEBs include curio-cuda (for Nvidia) and curio-opencl (others like ATI).
   * These can be mixed in a Curio cluster as they only relate to the hardware on the box.
 
+## Database Schema Versions
+* When the latest Curio starts-up, it applies any upgrades & migrations to Yugabyte's schema.
+* This may cause errors on other nodes in your cluster that run the old version (low likelihood), which has the simple solution of completing the upgrade.
+* If, however, the upgrade has a serious bug and you need to downgrade, "curio cli downgrade --last_good_date=20250515"
+
 ## Notes
 
 * Forest (0.19+ & Docker Watchtower) is a light alternative to Lotus Client. It meets Curio's needs, but Boost compatibility is in development.
