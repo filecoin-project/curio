@@ -41,7 +41,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg *config.Dynamic[[]string])
 	connections := map[string]api.Chain{}
 	var closers []jsonrpc.ClientCloser
 	var existingConnectionsMutex sync.Mutex
-	var fullNodes *config.Dynamic[[]api.Chain]
+	var fullNodes = config.NewDynamic([]api.Chain{})
 
 	var addresses []string
 	updateDynamic := func() error {
