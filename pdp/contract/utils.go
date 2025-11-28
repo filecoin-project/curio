@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -23,10 +22,11 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
-	"github.com/filecoin-project/lotus/api"
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
@@ -36,7 +36,7 @@ var log = logging.Logger("pdp-contract")
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
 // It uses the view contract address if available, otherwise uses the listener address directly.
-func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethclient.Client) (*IPDPProvingSchedule, error) {
+func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient bind.ContractBackend) (*IPDPProvingSchedule, error) {
 	// Try to get the view contract address from the listener
 	provingScheduleAddr := listenerAddr
 
@@ -77,7 +77,7 @@ func ServiceRegistryAddress() (common.Address, error) {
 	}
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (uint64, error) {
+func FSRegister(ctx context.Context, db *harmonydb.DB, full lapi.FullNode, ethClient api.EthClientInterface, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (uint64, error) {
 	if len(name) > 128 {
 		return 0, xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -246,7 +246,7 @@ func getSender(ctx context.Context, db *harmonydb.DB) (common.Address, address.A
 	return sender, fSender, privateKey, nil
 }
 
-func createSignedTransaction(ctx context.Context, ethClient *ethclient.Client, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
+func createSignedTransaction(ctx context.Context, ethClient api.EthClientInterface, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
 	msg := ethereum.CallMsg{
 		From:  from,
 		To:    &to,
@@ -280,7 +280,7 @@ func createSignedTransaction(ctx context.Context, ethClient *ethclient.Client, p
 	}
 
 	// Calculate GasFeeCap (maxFeePerGas)
-	gasFeeCap := big.NewInt(0).Add(baseFee, gasTipCap)
+	gasFeeCap := mbig.NewInt(0).Add(baseFee, gasTipCap)
 
 	chainID, err := ethClient.NetworkID(ctx)
 	if err != nil {
@@ -314,7 +314,7 @@ func createSignedTransaction(ctx context.Context, ethClient *ethclient.Client, p
 	return signedTx, nil
 }
 
-func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient *ethclient.Client) (string, error) {
+func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient api.EthClientInterface) (string, error) {
 	if len(name) > 128 {
 		return "", xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -360,7 +360,7 @@ func FSUpdateProvider(ctx context.Context, name, description string, db *harmony
 	return signedTx.Hash().String(), nil
 }
 
-func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (string, error) {
+func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient api.EthClientInterface, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (string, error) {
 	var keys, values []string
 	for k, v := range capabilities {
 		keys = append(keys, k)

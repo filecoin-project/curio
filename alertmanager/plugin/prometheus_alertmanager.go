@@ -60,7 +60,7 @@ func (p *PrometheusAlertManager) SendAlert(data *AlertPayload) error {
 	if err != nil {
 		return fmt.Errorf("error marshaling JSON: %w", err)
 	}
-	req, err := http.NewRequest("POST", p.cfg.AlertManagerURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", p.cfg.AlertManagerURL.Get(), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
