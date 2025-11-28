@@ -57,6 +57,7 @@ COMMANDS:
    cordon        Cordon a machine, set it to maintenance mode
    uncordon      Uncordon a machine, resume scheduling
    index-sample  Provides a sample of CIDs from an indexed piece
+   downgrade     Downgrade a cluster's daatabase to a previous software version.
    help, h       Shows a list of commands or help for one command
 
 OPTIONS:
@@ -336,6 +337,22 @@ USAGE:
 OPTIONS:
    --json      output in json format (default: false)
    --help, -h  show help
+```
+
+### curio cli downgrade
+```
+NAME:
+   curio cli downgrade - Downgrade a cluster's daatabase to a previous software version.
+
+USAGE:
+   curio cli downgrade [command options]
+
+DESCRIPTION:
+   If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.
+
+OPTIONS:
+   --last_good_date value  YYYYMMDD when your cluster had the preferred schema. Ex: 20251128 (default: 0)
+   --help, -h              show help
 ```
 
 ## curio run

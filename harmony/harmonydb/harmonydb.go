@@ -334,18 +334,14 @@ var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
 
 // RevertTo reverts the database schema to a previous date (when an upgrade was applied).
 // Note: these dates (YYYYMMDD) are not the SQL date but the date the user did an upgrade.
-func (db *DB) RevertTo(ctx context.Context, date string) error {
+func (db *DB) RevertTo(ctx context.Context, dateNum int) error {
 	// Is the date good?
-	dateNum, err := strconv.Atoi(date)
-	if err != nil {
-		return xerrors.Errorf("invalid date: %s", date)
-	}
 	if dateNum < 2000_01_01 || dateNum > 2099_12_31 {
-		return xerrors.Errorf("invalid date: %d", date)
+		return xerrors.Errorf("invalid date: %d", dateNum)
 	}
 	// Ensure all SQL files after that date have a corresponding revert file
 	var toRevert []string
-	err = db.Select(ctx, &toRevert, "SELECT entry FROM base WHERE applied >= $1 ORDER by entry DESC", date)
+	err := db.Select(ctx, &toRevert, "SELECT entry FROM base WHERE applied >= $1 ORDER by entry DESC", strconv.Itoa(dateNum))
 	if err != nil {
 		return xerrors.Errorf("cannot select to revert: %w", err)
 	}
