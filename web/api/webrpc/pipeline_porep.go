@@ -42,14 +42,14 @@ type PipelineTask struct {
 	AfterSynthetic   bool       `db:"after_synth"`       // 1 byte
 	StartedSynthetic bool       `db:"started_synthetic"` // 1 byte
 	// Cache line 4 (bytes 192-256): PreCommit stage
-	PreCommitReadyAt         *time.Time  `db:"precommit_ready_at"`          // 32 bytes
-	TaskPrecommitMsg         NullInt64 `db:"task_id_precommit_msg"`       // 16 bytes
-	AfterPrecommitMsg        bool      `db:"after_precommit_msg"`         // 1 byte
-	StartedPrecommitMsg      bool      `db:"started_precommit_msg"`       // 1 byte
-	AfterPrecommitMsgSuccess bool      `db:"after_precommit_msg_success"` // 1 byte
+	PreCommitReadyAt         *time.Time `db:"precommit_ready_at"`          // 32 bytes
+	TaskPrecommitMsg         NullInt64  `db:"task_id_precommit_msg"`       // 16 bytes
+	AfterPrecommitMsg        bool       `db:"after_precommit_msg"`         // 1 byte
+	StartedPrecommitMsg      bool       `db:"started_precommit_msg"`       // 1 byte
+	AfterPrecommitMsgSuccess bool       `db:"after_precommit_msg_success"` // 1 byte
 	// Cache line 5 (bytes 256-320): PreCommit CID and SeedEpoch
 	PreCommitMsgCid NullString `db:"precommit_msg_cid"` // 24 bytes
-	SeedEpoch       *int64  `db:"seed_epoch"`        // 16 bytes
+	SeedEpoch       *int64     `db:"seed_epoch"`        // 16 bytes
 	// PoRep stage (accessed together)
 	TaskPoRep    NullInt64 `db:"task_id_porep"` // 16 bytes
 	AfterPoRep   bool      `db:"after_porep"`   // 1 byte
