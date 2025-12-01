@@ -180,7 +180,6 @@ a:hover {
 .table-dark tbody td {
     padding: 0.5rem;
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
     vertical-align: middle;
 }
 
