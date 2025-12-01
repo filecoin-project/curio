@@ -293,19 +293,18 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 				continue
 			}
 
-			// Calculate new expiration (clamped to max lifetime)
-			newExp := targetExpEpoch
+			// Check if target expiration exceeds sector's max lifetime
 			maxLifetime := si.Activation + maxExtension
-			if newExp > maxLifetime {
-				log.Warnw("new expiration is greater than max lifetime",
+			if targetExpEpoch > maxLifetime {
+				log.Warnw("skipping sector: target expiration exceeds max lifetime",
 					"sector", sn,
-					"new_expiration", newExp,
+					"target_expiration", targetExpEpoch,
 					"max_lifetime", maxLifetime)
-				newExp = maxLifetime
+				continue
 			}
 
 			// Skip if new expiration is not significantly different
-			if newExp <= si.Expiration || (newExp-si.Expiration) < 7*epochsPerDay {
+			if targetExpEpoch <= si.Expiration || (targetExpEpoch-si.Expiration) < 7*epochsPerDay {
 				continue
 			}
 
@@ -345,12 +344,12 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 				log.Warnw("sector with short claims in non-drop-claims mode",
 					"sector", sn,
 					"min_claim_epoch", dbSector.MinClaim,
-					"target_expiration", newExp)
+					"target_expiration", targetExpEpoch)
 				continue
 			}
 
 			// drop_claims=true: check if any claims need dropping
-			if dbSector.MaxClaim == nil || abi.ChainEpoch(*dbSector.MaxClaim) >= newExp {
+			if dbSector.MaxClaim == nil || abi.ChainEpoch(*dbSector.MaxClaim) >= targetExpEpoch {
 				// All claims live long enough, maintain all
 				claimIds := claimIdsBySector[sn]
 				if len(claimIds) > 0 {
@@ -389,7 +388,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 				}
 
 				claimExpiration := claim.TermStart + claim.TermMax
-				if claimExpiration > newExp {
+				if claimExpiration > targetExpEpoch {
 					// Claim lives long enough, maintain it
 					claimIdsToMaintain = append(claimIdsToMaintain, claimId)
 				} else {

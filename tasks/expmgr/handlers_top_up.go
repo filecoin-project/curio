@@ -342,17 +342,18 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 				continue
 			}
 
-			// Top-up extends to the info bucket's upper bound
-			newExp := bucketBelowEpoch
-
-			// Clamp to max lifetime
+			// Check if bucket target expiration exceeds sector's max lifetime
 			maxLifetime := si.Activation + maxExtension
-			if newExp > maxLifetime {
-				newExp = maxLifetime
+			if bucketBelowEpoch > maxLifetime {
+				log.Debugw("skipping sector: bucket expiration exceeds max lifetime",
+					"sector", sn,
+					"bucket_expiration", bucketBelowEpoch,
+					"max_lifetime", maxLifetime)
+				continue
 			}
 
 			// Skip if new expiration is not significantly different
-			if newExp <= si.Expiration || (newExp-si.Expiration) < 7*epochsPerDay {
+			if bucketBelowEpoch <= si.Expiration || (bucketBelowEpoch-si.Expiration) < 7*epochsPerDay {
 				continue
 			}
 
@@ -392,12 +393,12 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 				log.Warnw("sector with short claims in non-drop-claims mode",
 					"sector", sn,
 					"min_claim_epoch", dbSector.MinClaim,
-					"target_expiration", newExp)
+					"target_expiration", bucketBelowEpoch)
 				continue
 			}
 
 			// drop_claims=true: check if any claims need dropping
-			if dbSector.MaxClaim == nil || abi.ChainEpoch(*dbSector.MaxClaim) >= newExp {
+			if dbSector.MaxClaim == nil || abi.ChainEpoch(*dbSector.MaxClaim) >= bucketBelowEpoch {
 				// All claims live long enough, maintain all
 				claimIds := claimIdsBySector[sn]
 				if len(claimIds) > 0 {
@@ -436,7 +437,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 				}
 
 				claimExpiration := claim.TermStart + claim.TermMax
-				if claimExpiration > newExp {
+				if claimExpiration > bucketBelowEpoch {
 					claimIdsToMaintain = append(claimIdsToMaintain, claimId)
 				} else {
 					// Check FIP-0045 requirements
