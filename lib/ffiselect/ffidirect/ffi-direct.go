@@ -92,9 +92,9 @@ func (FFI) GenerateUpdateProofWithVanilla(
 }
 
 func (FFI) TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) error {
-	// Check CPU features before calling supraseal
-	if !supraffi.HasAMD64v4() {
-		// CPU doesn't support AMD64v4, fallback to filecoin-ffi's GenerateTreeRLast
+	// Check CPU features and CUDA availability before calling supraseal
+	if !supraffi.HasAMD64v4() || !supraffi.HasUsableCUDAGPU() {
+		// Missing prerequisites, fallback to filecoin-ffi's GenerateTreeRLast
 		// Convert sector size to RegisteredPoStProof (WindowPoSt version)
 		var postProof abi.RegisteredPoStProof
 		switch sectorSize {

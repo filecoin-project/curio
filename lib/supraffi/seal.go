@@ -28,11 +28,11 @@ func init() {
 
 // TreeRFile builds tree-r from a last-layer file (optionally with a staged data file).
 // Used for snap updates, does not require NVMe devices.
-// If the CPU does not support AMD64v4, this will return an error code indicating
-// that the caller should fallback to filecoin-ffi's implementation.
+// If the required CPU or GPU features are not available, this returns -1 so
+// callers can fallback to filecoin-ffi's implementation.
 func TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) int {
-	// Check if CPU supports AMD64v4 (required for supraseal)
-	if !HasAMD64v4() {
+	// Check if the host can run supraseal's CUDA TreeR path
+	if !HasAMD64v4() || !HasUsableCUDAGPU() {
 		// Return a special error code to indicate fallback is needed
 		// -1 indicates CPU feature not available, caller should use filecoin-ffi
 		return -1
