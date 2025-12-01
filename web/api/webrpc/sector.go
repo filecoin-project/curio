@@ -290,7 +290,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 		sle = &sectorListEntry{
 			PipelineTask: tasks[0],
-			AfterSeed:    task.SeedEpoch.Valid && task.SeedEpoch.Int64 <= int64(epoch),
+			AfterSeed:    task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch),
 
 			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(task.SectorNumber))),
 			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(task.SectorNumber))),

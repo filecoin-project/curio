@@ -42,14 +42,14 @@ type PipelineTask struct {
 	AfterSynthetic   bool       `db:"after_synth"`       // 1 byte
 	StartedSynthetic bool       `db:"started_synthetic"` // 1 byte
 	// Cache line 4 (bytes 192-256): PreCommit stage
-	PreCommitReadyAt         NullTime  `db:"precommit_ready_at"`          // 32 bytes
+	PreCommitReadyAt         *time.Time  `db:"precommit_ready_at"`          // 32 bytes
 	TaskPrecommitMsg         NullInt64 `db:"task_id_precommit_msg"`       // 16 bytes
 	AfterPrecommitMsg        bool      `db:"after_precommit_msg"`         // 1 byte
 	StartedPrecommitMsg      bool      `db:"started_precommit_msg"`       // 1 byte
 	AfterPrecommitMsgSuccess bool      `db:"after_precommit_msg_success"` // 1 byte
 	// Cache line 5 (bytes 256-320): PreCommit CID and SeedEpoch
 	PreCommitMsgCid NullString `db:"precommit_msg_cid"` // 24 bytes
-	SeedEpoch       NullInt64  `db:"seed_epoch"`        // 16 bytes
+	SeedEpoch       *int64  `db:"seed_epoch"`        // 16 bytes
 	// PoRep stage (accessed together)
 	TaskPoRep    NullInt64 `db:"task_id_porep"` // 16 bytes
 	AfterPoRep   bool      `db:"after_porep"`   // 1 byte
@@ -62,7 +62,7 @@ type PipelineTask struct {
 	AfterMoveStorage   bool      `db:"after_move_storage"`   // 1 byte
 	StartedMoveStorage bool      `db:"started_move_storage"` // 1 byte
 	// Commit stage (accessed together)
-	CommitReadyAt NullTime `db:"commit_ready_at"` // 32 bytes
+	CommitReadyAt *time.Time `db:"commit_ready_at"` // 32 bytes
 	// Cache line 7 (bytes 384-448): Commit message stage
 	TaskCommitMsg         NullInt64  `db:"task_id_commit_msg"`       // 16 bytes
 	CommitMsgCid          NullString `db:"commit_msg_cid"`           // 24 bytes
@@ -301,7 +301,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 			minerBitfieldCache[addr] = mbf
 		}
 
-		afterSeed := task.SeedEpoch.Valid && task.SeedEpoch.Int64 <= int64(epoch)
+		afterSeed := task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch)
 
 		sectorList = append(sectorList, sectorListEntry{
 			PipelineTask: task,
