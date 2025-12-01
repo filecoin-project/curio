@@ -983,7 +983,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 											NULL AS error,                    -- NULL handled by Go (NullString)
 										    TRUE AS is_ddo
 										FROM market_direct_deals
-										WHERE piece_cid = $1 AND piece_size = $2`, pcid.String(), size)
+										WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), size)
 	if err != nil {
 		return nil, err
 	}
