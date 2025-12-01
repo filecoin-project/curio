@@ -541,35 +541,33 @@ func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, cfg extendPresetCon
 	}
 
 	estimatedGas, err := e.chain.GasEstimateMessageGas(ctx, msg, nil, types.EmptyTSK)
-	if err != nil {
-		if strings.Contains(err.Error(), "call ran out of gas") || (err == nil && estimatedGas.GasLimit > MaxExtendMsgGasLimit) {
-			// Split params and recursively build messages
-			log.Infow("message out of gas, splitting",
-				"preset", cfg.Name,
-				"sp_id", cfg.SpID)
+	if (err != nil && strings.Contains(err.Error(), "call ran out of gas")) || (err == nil && estimatedGas.GasLimit > MaxExtendMsgGasLimit) {
+		// Split params and recursively build messages
+		log.Infow("message out of gas, splitting",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID)
 
-			splitParamsList, err := splitParams(params)
-			if err != nil {
-				return nil, xerrors.Errorf("splitting params: %w", err)
-			}
-
-			var allMessages []*types.Message
-			for i, splitParams := range splitParamsList {
-				msgs, err := e.buildExtendMessage(ctx, cfg, maddr, worker, splitParams)
-				if err != nil {
-					return nil, xerrors.Errorf("building split message %d: %w", i, err)
-				}
-				allMessages = append(allMessages, msgs...)
-			}
-
-			log.Infow("successfully split message",
-				"preset", cfg.Name,
-				"sp_id", cfg.SpID,
-				"resulting_messages", len(allMessages))
-
-			return allMessages, nil
+		splitParamsList, err := splitParams(params)
+		if err != nil {
+			return nil, xerrors.Errorf("splitting params: %w", err)
 		}
 
+		var allMessages []*types.Message
+		for i, splitParams := range splitParamsList {
+			msgs, err := e.buildExtendMessage(ctx, cfg, maddr, worker, splitParams)
+			if err != nil {
+				return nil, xerrors.Errorf("building split message %d: %w", i, err)
+			}
+			allMessages = append(allMessages, msgs...)
+		}
+
+		log.Infow("successfully split message",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"resulting_messages", len(allMessages))
+
+		return allMessages, nil
+	} else if err != nil {
 		return nil, xerrors.Errorf("failed to estimate gas: %w", err)
 	}
 

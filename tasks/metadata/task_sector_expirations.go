@@ -309,16 +309,14 @@ func (s *SectorMetadata) updateVerifregClaims(ctx context.Context, astor adt.Sto
 			continue
 		}
 
-		if len(claimIdsBySector) == 0 {
-			// No claims for this SP
-			continue
-		}
-
-		// Get all claims for this miner
-		claimsMap, err := verifregSt.GetClaims(maddr)
-		if err != nil {
-			log.Warnw("failed to get claims", "sp_id", sp.SpID, "error", err)
-			continue
+		var claimsMap map[verifreg.ClaimId]verifreg.Claim
+		if len(claimIdsBySector) > 0 {
+			// Get all claims for this miner
+			claimsMap, err = verifregSt.GetClaims(maddr)
+			if err != nil {
+				log.Warnw("failed to get claims", "sp_id", sp.SpID, "error", err)
+				continue
+			}
 		}
 
 		// Get all sectors for this SP

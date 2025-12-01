@@ -16,6 +16,7 @@ CREATE INDEX IF NOT EXISTS sectors_exp_buckets_sorted_idx ON sectors_exp_buckets
 -- 180 days, 210 days, useful for rolling cc sector pools
 -- 360 days, 390 days, useful for rolling cc sector pools
 -- 540 days, 570 days, useful for rolling cc sector pools
+-- NOTE: this is a setting that users can manage through the UI
 INSERT INTO sectors_exp_buckets (less_than_days) VALUES (7), (14), (21), (28), (180), (210), (360), (390), (540), (570) ON CONFLICT DO NOTHING;
 
 -- Expiration manager
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS sectors_exp_manager_sp (
     FOREIGN KEY (preset_name) REFERENCES sectors_exp_manager_presets(name) ON DELETE RESTRICT
 );
 
-CREATE INDEX IF NOT EXISTS sectors_exp_manager_sp_last_message_cid_idx ON sectors_exp_manager_sp (last_message_cid);
+CREATE UNIQUE INDEX IF NOT EXISTS sectors_exp_manager_sp_last_message_cid_idx ON sectors_exp_manager_sp (last_message_cid);
 
 -- insert default presets
 INSERT INTO sectors_exp_manager_presets (name, action_type, info_bucket_above_days, info_bucket_below_days, target_expiration_days, max_candidate_days, top_up_count_low_water_mark, top_up_count_high_water_mark, cc, drop_claims) VALUES
