@@ -195,6 +195,21 @@ a:hover {
     font-weight: 500;
 }
 
+.table-dark tbody td table tbody td {
+    padding: 0.1rem;
+    white-space: nowrap;
+}
+
+.table-dark tbody td table tbody tr:hover {
+    background-color: inherit;
+    transform: none;
+    cursor: default;
+}
+
+.table-dark tbody td table tbody tr:nth-child(even):hover {
+    background-color: rgba(255, 255, 255, 0.015);
+}
+
 @font-face {
     font-family: 'JetBrains Mono';
     font-style: normal;
