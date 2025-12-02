@@ -29,63 +29,6 @@ jobs:
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
 
-  # Build FFI (filecoin-ffi) - rarely changes, heavily cached
-  # Go modules are cached separately via setup-go action (based on go.sum)
-  build-ffi:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          download-ffi: 'false'
-
-      - name: Generate FFI cache key
-        id: ffi-cache-key
-        run: |
-          FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD)
-          echo "key=ffi-${{ runner.os }}-${{ env.GO_VERSION }}-${FFI_COMMIT}" >> $GITHUB_OUTPUT
-
-      - name: Cache FFI build
-        id: cache-ffi
-        uses: actions/cache@v4
-        with:
-          path: |
-            extern/filecoin-ffi/.install-filcrypto
-            extern/filecoin-ffi/filcrypto.h
-            extern/filecoin-ffi/libfilcrypto.a
-            extern/filecoin-ffi/filcrypto.pc
-            build/.filecoin-install
-            build/.blst-install
-            extern/supraseal/.install-blst
-            extern/supraseal/deps/blst
-          key: ${{ steps.ffi-cache-key.outputs.key }}
-
-      - name: Build FFI
-        if: steps.cache-ffi.outputs.cache-hit != 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: make deps
-
-      - name: Upload FFI artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ffi-deps
-          path: |
-            extern/filecoin-ffi/.install-filcrypto
-            extern/filecoin-ffi/filcrypto.h
-            extern/filecoin-ffi/libfilcrypto.a
-            extern/filecoin-ffi/filcrypto.pc
-            build/.filecoin-install
-            build/.blst-install
-            extern/supraseal/.install-blst
-            extern/supraseal/deps/blst
-          retention-days: 3
-
   setup-params:
     runs-on: [self-hosted, docker]
     steps:
@@ -101,48 +44,9 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
-  # Ensure build-env container image exists, build if missing
-  ensure-build-env:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    env:
-      IMAGE: ghcr.io/${{ github.repository }}/build-env:latest
-    steps:
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if image exists
-        id: check-image
-        run: |
-          if docker manifest inspect ${{ env.IMAGE }} > /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Checkout repository
-        if: steps.check-image.outputs.exists == 'false'
-        uses: actions/checkout@v4
-
-      - name: Build and push image
-        if: steps.check-image.outputs.exists == 'false'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: .github/images/build-env/Dockerfile
-          push: true
-          tags: ${{ env.IMAGE }}
-
   # Debug build - separate so tests can depend on it without waiting for other variants
   build-debug:
     runs-on: ubuntu-latest
-    needs: [build-ffi]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -168,7 +72,6 @@ jobs:
   # Other build variants - run in parallel, tests don't wait for these
   build:
     runs-on: ubuntu-latest
-    needs: [build-ffi]
     strategy:
       fail-fast: false
       matrix:
@@ -207,42 +110,25 @@ jobs:
   # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-unit:
     runs-on: [self-hosted, docker]
-    needs: [build-ffi, setup-params, ensure-build-env]
-    container:
-      image: ghcr.io/${{ github.repository }}/build-env:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      volumes:
-        - /var/tmp/filecoin-proof-parameters:/var/tmp/filecoin-proof-parameters
+    needs: [setup-params]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          name: ffi-deps
-          path: .
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Run unit tests
-        run: go test -v --tags=debug -timeout 30m `go list ./... | grep -v curio/itests`
+        run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests)
 
   # Integration tests - need YugabyteDB
-  # Uses container with Docker socket mounted to access host Docker daemon
   # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-itest:
     runs-on: [self-hosted, docker]
-    needs: [build-ffi, setup-params, ensure-build-env]
-    container:
-      image: ghcr.io/${{ github.repository }}/build-env:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      volumes:
-        - /var/tmp/filecoin-proof-parameters:/var/tmp/filecoin-proof-parameters
-        - /var/run/docker.sock:/var/run/docker.sock
+    needs: [setup-params]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
@@ -262,11 +148,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          name: ffi-deps
-          path: .
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Start YugabyteDB container
         run: |
@@ -301,7 +186,6 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    needs: [build-ffi]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -551,7 +435,6 @@ jobs:
 
   gen-check:
     runs-on: ubuntu-latest
-    needs: [build-ffi]
     steps:
       - uses: actions/checkout@v4
         with:

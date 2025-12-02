@@ -1,14 +1,10 @@
 name: 'Setup Build Environment'
-description: 'Setup Go, install deps, download FFI artifacts - everything needed to build'
+description: 'Setup Go, install deps, cache/build FFI - everything needed to build'
 
 inputs:
   go-version:
     description: 'Go version to use'
     required: true
-  download-ffi:
-    description: 'Whether to download FFI artifacts'
-    required: false
-    default: 'true'
 
 runs:
   using: 'composite'
@@ -48,15 +44,39 @@ runs:
       run: git submodule update --init
       shell: bash
 
-    - name: Download FFI artifacts
-      if: inputs.download-ffi == 'true'
-      uses: actions/download-artifact@v4
-      with:
-        name: ffi-deps
-        path: .
-
-    - name: Restore FFI marker files
-      if: inputs.download-ffi == 'true'
-      run: touch build/.filecoin-install build/.blst-install || true
+    # Cache FFI build based on submodule commit
+    - name: Generate FFI cache key
+      id: ffi-cache-key
+      run: |
+        FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD)
+        echo "key=ffi-${{ runner.os }}-${{ inputs.go-version }}-${FFI_COMMIT}" >> $GITHUB_OUTPUT
       shell: bash
 
+    - name: Cache FFI build
+      id: cache-ffi
+      uses: actions/cache@v4
+      with:
+        path: |
+          extern/filecoin-ffi/.install-filcrypto
+          extern/filecoin-ffi/filcrypto.h
+          extern/filecoin-ffi/libfilcrypto.a
+          extern/filecoin-ffi/filcrypto.pc
+          build/.filecoin-install
+          build/.blst-install
+          extern/supraseal/.install-blst
+          extern/supraseal/deps/blst
+        key: ${{ steps.ffi-cache-key.outputs.key }}
+
+    - name: Build FFI
+      if: steps.cache-ffi.outputs.cache-hit != 'true'
+      run: make deps
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Restore FFI marker files
+      if: steps.cache-ffi.outputs.cache-hit == 'true'
+      run: |
+        mkdir -p build
+        touch build/.filecoin-install build/.blst-install || true
+      shell: bash
