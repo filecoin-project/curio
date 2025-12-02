@@ -11,7 +11,7 @@ runs:
       shell: bash
 
     - name: Fetch all tags
-      run: git fetch --all
+      run: git fetch --all --no-recurse-submodules
       shell: bash
 
     - name: Sync submodules
