@@ -28,9 +28,21 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 				shouldRun = true
 			} else if err != nil {
 				return false, err // Return actual error
+			} else if existingTaskID == nil {
+				// No existing record → Task should run
+				shouldRun = lastRunTime.Add(minInterval).Before(now)
 			} else {
-				// Should run if no existing ID or last time is 0
-				shouldRun = existingTaskID == nil || lastRunTime.Add(minInterval).Before(now)
+				// make sure the task is still active
+				var htTaskID *int64
+				err = tx.QueryRow(`SELECT id FROM harmony_task WHERE id = $1 AND name = $2`, existingTaskID, taskName).Scan(&htTaskID)
+				if errors.Is(err, pgx.ErrNoRows) {
+					// Task no longer exists, should run
+					shouldRun = lastRunTime.Add(minInterval).Before(now)
+				} else if err != nil {
+					return false, err
+				} else {
+					shouldRun = htTaskID == nil && lastRunTime.Add(minInterval).Before(now)
+				}
 			}
 
 			if !shouldRun {
