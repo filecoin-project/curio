@@ -24,10 +24,70 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Install actionlint
-        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+        run: go install github.com/rhysd/actionlint/cmd/actionlint
 
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
+
+  # Build FFI (filecoin-ffi) - rarely changes, heavily cached
+  # Go modules are cached separately via setup-go action (based on go.sum)
+  build-ffi:
+    runs-on: ubuntu-latest
+    needs: [ci-lint]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Generate FFI cache key
+        id: ffi-cache-key
+        run: |
+          FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD)
+          echo "key=ffi-${{ runner.os }}-${{ env.GO_VERSION }}-${FFI_COMMIT}" >> $GITHUB_OUTPUT
+
+      - name: Cache FFI build
+        id: cache-ffi
+        uses: actions/cache@v4
+        with:
+          path: |
+            extern/filecoin-ffi/.install-filcrypto
+            extern/filecoin-ffi/filcrypto.h
+            extern/filecoin-ffi/libfilcrypto.a
+            extern/filecoin-ffi/filcrypto.pc
+            build/.filecoin-install
+            build/.blst-install
+            extern/supraseal/.install-blst
+            extern/supraseal/deps/blst
+          key: ${{ steps.ffi-cache-key.outputs.key }}
+
+      - name: Build FFI
+        if: steps.cache-ffi.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make deps
+
+      - name: Upload FFI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffi-deps
+          path: |
+            extern/filecoin-ffi/.install-filcrypto
+            extern/filecoin-ffi/filcrypto.h
+            extern/filecoin-ffi/libfilcrypto.a
+            extern/filecoin-ffi/filcrypto.pc
+            build/.filecoin-install
+            build/.blst-install
+            extern/supraseal/.install-blst
+            extern/supraseal/deps/blst
+          retention-days: 1
 
   setup-params:
     runs-on: [self-hosted, docker]
@@ -37,61 +97,14 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
-  build-mainnet:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
-  build-calibnet:
-    runs-on: ubuntu-latest
-    needs: [ ci-lint ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
+  # Debug build - separate so tests can depend on it without waiting for other variants
   build-debug:
     runs-on: ubuntu-latest
-    needs: [ ci-lint ]
+    needs: [build-ffi]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -101,22 +114,47 @@ jobs:
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
 
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
+      - name: Download FFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffi-deps
+          path: .
 
-      - name: Build Go
-        run: make build
-        shell: bash
+      - name: Restore FFI marker files
+        run: touch build/.filecoin-install build/.blst-install || true
 
-  build-2k:
+      - name: Build debug
+        run: make debug
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-debug
+          path: |
+            curio
+            sptool
+          retention-days: 1
+
+  # Other build variants - run in parallel, tests don't wait for these
+  build:
     runs-on: ubuntu-latest
-    needs: [ ci-lint ]
+    needs: [build-ffi]
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: mainnet
+            target: build
+          - name: calibnet
+            target: calibnet
+          - name: 2k
+            target: 2k
+          - name: forest
+            target: forest-test
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -126,63 +164,86 @@ jobs:
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
 
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
-  build-forest:
-    runs-on: ubuntu-latest
-    needs: [ ci-lint ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Download FFI artifacts
+        uses: actions/download-artifact@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
+          name: ffi-deps
+          path: .
 
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
+      - name: Restore FFI marker files
+        run: touch build/.filecoin-install build/.blst-install || true
 
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
+      - name: Build ${{ matrix.variant.name }}
+        run: make ${{ matrix.variant.target }}
 
-      - name: Build Forest
-        run: make forest-test
-        shell: bash
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.variant.name }}
+          path: |
+            curio
+            sptool
+          retention-days: 1
 
-  test:
+  # Unit tests - no database needed
+  test-unit:
     runs-on: [self-hosted, docker]
-    needs: [setup-params]
+    needs: [build-debug, setup-params]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Download FFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffi-deps
+          path: .
+
+      - name: Download debug binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-debug
+          path: .
+
+      - name: Restore FFI marker files
+        run: |
+          touch build/.filecoin-install build/.blst-install || true
+          chmod +x curio sptool || true
+
+      - name: Run unit tests
+        run: go test -v --tags=debug -timeout 30m `go list ./... | grep -v curio/itests`
+
+  # Integration tests - need YugabyteDB
+  test-itest:
+    runs-on: [self-hosted, docker]
+    needs: [build-debug, setup-params]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
-      fail-fast: false  # Continue running even if one test fails
+      fail-fast: false
       matrix:
         test-suite:
-          - name: test-itest-curio
+          - name: itest-curio
             target: "./itests/curio_test.go"
-          - name: test-all
-            target: "`go list ./... | grep -v curio/itests`"
-          - name: test-itest-harmonyDB
+          - name: itest-harmonyDB
             target: "./itests/harmonydb_test.go"
-          - name: test-itest-alertnow
+          - name: itest-alertnow
             target: "./itests/alertnow_test.go"
-          - name: test-itest-pdp-prove
+          - name: itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -192,17 +253,26 @@ jobs:
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
 
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
+      - name: Download FFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffi-deps
+          path: .
 
-      - name: Start YugabyteDB container with dynamic ports
+      - name: Download debug binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-debug
+          path: .
+
+      - name: Restore FFI marker files
+        run: |
+          touch build/.filecoin-install build/.blst-install || true
+          chmod +x curio sptool || true
+
+      - name: Start YugabyteDB container
         id: start-yugabyte
         run: |
-          # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
           docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
 
       - name: Wait for YugabyteDB to start
@@ -218,29 +288,28 @@ jobs:
       - name: Get YugabyteDB container IP
         id: get-yb-ip
         run: |
-          # Retrieve internal bridge IP of YugabyteDB container
           YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
           echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
 
-      - name: Run tests
+      - name: Run integration tests
         env:
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
+          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
         run: |
-          echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
-          export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
+          echo "Using YugabyteDB Container IP: ${{ env.CURIO_HARMONYDB_HOSTS }}"
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
 
       - name: Stop YugabyteDB container
-        if: always()  # Ensure this runs even if the tests fail
+        if: always()
         run: docker stop ${{ env.CONTAINER_NAME }}
 
   lint:
     runs-on: ubuntu-latest
-    needs: [ci-lint]
+    needs: [build-ffi]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -250,12 +319,14 @@ jobs:
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
 
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
+      - name: Download FFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffi-deps
+          path: .
+
+      - name: Restore FFI marker files
+        run: touch build/.filecoin-install build/.blst-install || true
 
       - name: Install golangci-lint
         run: |
@@ -279,8 +350,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Check gofmt
-        run: |
-          go fmt ./...
+        run: go fmt ./...
         shell: bash
 
       - name: Git diff check
@@ -294,25 +364,22 @@ jobs:
   build-supraseal-ubuntu24:
     runs-on: ubuntu-24.04
     needs: [ci-lint]
-    
     env:
       GCC_VERSION: "12"
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Free up disk space
         run: |
-          # Remove unnecessary packages to free up space for CUDA installation
           sudo apt-get clean
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -333,13 +400,11 @@ jobs:
             python3 python3-pip python3-dev \
             curl wget git \
             xxd
-      
+
       - name: Set up Python virtual environment
         run: |
-          # Python tools will be installed in venv by build.sh
-          # Just ensure python3-venv is available
           python3 -m venv --help > /dev/null || sudo apt-get install -y python3-venv
-      
+
       - name: Set up GCC 12 as default
         run: |
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
@@ -348,7 +413,7 @@ jobs:
           sudo update-alternatives --set g++ /usr/bin/g++-12
           gcc --version
           g++ --version
-      
+
       - name: Cache CUDA installation
         id: cache-cuda
         uses: actions/cache@v4
@@ -357,23 +422,17 @@ jobs:
             /usr/local/cuda
             /usr/local/cuda-*
           key: cuda-toolkit-ubuntu-24.04-${{ runner.os }}-v1
-      
+
       - name: Install CUDA Toolkit from NVIDIA Repository
         if: steps.cache-cuda.outputs.cache-hit != 'true'
         run: |
-          # Install CUDA using official NVIDIA repository for Ubuntu 24.04
-          # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
-          
-          # Download and install the CUDA keyring package
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           rm cuda-keyring_1.1-1_all.deb
           
-          # Update package list and install CUDA toolkit
           sudo apt-get update
           sudo apt-get -y install cuda-toolkit
           
-          # Verify installation and find CUDA location
           if [ -d "/usr/local/cuda" ]; then
             echo "CUDA installed at /usr/local/cuda"
             ls -la /usr/local/cuda*/bin/nvcc || true
@@ -381,7 +440,7 @@ jobs:
             echo "ERROR: CUDA installation not found"
             exit 1
           fi
-      
+
       - name: Set up CUDA environment
         run: |
           # Verify CUDA installation exists
@@ -395,18 +454,15 @@ jobs:
           export CUDA_HOME=/usr/local/cuda
           export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
           
-          # Verify nvcc is available
           nvcc --version
           
-          # Set environment for subsequent steps
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-      
+
       - name: Install libconfig++
         run: |
           sudo apt-get install -y libconfig++-dev || {
-            # If not available in repos, build from source
             wget https://hyperrealm.github.io/libconfig/dist/libconfig-1.7.3.tar.gz
             tar -xzf libconfig-1.7.3.tar.gz
             cd libconfig-1.7.3
@@ -417,11 +473,10 @@ jobs:
             cd ..
             rm -rf libconfig-1.7.3*
           }
-      
+
       - name: Install GMP library
-        run: |
-          sudo apt-get install -y libgmp-dev
-      
+        run: sudo apt-get install -y libgmp-dev
+
       - name: Cache Python venv
         id: cache-venv
         uses: actions/cache@v4
@@ -430,7 +485,7 @@ jobs:
           key: supraseal-venv-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
             supraseal-venv-ubuntu24-
-      
+
       - name: Cache SPDK build
         id: cache-spdk
         uses: actions/cache@v4
@@ -439,24 +494,21 @@ jobs:
           key: spdk-v24.05-gcc12-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
             spdk-v24.05-gcc12-ubuntu24-
-      
+
       - name: Build Supraseal
         working-directory: extern/supraseal
         run: |
-          # Ensure we're using GCC 12 and CUDA
           export CC=gcc-12
           export CXX=g++-12
           export CUDA=/usr/local/cuda
           export PATH=/usr/local/cuda/bin:$PATH
           export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
           
-          # Verify CUDA is accessible
           which nvcc
           nvcc --version
           
-          # Run the build script (creates and uses Python venv internally)
           ./build.sh
-      
+
       - name: Verify binaries
         working-directory: extern/supraseal
         run: |
@@ -477,7 +529,7 @@ jobs:
           
           echo ""
           echo "✅ All binaries built successfully!"
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -489,14 +541,14 @@ jobs:
             extern/supraseal/bin/tree_r_cpu
             extern/supraseal/bin/tree_d_cpu
           retention-days: 30
-      
+
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
         with:
           name: supraseal-library-ubuntu24-gcc12-cuda
           path: extern/supraseal/obj/libsupraseal.a
           retention-days: 30
-      
+
       - name: Build summary
         run: |
           echo "### 🎉 Supraseal Build Summary" >> $GITHUB_STEP_SUMMARY
@@ -515,9 +567,11 @@ jobs:
 
   gen-check:
     runs-on: ubuntu-latest
-    needs: [ci-lint]
+    needs: [build-ffi]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -527,27 +581,22 @@ jobs:
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
 
-      - name: Install goimports
-        run: go install golang.org/x/tools/cmd/goimports
-        shell: bash
+      - name: Download FFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffi-deps
+          path: .
 
-      - name: Install cbor-gen-for
-        run: go install github.com/hannahhoward/cbor-gen-for
-        shell: bash
+      - name: Restore FFI marker files
+        run: touch build/.filecoin-install build/.blst-install || true
 
-      - name: Install swag cli
-        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
-        shell: bash
-
-#      - name: Install gotext
-#        run: go install golang.org/x/text/cmd/gotext
-#        shell: bash
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Install Go tools
         run: |
-          make deps
+          # Tools are defined in tools/tools.go and versioned in go.mod
+          go install golang.org/x/tools/cmd/goimports &
+          go install github.com/hannahhoward/cbor-gen-for &
+          go install github.com/swaggo/swag/cmd/swag &
+          wait
         shell: bash
 
       - name: Generate Code

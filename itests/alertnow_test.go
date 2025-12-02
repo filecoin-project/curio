@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/curio/alertmanager/plugin"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
 func TestAlertNow(t *testing.T) {
@@ -20,7 +21,7 @@ func TestAlertNow(t *testing.T) {
 		tp,
 	}
 	// Create dependencies
-	sharedITestID := harmonydb.ITestNewID()
+	sharedITestID := testutil.SetupTestDB(t)
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 

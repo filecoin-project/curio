@@ -196,6 +196,15 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	return &db, db.upgrade()
 }
 
+// Close releases the underlying connection pool. It is safe to call multiple times.
+func (db *DB) Close() {
+	if db == nil || db.pgx == nil {
+		return
+	}
+	db.pgx.Close()
+	db.pgx = nil
+}
+
 type tracer struct {
 }
 

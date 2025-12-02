@@ -31,6 +31,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/testutils"
@@ -73,7 +74,7 @@ func TestCurioHappyPath(t *testing.T) {
 
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
 
-	sharedITestID := harmonydb.ITestNewID()
+	sharedITestID := testutil.SetupTestDB(t)
 	t.Logf("sharedITestID: %s", sharedITestID)
 
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)

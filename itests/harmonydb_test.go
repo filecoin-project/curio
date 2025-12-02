@@ -11,13 +11,14 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
 func TestCrud(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sharedITestID := harmonydb.ITestNewID()
+	sharedITestID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
@@ -49,7 +50,7 @@ func TestTransaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
+	testID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
@@ -99,7 +100,7 @@ func TestPartialWalk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
+	testID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, `
