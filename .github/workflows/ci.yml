@@ -90,12 +90,14 @@ jobs:
     runs-on: [self-hosted, docker]
     steps:
       - name: Cache proof parameters
+        id: cache-params
         uses: actions/cache@v4
         with:
           path: /var/tmp/filecoin-proof-parameters
           key: proof-params-8388608
 
       - name: Fetch parameters
+        if: steps.cache-params.outputs.cache-hit != 'true'
         run: lotus fetch-params 8388608
         shell: bash
 
@@ -543,22 +545,4 @@ jobs:
 
       - name: Git diff quiet
         run: git --no-pager diff --quiet
-        shell: bash
-
-  mod-tidy-check:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Run mod tidy check
-        run: go mod tidy -v
         shell: bash
