@@ -101,6 +101,44 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
+  # Ensure build-env container image exists, build if missing
+  ensure-build-env:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/build-env:latest
+    steps:
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image exists
+        id: check-image
+        run: |
+          if docker manifest inspect ${{ env.IMAGE }} > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.check-image.outputs.exists == 'false'
+        uses: actions/checkout@v4
+
+      - name: Build and push image
+        if: steps.check-image.outputs.exists == 'false'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: .github/images/build-env/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE }}
+
   # Debug build - separate so tests can depend on it without waiting for other variants
   build-debug:
     runs-on: ubuntu-latest
@@ -169,7 +207,7 @@ jobs:
   # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-unit:
     runs-on: [self-hosted, docker]
-    needs: [build-ffi, setup-params]
+    needs: [build-ffi, setup-params, ensure-build-env]
     container:
       image: ghcr.io/${{ github.repository }}/build-env:latest
       credentials:
@@ -196,7 +234,7 @@ jobs:
   # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-itest:
     runs-on: [self-hosted, docker]
-    needs: [build-ffi, setup-params]
+    needs: [build-ffi, setup-params, ensure-build-env]
     container:
       image: ghcr.io/${{ github.repository }}/build-env:latest
       credentials:
