@@ -71,6 +71,18 @@ type P2Active func() bool
 
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
 	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex, sc *ffi.SealCalls) (*SupraSeal, *slotmgr.SlotMgr, P2Active, error) {
+
+	// Check CPU features before initializing supraseal
+	// supraseal's PC1 (sha_ext_mbx2) requires:
+	// - Intel SHA Extensions (SHA-NI) for sha256rnds2, sha256msg1, sha256msg2
+	// - SSE2, SSSE3, SSE4.1 for supporting SIMD operations
+	if !supraffi.CanRunSupraSealPC1() {
+		cpuInfo := supraffi.CPUFeaturesSummary()
+		return nil, nil, nil, xerrors.Errorf("CPU does not support supraseal requirements (SHA-NI + SSE4.1 required). "+
+			"Detected features: %s. "+
+			"Use single-sector sealing with filecoin-ffi instead, or upgrade to AMD Zen1+ / Intel Ice Lake+ CPU", cpuInfo)
+	}
+
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
@@ -84,7 +96,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		return nil, nil, nil, err
 	}
 
-	log.Infow("start supraseal init")
+	log.Infow("start supraseal init", "cpu_features", supraffi.CPUFeaturesSummary())
 
 	// Automatically setup SPDK (configure hugepages and bind NVMe devices)
 	log.Infow("checking and setting up SPDK for supraseal")

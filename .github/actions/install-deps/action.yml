@@ -1,13 +1,113 @@
 name: 'Install Dependencies'
-description: 'Install common dependencies'
+description: 'Install common dependencies including CUDA 12 and GCC 12 for supraseal'
 
 runs:
   using: 'composite'
   steps:
-    - name: Install dependencies
+    - name: Free up disk space
+      run: |
+        # Remove unnecessary packages to free up space for CUDA installation
+        sudo apt-get clean
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+      shell: bash
+
+    - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
+        sudo apt-get install -y \
+          curl ca-certificates gnupg \
+          ocl-icd-opencl-dev libhwloc-dev \
+          build-essential \
+          gcc-12 g++-12 \
+          nasm \
+          pkg-config \
+          autoconf automake libtool \
+          libssl-dev \
+          libnuma-dev \
+          uuid-dev \
+          libaio-dev \
+          libfuse3-dev \
+          libarchive-dev \
+          libkeyutils-dev \
+          libncurses-dev \
+          python3 python3-pip python3-dev python3-venv \
+          wget git \
+          xxd \
+          libconfig++-dev \
+          libgmp-dev
+      shell: bash
+
+    - name: Set up GCC 12 as default
+      run: |
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+        sudo update-alternatives --set gcc /usr/bin/gcc-12
+        sudo update-alternatives --set g++ /usr/bin/g++-12
+        echo "GCC version: $(gcc --version | head -1)"
+      shell: bash
+
+    - name: Get Ubuntu version for cache key
+      id: ubuntu-version
+      run: echo "version=$(lsb_release -rs)" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Cache CUDA installation
+      id: cache-cuda
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/cuda
+        key: cuda-toolkit-ubuntu-${{ steps.ubuntu-version.outputs.version }}-12-v2
+
+    - name: Install CUDA Toolkit 12
+      if: steps.cache-cuda.outputs.cache-hit != 'true'
+      run: |
+        # Detect Ubuntu version and select appropriate CUDA repository
+        UBUNTU_VERSION=$(lsb_release -rs | tr -d '.')
+        echo "Detected Ubuntu version: $(lsb_release -rs) (code: $UBUNTU_VERSION)"
+        
+        case "$UBUNTU_VERSION" in
+          2404|2410)
+            CUDA_REPO="ubuntu2404"
+            ;;
+          2204)
+            CUDA_REPO="ubuntu2204"
+            ;;
+          2004)
+            CUDA_REPO="ubuntu2004"
+            ;;
+          *)
+            echo "Unsupported Ubuntu version: $(lsb_release -rs)"
+            echo "Falling back to ubuntu2404 repository"
+            CUDA_REPO="ubuntu2404"
+            ;;
+        esac
+        
+        echo "Using CUDA repository: $CUDA_REPO"
+        
+        # Install CUDA using official NVIDIA repository
+        wget -q "https://developer.download.nvidia.com/compute/cuda/repos/${CUDA_REPO}/x86_64/cuda-keyring_1.1-1_all.deb"
+        sudo dpkg -i cuda-keyring_1.1-1_all.deb
+        rm cuda-keyring_1.1-1_all.deb
+        
+        sudo apt-get update
+        sudo apt-get -y install cuda-toolkit-12-6
+        
+        # Verify installation
+        /usr/local/cuda/bin/nvcc --version
+      shell: bash
+
+    - name: Set up CUDA environment
+      run: |
+        echo "/usr/local/cuda/bin" >> $GITHUB_PATH
+        echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
+        echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        
+        # Verify CUDA is accessible
+        export PATH="/usr/local/cuda/bin:$PATH"
+        nvcc --version
       shell: bash
 
     - name: Fetch all tags
@@ -19,6 +119,6 @@ runs:
       shell: bash
 
     - name: Update submodules
-      run: git submodule update --init
+      run: git submodule update --init --recursive
       shell: bash
 
