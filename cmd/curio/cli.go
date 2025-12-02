@@ -212,7 +212,6 @@ var cliCmd = &cli.Command{
 		cordonCmd,
 		uncordonCmd,
 		indexSampleCmd,
-		downgradeCmd,
 	},
 }
 
@@ -338,24 +337,4 @@ func PrintJson(obj interface{}) error {
 
 	fmt.Println(string(resJson))
 	return nil
-}
-
-var downgradeCmd = &cli.Command{
-	Name:        "downgrade",
-	Usage:       translations.T("Downgrade a cluster's daatabase to a previous software version."),
-	Description: translations.T("If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes."),
-	Flags: []cli.Flag{
-		&cli.IntFlag{
-			Name:     "last_good_date",
-			Usage:    translations.T("YYYYMMDD when your cluster had the preferred schema. Ex: 20251128"),
-			Required: true,
-		},
-	},
-	Action: func(cctx *cli.Context) error {
-		db, err := deps.MakeDB(cctx)
-		if err != nil {
-			return err
-		}
-		return db.RevertTo(cctx.Context, cctx.Int("last_good_date"))
-	},
 }

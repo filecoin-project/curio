@@ -39,7 +39,7 @@ Configurations and the number of machines needed: A: Lotus, Curio (numerous), Yu
 ## Database Schema Versions
 * When the latest Curio starts-up, it applies any upgrades & migrations to Yugabyte's schema.
 * This may cause errors on other nodes in your cluster that run the old version (low likelihood), which has the simple solution of completing the upgrade.
-* If, however, the upgrade has a serious bug and you need to downgrade, "curio cli downgrade --last_good_date=20250515"
+* If, however, the upgrade has a serious bug and you need to downgrade, "curio toolbox downgrade --last_good_date=20250515"
 
 ## Notes
 

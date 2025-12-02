@@ -341,25 +341,39 @@ func (db *DB) RevertTo(ctx context.Context, dateNum int) error {
 	}
 	// Ensure all SQL files after that date have a corresponding revert file
 	var toRevert []string
-	err := db.Select(ctx, &toRevert, "SELECT entry FROM base WHERE applied >= $1 ORDER by entry DESC", strconv.Itoa(dateNum))
+	err := db.Select(ctx, &toRevert, "SELECT entry FROM base WHERE applied >= TO_DATE($1, 'YYYYMMDD') ORDER by entry DESC", strconv.Itoa(dateNum))
 	if err != nil {
 		return xerrors.Errorf("cannot select to revert: %w", err)
 	}
-
 	// Ensure all SQL files after that date have a corresponding revert file
+	m := map[string]string{}
+	reverts, err := revertFS.ReadDir("revert")
+	if err != nil {
+		return xerrors.Errorf("cannot read revert directory: %w", err)
+	}
+	for _, revert := range reverts {
+		m[revert.Name()[:8]] = "revert/" + revert.Name()
+	}
+
 	allGood := true
 	for _, file := range toRevert {
-		if _, err := revertFS.ReadFile("revert/" + file + ".sql"); err != nil {
+		file = strings.TrimSpace(file)
+		revertFile, ok := m[file[:8]]
+		if !ok {
 			allGood = false
-			logger.Error("cannot find/read revert file for %s. Start server to advance to this known state. Err: %w", file, err)
+			logger.Errorf("cannot find revert file for %s", file)
+		}
+		if _, err := revertFS.ReadFile(revertFile); err != nil {
+			allGood = false
+			logger.Errorf("cannot find/read revert file for %s. Err: %w", file, err)
 		}
 	}
 	if !allGood {
 		return xerrors.New("cannot revert to date: some revert files are missing")
 	}
 	for _, file := range toRevert {
-		if err := applySqlFile(db, revertFS, file+".sql"); err != nil {
-			return xerrors.Errorf("cannot apply revert file for %s. Start server to advance to this known state. Err: %w", file, err)
+		if err := applySqlFile(db, revertFS, m[file[:8]]); err != nil {
+			return xerrors.Errorf("cannot apply revert file for %s. Err: %w", file, err)
 		}
 		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1", file[:8])
 		if err != nil {
@@ -446,7 +460,7 @@ func parseSQLStatements(sqlContent string) []string {
 
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "--") {
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "--") || strings.HasPrefix(trimmedLine, "#") {
 			// Skip empty lines and comments.
 			continue
 		}
