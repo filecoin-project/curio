@@ -6,6 +6,16 @@
 
 #ifndef __CUDA_ARCH__
 
+#ifdef RENAME_PC2_HASH_FILES
+#define pc2_hash pc2_hash_files
+#define pc2_t pc2_files_t
+#define gpu_resource_t gpu_resource_files_t
+#define buf_to_disk_t buf_to_disk_files_t
+#define pc2_batcher_t pc2_batcher_files_t
+#define tree_address_t tree_address_files_t
+#define do_pc2_cleanup do_pc2_files_cleanup
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -1515,4 +1525,15 @@ template void do_pc2_cleanup<sealing_config_2_32GB_t>(const char* output_dir);
 template void do_pc2_cleanup<sealing_config_1_512MB_t>(const char* output_dir);
 template void do_pc2_cleanup<sealing_config_1_32GB_t>(const char* output_dir);
 
+#ifndef SUPRA_PC2_NO_EXPLICIT_INSTANTIATIONS
+#ifdef RUNTIME_SECTOR_SIZE
+ template void pc2_hash<sealing_config_128_2KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_4KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_16KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_16KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_32KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_32KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_8MB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_8MB_t>&, size_t, size_t, size_t, const char**, const char*);
+
 #endif
+#endif
+
+#endif // __CUDA_ARCH__

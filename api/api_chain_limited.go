@@ -1,5 +1,4 @@
 //go:build forest
-// +build forest
 
 package api
 
