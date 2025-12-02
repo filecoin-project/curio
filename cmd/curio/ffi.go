@@ -1,13 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/net/context"
 
 	"github.com/filecoin-project/go-jsonrpc"
 
