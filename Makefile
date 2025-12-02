@@ -298,10 +298,24 @@ marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
-gensimple: api-gen go-generate cfgdoc-gen docsgen marketgen docsgen-cli
+# Run gen steps sequentially in a single shell to avoid Go build cache race conditions.
+# The "unlinkat: directory not empty" error occurs when multiple go processes
+# contend for the same build cache simultaneously.
+# Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
+gensimple:
+ifeq ($(GOCACHE_CLEAN),1)
+	$(GOCC) clean -cache
+endif
+	$(MAKE) deps
+	$(MAKE) api-gen
+	$(MAKE) go-generate
+	$(MAKE) cfgdoc-gen
+	$(MAKE) docsgen
+	$(MAKE) marketgen
+	$(MAKE) docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
-.PHONY: gen
+.PHONY: gensimple
 
 fiximports:
 	$(GOCC) run ./scripts/fiximports
