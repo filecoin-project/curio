@@ -1,0 +1,62 @@
+name: 'Setup Build Environment'
+description: 'Setup Go, install deps, download FFI artifacts - everything needed to build'
+
+inputs:
+  go-version:
+    description: 'Go version to use'
+    required: true
+  download-ffi:
+    description: 'Whether to download FFI artifacts'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: true
+        cache-dependency-path: go.sum
+
+    # Cache apt packages to avoid repeated downloads
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          /var/cache/apt/archives
+        key: apt-${{ runner.os }}-${{ hashFiles('.github/actions/install-deps/action.yml') }}
+        restore-keys: |
+          apt-${{ runner.os }}-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
+      shell: bash
+
+    - name: Fetch all tags
+      run: git fetch --all --no-recurse-submodules
+      shell: bash
+
+    - name: Sync submodules
+      run: git submodule sync
+      shell: bash
+
+    - name: Update submodules
+      run: git submodule update --init
+      shell: bash
+
+    - name: Download FFI artifacts
+      if: inputs.download-ffi == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: ffi-deps
+        path: .
+
+    - name: Restore FFI marker files
+      if: inputs.download-ffi == 'true'
+      run: touch build/.filecoin-install build/.blst-install || true
+      shell: bash
+

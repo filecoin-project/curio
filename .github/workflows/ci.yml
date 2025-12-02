@@ -38,13 +38,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
+          download-ffi: 'false'
 
       - name: Generate FFI cache key
         id: ffi-cache-key
@@ -110,22 +108,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ffi-deps
-          path: .
-
-      - name: Restore FFI marker files
-        run: touch build/.filecoin-install build/.blst-install || true
 
       - name: Build debug
         run: make debug
@@ -160,22 +146,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ffi-deps
-          path: .
-
-      - name: Restore FFI marker files
-        run: touch build/.filecoin-install build/.blst-install || true
 
       - name: Build ${{ matrix.variant.name }}
         run: make ${{ matrix.variant.target }}
@@ -193,18 +167,17 @@ jobs:
   test-unit:
     runs-on: [self-hosted, docker]
     needs: [build-debug, setup-params]
+    container:
+      image: ghcr.io/${{ github.repository }}/build-env:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      volumes:
+        - /var/tmp/filecoin-proof-parameters:/var/tmp/filecoin-proof-parameters
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
 
       - name: Download FFI artifacts
         uses: actions/download-artifact@v4
@@ -218,15 +191,14 @@ jobs:
           name: binaries-debug
           path: .
 
-      - name: Restore FFI marker files
-        run: |
-          touch build/.filecoin-install build/.blst-install || true
-          chmod +x curio sptool || true
+      - name: Make binaries executable
+        run: chmod +x curio sptool || true
 
       - name: Run unit tests
         run: go test -v --tags=debug -timeout 30m `go list ./... | grep -v curio/itests`
 
   # Integration tests - need YugabyteDB
+  # Note: Cannot use job container because we need Docker access to run YugabyteDB
   test-itest:
     runs-on: [self-hosted, docker]
     needs: [build-debug, setup-params]
@@ -249,19 +221,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ffi-deps
-          path: .
 
       - name: Download debug binaries
         uses: actions/download-artifact@v4
@@ -269,13 +232,10 @@ jobs:
           name: binaries-debug
           path: .
 
-      - name: Restore FFI marker files
-        run: |
-          touch build/.filecoin-install build/.blst-install || true
-          chmod +x curio sptool || true
+      - name: Make binaries executable
+        run: chmod +x curio sptool || true
 
       - name: Start YugabyteDB container
-        id: start-yugabyte
         run: |
           docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
 
@@ -287,7 +247,6 @@ jobs:
             echo $status | grep Running && break;
             sleep 1;
           done
-        shell: bash
 
       - name: Get YugabyteDB container IP
         id: get-yb-ip
@@ -315,22 +274,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ffi-deps
-          path: .
-
-      - name: Restore FFI marker files
-        run: touch build/.filecoin-install build/.blst-install || true
 
       - name: Install golangci-lint
         run: |
@@ -577,22 +524,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Download FFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ffi-deps
-          path: .
-
-      - name: Restore FFI marker files
-        run: touch build/.filecoin-install build/.blst-install || true
 
       - name: Install Go tools
         run: |

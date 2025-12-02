@@ -17,8 +17,8 @@ import (
 
 const (
 	templateSchemaID harmonydb.ITestID = "template"
-	templateDBName                     = "curio_itest_template"
-	testDBPrefix                       = "curio_itest"
+	templateDBName   string            = "curio_itest_template"
+	testDBPrefix     string            = "curio_itest"
 )
 
 var (
@@ -77,7 +77,7 @@ func prepareTemplateDatabase() error {
 	if err != nil {
 		return fmt.Errorf("connecting to yugabyte admin database: %w", err)
 	}
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 
 	if err := dropDatabaseIfExists(ctx, adminConn, templateDBName); err != nil {
 		return fmt.Errorf("dropping existing template database: %w", err)
@@ -104,7 +104,7 @@ func cloneTemplateDatabase(id harmonydb.ITestID, targetDB string) error {
 	if err != nil {
 		return fmt.Errorf("connecting to yugabyte admin database: %w", err)
 	}
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 
 	if err := dropDatabaseIfExists(ctx, adminConn, targetDB); err != nil {
 		return fmt.Errorf("dropping target database: %w", err)
@@ -118,7 +118,7 @@ func cloneTemplateDatabase(id harmonydb.ITestID, targetDB string) error {
 	if err != nil {
 		return fmt.Errorf("connecting to cloned database: %w", err)
 	}
-	defer cloneConn.Close(ctx)
+	defer func() { _ = cloneConn.Close(ctx) }()
 
 	oldSchema := fmt.Sprintf("itest_%s", templateSchemaID)
 	newSchema := fmt.Sprintf("itest_%s", id)
