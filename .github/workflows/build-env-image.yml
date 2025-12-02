@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/images/build-env/**'
       - '.github/workflows/build-env-image.yml'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:  # Allow manual trigger
 
 env:
@@ -41,7 +43,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .github/images/build-env
+          context: .
+          file: .github/images/build-env/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

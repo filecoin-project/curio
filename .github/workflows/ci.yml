@@ -164,9 +164,10 @@ jobs:
           retention-days: 1
 
   # Unit tests - no database needed
+  # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-unit:
     runs-on: [self-hosted, docker]
-    needs: [build-debug, setup-params]
+    needs: [build-ffi, setup-params]
     container:
       image: ghcr.io/${{ github.repository }}/build-env:latest
       credentials:
@@ -185,23 +186,23 @@ jobs:
           name: ffi-deps
           path: .
 
-      - name: Download debug binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: binaries-debug
-          path: .
-
-      - name: Make binaries executable
-        run: chmod +x curio sptool || true
-
       - name: Run unit tests
         run: go test -v --tags=debug -timeout 30m `go list ./... | grep -v curio/itests`
 
   # Integration tests - need YugabyteDB
-  # Note: Cannot use job container because we need Docker access to run YugabyteDB
+  # Uses container with Docker socket mounted to access host Docker daemon
+  # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-itest:
     runs-on: [self-hosted, docker]
-    needs: [build-debug, setup-params]
+    needs: [build-ffi, setup-params]
+    container:
+      image: ghcr.io/${{ github.repository }}/build-env:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      volumes:
+        - /var/tmp/filecoin-proof-parameters:/var/tmp/filecoin-proof-parameters
+        - /var/run/docker.sock:/var/run/docker.sock
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
@@ -221,19 +222,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Download debug binaries
+      - name: Download FFI artifacts
         uses: actions/download-artifact@v4
         with:
-          name: binaries-debug
+          name: ffi-deps
           path: .
-
-      - name: Make binaries executable
-        run: chmod +x curio sptool || true
 
       - name: Start YugabyteDB container
         run: |
