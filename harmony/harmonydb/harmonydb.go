@@ -362,6 +362,13 @@ func (db *DB) RevertTo(ctx context.Context, dateNum int) error {
 		if !ok {
 			allGood = false
 			logger.Errorf("cannot find revert file for %s", file)
+			f, err := findFileStartingWith(fs, file[:8])
+			if err != nil {
+				logger.Errorf("cannot find file starting with %s that relates to revert-needed value: %w", file[:8], err)
+				continue
+			}
+			logger.Errorf("Original file needing revert: %s", file[:8], f)
+			continue
 		}
 		if _, err := revertFS.ReadFile(revertFile); err != nil {
 			allGood = false
@@ -522,4 +529,17 @@ func applySqlFile(db *DB, fs embed.FS, path string) error {
 	}
 
 	return err
+}
+
+func findFileStartingWith(fs embed.FS, prefix string) (string, error) {
+	entries, err := fs.ReadDir("sql")
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), prefix) {
+			return entry.Name(), nil
+		}
+	}
+	return "", xerrors.New("file not found")
 }

@@ -162,12 +162,15 @@ func TestRevertTo(t *testing.T) {
 	require.NoError(t, err, "error reverting. All sql entries need a revert file.")
 
 	var shouldBeReverted []string
-	cdb.Select(ctx, &shouldBeReverted, "SELECT entry FROM base WHERE entry > '20250815'")
+	err = cdb.Select(ctx, &shouldBeReverted, "SELECT entry FROM base WHERE entry > '20250815'")
+	require.NoError(t, err)
 	require.Len(t, shouldBeReverted, 0, "expected no entries to be reverted. Got ", len(shouldBeReverted))
 
 	var rowCt2 int
-	cdb.QueryRow(ctx, "SELECT COUNT(*) FROM base WHERE entry < '20250815'").Scan(&rowCt2)
+	err = cdb.QueryRow(ctx, "SELECT COUNT(*) FROM base WHERE entry < '20250815'").Scan(&rowCt2)
+	require.NoError(t, err)
 	require.Equal(t, rowCt2, rowCt, "expected no older entries to be reverted. Got ", rowCt2-rowCt)
 
-	cdb.Exec(ctx, "UPDATE base SET applied = applied + INTERVAL '2 DAY' WHERE entry < '20250815'")
+	_, err = cdb.Exec(ctx, "UPDATE base SET applied = applied + INTERVAL '2 DAY' WHERE entry < '20250815'")
+	require.NoError(t, err)
 }
