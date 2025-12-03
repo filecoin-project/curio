@@ -14,7 +14,7 @@ import (
 )
 
 func TestAlertNow(t *testing.T) {
-	// TestAlertNow tests alerting system
+	//  tests alerting system
 
 	tp := &testPlugin{}
 	plugin.TestPlugins = []plugin.Plugin{

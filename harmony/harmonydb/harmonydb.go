@@ -86,13 +86,18 @@ func envElse(env, els string) string {
 }
 
 func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
-	fmt.Printf("CURIO_HARMONYDB_HOSTS: %s\n", os.Getenv("CURIO_HARMONYDB_HOSTS"))
+	// Look up the database name from the registry, or fall back to default
+	database := "yugabyte"
+	if v, ok := itestDatabaseRegistry.Load(string(id)); ok {
+		database = v.(string)
+	}
+
 	db, err := New(
 		[]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		"yugabyte",
-		"yugabyte",
-		"yugabyte",
-		"5433",
+		envElse("CURIO_HARMONYDB_USERNAME", "yugabyte"),
+		envElse("CURIO_HARMONYDB_PASSWORD", "yugabyte"),
+		database,
+		envElse("CURIO_HARMONYDB_PORT", "5433"),
 		false,
 		id,
 	)
