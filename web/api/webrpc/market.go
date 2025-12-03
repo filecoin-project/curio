@@ -3,6 +3,7 @@ package webrpc
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,24 +103,24 @@ type MK12Pipeline struct {
 	Offline   bool   `db:"offline" json:"offline"`       // 1 byte (48-49) - checked early for download decisions
 	Started   bool   `db:"started" json:"started"`       // 1 byte (49-50) - checked early
 	// Cache line 2 (bytes 64-128): Task IDs and stage tracking (NullInt64 = 16 bytes)
-	CommTaskID     NullInt64 `db:"commp_task_id" json:"commp_task_id"`         // 16 bytes
-	PSDTaskID      NullInt64 `db:"psd_task_id" json:"psd_task_id"`             // 16 bytes
-	FindDealTaskID NullInt64 `db:"find_deal_task_id" json:"find_deal_task_id"` // 16 bytes
-	AfterCommp     bool      `db:"after_commp" json:"after_commp"`             // 1 byte
-	AfterPSD       bool      `db:"after_psd" json:"after_psd"`                 // 1 byte
-	AfterFindDeal  bool      `db:"after_find_deal" json:"after_find_deal"`     // 1 byte
+	CommTaskID     sql.NullInt64 `db:"commp_task_id" json:"commp_task_id"`         // 16 bytes
+	PSDTaskID      sql.NullInt64 `db:"psd_task_id" json:"psd_task_id"`             // 16 bytes
+	FindDealTaskID sql.NullInt64 `db:"find_deal_task_id" json:"find_deal_task_id"` // 16 bytes
+	AfterCommp     bool          `db:"after_commp" json:"after_commp"`             // 1 byte
+	AfterPSD       bool          `db:"after_psd" json:"after_psd"`                 // 1 byte
+	AfterFindDeal  bool          `db:"after_find_deal" json:"after_find_deal"`     // 1 byte
 	// Cache line 3 (bytes 128-192): Sector placement and sizing (NullInt64 = 16 bytes)
-	RawSize NullInt64 `db:"raw_size" json:"raw_size"`           // 16 bytes
-	Sector  NullInt64 `db:"sector" json:"sector"`               // 16 bytes
-	Offset  NullInt64 `db:"sector_offset" json:"sector_offset"` // 16 bytes
+	RawSize sql.NullInt64 `db:"raw_size" json:"raw_size"`           // 16 bytes
+	Sector  sql.NullInt64 `db:"sector" json:"sector"`               // 16 bytes
+	Offset  sql.NullInt64 `db:"sector_offset" json:"sector_offset"` // 16 bytes
 	// Cache line 4 (bytes 192-256): Timing information
-	PSDWaitTime NullTime  `db:"psd_wait_time" json:"psd_wait_time"` // 32 bytes (NullTime)
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`       // 24 bytes
+	PSDWaitTime sql.NullTime `db:"psd_wait_time" json:"psd_wait_time"` // 32 bytes (NullTime)
+	CreatedAt   time.Time    `db:"created_at" json:"created_at"`       // 24 bytes
 	// Cache line 5+ (bytes 256+): Data URL and larger fields (NullString = 24 bytes)
-	URL        NullString `db:"url" json:"url"`         // 24 bytes - only for online deals
-	PieceCidV2 string     `db:"-" json:"piece_cid_v2"`  // 16 bytes - computed field
-	Miner      string     `json:"miner"`                // 16 bytes - display field
-	Headers    []byte     `db:"headers" json:"headers"` // 24 bytes - only for online deals
+	URL        sql.NullString `db:"url" json:"url"`         // 24 bytes - only for online deals
+	PieceCidV2 string         `db:"-" json:"piece_cid_v2"`  // 16 bytes - computed field
+	Miner      string         `json:"miner"`                // 16 bytes - display field
+	Headers    []byte         `db:"headers" json:"headers"` // 24 bytes - only for online deals
 	// Status bools: rarely checked ones at end
 	Indexed  bool `db:"indexed" json:"indexed"`   // checked for indexing
 	Announce bool `db:"announce" json:"announce"` // checked for IPNI announce
@@ -193,33 +194,33 @@ func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int
 }
 
 type StorageDealSummary struct {
-	ID                string      `db:"uuid" json:"id"`
-	MinerID           int64       `db:"sp_id" json:"sp_id"`
-	Sector            NullInt64   `db:"sector_num" json:"sector"`
-	CreatedAt         time.Time   `db:"created_at" json:"created_at"`
-	SignedProposalCid string      `db:"signed_proposal_cid" json:"signed_proposal_cid"`
-	Offline           bool        `db:"offline" json:"offline"`
-	Verified          bool        `db:"verified" json:"verified"`
-	StartEpoch        int64       `db:"start_epoch" json:"start_epoch"`
-	EndEpoch          int64       `db:"end_epoch" json:"end_epoch"`
-	ClientPeerId      string      `db:"client_peer_id" json:"client_peer_id"`
-	ChainDealId       NullInt64   `db:"chain_deal_id" json:"chain_deal_id"`
-	PublishCid        NullString  `db:"publish_cid" json:"publish_cid"`
-	PieceCid          string      `db:"piece_cid" json:"piece_cid"`
-	PieceSize         int64       `db:"piece_size" json:"piece_size"`
-	RawSize           NullInt64   `db:"raw_size"`
-	FastRetrieval     bool        `db:"fast_retrieval" json:"fast_retrieval"`
-	AnnounceToIpni    bool        `db:"announce_to_ipni" json:"announce_to_ipni"`
-	Url               NullString  `db:"url"`
-	URLS              string      `json:"url"`
-	Header            []byte      `db:"url_headers"`
-	UrlHeaders        http.Header `json:"url_headers"`
-	DBError           NullString  `db:"error"`
-	Error             string      `json:"error"`
-	Miner             string      `json:"miner"`
-	Indexed           NullBool    `db:"indexed" json:"indexed"`
-	IsDDO             bool        `db:"is_ddo" json:"is_ddo"`
-	PieceCidV2        string      `json:"piece_cid_v2"`
+	ID                string         `db:"uuid" json:"id"`
+	MinerID           int64          `db:"sp_id" json:"sp_id"`
+	Sector            NullInt64      `db:"sector_num" json:"sector"`
+	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
+	SignedProposalCid string         `db:"signed_proposal_cid" json:"signed_proposal_cid"`
+	Offline           bool           `db:"offline" json:"offline"`
+	Verified          bool           `db:"verified" json:"verified"`
+	StartEpoch        int64          `db:"start_epoch" json:"start_epoch"`
+	EndEpoch          int64          `db:"end_epoch" json:"end_epoch"`
+	ClientPeerId      string         `db:"client_peer_id" json:"client_peer_id"`
+	ChainDealId       NullInt64      `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        NullString     `db:"publish_cid" json:"publish_cid"`
+	PieceCid          string         `db:"piece_cid" json:"piece_cid"`
+	PieceSize         int64          `db:"piece_size" json:"piece_size"`
+	RawSize           sql.NullInt64  `db:"raw_size"`
+	FastRetrieval     bool           `db:"fast_retrieval" json:"fast_retrieval"`
+	AnnounceToIpni    bool           `db:"announce_to_ipni" json:"announce_to_ipni"`
+	Url               sql.NullString `db:"url"`
+	URLS              string         `json:"url"`
+	Header            []byte         `db:"url_headers"`
+	UrlHeaders        http.Header    `json:"url_headers"`
+	DBError           sql.NullString `db:"error"`
+	Error             string         `json:"error"`
+	Miner             string         `json:"miner"`
+	Indexed           sql.NullBool   `db:"indexed" json:"indexed"`
+	IsDDO             bool           `db:"is_ddo" json:"is_ddo"`
+	PieceCidV2        string         `json:"piece_cid_v2"`
 }
 
 func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDealSummary, error) {
@@ -701,15 +702,15 @@ type ParkedPieceState struct {
 	PieceRawSize    int64            `db:"piece_raw_size" json:"piece_raw_size"`
 	Complete        bool             `db:"complete" json:"complete"`
 	CreatedAt       time.Time        `db:"created_at" json:"created_at"`
-	TaskID          NullInt64        `db:"task_id" json:"task_id"`
-	CleanupTaskID   NullInt64        `db:"cleanup_task_id" json:"cleanup_task_id"`
+	TaskID          sql.NullInt64    `db:"task_id" json:"task_id"`
+	CleanupTaskID   sql.NullInt64    `db:"cleanup_task_id" json:"cleanup_task_id"`
 	Refs            []ParkedPieceRef `json:"refs"`
 }
 
 type ParkedPieceRef struct {
 	RefID       int64           `db:"ref_id" json:"ref_id"`
 	PieceID     int64           `db:"piece_id" json:"piece_id"`
-	DataURL     NullString      `db:"data_url" json:"data_url"`
+	DataURL     sql.NullString  `db:"data_url" json:"data_url"`
 	DataHeaders json.RawMessage `db:"data_headers" json:"data_headers"`
 }
 
@@ -805,15 +806,15 @@ type MK12Deal struct {
 	StartEpoch        int64           `db:"start_epoch" json:"start_epoch"`
 	EndEpoch          int64           `db:"end_epoch" json:"end_epoch"`
 	ClientPeerId      string          `db:"client_peer_id" json:"client_peer_id"`
-	ChainDealId       NullInt64       `db:"chain_deal_id" json:"chain_deal_id"`
-	PublishCid        NullString      `db:"publish_cid" json:"publish_cid"`
+	ChainDealId       sql.NullInt64   `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        sql.NullString  `db:"publish_cid" json:"publish_cid"`
 	PieceCid          string          `db:"piece_cid" json:"piece_cid"`
 	PieceSize         int64           `db:"piece_size" json:"piece_size"`
 	FastRetrieval     bool            `db:"fast_retrieval" json:"fast_retrieval"`
 	AnnounceToIPNI    bool            `db:"announce_to_ipni" json:"announce_to_ipni"`
-	URL               NullString      `db:"url" json:"url"`
+	URL               sql.NullString  `db:"url" json:"url"`
 	URLHeaders        json.RawMessage `db:"url_headers" json:"url_headers"`
-	Error             NullString      `db:"error" json:"error"`
+	Error             sql.NullString  `db:"error" json:"error"`
 	IsDDO             bool            `db:"is_ddo" json:"is_ddo"`
 
 	Addr string `db:"-" json:"addr"`
@@ -823,70 +824,70 @@ type MK12Deal struct {
 type MK12DealPipeline struct {
 	UUID              string          `db:"uuid" json:"uuid"`
 	SpId              int64           `db:"sp_id" json:"sp_id"`
-	Started           NullBool        `db:"started" json:"started"`
+	Started           sql.NullBool    `db:"started" json:"started"`
 	PieceCid          string          `db:"piece_cid" json:"piece_cid"`
 	PieceSize         int64           `db:"piece_size" json:"piece_size"`
-	RawSize           NullInt64       `db:"raw_size" json:"raw_size"`
+	RawSize           sql.NullInt64   `db:"raw_size" json:"raw_size"`
 	Offline           bool            `db:"offline" json:"offline"`
-	URL               NullString      `db:"url" json:"url"`
+	URL               sql.NullString  `db:"url" json:"url"`
 	Headers           json.RawMessage `db:"headers" json:"headers"`
-	CommpTaskId       NullInt64       `db:"commp_task_id" json:"commp_task_id"`
-	AfterCommp        NullBool        `db:"after_commp" json:"after_commp"`
-	PsdTaskId         NullInt64       `db:"psd_task_id" json:"psd_task_id"`
-	AfterPsd          NullBool        `db:"after_psd" json:"after_psd"`
-	PsdWaitTime       NullTime        `db:"psd_wait_time" json:"psd_wait_time"`
-	FindDealTaskId    NullInt64       `db:"find_deal_task_id" json:"find_deal_task_id"`
-	AfterFindDeal     NullBool        `db:"after_find_deal" json:"after_find_deal"`
-	Sector            NullInt64       `db:"sector" json:"sector"`
-	RegSealProof      NullInt64       `db:"reg_seal_proof" json:"reg_seal_proof"`
-	SectorOffset      NullInt64       `db:"sector_offset" json:"sector_offset"`
-	Sealed            NullBool        `db:"sealed" json:"sealed"`
-	ShouldIndex       NullBool        `db:"should_index" json:"should_index"`
-	IndexingCreatedAt NullTime        `db:"indexing_created_at" json:"indexing_created_at"`
-	IndexingTaskId    NullInt64       `db:"indexing_task_id" json:"indexing_task_id"`
-	Indexed           NullBool        `db:"indexed" json:"indexed"`
-	Announce          NullBool        `db:"announce" json:"announce"`
+	CommpTaskId       sql.NullInt64   `db:"commp_task_id" json:"commp_task_id"`
+	AfterCommp        sql.NullBool    `db:"after_commp" json:"after_commp"`
+	PsdTaskId         sql.NullInt64   `db:"psd_task_id" json:"psd_task_id"`
+	AfterPsd          sql.NullBool    `db:"after_psd" json:"after_psd"`
+	PsdWaitTime       sql.NullTime    `db:"psd_wait_time" json:"psd_wait_time"`
+	FindDealTaskId    sql.NullInt64   `db:"find_deal_task_id" json:"find_deal_task_id"`
+	AfterFindDeal     sql.NullBool    `db:"after_find_deal" json:"after_find_deal"`
+	Sector            sql.NullInt64   `db:"sector" json:"sector"`
+	RegSealProof      sql.NullInt64   `db:"reg_seal_proof" json:"reg_seal_proof"`
+	SectorOffset      sql.NullInt64   `db:"sector_offset" json:"sector_offset"`
+	Sealed            sql.NullBool    `db:"sealed" json:"sealed"`
+	ShouldIndex       sql.NullBool    `db:"should_index" json:"should_index"`
+	IndexingCreatedAt sql.NullTime    `db:"indexing_created_at" json:"indexing_created_at"`
+	IndexingTaskId    sql.NullInt64   `db:"indexing_task_id" json:"indexing_task_id"`
+	Indexed           sql.NullBool    `db:"indexed" json:"indexed"`
+	Announce          sql.NullBool    `db:"announce" json:"announce"`
 	Complete          bool            `db:"complete" json:"complete"`
 	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
 }
 
 // MK20DealPipeline represents a record from market_mk20_ddo_pipeline table
 type MK20DDOPipeline struct {
-	ID               string     `db:"id" json:"id"`
-	SpId             int64      `db:"sp_id" json:"sp_id"`
-	Contract         string     `db:"contract" json:"contract"`
-	Client           string     `db:"client" json:"client"`
-	PieceCidV2       string     `db:"piece_cid_v2" json:"piece_cid_v2"`
-	PieceCid         string     `db:"piece_cid" json:"piece_cid"`
-	PieceSize        int64      `db:"piece_size" json:"piece_size"`
-	RawSize          uint64     `db:"raw_size" json:"raw_size"`
-	Offline          bool       `db:"offline" json:"offline"`
-	URL              NullString `db:"url" json:"url"`
-	Indexing         bool       `db:"indexing" json:"indexing"`
-	Announce         bool       `db:"announce" json:"announce"`
-	AllocationID     NullInt64  `db:"allocation_id" json:"allocation_id"`
-	Duration         int64      `db:"duration" json:"duration"`
-	PieceAggregation int        `db:"piece_aggregation" json:"piece_aggregation"`
+	ID               string         `db:"id" json:"id"`
+	SpId             int64          `db:"sp_id" json:"sp_id"`
+	Contract         string         `db:"contract" json:"contract"`
+	Client           string         `db:"client" json:"client"`
+	PieceCidV2       string         `db:"piece_cid_v2" json:"piece_cid_v2"`
+	PieceCid         string         `db:"piece_cid" json:"piece_cid"`
+	PieceSize        int64          `db:"piece_size" json:"piece_size"`
+	RawSize          uint64         `db:"raw_size" json:"raw_size"`
+	Offline          bool           `db:"offline" json:"offline"`
+	URL              sql.NullString `db:"url" json:"url"`
+	Indexing         bool           `db:"indexing" json:"indexing"`
+	Announce         bool           `db:"announce" json:"announce"`
+	AllocationID     sql.NullInt64  `db:"allocation_id" json:"allocation_id"`
+	Duration         int64          `db:"duration" json:"duration"`
+	PieceAggregation int            `db:"piece_aggregation" json:"piece_aggregation"`
 
 	Started    bool `db:"started" json:"started"`
 	Downloaded bool `db:"downloaded" json:"downloaded"`
 
-	CommpTaskId NullInt64 `db:"commp_task_id" json:"commp_task_id"`
-	AfterCommp  bool      `db:"after_commp" json:"after_commp"`
+	CommpTaskId sql.NullInt64 `db:"commp_task_id" json:"commp_task_id"`
+	AfterCommp  bool          `db:"after_commp" json:"after_commp"`
 
-	DealAggregation   int       `db:"deal_aggregation" json:"deal_aggregation"`
-	AggregationIndex  int64     `db:"aggr_index" json:"aggr_index"`
-	AggregationTaskID NullInt64 `db:"agg_task_id" json:"agg_task_id"`
-	Aggregated        bool      `db:"aggregated" json:"aggregated"`
+	DealAggregation   int           `db:"deal_aggregation" json:"deal_aggregation"`
+	AggregationIndex  int64         `db:"aggr_index" json:"aggr_index"`
+	AggregationTaskID sql.NullInt64 `db:"agg_task_id" json:"agg_task_id"`
+	Aggregated        bool          `db:"aggregated" json:"aggregated"`
 
-	Sector       NullInt64 `db:"sector" json:"sector"`
-	RegSealProof NullInt64 `db:"reg_seal_proof" json:"reg_seal_proof"`
-	SectorOffset NullInt64 `db:"sector_offset" json:"sector_offset"`
-	Sealed       bool      `db:"sealed" json:"sealed"`
+	Sector       sql.NullInt64 `db:"sector" json:"sector"`
+	RegSealProof sql.NullInt64 `db:"reg_seal_proof" json:"reg_seal_proof"`
+	SectorOffset sql.NullInt64 `db:"sector_offset" json:"sector_offset"`
+	Sealed       bool          `db:"sealed" json:"sealed"`
 
-	IndexingCreatedAt NullTime  `db:"indexing_created_at" json:"indexing_created_at"`
-	IndexingTaskId    NullInt64 `db:"indexing_task_id" json:"indexing_task_id"`
-	Indexed           bool      `db:"indexed" json:"indexed"`
+	IndexingCreatedAt sql.NullTime  `db:"indexing_created_at" json:"indexing_created_at"`
+	IndexingTaskId    sql.NullInt64 `db:"indexing_task_id" json:"indexing_task_id"`
+	Indexed           bool          `db:"indexed" json:"indexed"`
 
 	Complete  bool      `db:"complete" json:"complete"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
@@ -983,7 +984,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 											NULL AS error,                    -- NULL handled by Go (NullString)
 										    TRUE AS is_ddo
 										FROM market_direct_deals
-										WHERE piece_cid = $1 AND piece_size = $2`, pcid.String(), size)
+										WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), size)
 	if err != nil {
 		return nil, err
 	}
