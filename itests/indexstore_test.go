@@ -1,4 +1,4 @@
-package indexstore
+package itests
 
 import (
 	"context"
@@ -18,14 +18,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
+	"github.com/filecoin-project/curio/market/indexstore"
 )
-
-func envElse(env, els string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	return els
-}
 
 func TestNewIndexStore(t *testing.T) {
 	// Set up the indexStore for testing
@@ -33,7 +27,7 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	err := idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
@@ -89,7 +83,7 @@ func TestNewIndexStore(t *testing.T) {
 	dealCfg := cfg.Market.StorageMarketConfig
 	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
 
-	recs := make(chan Record, chanSize)
+	recs := make(chan indexstore.Record, chanSize)
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
 	blockReader, err := carv2.NewBlockReader(f, opts...)
 	require.NoError(t, err)
@@ -109,7 +103,7 @@ func TestNewIndexStore(t *testing.T) {
 		if i == 0 {
 			m = blockMetadata.Hash()
 		}
-		recs <- Record{
+		recs <- indexstore.Record{
 			Cid:    blockMetadata.Cid,
 			Offset: blockMetadata.SourceOffset,
 			Size:   blockMetadata.Size,
@@ -141,10 +135,8 @@ func TestNewIndexStore(t *testing.T) {
 	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCid)
 	require.NoError(t, err)
 
-	err = idxStore.session.Query("SELECT * FROM piece_by_aggregate").Exec()
-	require.NoError(t, err)
-
-	aggrRec := []Record{
+	// Test aggregate index
+	aggrRec := []indexstore.Record{
 		{
 			Cid:    pcid1,
 			Offset: 0,
@@ -174,9 +166,9 @@ func TestNewIndexStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test PDP layer
-	leafs := make([]NodeDigest, len(layer))
+	leafs := make([]indexstore.NodeDigest, len(layer))
 	for i, s := range layer {
-		leafs[i] = NodeDigest{
+		leafs[i] = indexstore.NodeDigest{
 			Layer: layerIdx,
 			Hash:  s.Hash,
 			Index: int64(i),
@@ -213,16 +205,5 @@ func TestNewIndexStore(t *testing.T) {
 
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
 	require.NoError(t, err)
-
-	// Drop the tables
-	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
-	require.NoError(t, err)
-	err = idxStore.session.Query("DROP TABLE PieceBlockOffsetSize").Exec()
-	require.NoError(t, err)
-	err = idxStore.session.Query("DROP TABLE aggregate_by_piece").Exec()
-	require.NoError(t, err)
-	err = idxStore.session.Query("DROP TABLE piece_by_aggregate").Exec()
-	require.NoError(t, err)
-	err = idxStore.session.Query("DROP TABLE pdp_cache_layer").Exec()
-	require.NoError(t, err)
 }
+
