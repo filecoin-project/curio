@@ -1296,6 +1296,7 @@ USAGE:
 COMMANDS:
    fix-msg                        Updated DB with message data missing from chain node
    register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
+   downgrade                      Downgrade a cluster's daatabase to a previous software version.
    help, h                        Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1335,5 +1336,21 @@ OPTIONS:
    --proving-period value  Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset (default: 60)
    --location value        Location of the service provider
    --token-address value   Token contract for payment (IERC20(address(0)) for FIL)
+   --help, -h              show help
+```
+
+### curio toolbox downgrade
+```
+NAME:
+   curio toolbox downgrade - Downgrade a cluster's daatabase to a previous software version.
+
+USAGE:
+   curio toolbox downgrade [command options]
+
+DESCRIPTION:
+   If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.
+
+OPTIONS:
+   --last_good_date value  YYYYMMDD when your cluster had the preferred schema. Ex: 20251128 (default: 0)
    --help, -h              show help
 ```
