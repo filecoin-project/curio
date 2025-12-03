@@ -382,7 +382,7 @@ func (db *DB) DowngradeTo(ctx context.Context, dateNum int) error {
 		if err := applySqlFile(db, downgradeFS, m[file[:8]]); err != nil {
 			return xerrors.Errorf("cannot apply downgrade file for %s. Err: %w", file, err)
 		}
-		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1 FOR DOWNGRADE", file[:8])
+		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1", file[:8])
 		if err != nil {
 			return xerrors.Errorf("cannot delete from base for downgrade: %w", err)
 		}
