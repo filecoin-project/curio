@@ -325,66 +325,66 @@ retry:
 }
 
 //go:embed sql
-var fs embed.FS
+var upgadeFS embed.FS
 
-//go:embed revert
-var revertFS embed.FS
+//go:embed downgrade
+var downgradeFS embed.FS
 
 var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
 
-// RevertTo reverts the database schema to a previous date (when an upgrade was applied).
+// DowngradeTo downgrades the database schema to a previous date (when an upgrade was applied).
 // Note: these dates (YYYYMMDD) are not the SQL date but the date the user did an upgrade.
-func (db *DB) RevertTo(ctx context.Context, dateNum int) error {
+func (db *DB) DowngradeTo(ctx context.Context, dateNum int) error {
 	// Is the date good?
 	if dateNum < 2000_01_01 || dateNum > 2099_12_31 {
 		return xerrors.Errorf("invalid date: %d", dateNum)
 	}
-	// Ensure all SQL files after that date have a corresponding revert file
-	var toRevert []string
-	err := db.Select(ctx, &toRevert, "SELECT entry FROM base WHERE applied >= TO_DATE($1, 'YYYYMMDD') ORDER by entry DESC", strconv.Itoa(dateNum))
+	// Ensure all SQL files after that date have a corresponding downgrade file
+	var toDowngrade []string
+	err := db.Select(ctx, &toDowngrade, "SELECT entry FROM base WHERE applied >= TO_DATE($1, 'YYYYMMDD') ORDER by entry DESC", strconv.Itoa(dateNum))
 	if err != nil {
-		return xerrors.Errorf("cannot select to revert: %w", err)
+		return xerrors.Errorf("cannot select to downgrade: %w", err)
 	}
-	// Ensure all SQL files after that date have a corresponding revert file
+	// Ensure all SQL files after that date have a corresponding downgrade file
 	m := map[string]string{}
-	reverts, err := revertFS.ReadDir("revert")
+	downgrades, err := downgradeFS.ReadDir("downgrade")
 	if err != nil {
-		return xerrors.Errorf("cannot read revert directory: %w", err)
+		return xerrors.Errorf("cannot read downgrade directory: %w", err)
 	}
-	for _, revert := range reverts {
-		m[revert.Name()[:8]] = "revert/" + revert.Name()
+	for _, downgrade := range downgrades {
+		m[downgrade.Name()[:8]] = "downgrade/" + downgrade.Name()
 	}
 
 	allGood := true
-	for _, file := range toRevert {
+	for _, file := range toDowngrade {
 		file = strings.TrimSpace(file)
-		revertFile, ok := m[file[:8]]
+		downgradeFile, ok := m[file[:8]]
 		if !ok {
 			allGood = false
-			logger.Errorf("cannot find revert file for %s", file)
-			f, err := findFileStartingWith(fs, file[:8])
+			logger.Errorf("cannot find downgrade file for %s", file)
+			f, err := findFileStartingWith(upgadeFS, file[:8])
 			if err != nil {
-				logger.Errorf("cannot find file starting with %s that relates to revert-needed value: %w", file[:8], err)
+				logger.Errorf("cannot find file starting with %s that relates to downgrade-needed value: %w", file[:8], err)
 				continue
 			}
-			logger.Errorf("Original file needing revert: %s", file[:8], f)
+			logger.Errorf("Original file needing downgrade: %s", file[:8], f)
 			continue
 		}
-		if _, err := revertFS.ReadFile(revertFile); err != nil {
+		if _, err := downgradeFS.ReadFile(downgradeFile); err != nil {
 			allGood = false
-			logger.Errorf("cannot find/read revert file for %s. Err: %w", file, err)
+			logger.Errorf("cannot find/read downgrade file for %s. Err: %w", file, err)
 		}
 	}
 	if !allGood {
-		return xerrors.New("cannot revert to date: some revert files are missing")
+		return xerrors.New("cannot downgrade to date: some downgrade files are missing")
 	}
-	for _, file := range toRevert {
-		if err := applySqlFile(db, revertFS, m[file[:8]]); err != nil {
-			return xerrors.Errorf("cannot apply revert file for %s. Err: %w", file, err)
+	for _, file := range toDowngrade {
+		if err := applySqlFile(db, downgradeFS, m[file[:8]]); err != nil {
+			return xerrors.Errorf("cannot apply downgrade file for %s. Err: %w", file, err)
 		}
-		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1", file[:8])
+		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1 FOR DOWNGRADE", file[:8])
 		if err != nil {
-			return xerrors.Errorf("cannot delete from base: %w", err)
+			return xerrors.Errorf("cannot delete from base for downgrade: %w", err)
 		}
 	}
 	return nil
@@ -416,7 +416,7 @@ func (db *DB) upgrade() error {
 			landed[l.Entry[:8]] = true
 		}
 	}
-	dir, err := fs.ReadDir("sql")
+	dir, err := upgadeFS.ReadDir("sql")
 	if err != nil {
 		logger.Error("Cannot read fs entries: " + err.Error())
 		return err
@@ -436,14 +436,14 @@ func (db *DB) upgrade() error {
 			logger.Debug("DB Schema " + name + " already applied.")
 			continue
 		}
-		file, err := fs.ReadFile("sql/" + name)
+		file, err := upgadeFS.ReadFile("sql/" + name)
 		if err != nil {
 			logger.Error("weird embed file read err")
 			return err
 		}
 
 		logger.Infow("Upgrading", "file", name, "size", len(file))
-		if err := applySqlFile(db, fs, "sql/"+name); err != nil {
+		if err := applySqlFile(db, upgadeFS, "sql/"+name); err != nil {
 			logger.Error("Cannot apply sql file: " + err.Error())
 			return err
 		}

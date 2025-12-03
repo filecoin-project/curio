@@ -469,6 +469,6 @@ var downgradeCmd = &cli.Command{
 			return xerrors.Errorf("All machines must be shutdown before downgrading. Machines seen running in the past 60 seconds: %s", strings.Join(runningMachines, ", "))
 		}
 
-		return db.RevertTo(cctx.Context, cctx.Int("last_good_date"))
+		return db.DowngradeTo(cctx.Context, cctx.Int("last_good_date"))
 	},
 }

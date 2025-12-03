@@ -142,7 +142,7 @@ func TestPartialWalk(t *testing.T) {
 	require.True(t, done)
 }
 
-func TestRevertTo(t *testing.T) {
+func TestDowngradeTo(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -158,7 +158,7 @@ func TestRevertTo(t *testing.T) {
 		t.Fatal("no rows in save set")
 	}
 	n, _ := strconv.Atoi(time.Now().AddDate(0, 0, -1).Format("20060102"))
-	err = cdb.RevertTo(ctx, n)
+	err = cdb.DowngradeTo(ctx, n)
 	require.NoError(t, err, "error reverting. All sql entries need a revert file.")
 
 	var shouldBeReverted []string
