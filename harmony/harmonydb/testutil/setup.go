@@ -117,7 +117,8 @@ func prepareTemplateSchema() error {
 }
 
 // cloneTemplateSchema creates a new schema for the test by copying all table
-// structures from the template schema using CREATE TABLE ... (LIKE ... INCLUDING ALL).
+// structures and data from the template schema. This includes seed data that
+// was inserted during migrations (e.g., harmony_config entries).
 func cloneTemplateSchema(id harmonydb.ITestID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -172,13 +173,16 @@ func cloneTemplateSchema(id harmonydb.ITestID) error {
 		}
 	}
 
-	// Copy data from base table (migration tracking) so harmonydb doesn't re-run migrations
-	_, err = conn.Exec(ctx, fmt.Sprintf(
-		"INSERT INTO %s.base SELECT * FROM %s.base",
-		quoteIdentifier(newSchema), quoteIdentifier(templateSchema),
-	))
-	if err != nil {
-		return fmt.Errorf("copying base table data: %w", err)
+	// Copy data from all tables (includes migration tracking in 'base' and seed data from migrations)
+	for _, table := range tables {
+		_, err = conn.Exec(ctx, fmt.Sprintf(
+			"INSERT INTO %s.%s SELECT * FROM %s.%s",
+			quoteIdentifier(newSchema), quoteIdentifier(table),
+			quoteIdentifier(templateSchema), quoteIdentifier(table),
+		))
+		if err != nil {
+			return fmt.Errorf("copying data for table %s: %w", table, err)
+		}
 	}
 
 	return nil
