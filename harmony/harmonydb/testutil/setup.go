@@ -24,9 +24,10 @@ const (
 )
 
 var (
-	templateOnce sync.Once
-	templateErr  error
-	baseConnCfg  connConfig
+	templateOnce  sync.Once
+	templateErr   error
+	baseConnCfg   connConfig
+	createDBMutex sync.Mutex
 )
 
 type connConfig struct {
@@ -105,37 +106,47 @@ func doPrepareTemplateSchema() error {
 		return fmt.Errorf("connecting to admin database: %w", err)
 	}
 
-	// Check if database exists
-	var exists bool
-	err = adminConn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", testDBName).Scan(&exists)
-	if err != nil {
-		_ = adminConn.Close(ctx)
-		return fmt.Errorf("checking if test database exists: %w", err)
-	}
-
-	if !exists {
-		if _, err := adminConn.Exec(ctx, "CREATE DATABASE "+quoteIdentifier(testDBName)); err != nil {
+	err = func() error {
+		// Check if database exists
+		createDBMutex.Lock()
+		defer createDBMutex.Unlock()
+		var exists bool
+		err = adminConn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", testDBName).Scan(&exists)
+		if err != nil {
 			_ = adminConn.Close(ctx)
-			return fmt.Errorf("creating test database: %w", err)
+			return fmt.Errorf("checking if test database exists: %w", err)
 		}
-	}
-	_ = adminConn.Close(ctx)
 
-	// Connect to the test database and drop old template schema if it exists
-	testConn, err := pgx.Connect(ctx, baseConnCfg.connString(testDBName))
-	if err != nil {
-		return fmt.Errorf("connecting to test database: %w", err)
-	}
-	templateSchema := fmt.Sprintf("itest_%s", templateSchemaID)
-	_, _ = testConn.Exec(ctx, "DROP SCHEMA IF EXISTS "+quoteIdentifier(templateSchema)+" CASCADE")
-	_ = testConn.Close(ctx)
+		if !exists {
+			_, err := adminConn.Exec(ctx, "CREATE DATABASE "+quoteIdentifier(testDBName))
+			// Ignore "already exists" errors (race condition with parallel tests or previous runs)
+			if err != nil && !strings.Contains(err.Error(), "already exists") {
+				_ = adminConn.Close(ctx)
+				return fmt.Errorf("creating test database: %w", err)
+			}
+		}
+		_ = adminConn.Close(ctx)
 
-	// Use harmonydb.New to create the template schema and apply all migrations
-	db, err := harmonydb.New([]string{baseConnCfg.host}, baseConnCfg.username, baseConnCfg.password, testDBName, baseConnCfg.port, false, templateSchemaID)
+		// Connect to the test database and drop old template schema if it exists
+		testConn, err := pgx.Connect(ctx, baseConnCfg.connString(testDBName))
+		if err != nil {
+			return fmt.Errorf("connecting to test database: %w", err)
+		}
+		templateSchema := fmt.Sprintf("itest_%s", templateSchemaID)
+		_, _ = testConn.Exec(ctx, "DROP SCHEMA IF EXISTS "+quoteIdentifier(templateSchema)+" CASCADE")
+		_ = testConn.Close(ctx)
+
+		// Use harmonydb.New to create the template schema and apply all migrations
+		db, err := harmonydb.New([]string{baseConnCfg.host}, baseConnCfg.username, baseConnCfg.password, testDBName, baseConnCfg.port, false, templateSchemaID)
+		if err != nil {
+			return fmt.Errorf("initializing template schema: %w", err)
+		}
+		db.Close()
+		return nil
+	}()
 	if err != nil {
-		return fmt.Errorf("initializing template schema: %w", err)
+		return err
 	}
-	db.Close()
 
 	return nil
 }
