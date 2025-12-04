@@ -57,13 +57,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-  # Self-hosted setup - proof params and FFI, starts YugabyteDB for all tests
+  # Self-hosted setup - proof params and FFI cache only
   setup-self-hosted:
     runs-on: [self-hosted, docker]
-    outputs:
-      yugabyte-ip: ${{ steps.start-yb.outputs.yb_ip }}
-    env:
-      YB_CONTAINER: yugabyte-${{ github.run_id }}
     steps:
       # Check if proof params exist locally (self-hosted runners persist files)
       - name: Check local proof parameters
@@ -95,29 +91,6 @@ jobs:
       - name: Fetch parameters
         if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
         run: lotus fetch-params 8388608
-
-      # Start YugabyteDB early (in parallel with checkout/setup)
-      - name: Start YugabyteDB
-        id: start-yb
-        run: |
-          # Stop any existing container
-          docker stop $YB_CONTAINER 2>/dev/null || true
-          docker rm $YB_CONTAINER 2>/dev/null || true
-          
-          # Start fresh container
-          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-          
-          # Wait for it to be ready
-          for i in {1..60}; do
-            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
-              break
-            fi
-            sleep 1
-          done
-          
-          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-          echo "YugabyteDB ready at $YB_IP"
 
       - uses: actions/checkout@v4
         with:
@@ -190,12 +163,34 @@ jobs:
     runs-on: [self-hosted, docker]
     needs: [setup-self-hosted]
     env:
-      CURIO_HARMONYDB_HOSTS: ${{ needs.setup-self-hosted.outputs.yugabyte-ip }}
-      LOTUS_HARMONYDB_HOSTS: ${{ needs.setup-self-hosted.outputs.yugabyte-ip }}
+      YB_CONTAINER: yugabyte-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Start YugabyteDB
+        id: start-yb
+        run: |
+          # Stop any existing container from previous runs
+          docker stop $YB_CONTAINER 2>/dev/null || true
+          docker rm $YB_CONTAINER 2>/dev/null || true
+          
+          # Start fresh container
+          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          
+          # Wait for it to be ready
+          for i in {1..60}; do
+            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
+              echo "YugabyteDB is ready"
+              break
+            fi
+            sleep 1
+          done
+          
+          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+          echo "YugabyteDB ready at $YB_IP"
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
@@ -203,19 +198,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run all integration tests (parallel via t.Parallel)
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
         run: |
           echo "Using YugabyteDB at: $CURIO_HARMONYDB_HOSTS"
           go test -v --tags=debug -timeout 60m -parallel 4 ./itests/...
 
-  # Cleanup YugabyteDB after all tests complete
-  cleanup:
-    runs-on: [self-hosted, docker]
-    needs: [test-unit, test-itest]
-    if: always()
-    env:
-      YB_CONTAINER: yugabyte-${{ github.run_id }}
-    steps:
       - name: Stop YugabyteDB
+        if: always()
         run: docker stop $YB_CONTAINER 2>/dev/null || true
 
   # Gen check
