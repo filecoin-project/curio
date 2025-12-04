@@ -20,7 +20,6 @@ import (
 // goroutine that persists after the test and can interfere with other tests.
 func TestDynamicConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	sharedITestID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
@@ -47,7 +46,15 @@ func TestDynamicConfig(t *testing.T) {
 	require.NoError(t, setTestConfig(ctx, cdb, databaseContents))
 
 	// "Start the server". This will immediately poll for a config update.
-	require.NoError(t, config.EnableChangeDetection(cdb, databaseContents, []string{"testcfg"}, config.FixTOML))
+	// Get the stop function to properly shut down the goroutine before test cleanup
+	stopFn, err := config.EnableChangeDetectionWithContext(ctx, cdb, databaseContents, []string{"testcfg"}, config.FixTOML)
+	require.NoError(t, err)
+
+	// Ensure we stop the change monitor BEFORE database cleanup happens
+	defer func() {
+		cancel() // Signal context cancellation
+		stopFn() // Wait for goroutine to exit
+	}()
 
 	// Positive Test: the runtime config should have the new value
 	require.Eventually(t, func() bool {
