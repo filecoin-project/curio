@@ -1,0 +1,55 @@
+name: 'Setup FFI'
+description: 'Cache and build FFI dependencies (for use with build-env container)'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Fetch all tags
+      run: git fetch --all --no-recurse-submodules
+      shell: bash
+
+    - name: Sync submodules
+      run: git submodule sync
+      shell: bash
+
+    - name: Update submodules
+      run: git submodule update --init
+      shell: bash
+
+    # Cache FFI build based on submodule commit
+    - name: Generate FFI cache key
+      id: ffi-cache-key
+      run: |
+        FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD)
+        echo "key=ffi-${{ runner.os }}-${FFI_COMMIT}" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Cache FFI build
+      id: cache-ffi
+      uses: actions/cache@v4
+      with:
+        path: |
+          extern/filecoin-ffi/.install-filcrypto
+          extern/filecoin-ffi/filcrypto.h
+          extern/filecoin-ffi/libfilcrypto.a
+          extern/filecoin-ffi/filcrypto.pc
+          build/.filecoin-install
+          build/.blst-install
+          extern/supraseal/.install-blst
+          extern/supraseal/deps/blst
+        key: ${{ steps.ffi-cache-key.outputs.key }}
+
+    - name: Build FFI
+      if: steps.cache-ffi.outputs.cache-hit != 'true'
+      run: make deps
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Restore FFI marker files
+      if: steps.cache-ffi.outputs.cache-hit == 'true'
+      run: |
+        mkdir -p build
+        touch build/.filecoin-install build/.blst-install || true
+      shell: bash
+

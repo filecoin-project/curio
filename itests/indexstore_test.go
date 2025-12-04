@@ -206,4 +206,3 @@ func TestNewIndexStore(t *testing.T) {
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
 	require.NoError(t, err)
 }
-
