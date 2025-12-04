@@ -865,6 +865,10 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
 			return
 		}
+		if len(extraDataBytes) > 256 {
+			http.Error(w, "extraData too long (max 256 bytes)", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Check if we have this piece or not

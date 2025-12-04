@@ -19,12 +19,10 @@ import (
 )
 
 const (
-	// MaxCreateDataSetExtraDataSize defines the service-level limit for extraData in CreateDataSet calls (4KB).
-	// Recommended in FilOzone/pdp#224.
+	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
 	MaxCreateDataSetExtraDataSize = 4096
 
-	// MaxAddPiecesExtraDataSize defines the service-level limit for extraData in AddPieces calls (8KB).
-	// Recommended in FilOzone/pdp#224.
+	// MaxAddPiecesExtraDataSize defines the limit for extraData size in AddPieces calls (8KB).
 	MaxAddPiecesExtraDataSize = 8192
 )
 
