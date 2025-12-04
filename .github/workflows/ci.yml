@@ -46,15 +46,43 @@ jobs:
   setup-self-hosted:
     runs-on: [self-hosted, docker]
     steps:
+      # Check if proof params exist locally (self-hosted runners persist files)
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "Proof parameters found locally"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Proof parameters not found locally"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      # Only try cache if local files don't exist
+      # Use restore-keys to read from main branch's cache (PRs inherit from base branch)
       - name: Cache proof parameters
+        if: steps.local-params.outputs.exists != 'true'
         id: cache-params
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-8388608
+          restore-keys: |
+            proof-params-
+
+      # Save cache only on main branch (PRs just read from main's cache)
+      - name: Save proof parameters cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
         with:
           path: /var/tmp/filecoin-proof-parameters
           key: proof-params-8388608
 
+      # Only fetch if neither local nor cache had params
       - name: Fetch parameters
-        if: steps.cache-params.outputs.cache-hit != 'true'
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
         run: lotus fetch-params 8388608
         shell: bash
 

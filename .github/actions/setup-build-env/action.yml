@@ -16,32 +16,32 @@ runs:
         cache: true
         cache-dependency-path: go.sum
 
-    # Cache apt packages to avoid repeated downloads
-    - name: Cache apt packages
-      uses: actions/cache@v4
-      with:
-        path: |
-          /var/cache/apt/archives
-        key: apt-${{ runner.os }}-${{ hashFiles('.github/actions/install-deps/action.yml') }}
-        restore-keys: |
-          apt-${{ runner.os }}-
-
-    - name: Install system dependencies
+    # Run apt install, git submodules, and go mod download in parallel
+    - name: Install deps, setup submodules, download Go modules (parallel)
       run: |
-        sudo apt-get update
-        sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
-      shell: bash
+        # Start apt install in background
+        (
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
+        ) &
+        APT_PID=$!
 
-    - name: Fetch all tags
-      run: git fetch --all --no-recurse-submodules
-      shell: bash
+        # Start git operations in background
+        (
+          git fetch --all --no-recurse-submodules
+          git submodule sync
+          git submodule update --init
+        ) &
+        GIT_PID=$!
 
-    - name: Sync submodules
-      run: git submodule sync
-      shell: bash
+        # Start go mod download in background
+        go mod download &
+        GO_MOD_PID=$!
 
-    - name: Update submodules
-      run: git submodule update --init
+        # Wait for all to complete
+        wait $APT_PID || exit 1
+        wait $GIT_PID || exit 1
+        wait $GO_MOD_PID || exit 1
       shell: bash
 
     # Cache FFI build based on submodule commit
