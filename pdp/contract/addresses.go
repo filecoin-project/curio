@@ -2,6 +2,8 @@ package contract
 
 import (
 	"math/big"
+	"os"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/snadrus/must"
@@ -21,6 +23,13 @@ type RecordKeeperAddresses struct {
 	FWSService common.Address
 	Simple     common.Address
 }
+
+var (
+	cachedContracts       *PDPContracts
+	cachedServiceRegistry *common.Address
+	cachedUSDFC           *common.Address
+	cacheMu               sync.RWMutex
+)
 
 func (a RecordKeeperAddresses) List() []common.Address {
 	return []common.Address{a.FWSService, a.Simple}
@@ -42,6 +51,45 @@ func ContractAddresses() PDPContracts {
 				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
+	case build.BuildLocalnet:
+		// Check cache first
+		cacheMu.RLock()
+		if cachedContracts != nil {
+			defer cacheMu.RUnlock()
+			return *cachedContracts
+		}
+		cacheMu.RUnlock()
+
+		// Cache miss, load from env vars
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
+
+		// Double-check after acquiring write lock
+		if cachedContracts != nil {
+			return *cachedContracts
+		}
+
+		// For localnet, use env vars FOC_LOCALNET_*
+		pdpVerifier := os.Getenv("FOC_LOCALNET_PDP_VERIFIER")
+		if pdpVerifier == "" {
+			panic("FOC_LOCALNET_PDP_VERIFIER env var not set for localnet")
+		}
+
+		contracts := PDPContracts{
+			PDPVerifier: common.HexToAddress(pdpVerifier),
+		}
+
+		// Optional record keepers
+		if fwsService := os.Getenv("FOC_LOCALNET_FWS_SERVICE"); fwsService != "" {
+			contracts.AllowedPublicRecordKeepers.FWSService = common.HexToAddress(fwsService)
+		}
+		if simple := os.Getenv("FOC_LOCALNET_SIMPLE_RECORD_KEEPER"); simple != "" {
+			contracts.AllowedPublicRecordKeepers.Simple = common.HexToAddress(simple)
+		}
+
+		// Cache the result
+		cachedContracts = &contracts
+		return contracts
 	default:
 		panic("PDP contract unknown for this network")
 	}
@@ -79,6 +127,31 @@ func ServiceRegistryAddress() (common.Address, error) {
 		return common.HexToAddress(ServiceRegistryCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(ServiceRegistryMainnet), nil
+	case build.BuildLocalnet:
+		// Check cache first
+		cacheMu.RLock()
+		if cachedServiceRegistry != nil {
+			defer cacheMu.RUnlock()
+			return *cachedServiceRegistry, nil
+		}
+		cacheMu.RUnlock()
+
+		// Cache miss, load from env var
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
+
+		// Double-check after acquiring write lock
+		if cachedServiceRegistry != nil {
+			return *cachedServiceRegistry, nil
+		}
+
+		// For localnet, use env var FOC_LOCALNET_SERVICE_REGISTRY
+		if addr := os.Getenv("FOC_LOCALNET_SERVICE_REGISTRY"); addr != "" {
+			address := common.HexToAddress(addr)
+			cachedServiceRegistry = &address
+			return address, nil
+		}
+		return common.Address{}, xerrors.Errorf("service registry address not configured for localnet - set FOC_LOCALNET_SERVICE_REGISTRY env var")
 	default:
 		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
 	}
@@ -93,6 +166,31 @@ func USDFCAddress() (common.Address, error) {
 		return common.HexToAddress(USDFCAddressCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
+	case build.BuildLocalnet:
+		// Check cache first
+		cacheMu.RLock()
+		if cachedUSDFC != nil {
+			defer cacheMu.RUnlock()
+			return *cachedUSDFC, nil
+		}
+		cacheMu.RUnlock()
+
+		// Cache miss, load from env var
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
+
+		// Double-check after acquiring write lock
+		if cachedUSDFC != nil {
+			return *cachedUSDFC, nil
+		}
+
+		// For localnet, use env var FOC_LOCALNET_USDFC
+		if addr := os.Getenv("FOC_LOCALNET_USDFC"); addr != "" {
+			address := common.HexToAddress(addr)
+			cachedUSDFC = &address
+			return address, nil
+		}
+		return common.Address{}, xerrors.Errorf("USDFC address not configured for localnet - set FOC_LOCALNET_USDFC env var")
 	default:
 		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
 	}
