@@ -158,12 +158,12 @@ jobs:
       - name: Run unit tests
         run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests)
 
-  # Integration tests - single job, Go handles parallelism via t.Parallel()
-  test-itest:
+  # Integration tests - parallel tests (use t.Parallel())
+  test-itest-parallel:
     runs-on: [self-hosted, docker]
     needs: [setup-self-hosted]
     env:
-      YB_CONTAINER: yugabyte-${{ github.run_id }}
+      YB_CONTAINER: yugabyte-parallel-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -197,13 +197,66 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Run all integration tests (parallel via t.Parallel)
+      - name: Run parallel integration tests
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
         run: |
           echo "Using YugabyteDB at: $CURIO_HARMONYDB_HOSTS"
+          # Serial tests require "serial" build tag, so they're excluded here
           go test -v --tags=debug -timeout 60m -parallel 4 ./itests/...
+
+      - name: Stop YugabyteDB
+        if: always()
+        run: docker stop $YB_CONTAINER 2>/dev/null || true
+
+  # Integration tests - serial tests (modify global state, cannot use t.Parallel())
+  test-itest-serial:
+    runs-on: [self-hosted, docker]
+    needs: [setup-self-hosted]
+    env:
+      YB_CONTAINER: yugabyte-serial-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start YugabyteDB
+        id: start-yb
+        run: |
+          # Stop any existing container from previous runs
+          docker stop $YB_CONTAINER 2>/dev/null || true
+          docker rm $YB_CONTAINER 2>/dev/null || true
+          
+          # Start fresh container
+          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          
+          # Wait for it to be ready
+          for i in {1..60}; do
+            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
+              echo "YugabyteDB is ready"
+              break
+            fi
+            sleep 1
+          done
+          
+          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+          echo "YugabyteDB ready at $YB_IP"
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run serial integration tests
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+        run: |
+          echo "Using YugabyteDB at: $CURIO_HARMONYDB_HOSTS"
+          # Tests in serial/ modify global state and cannot run in parallel
+          go test -v --tags=debug,serial -timeout 30m ./itests/serial/...
 
       - name: Stop YugabyteDB
         if: always()

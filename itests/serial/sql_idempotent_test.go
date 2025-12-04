@@ -1,4 +1,6 @@
-package itests
+//go:build serial
+
+package serial
 
 import (
 	"context"
@@ -14,9 +16,8 @@ import (
 // TestSQLIdempotent tests that the SQL DDL files are idempotent.
 // The upgrader will fail unless everything has "IF NOT EXISTS" or "IF EXISTS" statements.
 // Or equivalent safety checks.
-// NOTE: This test modifies harmonydb.ITestUpgradeFunc (global state), so it cannot run in parallel.
+// NOTE: Cannot run in parallel - modifies global harmonydb.ITestUpgradeFunc
 func TestSQLIdempotent(t *testing.T) {
-	// Cannot use t.Parallel() - this test modifies global harmonydb.ITestUpgradeFunc
 	defer func() {
 		harmonydb.ITestUpgradeFunc = nil
 	}()

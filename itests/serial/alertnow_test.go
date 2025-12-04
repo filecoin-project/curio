@@ -1,4 +1,6 @@
-package itests
+//go:build serial
+
+package serial
 
 import (
 	"testing"
@@ -13,11 +15,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
+// TestAlertNow tests the alerting system.
+// NOTE: Cannot run in parallel - modifies global variables:
+// plugin.TestPlugins and alertmanager.AlertFuncs
 func TestAlertNow(t *testing.T) {
-	// NOTE: Cannot run in parallel - modifies global variables:
-	// plugin.TestPlugins and alertmanager.AlertFuncs
-	//  tests alerting system
-
 	tp := &testPlugin{}
 	plugin.TestPlugins = []plugin.Plugin{
 		tp,
