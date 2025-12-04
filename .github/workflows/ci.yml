@@ -44,67 +44,9 @@ jobs:
           wait $FMT_PID || exit 1
           wait $LINT_PID || exit 1
 
-  # Setup FFI cache for ubuntu-latest jobs
-  setup-build-env:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-  # Self-hosted setup - proof params and FFI cache only
-  setup-self-hosted:
-    runs-on: [self-hosted, docker]
-    steps:
-      # Check if proof params exist locally (self-hosted runners persist files)
-      - name: Check local proof parameters
-        id: local-params
-        run: |
-          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
-          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Cache proof parameters
-        if: steps.local-params.outputs.exists != 'true'
-        id: cache-params
-        uses: actions/cache/restore@v4
-        with:
-          path: /var/tmp/filecoin-proof-parameters
-          key: proof-params-8388608
-          restore-keys: proof-params-
-
-      - name: Save proof parameters cache
-        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: /var/tmp/filecoin-proof-parameters
-          key: proof-params-8388608
-
-      - name: Fetch parameters
-        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
-        run: lotus fetch-params 8388608
-
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-  # Lint - runs early, fast feedback
+  # Lint - runs immediately, no dependencies
   lint:
     runs-on: ubuntu-latest
-    needs: [setup-build-env]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,10 +62,9 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.4.0
           golangci-lint run -v --timeout 15m --concurrency 4
 
-  # Single build job - just verify it compiles
+  # Build variants - run in parallel, no dependencies
   build:
     runs-on: ubuntu-latest
-    needs: [setup-build-env]
     strategy:
       fail-fast: false
       matrix:
@@ -141,10 +82,9 @@ jobs:
       - name: Build ${{ matrix.variant }}
         run: make ${{ matrix.variant }}
 
-  # Unit tests - no database needed
+  # Unit tests - no database needed, runs immediately on self-hosted
   test-unit:
     runs-on: [self-hosted, docker]
-    needs: [setup-self-hosted]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,10 +101,41 @@ jobs:
   # Integration tests - parallel tests (use t.Parallel())
   test-itest-parallel:
     runs-on: [self-hosted, docker]
-    needs: [setup-self-hosted]
     env:
       YB_CONTAINER: yugabyte-parallel-${{ github.run_id }}
     steps:
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore proof parameters from cache
+        if: steps.local-params.outputs.exists != 'true'
+        id: cache-params
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+          restore-keys: proof-params-
+
+      - name: Fetch proof parameters
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching proof parameters (cache miss)..."
+          lotus fetch-params 8388608
+
+      - name: Save proof parameters to cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -213,10 +184,41 @@ jobs:
   # Integration tests - serial tests (modify global state, cannot use t.Parallel())
   test-itest-serial:
     runs-on: [self-hosted, docker]
-    needs: [setup-self-hosted]
     env:
       YB_CONTAINER: yugabyte-serial-${{ github.run_id }}
     steps:
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore proof parameters from cache
+        if: steps.local-params.outputs.exists != 'true'
+        id: cache-params
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+          restore-keys: proof-params-
+
+      - name: Fetch proof parameters
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching proof parameters (cache miss)..."
+          lotus fetch-params 8388608
+
+      - name: Save proof parameters to cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -262,10 +264,9 @@ jobs:
         if: always()
         run: docker stop $YB_CONTAINER 2>/dev/null || true
 
-  # Gen check
+  # Gen check - verify generated code is up to date
   gen-check:
     runs-on: ubuntu-latest
-    needs: [setup-build-env]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -276,13 +277,35 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Go tools and generate
+      - name: Install Go tools
         run: |
           go install golang.org/x/tools/cmd/goimports &
           go install github.com/hannahhoward/cbor-gen-for &
           go install github.com/swaggo/swag/cmd/swag &
           wait
-          make gen
+
+      - name: api-gen
+        run: make api-gen
+
+      - name: go-generate
+        run: make go-generate
+
+      - name: cfgdoc-gen
+        run: make cfgdoc-gen
+
+      - name: docsgen (md + openrpc)
+        run: make docsgen
+
+      - name: marketgen
+        run: make marketgen
+
+      - name: docsgen-cli (builds curio + sptool)
+        run: make docsgen-cli
+
+      - name: fiximports + go mod tidy
+        run: |
+          go run ./scripts/fiximports
+          go mod tidy
 
       - name: Check for changes
         run: |

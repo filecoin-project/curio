@@ -11,6 +11,7 @@ import (
 	"github.com/yugabyte/pgx/v5/pgxpool"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
 // TestSQLIdempotent tests that the SQL DDL files are idempotent.
@@ -28,7 +29,7 @@ func TestSQLIdempotent(t *testing.T) {
 		}
 	}
 
-	testID := harmonydb.ITestNewID()
+	testID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 
