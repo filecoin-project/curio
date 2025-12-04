@@ -15,6 +15,7 @@ import (
 )
 
 func TestCrud(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -47,6 +48,7 @@ func TestCrud(t *testing.T) {
 }
 
 func TestTransaction(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -97,6 +99,7 @@ func TestTransaction(t *testing.T) {
 }
 
 func TestPartialWalk(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

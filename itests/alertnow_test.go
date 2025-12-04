@@ -14,6 +14,7 @@ import (
 )
 
 func TestAlertNow(t *testing.T) {
+	t.Parallel()
 	//  tests alerting system
 
 	tp := &testPlugin{}

@@ -76,6 +76,7 @@ func (t *TestingLocalStorage) init(subpath string) error {
 var _ paths.LocalStorage = &TestingLocalStorage{}
 
 func TestLocalStorage(t *testing.T) {
+	t.Parallel()
 	ctx := context.TODO()
 
 	root := t.TempDir()

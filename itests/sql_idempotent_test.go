@@ -15,6 +15,7 @@ import (
 // The upgrader will fail unless everything has "IF NOT EXISTS" or "IF EXISTS" statements.
 // Or equivalent safety checks.
 func TestSQLIdempotent(t *testing.T) {
+	t.Parallel()
 	harmonydb.ITestUpgradeFunc = func(db *pgxpool.Pool, name string, sql string) {
 		_, err := db.Exec(context.Background(), sql)
 		require.NoError(t, fmt.Errorf("SQL DDL file failed idempotent check: %s, %w", name, err))

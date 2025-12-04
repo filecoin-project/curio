@@ -22,6 +22,7 @@ import (
 )
 
 func TestNewIndexStore(t *testing.T) {
+	t.Parallel()
 	// Set up the indexStore for testing
 
 	ctx := context.Background()

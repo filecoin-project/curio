@@ -51,6 +51,7 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 }
 
 func TestMoveShared(t *testing.T) {
+	t.Parallel()
 	logging.SetAllLoggers(logging.LevelDebug)
 
 	sharedITestID := testutil.SetupTestDB(t)
