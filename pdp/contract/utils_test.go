@@ -148,3 +148,104 @@ func TestOfferingToCapabilities_AdditionalHex(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldHexEncodeCapability(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []byte
+		wantHex bool
+	}{
+		// Valid UTF-8 text - should NOT be hex encoded
+		{
+			name:    "ASCII text",
+			input:   []byte("hello world"),
+			wantHex: false,
+		},
+		{
+			name:    "URL",
+			input:   []byte("https://example.com/path?query=value"),
+			wantHex: false,
+		},
+		{
+			name:    "Chinese characters",
+			input:   []byte("北京"),
+			wantHex: false,
+		},
+		{
+			name:    "Japanese characters",
+			input:   []byte("東京"),
+			wantHex: false,
+		},
+		{
+			name:    "Emoji",
+			input:   []byte("🚀🎉"),
+			wantHex: false,
+		},
+		{
+			name:    "Mixed Unicode",
+			input:   []byte("Hello 世界 🌍"),
+			wantHex: false,
+		},
+		{
+			name:    "Empty string",
+			input:   []byte(""),
+			wantHex: false,
+		},
+
+		// Binary data - should be hex encoded
+		{
+			name:    "Null byte",
+			input:   []byte("hello\x00world"),
+			wantHex: true,
+		},
+		{
+			name:    "Control character (bell)",
+			input:   []byte("hello\x07world"),
+			wantHex: true,
+		},
+		{
+			name:    "Control character (tab)",
+			input:   []byte("hello\tworld"),
+			wantHex: true,
+		},
+		{
+			name:    "Control character (newline)",
+			input:   []byte("hello\nworld"),
+			wantHex: true,
+		},
+		{
+			name:    "DEL character",
+			input:   []byte("hello\x7Fworld"),
+			wantHex: true,
+		},
+		{
+			name:    "C1 control character",
+			input:   []byte("hello\x80world"),
+			wantHex: true,
+		},
+		{
+			name:    "Invalid UTF-8 sequence",
+			input:   []byte{0xff, 0xfe},
+			wantHex: true,
+		},
+		{
+			name:    "Ethereum address bytes",
+			input:   mustHex("0x4a6f6B9fF1fc974096f9063a45Fd12bD5B928AD1"),
+			wantHex: true,
+		},
+		{
+			name:    "Certificate-like binary with null",
+			input:   []byte{0x30, 0x82, 0x00, 0x00, 0x02, 0x01},
+			wantHex: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ShouldHexEncodeCapability(tc.input)
+			if got != tc.wantHex {
+				t.Errorf("ShouldHexEncodeCapability(%q) = %v, want %v", tc.input, got, tc.wantHex)
+			}
+		})
+	}
+}

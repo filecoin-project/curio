@@ -292,8 +292,8 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 		case contract.CapPaymentToken:
 			offering.PaymentTokenAddress = contract.DecodeAddressCapability(value).Hex()
 		default:
-			// Custom capability
-			customCaps[key] = string(value)
+			// Custom capability - encode for safe round-trip through JSON/browser
+			customCaps[key] = contract.EncodeCapabilityForDisplay(value)
 		}
 	}
 

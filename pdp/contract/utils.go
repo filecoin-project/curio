@@ -8,6 +8,8 @@ import (
 	mbig "math/big"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -524,4 +526,32 @@ func DecodeAddressCapability(input []byte) common.Address {
 
 	// Lowest 20 bytes are the address
 	return common.BytesToAddress(buf[12:])
+}
+
+// ShouldHexEncodeCapability reports whether a capability value needs hex-encoding
+// to safely round-trip through JSON and browser input fields. Returns true for
+// invalid UTF-8 or control characters; false for valid text (including CJK/emoji).
+// See https://pkg.go.dev/unicode/utf8#DecodeRune for RuneError semantics.
+func ShouldHexEncodeCapability(b []byte) bool {
+	for i := 0; i < len(b); {
+		r, size := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && size == 1 { // invalid UTF-8
+			return true
+		}
+		if unicode.IsControl(r) {
+			return true
+		}
+		i += size
+	}
+	return false
+}
+
+// EncodeCapabilityForDisplay returns a display string for a capability value.
+// Binary data gets "0x" hex prefix; valid UTF-8 text passes through as-is.
+// Pairs with hex-decoding in OfferingToCapabilities.
+func EncodeCapabilityForDisplay(b []byte) string {
+	if ShouldHexEncodeCapability(b) {
+		return "0x" + hex.EncodeToString(b)
+	}
+	return string(b)
 }
