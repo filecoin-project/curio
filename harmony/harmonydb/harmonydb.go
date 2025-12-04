@@ -299,11 +299,25 @@ func (db *DB) ITestDeleteAll() {
 		return
 	}
 	defer db.pgx.Close()
-	_, err := db.pgx.Exec(context.Background(), "DROP SCHEMA "+db.schema+" CASCADE")
-	if err != nil {
-		fmt.Println("warning: unclean itest shutdown: cannot delete schema: " + err.Error())
-		return
+
+	// Retry with exponential backoff for YugabyteDB serialization errors
+	retryWait := 100 * time.Millisecond
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		_, err := db.pgx.Exec(context.Background(), "DROP SCHEMA "+db.schema+" CASCADE")
+		if err == nil {
+			return
+		}
+		// Check if it's a serialization error (40001)
+		if !strings.Contains(err.Error(), "40001") {
+			fmt.Println("warning: unclean itest shutdown: cannot delete schema: " + err.Error())
+			return
+		}
+		// Serialization error - retry after backoff
+		time.Sleep(retryWait)
+		retryWait *= 2
 	}
+	fmt.Println("warning: unclean itest shutdown: cannot delete schema after retries")
 }
 
 var schemaREString = "^[A-Za-z0-9_]+$"

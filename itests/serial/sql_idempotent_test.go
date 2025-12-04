@@ -11,13 +11,13 @@ import (
 	"github.com/yugabyte/pgx/v5/pgxpool"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
 // TestSQLIdempotent tests that the SQL DDL files are idempotent.
 // The upgrader will fail unless everything has "IF NOT EXISTS" or "IF EXISTS" statements.
 // Or equivalent safety checks.
 // NOTE: Cannot run in parallel - modifies global harmonydb.ITestUpgradeFunc
+// NOTE: Does NOT use SetupTestDB because it needs fresh migrations to run
 func TestSQLIdempotent(t *testing.T) {
 	defer func() {
 		harmonydb.ITestUpgradeFunc = nil
@@ -29,7 +29,8 @@ func TestSQLIdempotent(t *testing.T) {
 		}
 	}
 
-	testID := testutil.SetupTestDB(t)
+	// Use a fresh schema (not cloned) so migrations actually run and ITestUpgradeFunc is called
+	testID := harmonydb.ITestNewID()
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 

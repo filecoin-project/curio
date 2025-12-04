@@ -1,4 +1,6 @@
-package itests
+//go:build serial
+
+package serial
 
 import (
 	"context"
@@ -13,8 +15,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
+// TestDynamicConfig tests the dynamic configuration change detection.
+// NOTE: Cannot run in parallel - EnableChangeDetection starts a background
+// goroutine that persists after the test and can interfere with other tests.
 func TestDynamicConfig(t *testing.T) {
-	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
