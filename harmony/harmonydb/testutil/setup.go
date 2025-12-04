@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/url"
 	"os"
 	"strings"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
+
+const maxRetries = 5
 
 const (
 	templateSchemaID harmonydb.ITestID = "template"
@@ -71,7 +74,28 @@ func loadConnConfig() connConfig {
 
 // prepareTemplateSchema creates the shared test database (if needed) and
 // applies all migrations to a template schema that will be cloned for each test.
+// Retries on YugabyteDB serialization errors.
 func prepareTemplateSchema() error {
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt-1))*200*time.Millisecond + time.Duration(rand.Intn(100))*time.Millisecond
+			time.Sleep(backoff)
+		}
+
+		lastErr = doPrepareTemplateSchema()
+		if lastErr == nil {
+			return nil
+		}
+
+		if !isSerializationError(lastErr) {
+			return lastErr
+		}
+	}
+	return fmt.Errorf("after %d retries: %w", maxRetries, lastErr)
+}
+
+func doPrepareTemplateSchema() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -119,7 +143,30 @@ func prepareTemplateSchema() error {
 // cloneTemplateSchema creates a new schema for the test by copying all table
 // structures and data from the template schema. This includes seed data that
 // was inserted during migrations (e.g., harmony_config entries).
+// Retries on YugabyteDB serialization errors (40001) which can occur with concurrent cloning.
 func cloneTemplateSchema(id harmonydb.ITestID) error {
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff with jitter
+			backoff := time.Duration(1<<uint(attempt-1))*100*time.Millisecond + time.Duration(rand.Intn(100))*time.Millisecond
+			time.Sleep(backoff)
+		}
+
+		lastErr = doCloneTemplateSchema(id)
+		if lastErr == nil {
+			return nil
+		}
+
+		// Retry on serialization errors (SQLSTATE 40001)
+		if !isSerializationError(lastErr) {
+			return lastErr
+		}
+	}
+	return fmt.Errorf("after %d retries: %w", maxRetries, lastErr)
+}
+
+func doCloneTemplateSchema(id harmonydb.ITestID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -131,6 +178,9 @@ func cloneTemplateSchema(id harmonydb.ITestID) error {
 
 	templateSchema := fmt.Sprintf("itest_%s", templateSchemaID)
 	newSchema := fmt.Sprintf("itest_%s", id)
+
+	// Drop schema if it exists from a previous failed attempt
+	_, _ = conn.Exec(ctx, "DROP SCHEMA IF EXISTS "+quoteIdentifier(newSchema)+" CASCADE")
 
 	// Create the new schema
 	if _, err := conn.Exec(ctx, "CREATE SCHEMA "+quoteIdentifier(newSchema)); err != nil {
@@ -186,6 +236,17 @@ func cloneTemplateSchema(id harmonydb.ITestID) error {
 	}
 
 	return nil
+}
+
+// isSerializationError checks if the error is a YugabyteDB serialization failure (40001)
+func isSerializationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "40001") ||
+		strings.Contains(errStr, "serialization") ||
+		strings.Contains(errStr, "Restart read required")
 }
 
 func (c connConfig) connString(database string) string {
