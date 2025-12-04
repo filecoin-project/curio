@@ -10,7 +10,6 @@ on:
 
 env:
   GO_VERSION: 1.24.7
-  BUILD_ENV_IMAGE: ghcr.io/${{ github.repository }}/build-env:latest
 
 jobs:
   ci-lint:
@@ -30,7 +29,21 @@ jobs:
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
 
-  setup-params:
+  # Build environment setup - runs once, caches FFI for other ubuntu-latest jobs
+  setup-build-env:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+  # Self-hosted setup - proof params and FFI for test jobs
+  setup-self-hosted:
     runs-on: [self-hosted, docker]
     steps:
       - name: Cache proof parameters
@@ -45,18 +58,28 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
   # Debug build - separate so tests can depend on it without waiting for other variants
   build-debug:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/filecoin-project/curio/build-env:latest
+    needs: [setup-build-env]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup FFI (cached)
-        uses: ./.github/actions/setup-ffi
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Build debug
         run: make debug
@@ -73,8 +96,7 @@ jobs:
   # Other build variants - run in parallel, tests don't wait for these
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/filecoin-project/curio/build-env:latest
+    needs: [setup-build-env]
     strategy:
       fail-fast: false
       matrix:
@@ -92,8 +114,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup FFI (cached)
-        uses: ./.github/actions/setup-ffi
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Build ${{ matrix.variant.name }}
         run: make ${{ matrix.variant.target }}
@@ -111,18 +135,16 @@ jobs:
   # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-unit:
     runs-on: [self-hosted, docker]
-    container:
-      image: ghcr.io/filecoin-project/curio/build-env:latest
-      volumes:
-        - /var/tmp/filecoin-proof-parameters:/var/tmp/filecoin-proof-parameters
-    needs: [setup-params]
+    needs: [setup-self-hosted]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup FFI (cached)
-        uses: ./.github/actions/setup-ffi
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Run unit tests
         run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests)
@@ -131,12 +153,7 @@ jobs:
   # Tests compile via `go test`, they don't need pre-built binaries - only FFI for linking
   test-itest:
     runs-on: [self-hosted, docker]
-    container:
-      image: ghcr.io/filecoin-project/curio/build-env:latest
-      volumes:
-        - /var/tmp/filecoin-proof-parameters:/var/tmp/filecoin-proof-parameters
-        - /var/run/docker.sock:/var/run/docker.sock
-    needs: [setup-params]
+    needs: [setup-self-hosted]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
@@ -160,8 +177,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup FFI (cached)
-        uses: ./.github/actions/setup-ffi
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Start YugabyteDB container
         run: |
@@ -196,15 +215,16 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/filecoin-project/curio/build-env:latest
+    needs: [setup-build-env]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup FFI (cached)
-        uses: ./.github/actions/setup-ffi
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Install golangci-lint
         run: |
@@ -445,15 +465,25 @@ jobs:
 
   gen-check:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/filecoin-project/curio/build-env:latest
+    needs: [setup-build-env]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup FFI (cached)
-        uses: ./.github/actions/setup-ffi
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Go tools
+        run: |
+          # Tools are defined in tools/tools.go and versioned in go.mod
+          go install golang.org/x/tools/cmd/goimports &
+          go install github.com/hannahhoward/cbor-gen-for &
+          go install github.com/swaggo/swag/cmd/swag &
+          wait
+        shell: bash
 
       - name: Generate Code
         env:
