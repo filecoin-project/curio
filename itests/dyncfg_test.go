@@ -60,6 +60,7 @@ func setTestConfig(ctx context.Context, cdb *harmonydb.DB, cfg *config.CurioConf
 	if err != nil {
 		return err
 	}
-	_, err = cdb.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2)`, "testcfg", string(tomlData))
+	_, err = cdb.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2)
+		ON CONFLICT (title) DO UPDATE SET config = EXCLUDED.config`, "testcfg", string(tomlData))
 	return err
 }

@@ -3,7 +3,6 @@ package testutil
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/url"
 	"os"
 	"strings"
@@ -16,18 +15,16 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-const maxRetries = 5
-
 const (
 	templateSchemaID harmonydb.ITestID = "template"
 	testDBName       string            = "curio_itest"
 )
 
 var (
-	templateOnce  sync.Once
-	templateErr   error
-	baseConnCfg   connConfig
-	createDBMutex sync.Mutex
+	templateOnce sync.Once
+	templateErr  error
+	baseConnCfg  connConfig
+	cloneMutex   sync.Mutex // Serializes schema cloning to avoid YugabyteDB conflicts
 )
 
 type connConfig struct {
@@ -75,28 +72,7 @@ func loadConnConfig() connConfig {
 
 // prepareTemplateSchema creates the shared test database (if needed) and
 // applies all migrations to a template schema that will be cloned for each test.
-// Retries on YugabyteDB serialization errors.
 func prepareTemplateSchema() error {
-	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt-1))*200*time.Millisecond + time.Duration(rand.Intn(100))*time.Millisecond
-			time.Sleep(backoff)
-		}
-
-		lastErr = doPrepareTemplateSchema()
-		if lastErr == nil {
-			return nil
-		}
-
-		if !isSerializationError(lastErr) {
-			return lastErr
-		}
-	}
-	return fmt.Errorf("after %d retries: %w", maxRetries, lastErr)
-}
-
-func doPrepareTemplateSchema() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -106,47 +82,38 @@ func doPrepareTemplateSchema() error {
 		return fmt.Errorf("connecting to admin database: %w", err)
 	}
 
-	err = func() error {
-		// Check if database exists
-		createDBMutex.Lock()
-		defer createDBMutex.Unlock()
-		var exists bool
-		err = adminConn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", testDBName).Scan(&exists)
-		if err != nil {
-			_ = adminConn.Close(ctx)
-			return fmt.Errorf("checking if test database exists: %w", err)
-		}
-
-		if !exists {
-			_, err := adminConn.Exec(ctx, "CREATE DATABASE "+quoteIdentifier(testDBName))
-			// Ignore "already exists" errors (race condition with parallel tests or previous runs)
-			if err != nil && !strings.Contains(err.Error(), "already exists") {
-				_ = adminConn.Close(ctx)
-				return fmt.Errorf("creating test database: %w", err)
-			}
-		}
-		_ = adminConn.Close(ctx)
-
-		// Connect to the test database and drop old template schema if it exists
-		testConn, err := pgx.Connect(ctx, baseConnCfg.connString(testDBName))
-		if err != nil {
-			return fmt.Errorf("connecting to test database: %w", err)
-		}
-		templateSchema := fmt.Sprintf("itest_%s", templateSchemaID)
-		_, _ = testConn.Exec(ctx, "DROP SCHEMA IF EXISTS "+quoteIdentifier(templateSchema)+" CASCADE")
-		_ = testConn.Close(ctx)
-
-		// Use harmonydb.New to create the template schema and apply all migrations
-		db, err := harmonydb.New([]string{baseConnCfg.host}, baseConnCfg.username, baseConnCfg.password, testDBName, baseConnCfg.port, false, templateSchemaID)
-		if err != nil {
-			return fmt.Errorf("initializing template schema: %w", err)
-		}
-		db.Close()
-		return nil
-	}()
+	var exists bool
+	err = adminConn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", testDBName).Scan(&exists)
 	if err != nil {
-		return err
+		_ = adminConn.Close(ctx)
+		return fmt.Errorf("checking if test database exists: %w", err)
 	}
+
+	if !exists {
+		_, err := adminConn.Exec(ctx, "CREATE DATABASE "+quoteIdentifier(testDBName))
+		// Ignore "already exists" errors (race condition with parallel processes)
+		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			_ = adminConn.Close(ctx)
+			return fmt.Errorf("creating test database: %w", err)
+		}
+	}
+	_ = adminConn.Close(ctx)
+
+	// Connect to the test database and drop old template schema if it exists
+	testConn, err := pgx.Connect(ctx, baseConnCfg.connString(testDBName))
+	if err != nil {
+		return fmt.Errorf("connecting to test database: %w", err)
+	}
+	templateSchema := fmt.Sprintf("itest_%s", templateSchemaID)
+	_, _ = testConn.Exec(ctx, "DROP SCHEMA IF EXISTS "+quoteIdentifier(templateSchema)+" CASCADE")
+	_ = testConn.Close(ctx)
+
+	// Use harmonydb.New to create the template schema and apply all migrations
+	db, err := harmonydb.New([]string{baseConnCfg.host}, baseConnCfg.username, baseConnCfg.password, testDBName, baseConnCfg.port, false, templateSchemaID)
+	if err != nil {
+		return fmt.Errorf("initializing template schema: %w", err)
+	}
+	db.Close()
 
 	return nil
 }
@@ -154,30 +121,10 @@ func doPrepareTemplateSchema() error {
 // cloneTemplateSchema creates a new schema for the test by copying all table
 // structures and data from the template schema. This includes seed data that
 // was inserted during migrations (e.g., harmony_config entries).
-// Retries on YugabyteDB serialization errors (40001) which can occur with concurrent cloning.
+// Uses a mutex to serialize cloning and avoid YugabyteDB transaction conflicts.
 func cloneTemplateSchema(id harmonydb.ITestID) error {
-	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			// Exponential backoff with jitter
-			backoff := time.Duration(1<<uint(attempt-1))*100*time.Millisecond + time.Duration(rand.Intn(100))*time.Millisecond
-			time.Sleep(backoff)
-		}
-
-		lastErr = doCloneTemplateSchema(id)
-		if lastErr == nil {
-			return nil
-		}
-
-		// Retry on serialization errors (SQLSTATE 40001)
-		if !isSerializationError(lastErr) {
-			return lastErr
-		}
-	}
-	return fmt.Errorf("after %d retries: %w", maxRetries, lastErr)
-}
-
-func doCloneTemplateSchema(id harmonydb.ITestID) error {
+	cloneMutex.Lock()
+	defer cloneMutex.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -247,17 +194,6 @@ func doCloneTemplateSchema(id harmonydb.ITestID) error {
 	}
 
 	return nil
-}
-
-// isSerializationError checks if the error is a YugabyteDB serialization failure (40001)
-func isSerializationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "40001") ||
-		strings.Contains(errStr, "serialization") ||
-		strings.Contains(errStr, "Restart read required")
 }
 
 func (c connConfig) connString(database string) string {

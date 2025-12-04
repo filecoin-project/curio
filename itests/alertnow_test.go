@@ -14,7 +14,8 @@ import (
 )
 
 func TestAlertNow(t *testing.T) {
-	t.Parallel()
+	// NOTE: Cannot run in parallel - modifies global variables:
+	// plugin.TestPlugins and alertmanager.AlertFuncs
 	//  tests alerting system
 
 	tp := &testPlugin{}

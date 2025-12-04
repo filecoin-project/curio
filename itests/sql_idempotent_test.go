@@ -22,7 +22,9 @@ func TestSQLIdempotent(t *testing.T) {
 	}()
 	harmonydb.ITestUpgradeFunc = func(db *pgxpool.Pool, name string, sql string) {
 		_, err := db.Exec(context.Background(), sql)
-		require.NoError(t, fmt.Errorf("SQL DDL file failed idempotent check: %s, %w", name, err))
+		if err != nil {
+			require.NoError(t, fmt.Errorf("SQL DDL file failed idempotent check: %s, %w", name, err))
+		}
 	}
 
 	testID := harmonydb.ITestNewID()
