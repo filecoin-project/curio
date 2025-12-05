@@ -198,6 +198,11 @@ func cloneTemplateSchema(id harmonydb.ITestID) error {
 		return fmt.Errorf("cloning functions: %w", err)
 	}
 
+	// Clone triggers from template schema to new schema
+	if err := cloneTriggers(ctx, conn, templateSchema, newSchema); err != nil {
+		return fmt.Errorf("cloning triggers: %w", err)
+	}
+
 	return nil
 }
 
@@ -244,13 +249,76 @@ func cloneFunctions(ctx context.Context, conn *pgx.Conn, templateSchema, newSche
 
 		// Replace schema name in the function definition
 		// The function definition starts with "CREATE OR REPLACE FUNCTION schema.funcname"
+		// Try both quoted and unquoted schema names since pg_get_functiondef output varies
 		funcDef = strings.Replace(funcDef,
 			quoteIdentifier(templateSchema)+".",
 			quoteIdentifier(newSchema)+".",
 			1)
+		funcDef = strings.Replace(funcDef,
+			templateSchema+".",
+			newSchema+".",
+			1)
 
 		if _, err := conn.Exec(ctx, funcDef); err != nil {
 			return fmt.Errorf("creating function %s: %w", f.name, err)
+		}
+	}
+
+	return nil
+}
+
+// cloneTriggers copies all triggers from the template schema to the new schema.
+// It retrieves trigger definitions and recreates them in the new schema.
+func cloneTriggers(ctx context.Context, conn *pgx.Conn, templateSchema, newSchema string) error {
+	// Query all triggers in the template schema
+	rows, err := conn.Query(ctx, `
+		SELECT 
+			t.tgname AS trigger_name,
+			c.relname AS table_name,
+			pg_get_triggerdef(t.oid) AS trigger_def
+		FROM pg_trigger t
+		JOIN pg_class c ON t.tgrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE n.nspname = $1
+		  AND NOT t.tgisinternal
+	`, templateSchema)
+	if err != nil {
+		return fmt.Errorf("querying triggers: %w", err)
+	}
+
+	type triggerInfo struct {
+		name      string
+		tableName string
+		def       string
+	}
+	var triggers []triggerInfo
+	for rows.Next() {
+		var t triggerInfo
+		if err := rows.Scan(&t.name, &t.tableName, &t.def); err != nil {
+			rows.Close()
+			return fmt.Errorf("scanning trigger: %w", err)
+		}
+		triggers = append(triggers, t)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating triggers: %w", err)
+	}
+
+	// Recreate each trigger in the new schema
+	for _, t := range triggers {
+		// Replace schema references in the trigger definition
+		// Try both quoted and unquoted schema names
+		triggerDef := t.def
+		triggerDef = strings.ReplaceAll(triggerDef,
+			quoteIdentifier(templateSchema)+".",
+			quoteIdentifier(newSchema)+".")
+		triggerDef = strings.ReplaceAll(triggerDef,
+			templateSchema+".",
+			newSchema+".")
+
+		if _, err := conn.Exec(ctx, triggerDef); err != nil {
+			return fmt.Errorf("creating trigger %s on %s: %w", t.name, t.tableName, err)
 		}
 	}
 
