@@ -212,8 +212,8 @@ func (r *cfgRoot[T]) changeMonitor() {
 		configCount := 0
 		err := r.db.QueryRow(r.ctx, `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
 		if err != nil {
-			// Exit if context was cancelled
-			if r.ctx.Err() != nil {
+			// Exit if context was cancelled or pool was closed (shutdown condition)
+			if r.ctx.Err() != nil || strings.Contains(err.Error(), "closed pool") {
 				return
 			}
 			logger.Errorf("error selecting configs: %s", err)
@@ -227,7 +227,8 @@ func (r *cfgRoot[T]) changeMonitor() {
 		// 1. get all configs
 		configs, err := GetConfigs(r.ctx, r.db, r.layers)
 		if err != nil {
-			if r.ctx.Err() != nil {
+			// Exit if context was cancelled or pool was closed (shutdown condition)
+			if r.ctx.Err() != nil || strings.Contains(err.Error(), "closed pool") {
 				return
 			}
 			logger.Errorf("error getting configs: %s", err)
