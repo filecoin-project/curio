@@ -109,6 +109,7 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 			// Huston! we have a serious problem
 			return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
 		}
+		log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 
 		n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces
 								SET removed = TRUE
@@ -143,8 +144,6 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *eth
 		return nil
 	}
 
-	log.Infof("Cleaning up %d pieces", len(pieces))
-
 	pdpAddress := contract.ContractAddresses().PDPVerifier
 
 	verifier, err := contract.NewPDPVerifier(pdpAddress, ethClient)
@@ -159,7 +158,9 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *eth
 		}
 
 		if !live {
-			_, err := db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2`, piece.DataSetID, piece.PieceID)
+			// XXX(Kubuxu): commented out as this has lead to proving failures
+			//_, err := db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2`, piece.DataSetID, piece.PieceID)
+			err = nil
 			if err != nil {
 				return xerrors.Errorf("failed to delete piece %d: %w", piece.PieceID, err)
 			}
