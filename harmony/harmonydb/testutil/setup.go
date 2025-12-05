@@ -119,8 +119,8 @@ func prepareTemplateSchema() error {
 }
 
 // cloneTemplateSchema creates a new schema for the test by copying all table
-// structures and data from the template schema. This includes seed data that
-// was inserted during migrations (e.g., harmony_config entries).
+// structures, data, and functions from the template schema. This includes seed
+// data that was inserted during migrations (e.g., harmony_config entries).
 // Uses a mutex to serialize cloning and avoid YugabyteDB transaction conflicts.
 func cloneTemplateSchema(id harmonydb.ITestID) error {
 	cloneMutex.Lock()
@@ -190,6 +190,67 @@ func cloneTemplateSchema(id harmonydb.ITestID) error {
 		))
 		if err != nil {
 			return fmt.Errorf("copying data for table %s: %w", table, err)
+		}
+	}
+
+	// Clone functions from template schema to new schema
+	if err := cloneFunctions(ctx, conn, templateSchema, newSchema); err != nil {
+		return fmt.Errorf("cloning functions: %w", err)
+	}
+
+	return nil
+}
+
+// cloneFunctions copies all functions from the template schema to the new schema.
+// It retrieves function definitions using pg_get_functiondef and recreates them
+// in the new schema by replacing the schema name in the function definition.
+func cloneFunctions(ctx context.Context, conn *pgx.Conn, templateSchema, newSchema string) error {
+	// Query all functions in the template schema
+	rows, err := conn.Query(ctx, `
+		SELECT p.oid, p.proname
+		FROM pg_proc p
+		JOIN pg_namespace n ON p.pronamespace = n.oid
+		WHERE n.nspname = $1
+	`, templateSchema)
+	if err != nil {
+		return fmt.Errorf("querying functions: %w", err)
+	}
+
+	type funcInfo struct {
+		oid  uint32
+		name string
+	}
+	var functions []funcInfo
+	for rows.Next() {
+		var f funcInfo
+		if err := rows.Scan(&f.oid, &f.name); err != nil {
+			rows.Close()
+			return fmt.Errorf("scanning function: %w", err)
+		}
+		functions = append(functions, f)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating functions: %w", err)
+	}
+
+	// Recreate each function in the new schema
+	for _, f := range functions {
+		var funcDef string
+		err := conn.QueryRow(ctx, "SELECT pg_get_functiondef($1)", f.oid).Scan(&funcDef)
+		if err != nil {
+			return fmt.Errorf("getting definition for function %s: %w", f.name, err)
+		}
+
+		// Replace schema name in the function definition
+		// The function definition starts with "CREATE OR REPLACE FUNCTION schema.funcname"
+		funcDef = strings.Replace(funcDef,
+			quoteIdentifier(templateSchema)+".",
+			quoteIdentifier(newSchema)+".",
+			1)
+
+		if _, err := conn.Exec(ctx, funcDef); err != nil {
+			return fmt.Errorf("creating function %s: %w", f.name, err)
 		}
 	}
 
