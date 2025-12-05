@@ -877,7 +877,8 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			return
 		}
 		if len(extraDataBytes) > MaxDeletePieceExtraDataSize {
-			http.Error(w, "extraData too long (max 256 bytes)", http.StatusBadRequest)
+			errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for DeletePiece (%d bytes)", len(extraDataBytes), MaxDeletePieceExtraDataSize)
+			http.Error(w, errMsg, http.StatusBadRequest)
 			return
 		}
 	}
