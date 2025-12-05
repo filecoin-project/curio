@@ -18,14 +18,6 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
-const (
-	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
-	MaxCreateDataSetExtraDataSize = 4096
-
-	// MaxAddPiecesExtraDataSize defines the limit for extraData size in AddPieces calls (8KB).
-	MaxAddPiecesExtraDataSize = 8192
-)
-
 var logCreate = logger.Logger("pdp/create")
 
 // handleCreateDataSetAndAddPieces handles the creation of a new data set and adding pieces at the same time

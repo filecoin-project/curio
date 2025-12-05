@@ -36,6 +36,17 @@ import (
 // PDPRoutePath is the base path for PDP routes
 const PDPRoutePath = "/pdp"
 
+const (
+	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
+	MaxCreateDataSetExtraDataSize = 4096
+
+	// MaxAddPiecesExtraDataSize defines the limit for extraData size in AddPieces calls (8KB).
+	MaxAddPiecesExtraDataSize = 8192
+
+	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
+	MaxDeletePieceExtraDataSize = 256
+)
+
 // PDPService represents the service for managing data sets and pieces
 type PDPService struct {
 	Auth
@@ -865,7 +876,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
 			return
 		}
-		if len(extraDataBytes) > 256 {
+		if len(extraDataBytes) > MaxDeletePieceExtraDataSize {
 			http.Error(w, "extraData too long (max 256 bytes)", http.StatusBadRequest)
 			return
 		}
