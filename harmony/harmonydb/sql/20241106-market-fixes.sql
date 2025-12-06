@@ -1,4 +1,4 @@
-ALTER TABLE ipni_peerid ADD UNIQUE (sp_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ipni_peerid_sp_id_unique ON ipni_peerid (sp_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS sectors_pipeline_events_task_history_id_uindex
     ON sectors_pipeline_events (task_history_id, sp_id, sector_number);
@@ -6,8 +6,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS sectors_pipeline_events_task_history_id_uindex
 CREATE UNIQUE INDEX IF NOT EXISTS market_piece_deal_piece_cid_id_uindex
     ON market_piece_deal (piece_cid, id);
 
-alter table market_mk12_deals
-    add proposal_cid text not null;
+ALTER TABLE market_mk12_deals
+    ADD COLUMN IF NOT EXISTS proposal_cid text not null;
 
 CREATE INDEX IF NOT EXISTS market_mk12_deals_proposal_cid_index
     ON market_mk12_deals (proposal_cid);

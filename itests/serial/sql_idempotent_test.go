@@ -11,30 +11,41 @@ import (
 	"github.com/yugabyte/pgx/v5/pgxpool"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
 // TestSQLIdempotent tests that the SQL DDL files are idempotent.
 // The upgrader will fail unless everything has "IF NOT EXISTS" or "IF EXISTS" statements.
 // Or equivalent safety checks.
 // NOTE: Cannot run in parallel - modifies global harmonydb.ITestUpgradeFunc
-// NOTE: Does NOT use SetupTestDB because it needs fresh migrations to run
 func TestSQLIdempotent(t *testing.T) {
 	defer func() {
 		harmonydb.ITestUpgradeFunc = nil
 	}()
-	harmonydb.ITestUpgradeFunc = func(db *pgxpool.Pool, name string, sql string) {
-		_, err := db.Exec(context.Background(), sql)
+
+	// Use SetupTestDB to get a cloned schema quickly (all structures already exist)
+	testID := testutil.SetupTestDB(t)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	require.NoError(t, err)
+
+	// Clear migration tracking so migrations will re-run
+	ctx := context.Background()
+	_, err = cdb.Exec(ctx, `DELETE FROM base`)
+	require.NoError(t, err)
+
+	// Set up idempotency check - each migration SQL will be run twice
+	harmonydb.ITestUpgradeFunc = func(pool *pgxpool.Pool, name string, sql string) {
+		_, err := pool.Exec(context.Background(), sql)
 		if err != nil {
 			require.NoError(t, fmt.Errorf("SQL DDL file failed idempotent check: %s, %w", name, err))
 		}
 	}
 
-	// Use a fresh schema (not cloned) so migrations actually run and ITestUpgradeFunc is called
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	// Create second connection - migrations re-run on existing structures (tests idempotency)
+	// Keep both connections open - cleanup handles closing
+	_, err = harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	_, err = cdb.Exec(ctx, `
 			INSERT INTO 
 				itest_scratch (content, some_int) 
