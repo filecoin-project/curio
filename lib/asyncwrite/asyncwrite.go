@@ -32,6 +32,10 @@ func (bfw *BackgroundWriter) writeWorker() {
 		pool.Put(data)
 		if writeErr != nil {
 			err = writeErr
+			// Drain remaining buffers from channel to avoid memory leak
+			for remaining := range bfw.ch {
+				pool.Put(remaining)
+			}
 			break
 		}
 	}
@@ -53,6 +57,7 @@ func (bfw *BackgroundWriter) Write(p []byte) (n int, err error) {
 	case bfw.ch <- b:
 		return len(b), nil
 	case err := <-bfw.done:
+		pool.Put(b)
 		return 0, err
 	}
 }
