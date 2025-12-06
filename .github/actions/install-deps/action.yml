@@ -7,11 +7,12 @@ runs:
     - name: Free up disk space
       run: |
         # Remove unnecessary packages to free up space for CUDA installation
+        # NOTE: Do NOT remove $AGENT_TOOLSDIRECTORY as it contains tools installed
+        # by actions/setup-go and other setup actions
         sudo apt-get clean
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /opt/ghc
         sudo rm -rf "/usr/local/share/boost"
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
       shell: bash
 
     - name: Install system dependencies
