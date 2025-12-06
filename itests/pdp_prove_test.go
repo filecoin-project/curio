@@ -26,6 +26,7 @@ import (
 
 // TestPDPProving verifies the functionality of generating and validating PDP proofs with a random file created in a temporary directory.
 func TestPDPProving(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 	idxStore := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)

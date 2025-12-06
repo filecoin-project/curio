@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS wallet_exporter_processing (
     processed_until TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO wallet_exporter_processing (singleton) VALUES (TRUE);
+INSERT INTO wallet_exporter_processing (singleton) VALUES (TRUE) ON CONFLICT DO NOTHING;
 
 -- presence of a message in this table means that we've already accounted the basic send
 CREATE TABLE IF NOT EXISTS wallet_exporter_watched_msgs (

@@ -144,7 +144,16 @@ BEGIN
 END $$;
 
 -- The order_number column must be completely sequential
-ALTER SEQUENCE ipni_order_number_seq CACHE 1;
+DO $$
+DECLARE
+    seq_name TEXT;
+BEGIN
+    -- Find the sequence for ipni.order_number column (handles cloned schemas with different sequence names)
+    SELECT pg_get_serial_sequence('ipni', 'order_number') INTO seq_name;
+    IF seq_name IS NOT NULL THEN
+        EXECUTE format('ALTER SEQUENCE %s CACHE 1', seq_name);
+    END IF;
+END $$;
 
 -- This function is used to insert piece metadata and piece deal (piece indexing)
 -- This makes it easy to keep the logic of how table is updated and fast (in DB).
@@ -248,29 +257,21 @@ $$ LANGUAGE plpgsql;
 -- Update raw_size for existing deals (One time backfill migration)
 DO $$
 BEGIN
-    UPDATE market_mk12_deals d
-    SET raw_size = mpd.raw_size
-        FROM market_piece_deal mpd
-    WHERE d.uuid = mpd.id;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_mk12_deals' AND column_name = 'raw_size') THEN
+        EXECUTE 'UPDATE market_mk12_deals d SET raw_size = mpd.raw_size FROM market_piece_deal mpd WHERE d.uuid = mpd.id';
+    END IF;
 
-    UPDATE market_direct_deals d
-    SET raw_size = mpd.raw_size
-        FROM market_piece_deal mpd
-    WHERE d.uuid = mpd.id;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_direct_deals' AND column_name = 'raw_size') THEN
+        EXECUTE 'UPDATE market_direct_deals d SET raw_size = mpd.raw_size FROM market_piece_deal mpd WHERE d.uuid = mpd.id';
+    END IF;
 
-    UPDATE market_mk12_deals d
-    SET raw_size = p.raw_size
-        FROM market_mk12_deal_pipeline p
-    WHERE d.uuid = p.uuid
-      AND d.raw_size IS NULL
-      AND p.raw_size IS NOT NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_mk12_deals' AND column_name = 'raw_size') THEN
+        EXECUTE 'UPDATE market_mk12_deals d SET raw_size = p.raw_size FROM market_mk12_deal_pipeline p WHERE d.uuid = p.uuid AND d.raw_size IS NULL AND p.raw_size IS NOT NULL';
+    END IF;
 
-    UPDATE market_direct_deals d
-    SET raw_size = p.raw_size
-        FROM market_mk12_deal_pipeline p
-    WHERE d.uuid = p.uuid
-      AND d.raw_size IS NULL
-      AND p.raw_size IS NOT NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_direct_deals' AND column_name = 'raw_size') THEN
+        EXECUTE 'UPDATE market_direct_deals d SET raw_size = p.raw_size FROM market_mk12_deal_pipeline p WHERE d.uuid = p.uuid AND d.raw_size IS NULL AND p.raw_size IS NOT NULL';
+    END IF;
 END $$;
 
 -- This is main MK20 Deal table. Rows are added per deal and some

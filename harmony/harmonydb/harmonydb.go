@@ -86,13 +86,18 @@ func envElse(env, els string) string {
 }
 
 func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
-	fmt.Printf("CURIO_HARMONYDB_HOSTS: %s\n", os.Getenv("CURIO_HARMONYDB_HOSTS"))
+	// Look up the database name from the registry, or fall back to default
+	database := "yugabyte"
+	if v, ok := itestDatabaseRegistry.Load(string(id)); ok {
+		database = v.(string)
+	}
+
 	db, err := New(
 		[]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		"yugabyte",
-		"yugabyte",
-		"yugabyte",
-		"5433",
+		envElse("CURIO_HARMONYDB_USERNAME", "yugabyte"),
+		envElse("CURIO_HARMONYDB_PASSWORD", "yugabyte"),
+		database,
+		envElse("CURIO_HARMONYDB_PORT", "5433"),
 		false,
 		id,
 	)
@@ -196,6 +201,15 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	return &db, db.upgrade()
 }
 
+// Close releases the underlying connection pool. It is safe to call multiple times.
+func (db *DB) Close() {
+	if db == nil || db.pgx == nil {
+		return
+	}
+	db.pgx.Close()
+	db.pgx = nil
+}
+
 type tracer struct {
 }
 
@@ -285,11 +299,25 @@ func (db *DB) ITestDeleteAll() {
 		return
 	}
 	defer db.pgx.Close()
-	_, err := db.pgx.Exec(context.Background(), "DROP SCHEMA "+db.schema+" CASCADE")
-	if err != nil {
-		fmt.Println("warning: unclean itest shutdown: cannot delete schema: " + err.Error())
-		return
+
+	// Retry with exponential backoff for YugabyteDB serialization errors
+	retryWait := 100 * time.Millisecond
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		_, err := db.pgx.Exec(context.Background(), "DROP SCHEMA "+db.schema+" CASCADE")
+		if err == nil {
+			return
+		}
+		// Check if it's a serialization error (40001)
+		if !strings.Contains(err.Error(), "40001") {
+			fmt.Println("warning: unclean itest shutdown: cannot delete schema: " + err.Error())
+			return
+		}
+		// Serialization error - retry after backoff
+		time.Sleep(retryWait)
+		retryWait *= 2
 	}
+	fmt.Println("warning: unclean itest shutdown: cannot delete schema after retries")
 }
 
 var schemaREString = "^[A-Za-z0-9_]+$"
