@@ -37,12 +37,14 @@ func TestCrud(t *testing.T) {
 		Animal      string `db:"content"`
 		Unpopulated int
 	}
-	err = cdb.Select(ctx, &ints, "SELECT content, some_int FROM itest_scratch")
+	err = cdb.Select(ctx, &ints, "SELECT content, some_int FROM itest_scratch ORDER BY some_int DESC")
 	require.NoError(t, err)
 
 	require.Len(t, ints, 2, "unexpected count of returns. Want 2, Got ", len(ints))
-	require.True(t, ints[0].Count == 11 || ints[1].Count == 5, "expected [11,5] got ", ints)
-	require.True(t, ints[0].Animal == "cows" || ints[1].Animal == "cats", "expected, [cows, cats] ", ints)
+	require.Equal(t, 11, ints[0].Count, "expected first row count to be 11")
+	require.Equal(t, 5, ints[1].Count, "expected second row count to be 5")
+	require.Equal(t, "cows", ints[0].Animal, "expected first row animal to be cows")
+	require.Equal(t, "cats", ints[1].Animal, "expected second row animal to be cats")
 	fmt.Println("test completed")
 
 }
