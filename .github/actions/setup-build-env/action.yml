@@ -16,39 +16,23 @@ runs:
         cache: true
         cache-dependency-path: go.sum
 
-    # Run apt install, git submodules, and go mod download in parallel
-    - name: Install deps, setup submodules, download Go modules (parallel)
+    - name: Install system dependencies (Ubuntu only)
       run: |
-        # Start apt install in background
-        (
+        if command -v apt-get &> /dev/null; then
           sudo apt-get update
           sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
-        ) &
-        APT_PID=$!
+        fi
+      shell: bash
 
-        # Start git operations in background
-        (
-          git fetch --all --no-recurse-submodules
-          git submodule sync
-          git submodule update --init
-        ) &
-        GIT_PID=$!
-
-        # Start go mod download in background
-        go mod download &
-        GO_MOD_PID=$!
-
-        # Wait for all to complete
-        wait $APT_PID || exit 1
-        wait $GIT_PID || exit 1
-        wait $GO_MOD_PID || exit 1
+    - name: Download Go modules
+      run: go mod download
       shell: bash
 
     # Cache FFI build based on submodule commit
     - name: Generate FFI cache key
       id: ffi-cache-key
       run: |
-        FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD)
+        FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD 2>/dev/null || echo "unknown")
         echo "key=ffi-${{ runner.os }}-${{ inputs.go-version }}-${FFI_COMMIT}" >> $GITHUB_OUTPUT
       shell: bash
 
@@ -71,8 +55,6 @@ runs:
       if: steps.cache-ffi.outputs.cache-hit != 'true'
       run: make deps
       shell: bash
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
 
     - name: Restore FFI marker files
       if: steps.cache-ffi.outputs.cache-hit == 'true'

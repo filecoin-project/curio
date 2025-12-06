@@ -36,13 +36,21 @@ jobs:
 
           # actionlint
           (
-            go install github.com/rhysd/actionlint/cmd/actionlint
+            go install github.com/rhysd/actionlint/cmd/actionlint@latest
             actionlint -shellcheck= -pyflakes=
           ) &
           LINT_PID=$!
 
+          # mod tidy check
+          (
+            go mod tidy -v
+            git diff --quiet go.mod go.sum || { echo "go mod tidy needed"; exit 1; }
+          ) &
+          TIDY_PID=$!
+
           wait $FMT_PID || exit 1
           wait $LINT_PID || exit 1
+          wait $TIDY_PID || exit 1
 
   # Lint - runs immediately, no dependencies
   lint:
@@ -62,7 +70,7 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.4.0
           golangci-lint run -v --timeout 15m --concurrency 4
 
-  # Build variants - run in parallel, no dependencies
+  # Build variants - run in parallel with matrix
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -82,7 +90,7 @@ jobs:
       - name: Build ${{ matrix.variant }}
         run: make ${{ matrix.variant }}
 
-  # Unit tests - no database needed, runs immediately on self-hosted
+  # Unit tests - no database needed
   test-unit:
     runs-on: [self-hosted, docker]
     steps:
@@ -98,11 +106,11 @@ jobs:
       - name: Run unit tests
         run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests)
 
-  # Integration tests - parallel tests (use t.Parallel())
-  test-itest-parallel:
+  # Integration tests - curio_test.go (heavy, runs separately)
+  test-itest-curio:
     runs-on: [self-hosted, docker]
     env:
-      YB_CONTAINER: yugabyte-parallel-${{ github.run_id }}
+      YB_CONTAINER: yugabyte-curio-${{ github.run_id }}
     steps:
       - name: Check local proof parameters
         id: local-params
@@ -143,14 +151,9 @@ jobs:
       - name: Start YugabyteDB
         id: start-yb
         run: |
-          # Stop any existing container from previous runs
           docker stop $YB_CONTAINER 2>/dev/null || true
           docker rm $YB_CONTAINER 2>/dev/null || true
-          
-          # Start fresh container
           docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-          
-          # Wait for it to be ready
           for i in {1..60}; do
             if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
               echo "YugabyteDB is ready"
@@ -158,30 +161,104 @@ jobs:
             fi
             sleep 1
           done
-          
           YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
           echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-          echo "YugabyteDB ready at $YB_IP"
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Run parallel integration tests
+      - name: Run curio integration test
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
-        run: |
-          echo "Using YugabyteDB at: $CURIO_HARMONYDB_HOSTS"
-          # Serial tests require "serial" build tag, so they're excluded here
-          go test -v --tags=debug -timeout 60m -parallel 4 ./itests/...
+        run: go test -v --tags=debug -timeout 60m ./itests/curio_test.go
 
       - name: Stop YugabyteDB
         if: always()
         run: docker stop $YB_CONTAINER 2>/dev/null || true
 
-  # Integration tests - serial tests (modify global state, cannot use t.Parallel())
+  # Integration tests - other parallel tests
+  test-itest-other:
+    runs-on: [self-hosted, docker]
+    env:
+      YB_CONTAINER: yugabyte-other-${{ github.run_id }}
+    steps:
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore proof parameters from cache
+        if: steps.local-params.outputs.exists != 'true'
+        id: cache-params
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+          restore-keys: proof-params-
+
+      - name: Fetch proof parameters
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching proof parameters (cache miss)..."
+          lotus fetch-params 8388608
+
+      - name: Save proof parameters to cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start YugabyteDB
+        id: start-yb
+        run: |
+          docker stop $YB_CONTAINER 2>/dev/null || true
+          docker rm $YB_CONTAINER 2>/dev/null || true
+          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          for i in {1..60}; do
+            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
+              echo "YugabyteDB is ready"
+              break
+            fi
+            sleep 1
+          done
+          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run other integration tests
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+        run: |
+          go test -v --tags=debug -timeout 30m -parallel 4 \
+            ./itests/harmonydb_test.go \
+            ./itests/pdp_prove_test.go \
+            ./itests/indexstore_test.go \
+            ./itests/move_shared_test.go \
+            ./itests/local_test.go
+
+      - name: Stop YugabyteDB
+        if: always()
+        run: docker stop $YB_CONTAINER 2>/dev/null || true
+
+  # Integration tests - serial tests (modify global state)
   test-itest-serial:
     runs-on: [self-hosted, docker]
     env:
@@ -226,14 +303,9 @@ jobs:
       - name: Start YugabyteDB
         id: start-yb
         run: |
-          # Stop any existing container from previous runs
           docker stop $YB_CONTAINER 2>/dev/null || true
           docker rm $YB_CONTAINER 2>/dev/null || true
-          
-          # Start fresh container
           docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-          
-          # Wait for it to be ready
           for i in {1..60}; do
             if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
               echo "YugabyteDB is ready"
@@ -241,10 +313,8 @@ jobs:
             fi
             sleep 1
           done
-          
           YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
           echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-          echo "YugabyteDB ready at $YB_IP"
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
@@ -255,16 +325,14 @@ jobs:
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
-        run: |
-          echo "Using YugabyteDB at: $CURIO_HARMONYDB_HOSTS"
-          # Tests in serial/ modify global state and cannot run in parallel
-          go test -v --tags=debug,serial -timeout 30m ./itests/serial/...
+        run: go test -v --tags=debug,serial -timeout 30m ./itests/serial/...
 
       - name: Stop YugabyteDB
         if: always()
         run: docker stop $YB_CONTAINER 2>/dev/null || true
 
   # Gen check - verify generated code is up to date
+  # Optimized: run independent gen steps in parallel, then build once
   gen-check:
     runs-on: ubuntu-latest
     steps:
@@ -277,39 +345,46 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Go tools
+      - name: Install Go tools in parallel
         run: |
-          go install golang.org/x/tools/cmd/goimports &
-          go install github.com/hannahhoward/cbor-gen-for &
-          go install github.com/swaggo/swag/cmd/swag &
+          go install golang.org/x/tools/cmd/goimports@latest &
+          go install github.com/hannahhoward/cbor-gen-for@latest &
+          go install github.com/swaggo/swag/cmd/swag@latest &
           wait
 
-      - name: api-gen
-        run: make api-gen
+      - name: Run code generation (parallel where possible)
+        run: |
+          # These can run in parallel - they don't depend on each other
+          make api-gen &
+          API_PID=$!
+          
+          make cfgdoc-gen &
+          CFG_PID=$!
+          
+          make marketgen &
+          MKT_PID=$!
+          
+          wait $API_PID || exit 1
+          wait $CFG_PID || exit 1
+          wait $MKT_PID || exit 1
+          
+          # go-generate depends on api-gen completing
+          make go-generate
 
-      - name: go-generate
-        run: make go-generate
+      - name: Generate docs (requires binaries)
+        run: |
+          # docsgen builds docgen-md and docgen-openrpc binaries
+          make docsgen
+          # docsgen-cli builds curio + sptool, then generates CLI docs
+          make docsgen-cli
 
-      - name: cfgdoc-gen
-        run: make cfgdoc-gen
-
-      - name: docsgen (md + openrpc)
-        run: make docsgen
-
-      - name: marketgen
-        run: make marketgen
-
-      - name: docsgen-cli (builds curio + sptool)
-        run: make docsgen-cli
-
-      - name: fiximports + go mod tidy
+      - name: Fix imports and tidy
         run: |
           go run ./scripts/fiximports
           go mod tidy
 
       - name: Check for changes
-        run: |
-          git diff --quiet || { git diff; exit 1; }
+        run: git diff --quiet || { git diff; exit 1; }
 
   # Supraseal build (kept separate - long running, different runner)
   build-supraseal-ubuntu24:
