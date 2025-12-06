@@ -305,8 +305,9 @@ $CXX $CXXFLAGS -Ideps/sppark/util -o obj/pc1.o -c pc1/pc1.cpp &
 $CXX $CXXFLAGS -o obj/streaming_node_reader_nvme.o -c nvme/streaming_node_reader_nvme.cpp &
 $CXX $CXXFLAGS -o obj/ring_t.o -c nvme/ring_t.cpp &
 # Single compilation of pc2.cu - works with both reader types via template interface
+# Note: -mno-avx512bf16 is required because nvcc doesn't support GCC's AVX512-BF16 intrinsics
 $NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK \
-      -Xcompiler -march=x86-64-v3,-mtune=generic \
+      -Xcompiler -march=x86-64-v3,-mtune=generic,-mno-avx512bf16 \
       -Xcompiler -Wall,-Wextra,-Wno-subobject-linkage,-Wno-unused-parameter \
       -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2.o &
 
