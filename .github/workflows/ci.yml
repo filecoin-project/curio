@@ -19,9 +19,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
@@ -44,9 +45,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -69,9 +71,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -94,9 +97,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -119,9 +123,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -144,9 +149,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -185,9 +191,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -243,9 +250,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -274,9 +282,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Check gofmt
         run: |
@@ -377,6 +386,8 @@ jobs:
           if [ -d "/usr/local/cuda" ]; then
             echo "CUDA installed at /usr/local/cuda"
             ls -la /usr/local/cuda*/bin/nvcc || true
+            # Show CUDA version for debugging
+            /usr/local/cuda/bin/nvcc --version || true
           else
             echo "ERROR: CUDA installation not found"
             exit 1
@@ -387,6 +398,8 @@ jobs:
           # Verify CUDA installation exists
           if [ ! -d "/usr/local/cuda" ]; then
             echo "ERROR: /usr/local/cuda not found"
+            echo "Searching for CUDA installations:"
+            ls -la /usr/local/cuda* 2>/dev/null || echo "No CUDA directories found"
             exit 1
           fi
           
@@ -395,8 +408,17 @@ jobs:
           export CUDA_HOME=/usr/local/cuda
           export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
           
-          # Verify nvcc is available
+          # Verify nvcc is available and show version
+          echo "Verifying CUDA installation:"
           nvcc --version
+          
+          # Check CUDA version meets minimum requirements (12+)
+          CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+          echo "Detected CUDA version: $CUDA_VERSION"
+          if [ "$CUDA_VERSION" -lt 12 ]; then
+            echo "ERROR: CUDA $CUDA_VERSION is too old. Need CUDA 12 or newer."
+            exit 1
+          fi
           
           # Set environment for subsequent steps
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
@@ -457,38 +479,18 @@ jobs:
           # Run the build script (creates and uses Python venv internally)
           ./build.sh
       
-      - name: Verify binaries
+      - name: Verify library
         working-directory: extern/supraseal
         run: |
-          echo "=== Built binaries ==="
-          ls -lh bin/
+          echo "=== Verifying library exists ==="
+          test -f obj/libsupraseal.a && echo "✓ libsupraseal.a created" || exit 1
           
           echo ""
-          echo "=== Verifying binaries exist ==="
-          test -f bin/seal && echo "✓ seal binary created" || exit 1
-          test -f bin/pc2 && echo "✓ pc2 binary created" || exit 1
-          test -f bin/tree_r && echo "✓ tree_r binary created" || exit 1
-          test -f bin/tree_r_cpu && echo "✓ tree_r_cpu binary created" || exit 1
-          test -f bin/tree_d_cpu && echo "✓ tree_d_cpu binary created" || exit 1
+          echo "=== Library size ==="
+          du -h obj/libsupraseal.a
           
           echo ""
-          echo "=== Binary sizes ==="
-          du -h bin/*
-          
-          echo ""
-          echo "✅ All binaries built successfully!"
-      
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: supraseal-binaries-ubuntu24-gcc12-cuda
-          path: |
-            extern/supraseal/bin/seal
-            extern/supraseal/bin/pc2
-            extern/supraseal/bin/tree_r
-            extern/supraseal/bin/tree_r_cpu
-            extern/supraseal/bin/tree_d_cpu
-          retention-days: 30
+          echo "✅ Library built successfully!"
       
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
@@ -506,12 +508,12 @@ jobs:
           echo "- GCC: $(gcc --version | head -1)" >> $GITHUB_STEP_SUMMARY
           echo "- CUDA: $(nvcc --version | grep release)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Built Binaries:**" >> $GITHUB_STEP_SUMMARY
+          echo "**Built Library:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          ls -lh extern/supraseal/bin/ >> $GITHUB_STEP_SUMMARY
+          ls -lh extern/supraseal/obj/libsupraseal.a >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All binaries compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Library compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
 
   gen-check:
     runs-on: ubuntu-latest
@@ -520,9 +522,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -571,9 +574,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
