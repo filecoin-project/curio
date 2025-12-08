@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -347,9 +349,10 @@ jobs:
 
       - name: Install Go tools in parallel
         run: |
+          SWAG_VERSION=$(grep 'github.com/swaggo/swag' go.mod | awk '{print $2}')
           go install golang.org/x/tools/cmd/goimports@latest &
           go install github.com/hannahhoward/cbor-gen-for@latest &
-          go install github.com/swaggo/swag/cmd/swag@latest &
+          go install github.com/swaggo/swag/cmd/swag@${SWAG_VERSION} &
           wait
 
       - name: Run code generation (parallel where possible)
