@@ -12,7 +12,9 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/fatih/color"
 	"github.com/ipfs/go-cid"
+	"github.com/manifoldco/promptui"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
@@ -467,6 +469,27 @@ var downgradeCmd = &cli.Command{
 
 		if len(runningMachines) > 0 {
 			return xerrors.Errorf("All machines must be shutdown before downgrading. Machines seen running in the past 60 seconds: %s", strings.Join(runningMachines, ", "))
+		}
+
+		// Prompt user to confirm they have a database backup
+		fmt.Println()
+		fmt.Printf("%s Before proceeding, ensure you have a database backup.\n", color.YellowString("WARNING:"))
+		fmt.Printf("  See: %s\n", color.CyanString("https://docs.curiostorage.org/administration/yugabyte-backup"))
+		fmt.Println()
+
+		i, _, err := (&promptui.Select{
+			Label: "Do you have a database backup?",
+			Items: []string{
+				"No, abort downgrade",
+				"Yes, I have a backup",
+			},
+		}).Run()
+		if err != nil {
+			return xerrors.Errorf("selection failed: %w", err)
+		}
+		if i == 0 {
+			fmt.Println("Downgrade cancelled. Please create a database backup before proceeding.")
+			return nil
 		}
 
 		return db.DowngradeTo(cctx.Context, cctx.Int("last_good_date"))

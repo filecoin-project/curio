@@ -37,6 +37,8 @@
 * [Curio GUI](curio-gui.md)
 * [Garbage Collection](garbage-collection.md)
 * [Best Practices](best-practices.md)
+* [Administration](administration/README.md)
+  * [YugabyteDB Backup](administration/yugabyte-backup.md)
 * [Logging](logging.md)
 * [Curio CLI](curio-cli/README.md)
   * [Curio](curio-cli/curio.md)
