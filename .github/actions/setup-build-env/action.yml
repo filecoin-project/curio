@@ -10,21 +10,21 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Go
+      id: setup-go
       uses: actions/setup-go@v5
       with:
         go-version: ${{ inputs.go-version }}
         cache: true
         cache-dependency-path: go.sum
 
-    - name: Install system dependencies (Ubuntu only)
-      run: |
-        if command -v apt-get &> /dev/null; then
-          sudo apt-get update
-          sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
-        fi
-      shell: bash
+    - name: Install system dependencies (cached)
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: ocl-icd-opencl-dev libhwloc-dev
+        version: 1.0
 
     - name: Download Go modules
+      if: steps.setup-go.outputs.cache-hit != 'true'
       run: go mod download
       shell: bash
 
