@@ -296,6 +296,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				ContextID: contextID,
 				Metadata:  md,
 				IsRm:      true,
+				Entries:   schema.NoEntries,
 			}
 
 			{
