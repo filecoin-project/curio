@@ -20,8 +20,8 @@ runs:
     - name: Install system dependencies (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: ocl-icd-opencl-dev libhwloc-dev
-        version: 1.0
+        packages: ocl-icd-opencl-dev libhwloc-dev moreutils
+        version: 1.1
 
     - name: Download Go modules
       if: steps.setup-go.outputs.cache-hit != 'true'

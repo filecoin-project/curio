@@ -69,6 +69,7 @@ jobs:
 
       - name: Install and run golangci-lint
         run: |
+          exec > >(ts '[%H:%M:%S]') 2>&1
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.4.0
           golangci-lint run -v --timeout 15m --concurrency 4
 
@@ -90,7 +91,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Build ${{ matrix.variant }}
-        run: make ${{ matrix.variant }}
+        run: make ${{ matrix.variant }} 2>&1 | ts '[%H:%M:%S]'
 
   # Unit tests - no database needed
   test-unit:
@@ -106,7 +107,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run unit tests
-        run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests)
+        run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests) 2>&1 | ts '[%H:%M:%S]'
 
   # Integration tests - curio_test.go (heavy, runs separately)
   test-itest-curio:
@@ -175,7 +176,7 @@ jobs:
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
-        run: go test -v --tags=debug -timeout 60m ./itests/curio_test.go
+        run: go test -v --tags=debug -timeout 60m ./itests/curio_test.go 2>&1 | ts '[%H:%M:%S]'
 
       - name: Stop YugabyteDB
         if: always()
@@ -254,7 +255,7 @@ jobs:
             ./itests/pdp_prove_test.go \
             ./itests/indexstore_test.go \
             ./itests/move_shared_test.go \
-            ./itests/local_test.go
+            ./itests/local_test.go 2>&1 | ts '[%H:%M:%S]'
 
       - name: Stop YugabyteDB
         if: always()
@@ -327,7 +328,7 @@ jobs:
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
-        run: go test -v --tags=debug,serial -timeout 30m ./itests/serial/...
+        run: go test -v --tags=debug,serial -timeout 30m ./itests/serial/... 2>&1 | ts '[%H:%M:%S]'
 
       - name: Stop YugabyteDB
         if: always()
@@ -349,6 +350,7 @@ jobs:
 
       - name: Install Go tools in parallel
         run: |
+          exec > >(ts '[%H:%M:%S]') 2>&1
           SWAG_VERSION=$(grep 'github.com/swaggo/swag' go.mod | awk '{print $2}')
           go install golang.org/x/tools/cmd/goimports@latest &
           go install github.com/hannahhoward/cbor-gen-for@latest &
@@ -357,6 +359,7 @@ jobs:
 
       - name: Run code generation (parallel where possible)
         run: |
+          exec > >(ts '[%H:%M:%S]') 2>&1
           # These can run in parallel - they don't depend on each other
           make api-gen &
           API_PID=$!
@@ -376,6 +379,7 @@ jobs:
 
       - name: Generate docs (requires binaries)
         run: |
+          exec > >(ts '[%H:%M:%S]') 2>&1
           # docsgen builds docgen-md and docgen-openrpc binaries
           make docsgen
           # docsgen-cli builds curio + sptool, then generates CLI docs
@@ -383,6 +387,7 @@ jobs:
 
       - name: Fix imports and tidy
         run: |
+          exec > >(ts '[%H:%M:%S]') 2>&1
           go run ./scripts/fiximports
           go mod tidy
 
