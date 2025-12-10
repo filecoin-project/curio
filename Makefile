@@ -318,7 +318,7 @@ update/lotus: $(lotus_src_dir)
 .PHONY: update/lotus
 
 docker/testdb:
-	docker run -d --name yugabyte -p7001:7000 -p9000:9000 -p15433:15433 -p5433:5433 -p9042:9042  yugabytedb/yugabyte bin/yugabyted start  --background=false
+	docker run -d --name curio-itest-yugabyte -p7001:7000 -p9000:9000 -p15433:15433 -p5433:5433 -p9042:9042  yugabytedb/yugabyte bin/yugabyted start  --background=false
 
 docker/lotus-all-in-one: info/lotus-all-in-one | $(lotus_src_dir)
 	cd $(lotus_src_dir) && $(curio_docker_build_cmd) -f Dockerfile --target lotus-all-in-one \

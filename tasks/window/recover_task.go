@@ -34,7 +34,7 @@ type WdPostRecoverDeclareTask struct {
 	api          WdPostRecoverDeclareTaskApi
 	faultTracker FaultTracker
 
-	maxDeclareRecoveriesGasFee types.FIL
+	maxDeclareRecoveriesGasFee *config.Dynamic[types.FIL]
 	as                         *multictladdr.MultiAddressSelector
 	actors                     *config.Dynamic[map[dtypes.MinerAddress]bool]
 
@@ -65,7 +65,7 @@ func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	as *multictladdr.MultiAddressSelector,
 	pcs *chainsched.CurioChainSched,
 
-	maxDeclareRecoveriesGasFee types.FIL,
+	maxDeclareRecoveriesGasFee *config.Dynamic[types.FIL],
 	actors *config.Dynamic[map[dtypes.MinerAddress]bool]) (*WdPostRecoverDeclareTask, error) {
 	t := &WdPostRecoverDeclareTask{
 		sender:       sender,
@@ -189,7 +189,7 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 		Value:  types.NewInt(0),
 	}
 
-	msg, mss, err := preparePoStMessage(w.api, w.as, maddr, msg, abi.TokenAmount(w.maxDeclareRecoveriesGasFee))
+	msg, mss, err := preparePoStMessage(w.api, w.as, maddr, msg, abi.TokenAmount(w.maxDeclareRecoveriesGasFee.Get()))
 	if err != nil {
 		return false, xerrors.Errorf("sending declare recoveries message: %w", err)
 	}
