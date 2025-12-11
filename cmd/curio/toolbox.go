@@ -621,7 +621,7 @@ var fixBoostMigrationCmd = &cli.Command{
 				}
 
 				if n != 1 {
-					return false, xerrors.Errorf("expected 1 row updated, got %d", n)
+					return false, xerrors.Errorf("expected 1 row updated in market_piece_deal, got %d", n)
 				}
 
 				n, err = tx.Exec(`UPDATE market_mk12_deals SET raw_size = $1 WHERE uuid = $2`, size, deal.ID)
@@ -630,7 +630,7 @@ var fixBoostMigrationCmd = &cli.Command{
 				}
 
 				if n != 1 {
-					return false, xerrors.Errorf("expected 1 row updated, got %d", n)
+					return false, xerrors.Errorf("expected 1 row updated in market_mk12_deals, got %d", n)
 				}
 
 				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET raw_size = $1 WHERE uuid = $2`, size, deal.ID)
@@ -647,7 +647,7 @@ var fixBoostMigrationCmd = &cli.Command{
 			})
 
 			if err != nil {
-				return xerrors.Errorf("committing transaction failed: %w", err)
+				return xerrors.Errorf("committing transaction failed for deal %s: %w", deal.ID, err)
 			}
 
 			if !comm {
