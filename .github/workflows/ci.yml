@@ -455,9 +455,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: extern/supraseal/deps/spdk-v24.05
-          key: spdk-v24.05-gcc12-ubuntu24-v2-${{ hashFiles('extern/supraseal/build.sh') }}
+          key: spdk-v24.05-gcc12-ubuntu24-v3-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
-            spdk-v24.05-gcc12-ubuntu24-v2-
+            spdk-v24.05-gcc12-ubuntu24-v3-
       
       - name: Build Supraseal
         working-directory: extern/supraseal
