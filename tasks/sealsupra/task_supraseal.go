@@ -99,12 +99,16 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	log.Infow("start supraseal init", "cpu_features", supraffi.CPUFeaturesSummary())
 
 	// Automatically setup SPDK (configure hugepages and bind NVMe devices)
-	log.Infow("checking and setting up SPDK for supraseal")
-	if err := supraffi.CheckAndSetupSPDK(36, 36); err != nil {
-		return nil, nil, nil, xerrors.Errorf("SPDK setup failed: %w. Please ensure you have:\n"+
-			"1. Configured 1GB hugepages (add 'hugepages=36 default_hugepagesz=1G hugepagesz=1G' to /etc/default/grub)\n"+
-			"2. Raw NVMe devices available (no filesystems on them)\n"+
-			"3. Root/sudo access for SPDK setup", err)
+	if os.Getenv("DISABLE_SPDK_SETUP") != "" {
+		log.Infow("SPDK setup disabled by environment variable")
+	} else {
+		log.Infow("checking and setting up SPDK for supraseal")
+		if err := supraffi.CheckAndSetupSPDK(36, 36); err != nil {
+			return nil, nil, nil, xerrors.Errorf("SPDK setup failed: %w. Please ensure you have:\n"+
+				"1. Configured 1GB hugepages (add 'hugepages=36 default_hugepagesz=1G hugepagesz=1G' to /etc/default/grub)\n"+
+				"2. Raw NVMe devices available (no filesystems on them)\n"+
+				"3. Root/sudo access for SPDK setup", err)
+		}
 	}
 
 	var configFile string

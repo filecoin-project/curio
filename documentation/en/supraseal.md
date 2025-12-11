@@ -385,6 +385,12 @@ BatchSealPipelines = 2
 SingleHasherPerThread = false
 ```
 
+### Environment Variables
+
+| Variable | Description |
+| -------- | ----------- |
+| `DISABLE_SPDK_SETUP=1` | When set, disables automatic SPDK setup (hugepage configuration and NVMe device binding) during supraseal initialization. Useful for advanced users who want to manually manage SPDK configuration, map drives, or control hugepage-numa assignment. |
+
 ## Optimization
 
 * Balance batch size, CPU cores, and NVMe drives to keep PC1 running constantly

@@ -264,6 +264,14 @@ LayerNVMEDevices = [
   # 对于Zen2或更旧的CPU设置为true以确保兼容性
 SingleHasherPerThread = false
 ```
+
+### Environment Variables
+### 环境变量
+
+| 变量 | 描述 |
+| ---- | ---- |
+| `DISABLE_SPDK_SETUP=1` | 设置后，禁用 supraseal 初始化期间的自动 SPDK 设置（大页面配置和 NVMe 设备绑定）。适用于希望手动管理 SPDK 配置、映射驱动器或控制大页面 NUMA 分配的高级用户。 |
+
 ### Configure hugepages
 ### 配置大页面
 
