@@ -2901,6 +2901,24 @@
       "translation": "1. 使用以下命令测试您的 PDP 服务：pdptool ping --service-url https://your-domain.com --service-name public",
       "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
       "placeholder": null
+    },
+    {
+      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "translation": "将集群的数据库降级到之前的软件版本。",
+      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "placeholder": null
+    },
+    {
+      "id": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "translation": "但是，如果升级存在严重缺陷需要降级，请先关闭集群中的所有节点，然后运行此命令。最后，仅启动已降级的节点。",
+      "message": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "placeholder": null
+    },
+    {
+      "id": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "translation": "集群拥有首选架构的 YYYYMMDD 日期。例如：20251128",
+      "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "placeholder": null
     }
   ]
 }
