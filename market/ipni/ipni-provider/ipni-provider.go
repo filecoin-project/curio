@@ -620,7 +620,19 @@ func (p *Provider) publishProviderSpacingWait() {
 func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) error {
 	// Create the http announce sender.
 	log.Infow("Creating http announce sender", "urls", p.announceURLs)
-	httpSender, err := httpsender.New(p.announceURLs, p.keys[peer].ID)
+
+	lrt := &loggingRoundTripper{
+		proxied: http.DefaultTransport,
+		peer:    peer,
+		adCid:   adCid,
+	}
+
+	c := &http.Client{
+		Transport: lrt,
+		Timeout:   1 * time.Minute,
+	}
+
+	httpSender, err := httpsender.New(p.announceURLs, p.keys[peer].ID, httpsender.WithClient(c))
 	if err != nil {
 		return fmt.Errorf("cannot create http announce sender: %w", err)
 	}
@@ -631,6 +643,25 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 	}
 
 	return announce.Send(ctx, adCid, addrs, httpSender)
+}
+
+type loggingRoundTripper struct {
+	proxied http.RoundTripper
+	peer    string
+	adCid   cid.Cid
+}
+
+func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	log.Infow("Announcing IPNI advertisement", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String())
+
+	res, err := lrt.proxied.RoundTrip(req)
+	if err != nil {
+		log.Warnw("IPNI announcement request failed", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "err", err)
+		return nil, err
+	}
+
+	log.Infow("IPNI announcement response", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "status", res.StatusCode)
+	return res, nil
 }
 
 // getHTTPAddressForPeer returns the HTTP addresses for a given peer.
