@@ -50,6 +50,7 @@ set -x
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
+MARCH_FLAGS=${MARCH_FLAGS:-"-march=native"}
 
 # Create and activate Python virtual environment
 # This avoids needing PIP_BREAK_SYSTEM_PACKAGES on Ubuntu 24.04+
@@ -144,7 +145,7 @@ CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
 
 INCLUDE="-I$SPDK/include -I$SPDK/isa-l/.. -I$SPDK/dpdk/build/include"
 CFLAGS="$SECTOR_SIZE $INCLUDE -g -O2"
-CXXFLAGS="$CFLAGS -march=native $CXXSTD \
+CXXFLAGS="$CFLAGS $MARCH_FLAGS $CXXSTD \
           -fPIC -fno-omit-frame-pointer -fno-strict-aliasing \
           -fstack-protector -fno-common \
           -D_GNU_SOURCE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 \
@@ -253,6 +254,9 @@ if [ ! -d $SPDK ]; then
      export PATH="$VENV_DIR/bin:$PATH"
      export PIP="$VENV_DIR/bin/pip"
      export PYTHON="$VENV_DIR/bin/python"
+     # Inject march flags for SPDK build
+     export CFLAGS="$MARCH_FLAGS -g -O3"
+     export CXXFLAGS="$MARCH_FLAGS -g -O3"
      # Run pkgdep.sh without sudo - system packages should already be installed
      # Python packages will be installed in the venv automatically
      # If system packages are missing, pkgdep.sh will fail gracefully
@@ -275,7 +279,7 @@ if [ ! -d "deps/blst" ]; then
     git clone https://github.com/supranational/blst.git deps/blst
     (cd deps/blst
     git checkout bef14ca512ea575aff6f661fdad794263938795d
-     ./build.sh -march=native)
+     ./build.sh $MARCH_FLAGS)
 fi
 
 $CC -c sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o
@@ -295,11 +299,11 @@ $CXX $CXXFLAGS -Ideps/sppark/util -o obj/pc1.o -c pc1/pc1.cpp &
 # PC2
 $CXX $CXXFLAGS -o obj/streaming_node_reader_nvme.o -c nvme/streaming_node_reader_nvme.cpp &
 $CXX $CXXFLAGS -o obj/ring_t.o -c nvme/ring_t.cpp &
-$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -Xcompiler -march=native \
+$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -Xcompiler $MARCH_FLAGS \
       -Xcompiler -Wall,-Wextra,-Wno-subobject-linkage,-Wno-unused-parameter \
       -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2.o &
 # File-reader variant of pc2 for tree_r_file
-$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -DSTREAMING_NODE_READER_FILES -DRENAME_PC2_HASH_FILES -Xcompiler -march=native \
+$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -DSTREAMING_NODE_READER_FILES -DRENAME_PC2_HASH_FILES -Xcompiler $MARCH_FLAGS \
       -Xcompiler -Wall,-Wextra,-Wno-subobject-linkage,-Wno-unused-parameter \
       -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2_files.o &
 
@@ -349,28 +353,28 @@ $CXX $CXXFLAGS -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     $LDFLAGS -Ldeps/blst -lblst -L$CUDA/lib64 -lcudart_static -lgmp -lconfig++ &
 
 # tree-r CPU only
-$CXX $SECTOR_SIZE $CXXSTD -pthread -g -O3 -march=native \
+$CXX $SECTOR_SIZE $CXXSTD -pthread -g -O3 $MARCH_FLAGS \
     -Wall -Wextra -Werror -Wno-subobject-linkage \
     tools/tree_r.cpp poseidon/poseidon.cpp \
     -o bin/tree_r_cpu -Iposeidon -Ideps/sppark -Ideps/blst/src -L deps/blst -lblst &
 
 # tree-r CPU + GPU
 $NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=native \
+     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler $MARCH_FLAGS \
      -Xcompiler -Wall,-Wextra,-Werror \
      -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
      -x cu tools/tree_r.cpp -o bin/tree_r \
      -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
 
 # tree-d CPU only
-$CXX -DRUNTIME_SECTOR_SIZE $CXXSTD -g -O3 -march=native \
+$CXX -DRUNTIME_SECTOR_SIZE $CXXSTD -g -O3 $MARCH_FLAGS \
     -Wall -Wextra -Werror -Wno-subobject-linkage \
     tools/tree_d.cpp \
     -o bin/tree_d_cpu -Ipc1 -L deps/blst -lblst &
 
 # Standalone GPU pc2
 $NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=native \
+     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler $MARCH_FLAGS \
      -Xcompiler -Wall,-Wextra,-Werror \
      -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
      -x cu tools/tree_r.cpp -o bin/tree_r \
@@ -378,7 +382,7 @@ $NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
 
 # Standalone GPU pc2
 $NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=native \
+     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler $MARCH_FLAGS \
      -Xcompiler -Wall,-Wextra,-Werror \
      -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
      -x cu tools/pc2.cu -o bin/pc2 \
