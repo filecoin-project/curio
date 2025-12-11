@@ -1297,6 +1297,7 @@ COMMANDS:
    fix-msg                        Updated DB with message data missing from chain node
    register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
    downgrade                      Downgrade a cluster's daatabase to a previous software version.
+   fix-boost-migration            Fix Boost migration
    help, h                        Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1353,4 +1354,21 @@ DESCRIPTION:
 OPTIONS:
    --last_good_date value  YYYYMMDD when your cluster had the preferred schema. Ex: 20251128 (default: 0)
    --help, -h              show help
+```
+
+### curio toolbox fix-boost-migration
+```
+NAME:
+   curio toolbox fix-boost-migration - Fix Boost migration
+
+USAGE:
+   curio toolbox fix-boost-migration [command options]
+
+OPTIONS:
+   --check                                                  check how many entries need to be fixed (default: false)
+   --db-file value                                          location of boost.db file
+   --boostd-data-hosts value [ --boostd-data-hosts value ]  yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'
+   --boostd-data-username value                             yugabyte username to connect to over cassandra interface eg 'cassandra'
+   --boostd-data-password value                             yugabyte password to connect to over cassandra interface eg 'cassandra'
+   --help, -h                                               show help
 ```

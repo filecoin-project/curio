@@ -15,7 +15,6 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fatih/color"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/ipfs/go-cid"
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/pdp/contract"
 
@@ -504,28 +504,28 @@ var downgradeCmd = &cli.Command{
 
 var fixBoostMigrationCmd = &cli.Command{
 	Name:  "fix-boost-migration",
-	Usage: translations.T("Fix boost migration"),
+	Usage: translations.T("Fix Boost migration"),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "check",
-			Usage: "check how many entries need to be fixed",
+			Usage: translations.T("check how many entries need to be fixed"),
 		},
 		&cli.StringFlag{
 			Name:  "db-file",
-			Usage: "location of boost.db file",
+			Usage: translations.T("location of boost.db file"),
 		},
 		&cli.StringSliceFlag{
 			Name:     "boostd-data-hosts",
-			Usage:    "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+			Usage:    translations.T("yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'"),
 			Required: true,
 		},
 		&cli.StringFlag{
 			Name:  "boostd-data-username",
-			Usage: "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+			Usage: translations.T("yugabyte username to connect to over cassandra interface eg 'cassandra'"),
 		},
 		&cli.StringFlag{
 			Name:  "boostd-data-password",
-			Usage: "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+			Usage: translations.T("yugabyte password to connect to over cassandra interface eg 'cassandra'"),
 		},
 	},
 	Action: func(cctx *cli.Context) error {
