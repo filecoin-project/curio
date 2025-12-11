@@ -166,7 +166,7 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 			return nil, xerrors.Errorf("claim StorageLock: %w", err)
 		}
 		if !ok {
-			return nil, xerrors.Errorf("failed to claim storage lock: %w", err)
+			return nil, xerrors.Errorf("failed to claim storage lock (sector %v)", sectorRef.ID())
 		}
 	}
 

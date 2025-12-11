@@ -148,7 +148,7 @@ func (r *robustHttpResponse) startReq() error {
 		return xerrors.Errorf("failed to create request")
 	}
 
-	req.Header = r.headers
+	req.Header = r.headers.Clone()
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", r.atOff, r.dataSize-1))
 
 	log.Debugw("Before sending HTTP request", "url", r.url, "cr", fmt.Sprintf("bytes=%d-%d", r.atOff, r.dataSize))
@@ -158,7 +158,13 @@ func (r *robustHttpResponse) startReq() error {
 		return xerrors.Errorf("do request: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusOK {
+		if r.atOff > 0 {
+			_ = resp.Body.Close()
+			return xerrors.Errorf("server ignored range header (got 200 OK, expected 206 Partial Content)")
+		}
+		// 200 OK is fine if we requested from byte 0
+	} else if resp.StatusCode != http.StatusPartialContent {
 		log.Errorw("Unexpected HTTP status", "status", resp.StatusCode)
 		_ = resp.Body.Close()
 		return xerrors.Errorf("http status: %d", resp.StatusCode)
@@ -183,7 +189,7 @@ func (r *robustHttpResponse) startReq() error {
 	r.cur = rw
 	r.curCloser = funcCloser(func() error {
 		log.Debugw("Closing response body")
-		rc.release()
+		rc.Release()
 		return resp.Body.Close()
 	})
 
