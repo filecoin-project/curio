@@ -515,9 +515,8 @@ var fixBoostMigrationCmd = &cli.Command{
 			Usage: translations.T("location of boost.db file"),
 		},
 		&cli.StringSliceFlag{
-			Name:     "boostd-data-hosts",
-			Usage:    translations.T("yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'"),
-			Required: true,
+			Name:  "boostd-data-hosts",
+			Usage: translations.T("yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'"),
 		},
 		&cli.StringFlag{
 			Name:  "boostd-data-username",
