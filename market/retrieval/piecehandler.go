@@ -36,15 +36,17 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pieceCidStr := r.URL.Path[prefixLen:]
-	pieceCid, err := cid.Parse(pieceCidStr)
-	if err != nil {
-		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
-		w.WriteHeader(http.StatusBadRequest)
-		stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
-		return
-	}
+pieceCid, err := cid.Parse(pieceCidStr)
+if err != nil {
+	log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
+	w.WriteHeader(http.StatusBadRequest)
+	stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
+	return
+}
 
-	// Get a reader over the piece
+originalPieceCid := pieceCid 
+
+// Get a reader over the piece
 	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid, true)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
@@ -71,7 +73,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, pieceCid, contentType, int64(size))
+	setHeaders(w, originalPieceCid, contentType, int64(size))
 	serveContent(w, r, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
