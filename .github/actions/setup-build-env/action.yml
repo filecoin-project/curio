@@ -53,6 +53,8 @@ runs:
 
     - name: Build FFI
       if: steps.cache-ffi.outputs.cache-hit != 'true'
+      env:
+        CURIO_OPTIMAL_LIBFILCRYPTO: 0
       run: make deps
       shell: bash
 
