@@ -106,7 +106,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run unit tests
-        run: go test -v --tags=debug -timeout 30m $(go list ./... | grep -v curio/itests)
+        run: go test -v --tags="debug,fvm" -timeout 30m $(go list ./... | grep -v curio/itests)
 
   # Integration tests - curio_test.go (heavy, runs separately)
   test-itest-curio:
@@ -175,7 +175,7 @@ jobs:
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
-        run: go test -v --tags=debug -timeout 60m ./itests/curio_test.go
+        run: go test -v --tags="debug,fvm" -timeout 60m ./itests/curio_test.go
 
       - name: Stop YugabyteDB
         if: always()
@@ -249,7 +249,7 @@ jobs:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
         run: |
-          go test -v --tags=debug -timeout 30m -parallel 4 \
+          go test -v --tags="debug,fvm" -timeout 30m -parallel 4 \
             ./itests/harmonydb_test.go \
             ./itests/pdp_prove_test.go \
             ./itests/indexstore_test.go \
@@ -327,7 +327,7 @@ jobs:
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
           LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
-        run: go test -v --tags=debug,serial -timeout 30m ./itests/serial/...
+        run: go test -v --tags="debug,fvm,serial" -timeout 30m ./itests/serial/...
 
       - name: Stop YugabyteDB
         if: always()

@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/docker/go-units"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/fatih/color"
 	"github.com/ipfs/go-cid"
+	"github.com/manifoldco/promptui"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
@@ -36,6 +39,7 @@ var toolboxCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		fixMsgCmd,
 		registerPDPServiceProviderCmd,
+		downgradeCmd,
 	},
 }
 
@@ -437,5 +441,57 @@ var registerPDPServiceProviderCmd = &cli.Command{
 		fmt.Printf("Registered storage provider with ID: %d\n", id)
 
 		return nil
+	},
+}
+
+var downgradeCmd = &cli.Command{
+	Name:        "downgrade",
+	Usage:       translations.T("Downgrade a cluster's daatabase to a previous software version."),
+	Description: translations.T("If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes."),
+	Flags: []cli.Flag{
+		&cli.IntFlag{
+			Name:     "last_good_date",
+			Usage:    translations.T("YYYYMMDD when your cluster had the preferred schema. Ex: 20251128"),
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		db, err := deps.MakeDB(cctx)
+		if err != nil {
+			return err
+		}
+
+		var runningMachines []string
+		if err := db.Select(cctx.Context, &runningMachines, `SELECT host_and_port FROM harmony_machines 
+		WHERE last_contact > CURRENT_TIMESTAMP - INTERVAL '1 MINUTE' `); err != nil {
+			return err
+		}
+
+		if len(runningMachines) > 0 {
+			return xerrors.Errorf("All machines must be shutdown before downgrading. Machines seen running in the past 60 seconds: %s", strings.Join(runningMachines, ", "))
+		}
+
+		// Prompt user to confirm they have a database backup
+		fmt.Println()
+		fmt.Printf("%s Before proceeding, ensure you have a database backup.\n", color.YellowString("WARNING:"))
+		fmt.Printf("  See: %s\n", color.CyanString("https://docs.curiostorage.org/administration/yugabyte-backup"))
+		fmt.Println()
+
+		i, _, err := (&promptui.Select{
+			Label: "Do you have a database backup?",
+			Items: []string{
+				"No, abort downgrade",
+				"Yes, I have a backup",
+			},
+		}).Run()
+		if err != nil {
+			return xerrors.Errorf("selection failed: %w", err)
+		}
+		if i == 0 {
+			fmt.Println("Downgrade cancelled. Please create a database backup before proceeding.")
+			return nil
+		}
+
+		return db.DowngradeTo(cctx.Context, cctx.Int("last_good_date"))
 	},
 }
