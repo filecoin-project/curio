@@ -624,7 +624,7 @@ var fixBoostMigrationCmd = &cli.Command{
 					return false, xerrors.Errorf("expected 1 row updated, got %d", n)
 				}
 
-				n, err = tx.Exec(`UPDATE market_mk12_deals SET raw_size = $1 WHERE deal_id = $2`, size, deal.ID)
+				n, err = tx.Exec(`UPDATE market_mk12_deals SET raw_size = $1 WHERE uuid = $2`, size, deal.ID)
 				if err != nil {
 					return false, xerrors.Errorf("updating market mk12 deals failed: %w", err)
 				}
@@ -633,12 +633,12 @@ var fixBoostMigrationCmd = &cli.Command{
 					return false, xerrors.Errorf("expected 1 row updated, got %d", n)
 				}
 
-				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET raw_size = $1 WHERE id = $2`, size, deal.ID)
+				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET raw_size = $1 WHERE uuid = $2`, size, deal.ID)
 				if err != nil {
 					return false, xerrors.Errorf("updating market mk12 deal pipeline failed: %w", err)
 				}
 
-				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline_migration SET raw_size = $1 WHERE deal_id = $2`, size, deal.ID)
+				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline_migration SET raw_size = $1 WHERE uuid = $2`, size, deal.ID)
 				if err != nil {
 					return false, xerrors.Errorf("updating market mk12 deal pipeline migration failed: %w", err)
 				}
