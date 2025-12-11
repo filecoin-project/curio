@@ -603,7 +603,7 @@ var fixBoostMigrationCmd = &cli.Command{
 			}
 
 			if size == 0 && session != nil {
-				err = session.Query(`SELECT CarLength FROM PieceDeal WHERE DealUuid = ? AND CarLength > 0 LIMIT 1`, deal.ID).WithContext(ctx).Scan(&size)
+				err = session.Query(`SELECT CarLength FROM PieceDeal WHERE DealUuid = ? AND CarLength > 0`, deal.ID).WithContext(ctx).Scan(&size)
 				if err != nil {
 					return xerrors.Errorf("failed to get size from Cassandra: %w", err)
 				}
