@@ -17,7 +17,7 @@
 
     /* Text colors */
     --color-text-primary: #FFF;
-    --color-text-secondary: #171717;
+    --color-text-secondary: #E3EAED;
     --color-text-dense: #e0e0e0;
 
     /* Areas */
@@ -38,6 +38,11 @@
 
     --color-nav-button: #2A2A2E;
     --color-nav-button-hover: var(--color-secondary-dark);
+
+     /* Borders */
+     --color-border-subtle: rgba(255, 255, 255, 0.1);
+     --color-border-default: rgba(255, 255, 255, 0.15);
+     --color-border-emphasis: rgba(255, 255, 255, 0.25);
 }
 
 html {
@@ -51,6 +56,7 @@ body {
     background: rgb(11, 22, 34);
     font-family: 'JetBrains Mono', monospace;
     font-weight: 300;
+    font-size: 0.85rem;
 }
 
 * {
@@ -105,6 +111,103 @@ a:hover {
 
 .error {
     color: red;
+}
+
+/* Info Block Styling */
+.info-block h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--color-border-default);
+    color: var(--color-text-secondary);
+    font-size: 1.5rem;
+}
+
+.info-block h3 {
+    color: var(--color-text-secondary);
+    font-size: 1.2rem;
+    margin-top: 1rem;
+}
+
+/* Table Styling with Hover Effects */
+.table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.table-dark {
+    background-color: var(--color-table-bg);
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-table-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.table-dark thead {
+    background-color: var(--color-bg-elevated);
+}
+
+.table-dark thead th {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+    border-bottom: 2px solid var(--color-border-emphasis);
+    padding: 0.5rem;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+}
+
+.table-dark tbody tr {
+    background-color: var(--color-table-bg);
+    border-bottom: 1px solid var(--color-border-subtle);
+    transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.table-dark tbody tr:hover {
+    background-color: var(--color-table-hover);
+    transform: translateX(2px);
+    cursor: pointer;
+}
+
+.table-dark tbody tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.015);
+}
+
+.table-dark tbody tr:nth-child(even):hover {
+    background-color: var(--color-table-hover);
+}
+
+.table-dark tbody td {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    vertical-align: middle;
+}
+
+.table-dark tbody td a {
+    font-weight: 400;
+}
+
+.table-dark tbody td a:hover {
+    text-decoration: underline;
+}
+
+.table-dark tbody td strong {
+    font-weight: 500;
+}
+
+.table-dark tbody td table tbody td {
+    padding: 0.1rem;
+    white-space: nowrap;
+}
+
+.table-dark tbody td table tbody tr:hover {
+    background-color: inherit;
+    transform: none;
+    cursor: default;
+}
+
+.table-dark tbody td table tbody tr:nth-child(even):hover {
+    background-color: rgba(255, 255, 255, 0.015);
 }
 
 @font-face {

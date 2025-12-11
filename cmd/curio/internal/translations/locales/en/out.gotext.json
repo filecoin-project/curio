@@ -1283,6 +1283,27 @@
             "fuzzy": true
         },
         {
+            "id": "Downgrade a cluster's daatabase to a previous software version.",
+            "message": "Downgrade a cluster's daatabase to a previous software version.",
+            "translation": "Downgrade a cluster's daatabase to a previous software version.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+            "message": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+            "translation": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+            "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+            "translation": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Manage unsealed data",
             "message": "Manage unsealed data",
             "translation": "Manage unsealed data",
