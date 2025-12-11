@@ -26,7 +26,7 @@ RUN go mod download
 FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.34.0-rc2-devnet AS lotus-test
 
 # Stage 3: Build the final image
-FROM myoung34/github-runner AS curio-github-runner
+FROM myoung34/github-runner:ubuntu-24.04 AS curio-github-runner
 
 # Copy Go dependencies from the builder stage
 COPY --from=builder /go/pkg /go/pkg
