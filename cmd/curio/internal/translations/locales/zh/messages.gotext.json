@@ -2919,6 +2919,42 @@
       "translation": "集群拥有首选架构的 YYYYMMDD 日期。例如：20251128",
       "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
       "placeholder": null
+    },
+    {
+      "id": "Fix Boost migration",
+      "translation": "修复 Boost 迁移",
+      "message": "Fix Boost migration",
+      "placeholder": null
+    },
+    {
+      "id": "check how many entries need to be fixed",
+      "translation": "检查需要修复的条目数量",
+      "message": "check how many entries need to be fixed",
+      "placeholder": null
+    },
+    {
+      "id": "location of boost.db file",
+      "translation": "boost.db 文件位置",
+      "message": "location of boost.db file",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+      "translation": "通过 Cassandra 接口连接的 Yugabyte 主机，例如 '127.0.0.1'",
+      "message": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+      "translation": "通过 Cassandra 接口连接的 Yugabyte 用户名，例如 'cassandra'",
+      "message": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+      "translation": "通过 Cassandra 接口连接的 Yugabyte 密码，例如 'cassandra'",
+      "message": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+      "placeholder": null
     }
   ]
 }
