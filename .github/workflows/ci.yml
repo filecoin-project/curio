@@ -404,7 +404,18 @@ jobs:
           # Export PATH locally to verify nvcc works
           export PATH="/usr/local/cuda/bin:$PATH"
           export CUDA_HOME=/usr/local/cuda
-          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+          
+          # Add CUDA stubs to library paths for build-time linking
+          # The stubs allow linking against libcuda.so.1 without requiring the actual NVIDIA driver
+          CUDA_STUBS_DIR="/usr/local/cuda/lib64/stubs"
+          if [ -d "$CUDA_STUBS_DIR" ]; then
+            echo "Found CUDA stubs at $CUDA_STUBS_DIR"
+            export LD_LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+            export LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LIBRARY_PATH}"
+          else
+            echo "WARNING: CUDA stubs directory not found at $CUDA_STUBS_DIR"
+            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+          fi
           
           # Verify nvcc is available and show version
           echo "Verifying CUDA installation:"
@@ -421,7 +432,12 @@ jobs:
           # Set environment for subsequent steps
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          if [ -d "$CUDA_STUBS_DIR" ]; then
+            echo "LD_LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+            echo "LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LIBRARY_PATH" >> $GITHUB_ENV
+          else
+            echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          fi
       
       - name: Install libconfig++
         run: |

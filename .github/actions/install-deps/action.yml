@@ -104,7 +104,18 @@ runs:
       run: |
         echo "/usr/local/cuda/bin" >> $GITHUB_PATH
         echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
-        echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        
+        # Add CUDA stubs to library paths for build-time linking
+        # The stubs allow linking against libcuda.so.1 without requiring the actual NVIDIA driver
+        CUDA_STUBS_DIR="/usr/local/cuda/lib64/stubs"
+        if [ -d "$CUDA_STUBS_DIR" ]; then
+          echo "Found CUDA stubs at $CUDA_STUBS_DIR"
+          echo "LD_LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LIBRARY_PATH" >> $GITHUB_ENV
+        else
+          echo "WARNING: CUDA stubs directory not found at $CUDA_STUBS_DIR"
+          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        fi
         
         # Verify CUDA is accessible
         export PATH="/usr/local/cuda/bin:$PATH"
