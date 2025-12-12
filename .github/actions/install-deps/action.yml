@@ -62,64 +62,87 @@ runs:
         path: /usr/local/cuda
         key: cuda-toolkit-ubuntu-${{ steps.ubuntu-version.outputs.version }}-12-v2
 
-    - name: Install CUDA Toolkit 12
+    - name: Install CUDA Toolkit from NVIDIA Repository
       if: steps.cache-cuda.outputs.cache-hit != 'true'
       run: |
-        # Detect Ubuntu version and select appropriate CUDA repository
-        UBUNTU_VERSION=$(lsb_release -rs | tr -d '.')
-        echo "Detected Ubuntu version: $(lsb_release -rs) (code: $UBUNTU_VERSION)"
+        # Install CUDA using official NVIDIA repository for Ubuntu 24.04
+        # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
         
-        case "$UBUNTU_VERSION" in
-          2404|2410)
-            CUDA_REPO="ubuntu2404"
-            ;;
-          2204)
-            CUDA_REPO="ubuntu2204"
-            ;;
-          2004)
-            CUDA_REPO="ubuntu2004"
-            ;;
-          *)
-            echo "Unsupported Ubuntu version: $(lsb_release -rs)"
-            echo "Falling back to ubuntu2404 repository"
-            CUDA_REPO="ubuntu2404"
-            ;;
-        esac
+        # Skip if CUDA is already installed (shouldn't happen without cache, but just in case)
+        if [ -f "/usr/local/cuda/bin/nvcc" ]; then
+          echo "CUDA already installed"
+          /usr/local/cuda/bin/nvcc --version
+          exit 0
+        fi
         
-        echo "Using CUDA repository: $CUDA_REPO"
-        
-        # Install CUDA using official NVIDIA repository
-        wget -q "https://developer.download.nvidia.com/compute/cuda/repos/${CUDA_REPO}/x86_64/cuda-keyring_1.1-1_all.deb"
+        # Download and install the CUDA keyring package
+        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
         sudo dpkg -i cuda-keyring_1.1-1_all.deb
         rm cuda-keyring_1.1-1_all.deb
         
+        # Update package list and install CUDA toolkit
         sudo apt-get update
-        sudo apt-get -y install cuda-toolkit-12-6
+        sudo apt-get -y install cuda-toolkit
         
-        # Verify installation
-        /usr/local/cuda/bin/nvcc --version
+        # Verify installation and find CUDA location
+        if [ -d "/usr/local/cuda" ]; then
+          echo "CUDA installed at /usr/local/cuda"
+          ls -la /usr/local/cuda*/bin/nvcc || true
+          # Show CUDA version for debugging
+          /usr/local/cuda/bin/nvcc --version || true
+        else
+          echo "ERROR: CUDA installation not found"
+          exit 1
+        fi
       shell: bash
 
     - name: Set up CUDA environment
       run: |
-        echo "/usr/local/cuda/bin" >> $GITHUB_PATH
-        echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
+        # Verify CUDA installation exists
+        if [ ! -d "/usr/local/cuda" ]; then
+          echo "ERROR: /usr/local/cuda not found"
+          echo "Searching for CUDA installations:"
+          ls -la /usr/local/cuda* 2>/dev/null || echo "No CUDA directories found"
+          exit 1
+        fi
+        
+        # Export PATH locally to verify nvcc works
+        export PATH="/usr/local/cuda/bin:$PATH"
+        export CUDA_HOME=/usr/local/cuda
         
         # Add CUDA stubs to library paths for build-time linking
         # The stubs allow linking against libcuda.so.1 without requiring the actual NVIDIA driver
         CUDA_STUBS_DIR="/usr/local/cuda/lib64/stubs"
         if [ -d "$CUDA_STUBS_DIR" ]; then
           echo "Found CUDA stubs at $CUDA_STUBS_DIR"
+          export LD_LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+          export LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LIBRARY_PATH}"
+        else
+          echo "WARNING: CUDA stubs directory not found at $CUDA_STUBS_DIR"
+          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+        fi
+        
+        # Verify nvcc is available and show version
+        echo "Verifying CUDA installation:"
+        nvcc --version
+        
+        # Check CUDA version meets minimum requirements (12+)
+        CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+        echo "Detected CUDA version: $CUDA_VERSION"
+        if [ "$CUDA_VERSION" -lt 12 ]; then
+          echo "ERROR: CUDA $CUDA_VERSION is too old. Need CUDA 12 or newer."
+          exit 1
+        fi
+        
+        # Set environment for subsequent steps
+        echo "/usr/local/cuda/bin" >> $GITHUB_PATH
+        echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
+        if [ -d "$CUDA_STUBS_DIR" ]; then
           echo "LD_LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LIBRARY_PATH" >> $GITHUB_ENV
         else
-          echo "WARNING: CUDA stubs directory not found at $CUDA_STUBS_DIR"
           echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
         fi
-        
-        # Verify CUDA is accessible
-        export PATH="/usr/local/cuda/bin:$PATH"
-        nvcc --version
       shell: bash
 
     - name: Fetch all tags
