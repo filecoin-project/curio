@@ -54,6 +54,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
@@ -79,6 +80,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
@@ -104,6 +106,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
@@ -129,6 +132,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
@@ -154,6 +158,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
@@ -254,6 +259,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
@@ -547,6 +553,7 @@ jobs:
       - name: Install FFI
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
         run: |
           make deps
         shell: bash
