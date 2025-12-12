@@ -47,6 +47,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
 		return
 	}
+	originalPieceCid := pieceCid
 	if multicodec.Code(pieceCid.Type()) != multicodec.FilCommitmentUnsealed {
 		pieceCid, _, err = commcid.PieceCidV1FromV2(pieceCid)
 		if err != nil {
@@ -84,7 +85,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, pieceCid, contentType)
+	setHeaders(w, originalPieceCid, contentType)
 	serveContent(w, r, size, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
