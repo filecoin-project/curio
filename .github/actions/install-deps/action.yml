@@ -53,20 +53,39 @@ runs:
           exit 1
         fi
         
-        # Export PATH locally to verify nvcc works
-        export PATH="/usr/local/cuda/bin:$PATH"
-        export CUDA_HOME=/usr/local/cuda
+        # Set PATH locally to verify nvcc works
+        PATH="/usr/local/cuda/bin:$PATH"
         
         # Add CUDA stubs to library paths for build-time linking
         # The stubs allow linking against libcuda.so.1 without requiring the actual NVIDIA driver
         CUDA_STUBS_DIR="/usr/local/cuda/lib64/stubs"
         if [ -d "$CUDA_STUBS_DIR" ]; then
           echo "Found CUDA stubs at $CUDA_STUBS_DIR"
-          export LD_LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
-          export LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LIBRARY_PATH}"
-        else
-          echo "WARNING: CUDA stubs directory not found at $CUDA_STUBS_DIR"
-          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+          ls -la "$CUDA_STUBS_DIR" || true
+          
+          # Create symlink for libcuda.so.1 in stubs directory if it doesn't exist
+          if [ -f "$CUDA_STUBS_DIR/libcuda.so" ] && [ ! -f "$CUDA_STUBS_DIR/libcuda.so.1" ]; then
+            echo "Creating symlink: $CUDA_STUBS_DIR/libcuda.so.1 -> libcuda.so"
+            sudo ln -sf libcuda.so "$CUDA_STUBS_DIR/libcuda.so.1"
+          fi
+          
+          # Create system-wide symlinks for x86_64 (similar to ARM64 setup in filecoin-ffi)
+          # This ensures build script binaries can find libcuda.so.1 at runtime
+          # System symlinks are the primary solution - dynamic linker searches /usr/lib/x86_64-linux-gnu/ by default
+          if [ "$(uname -m)" = "x86_64" ]; then
+            SYSTEM_STUBS_DIR="/usr/lib/x86_64-linux-gnu/stubs"
+            sudo mkdir -p "$SYSTEM_STUBS_DIR"
+            if [ -f "$CUDA_STUBS_DIR/libcuda.so" ]; then
+              if [ ! -f "$SYSTEM_STUBS_DIR/libcuda.so.1" ]; then
+                echo "Creating system symlink: $SYSTEM_STUBS_DIR/libcuda.so.1 -> $CUDA_STUBS_DIR/libcuda.so"
+                sudo ln -sf "$CUDA_STUBS_DIR/libcuda.so" "$SYSTEM_STUBS_DIR/libcuda.so.1"
+              fi
+              if [ ! -f "$SYSTEM_STUBS_DIR/libcuda.so" ]; then
+                echo "Creating system symlink: $SYSTEM_STUBS_DIR/libcuda.so -> $CUDA_STUBS_DIR/libcuda.so"
+                sudo ln -sf "$CUDA_STUBS_DIR/libcuda.so" "$SYSTEM_STUBS_DIR/libcuda.so"
+              fi
+            fi
+          fi
         fi
         
         # Verify nvcc is available and show version
@@ -81,15 +100,32 @@ runs:
           exit 1
         fi
         
-        # Set environment for subsequent steps
+        # Set environment for subsequent steps using GITHUB_ENV
+        # Note: System symlinks in /usr/lib/x86_64-linux-gnu/stubs are the primary solution
+        # LD_LIBRARY_PATH is set as a backup
         echo "/usr/local/cuda/bin" >> $GITHUB_PATH
         echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
-        if [ -d "$CUDA_STUBS_DIR" ]; then
-          echo "LD_LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LIBRARY_PATH" >> $GITHUB_ENV
+        
+        # Build LD_LIBRARY_PATH value (don't rely on existing value since it may not be set)
+        if [ -d "$CUDA_STUBS_DIR" ] && [ "$(uname -m)" = "x86_64" ] && [ -d "/usr/lib/x86_64-linux-gnu/stubs" ]; then
+          LD_LIB_PATH="/usr/lib/x86_64-linux-gnu/stubs:$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+          LIB_PATH="/usr/lib/x86_64-linux-gnu/stubs:$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+        elif [ -d "$CUDA_STUBS_DIR" ]; then
+          LD_LIB_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+          LIB_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
         else
-          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          LD_LIB_PATH="/usr/local/cuda/lib64"
+          LIB_PATH="/usr/local/cuda/lib64"
         fi
+        
+        # Append existing LD_LIBRARY_PATH if it exists (from previous steps)
+        if [ -n "${LD_LIBRARY_PATH}" ]; then
+          LD_LIB_PATH="$LD_LIB_PATH:${LD_LIBRARY_PATH}"
+          LIB_PATH="$LIB_PATH:${LIBRARY_PATH}"
+        fi
+        
+        echo "LD_LIBRARY_PATH=$LD_LIB_PATH" >> $GITHUB_ENV
+        echo "LIBRARY_PATH=$LIB_PATH" >> $GITHUB_ENV
       shell: bash
 
     - name: Fetch all tags
