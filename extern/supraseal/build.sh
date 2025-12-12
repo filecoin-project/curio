@@ -266,7 +266,7 @@ if [ ! -d $SPDK ]; then
          echo "Warning: pkgdep.sh failed (likely system packages already installed). Continuing..."
      }
      ./configure --with-virtio --with-vhost \
-                 --without-fuse --without-crypto \
+                 --without-fuse --without-nvme-cuse --without-crypto \
                  --disable-unit-tests --disable-tests \
                  --disable-examples --disable-apps \
                  --without-fio --without-xnvme --without-vbdev-compress \
