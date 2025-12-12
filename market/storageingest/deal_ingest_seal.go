@@ -2,6 +2,7 @@ package storageingest
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -443,7 +444,7 @@ type pieceDetails struct {
 	StartEpoch abi.ChainEpoch      `db:"deal_start_epoch"`
 	EndEpoch   abi.ChainEpoch      `db:"deal_end_epoch"`
 	Index      int64               `db:"piece_index"`
-	CreatedAt  *time.Time          `db:"created_at"`
+	CreatedAt  sql.NullTime        `db:"created_at"`
 }
 
 func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSector, error) {
@@ -484,8 +485,9 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 	}
 
 	getOpenedAt := func(piece pieceDetails, cur *time.Time) *time.Time {
-		if piece.CreatedAt.Before(*cur) {
-			return piece.CreatedAt
+		if piece.CreatedAt.Valid && (cur == nil || piece.CreatedAt.Time.Before(*cur)) {
+			t := piece.CreatedAt.Time
+			return &t
 		}
 		return cur
 	}
@@ -501,7 +503,7 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
-				openedAt:           pi.CreatedAt,
+				openedAt:           &pi.CreatedAt.Time,
 				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
 				pieces: []pieceInfo{
 					{

@@ -2,6 +2,7 @@ package dealdata
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -33,9 +34,9 @@ type dealMetadata struct {
 	PieceCID   string `db:"piece_cid"`
 	PieceSize  int64  `db:"piece_size"`
 
-	DataUrl     *string `db:"data_url"`
-	DataHeaders []byte  `db:"data_headers"`
-	DataRawSize *int64  `db:"data_raw_size"`
+	DataUrl     sql.NullString `db:"data_url"`
+	DataHeaders []byte         `db:"data_headers"`
+	DataRawSize sql.NullInt64  `db:"data_raw_size"`
 
 	DataDelOnFinalize bool `db:"data_delete_on_finalize"`
 }
@@ -173,8 +174,8 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 
 			// make pieceReader
 			if !commDOnly {
-				if p.DataUrl != nil {
-					dataUrl := *p.DataUrl
+				if p.DataUrl.Valid {
+					dataUrl := p.DataUrl.String
 
 					goUrl, err := url.Parse(dataUrl)
 					if err != nil {
@@ -218,10 +219,10 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 
 						closers = append(closers, pr)
 
-						reader, _ := padreader.New(pr, uint64(*p.DataRawSize))
+						reader, _ := padreader.New(pr, uint64(p.DataRawSize.Int64))
 						pieceReaders = append(pieceReaders, reader)
 					} else {
-						reader, _ := padreader.New(NewUrlReader(nil, dataUrl, hdrs, *p.DataRawSize, "directdealdata"), uint64(*p.DataRawSize))
+						reader, _ := padreader.New(NewUrlReader(nil, dataUrl, hdrs, p.DataRawSize.Int64, "directdealdata"), uint64(p.DataRawSize.Int64))
 						pieceReaders = append(pieceReaders, reader)
 					}
 

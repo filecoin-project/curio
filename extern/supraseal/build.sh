@@ -50,6 +50,7 @@ set -x
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
+MARCH_FLAGS=${MARCH_FLAGS:-"-march=native"}
 
 # Create and activate Python virtual environment
 # This avoids needing PIP_BREAK_SYSTEM_PACKAGES on Ubuntu 24.04+
@@ -255,6 +256,9 @@ if [ ! -d $SPDK ]; then
      export PATH="$VENV_DIR/bin:$PATH"
      export PIP="$VENV_DIR/bin/pip"
      export PYTHON="$VENV_DIR/bin/python"
+     # Inject march flags for SPDK build
+     export CFLAGS="$MARCH_FLAGS -g -O3"
+     export CXXFLAGS="$MARCH_FLAGS -g -O3"
      # Run pkgdep.sh without sudo - system packages should already be installed
      # Python packages will be installed in the venv automatically
      # If system packages are missing, pkgdep.sh will fail gracefully

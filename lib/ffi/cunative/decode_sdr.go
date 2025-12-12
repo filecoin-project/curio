@@ -88,16 +88,12 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 
 */
 
-const (
-	bufSz    = 4 << 20
-	nWorkers = 64
-)
+const bufSz = 4 << 20
+
+var nWorkers int = runtime.NumCPU() / 2
 
 func Decode(replica, key io.Reader, out io.Writer) error {
 	workers := nWorkers
-	if runtime.NumCPU() < workers {
-		workers = runtime.NumCPU()
-	}
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)

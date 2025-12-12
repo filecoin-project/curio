@@ -2933,9 +2933,21 @@
       "placeholder": null
     },
     {
-      "id": "Supra consensus testing utilities",
-      "translation": "수프라 합의 테스트 유틸리티",
-      "message": "Supra consensus testing utilities",
+      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "translation": "클러스터의 데이터베이스를 이전 소프트웨어 버전으로 다운그레이드합니다.",
+      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "placeholder": null
+    },
+    {
+      "id": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "translation": "그러나 업그레이드에 심각한 버그가 있어 다운그레이드해야 한다면, 먼저 클러스터의 모든 노드를 종료한 뒤 이 명령을 실행하십시오. 마지막으로 다운그레이드된 노드만 다시 시작하십시오.",
+      "message": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "placeholder": null
+    },
+    {
+      "id": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "translation": "클러스터에 원하는 스키마가 적용되어 있던 YYYYMMDD 날짜입니다. 예: 20251128",
+      "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
       "placeholder": null
     }
   ]
