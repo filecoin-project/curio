@@ -9,6 +9,7 @@ runs:
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
+          gcc-12 g++-12 \
           pkg-config \
           autoconf automake libtool \
           curl wget git \
@@ -18,6 +19,37 @@ runs:
           nasm \
           ocl-icd-opencl-dev libhwloc-dev \
           libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev
+      shell: bash
+
+    - name: Set up GCC 12 as default
+      run: |
+        # Remove existing alternatives if they exist, then install fresh
+        sudo update-alternatives --remove-all gcc 2>/dev/null || true
+        sudo update-alternatives --remove-all g++ 2>/dev/null || true
+        # Install alternatives with high priority
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+        # Set as default
+        sudo update-alternatives --set gcc /usr/bin/gcc-12
+        sudo update-alternatives --set g++ /usr/bin/g++-12
+        # Verify
+        echo "GCC version:"
+        gcc --version
+        echo "G++ version:"
+        g++ --version
+        echo "GCC path:"
+        which gcc
+        echo "G++ path:"
+        which g++
+        # Verify it's actually GCC 12
+        GCC_VERSION=$(gcc -dumpversion | cut -d. -f1)
+        if [ "$GCC_VERSION" != "12" ]; then
+          echo "ERROR: GCC version is $GCC_VERSION, expected 12"
+          exit 1
+        fi
+        # Export CC and CXX as backup (build script will use these if gcc default isn't 12)
+        echo "CC=gcc-12" >> $GITHUB_ENV
+        echo "CXX=g++-12" >> $GITHUB_ENV
       shell: bash
 
     - name: Install CUDA Toolkit from NVIDIA Repository
