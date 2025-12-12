@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -65,7 +66,12 @@ func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]*UpgradeSector, error) {
 
 		for _, mt := range smt {
 			if mt.SpID == int64(s.SpID) && mt.SectorNumber == int64(s.SectorNum) {
-				s.MissingTasks = mt.MissingTaskIDs
+				s.MissingTasks = lo.FilterMap(mt.MissingTaskIDs, func(id *int64, _ int) (int64, bool) {
+					if id == nil {
+						return 0, false
+					}
+					return *id, true
+				})
 				s.AllTasks = mt.AllTaskIDs
 				break
 			}
@@ -91,13 +97,13 @@ func (a *WebRPC) UpgradeDelete(ctx context.Context, spid, sectorNum uint64) erro
 }
 
 type SnapMissingTask struct {
-	SpID              int64   `db:"sp_id"`
-	SectorNumber      int64   `db:"sector_number"`
-	AllTaskIDs        []int64 `db:"all_task_ids"`
-	MissingTaskIDs    []int64 `db:"missing_task_ids"`
-	TotalTasks        int     `db:"total_tasks"`
-	MissingTasksCount int     `db:"missing_tasks_count"`
-	RestartStatus     string  `db:"restart_status"`
+	SpID              int64    `db:"sp_id"`
+	SectorNumber      int64    `db:"sector_number"`
+	AllTaskIDs        []int64  `db:"all_task_ids"`
+	MissingTaskIDs    []*int64 `db:"missing_task_ids"`
+	TotalTasks        int      `db:"total_tasks"`
+	MissingTasksCount int      `db:"missing_tasks_count"`
+	RestartStatus     string   `db:"restart_status"`
 }
 
 func (smt SnapMissingTask) sectorID() abi.SectorID {
