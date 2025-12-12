@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS piece_summary (
 );
 
 -- Insert the initial row
-INSERT INTO piece_summary (id) VALUES (TRUE);
+INSERT INTO piece_summary (id) VALUES (TRUE) ON CONFLICT DO NOTHING;
 
 -- Function to update piece_summary when a new entry is added to market_piece_metadata
 CREATE OR REPLACE FUNCTION update_piece_summary()

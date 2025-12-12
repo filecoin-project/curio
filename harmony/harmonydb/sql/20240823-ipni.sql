@@ -35,10 +35,10 @@ CREATE TABLE IF NOT EXISTS ipni (
 CREATE INDEX IF NOT EXISTS ipni_provider_order_number ON ipni(provider, order_number);
 
 -- This index will speed up lookups based on the ad_cid, which is frequently used to identify specific ads
-CREATE UNIQUE INDEX ipni_ad_cid ON ipni(ad_cid);
+CREATE UNIQUE INDEX IF NOT EXISTS ipni_ad_cid ON ipni(ad_cid);
 
 -- This index will speed up lookups based on the ad_cid, which is frequently used to identify specific ads
-CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm); -- dropped in 20241106-market-fixes.sql
+CREATE UNIQUE INDEX IF NOT EXISTS ipni_context_id ON ipni(context_id, ad_cid, is_rm); -- dropped in 20241106-market-fixes.sql
 -- 20241106-market-fixes.sql:
 -- CREATE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm, is_skip) -- non-unique to allow multiple skips
 -- CREATE INDEX ipni_entries_skip ON ipni(entries, is_skip, piece_cid);

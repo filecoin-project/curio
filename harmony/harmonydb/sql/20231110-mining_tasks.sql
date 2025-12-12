@@ -38,4 +38,4 @@ create table if not exists mining_base_block
         unique (sp_id, task_id, block_cid)
 );
 
-CREATE UNIQUE INDEX mining_base_block_cid_k ON mining_base_block (sp_id, block_cid) WHERE no_win = false;
+CREATE UNIQUE INDEX IF NOT EXISTS mining_base_block_cid_k ON mining_base_block (sp_id, block_cid) WHERE no_win = false;
