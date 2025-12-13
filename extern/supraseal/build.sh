@@ -145,9 +145,7 @@ CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
 
 INCLUDE="-I$SPDK/include -I$SPDK/isa-l/.. -I$SPDK/dpdk/build/include"
 CFLAGS="$SECTOR_SIZE $INCLUDE -g -O2"
-# Use x86-64-v3 CPU flags to match GOAMD64=v3 requirement (equivalent to Intel Haswell/AMD Excavator+)
-# GCC multiversioning will provide CPU-specific optimizations at runtime
-CXXFLAGS="$CFLAGS -march=x86-64-v3 -mtune=generic $CXXSTD \
+CXXFLAGS="$CFLAGS $MARCH_FLAGS $CXXSTD \
           -fPIC -fno-omit-frame-pointer -fno-strict-aliasing \
           -fstack-protector -fno-common \
           -D_GNU_SOURCE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 \
@@ -281,7 +279,7 @@ if [ ! -d "deps/blst" ]; then
     git clone https://github.com/supranational/blst.git deps/blst
     (cd deps/blst
     git checkout bef14ca512ea575aff6f661fdad794263938795d
-     ./build.sh -march=x86-64-v3)
+     ./build.sh $MARCH_FLAGS)
 fi
 
 # Generate .h files for the Poseidon constants (needed for tree_r binaries)
@@ -294,13 +292,11 @@ xxd -i poseidon/constants/constants_16 > obj/constants_16.h &
 xxd -i poseidon/constants/constants_24 > obj/constants_24.h &
 xxd -i poseidon/constants/constants_36 > obj/constants_36.h &
 
+# wait for poseidon constants generation
+wait
+
 # Compile all object files in parallel - these are independent of constants headers
-# SHA extension code with x86-64-v3 flags to match GOAMD64=v3
-# The code uses SHA-NI instructions which are available on Intel Haswell+ and AMD Zen+
-# Runtime will detect CPU capabilities and use appropriate version
-$CC -c -march=x86-64-v3 -mtune=generic sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o &
-# Compile multiversion wrapper for CPU-specific optimizations
-$CXX $CXXFLAGS -Ideps/blst/src -c sha/sha_ext_mbx2_wrapper.cpp -o obj/sha_ext_mbx2_wrapper.o &
+$CC -c sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o &
 
 # PC1
 $CXX $CXXFLAGS -Ideps/sppark/util -o obj/pc1.o -c pc1/pc1.cpp &
@@ -333,8 +329,7 @@ ar rvs obj/libsupraseal.a \
    obj/streaming_node_reader_nvme.o \
    obj/supra_seal.o \
    obj/supra_tree_r_file.o \
-   obj/sha_ext_mbx2.o \
-   obj/sha_ext_mbx2_wrapper.o
+   obj/sha_ext_mbx2.o
 
 # Wait for all background jobs and check their exit codes
 for job in $(jobs -p); do
