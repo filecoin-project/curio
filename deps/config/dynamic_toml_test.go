@@ -238,6 +238,148 @@ func TestTransparentMarshalBatchFeeConfig(t *testing.T) {
 	assert.Equal(t, "0.5 FIL", cfg2.Dynamic.Get().String())
 }
 
+func TestLoadConfigWithFullyPopulatedAddressBlock(t *testing.T) {
+	cfg := DefaultCurioConfig()
+
+	const dynamicConfig = `
+[[Addresses]]
+PreCommitControl = ["t01001", "t01002"]
+CommitControl = ["t02001"]
+DealPublishControl = ["t03001", "t03002"]
+TerminateControl = ["t04001"]
+DisableOwnerFallback = true
+DisableWorkerFallback = true
+MinerAddresses = ["t05001", "t05002"]
+
+[Addresses.BalanceManager.MK12Collateral]
+DealCollateralWallet = "t06001"
+CollateralLowThreshold = "15 FIL"
+CollateralHighThreshold = "45 FIL"
+
+[Fees.MaxPreCommitBatchGasFee]
+Base = "0.1 FIL"
+PerSector = "0.25 FIL"
+
+[Fees.MaxCommitBatchGasFee]
+Base = "0.2 FIL"
+PerSector = "0.35 FIL"
+
+[Fees.MaxUpdateBatchGasFee]
+Base = "0.3 FIL"
+PerSector = "0.45 FIL"
+
+[Fees]
+MaxWindowPoStGasFee = "11 FIL"
+CollateralFromMinerBalance = true
+DisableCollateralFallback = true
+MaximizeFeeCap = false
+
+[Apis]
+ChainApiInfo = ["https://lotus-a.example.com/rpc/v1", "https://lotus-b.example.com/rpc/v1"]
+
+[Alerting]
+MinimumWalletBalance = "15 FIL"
+
+[Alerting.PagerDuty]
+Enable = true
+PagerDutyEventURL = "https://events.custom.com/v2/enqueue"
+PageDutyIntegrationKey = "integration-key"
+
+[Alerting.PrometheusAlertManager]
+Enable = true
+AlertManagerURL = "http://alerts.internal/api"
+
+[Alerting.SlackWebhook]
+Enable = true
+WebHookURL = "https://hooks.slack.com/services/AAA/BBB/CCC"
+
+[Batching.PreCommit]
+Timeout = "5h0m0s"
+Slack = "7h0m0s"
+
+[Batching.Commit]
+Timeout = "2h0m0s"
+Slack = "1h30m0s"
+
+[Batching.Update]
+BaseFeeThreshold = "0.123 FIL"
+Timeout = "3h0m0s"
+Slack = "2h15m0s"
+
+[[Market.StorageMarketConfig.PieceLocator]]
+URL = "https://pieces-1.example.com/piece"
+Headers = { Authorization = ["Bearer token-a"], "X-Custom" = ["alpha"] }
+
+[[Market.StorageMarketConfig.PieceLocator]]
+URL = "https://pieces-2.example.com/piece"
+Headers = { Authorization = ["Bearer token-b"], "X-Another" = ["beta", "gamma"] }
+`
+
+	require.NotPanics(t, func() {
+		_, err := LoadConfigWithUpgrades(dynamicConfig, cfg)
+		require.NoError(t, err)
+	})
+
+	addresses := cfg.Addresses.Get()
+	require.Len(t, addresses, 1, "expected single address block to apply")
+	addr := addresses[0]
+
+	assert.Equal(t, []string{"t01001", "t01002"}, addr.PreCommitControl)
+	assert.Equal(t, []string{"t02001"}, addr.CommitControl)
+	assert.Equal(t, []string{"t03001", "t03002"}, addr.DealPublishControl)
+	assert.Equal(t, []string{"t04001"}, addr.TerminateControl)
+	assert.True(t, addr.DisableOwnerFallback)
+	assert.True(t, addr.DisableWorkerFallback)
+	assert.Equal(t, []string{"t05001", "t05002"}, addr.MinerAddresses)
+
+	mgr := addr.BalanceManager.MK12Collateral
+	assert.Equal(t, "t06001", mgr.DealCollateralWallet)
+	assert.Equal(t, "15 FIL", mgr.CollateralLowThreshold.String())
+	assert.Equal(t, "45 FIL", mgr.CollateralHighThreshold.String())
+
+	assert.Equal(t, "0.1 FIL", cfg.Fees.MaxPreCommitBatchGasFee.Base.Get().String())
+	assert.Equal(t, "0.25 FIL", cfg.Fees.MaxPreCommitBatchGasFee.PerSector.Get().String())
+	assert.Equal(t, "0.2 FIL", cfg.Fees.MaxCommitBatchGasFee.Base.Get().String())
+	assert.Equal(t, "0.35 FIL", cfg.Fees.MaxCommitBatchGasFee.PerSector.Get().String())
+	assert.Equal(t, "0.3 FIL", cfg.Fees.MaxUpdateBatchGasFee.Base.Get().String())
+	assert.Equal(t, "0.45 FIL", cfg.Fees.MaxUpdateBatchGasFee.PerSector.Get().String())
+	assert.Equal(t, "11 FIL", cfg.Fees.MaxWindowPoStGasFee.Get().String())
+	assert.True(t, cfg.Fees.CollateralFromMinerBalance.Get())
+	assert.True(t, cfg.Fees.DisableCollateralFallback.Get())
+	assert.False(t, cfg.Fees.MaximizeFeeCap.Get())
+
+	assert.Equal(t, []string{
+		"https://lotus-a.example.com/rpc/v1",
+		"https://lotus-b.example.com/rpc/v1",
+	}, cfg.Apis.ChainApiInfo.Get())
+
+	assert.Equal(t, "15 FIL", cfg.Alerting.MinimumWalletBalance.Get().String())
+	assert.True(t, cfg.Alerting.PagerDuty.Enable.Get())
+	assert.Equal(t, "https://events.custom.com/v2/enqueue", cfg.Alerting.PagerDuty.PagerDutyEventURL.Get())
+	assert.Equal(t, "integration-key", cfg.Alerting.PagerDuty.PageDutyIntegrationKey.Get())
+	assert.True(t, cfg.Alerting.PrometheusAlertManager.Enable.Get())
+	assert.Equal(t, "http://alerts.internal/api", cfg.Alerting.PrometheusAlertManager.AlertManagerURL.Get())
+	assert.True(t, cfg.Alerting.SlackWebhook.Enable.Get())
+	assert.Equal(t, "https://hooks.slack.com/services/AAA/BBB/CCC", cfg.Alerting.SlackWebhook.WebHookURL.Get())
+
+	assert.Equal(t, 5*time.Hour, cfg.Batching.PreCommit.Timeout.Get())
+	assert.Equal(t, 7*time.Hour, cfg.Batching.PreCommit.Slack.Get())
+	assert.Equal(t, 2*time.Hour, cfg.Batching.Commit.Timeout.Get())
+	assert.Equal(t, 90*time.Minute, cfg.Batching.Commit.Slack.Get())
+	assert.Equal(t, "0.123 FIL", cfg.Batching.Update.BaseFeeThreshold.Get().String())
+	assert.Equal(t, 3*time.Hour, cfg.Batching.Update.Timeout.Get())
+	assert.Equal(t, 135*time.Minute, cfg.Batching.Update.Slack.Get())
+
+	locators := cfg.Market.StorageMarketConfig.PieceLocator.Get()
+	require.Len(t, locators, 2)
+	assert.Equal(t, "https://pieces-1.example.com/piece", locators[0].URL)
+	assert.Equal(t, []string{"Bearer token-a"}, locators[0].Headers["Authorization"])
+	assert.Equal(t, []string{"alpha"}, locators[0].Headers["X-Custom"])
+	assert.Equal(t, "https://pieces-2.example.com/piece", locators[1].URL)
+	assert.Equal(t, []string{"Bearer token-b"}, locators[1].Headers["Authorization"])
+	assert.Equal(t, []string{"beta", "gamma"}, locators[1].Headers["X-Another"])
+}
+
 // TestTransparentDecode tests the TransparentDecode function with MetaData
 func TestTransparentDecode(t *testing.T) {
 	t.Run("basic decode with metadata", func(t *testing.T) {
