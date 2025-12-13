@@ -28,8 +28,14 @@ CREATE TABLE IF NOT EXISTS balance_manager_addresses (
 
 CREATE INDEX IF NOT EXISTS balance_manager_addresses_last_msg_cid_idx ON balance_manager_addresses (last_msg_cid);
 
-ALTER TABLE balance_manager_addresses ADD CONSTRAINT subject_not_equal_second CHECK (subject_address != second_address);
-ALTER TABLE balance_manager_addresses ADD CONSTRAINT balance_manager_addresses_subject_address_second_address_unique UNIQUE (subject_address, second_address, action_type);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subject_not_equal_second') THEN
+        ALTER TABLE balance_manager_addresses ADD CONSTRAINT subject_not_equal_second CHECK (subject_address != second_address);
+    END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS balance_manager_addresses_subject_address_second_address_unique ON balance_manager_addresses (subject_address, second_address, action_type);
 
 CREATE OR REPLACE FUNCTION update_balance_manager_from_message_waits()
 RETURNS trigger AS $$

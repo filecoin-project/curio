@@ -91,17 +91,33 @@ type cfgRoot[T any] struct {
 	layers   []string
 	treeCopy T
 	fixupFn  func(string, T) error
+	ctx      context.Context
+	done     chan struct{}
 }
 
+// StopFunc is returned by EnableChangeDetectionWithContext and should be called
+// to stop the change monitor goroutine and wait for it to exit.
+type StopFunc func()
+
 func EnableChangeDetection[T any](db *harmonydb.DB, obj T, layers []string, fixupFn func(string, T) error) error {
+	_, err := EnableChangeDetectionWithContext(context.Background(), db, obj, layers, fixupFn)
+	return err
+}
+
+// EnableChangeDetectionWithContext starts a goroutine that monitors config changes.
+// It returns a StopFunc that cancels the context and waits for the goroutine to exit.
+// Call the StopFunc before cleaning up database resources.
+func EnableChangeDetectionWithContext[T any](ctx context.Context, db *harmonydb.DB, obj T, layers []string, fixupFn func(string, T) error) (StopFunc, error) {
 	var err error
-	r := &cfgRoot[T]{db: db, treeCopy: obj, layers: layers, fixupFn: fixupFn}
+	r := &cfgRoot[T]{db: db, treeCopy: obj, layers: layers, fixupFn: fixupFn, ctx: ctx, done: make(chan struct{})}
 	r.treeCopy, err = CopyWithOriginalDynamics(obj)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	go r.changeMonitor()
-	return nil
+	return func() {
+		<-r.done // Wait for goroutine to exit
+	}, nil
 }
 
 // CopyWithOriginalDynamics copies the original dynamics from the original object to the new object.
@@ -181,12 +197,26 @@ func isDynamicType(t reflect.Type) bool {
 }
 
 func (r *cfgRoot[T]) changeMonitor() {
+	defer close(r.done) // Signal that goroutine has exited
+
 	lastTimestamp := time.Time{} // lets do a read at startup
 
 	for {
+		// Check if context is cancelled
+		select {
+		case <-r.ctx.Done():
+			return
+		default:
+		}
+
 		configCount := 0
-		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
+		err := r.db.QueryRow(r.ctx, `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
 		if err != nil {
+			// Exit if context was cancelled, pool was closed, or table doesn't exist yet (shutdown/startup condition)
+			errStr := err.Error()
+			if r.ctx.Err() != nil || strings.Contains(errStr, "closed pool") || strings.Contains(errStr, "does not exist") {
+				return
+			}
 			logger.Errorf("error selecting configs: %s", err)
 			continue
 		}
@@ -196,8 +226,13 @@ func (r *cfgRoot[T]) changeMonitor() {
 		lastTimestamp = time.Now()
 
 		// 1. get all configs
-		configs, err := GetConfigs(context.Background(), r.db, r.layers)
+		configs, err := GetConfigs(r.ctx, r.db, r.layers)
 		if err != nil {
+			// Exit if context was cancelled, pool was closed, or table doesn't exist yet (shutdown/startup condition)
+			errStr := err.Error()
+			if r.ctx.Err() != nil || strings.Contains(errStr, "closed pool") || strings.Contains(errStr, "does not exist") {
+				return
+			}
 			logger.Errorf("error getting configs: %s", err)
 			continue
 		}
@@ -208,13 +243,19 @@ func (r *cfgRoot[T]) changeMonitor() {
 		func() {
 			dynamicLocker.Lock()
 			defer dynamicLocker.Unlock()
-			err = ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
+			err = ApplyLayers(r.ctx, r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
 				return
 			}
 		}()
-		time.Sleep(30 * time.Second)
+
+		// Sleep with context cancellation support
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
 	}
 }
 

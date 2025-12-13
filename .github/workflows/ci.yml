@@ -9,576 +9,448 @@ on:
       - '**'
 
 env:
-  GO_VERSION: "1.24.7"
+  GO_VERSION: 1.24.7
 
 jobs:
-  ci-lint:
+  # Fast checks - no FFI needed, run immediately
+  quick-checks:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install actionlint
-        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
-
-      - name: Run actionlint
-        run: actionlint -shellcheck= -pyflakes=
-
-  setup-params:
-    runs-on: [self-hosted, docker]
-    needs: [ci-lint]
-    steps:
-      - name: Fetch parameters
-        run: lotus fetch-params 8388608
-        shell: bash
-
-  build-mainnet:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
-  build-calibnet:
-    runs-on: ubuntu-latest
-    needs: [ ci-lint ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
-  build-debug:
-    runs-on: ubuntu-latest
-    needs: [ ci-lint ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
-  build-2k:
-    runs-on: ubuntu-latest
-    needs: [ ci-lint ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Go
-        run: make build
-        shell: bash
-
-  build-forest:
-    runs-on: ubuntu-latest
-    needs: [ ci-lint ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Build Forest
-        run: make forest-test
-        shell: bash
-
-  test:
-    runs-on: [self-hosted, docker]
-    needs: [setup-params]
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
-    strategy:
-      fail-fast: false  # Continue running even if one test fails
-      matrix:
-        test-suite:
-          - name: test-itest-curio
-            target: "./itests/curio_test.go"
-          - name: test-all
-            target: "`go list ./... | grep -v curio/itests`"
-          - name: test-itest-harmonyDB
-            target: "./itests/harmonydb_test.go"
-          - name: test-itest-alertnow
-            target: "./itests/alertnow_test.go"
-          - name: test-itest-pdp-prove
-            target: "./itests/pdp_prove_test.go"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          CURIO_OPTIMAL_LIBFILCRYPTO: 0
-        run: |
-          make deps
-        shell: bash
-
-      - name: Start YugabyteDB container with dynamic ports
-        id: start-yugabyte
-        run: |
-          # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-
-      - name: Wait for YugabyteDB to start
-        run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
-          done
-        shell: bash
-
-      - name: Get YugabyteDB container IP
-        id: get-yb-ip
-        run: |
-          # Retrieve internal bridge IP of YugabyteDB container
-          YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-
-      - name: Run tests
-        env:
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
-          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
-        run: |
-          echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
-          export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          go test -v --tags="debug,fvm" -timeout 30m ${{ matrix.test-suite.target }}
-
-      - name: Stop YugabyteDB container
-        if: always()  # Ensure this runs even if the tests fail
-        run: docker stop ${{ env.CONTAINER_NAME }}
-
-  lint:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.4.0
-        shell: bash
-
-      - name: Lint
-        run: |
-          golangci-lint run -v --timeout 15m --concurrency 4
-        shell: bash
-
-  gofmt:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Check gofmt
-        run: |
-          go fmt ./...
-        shell: bash
-
-      - name: Git diff check
-        run: git --no-pager diff
-        shell: bash
-
-      - name: Git diff quiet
-        run: git --no-pager diff --quiet
-        shell: bash
-
-  build-supraseal-ubuntu24:
-    runs-on: ubuntu-24.04
-    needs: [ci-lint]
-    
-    env:
-      GCC_VERSION: "12"
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run checks in parallel
+        run: |
+          # gofmt check
+          (
+            go fmt ./...
+            git diff --quiet || { echo "gofmt needed"; exit 1; }
+          ) &
+          FMT_PID=$!
+
+          # actionlint
+          (
+            go install github.com/rhysd/actionlint/cmd/actionlint@latest
+            actionlint -shellcheck= -pyflakes=
+          ) &
+          LINT_PID=$!
+
+          # mod tidy check
+          (
+            go mod tidy -v
+            git diff --quiet go.mod go.sum || { echo "go mod tidy needed"; exit 1; }
+          ) &
+          TIDY_PID=$!
+
+          wait $FMT_PID || exit 1
+          wait $LINT_PID || exit 1
+          wait $TIDY_PID || exit 1
+
+  # Lint - runs immediately, no dependencies
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install and run golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.4.0
+          golangci-lint run -v --timeout 15m --concurrency 4
+
+  # Build variants - run in parallel with matrix
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [debug, build, calibnet, 2k]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build ${{ matrix.variant }}
+        run: make ${{ matrix.variant }}
+
+  # Unit tests - no database needed
+  test-unit:
+    runs-on: [self-hosted, docker]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run unit tests
+        run: go test -v --tags="debug,fvm" -timeout 30m $(go list ./... | grep -v curio/itests)
+
+  # Integration tests - curio_test.go (heavy, runs separately)
+  test-itest-curio:
+    runs-on: [self-hosted, docker]
+    env:
+      YB_CONTAINER: yugabyte-curio-${{ github.run_id }}
+    steps:
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore proof parameters from cache
+        if: steps.local-params.outputs.exists != 'true'
+        id: cache-params
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+          restore-keys: proof-params-
+
+      - name: Fetch proof parameters
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching proof parameters (cache miss)..."
+          lotus fetch-params 8388608
+
+      - name: Save proof parameters to cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start YugabyteDB
+        id: start-yb
+        run: |
+          docker stop $YB_CONTAINER 2>/dev/null || true
+          docker rm $YB_CONTAINER 2>/dev/null || true
+          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          for i in {1..60}; do
+            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
+              echo "YugabyteDB is ready"
+              break
+            fi
+            sleep 1
+          done
+          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run curio integration test
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+        run: go test -v --tags="debug,fvm" -timeout 60m ./itests/curio_test.go
+
+      - name: Stop YugabyteDB
+        if: always()
+        run: docker stop $YB_CONTAINER 2>/dev/null || true
+
+  # Integration tests - other parallel tests
+  test-itest-other:
+    runs-on: [self-hosted, docker]
+    env:
+      YB_CONTAINER: yugabyte-other-${{ github.run_id }}
+    steps:
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore proof parameters from cache
+        if: steps.local-params.outputs.exists != 'true'
+        id: cache-params
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+          restore-keys: proof-params-
+
+      - name: Fetch proof parameters
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching proof parameters (cache miss)..."
+          lotus fetch-params 8388608
+
+      - name: Save proof parameters to cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start YugabyteDB
+        id: start-yb
+        run: |
+          docker stop $YB_CONTAINER 2>/dev/null || true
+          docker rm $YB_CONTAINER 2>/dev/null || true
+          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          for i in {1..60}; do
+            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
+              echo "YugabyteDB is ready"
+              break
+            fi
+            sleep 1
+          done
+          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run other integration tests
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+        run: |
+          go test -v --tags="debug,fvm" -timeout 30m -parallel 4 \
+            ./itests/harmonydb_test.go \
+            ./itests/pdp_prove_test.go \
+            ./itests/indexstore_test.go \
+            ./itests/move_shared_test.go \
+            ./itests/local_test.go
+
+      - name: Stop YugabyteDB
+        if: always()
+        run: docker stop $YB_CONTAINER 2>/dev/null || true
+
+  # Integration tests - serial tests (modify global state)
+  test-itest-serial:
+    runs-on: [self-hosted, docker]
+    env:
+      YB_CONTAINER: yugabyte-serial-${{ github.run_id }}
+    steps:
+      - name: Check local proof parameters
+        id: local-params
+        run: |
+          PARAMS_DIR="/var/tmp/filecoin-proof-parameters"
+          if [ -d "$PARAMS_DIR" ] && [ "$(ls -A $PARAMS_DIR 2>/dev/null)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore proof parameters from cache
+        if: steps.local-params.outputs.exists != 'true'
+        id: cache-params
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+          restore-keys: proof-params-
+
+      - name: Fetch proof parameters
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching proof parameters (cache miss)..."
+          lotus fetch-params 8388608
+
+      - name: Save proof parameters to cache
+        if: steps.local-params.outputs.exists != 'true' && steps.cache-params.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-2k-v1
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start YugabyteDB
+        id: start-yb
+        run: |
+          docker stop $YB_CONTAINER 2>/dev/null || true
+          docker rm $YB_CONTAINER 2>/dev/null || true
+          docker run --rm --name $YB_CONTAINER -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          for i in {1..60}; do
+            if docker exec $YB_CONTAINER bin/yugabyted status 2>/dev/null | grep -q Running; then
+              echo "YugabyteDB is ready"
+              break
+            fi
+            sleep 1
+          done
+          YB_IP=$(docker inspect $YB_CONTAINER --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run serial integration tests
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.start-yb.outputs.yb_ip }}
+        run: go test -v --tags="debug,fvm,serial" -timeout 30m ./itests/serial/...
+
+      - name: Stop YugabyteDB
+        if: always()
+        run: docker stop $YB_CONTAINER 2>/dev/null || true
+
+  # Gen check - verify generated code is up to date
+  # Optimized: run independent gen steps in parallel, then build once
+  gen-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Go tools
+        run: |
+          SWAG_VERSION=$(grep 'github.com/swaggo/swag' go.mod | awk '{print $2}')
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install github.com/hannahhoward/cbor-gen-for@latest
+          go install github.com/swaggo/swag/cmd/swag@${SWAG_VERSION}
+
+      - name: Run code generation
+        run: |
+          # These can run in parallel - they don't depend on each other
+          make api-gen &
+          API_PID=$!
+          
+          make cfgdoc-gen &
+          CFG_PID=$!
+          
+          make marketgen &
+          MKT_PID=$!
+          
+          wait $API_PID || exit 1
+          wait $CFG_PID || exit 1
+          wait $MKT_PID || exit 1
+          
+          # go-generate depends on api-gen completing
+          make go-generate
+
+      - name: Generate docs
+        run: |
+          make docsgen
+          make docsgen-cli
+
+      - name: Fix imports and tidy
+        run: |
+          go run ./scripts/fiximports
+          go mod tidy
+
+      - name: Check for changes
+        run: git diff --quiet || { git diff; exit 1; }
+
+  # Supraseal build (kept separate - long running, different runner)
+  build-supraseal-ubuntu24:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       - name: Free up disk space
         run: |
-          # Remove unnecessary packages to free up space for CUDA installation
           sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            gcc-12 g++-12 \
-            nasm \
-            pkg-config \
-            autoconf automake libtool \
-            libssl-dev \
-            libnuma-dev \
-            uuid-dev \
-            libaio-dev \
-            libfuse3-dev \
-            libarchive-dev \
-            libkeyutils-dev \
-            libncurses-dev \
-            python3 python3-pip python3-dev \
-            curl wget git \
-            xxd
-      
-      - name: Set up Python virtual environment
-        run: |
-          # Python tools will be installed in venv by build.sh
-          # Just ensure python3-venv is available
-          python3 -m venv --help > /dev/null || sudo apt-get install -y python3-venv
-      
-      - name: Set up GCC 12 as default
+            build-essential gcc-12 g++-12 nasm pkg-config \
+            autoconf automake libtool libssl-dev libnuma-dev \
+            uuid-dev libaio-dev libfuse3-dev libarchive-dev \
+            libkeyutils-dev libncurses-dev libgmp-dev libconfig++-dev \
+            python3 python3-pip python3-dev curl wget git xxd
+
+      - name: Set up GCC 12
         run: |
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
-          sudo update-alternatives --set gcc /usr/bin/gcc-12
-          sudo update-alternatives --set g++ /usr/bin/g++-12
-          gcc --version
-          g++ --version
-      
+
       - name: Cache CUDA installation
         id: cache-cuda
         uses: actions/cache@v4
         with:
-          path: |
-            /usr/local/cuda
-            /usr/local/cuda-*
-          key: cuda-toolkit-ubuntu-24.04-${{ runner.os }}-v1
-      
-      - name: Install CUDA Toolkit from NVIDIA Repository
+          path: /usr/local/cuda
+          key: cuda-toolkit-ubuntu-24.04-v1
+
+      - name: Install CUDA Toolkit
         if: steps.cache-cuda.outputs.cache-hit != 'true'
         run: |
-          # Install CUDA using official NVIDIA repository for Ubuntu 24.04
-          # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
-          
-          # Download and install the CUDA keyring package
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
-          rm cuda-keyring_1.1-1_all.deb
-          
-          # Update package list and install CUDA toolkit
-          sudo apt-get update
-          sudo apt-get -y install cuda-toolkit
-          
-          # Verify installation and find CUDA location
-          if [ -d "/usr/local/cuda" ]; then
-            echo "CUDA installed at /usr/local/cuda"
-            ls -la /usr/local/cuda*/bin/nvcc || true
-          else
-            echo "ERROR: CUDA installation not found"
-            exit 1
-          fi
-      
+          sudo apt-get update && sudo apt-get -y install cuda-toolkit
+
       - name: Set up CUDA environment
         run: |
-          # Verify CUDA installation exists
-          if [ ! -d "/usr/local/cuda" ]; then
-            echo "ERROR: /usr/local/cuda not found"
-            exit 1
-          fi
-          
-          # Export PATH locally to verify nvcc works
-          export PATH="/usr/local/cuda/bin:$PATH"
-          export CUDA_HOME=/usr/local/cuda
-          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
-          
-          # Verify nvcc is available
-          nvcc --version
-          
-          # Set environment for subsequent steps
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-      
-      - name: Install libconfig++
-        run: |
-          sudo apt-get install -y libconfig++-dev || {
-            # If not available in repos, build from source
-            wget https://hyperrealm.github.io/libconfig/dist/libconfig-1.7.3.tar.gz
-            tar -xzf libconfig-1.7.3.tar.gz
-            cd libconfig-1.7.3
-            ./configure
-            make -j$(nproc)
-            sudo make install
-            sudo ldconfig
-            cd ..
-            rm -rf libconfig-1.7.3*
-          }
-      
-      - name: Install GMP library
-        run: |
-          sudo apt-get install -y libgmp-dev
-      
-      - name: Cache Python venv
-        id: cache-venv
+
+      - name: Cache Python venv and SPDK
         uses: actions/cache@v4
         with:
-          path: extern/supraseal/.venv
-          key: supraseal-venv-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
-          restore-keys: |
-            supraseal-venv-ubuntu24-
-      
-      - name: Cache SPDK build
-        id: cache-spdk
-        uses: actions/cache@v4
-        with:
-          path: extern/supraseal/deps/spdk-v24.05
-          key: spdk-v24.05-gcc12-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
-          restore-keys: |
-            spdk-v24.05-gcc12-ubuntu24-
-      
+          path: |
+            extern/supraseal/.venv
+            extern/supraseal/deps/spdk-v24.05
+          key: supraseal-deps-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
+
       - name: Build Supraseal
         working-directory: extern/supraseal
         run: |
-          # Ensure we're using GCC 12 and CUDA
-          export CC=gcc-12
-          export CXX=g++-12
-          export CUDA=/usr/local/cuda
+          export CC=gcc-12 CXX=g++-12 CUDA=/usr/local/cuda
           export PATH=/usr/local/cuda/bin:$PATH
-          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-          
-          # Verify CUDA is accessible
-          which nvcc
-          nvcc --version
-          
-          # Run the build script (creates and uses Python venv internally)
           ./build.sh
-      
+
       - name: Verify binaries
-        working-directory: extern/supraseal
         run: |
-          echo "=== Built binaries ==="
-          ls -lh bin/
-          
-          echo ""
-          echo "=== Verifying binaries exist ==="
-          test -f bin/seal && echo "✓ seal binary created" || exit 1
-          test -f bin/pc2 && echo "✓ pc2 binary created" || exit 1
-          test -f bin/tree_r && echo "✓ tree_r binary created" || exit 1
-          test -f bin/tree_r_cpu && echo "✓ tree_r_cpu binary created" || exit 1
-          test -f bin/tree_d_cpu && echo "✓ tree_d_cpu binary created" || exit 1
-          
-          echo ""
-          echo "=== Binary sizes ==="
-          du -h bin/*
-          
-          echo ""
-          echo "✅ All binaries built successfully!"
-      
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: supraseal-binaries-ubuntu24-gcc12-cuda
-          path: |
-            extern/supraseal/bin/seal
-            extern/supraseal/bin/pc2
-            extern/supraseal/bin/tree_r
-            extern/supraseal/bin/tree_r_cpu
-            extern/supraseal/bin/tree_d_cpu
-          retention-days: 30
-      
-      - name: Upload library artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: supraseal-library-ubuntu24-gcc12-cuda
-          path: extern/supraseal/obj/libsupraseal.a
-          retention-days: 30
-      
-      - name: Build summary
-        run: |
-          echo "### 🎉 Supraseal Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
-          echo "- OS: Ubuntu 24.04" >> $GITHUB_STEP_SUMMARY
-          echo "- GCC: $(gcc --version | head -1)" >> $GITHUB_STEP_SUMMARY
-          echo "- CUDA: $(nvcc --version | grep release)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Built Binaries:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          ls -lh extern/supraseal/bin/ >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All binaries compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
-
-  gen-check:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Install goimports
-        run: go install golang.org/x/tools/cmd/goimports
-        shell: bash
-
-      - name: Install cbor-gen-for
-        run: go install github.com/hannahhoward/cbor-gen-for
-        shell: bash
-
-      - name: Install swag cli
-        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
-        shell: bash
-
-#      - name: Install gotext
-#        run: go install golang.org/x/text/cmd/gotext
-#        shell: bash
-
-      - name: Install FFI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make deps
-        shell: bash
-
-      - name: Generate Code
-        env:
-          LANG: en-US
-        run: make gen
-        shell: bash
-
-      - name: Git diff check
-        run: git --no-pager diff
-        shell: bash
-
-      - name: Git diff quiet
-        run: git --no-pager diff --quiet
-        shell: bash
-
-  mod-tidy-check:
-    runs-on: ubuntu-latest
-    needs: [ci-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Run mod tidy check
-        run: go mod tidy -v
-        shell: bash
+          for bin in seal pc2 tree_r tree_r_cpu tree_d_cpu; do
+            test -f extern/supraseal/bin/$bin || exit 1
+          done
+          echo "✅ All Supraseal binaries built"

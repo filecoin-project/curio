@@ -1,0 +1,70 @@
+name: 'Setup Build Environment'
+description: 'Setup Go, install deps, cache/build FFI - everything needed to build'
+
+inputs:
+  go-version:
+    description: 'Go version to use'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Go
+      id: setup-go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Install system dependencies (cached)
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: ocl-icd-opencl-dev libhwloc-dev
+        version: 1.0
+
+    - name: Download Go modules
+      if: steps.setup-go.outputs.cache-hit != 'true'
+      run: go mod download
+      shell: bash
+
+    # Cache FFI build based on submodule commit and build options
+    - name: Generate FFI cache key
+      id: ffi-cache-key
+      env:
+        CURIO_OPTIMAL_LIBFILCRYPTO: 0
+      run: |
+        FFI_COMMIT=$(git -C extern/filecoin-ffi rev-parse HEAD 2>/dev/null || echo "unknown")
+        OPTIMAL_FLAG="${CURIO_OPTIMAL_LIBFILCRYPTO:-1}"
+        echo "key=ffi-${{ runner.os }}-${{ inputs.go-version }}-${FFI_COMMIT}-optimal${OPTIMAL_FLAG}" >> $GITHUB_OUTPUT
+      shell: bash
+
+
+    - name: Cache FFI build
+      id: cache-ffi
+      uses: actions/cache@v4
+      with:
+        path: |
+          extern/filecoin-ffi/.install-filcrypto
+          extern/filecoin-ffi/filcrypto.h
+          extern/filecoin-ffi/libfilcrypto.a
+          extern/filecoin-ffi/filcrypto.pc
+          build/.filecoin-install
+          build/.blst-install
+          extern/supraseal/.install-blst
+          extern/supraseal/deps/blst
+        key: ${{ steps.ffi-cache-key.outputs.key }}
+
+    - name: Build FFI
+      if: steps.cache-ffi.outputs.cache-hit != 'true'
+      env:
+        CURIO_OPTIMAL_LIBFILCRYPTO: 0
+      run: make deps
+      shell: bash
+
+    - name: Restore FFI marker files
+      if: steps.cache-ffi.outputs.cache-hit == 'true'
+      run: |
+        mkdir -p build
+        touch build/.filecoin-install build/.blst-install || true
+      shell: bash

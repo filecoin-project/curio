@@ -1,4 +1,4 @@
-package paths
+package itests
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -50,7 +52,7 @@ func (t *TestingLocalStorage) init(subpath string) error {
 		return err
 	}
 
-	metaFile := filepath.Join(path, MetaFile)
+	metaFile := filepath.Join(path, paths.MetaFile)
 
 	meta := &storiface.LocalStorageMeta{
 		ID:       storiface.ID(uuid.New().String()),
@@ -71,9 +73,10 @@ func (t *TestingLocalStorage) init(subpath string) error {
 	return nil
 }
 
-var _ LocalStorage = &TestingLocalStorage{}
+var _ paths.LocalStorage = &TestingLocalStorage{}
 
 func TestLocalStorage(t *testing.T) {
+	t.Parallel()
 	ctx := context.TODO()
 
 	root := t.TempDir()
@@ -82,14 +85,14 @@ func TestLocalStorage(t *testing.T) {
 		root: root,
 	}
 
-	sharedITestID := harmonydb.ITestNewID()
+	sharedITestID := testutil.SetupTestDB(t)
 
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
-	index := NewDBIndex(nil, db)
+	index := paths.NewDBIndex(nil, db)
 
-	st, err := NewLocal(ctx, tstor, index, "")
+	st, err := paths.NewLocal(ctx, tstor, index, "")
 	require.NoError(t, err)
 
 	p1 := "1"

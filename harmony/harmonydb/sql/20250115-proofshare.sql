@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS proofshare_meta (
 
 COMMENT ON COLUMN proofshare_meta.enabled IS 'Setting to TRUE indicates acceptance of provider TOS in lib/proofsvc/tos/provider.md and privacy.md';
 
-INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
+INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL) ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS proofshare_provider_payments (
     provider_id BIGINT NOT NULL, -- wallet id
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS proofshare_client_settings (
 
 COMMENT ON COLUMN proofshare_client_settings.enabled IS 'Setting to TRUE indicates acceptance of client TOS in lib/proofsvc/tos/client.md and privacy.md';
 
-INSERT INTO proofshare_client_settings (enabled, sp_id, wallet, minimum_pending_seconds, do_porep, do_snap) VALUES (FALSE, 0, NULL, 0, FALSE, FALSE);
+INSERT INTO proofshare_client_settings (enabled, sp_id, wallet, minimum_pending_seconds, do_porep, do_snap) VALUES (FALSE, 0, NULL, 0, FALSE, FALSE) ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS proofshare_client_requests (
     task_id BIGINT NOT NULL,

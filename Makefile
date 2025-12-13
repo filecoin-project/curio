@@ -25,7 +25,6 @@ MODULES+=$(FFI_PATH)
 BUILD_DEPS+=build/.filecoin-install
 CLEAN+=build/.filecoin-install
 
-## Custom libfilcrypto build for Curio (size-optimized, no FVM)
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
 	FFI_BUILD_FROM_SOURCE=1 \

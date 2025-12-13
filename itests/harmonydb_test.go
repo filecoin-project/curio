@@ -13,13 +13,15 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb/testutil"
 )
 
 func TestCrud(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sharedITestID := harmonydb.ITestNewID()
+	sharedITestID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
@@ -37,21 +39,24 @@ func TestCrud(t *testing.T) {
 		Animal      string `db:"content"`
 		Unpopulated int
 	}
-	err = cdb.Select(ctx, &ints, "SELECT content, some_int FROM itest_scratch")
+	err = cdb.Select(ctx, &ints, "SELECT content, some_int FROM itest_scratch ORDER BY some_int DESC")
 	require.NoError(t, err)
 
 	require.Len(t, ints, 2, "unexpected count of returns. Want 2, Got ", len(ints))
-	require.True(t, ints[0].Count == 11 || ints[1].Count == 5, "expected [11,5] got ", ints)
-	require.True(t, ints[0].Animal == "cows" || ints[1].Animal == "cats", "expected, [cows, cats] ", ints)
+	require.Equal(t, 11, ints[0].Count, "expected first row count to be 11")
+	require.Equal(t, 5, ints[1].Count, "expected second row count to be 5")
+	require.Equal(t, "cows", ints[0].Animal, "expected first row animal to be cows")
+	require.Equal(t, "cats", ints[1].Animal, "expected second row animal to be cats")
 	fmt.Println("test completed")
 
 }
 
 func TestTransaction(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
+	testID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
@@ -98,10 +103,11 @@ func TestTransaction(t *testing.T) {
 }
 
 func TestPartialWalk(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
+	testID := testutil.SetupTestDB(t)
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, `

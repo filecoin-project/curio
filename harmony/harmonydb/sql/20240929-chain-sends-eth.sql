@@ -39,7 +39,7 @@ COMMENT ON COLUMN message_sends_eth.send_time IS 'Time when the send task was ex
 COMMENT ON COLUMN message_sends_eth.send_success IS 'Whether this transaction was broadcasted to the network already, NULL if not yet attempted, TRUE if successful, FALSE if failed';
 COMMENT ON COLUMN message_sends_eth.send_error IS 'Error message if send_success is FALSE';
 
-CREATE UNIQUE INDEX message_sends_eth_success_index
+CREATE UNIQUE INDEX IF NOT EXISTS message_sends_eth_success_index
     ON message_sends_eth (from_address, nonce)
     WHERE send_success IS NOT FALSE;
 

@@ -105,7 +105,8 @@ INSERT INTO sectors_cc_values (reg_seal_proof, cur_unsealed_cid) VALUES
                                                                            (11, 'baga6ea4seaqgl4u6lwmnerwdrm4iz7ag3mpwwaqtapc2fciabpooqmvjypweeha'),
                                                                            (12, 'baga6ea4seaqdsvqopmj2soyhujb72jza76t4wpq5fzifvm3ctz47iyytkewnubq'),
                                                                            (13, 'baga6ea4seaqao7s73y24kcutaosvacpdjgfe5pw76ooefnyqw4ynr3d2y6x2mpq'),
-                                                                           (14, 'baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq');
+                                                                           (14, 'baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq')
+ON CONFLICT DO NOTHING;
 
 ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS expiration_epoch BIGINT;
 
