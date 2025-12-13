@@ -190,11 +190,16 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		{
-			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
+			u, err := url.Parse(func() string {
+				if I.cfg.HTTP.ExternalUrl != "" {
+					return I.cfg.HTTP.ExternalUrl
+				}
+				return fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName)
+			}())
 			if err != nil {
 				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
-			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+			if I.cfg.HTTP.ExternalUrl == "" && build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
 				ls := strings.Split(I.cfg.HTTP.ListenAddress, ":")
 				u, err = url.Parse(fmt.Sprintf("http://%s:%s", I.cfg.HTTP.DomainName, ls[1]))
 				if err != nil {
