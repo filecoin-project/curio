@@ -515,12 +515,13 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		SubPiece       string `db:"sub_piece"`
 		SubPieceOffset int64  `db:"sub_piece_offset"` // padded offset
 		SubPieceSize   int64  `db:"sub_piece_size"`   // padded piece size
+		Removed        bool   `db:"removed"`
 	}
 
 	var subPieces []subPieceMeta
 
 	err := p.db.Select(context.Background(), &subPieces, `
-			SELECT piece, sub_piece, sub_piece_offset, sub_piece_size
+			SELECT piece, sub_piece, sub_piece_offset, sub_piece_size, removed
 			FROM pdp_data_set_pieces
 			WHERE data_set = $1 AND piece_id = $2
 			ORDER BY sub_piece_offset ASC
@@ -535,6 +536,9 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	})
 	if !ok {
 		return contract.IPDPTypesProof{}, xerrors.New("no subpiece found")
+	}
+	if challSubPiece.Removed {
+		log.Errorw("using removed piece", "dataSetId", dataSetId, "pieceId", pieceId)
 	}
 
 	// build subpiece memtree

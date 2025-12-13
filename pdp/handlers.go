@@ -495,6 +495,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 	var pieces []struct {
 		PieceID         uint64 `db:"piece_id"`
 		PieceCid        string `db:"piece"`
+		Removed         bool   `db:"removed"`
 		SubPieceCID     string `db:"sub_piece"`
 		SubPieceOffset  int64  `db:"sub_piece_offset"`
 		SubPieceSize    int64  `db:"sub_piece_size"`
@@ -505,6 +506,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
         SELECT
             dsp.piece_id,
             dsp.piece,
+            dsp.removed,
             dsp.sub_piece,
             dsp.sub_piece_offset,
             dsp.sub_piece_size,
@@ -560,8 +562,13 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 
 	aggregatePieceCIDs := make(map[uint64]string)
 
+	showRemoved := chi.URLParam(r, "XXXshowRemoved") == "true"
 	// Convert pieces to the desired JSON format
 	for _, piece := range pieces {
+		if !showRemoved && piece.Removed {
+			continue
+		}
+
 		// Calculate aggregate piece CID on first use for this piece_id
 		pcv2Str, exists := aggregatePieceCIDs[piece.PieceID]
 		if !exists {
@@ -964,6 +971,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			log.Errorw("Failed to update rm_message_hash in pdp_data_set_pieces", "dataSetId", dataSetId, "pieceID", pieceID, "error", err)
 			return false, err
 		}
+		log.Infow("scheduled user requested deletion", "dataSetId", dataSetId, "pieceID", pieceID, "txHash", txHashLower)
 
 		return true, nil
 	}, harmonydb.OptionRetry())
