@@ -18,7 +18,8 @@ runs:
           xxd \
           nasm \
           ocl-icd-opencl-dev libhwloc-dev \
-          libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev
+          libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
+          libgmp-dev libconfig++-dev
       shell: bash
 
     - name: Set up GCC 12 as default

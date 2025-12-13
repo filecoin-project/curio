@@ -13,7 +13,7 @@ env:
 
 jobs:
   ci-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,9 +31,25 @@ jobs:
         run: actionlint -shellcheck= -pyflakes=
 
   setup-params:
-    runs-on: [self-hosted, docker]
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
+      - name: Cache proof parameters
+        uses: actions/cache@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-v28-8388608
+      
+      - name: Install lotus for fetching params
+        run: |
+          # Download lotus binary for fetching params
+          LOTUS_VERSION="v1.34.0"
+          wget -q "https://github.com/filecoin-project/lotus/releases/download/${LOTUS_VERSION}/lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+          sudo mv lotus /usr/local/bin/
+          rm -f "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+        shell: bash
+      
       - name: Fetch parameters
         run: lotus fetch-params 8388608
         shell: bash
@@ -169,7 +185,7 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker]
+    runs-on: ubuntu-24.04
     needs: [setup-params]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
@@ -189,6 +205,12 @@ jobs:
             target: "./itests/pdp_prove_test.go"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore proof parameters cache
+        uses: actions/cache@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-v28-8388608
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -277,7 +299,7 @@ jobs:
         shell: bash
 
   gofmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4

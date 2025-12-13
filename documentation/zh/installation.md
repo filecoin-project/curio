@@ -19,7 +19,7 @@ Curio软件包可直接在Ubuntu / Debian系统上安装。
 1. 安装先决条件
 
 ```bash
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git bzr jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev wget -y && sudo apt upgrade -y
+sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev libgmp-dev libconfig++-dev wget -y && sudo apt upgrade -y
 ```
 
 2. 启用Curio软件包仓库
@@ -68,7 +68,7 @@ sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-icd-loader o
 Ubuntu/Debian:
 
 ```bash
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git bzr jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev wget -y && sudo apt upgrade -y
+sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev libgmp-dev libconfig++-dev wget -y && sudo apt upgrade -y
 ```
 
 Fedora:
