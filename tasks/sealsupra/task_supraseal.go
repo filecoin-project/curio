@@ -72,6 +72,18 @@ type P2Active func() bool
 
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
 	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex, sc *ffi.SealCalls) (*SupraSeal, *slotmgr.SlotMgr, P2Active, error) {
+
+	// Check CPU features before initializing supraseal
+	// supraseal's PC1 (sha_ext_mbx2) requires:
+	// - Intel SHA Extensions (SHA-NI) for sha256rnds2, sha256msg1, sha256msg2
+	// - SSE2, SSSE3, SSE4.1 for supporting SIMD operations
+	if !supraffi.CanRunSupraSealPC1() {
+		cpuInfo := supraffi.CPUFeaturesSummary()
+		return nil, nil, nil, xerrors.Errorf("CPU does not support supraseal requirements (SHA-NI + SSE4.1 required). "+
+			"Detected features: %s. "+
+			"Use single-sector sealing with filecoin-ffi instead, or upgrade to AMD Zen1+ / Intel Ice Lake+ CPU", cpuInfo)
+	}
+
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
@@ -85,7 +97,21 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		return nil, nil, nil, err
 	}
 
-	log.Infow("start supraseal init")
+	log.Infow("start supraseal init", "cpu_features", supraffi.CPUFeaturesSummary())
+
+	// Automatically setup SPDK (configure hugepages and bind NVMe devices)
+	if os.Getenv("DISABLE_SPDK_SETUP") != "" {
+		log.Infow("SPDK setup disabled by environment variable")
+	} else {
+		log.Infow("checking and setting up SPDK for supraseal")
+		if err := supraffi.CheckAndSetupSPDK(36, 36); err != nil {
+			return nil, nil, nil, xerrors.Errorf("SPDK setup failed: %w. Please ensure you have:\n"+
+				"1. Configured 1GB hugepages (add 'hugepages=36 default_hugepagesz=1G hugepagesz=1G' to /etc/default/grub)\n"+
+				"2. Raw NVMe devices available (no filesystems on them)\n"+
+				"3. Root/sudo access for SPDK setup", err)
+		}
+	}
+
 	var configFile string
 	if configFile = os.Getenv(suprasealConfigEnv); configFile == "" {
 		// not set from env (should be the case in most cases), auto-generate a config
@@ -98,7 +124,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 		log.Infow("nvme devices", "nvmeDevices", nvmeDevices)
 		if len(nvmeDevices) == 0 {
-			return nil, nil, nil, xerrors.Errorf("no nvme devices found, run spdk setup.sh")
+			return nil, nil, nil, xerrors.Errorf("no nvme devices found. Please ensure you have raw NVMe devices (without filesystems) available")
 		}
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")

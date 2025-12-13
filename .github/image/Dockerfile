@@ -26,24 +26,38 @@ RUN go mod download
 FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.34.0-rc2-devnet AS lotus-test
 
 # Stage 3: Build the final image
-FROM myoung34/github-runner AS curio-github-runner
+FROM myoung34/github-runner:ubuntu-24.04 AS curio-github-runner
 
 # Copy Go dependencies from the builder stage
 COPY --from=builder /go/pkg /go/pkg
 COPY --from=builder /go/bin /go/bin
 COPY --from=lotus-test /usr/local/bin/lotus /usr/local/bin/
 
-RUN apt update && apt install -y \
+RUN apt-get update && apt-get install -y \
       build-essential \
-      bzr pkg-config \
+      gcc-12 g++-12 \
+      pkg-config \
+      autoconf automake libtool \
       clang \
-      curl \
-      gcc git \
-      hwloc \
+      curl wget git \
+      ca-certificates gnupg \
+      python3 python3-pip python3-dev python3-venv \
+      xxd \
+      nasm \
+      hwloc libhwloc-dev \
       jq \
-      libhwloc-dev wget \
       mesa-opencl-icd \
-      ocl-icd-opencl-dev
+      ocl-icd-opencl-dev \
+      libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
+      libgmp-dev libconfig++-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up GCC 12 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100 \
+    && update-alternatives --set gcc /usr/bin/gcc-12 \
+    && update-alternatives --set g++ /usr/bin/g++-12
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \

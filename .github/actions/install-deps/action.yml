@@ -7,7 +7,168 @@ runs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
+        sudo apt-get install -y \
+          build-essential \
+          gcc-12 g++-12 \
+          pkg-config \
+          autoconf automake libtool \
+          curl wget git \
+          ca-certificates gnupg \
+          python3 python3-pip python3-dev python3-venv \
+          xxd \
+          nasm \
+          ocl-icd-opencl-dev libhwloc-dev \
+          libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
+          libgmp-dev libconfig++-dev
+      shell: bash
+
+    - name: Set up GCC 12 as default
+      run: |
+        # Remove existing alternatives if they exist, then install fresh
+        sudo update-alternatives --remove-all gcc 2>/dev/null || true
+        sudo update-alternatives --remove-all g++ 2>/dev/null || true
+        # Install alternatives with high priority
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+        # Set as default
+        sudo update-alternatives --set gcc /usr/bin/gcc-12
+        sudo update-alternatives --set g++ /usr/bin/g++-12
+        # Verify
+        echo "GCC version:"
+        gcc --version
+        echo "G++ version:"
+        g++ --version
+        echo "GCC path:"
+        which gcc
+        echo "G++ path:"
+        which g++
+        # Verify it's actually GCC 12
+        GCC_VERSION=$(gcc -dumpversion | cut -d. -f1)
+        if [ "$GCC_VERSION" != "12" ]; then
+          echo "ERROR: GCC version is $GCC_VERSION, expected 12"
+          exit 1
+        fi
+        # Export CC and CXX as backup (build script will use these if gcc default isn't 12)
+        echo "CC=gcc-12" >> $GITHUB_ENV
+        echo "CXX=g++-12" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Install CUDA Toolkit from NVIDIA Repository
+      run: |
+        # Install CUDA using official NVIDIA repository for Ubuntu 24.04
+        # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
+        
+        # Skip if CUDA is already installed (shouldn't happen without cache, but just in case)
+        if [ -f "/usr/local/cuda/bin/nvcc" ]; then
+          echo "CUDA already installed"
+          /usr/local/cuda/bin/nvcc --version
+          exit 0
+        fi
+        
+        # Download and install the CUDA keyring package
+        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+        sudo dpkg -i cuda-keyring_1.1-1_all.deb
+        rm cuda-keyring_1.1-1_all.deb
+        
+        # Update package list and install CUDA toolkit
+        sudo apt-get update
+        sudo apt-get -y install cuda-toolkit
+        
+        # Verify installation and find CUDA location
+        if [ -d "/usr/local/cuda" ]; then
+          echo "CUDA installed at /usr/local/cuda"
+          ls -la /usr/local/cuda*/bin/nvcc || true
+          # Show CUDA version for debugging
+          /usr/local/cuda/bin/nvcc --version || true
+        else
+          echo "ERROR: CUDA installation not found"
+          exit 1
+        fi
+      shell: bash
+
+    - name: Set up CUDA environment
+      run: |
+        # Verify CUDA installation exists
+        if [ ! -d "/usr/local/cuda" ]; then
+          echo "ERROR: /usr/local/cuda not found"
+          echo "Searching for CUDA installations:"
+          ls -la /usr/local/cuda* 2>/dev/null || echo "No CUDA directories found"
+          exit 1
+        fi
+        
+        # Set PATH locally to verify nvcc works
+        PATH="/usr/local/cuda/bin:$PATH"
+        
+        # Add CUDA stubs to library paths for build-time linking
+        # The stubs allow linking against libcuda.so.1 without requiring the actual NVIDIA driver
+        CUDA_STUBS_DIR="/usr/local/cuda/lib64/stubs"
+        if [ -d "$CUDA_STUBS_DIR" ]; then
+          echo "Found CUDA stubs at $CUDA_STUBS_DIR"
+          ls -la "$CUDA_STUBS_DIR" || true
+          
+          # Create symlink for libcuda.so.1 in stubs directory if it doesn't exist
+          if [ -f "$CUDA_STUBS_DIR/libcuda.so" ] && [ ! -f "$CUDA_STUBS_DIR/libcuda.so.1" ]; then
+            echo "Creating symlink: $CUDA_STUBS_DIR/libcuda.so.1 -> libcuda.so"
+            sudo ln -sf libcuda.so "$CUDA_STUBS_DIR/libcuda.so.1"
+          fi
+          
+          # Create system-wide symlinks for x86_64 (similar to ARM64 setup in filecoin-ffi)
+          # This ensures build script binaries can find libcuda.so.1 at runtime
+          # System symlinks are the primary solution - dynamic linker searches /usr/lib/x86_64-linux-gnu/ by default
+          if [ "$(uname -m)" = "x86_64" ]; then
+            SYSTEM_STUBS_DIR="/usr/lib/x86_64-linux-gnu/stubs"
+            sudo mkdir -p "$SYSTEM_STUBS_DIR"
+            if [ -f "$CUDA_STUBS_DIR/libcuda.so" ]; then
+              if [ ! -f "$SYSTEM_STUBS_DIR/libcuda.so.1" ]; then
+                echo "Creating system symlink: $SYSTEM_STUBS_DIR/libcuda.so.1 -> $CUDA_STUBS_DIR/libcuda.so"
+                sudo ln -sf "$CUDA_STUBS_DIR/libcuda.so" "$SYSTEM_STUBS_DIR/libcuda.so.1"
+              fi
+              if [ ! -f "$SYSTEM_STUBS_DIR/libcuda.so" ]; then
+                echo "Creating system symlink: $SYSTEM_STUBS_DIR/libcuda.so -> $CUDA_STUBS_DIR/libcuda.so"
+                sudo ln -sf "$CUDA_STUBS_DIR/libcuda.so" "$SYSTEM_STUBS_DIR/libcuda.so"
+              fi
+            fi
+          fi
+        fi
+        
+        # Verify nvcc is available and show version
+        echo "Verifying CUDA installation:"
+        nvcc --version
+        
+        # Check CUDA version meets minimum requirements (12+)
+        CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+        echo "Detected CUDA version: $CUDA_VERSION"
+        if [ "$CUDA_VERSION" -lt 12 ]; then
+          echo "ERROR: CUDA $CUDA_VERSION is too old. Need CUDA 12 or newer."
+          exit 1
+        fi
+        
+        # Set environment for subsequent steps using GITHUB_ENV
+        # Note: System symlinks in /usr/lib/x86_64-linux-gnu/stubs are the primary solution
+        # LD_LIBRARY_PATH is set as a backup
+        echo "/usr/local/cuda/bin" >> $GITHUB_PATH
+        echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
+        
+        # Build LD_LIBRARY_PATH value (don't rely on existing value since it may not be set)
+        if [ -d "$CUDA_STUBS_DIR" ] && [ "$(uname -m)" = "x86_64" ] && [ -d "/usr/lib/x86_64-linux-gnu/stubs" ]; then
+          LD_LIB_PATH="/usr/lib/x86_64-linux-gnu/stubs:$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+          LIB_PATH="/usr/lib/x86_64-linux-gnu/stubs:$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+        elif [ -d "$CUDA_STUBS_DIR" ]; then
+          LD_LIB_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+          LIB_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64"
+        else
+          LD_LIB_PATH="/usr/local/cuda/lib64"
+          LIB_PATH="/usr/local/cuda/lib64"
+        fi
+        
+        # Append existing LD_LIBRARY_PATH if it exists (from previous steps)
+        if [ -n "${LD_LIBRARY_PATH}" ]; then
+          LD_LIB_PATH="$LD_LIB_PATH:${LD_LIBRARY_PATH}"
+          LIB_PATH="$LIB_PATH:${LIBRARY_PATH}"
+        fi
+        
+        echo "LD_LIBRARY_PATH=$LD_LIB_PATH" >> $GITHUB_ENV
+        echo "LIBRARY_PATH=$LIB_PATH" >> $GITHUB_ENV
       shell: bash
 
     - name: Fetch all tags
@@ -19,6 +180,5 @@ runs:
       shell: bash
 
     - name: Update submodules
-      run: git submodule update --init
+      run: git submodule update --init --recursive
       shell: bash
-

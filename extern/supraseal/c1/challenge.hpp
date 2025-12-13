@@ -47,8 +47,8 @@ C1Challenge<C>::C1Challenge(uint64_t challenge,
 
 template<class C>
 C1Challenge<C>::~C1Challenge() {
-  if (nodes_        != nullptr) delete nodes_;
-  if (tree_r_nodes_ != nullptr) delete tree_r_nodes_;
+  if (nodes_        != nullptr) delete[] nodes_;
+  if (tree_r_nodes_ != nullptr) delete[] tree_r_nodes_;
 }
 
 template<class C>

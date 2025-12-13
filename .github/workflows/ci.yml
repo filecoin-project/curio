@@ -13,15 +13,16 @@ env:
 
 jobs:
   ci-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
@@ -30,23 +31,40 @@ jobs:
         run: actionlint -shellcheck= -pyflakes=
 
   setup-params:
-    runs-on: [self-hosted, docker]
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
+      - name: Cache proof parameters
+        uses: actions/cache@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-v28-8388608
+      
+      - name: Install lotus for fetching params
+        run: |
+          # Download lotus binary for fetching params
+          LOTUS_VERSION="v1.34.0"
+          wget -q "https://github.com/filecoin-project/lotus/releases/download/${LOTUS_VERSION}/lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+          sudo mv lotus /usr/local/bin/
+          rm -f "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+        shell: bash
+      
       - name: Fetch parameters
         run: lotus fetch-params 8388608
         shell: bash
 
   build-mainnet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -63,15 +81,16 @@ jobs:
         shell: bash
 
   build-calibnet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ ci-lint ]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -88,15 +107,16 @@ jobs:
         shell: bash
 
   build-debug:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ ci-lint ]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -113,15 +133,16 @@ jobs:
         shell: bash
 
   build-2k:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ ci-lint ]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -138,15 +159,16 @@ jobs:
         shell: bash
 
   build-forest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ ci-lint ]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -163,7 +185,7 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker]
+    runs-on: ubuntu-24.04
     needs: [setup-params]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
@@ -184,10 +206,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore proof parameters cache
+        uses: actions/cache@v4
+        with:
+          path: /var/tmp/filecoin-proof-parameters
+          key: proof-params-v28-8388608
+
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -238,15 +267,16 @@ jobs:
         run: docker stop ${{ env.CONTAINER_NAME }}
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -269,15 +299,16 @@ jobs:
         shell: bash
 
   gofmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Check gofmt
         run: |
@@ -350,20 +381,17 @@ jobs:
           gcc --version
           g++ --version
       
-      - name: Cache CUDA installation
-        id: cache-cuda
-        uses: actions/cache@v4
-        with:
-          path: |
-            /usr/local/cuda
-            /usr/local/cuda-*
-          key: cuda-toolkit-ubuntu-24.04-${{ runner.os }}-v1
-      
       - name: Install CUDA Toolkit from NVIDIA Repository
-        if: steps.cache-cuda.outputs.cache-hit != 'true'
         run: |
           # Install CUDA using official NVIDIA repository for Ubuntu 24.04
           # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
+          
+          # Skip if CUDA is already installed (shouldn't happen without cache, but just in case)
+          if [ -f "/usr/local/cuda/bin/nvcc" ]; then
+            echo "CUDA already installed"
+            /usr/local/cuda/bin/nvcc --version
+            exit 0
+          fi
           
           # Download and install the CUDA keyring package
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
@@ -378,6 +406,8 @@ jobs:
           if [ -d "/usr/local/cuda" ]; then
             echo "CUDA installed at /usr/local/cuda"
             ls -la /usr/local/cuda*/bin/nvcc || true
+            # Show CUDA version for debugging
+            /usr/local/cuda/bin/nvcc --version || true
           else
             echo "ERROR: CUDA installation not found"
             exit 1
@@ -388,21 +418,48 @@ jobs:
           # Verify CUDA installation exists
           if [ ! -d "/usr/local/cuda" ]; then
             echo "ERROR: /usr/local/cuda not found"
+            echo "Searching for CUDA installations:"
+            ls -la /usr/local/cuda* 2>/dev/null || echo "No CUDA directories found"
             exit 1
           fi
           
           # Export PATH locally to verify nvcc works
           export PATH="/usr/local/cuda/bin:$PATH"
           export CUDA_HOME=/usr/local/cuda
-          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
           
-          # Verify nvcc is available
+          # Add CUDA stubs to library paths for build-time linking
+          # The stubs allow linking against libcuda.so.1 without requiring the actual NVIDIA driver
+          CUDA_STUBS_DIR="/usr/local/cuda/lib64/stubs"
+          if [ -d "$CUDA_STUBS_DIR" ]; then
+            echo "Found CUDA stubs at $CUDA_STUBS_DIR"
+            export LD_LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+            export LIBRARY_PATH="$CUDA_STUBS_DIR:/usr/local/cuda/lib64:${LIBRARY_PATH}"
+          else
+            echo "WARNING: CUDA stubs directory not found at $CUDA_STUBS_DIR"
+            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+          fi
+          
+          # Verify nvcc is available and show version
+          echo "Verifying CUDA installation:"
           nvcc --version
+          
+          # Check CUDA version meets minimum requirements (12+)
+          CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p')
+          echo "Detected CUDA version: $CUDA_VERSION"
+          if [ "$CUDA_VERSION" -lt 12 ]; then
+            echo "ERROR: CUDA $CUDA_VERSION is too old. Need CUDA 12 or newer."
+            exit 1
+          fi
           
           # Set environment for subsequent steps
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          if [ -d "$CUDA_STUBS_DIR" ]; then
+            echo "LD_LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+            echo "LIBRARY_PATH=$CUDA_STUBS_DIR:/usr/local/cuda/lib64:$LIBRARY_PATH" >> $GITHUB_ENV
+          else
+            echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          fi
       
       - name: Install libconfig++
         run: |
@@ -428,18 +485,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: extern/supraseal/.venv
-          key: supraseal-venv-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
+          key: supraseal-venv-ubuntu24-v2-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
-            supraseal-venv-ubuntu24-
+            supraseal-venv-ubuntu24-v2-
       
       - name: Cache SPDK build
         id: cache-spdk
         uses: actions/cache@v4
         with:
           path: extern/supraseal/deps/spdk-v24.05
-          key: spdk-v24.05-gcc12-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
+          key: spdk-v24.05-gcc12-ubuntu24-v3-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
-            spdk-v24.05-gcc12-ubuntu24-
+            spdk-v24.05-gcc12-ubuntu24-v3-
       
       - name: Build Supraseal
         working-directory: extern/supraseal
@@ -458,38 +515,18 @@ jobs:
           # Run the build script (creates and uses Python venv internally)
           ./build.sh
       
-      - name: Verify binaries
+      - name: Verify library
         working-directory: extern/supraseal
         run: |
-          echo "=== Built binaries ==="
-          ls -lh bin/
+          echo "=== Verifying library exists ==="
+          test -f obj/libsupraseal.a && echo "✓ libsupraseal.a created" || exit 1
           
           echo ""
-          echo "=== Verifying binaries exist ==="
-          test -f bin/seal && echo "✓ seal binary created" || exit 1
-          test -f bin/pc2 && echo "✓ pc2 binary created" || exit 1
-          test -f bin/tree_r && echo "✓ tree_r binary created" || exit 1
-          test -f bin/tree_r_cpu && echo "✓ tree_r_cpu binary created" || exit 1
-          test -f bin/tree_d_cpu && echo "✓ tree_d_cpu binary created" || exit 1
+          echo "=== Library size ==="
+          du -h obj/libsupraseal.a
           
           echo ""
-          echo "=== Binary sizes ==="
-          du -h bin/*
-          
-          echo ""
-          echo "✅ All binaries built successfully!"
-      
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: supraseal-binaries-ubuntu24-gcc12-cuda
-          path: |
-            extern/supraseal/bin/seal
-            extern/supraseal/bin/pc2
-            extern/supraseal/bin/tree_r
-            extern/supraseal/bin/tree_r_cpu
-            extern/supraseal/bin/tree_d_cpu
-          retention-days: 30
+          echo "✅ Library built successfully!"
       
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
@@ -507,23 +544,24 @@ jobs:
           echo "- GCC: $(gcc --version | head -1)" >> $GITHUB_STEP_SUMMARY
           echo "- CUDA: $(nvcc --version | grep release)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Built Binaries:**" >> $GITHUB_STEP_SUMMARY
+          echo "**Built Library:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          ls -lh extern/supraseal/bin/ >> $GITHUB_STEP_SUMMARY
+          ls -lh extern/supraseal/obj/libsupraseal.a >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All binaries compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Library compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
 
   gen-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -566,15 +604,16 @@ jobs:
         shell: bash
 
   mod-tidy-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps

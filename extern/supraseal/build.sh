@@ -264,7 +264,7 @@ if [ ! -d $SPDK ]; then
          echo "Warning: pkgdep.sh failed (likely system packages already installed). Continuing..."
      }
      ./configure --with-virtio --with-vhost \
-                 --without-fuse --without-crypto \
+                 --without-fuse --without-nvme-cuse --without-crypto \
                  --disable-unit-tests --disable-tests \
                  --disable-examples --disable-apps \
                  --without-fio --without-xnvme --without-vbdev-compress \
@@ -282,110 +282,56 @@ if [ ! -d "deps/blst" ]; then
      ./build.sh $MARCH_FLAGS)
 fi
 
-$CC -c sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o
+# Generate .h files for the Poseidon constants (needed for tree_r binaries)
+# These are fast and can run in parallel, but must complete before tree_r binaries compile
+xxd -i poseidon/constants/constants_2  > obj/constants_2.h &
+xxd -i poseidon/constants/constants_4  > obj/constants_4.h &
+xxd -i poseidon/constants/constants_8  > obj/constants_8.h &
+xxd -i poseidon/constants/constants_11 > obj/constants_11.h &
+xxd -i poseidon/constants/constants_16 > obj/constants_16.h &
+xxd -i poseidon/constants/constants_24 > obj/constants_24.h &
+xxd -i poseidon/constants/constants_36 > obj/constants_36.h &
 
-# Generate .h files for the Poseidon constants
-xxd -i poseidon/constants/constants_2  > obj/constants_2.h
-xxd -i poseidon/constants/constants_4  > obj/constants_4.h
-xxd -i poseidon/constants/constants_8  > obj/constants_8.h
-xxd -i poseidon/constants/constants_11 > obj/constants_11.h
-xxd -i poseidon/constants/constants_16 > obj/constants_16.h
-xxd -i poseidon/constants/constants_24 > obj/constants_24.h
-xxd -i poseidon/constants/constants_36 > obj/constants_36.h
+# wait for poseidon constants generation
+wait
+
+# Compile all object files in parallel - these are independent of constants headers
+$CC -c sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o &
 
 # PC1
 $CXX $CXXFLAGS -Ideps/sppark/util -o obj/pc1.o -c pc1/pc1.cpp &
 
-# PC2
+# PC2 - compile once with unified interface supporting both NVMe and FileReader
 $CXX $CXXFLAGS -o obj/streaming_node_reader_nvme.o -c nvme/streaming_node_reader_nvme.cpp &
 $CXX $CXXFLAGS -o obj/ring_t.o -c nvme/ring_t.cpp &
-$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -Xcompiler $MARCH_FLAGS \
-      -Xcompiler -Wall,-Wextra,-Wno-subobject-linkage,-Wno-unused-parameter \
+# Single compilation of pc2.cu - works with both reader types via template interface
+# Note: AVX512BF16 must be disabled because nvcc doesn't support GCC 12's BF16 intrinsics
+# We use both -mno-avx512bf16 AND -U__AVX512BF16__ to ensure the header isn't processed
+$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK \
+      -Xcompiler -march=x86-64-v3 -Xcompiler -mtune=generic \
+      -Xcompiler -mno-avx512bf16 -Xcompiler -U__AVX512BF16__ \
+      -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -Wno-subobject-linkage -Xcompiler -Wno-unused-parameter \
       -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2.o &
-# File-reader variant of pc2 for tree_r_file
-$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -DSTREAMING_NODE_READER_FILES -DRENAME_PC2_HASH_FILES -Xcompiler $MARCH_FLAGS \
-      -Xcompiler -Wall,-Wextra,-Wno-subobject-linkage,-Wno-unused-parameter \
-      -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2_files.o &
 
 $CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     -c sealing/supra_seal.cpp -o obj/supra_seal.o -Wno-subobject-linkage &
 
-$CXX $CXXFLAGS $INCLUDE -DSTREAMING_NODE_READER_FILES -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
+$CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     -c sealing/supra_tree_r_file.cpp -o obj/supra_tree_r_file.o -Wno-subobject-linkage &
 
 wait
 
-# Sppark object dedupe
-nm obj/pc2.o | grep -E 'select_gpu|all_gpus|cuda_available|gpu_props|ngpus|drop_gpu_ptr_t|clone_gpu_ptr_t' | awk '{print $3 " supra_" $3}' > symbol_rename.txt
-nm obj/pc2_files.o | grep -E 'select_gpu|all_gpus|cuda_available|gpu_props|ngpus|drop_gpu_ptr_t|clone_gpu_ptr_t' | awk '{print $3 " supra_" $3}' >> symbol_rename.txt
-# Deduplicate symbol rename entries
-sort -u -o symbol_rename.txt symbol_rename.txt
-
-for obj in obj/pc1.o obj/pc2.o obj/pc2_files.o obj/ring_t.o obj/streaming_node_reader_nvme.o obj/supra_seal.o obj/supra_tree_r_file.o obj/sha_ext_mbx2.o; do
-  objcopy --redefine-syms=symbol_rename.txt $obj
-done
-
-# Weaken duplicate symbols between pc2.o and pc2_files.o to avoid multiple-definition at link time
-nm -g --defined-only obj/pc2.o | awk '{print $3}' | sort -u > obj/syms_pc2.txt
-nm -g --defined-only obj/pc2_files.o | awk '{print $3}' | sort -u > obj/syms_pc2_files.txt
-comm -12 obj/syms_pc2.txt obj/syms_pc2_files.txt | grep -v '^pc2_hash_files' > obj/syms_dups.txt
-if [ -s obj/syms_dups.txt ]; then
-  while read -r sym; do
-    objcopy --weaken-symbol="$sym" obj/pc2_files.o
-  done < obj/syms_dups.txt
-fi
-
-rm symbol_rename.txt
-
+# All object files and constants headers are now ready
 ar rvs obj/libsupraseal.a \
    obj/pc1.o \
    obj/pc2.o \
-   obj/pc2_files.o \
    obj/ring_t.o \
    obj/streaming_node_reader_nvme.o \
    obj/supra_seal.o \
    obj/supra_tree_r_file.o \
    obj/sha_ext_mbx2.o
 
-$CXX $CXXFLAGS -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
-    -o bin/seal demos/main.cpp \
-    -Lobj -lsupraseal \
-    $LDFLAGS -Ldeps/blst -lblst -L$CUDA/lib64 -lcudart_static -lgmp -lconfig++ &
-
-# tree-r CPU only
-$CXX $SECTOR_SIZE $CXXSTD -pthread -g -O3 $MARCH_FLAGS \
-    -Wall -Wextra -Werror -Wno-subobject-linkage \
-    tools/tree_r.cpp poseidon/poseidon.cpp \
-    -o bin/tree_r_cpu -Iposeidon -Ideps/sppark -Ideps/blst/src -L deps/blst -lblst &
-
-# tree-r CPU + GPU
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler $MARCH_FLAGS \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/tree_r.cpp -o bin/tree_r \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-# tree-d CPU only
-$CXX -DRUNTIME_SECTOR_SIZE $CXXSTD -g -O3 $MARCH_FLAGS \
-    -Wall -Wextra -Werror -Wno-subobject-linkage \
-    tools/tree_d.cpp \
-    -o bin/tree_d_cpu -Ipc1 -L deps/blst -lblst &
-
-# Standalone GPU pc2
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler $MARCH_FLAGS \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/tree_r.cpp -o bin/tree_r \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-# Standalone GPU pc2
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler $MARCH_FLAGS \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/pc2.cu -o bin/pc2 \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-wait
+# Wait for all background jobs and check their exit codes
+for job in $(jobs -p); do
+    wait $job || (echo "ERROR: Some binaries failed to build" && exit 1)
+done

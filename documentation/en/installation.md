@@ -15,7 +15,7 @@ Debain packages are only available for mainnet right now. For any other network 
 1.  Install prerequisites
 
     ```shell
-    sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev -y && sudo apt upgrade -y
+    sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev libgmp-dev libconfig++-dev -y && sudo apt upgrade -y
     ```
 2.  Enable Curio package repo
 
@@ -61,7 +61,7 @@ sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-icd-loader openc
 Ubuntu/Debian:
 
 ```shell
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev -y && sudo apt upgrade -y
+sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev libgmp-dev libconfig++-dev -y && sudo apt upgrade -y
 ```
 
 Fedora:
