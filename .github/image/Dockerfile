@@ -1,6 +1,6 @@
 ## This image is used to github action runner for this repo
 # Use the official Golang image as the base image
-FROM golang:1.24-bullseye AS builder
+FROM golang:1.24-trixie AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -26,7 +26,7 @@ RUN go mod download
 FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.34.0-rc2-devnet AS lotus-test
 
 # Stage 3: Build the final image
-FROM myoung34/github-runner AS curio-github-runner
+FROM myoung34/github-runner:ubuntu-noble AS curio-github-runner
 
 # Copy Go dependencies from the builder stage
 COPY --from=builder /go/pkg /go/pkg
@@ -38,12 +38,14 @@ RUN apt update && apt install -y \
       bzr pkg-config \
       clang \
       curl \
-      gcc git \
+      git \
       hwloc \
       jq \
       libhwloc-dev wget \
       mesa-opencl-icd \
-      ocl-icd-opencl-dev
+      ocl-icd-opencl-dev \
+      gcc-12 g++-12 \
+      ca-certificates gnupg
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \

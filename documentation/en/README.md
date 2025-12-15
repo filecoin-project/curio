@@ -56,4 +56,4 @@ Curio can handle multiple GPUs simultaneously without needing to run multiple in
 
 The long-term vision for Curio is to eventually replace the current lotus-miner and lotus-worker processes. This is part of an ongoing effort to simplify and streamline the setup and operation of storage providers.
 
-\
+<br>
