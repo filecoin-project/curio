@@ -98,15 +98,15 @@ func (FFI) TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSi
 		// Convert sector size to RegisteredPoStProof (WindowPoSt version)
 		var postProof abi.RegisteredPoStProof
 		switch sectorSize {
-		case 34359738368: // 32GiB
+		case 32 << 30: // 32GiB
 			postProof = abi.RegisteredPoStProof_StackedDrgWindow32GiBV1_1
-		case 68719476736: // 64GiB
+		case 64 << 30: // 64GiB
 			postProof = abi.RegisteredPoStProof_StackedDrgWindow64GiBV1_1
-		case 2147483648: // 2KiB
+		case 2 << 10: // 2KiB
 			postProof = abi.RegisteredPoStProof_StackedDrgWindow2KiBV1_1
-		case 8388608: // 8MiB
+		case 8 << 20: // 8MiB
 			postProof = abi.RegisteredPoStProof_StackedDrgWindow8MiBV1_1
-		case 536870912: // 512MiB
+		case 512 << 20: // 512MiB
 			postProof = abi.RegisteredPoStProof_StackedDrgWindow512MiBV1_1
 		default:
 			return xerrors.Errorf("unsupported sector size for TreeR fallback: %d", sectorSize)

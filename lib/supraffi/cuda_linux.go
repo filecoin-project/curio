@@ -33,15 +33,13 @@ int main() {
 func HasUsableCUDAGPU() bool {
 	cudaProbeOnce.Do(func() {
 		cudaProbeOK = detectCUDAWithNvcc()
+		logger.Infof("cuda probe result: %t", cudaProbeOK)
 	})
 
 	return cudaProbeOK
 }
 
 func detectCUDAWithNvcc() bool {
-	defer func() {
-		logger.Infof("cuda probe result: %t", cudaProbeOK)
-	}()
 	nvccPath, err := exec.LookPath("nvcc")
 	if err != nil {
 		return false
