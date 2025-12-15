@@ -43,7 +43,7 @@ jobs:
       - name: Install lotus for fetching params
         run: |
           # Download lotus binary for fetching params
-          LOTUS_VERSION="v1.34.0"
+          LOTUS_VERSION="v1.34.3"
           wget -q "https://github.com/filecoin-project/lotus/releases/download/${LOTUS_VERSION}/lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
           tar -xzf "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
           sudo mv lotus /usr/local/bin/
@@ -578,9 +578,9 @@ jobs:
         run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
         shell: bash
 
-#      - name: Install gotext
-#        run: go install golang.org/x/text/cmd/gotext
-#        shell: bash
+      - name: Install gotext
+        run: go install golang.org/x/text/cmd/gotext
+        shell: bash
 
       - name: Install FFI
         env:
