@@ -69,6 +69,7 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
+BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
 endif
 
@@ -114,6 +115,10 @@ test: test-deps
 
 CURIO_TAGS ?= cunative
 
+ifeq ($(shell uname),Linux)
+curio: CGO_LDFLAGS_ALLOW='.*'
+endif
+
 curio: $(BUILD_DEPS)
 	rm -f curio
 	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
@@ -137,33 +142,6 @@ pdptool: $(BUILD_DEPS)
 .PHONY: pdptool
 BINS+=pdptool
 
-ifeq ($(shell uname),Linux)
-
-batchdep: build/.supraseal-install
-batchdep: $(BUILD_DEPS)
-.PHONY: batchdep
-
-batch: CURIO_TAGS+= supraseal
-batch: CGO_LDFLAGS_ALLOW='.*'
-batch: batchdep batch-build
-.PHONY: batch
-
-
-batch-calibnet: CURIO_TAGS+= supraseal
-batch-calibnet: CURIO_TAGS+= calibnet
-batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
-batch-calibnet: batchdep batch-build
-.PHONY: batch-calibnet
-
-else
-batch:
-	@echo "Batch target is only available on Linux systems"
-	@exit 1
-
-batch-calibnet:
-	@echo "Batch-calibnet target is only available on Linux systems"
-	@exit 1
-endif
 
 calibnet: CURIO_TAGS+= calibnet
 calibnet: build
@@ -183,8 +161,6 @@ an existing curio binary in your PATH. This may cause problems if you don't run 
 
 .PHONY: build
 
-batch-build: curio
-.PHONY: batch-build
 
 calibnet-sptool: CURIO_TAGS+= calibnet
 calibnet-sptool: sptool

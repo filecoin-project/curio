@@ -141,7 +141,7 @@ CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x sy
 Build and install the batch-capable Curio binary:
 
 ```bash
-make batch
+make curio
 make sptool
 ```
 
@@ -152,8 +152,8 @@ make install
 For calibnet
 
 ```bash
-make batch-calibnet
-make batch-sptool
+make calibnet
+make calibnet-sptool
 ```
 
 ```shell
@@ -166,13 +166,33 @@ The build should be run on the target machine. Binaries won't be portable betwee
 
 ### Setup NVMe devices for SPDK:
 
-{% hint style="info" %}
-This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
+{% hint style="success" %}
+SPDK setup can be done automatically using the Curio CLI command:
 {% endhint %}
 
 ```bash
+sudo curio batch setup
+```
+
+This command will:
+- Download SPDK if not already available
+- Configure 1GB hugepages (36 pages by default)
+- Bind NVMe devices for use with SupraSeal
+
+You can customize the number of hugepages:
+
+```bash
+sudo curio batch setup --hugepages 36 --min-pages 36
+```
+
+Alternatively, if you need to manually check SPDK status or unbind devices, you can use:
+
+```bash
 cd extern/supraseal/deps/spdk-v24.05/
-env NRHUGE=36 ./scripts/setup.sh
+# Check status
+sudo ./scripts/setup.sh status
+# Manually run setup (not normally needed)
+sudo env NRHUGE=36 ./scripts/setup.sh
 ```
 
 ### Benchmark NVME IOPS
@@ -364,6 +384,12 @@ BatchSealPipelines = 2
 # Set to true for Zen2 or older CPUs for compatibility
 SingleHasherPerThread = false
 ```
+
+### Environment Variables
+
+| Variable | Description |
+| -------- | ----------- |
+| `DISABLE_SPDK_SETUP=1` | When set, disables automatic SPDK setup (hugepage configuration and NVMe device binding) during supraseal initialization. Useful for advanced users who want to manually manage SPDK configuration, map drives, or control hugepage-numa assignment. |
 
 ## Optimization
 

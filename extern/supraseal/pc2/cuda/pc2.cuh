@@ -166,12 +166,12 @@ struct buf_to_disk_t {
   bool reverse;
 };
 
-template<class C>
+template<class C, class Reader = streaming_node_reader_t<C>>
 class pc2_t {
 private:
   topology_t& topology;
   bool tree_r_only;
-  streaming_node_reader_t<C>& reader;
+  Reader& reader;
   size_t nodes_to_read;
   size_t batch_size;
   tree_address_t<C> tree_c_address;
@@ -305,7 +305,7 @@ private:
 
 public:
   pc2_t(topology_t& _topology,
-        bool _tree_r_only, streaming_node_reader_t<C>& _reader,
+        bool _tree_r_only, Reader& _reader,
         size_t _nodes_to_read, size_t _batch_size, size_t _stream_count,
         const char** data_filenames, const char* output_dir);
   ~pc2_t();
