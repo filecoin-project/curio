@@ -30,8 +30,7 @@ Ensure that you have the following available before we install and set up Yugaby
     * Ubuntu 16.04 or later
 
     For other operating systems, Docker or Kubernetes. Please check out the [YugabyteDB documentation](https://docs.yugabyte.com/preview/quick-start/).
-2.  **Python 3.** To check the version, execute the following command:\
-
+2.  **Python 3.** To check the version, execute the following command:<br>
 
     ```shell
     python --version
@@ -47,8 +46,7 @@ Ensure that you have the following available before we install and set up Yugaby
     * Starting from Ubuntu 20.04, python is no longer available. To fix this, run `sudo apt install python-is-python3`.
     * For CentOS 8, set `python3` as the alternative for python by running `sudo alternatives --set python /usr/bin/python3`
 
-    Once these dependencies have been installed, we can run the install script:\
-
+    Once these dependencies have been installed, we can run the install script:<br>
 
     ```shell
     wget https://downloads.yugabyte.com/releases/2.21.0.1/yugabyte-2.21.0.1-b1-linux-x86_64.tar.gz
@@ -85,8 +83,7 @@ curio guided-setup
 
 Once the migration is complete, you can shut down all of your workers and miner processes. You can start `curio` process to replace them with correct [configuration layer](configuration/#configuration-layers).
 
-If you entered non-default in step 3 then please export the relevant details in your `~/.bashrc` file as Curio command needs access to the Database. This step is different from the \
-
+If you entered non-default in step 3 then please export the relevant details in your `~/.bashrc` file as Curio command needs access to the Database. This step is different from the <br>
 
 | Env Variable        | UseCase                   |
 | ------------------- | ------------------------- |
@@ -139,14 +136,12 @@ lotus send <WALLET 2> 5
 
 Curio provides a utility for users to onboard quickly. Please run the below command on your new Curio node, choose `Create a new miner` option and follow the on-screen instructions. It communicates in English (en), Chinese (zh), and Korean (ko).
 
-1.  Start the guided setup.\
-
+1.  Start the guided setup.<br>
 
     ```shell
     curio guided-setup
     ```
-2.  Choose “Create a new miner” option.\
-
+2.  Choose “Create a new miner” option.<br>
 
     ```
     Defaulting to English. Please reach out to the Curio team if you would like to have additional language support.
@@ -155,8 +150,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
     Migrate from existing Lotus-Miner
     ▸ Create a new miner
     ```
-3.  Enter your YugabyteDB details.\
-
+3.  Enter your YugabyteDB details.<br>
 
     ```
     This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.
@@ -172,8 +166,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
 
     ✔ Step Complete: Pre-initialization steps complete
     ```
-4.  Enter the wallet details be used for “create miner” message.\
-
+4.  Enter the wallet details be used for “create miner” message.<br>
 
     ```
     Initializing a new miner actor.
@@ -202,8 +195,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
     Pushed CreateMiner message: bafy2bzacebu3mhaj6chnz5frjo2sbxduebnh4e7e37fwm3jd7xhvhla7t6ylu
     Waiting for confirmation
     ```
-5.  Wait for new miner actor to get created.\
-
+5.  Wait for new miner actor to get created.<br>
 
     ```
     New miners address is: t01004 (t2cmgqvicpcil5zlp6bqsffmjjfz7ix66k4zaojay)
@@ -211,8 +203,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
 
     ✔ Step Complete: Configuration 'base' was updated to include this miner's address
     ```
-6.  We request you to please share the basic data about your miner with us to help us improve Curio.\
-
+6.  We request you to please share the basic data about your miner with us to help us improve Curio.<br>
 
     ```
     The Curio team wants to improve the software you use. Tell the team you're using `curio`.
@@ -223,8 +214,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
     Hint: I am someone running Curio on whichever chain.
     Nothing.
     ```
-7.  Finish the initialisation.\
-
+7.  Finish the initialisation.<br>
 
     ```
     ✔ Step Complete: New Miner initialization complete.
@@ -232,8 +222,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
     Try the web interface with curio run --layers=gui for further guided improvements.
     ```
 
-    1.  If you entered non-default in step 3 then please export the relevant details via your `~/.bashrc` file before running the Curio command.\
-
+    1.  If you entered non-default in step 3 then please export the relevant details via your `~/.bashrc` file before running the Curio command.<br>
 
         | Env Variable        | UseCase                   |
         | ------------------- | ------------------------- |
@@ -243,8 +232,7 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
         | CURIO\_DB\_PASSWORD | User’s password           |
         | CURIO\_DB\_PORT     | YugabyteDB’s SQL port     |
         | CURIO\_REPO\_PATH   | Curio’s default repo path |
-8.  Try running Curio with only `GUI` first.\
-
+8.  Try running Curio with only `GUI` first.<br>
 
     ```shell
     curio run --layers gui

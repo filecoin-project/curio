@@ -85,6 +85,7 @@ func (p *SectorReader) ReadPiece(ctx context.Context, sector storiface.SectorRef
 
 			upr, err := fr32.NewUnpadReaderBuf(r, readPaddedSize, buf)
 			if err != nil {
+				pool.Put(buf)
 				r.Close() // nolint
 				return nil, xerrors.Errorf("creating unpadded reader: %w", err)
 			}
@@ -92,6 +93,7 @@ func (p *SectorReader) ReadPiece(ctx context.Context, sector storiface.SectorRef
 			bir := bufio.NewReaderSize(upr, 127)
 			if startOffset > uint64(startOffsetAligned) {
 				if _, err := bir.Discard(startOffsetDiff); err != nil {
+					pool.Put(buf)
 					r.Close() // nolint
 					return nil, xerrors.Errorf("discarding bytes for startOffset: %w", err)
 				}

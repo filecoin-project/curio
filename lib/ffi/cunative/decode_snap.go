@@ -124,6 +124,8 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 			// Read replica
 			rn, err := io.ReadFull(replica, rbuf)
 			if err != nil && err != io.ErrUnexpectedEOF {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				if err == io.EOF {
 					return
 				}
@@ -134,11 +136,15 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 			// Read key
 			kn, err := io.ReadFull(key, kbuf[:rn])
 			if err != nil && err != io.ErrUnexpectedEOF {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				errChan <- err
 				return
 			}
 
 			if kn != rn {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				errChan <- io.ErrUnexpectedEOF
 				return
 			}

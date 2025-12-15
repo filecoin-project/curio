@@ -22,6 +22,7 @@ COMMANDS:
    fetch-params  Fetch proving parameters
    calc          Math Utils
    toolbox       Tool Box for Curio
+   batch         Manage batch sealing operations
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -1350,6 +1351,7 @@ COMMANDS:
    fix-msg                        Updated DB with message data missing from chain node
    register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
    downgrade                      Downgrade a cluster's daatabase to a previous software version.
+   fix-boost-migration            Fix Boost migration
    help, h                        Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1406,4 +1408,61 @@ DESCRIPTION:
 OPTIONS:
    --last_good_date value  YYYYMMDD when your cluster had the preferred schema. Ex: 20251128 (default: 0)
    --help, -h              show help
+```
+
+### curio toolbox fix-boost-migration
+```
+NAME:
+   curio toolbox fix-boost-migration - Fix Boost migration
+
+USAGE:
+   curio toolbox fix-boost-migration [command options]
+
+OPTIONS:
+   --check                                                  check how many entries need to be fixed (default: false)
+   --db-file value                                          location of boost.db file
+   --boostd-data-hosts value [ --boostd-data-hosts value ]  yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'
+   --boostd-data-username value                             yugabyte username to connect to over cassandra interface eg 'cassandra'
+   --boostd-data-password value                             yugabyte password to connect to over cassandra interface eg 'cassandra'
+   --help, -h                                               show help
+```
+
+## curio batch
+```
+NAME:
+   curio batch - Manage batch sealing operations
+
+USAGE:
+   curio batch [command options]
+
+COMMANDS:
+   setup    Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio batch setup
+```
+NAME:
+   curio batch setup - Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)
+
+USAGE:
+   curio batch setup [command options]
+
+DESCRIPTION:
+   Setup SPDK for batch sealing operations.
+
+   This command automatically:
+   - Downloads SPDK if not already available
+   - Configures 1GB hugepages (36 pages minimum)
+   - Binds NVMe devices for use with SupraSeal
+
+   Requires root/sudo access for SPDK setup operations.
+
+OPTIONS:
+   --hugepages value  Number of 1GB hugepages to configure (default: 36)
+   --min-pages value  Minimum number of hugepages required (default: 36)
+   --help, -h         show help
 ```

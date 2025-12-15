@@ -162,11 +162,11 @@ EnableWebGui = true
 
 The Curio GUI provides a user-friendly interface for managing configurations. To access this feature, navigate to the “Configurations” page from the UI menu. On this page, all available layers in the database are listed. Users can edit each layer by clicking on it.
 
-<figure><img src="../../zh/.gitbook/assets/config.png" alt="Configurations"><figcaption><p>Curio GUI configuration page</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/config.png" alt="Configurations"><figcaption><p>Curio GUI configuration page</p></figcaption></figure>
 
 To update a configuration field, users must first enable it by checking the corresponding box. After enabling, the field value can be populated. To comment out the field, simply uncheck the box.
 
-<figure><img src="../../zh/.gitbook/assets/config-edit.png" alt="Configuration edit"><figcaption><p>Curio GUI configuration editor</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/config-edit.png" alt="Configuration edit"><figcaption><p>Curio GUI configuration editor</p></figcaption></figure>
 
 ### Dynamic Configuration Updates
 

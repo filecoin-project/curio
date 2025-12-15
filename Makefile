@@ -12,6 +12,7 @@ $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
 CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+CGO_LDFLAGS_ALLOW ?= '.*'
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
@@ -132,13 +133,13 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
 pdptool: $(BUILD_DEPS)
 	rm -f pdptool
-	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
 .PHONY: pdptool
 BINS+=pdptool
 
@@ -267,7 +268,7 @@ docsgen-cli: curio sptool
 .PHONY: docsgen-cli
 
 go-generate:
-	$(GOCC) generate ./...
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) generate ./...
 .PHONY: go-generate
 
 gen: gensimple

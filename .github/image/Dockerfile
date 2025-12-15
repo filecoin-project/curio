@@ -1,6 +1,6 @@
 ## This image is used to github action runner for this repo
 # Use the official Golang image as the base image
-FROM golang:1.24-bullseye AS builder
+FROM golang:1.24-trixie AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -49,7 +49,8 @@ RUN apt-get update && apt-get install -y \
       mesa-opencl-icd \
       ocl-icd-opencl-dev \
       libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
-      libgmp-dev libconfig++-dev \
+      libgmp-dev libconfig++-dev gcc-12 g++-12 \
+      ca-certificates gnupg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
