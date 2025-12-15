@@ -4,6 +4,11 @@ description: 'Install common dependencies'
 runs:
   using: 'composite'
   steps:
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y curl ca-certificates gnupg ocl-icd-opencl-dev libhwloc-dev
+      shell: bash
+
     - name: Fetch all tags
       run: git fetch --all
       shell: bash
@@ -15,4 +20,3 @@ runs:
     - name: Update submodules
       run: git submodule update --init
       shell: bash
-
