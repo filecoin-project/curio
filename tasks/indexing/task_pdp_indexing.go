@@ -179,7 +179,7 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPIndexing",
+		Name: "PDPv0_Indexing",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: uint64(P.insertBatchSize * P.insertConcurrency * 56 * 2),
