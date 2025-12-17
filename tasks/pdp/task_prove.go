@@ -111,13 +111,13 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 				// Process the first data set
 				todo := dataSets[0]
 
-				// Insert a new task into pdp_prove_tasks
+				// Insert a new task into pdpv0_prove_tasks
 				affected, err := tx.Exec(`
-                    INSERT INTO pdp_prove_tasks (data_set, task_id)
+                    INSERT INTO pdpv0_prove_tasks (data_set, task_id)
                     VALUES ($1, $2) ON CONFLICT DO NOTHING
                 `, todo.ID, id)
 				if err != nil {
-					return false, xerrors.Errorf("failed to insert into pdp_prove_tasks: %w", err)
+					return false, xerrors.Errorf("failed to insert into pdpv0_prove_tasks: %w", err)
 				}
 				if affected == 0 {
 					return false, nil
@@ -189,7 +189,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	err = p.db.QueryRow(ctx, `
         SELECT data_set
-        FROM pdp_prove_tasks
+        FROM pdpv0_prove_tasks
         WHERE task_id = $1
     `, taskID).Scan(&dataSetId)
 	if err != nil {
