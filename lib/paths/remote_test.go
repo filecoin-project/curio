@@ -59,9 +59,7 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 func TestMoveShared(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
-	sharedITestID := harmonydb.ITestNewID()
-
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+	db, err := harmonydb.NewFromConfigWithTest(t)
 	require.NoError(t, err)
 
 	index := paths.NewDBIndex(nil, db)

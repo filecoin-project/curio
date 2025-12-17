@@ -266,7 +266,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 
 	var services []string
 
-	err = forEachConfig[minimalIpniInfo](a, func(name string, info minimalIpniInfo) error {
+	err = forEachConfig(a, func(name string, info minimalIpniInfo) error {
 		services = append(services, info.Market.StorageMarketConfig.IPNI.ServiceURL...)
 		return nil
 	})

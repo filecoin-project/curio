@@ -11,10 +11,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -23,7 +23,7 @@ import (
 )
 
 type SenderETH struct {
-	client *ethclient.Client
+	client api.EthClientInterface
 
 	sendTask *SendTaskETH
 
@@ -33,7 +33,7 @@ type SenderETH struct {
 type SendTaskETH struct {
 	sendTF promise.Promise[harmonytask.AddTaskFunc]
 
-	client *ethclient.Client
+	client api.EthClientInterface
 
 	db *harmonydb.DB
 }
@@ -251,7 +251,7 @@ var _ harmonytask.TaskInterface = &SendTaskETH{}
 var _ = harmonytask.Reg(&SendTaskETH{})
 
 // NewSenderETH creates a new SenderETH.
-func NewSenderETH(client *ethclient.Client, db *harmonydb.DB) (*SenderETH, *SendTaskETH) {
+func NewSenderETH(client api.EthClientInterface, db *harmonydb.DB) (*SenderETH, *SendTaskETH) {
 	st := &SendTaskETH{
 		client: client,
 		db:     db,
