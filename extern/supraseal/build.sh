@@ -308,7 +308,7 @@ $CXX $CXXFLAGS -o obj/ring_t.o -c nvme/ring_t.cpp &
 # Note: AVX512BF16 must be disabled because nvcc doesn't support GCC 12's BF16 intrinsics
 # We use both -mno-avx512bf16 AND -U__AVX512BF16__ to ensure the header isn't processed
 $NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK \
-      -Xcompiler -march=x86-64-v3 -Xcompiler -mtune=generic \
+      -Xcompiler $MARCH_FLAGS -Xcompiler -mtune=generic \
       -Xcompiler -mno-avx512bf16 -Xcompiler -U__AVX512BF16__ \
       -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -Wno-subobject-linkage -Xcompiler -Wno-unused-parameter \
       -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2.o &
