@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
@@ -22,9 +23,54 @@ var testSupraCmd = &cli.Command{
 	Name:  "supra",
 	Usage: translations.T("Supra consensus testing utilities"),
 	Subcommands: []*cli.Command{
+		testSupraSystemInfoCmd,
 		testSupraTreeRFileCmd,
 		testSnapEncodeCmd,
 	},
+}
+
+var testSupraSystemInfoCmd = &cli.Command{
+	Name:  "system-info",
+	Usage: "Display CPU and CUDA information relevant for supraseal",
+	Action: func(cctx *cli.Context) error {
+		logging.SetLogLevel("supraffi", "WARN")
+		features := supraffi.GetCPUFeatures()
+
+		fmt.Println("=== Supraseal System Information ===")
+		fmt.Println()
+
+		fmt.Println("CPU Features:")
+		fmt.Printf("  %s\n", supraffi.CPUFeaturesSummary())
+		fmt.Println()
+
+		fmt.Println("Feature Details:")
+		fmt.Printf("  SHA-NI (SHA Extensions):  %s\n", yesNo(features.HasSHAExt))
+		fmt.Printf("  SSE2:                     %s\n", yesNo(features.HasSSE2))
+		fmt.Printf("  SSSE3:                    %s\n", yesNo(features.HasSSSE3))
+		fmt.Printf("  SSE4.1:                   %s\n", yesNo(features.HasSSE4))
+		fmt.Printf("  AVX:                      %s\n", yesNo(features.HasAVX))
+		fmt.Printf("  AVX2:                     %s\n", yesNo(features.HasAVX2))
+		fmt.Printf("  AVX512 (AMD64v4):         %s\n", yesNo(features.HasAMD64v4))
+		fmt.Println()
+
+		fmt.Println("Supraseal Capability:")
+		fmt.Printf("  Can run PC1 (sha_ext_mbx2):  %s\n", yesNo(supraffi.CanRunSupraSealPC1()))
+		fmt.Printf("  Can run full Supraseal:      %s\n", yesNo(supraffi.CanRunSupraSeal()))
+		fmt.Printf("  Can run fast TreeR:          %s\n", yesNo(supraffi.HasAMD64v4() && supraffi.HasUsableCUDAGPU()))
+		fmt.Println()
+
+		fmt.Println("CUDA:")
+		fmt.Printf("  Usable CUDA GPU detected:    %s\n", yesNo(supraffi.HasUsableCUDAGPU()))
+
+		return nil
+	},
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 var testSupraTreeRFileCmd = &cli.Command{
