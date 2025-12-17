@@ -1529,4 +1529,19 @@ template void do_pc2_cleanup<sealing_config_1_32GB_t>(const char* output_dir);
 #endif
 #endif
 
+// Explicit template instantiations for file-based reader (tree_r_file support)
+// These are needed for single-sector tree-r generation from layer files
+template void pc2_hash_files<sealing_config_1_32GB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_32GB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_512MB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_512MB_t>&, size_t, size_t, size_t, const char**, const char*);
+#ifdef RUNTIME_SECTOR_SIZE
+template void pc2_hash_files<sealing_config_1_2KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_4KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_16KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_16KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_32KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_32KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_8MB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_8MB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_16MB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_16MB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_1GB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_1GB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_64GB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_64GB_t>&, size_t, size_t, size_t, const char**, const char*);
+#endif
+
 #endif // __CUDA_ARCH__
