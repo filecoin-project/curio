@@ -255,6 +255,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 		miners.Set(minersTmp)
 	}
+	forMiners()
 	maddrs.OnChange(forMiners)
 
 	{
