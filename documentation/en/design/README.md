@@ -10,11 +10,11 @@ description: >-
 
 The core internal components of Curio are HarmonyDB, HarmonyTask, ChainScheduler and a database abstraction of configuration & today’s storage definitions.
 
-<figure><img src="../.gitbook/assets/curio-node.png" alt="Curio Node"><figcaption><p>Curio nodes</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-node (1).png" alt="Curio Node"><figcaption><p>Curio nodes</p></figcaption></figure>
 
 A Curio cluster is a cluster of multiple Curio nodes connected to a YugabyteDB cluster and market nodes. A single Curio cluster can serve multiple miner ID and share the computation resources between them as required.
 
-<figure><img src="../.gitbook/assets/curio-cluster.png" alt="Curio cluster"><figcaption><p>Curio cluster</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-cluster (1).png" alt="Curio cluster"><figcaption><p>Curio cluster</p></figcaption></figure>
 
 ## HarmonyDB&#x20;
 
@@ -45,7 +45,7 @@ The HarmonyTask is pure (no task logic) distributed task manager.
 * Greedy Workers: Workers actively claim tasks they can handle.
 * Round Robin Assignment: After a Curio node claims a task, HarmonyDB attempts to distribute remaining work among other machines.
 
-<figure><img src="../.gitbook/assets/curio-tasks.png" alt="Curio Tasks"><figcaption><p>Harmony tasks</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-tasks (1).png" alt="Curio Tasks"><figcaption><p>Harmony tasks</p></figcaption></figure>
 
 ### Model&#x20;
 
@@ -113,6 +113,6 @@ To address these issues in Curio, we have implemented a GPU picker library calle
 2. **Subprocess Creation**: A new subprocess is spawned for each task, with the dedicated GPU allocated to it.
 3. **Proofs Library Call**: The subprocess calls the Proofs library with a single GPU and the specific task.
 
-<figure><img src="../.gitbook/assets/2024-06-04-040735_1470x522_scrot.png" alt=""><figcaption><p>Curio FFISelect in action</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/2024-06-04-040735_1470x522_scrot (1).png" alt=""><figcaption><p>Curio FFISelect in action</p></figcaption></figure>
 
 This approach ensures efficient and conflict-free GPU usage, with each task being handled by a dedicated GPU, thus resolving the historical issues observed with the `lotus-miner` scheduler.
