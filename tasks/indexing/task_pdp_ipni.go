@@ -13,8 +13,6 @@ import (
 
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
-
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
@@ -24,6 +22,8 @@ import (
 	"github.com/multiformats/go-varint"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
