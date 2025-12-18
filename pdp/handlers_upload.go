@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -68,14 +69,12 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugw("[handlePiecePost] -- piece stuff done", "pieceCidV2", pieceCidV2)
 
-	ctx := r.Context()
-
 	// Variables to hold information outside the transaction
 	var uploadUUID uuid.UUID
 	var uploadURL string
 	var responseStatus int
 
-	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err = p.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		dmh, err := multihash.Decode(pieceCidV1.Hash())
 		if err != nil {
 			return false, fmt.Errorf("failed to decode multihash: %w", err)
@@ -524,7 +523,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	didCommit, err := p.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		// 1. Create a long-term parked piece entry
 		var parkedPieceID int64
 		err := tx.QueryRow(`
@@ -679,7 +678,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		return
 	}
 
-	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := p.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`
        INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, piece_ref)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
