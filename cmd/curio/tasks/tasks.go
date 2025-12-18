@@ -301,26 +301,27 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			ethClient := must.One(dependencies.EthClient.Val())
 
+			// PDP v1
 			pdpv1.NewWatcherDataSetCreate(db, ethClient, chainSched)
 			pdpv1.NewWatcherPieceAdd(db, chainSched, ethClient)
 			pdpv1.NewWatcherDelete(db, chainSched)
 			pdpv1.NewWatcherPieceDelete(db, chainSched)
-
-			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
-			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
-			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-
 			addProofSetTask := pdpv1.NewPDPTaskAddDataSet(db, es, ethClient, full)
 			pdpAddRoot := pdpv1.NewPDPTaskAddPiece(db, es, ethClient)
-			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, ethClient)
 			pdpDelProofSetTask := pdpv1.NewPDPTaskDeleteDataSet(db, es, ethClient, full)
-
+			pdpProvev1Task := pdpv1.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
 			pdpAggregateTask := pdpv1.NewAggregatePDPDealTask(db, sc)
 			pdpCache := pdpv1.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
 			commPTask := pdpv1.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
 
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
+			// PDP v0
+			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader)
+			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpNotifTask := pdp.NewPDPNotifyTask(db)
+			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, ethClient)
+
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpProvev1Task, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)

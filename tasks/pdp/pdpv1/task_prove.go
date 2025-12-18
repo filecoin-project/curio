@@ -235,7 +235,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
 
-	fee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetID), gasFee)
+	fee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}

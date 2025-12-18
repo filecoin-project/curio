@@ -223,8 +223,8 @@ require (
 	github.com/ipfs/go-blockservice v0.5.2 // indirect
 	github.com/ipfs/go-ds-leveldb v0.5.2 // indirect
 	github.com/ipfs/go-ds-measure v0.2.2 // indirect
+	github.com/ipfs/go-dsqueue v0.0.5 // indirect
 	github.com/ipfs/go-ipfs-blockstore v1.3.1 // indirect
-	github.com/ipfs/go-ipfs-delay v0.0.1 // indirect
 	github.com/ipfs/go-ipfs-ds-help v1.1.1 // indirect
 	github.com/ipfs/go-ipfs-exchange-interface v0.2.1 // indirect
 	github.com/ipfs/go-ipfs-pq v0.0.3 // indirect
@@ -386,16 +386,3 @@ require (
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
 
 replace github.com/KarpelesLab/reflink => github.com/magik6k/reflink v1.0.2-patch1
-
-// TODO: Remove this once lotus upgrades to support go-libp2p v0.44.0+
-// go-libp2p v0.44.0 upgraded go-libp2p-pubsub to v0.15.0 which changed the NewRemoteTracer API
-// to require *slog.Logger parameter. lotus v1.34.1 doesn't provide this parameter yet.
-replace github.com/libp2p/go-libp2p v0.44.0 => github.com/libp2p/go-libp2p v0.43.0
-
-// TODO: Remove this once lotus upgrades to support go-libp2p-pubsub v0.15.0+
-// go-libp2p-pubsub v0.15.0 changed NewRemoteTracer to require *slog.Logger. Downgrade to v0.12.0.
-replace github.com/libp2p/go-libp2p-pubsub v0.15.0 => github.com/libp2p/go-libp2p-pubsub v0.12.0
-
-// TODO: Remove this once lotus upgrades to support boxo v0.34.0+
-// boxo v0.34.0+ removed the HashOnRead() method that lotus v1.34.1 still requires.
-replace github.com/ipfs/boxo v0.35.0 => github.com/ipfs/boxo v0.33.1
