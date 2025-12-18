@@ -1,4 +1,4 @@
-CREATE TABLE sectors_pipeline_events
+CREATE TABLE IF NOT EXISTS sectors_pipeline_events
 (
     sp_id            BIGINT   NOT NULL,
     sector_number    BIGINT   NOT NULL,

@@ -1,2 +1,1 @@
-ALTER TABLE sectors_meta_pieces
-    ADD COLUMN f05_deal_proposal jsonb;
+ALTER TABLE sectors_meta_pieces ADD COLUMN IF NOT EXISTS f05_deal_proposal jsonb;

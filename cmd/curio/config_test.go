@@ -572,18 +572,19 @@ func TestConfig(t *testing.T) {
 	_, err := deps.LoadConfigWithUpgrades(baseText, baseCfg)
 	require.NoError(t, err)
 
-	baseCfg.Addresses = append(baseCfg.Addresses, addr1)
-	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
+	addrs := []config.CurioAddresses{addr1}
+	addrs = lo.Filter(addrs, func(a config.CurioAddresses, _ int) bool {
 		return len(a.MinerAddresses) > 0
 	})
 
+	baseCfg.Addresses.Set(addrs)
 	_, err = config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
 
-	baseCfg.Addresses = append(baseCfg.Addresses, addr2)
-	baseCfg.Addresses = lo.Filter(baseCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
+	baseCfg.Addresses.Set(append(baseCfg.Addresses.Get(), addr2))
+	baseCfg.Addresses.Set(lo.Filter(baseCfg.Addresses.Get(), func(a config.CurioAddresses, _ int) bool {
 		return len(a.MinerAddresses) > 0
-	})
+	}))
 
 	_, err = config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)

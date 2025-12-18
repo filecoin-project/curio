@@ -15,7 +15,7 @@ import (
 	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
-	"github.com/ipld/go-ipld-prime"
+	ipld "github.com/ipld/go-ipld-prime"
 	"github.com/snadrus/must"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -224,18 +224,7 @@ func metricsMiddleware(next http.Handler) http.Handler {
 			remoteblockstore.HttpResponseBytesCount.M(wrapper.bytesWritten),
 		)
 
-		// Temporarily info logging the request details, this can be switched to debug later
-		log.Infow(
-			"HTTP request",
-			"remoteAddr", r.RemoteAddr,
-			"method", r.Method,
-			"path", r.URL.Path,
-			"pathPrefix", pathPrefix,
-			"query", r.URL.RawQuery,
-			"headers", r.Header,
-			"status", wrapper.statusCode,
-			"bytes", wrapper.bytesWritten,
-		)
+		log.Debugw("HTTP request", "method", r.Method, "path", r.URL.Path, "pathPrefix", pathPrefix, "status", wrapper.statusCode, "bytes", wrapper.bytesWritten)
 	})
 }
 

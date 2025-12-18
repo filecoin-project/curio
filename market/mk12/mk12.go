@@ -488,8 +488,8 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	tInfo := &HttpRequest{}
 
 	if !deal.IsOffline {
-		// Reject incorrect sized online deals except verified deal less than 1 MiB because verified deals can be 1 MiB minimum even if rawSize is much lower
-		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() && (!deal.ClientDealProposal.Proposal.VerifiedDeal || deal.ClientDealProposal.Proposal.PieceSize > abi.PaddedPieceSize(1<<20)) {
+		// Reject incorrect sized online deals
+		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() {
 			return &ProviderDealRejectionInfo{
 				Reason: fmt.Sprintf("deal proposal piece size %d doesn't match padded piece size %d", deal.ClientDealProposal.Proposal.PieceSize, padreader.PaddedSize(deal.Transfer.Size).Padded()),
 			}, nil
@@ -539,12 +539,12 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 
 		// Store the deal
 		n, err := tx.Exec(`INSERT INTO market_mk12_deals (uuid, signed_proposal_cid, 
-                                proposal_signature, proposal, proposal_cid, piece_cid, 
+                                proposal_signature, proposal, proposal_cid, piece_cid, raw_size, 
                                 piece_size, offline, verified, sp_id, start_epoch, end_epoch, 
                                 client_peer_id, fast_retrieval, announce_to_ipni, url, url_headers, label) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 				ON CONFLICT (uuid) DO NOTHING`,
-			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, propCid, prop.PieceCID.String(),
+			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, propCid, prop.PieceCID.String(), deal.Transfer.Size,
 			prop.PieceSize, deal.IsOffline, prop.VerifiedDeal, mid, prop.StartEpoch, prop.EndEpoch, deal.ClientPeerID.String(),
 			deal.FastRetrieval, deal.AnnounceToIPNI, tInfo.URL, headers, b.Bytes())
 
@@ -560,7 +560,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		if !deal.IsOffline {
 			var pieceID int64
 			// Attempt to select the piece ID first
-			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1`, prop.PieceCID.String()).Scan(&pieceID)
+			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, prop.PieceCID.String(), prop.PieceSize).Scan(&pieceID)
 
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -703,18 +703,18 @@ FROM joined
 		return false, xerrors.Errorf("failed to query market pipeline backpressure stats: %w", err)
 	}
 
-	if cfg.MaxMarketRunningPipelines != 0 && runningPipelines > int64(cfg.MaxMarketRunningPipelines) {
-		log.Infow("backpressure", "reason", "too many running market pipelines", "running_pipelines", runningPipelines, "max", cfg.MaxMarketRunningPipelines)
+	if cfg.MaxMarketRunningPipelines.Get() != 0 && runningPipelines > int64(cfg.MaxMarketRunningPipelines.Get()) {
+		log.Infow("backpressure", "reason", "too many running market pipelines", "running_pipelines", runningPipelines, "max", cfg.MaxMarketRunningPipelines.Get())
 		return true, nil
 	}
 
-	if cfg.MaxQueueDownload != 0 && downloadingPending > int64(cfg.MaxQueueDownload) {
-		log.Infow("backpressure", "reason", "too many pending downloads", "pending_downloads", downloadingPending, "max", cfg.MaxQueueDownload)
+	if cfg.MaxQueueDownload.Get() != 0 && downloadingPending > int64(cfg.MaxQueueDownload.Get()) {
+		log.Infow("backpressure", "reason", "too many pending downloads", "pending_downloads", downloadingPending, "max", cfg.MaxQueueDownload.Get())
 		return true, nil
 	}
 
-	if cfg.MaxQueueCommP != 0 && verifyPending > int64(cfg.MaxQueueCommP) {
-		log.Infow("backpressure", "reason", "too many pending CommP tasks", "pending_commp", verifyPending, "max", cfg.MaxQueueCommP)
+	if cfg.MaxQueueCommP.Get() != 0 && verifyPending > int64(cfg.MaxQueueCommP.Get()) {
+		log.Infow("backpressure", "reason", "too many pending CommP tasks", "pending_commp", verifyPending, "max", cfg.MaxQueueCommP.Get())
 		return true, nil
 	}
 
@@ -750,18 +750,18 @@ FROM joined
 			return false, xerrors.Errorf("counting buffered sectors: %w", err)
 		}
 
-		if cfg.MaxQueueDealSector != 0 && waitDealSectors > cfg.MaxQueueDealSector {
-			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+		if cfg.MaxQueueDealSector.Get() != 0 && waitDealSectors > cfg.MaxQueueDealSector.Get() {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector.Get())
 			return true, nil
 		}
 
-		if cfg.MaxQueueSnapEncode != 0 && bufferedEncode > cfg.MaxQueueSnapEncode {
-			log.Infow("backpressure", "reason", "too many encode tasks", "buffered", bufferedEncode, "max", cfg.MaxQueueSnapEncode)
+		if cfg.MaxQueueSnapEncode.Get() != 0 && bufferedEncode > cfg.MaxQueueSnapEncode.Get() {
+			log.Infow("backpressure", "reason", "too many encode tasks", "buffered", bufferedEncode, "max", cfg.MaxQueueSnapEncode.Get())
 			return true, nil
 		}
 
-		if cfg.MaxQueueSnapProve != 0 && bufferedProve > cfg.MaxQueueSnapProve {
-			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve)
+		if cfg.MaxQueueSnapProve.Get() != 0 && bufferedProve > cfg.MaxQueueSnapProve.Get() {
+			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve.Get())
 			return true, nil
 		}
 	} else {
@@ -802,21 +802,21 @@ FROM joined
 			return false, xerrors.Errorf("counting buffered sectors: %w", err)
 		}
 
-		if cfg.MaxQueueDealSector != 0 && waitDealSectors > cfg.MaxQueueDealSector {
-			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+		if cfg.MaxQueueDealSector.Get() != 0 && waitDealSectors > cfg.MaxQueueDealSector.Get() {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector.Get())
 			return true, nil
 		}
 
-		if bufferedSDR > cfg.MaxQueueSDR {
-			log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR)
+		if bufferedSDR > cfg.MaxQueueSDR.Get() {
+			log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR.Get())
 			return true, nil
 		}
-		if cfg.MaxQueueTrees != 0 && bufferedTrees > cfg.MaxQueueTrees {
-			log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees)
+		if cfg.MaxQueueTrees.Get() != 0 && bufferedTrees > cfg.MaxQueueTrees.Get() {
+			log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees.Get())
 			return true, nil
 		}
-		if cfg.MaxQueuePoRep != 0 && bufferedPoRep > cfg.MaxQueuePoRep {
-			log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep)
+		if cfg.MaxQueuePoRep.Get() != 0 && bufferedPoRep > cfg.MaxQueuePoRep.Get() {
+			log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep.Get())
 			return true, nil
 		}
 	}

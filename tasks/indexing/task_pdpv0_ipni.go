@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -40,15 +41,15 @@ const (
 	PDP_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
 )
 
-type PDPIPNITask struct {
+type PDPv0IPNITask struct {
 	db  *harmonydb.DB
 	cpr *cachedreader.CachedPieceReader
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
 }
 
-func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIPNITask {
-	return &PDPIPNITask{
+func NewPDPv0IPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPv0IPNITask {
+	return &PDPv0IPNITask{
 		db:  db,
 		cpr: cpr,
 		cfg: cfg,
@@ -56,7 +57,7 @@ func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.Cache
 	}
 }
 
-func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (P *PDPv0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	var tasks []struct {
@@ -113,7 +114,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return false, xerrors.Errorf("marshaling metadata: %w", err)
 	}
 
-	pi := &PdpIpniContext{
+	pi := &types.PdpIpniContext{
 		PieceCID: pcid,
 		Payload:  true,
 	}
@@ -123,7 +124,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return false, xerrors.Errorf("marshaling piece info: %w", err)
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid)
+	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -160,7 +161,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return false, nil
 	}
 
-	lnk, err := chk.Finish(ctx, P.db, pcid)
+	lnk, err := chk.Finish(ctx, P.db, pcid, true)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
@@ -273,7 +274,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	return true, nil
 }
 
-func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
+func (P *PDPv0IPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
 		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL
@@ -296,11 +297,11 @@ func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.T
 	return nil
 }
 
-func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (P *PDPv0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
 }
 
-func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
+func (P *PDPv0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPIpni",
 		Cost: resources.Resources{
@@ -315,7 +316,7 @@ func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (P *PDPv0IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
 	var stop bool
 	for !stop {
@@ -361,7 +362,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 	return nil
 }
 
-func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (P *PDPv0IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 // The ipni provider key for pdp is at PDP_SP_ID
 func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
@@ -407,47 +408,3 @@ func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
 
 var _ harmonytask.TaskInterface = &PDPIPNITask{}
 var _ = harmonytask.Reg(&PDPIPNITask{})
-
-// PdpIpniContext is used to generate the context bytes for PDP IPNI ads
-type PdpIpniContext struct {
-	// PieceCID is piece CID V2
-	PieceCID cid.Cid
-
-	// Payload determines if the IPNI ad is TransportFilecoinPieceHttp or TransportIpfsGatewayHttp
-	Payload bool
-}
-
-// Marshal encodes the PdpIpniContext into a byte slice containing a single byte for Payload and the byte representation of PieceCID.
-func (p *PdpIpniContext) Marshal() ([]byte, error) {
-	pBytes := p.PieceCID.Bytes()
-	if len(pBytes) > 63 {
-		return nil, xerrors.Errorf("piece CID byte length exceeds 63")
-	}
-	payloadByte := make([]byte, 1)
-	if p.Payload {
-		payloadByte[0] = 1
-	} else {
-		payloadByte[0] = 0
-	}
-	return append(payloadByte, pBytes...), nil
-}
-
-// Unmarshal decodes the provided byte slice into the PdpIpniContext struct, validating its length and extracting the PieceCID and Payload values.
-func (p *PdpIpniContext) Unmarshal(b []byte) error {
-	if len(b) > 64 {
-		return xerrors.Errorf("byte length exceeds 64")
-	}
-	if len(b) < 2 {
-		return xerrors.Errorf("byte length is less than 2")
-	}
-	payload := b[0] == 1
-	pcid, err := cid.Cast(b[1:])
-	if err != nil {
-		return err
-	}
-
-	p.PieceCID = pcid
-	p.Payload = payload
-
-	return nil
-}

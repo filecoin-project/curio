@@ -47,7 +47,7 @@ type PieceIngesterSnap struct {
 	addToID              map[address.Address]int64
 	idToAddr             map[abi.ActorID]address.Address
 	minerDetails         map[int64]*mdetails
-	maxWaitTime          time.Duration
+	maxWaitTime          *config.Dynamic[time.Duration]
 	expectedSnapDuration abi.ChainEpoch
 }
 
@@ -146,7 +146,7 @@ func (p *PieceIngesterSnap) Seal() error {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
 		}
-		if time.Since(*sector.openedAt) > p.maxWaitTime {
+		if time.Since(*sector.openedAt) > p.maxWaitTime.Get() {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
@@ -209,6 +209,11 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		psize = piece.PieceActivationManifest.Size
 	} else {
 		psize = piece.DealProposal.PieceSize
+	}
+
+	// check raw size
+	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() {
+		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
 	var propJson []byte
@@ -298,11 +303,6 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
-	}
-
-	// Reject incorrect sized online deals except verified deal less than 1 MiB because verified deals can be 1 MiB minimum even if rawSize is much lower
-	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() && (!vd.isVerified || psize > abi.PaddedPieceSize(1<<20)) {
-		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
 	// Try to allocate the piece to an open sector
@@ -600,8 +600,8 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 	}
 
 	getOpenedAt := func(piece pieceDetails, cur *time.Time) *time.Time {
-		if piece.CreatedAt.Before(*cur) {
-			return piece.CreatedAt
+		if piece.CreatedAt.Time.Before(*cur) {
+			return &piece.CreatedAt.Time
 		}
 		return cur
 	}
@@ -617,7 +617,7 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
-				openedAt:           pi.CreatedAt,
+				openedAt:           &pi.CreatedAt.Time,
 				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
 				pieces: []pieceInfo{
 					{

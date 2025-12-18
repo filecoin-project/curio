@@ -8,11 +8,10 @@ Migrating from Boost to Curio involves transitioning all deal data, including Bo
 
 ## Build the `migrate-curio` CLI Tool
 
-* First, you need to build the `migrate-curio` tool, which is part of the Boost code base. This tool will handle the migration of deals.
-*   Run the following command to build the tool.\\
+* First, you need to build the `migrate-curio` tool, which is part of the Boost code base. This tool will handle the migration of deals. <mark style="color:red;">You must be running Boost version v2.4.7 or later.</mark>
+*   Run the following command to build the tool.
 
     ```bash
-    git checkout feat/curio-migration
     make migrate-curio
     ```
 
@@ -25,6 +24,7 @@ Please read the [Curio market documentation](storage-market.md) carefully before
 * Ensure that both Boost and Curio setups are ready for the migration. **Boost must be shutdown and no deal should be in process**. You will need the following details:
   * Path to the Boost repository (default is `~/.boost`)
   * Backup your Boost repository
+  * `boostd-data` service must be up and running as migration needs to get some data from it if required.
   * Database credentials for Curio’s HarmonyDB (host, username, password, port)
 
 ## Run the Migration Tool

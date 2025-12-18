@@ -1,10 +1,8 @@
 -- Proofshare payment statistics upgrade
 
 -- 1. Add timestamps to proofshare_client_payments table
-ALTER TABLE proofshare_client_payments
-    ADD COLUMN created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp;
-ALTER TABLE proofshare_client_payments
-    ADD COLUMN consumed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE proofshare_client_payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp;
+ALTER TABLE proofshare_client_payments ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMP WITH TIME ZONE;
 
 -- 2. Create index on created_at
 CREATE INDEX IF NOT EXISTS idx_proofshare_client_payments_created_at ON proofshare_client_payments (created_at ASC);
@@ -40,7 +38,14 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS tr_set_consumed_at_ps_client_payments ON proofshare_client_payments;
-CREATE TRIGGER tr_set_consumed_at_ps_client_payments
-BEFORE INSERT OR UPDATE ON proofshare_client_payments
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'tr_set_consumed_at_ps_client_payments'
+    ) THEN
+        CREATE TRIGGER tr_set_consumed_at_ps_client_payments BEFORE INSERT OR UPDATE ON proofshare_client_payments
 FOR EACH ROW
 EXECUTE FUNCTION trg_set_consumed_at_ps_client_payments();
+    END IF;
+END $$;

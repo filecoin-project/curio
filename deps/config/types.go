@@ -38,14 +38,14 @@ func DefaultCurioConfig() *CurioConfig {
 			DisableCollateralFallback:  false,
 			MaximizeFeeCap:             true,
 		},
-		Addresses: []CurioAddresses{{
+		Addresses: NewDynamic([]CurioAddresses{{
 			PreCommitControl:   []string{},
 			CommitControl:      []string{},
 			DealPublishControl: []string{},
 			TerminateControl:   []string{},
 			MinerAddresses:     []string{},
 			BalanceManager:     DefaultBalanceManager(),
-		}},
+		}}),
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
 			PartitionCheckTimeout: 20 * time.Minute,
@@ -57,19 +57,19 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealSectorSize: "32GiB",
 		},
 		Ingest: CurioIngestConfig{
-			MaxMarketRunningPipelines: 64,
-			MaxQueueDownload:          8,
-			MaxQueueCommP:             8,
+			MaxMarketRunningPipelines: NewDynamic(64),
+			MaxQueueDownload:          NewDynamic(8),
+			MaxQueueCommP:             NewDynamic(8),
 
-			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
-			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
-			MaxQueueTrees:      0, // default don't use this limit
-			MaxQueuePoRep:      0, // default don't use this limit
+			MaxQueueDealSector: NewDynamic(8), // default to 8 sectors open(or in process of opening) for deals
+			MaxQueueSDR:        NewDynamic(8), // default to 8 (will cause backpressure even if deal sectors are 0)
+			MaxQueueTrees:      NewDynamic(0), // default don't use this limit
+			MaxQueuePoRep:      NewDynamic(0), // default don't use this limit
 
-			MaxQueueSnapEncode: 16,
-			MaxQueueSnapProve:  0,
+			MaxQueueSnapEncode: NewDynamic(16),
+			MaxQueueSnapProve:  NewDynamic(0),
 
-			MaxDealWaitTime: time.Hour,
+			MaxDealWaitTime: NewDynamic(time.Hour),
 		},
 		Alerting: CurioAlertingConfig{
 			MinimumWalletBalance: types.MustParseFIL("5"),
@@ -112,9 +112,16 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  2 * time.Hour,
 					CIDGravityTokens:          []string{},
 				},
+				MK20: MK20Config{
+					ExpectedPoRepSealDuration: 8 * time.Hour,
+					ExpectedSnapSealDuration:  2 * time.Hour,
+					MaxParallelChunkUploads:   512,
+					MinimumChunkSize:          16 * 1024 * 1024,  // 16 MiB
+					MaximumChunkSize:          256 * 1024 * 1024, // 256 MiB
+				},
 				IPNI: IPNIConfig{
-					ServiceURL:         []string{"https://cid.contact", "https://filecoinpin.contact"},
-					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"},
+					ServiceURL:         []string{"https://cid.contact"},
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
 				},
 			},
 		},
@@ -124,7 +131,7 @@ func DefaultCurioConfig() *CurioConfig {
 			ReadTimeout:       time.Minute * 30,
 			IdleTimeout:       time.Minute * 2,
 			ReadHeaderTimeout: time.Second * 5,
-			EnableCORS:        true,
+			CORSOrigins:       []string{},
 			CSP:               "inline",
 			CompressionLevels: CompressionConfig{
 				GzipLevel:    6,
@@ -155,7 +162,7 @@ type CurioConfig struct {
 	Fees CurioFees
 
 	// Addresses specifies the list of miner addresses and their related wallet addresses.
-	Addresses []CurioAddresses
+	Addresses *Dynamic[[]CurioAddresses]
 
 	// Proving defines the configuration settings related to proving functionality within the Curio node.
 	Proving CurioProvingConfig
@@ -387,9 +394,6 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine. (Default: 8)
 	IndexingMaxTasks int
 
-	// EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)
-	EnableBalanceManager bool
-
 	// BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
 	// for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 	// enabling this option. (Default: false)
@@ -513,26 +517,27 @@ type CurioIngestConfig struct {
 	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
 	// If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
 	// 0 means unlimited. (Default: 64)
-	MaxMarketRunningPipelines int
+	MaxMarketRunningPipelines *Dynamic[int]
 
 	// MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
 	// waiting for a machine to pick up their task (owner_id is null).
 	// If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
 	// 0 means unlimited. (Default: 8)
-	MaxQueueDownload int
+	MaxQueueDownload *Dynamic[int]
 
 	// MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
 	// waiting for a machine to pick up their verification task (owner_id is null).
 	// If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
 	// 0 means unlimited. (Default: 8)
-	MaxQueueCommP int
+	MaxQueueCommP *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for deals to start processing.
 	// 0 = unlimited
 	// Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 	// The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
 	// DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
-	MaxQueueDealSector int
+	// Updates will affect running instances.
+	MaxQueueDealSector *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for SDR to start processing.
 	// 0 = unlimited
@@ -541,7 +546,8 @@ type CurioIngestConfig struct {
 	// possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 	// entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
-	MaxQueueSDR int
+	// Updates will affect running instances.
+	MaxQueueSDR *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for SDRTrees to start processing.
 	// 0 = unlimited
@@ -549,7 +555,8 @@ type CurioIngestConfig struct {
 	// In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 	// applied to sectors entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-	MaxQueueTrees int
+	// Updates will affect running instances.
+	MaxQueueTrees *Dynamic[int]
 
 	// Maximum number of sectors that can be queued waiting for PoRep to start processing.
 	// 0 = unlimited
@@ -557,23 +564,27 @@ type CurioIngestConfig struct {
 	// Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 	// applied to sectors entering the pipeline.
 	// Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
-	MaxQueuePoRep int
+	// Updates will affect running instances.
+	MaxQueuePoRep *Dynamic[int]
 
 	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 	// 0 means unlimited.
 	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 	// Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
-	MaxQueueSnapEncode int
+	// Updates will affect running instances.
+	MaxQueueSnapEncode *Dynamic[int]
 
 	// MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 	// 0 means unlimited.
 	// This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
-	MaxQueueSnapProve int
+	// Updates will affect running instances.
+	MaxQueueSnapProve *Dynamic[int]
 
 	// Maximum time an open deal sector should wait for more deals before it starts sealing.
 	// This ensures that sectors don't remain open indefinitely, consuming resources.
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	MaxDealWaitTime time.Duration
+	// Updates will affect running instances.
+	MaxDealWaitTime *Dynamic[time.Duration]
 
 	// DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
 	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
@@ -727,6 +738,9 @@ type StorageMarketConfig struct {
 	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
 	MK12 MK12Config
 
+	// MK20 encompasses all configuration related to deal protocol mk2.0 i.e. market 2.0
+	MK20 MK20Config
+
 	// IPNI configuration for ipni-provider
 	IPNI IPNIConfig
 
@@ -817,7 +831,6 @@ type IPNIConfig struct {
 	Disable bool
 
 	// The network indexer web UI URL for viewing published announcements
-	// TODO: should we use this for checking published heads before publishing? Later commit
 	ServiceURL []string
 
 	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
@@ -853,8 +866,11 @@ type HTTPConfig struct {
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
 	ReadHeaderTimeout time.Duration
 
-	// EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
-	EnableCORS bool
+	// CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
+	// If not empty, only the specified origins will be allowed for CORS requests.
+	// This is required for third-party UI servers.
+	// "*" allows everyone, it's best to specify the UI servers' hostname.
+	CORSOrigins []string
 
 	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
 	// Valid values: "off", "self", "inline" (Default: "inline")
@@ -906,4 +922,42 @@ type MK12CollateralConfig struct {
 	// when it drops below CollateralLowThreshold.
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")
 	CollateralHighThreshold types.FIL
+}
+
+type MK20Config struct {
+	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")
+	ExpectedPoRepSealDuration time.Duration
+
+	// ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")
+	ExpectedSnapSealDuration time.Duration
+
+	// SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
+	// sector will need to be sent again (Default: false)
+	SkipCommP bool
+
+	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
+	DisabledMiners []string
+
+	// MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+	// When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+	// (Default: 0 = unlimited)
+	MaxConcurrentDealSizeGiB int64
+
+	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+	// If True then all deals coming from unknown clients will be rejected. (Default: false)
+	DenyUnknownClients bool
+
+	// MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)
+	MaxParallelChunkUploads int
+
+	// MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)
+	MinimumChunkSize int64
+
+	// MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)
+	MaximumChunkSize int64
 }

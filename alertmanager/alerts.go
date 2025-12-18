@@ -3,7 +3,6 @@ package alertmanager
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"math"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/dustin/go-humanize"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -346,7 +346,7 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 		cfg := config.DefaultCurioConfig()
 		err := al.db.QueryRow(al.ctx, `SELECT config FROM harmony_config WHERE title=$1`, layer).Scan(&text)
 		if err != nil {
-			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+			if strings.Contains(err.Error(), pgx.ErrNoRows.Error()) {
 				return nil, nil, xerrors.Errorf("missing layer '%s' ", layer)
 			}
 			return nil, nil, xerrors.Errorf("could not read layer '%s': %w", layer, err)
@@ -357,16 +357,17 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			return nil, nil, err
 		}
 
-		_, err = toml.Decode(text, cfg)
+		_, err = config.TransparentDecode(text, cfg)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
-		for i := range cfg.Addresses {
-			prec := cfg.Addresses[i].PreCommitControl
-			com := cfg.Addresses[i].CommitControl
-			term := cfg.Addresses[i].TerminateControl
-			miners := cfg.Addresses[i].MinerAddresses
+		addrs := cfg.Addresses.Get()
+		for i := range addrs {
+			prec := addrs[i].PreCommitControl
+			com := addrs[i].CommitControl
+			term := addrs[i].TerminateControl
+			miners := addrs[i].MinerAddresses
 			for j := range prec {
 				if prec[j] != "" {
 					addrMap[prec[j]] = struct{}{}
@@ -443,7 +444,12 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	h := head
+	// Start from the newest finalized tipset.
+	h, err := al.api.ChainGetTipSet(al.ctx, head.Parents())
+	if err != nil {
+		al.alertMap[Name].err = err
+		return
+	}
 
 	// Map[Miner Address]Map[DeadlineIdx][]Partitions
 	msgCheck := make(map[address.Address]map[uint64][]bool)
@@ -731,7 +737,7 @@ func missingSectorCheck(al *alerts) {
 		SectorID int64 `db:"sector_num"`
 	}
 
-	err := al.db.Select(al.ctx, &sectors, `SELECT miner_id, sector_num  FROM sector_location WHERE sector_filetype = 2 GROUP BY miner_id, sector_num ORDER BY miner_id, sector_num`)
+	err := al.db.Select(al.ctx, &sectors, `SELECT miner_id, sector_num  FROM sector_location WHERE sector_filetype = ANY(ARRAY[2,8]) GROUP BY miner_id, sector_num ORDER BY miner_id, sector_num`)
 	if err != nil {
 		al.alertMap[Name].err = xerrors.Errorf("getting sealed sectors from database: %w", err)
 		return

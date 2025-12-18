@@ -103,7 +103,7 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			return nil, xerrors.Errorf("copy toProve: %w", err)
 		}
 
-		xsinfos, err := t.sectorsForProof(ctx, maddr, good, partition.AllSectors, ts)
+		xsinfos, err := t.SectorsForProof(ctx, maddr, good, partition.AllSectors, ts)
 		if err != nil {
 			return nil, xerrors.Errorf("getting sorted sector info: %w", err)
 		}
@@ -313,7 +313,7 @@ func checkSectors(ctx context.Context, api CheckSectorsAPI, ft FaultTracker,
 	return sbf, nil
 }
 
-func (t *WdPostTask) sectorsForProof(ctx context.Context, maddr address.Address, goodSectors, allSectors bitfield.BitField, ts *types.TipSet) ([]proof7.ExtendedSectorInfo, error) {
+func (t *WdPostTask) SectorsForProof(ctx context.Context, maddr address.Address, goodSectors, allSectors bitfield.BitField, ts *types.TipSet) ([]proof7.ExtendedSectorInfo, error) {
 	sset, err := t.api.StateMinerSectors(ctx, maddr, &goodSectors, ts.Key())
 	if err != nil {
 		return nil, err

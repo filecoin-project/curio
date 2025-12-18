@@ -1,4 +1,4 @@
-create table wdpost_partition_tasks
+create table if not exists wdpost_partition_tasks
 (
     task_id              bigint not null
         constraint wdpost_partition_tasks_pk
@@ -17,7 +17,7 @@ comment on column wdpost_partition_tasks.proving_period_start is 'proving period
 comment on column wdpost_partition_tasks.deadline_index is 'deadline index within the proving period';
 comment on column wdpost_partition_tasks.partition_index is 'partition index within the deadline';
 
-create table wdpost_proofs
+create table if not exists wdpost_proofs
 (
     sp_id                bigint not null,
     proving_period_start bigint not null,
@@ -34,7 +34,7 @@ create table wdpost_proofs
         unique (sp_id, proving_period_start, deadline, partition)
 );
 
-create table wdpost_recovery_tasks
+create table if not exists wdpost_recovery_tasks
 (
     task_id              bigint not null
         constraint wdpost_recovery_tasks_pk

@@ -36,13 +36,20 @@ var defaultMillisecondsDistribution = view.Distribution(
 
 var (
 	RetrievalInfo = stats.Int64("retrieval_info", "Arbitrary counter to tag node info to", stats.UnitDimensionless)
-	// piece
+	// piece (including PDP and sub pieces)
 	HttpPieceByCidRequestCount     = stats.Int64("http/piece_by_cid_request_count", "Counter of /piece/<piece-cid> requests", stats.UnitDimensionless)
 	HttpPieceByCidRequestDuration  = stats.Float64("http/piece_by_cid_request_duration_ms", "Time spent retrieving a piece by cid", stats.UnitMilliseconds)
 	HttpPieceByCid200ResponseCount = stats.Int64("http/piece_by_cid_200_response_count", "Counter of /piece/<piece-cid> 200 responses", stats.UnitDimensionless)
 	HttpPieceByCid400ResponseCount = stats.Int64("http/piece_by_cid_400_response_count", "Counter of /piece/<piece-cid> 400 responses", stats.UnitDimensionless)
 	HttpPieceByCid404ResponseCount = stats.Int64("http/piece_by_cid_404_response_count", "Counter of /piece/<piece-cid> 404 responses", stats.UnitDimensionless)
 	HttpPieceByCid500ResponseCount = stats.Int64("http/piece_by_cid_500_response_count", "Counter of /piece/<piece-cid> 500 responses", stats.UnitDimensionless)
+
+	// pdp
+	PDPPieceByCidRequestCount     = stats.Int64("pdp/piece_by_cid_request_count", "Counter of /piece/<piece-cid> requests for PDP", stats.UnitDimensionless)
+	PDPPieceByCidRequestDuration  = stats.Float64("pdp/piece_by_cid_request_duration_ms", "Time spent retrieving a piece by cid for PDP", stats.UnitMilliseconds)
+	PDPPieceByCid200ResponseCount = stats.Int64("pdp/piece_by_cid_200_response_count", "Counter of /piece/<piece-cid> 200 responses for PDP", stats.UnitDimensionless)
+	PDPPieceBytesServedCount      = stats.Int64("pdp/piece_bytes_served_count", "Counter of the number of bytes served by PDP since startup", stats.UnitBytes)
+
 	// Gateway
 	HttpRblsGetRequestCount             = stats.Int64("http/rbls_get_request_count", "Counter of RemoteBlockstore Get requests", stats.UnitDimensionless)
 	HttpRblsGetSuccessResponseCount     = stats.Int64("http/rbls_get_success_response_count", "Counter of successful RemoteBlockstore Get responses", stats.UnitDimensionless)
@@ -87,6 +94,26 @@ var (
 	}
 	HttpPieceByCid500ResponseCountView = &view.View{
 		Measure:     HttpPieceByCid500ResponseCount,
+		Aggregation: view.Count(),
+	}
+
+	PDPPieceByCidRequestCountView = &view.View{
+		Measure:     PDPPieceByCidRequestCount,
+		Aggregation: view.Count(),
+	}
+
+	PDPPieceByCidRequestDurationView = &view.View{
+		Measure:     PDPPieceByCidRequestDuration,
+		Aggregation: defaultMillisecondsDistribution,
+	}
+
+	PDPPieceByCid200ResponseCountView = &view.View{
+		Measure:     PDPPieceByCid200ResponseCount,
+		Aggregation: view.Count(),
+	}
+
+	PDPPieceBytesServedCountView = &view.View{
+		Measure:     PDPPieceBytesServedCount,
 		Aggregation: view.Count(),
 	}
 
@@ -160,7 +187,7 @@ var (
 	}
 )
 
-// CacheViews groups all cache-related default views.
+// RetrievalViews groups all retrieval-related default views.
 func init() {
 	err := view.Register(
 		HttpPieceByCidRequestCountView,
@@ -169,6 +196,10 @@ func init() {
 		HttpPieceByCid400ResponseCountView,
 		HttpPieceByCid404ResponseCountView,
 		HttpPieceByCid500ResponseCountView,
+		PDPPieceByCidRequestCountView,
+		PDPPieceByCidRequestDurationView,
+		PDPPieceByCid200ResponseCountView,
+		PDPPieceBytesServedCountView,
 		HttpRblsGetRequestCountView,
 		HttpRblsGetSuccessResponseCountView,
 		HttpRblsGetFailResponseCountView,

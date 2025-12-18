@@ -22,7 +22,6 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync/head"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
-	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -50,8 +49,9 @@ const IPNIRoutePath = "/ipni-provider/"
 const IPNIPath = "/ipni/v1/ad/"
 
 // publishInterval represents the time interval between each publishing operation.
-// It is set to 30 seconds for the purposes of PDP index publishing
-const publishInterval = 5 * time.Second
+// It is set to 10 minutes.
+// TODO: pdpv0-main - figure out a balance between PDP and PoRep here
+const publishInterval = 10 * time.Minute
 const publishProviderSpacing = 10 * time.Second
 
 var (
@@ -217,6 +217,7 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		Addresses string
 		Signature []byte
 		Entries   string
+		Metadata  []byte
 	}
 
 	err := p.db.Select(ctx, &ads, `SELECT 
@@ -226,7 +227,8 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 										provider, 
 										addresses, 
 										signature, 
-										entries 
+										entries,
+										metadata
 										FROM ipni 
 										WHERE ad_cid = $1 
 										  AND provider = $2`, ad.String(), provider)
@@ -250,19 +252,13 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		return schema.Advertisement{}, xerrors.Errorf("parsing entry CID: %w", err)
 	}
 
-	mds := metadata.IpfsGatewayHttp{}
-	md, err := mds.MarshalBinary()
-	if err != nil {
-		return schema.Advertisement{}, xerrors.Errorf("marshalling metadata: %w", err)
-	}
-
 	adv := schema.Advertisement{
 		Provider:  a.Provider,
 		Signature: a.Signature,
 		Entries:   cidlink.Link{Cid: e},
 		ContextID: a.ContextID,
 		IsRm:      a.IsRm,
-		Metadata:  md,
+		Metadata:  a.Metadata,
 	}
 
 	if a.Addresses != "" {
@@ -409,14 +405,8 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
 
-		// Log advertisement fetch for indexing status tracking
-		go func() {
-			logCtx := context.Background()
-			_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b.String())
-			if err != nil {
-				log.Warnw("failed to log ad fetch", "ad_cid", b.String(), "err", err)
-			}
-		}()
+		// TODO: pdpv0-main Find a better way to track IPNI instead of this weird table
+
 		return
 	case ipnisync.CidSchemaEntryChunk:
 		entry, err := p.sc.GetEntry(r.Context(), b)
@@ -473,14 +463,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
 
-		// Log advertisement fetch for indexing status tracking
-		go func() {
-			logCtx := context.Background()
-			_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b.String())
-			if err != nil {
-				log.Warnw("failed to log ad fetch", "ad_cid", b.String(), "err", err)
-			}
-		}()
+		// TODO: pdpv0-main Find a better way to track IPNI instead of this weird table
 		return
 	}
 }
@@ -508,6 +491,7 @@ func RemoveCidContact(slice []*url.URL) []*url.URL {
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
 	var ticker *time.Ticker
+
 	// A poller which publishes head for each provider
 	// every 10 minutes for mainnet build
 	if build.BuildType == build.BuildMainnet {
@@ -559,7 +543,7 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, error) {
 	var headStr string
 	err := p.db.QueryRow(ctx, `SELECT head FROM ipni_head WHERE provider = $1`, provider).Scan(&headStr)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		log.Debugw("no head CID yet for provider", "provider", provider)
 		return cid.Undef, nil
 	}

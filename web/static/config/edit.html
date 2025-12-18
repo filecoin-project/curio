@@ -76,6 +76,24 @@
             color: white;
             font-weight: bold;
         }
+
+        /* Hide the info button tooltips */
+        .jsoneditor-twbs5-text-button[data-toggle="tooltip"] {
+            display: none !important;
+        }
+        
+        /* Style for field descriptions that we'll inject */
+        .field-description {
+            display: block;
+            color: #aaa;
+            font-size: 0.875rem;
+            margin-top: 4px;
+            margin-bottom: 8px;
+            font-style: italic;
+            line-height: 1.4;
+            max-width: 100%;
+            white-space: pre-wrap;
+        }
     </style>
     <curio-ux>
         <section class="section container-fluid implementations">
@@ -118,9 +136,51 @@
                                     disable_edit_json: true,
                                     form_name_root: "Configuration",
                                     disable_properties: true,
+                                    show_errors: "always",
+                                    display_required_only: false,
+                                    remove_button_labels: false,
                                 };
 
                                 editor = new JSONEditor(container, options);
+
+                                // Function to convert tooltip buttons to visible descriptions
+                                function showDescriptions() {
+                                    const infoButtons = document.querySelectorAll('.jsoneditor-twbs5-text-button[data-toggle="tooltip"]');
+                                    infoButtons.forEach(button => {
+                                        // Bootstrap 5 moves title to data-bs-original-title
+                                        const description = button.getAttribute('data-bs-original-title') || button.getAttribute('title');
+                                        if (description) {
+                                            // Create a description div
+                                            const descDiv = document.createElement('div');
+                                            descDiv.className = 'field-description';
+                                            descDiv.textContent = description.replace(/&quot;/g, '"');
+                                            
+                                            // Find the parent form group and insert description
+                                            let parent = button.closest('.form-group');
+                                            if (!parent) {
+                                                parent = button.closest('.card-body');
+                                            }
+                                            if (!parent) {
+                                                parent = button.parentElement;
+                                            }
+                                            
+                                            // Check if description hasn't been added already
+                                            if (parent && !parent.querySelector('.field-description')) {
+                                                parent.appendChild(descDiv);
+                                            }
+                                        }
+                                    });
+                                }
+
+                                // Call after editor is ready and on any changes
+                                editor.on('ready', function() {
+                                    showDescriptions();
+                                });
+                                
+                                // Re-run when editor changes (for dynamic fields)
+                                editor.on('change', function() {
+                                    setTimeout(showDescriptions, 100);
+                                });
 
                                 document.getElementById("helpBtn").addEventListener("click", function() {
                                     var helpText = document.getElementById("helpText");

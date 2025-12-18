@@ -33,6 +33,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -80,7 +81,8 @@ func TestCurioHappyPath(t *testing.T) {
 
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
 	var titles []string
@@ -93,7 +95,7 @@ func TestCurioHappyPath(t *testing.T) {
 	sectorSizeInt, err := units.RAMInBytes("2KiB")
 	require.NoError(t, err)
 
-	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
+	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0, 1.0)
 	require.NoError(t, err)
 
 	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, fapi)
@@ -107,13 +109,14 @@ func TestCurioHappyPath(t *testing.T) {
 
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
 	require.NoError(t, err)
+
 	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
 	require.NoError(t, err)
 
 	require.NotNil(t, baseCfg.Addresses)
-	require.GreaterOrEqual(t, len(baseCfg.Addresses), 1)
+	require.GreaterOrEqual(t, len(baseCfg.Addresses.Get()), 1)
 
-	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
+	require.Contains(t, baseCfg.Addresses.Get()[0].MinerAddresses, maddr.String())
 
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
@@ -162,9 +165,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 
@@ -188,9 +188,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 	require.NoError(t, err)
@@ -517,13 +514,6 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
-}
-
-func envElse(env, els string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	return els
 }
 
 // Helper functions to handle nil or null values

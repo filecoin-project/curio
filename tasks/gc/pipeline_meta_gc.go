@@ -38,6 +38,12 @@ func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("cleanupUnseal: %w", err)
 
 	}
+	if err := s.cleanupMK20DealPipeline(); err != nil {
+		return false, xerrors.Errorf("cleanupMK20DealPipeline: %w", err)
+	}
+	if err := s.cleanupPDPPipeline(); err != nil {
+		return false, xerrors.Errorf("cleanupPDPPipeline: %w", err)
+	}
 
 	return true, nil
 }
@@ -158,12 +164,8 @@ func (s *PipelineGC) cleanupUpgrade() error {
 }
 
 func (s *PipelineGC) cleanupMK12DealPipeline() error {
-	// Remove market_mk12_deal_pipeline entries where:
-	// sealed is true and indexed is true
 	ctx := context.Background()
 
-	// Execute the query
-	// NOTE: pipelines can be complete before indexing finishes in case of reindexing pipeline tasks (created in CheckIndex task)
 	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE (should_index = FALSE OR indexed = TRUE) AND complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
@@ -172,6 +174,39 @@ func (s *PipelineGC) cleanupMK12DealPipeline() error {
 	_, err = s.db.Exec(ctx, `DELETE FROM ipni_task WHERE complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up indexing tasks: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PipelineGC) cleanupMK20DealPipeline() error {
+	ctx := context.Background()
+
+	_, err := s.db.Exec(ctx, `DELETE FROM market_mk20_offline_urls
+									WHERE id IN (
+										SELECT id FROM market_mk20_pipeline WHERE complete = TRUE)`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up offline urls: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `DELETE FROM market_mk20_download_pipeline
+									WHERE id IN (
+										SELECT id FROM market_mk20_pipeline WHERE complete = TRUE)`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up download pipeline: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `DELETE FROM market_mk20_pipeline WHERE (indexing = FALSE OR indexed = TRUE) AND complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx, `DELETE FROM pdp_ipni_task WHERE complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up PDP indexing tasks: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx, `DELETE FROM piece_cleanup WHERE complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up piece cleanup: %w", err)
 	}
 
 	return nil
@@ -193,6 +228,15 @@ func (s *PipelineGC) cleanupUnseal() error {
 		return xerrors.Errorf("failed to clean up unseal entries: %w", err)
 	}
 
+	return nil
+}
+
+func (s *PipelineGC) cleanupPDPPipeline() error {
+	ctx := context.Background()
+	_, err := s.db.Exec(ctx, `DELETE FROM pdp_pipeline WHERE complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
+	}
 	return nil
 }
 

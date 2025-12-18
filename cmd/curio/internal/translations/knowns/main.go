@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	for _, arg := range os.Args {
+	for _, arg := range os.Args[1:] {
 		handleKnowns(arg)
 	}
 }

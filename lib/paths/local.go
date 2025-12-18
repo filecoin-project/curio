@@ -118,9 +118,9 @@ type path struct {
 // which will make it take into account existing sectors when calculating
 // available space for new reservations
 type statExistingSectorForReservation struct {
-	id       abi.SectorID
-	ft       storiface.SectorFileType
-	overhead int64
+	id       abi.SectorID             // 16 bytes - used with ft in sectorPath (line 137-138)
+	ft       storiface.SectorFileType // Used with id (line 137-138)
+	overhead int64                    // Used separately in calculations
 }
 
 func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservation) (stat fsutil.FsStat, newResvOnDisk int64, err error) {
@@ -343,7 +343,7 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		return xerrors.Errorf("declaring storage in index: %w", err)
 	}
 
-	if err := st.declareSectors(ctx, p, meta.ID, meta.CanStore, false); err != nil {
+	if err := st.declareSectors(ctx, p, meta.ID, meta.CanStore, true); err != nil {
 		return err
 	}
 
@@ -391,10 +391,27 @@ func (st *Local) open(ctx context.Context) error {
 
 	go st.reportHealth(ctx)
 
+	go st.startPeriodicRedeclare(ctx)
+
 	return nil
 }
 
 var declareCounter atomic.Int32
+
+func (st *Local) startPeriodicRedeclare(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour * 4)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if err := st.Redeclare(ctx, nil, true); err != nil {
+				log.Errorf("redeclaring storage: %w", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
 
 func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMissingDecls bool) error {
 	st.localLk.Lock()
@@ -532,14 +549,19 @@ func (st *Local) reportHealth(ctx context.Context) {
 	// randomize interval by ~10%
 	interval := (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000
 
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
 	for {
 		select {
-		case <-time.After(interval):
+		case <-timer.C:
+			st.reportStorage(ctx)
+			// Update interval for next iteration (randomize again)
+			interval = (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000
+			timer.Reset(interval)
 		case <-ctx.Done():
 			return
 		}
-
-		st.reportStorage(ctx)
 	}
 }
 
@@ -1194,7 +1216,7 @@ func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 
 var supraC1Token = make(chan struct{}, 1)
 
-func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, _, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
 	bmdata, err := os.ReadFile(batchMetaPath)
 	if err != nil {

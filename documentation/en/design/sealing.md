@@ -88,4 +88,4 @@ AuthNew: This function creates a new authorization token (JWT) for the given per
 
 The Piece Ingestor allocates a piece to a sector for a given miner address. It checks if the piece size matches the sector size, determines the preferred seal proof type, retrieves the miner ID, allocates a sector number, inserts the piece and sector pipeline entries into the database, and returns the sector and offset of the allocated piece.
 
-\
+<br>

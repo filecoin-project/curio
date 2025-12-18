@@ -3,6 +3,7 @@ package snap
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -180,6 +181,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		AggregateProofType:         nil,
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
 		RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
+		SectorUpdates:              make([]miner13.SectorUpdateManifest, 0, len(tasks)),
+		SectorProofs:               make([][]byte, 0, len(tasks)),
 	}
 
 	collateral := big.Zero()
@@ -279,7 +282,7 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		}
 
 		// Process pieces, prepare PAMs
-		var pams []miner.PieceActivationManifest
+		pams := make([]miner.PieceActivationManifest, 0, len(pieces))
 		var verifiedSize int64
 		pieceCheckFailed := false
 		for _, piece := range pieces {
@@ -527,11 +530,11 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 			// 1) Gather candidate tasks to schedule
 			//----------------------------------
 			var rawRows []struct {
-				SpID          int64      `db:"sp_id"`
-				SectorNumber  int64      `db:"sector_number"`
-				UpgradeProof  int64      `db:"upgrade_proof"`
-				UpdateReadyAt *time.Time `db:"update_ready_at"`
-				StartEpoch    int64      `db:"smallest_direct_start_epoch"`
+				SpID          int64        `db:"sp_id"`
+				SectorNumber  int64        `db:"sector_number"`
+				UpgradeProof  int64        `db:"upgrade_proof"`
+				UpdateReadyAt sql.NullTime `db:"update_ready_at"`
+				StartEpoch    int64        `db:"smallest_direct_start_epoch"`
 			}
 
 			err := tx.Select(&rawRows, `
@@ -585,11 +588,13 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 					upMap = make(map[int64][]rowInfo)
 					batchMap[row.SpID] = upMap
 				}
-				upMap[row.UpgradeProof] = append(upMap[row.UpgradeProof], rowInfo{
-					SectorNumber:  row.SectorNumber,
-					UpdateReadyAt: row.UpdateReadyAt,
-					StartEpoch:    row.StartEpoch,
-				})
+				if row.UpdateReadyAt.Valid {
+					upMap[row.UpgradeProof] = append(upMap[row.UpgradeProof], rowInfo{
+						SectorNumber:  row.SectorNumber,
+						UpdateReadyAt: &row.UpdateReadyAt.Time,
+						StartEpoch:    row.StartEpoch,
+					})
+				}
 			}
 
 			//----------------------------------
@@ -804,7 +809,13 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 			if err != nil {
 				return xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
 			}
-			log.Debugw("marked deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
+			log.Debugw("marked mk12 deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
+
+			n, err = tx.Exec(`UPDATE market_mk20_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, spId, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("update market_mk20_pipeline: %w", err)
+			}
+			log.Debugw("marked mk20 deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
 		}
 	}
 

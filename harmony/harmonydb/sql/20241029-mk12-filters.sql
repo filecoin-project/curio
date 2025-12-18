@@ -1,5 +1,5 @@
 -- This table allows creating custom pricing rules
-CREATE TABLE market_mk12_pricing_filters (
+CREATE TABLE IF NOT EXISTS market_mk12_pricing_filters (
     name TEXT PRIMARY KEY, -- Filter name
 
     min_duration_days INT NOT NULL DEFAULT 180, -- Minimum Deal Duration in days
@@ -13,7 +13,7 @@ CREATE TABLE market_mk12_pricing_filters (
 );
 
 -- This table allows attaching custom pricing rules to specific clients
-CREATE TABLE market_mk12_client_filters (
+CREATE TABLE IF NOT EXISTS market_mk12_client_filters (
     name TEXT PRIMARY KEY, -- Name of the rule
     active BOOLEAN NOT NULL DEFAULT FALSE, -- If the rules should be applied or not
 
@@ -29,7 +29,7 @@ CREATE TABLE market_mk12_client_filters (
 );
 
 -- Table to track allow/deny list for client wallets
-CREATE TABLE market_allow_list (
+CREATE TABLE IF NOT EXISTS market_allow_list (
     wallet TEXT PRIMARY KEY,                -- The wallet to allow/deny deals
     status BOOLEAN NOT NULL             -- TRUE for allow, FALSE for deny
 );
@@ -113,22 +113,43 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger for enforcing uniqueness in wallets array
-CREATE TRIGGER unique_wallets_trigger
-    BEFORE INSERT OR UPDATE ON market_mk12_client_filters
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'unique_wallets_trigger'
+    ) THEN
+        CREATE TRIGGER unique_wallets_trigger BEFORE INSERT OR UPDATE ON market_mk12_client_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_unique_wallets();
+    END IF;
+END $$;
 
 -- Trigger for enforcing uniqueness in peer_ids array
-CREATE TRIGGER unique_peers_trigger
-    BEFORE INSERT OR UPDATE ON market_mk12_client_filters
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'unique_peers_trigger'
+    ) THEN
+        CREATE TRIGGER unique_peers_trigger BEFORE INSERT OR UPDATE ON market_mk12_client_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_unique_peers();
+    END IF;
+END $$;
 
 -- Trigger for enforcing uniqueness in pricing_filters array
-CREATE TRIGGER unique_pricing_filters_trigger
-    BEFORE INSERT OR UPDATE ON market_mk12_client_filters
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'unique_pricing_filters_trigger'
+    ) THEN
+        CREATE TRIGGER unique_pricing_filters_trigger BEFORE INSERT OR UPDATE ON market_mk12_client_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_unique_pricing_filters();
+    END IF;
+END $$;
 
 -- Function to enforce naming convention on "name" column
 CREATE OR REPLACE FUNCTION enforce_name_naming_convention()
@@ -144,13 +165,27 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger for the market_mk12_client_filters table to enforce the naming convention on "name" column
-CREATE TRIGGER enforce_name_convention_market_mk12_client_filters
-    BEFORE INSERT OR UPDATE ON market_mk12_client_filters
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'enforce_name_convention_market_mk12_client_filters'
+    ) THEN
+        CREATE TRIGGER enforce_name_convention_market_mk12_client_filters BEFORE INSERT OR UPDATE ON market_mk12_client_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_name_naming_convention();
+    END IF;
+END $$;
 
 -- Trigger for the market_mk12_pricing_filters table to enforce the naming convention on "name" column
-CREATE TRIGGER enforce_name_convention_market_mk12_pricing_filters
-    BEFORE INSERT OR UPDATE ON market_mk12_pricing_filters
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'enforce_name_convention_market_mk12_pricing_filters'
+    ) THEN
+        CREATE TRIGGER enforce_name_convention_market_mk12_pricing_filters BEFORE INSERT OR UPDATE ON market_mk12_pricing_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_name_naming_convention();
+    END IF;
+END $$;

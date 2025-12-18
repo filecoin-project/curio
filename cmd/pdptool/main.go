@@ -195,6 +195,8 @@ var pingCmd = &cli.Command{
 			return err
 		}
 
+		serviceURL = serviceURL + "/market"
+
 		// Append /pdp/ping to the service URL
 		pingURL := serviceURL + "/pdp/ping"
 
@@ -544,6 +546,7 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		jwtToken := cctx.String("jwt-token")
 		notifyURL := cctx.String("notify-url")
 		serviceName := cctx.String("service-name")
@@ -697,6 +700,7 @@ var uploadFileCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		jwtToken := cctx.String("jwt-token")
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
@@ -915,6 +919,7 @@ var createDataSetCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		recordKeeper := cctx.String("pdp-service-contract")
 		extraDataHexStr := cctx.String("extra-data")
@@ -1008,6 +1013,7 @@ var getDataSetStatusCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		txHash := cctx.String("tx-hash")
 
@@ -1117,6 +1123,7 @@ var getDataSetCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 
 		// Create the JWT token
@@ -1221,6 +1228,7 @@ var addPiecesCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		dataSetId := cctx.Uint64("data-set-id")
 		pieceInputs := cctx.StringSlice("piece")
@@ -1467,6 +1475,7 @@ var removePiecesCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
+		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		dataSetId := cctx.Uint64("data-set-id")
 		pieceId := cctx.Uint64("piece-id")

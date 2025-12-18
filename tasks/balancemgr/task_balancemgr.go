@@ -126,6 +126,8 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 				err = t.adderWallet(ctx, taskFunc, addr)
 			case "proofshare":
 				err = t.adderProofshare(ctx, taskFunc, addr)
+			case "f05":
+				err = t.adderF05(ctx, taskFunc, addr)
 			default:
 				log.Warnw("unknown subject type", "type", addr.SubjectType)
 				continue
@@ -163,8 +165,8 @@ func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 			return nil, xerrors.Errorf("getting subject type: %w", err)
 		}
 
-		if subjectType == "wallet" ||
-			subjectType == "proofshare" {
+		switch subjectType {
+		case "wallet", "proofshare", "f05":
 			return &id, nil
 		}
 	}
@@ -232,6 +234,8 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return b.doWallet(ctx, taskID, addr)
 	case "proofshare":
 		return b.doProofshare(ctx, taskID, addr)
+	case "f05":
+		return b.doF05(ctx, taskID, addr)
 	default:
 		return false, xerrors.Errorf("unknown subject type: %s", addr.SubjectType)
 	}

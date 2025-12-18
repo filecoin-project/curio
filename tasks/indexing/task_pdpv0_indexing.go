@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
-type PDPIndexingTask struct {
+type PDPv0IndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
 	cpr               *cachedreader.CachedPieceReader
@@ -33,9 +33,9 @@ type PDPIndexingTask struct {
 	max               taskhelp.Limiter
 }
 
-func NewPDPIndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIndexingTask {
+func NewPDPv0IndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPv0IndexingTask {
 
-	return &PDPIndexingTask{
+	return &PDPv0IndexingTask{
 		db:                db,
 		indexStore:        indexStore,
 		cpr:               cpr,
@@ -46,7 +46,7 @@ func NewPDPIndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, cpr
 	}
 }
 
-func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (P *PDPv0IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	var tasks []struct {
@@ -87,7 +87,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return true, nil
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid)
+	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -112,7 +112,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		defer close(addFail)
 		return P.indexStore.AddIndex(ctx, pcid, recs)
 	})
-	blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
+	blocks, interrupted, err = PDPV0IndexCAR(reader, 4<<20, recs, addFail)
 	if err != nil {
 		// Indexing itself failed, stop early
 		close(recs) // still safe to close, AddIndex will exit on channel close
@@ -143,7 +143,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	return true, nil
 }
 
-func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
+func (P *PDPv0IndexingTask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
 		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_indexing = FALSE, needs_ipni = $3, indexing_task_id = NULL 
@@ -166,7 +166,7 @@ func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonyta
 	return nil
 }
 
-func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (P *PDPv0IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	// We just accept all tasks
 	// Note that this differs from markets v2 code which does a local storage check on the piece.
 	//
@@ -177,7 +177,7 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 	return &id, nil
 }
 
-func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
+func (P *PDPv0IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPIndexing",
 		Cost: resources.Resources{
@@ -192,7 +192,7 @@ func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (P *PDPv0IndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
 	var stop bool
 	for !stop {
@@ -232,12 +232,12 @@ func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTa
 	return nil
 }
 
-func (P *PDPIndexingTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (P *PDPv0IndexingTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPIndexingTask{}
 var _ = harmonytask.Reg(&PDPIndexingTask{})
 
-func IndexCAR(r io.Reader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
+func PDPV0IndexCAR(r io.Reader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
 	// ZeroLengthSectionAsEOF is not strictly needed here as it exists for the PoRep case where
 	// padding pieces with zero bytes to get them to be a larger size is reasonable. This isn't
 	// expected to be the case with PDP, but we'll stay consistent.

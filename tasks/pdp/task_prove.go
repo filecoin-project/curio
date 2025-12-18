@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
@@ -483,10 +484,12 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 		return nil, xerrors.Errorf("subPiece size exceeds maximum: %d", subPieceSize)
 	}
 
-	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidObj)
+	subPieceReader, rawSize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidObj, false)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get subPiece reader: %w", err)
 	}
+
+	unssize := padreader.PaddedSize(rawSize)
 
 	var r io.Reader = subPieceReader
 

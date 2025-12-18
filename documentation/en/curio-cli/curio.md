@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options]
 
 VERSION:
-   1.27.0
+   1.27.2
 
 COMMANDS:
    cli           Execute cli commands
@@ -510,6 +510,7 @@ USAGE:
 COMMANDS:
    here, cli                                       Compute WindowPoSt for performance and configuration testing.
    task, scheduled, schedule, async, asynchronous  Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.
+   vanilla                                         Compute WindowPoSt vanilla proofs and verify them.
    help, h                                         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -532,6 +533,7 @@ OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --partition value                  partition to compute WindowPoSt for (default: 0)
+   --addr value                       SP ID to compute WindowPoSt for
    --help, -h                         show help
 ```
 
@@ -546,6 +548,22 @@ USAGE:
 OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --addr value                       SP ID to compute WindowPoSt for
+   --help, -h                         show help
+```
+
+#### curio test window-post vanilla
+```
+NAME:
+   curio test window-post vanilla - Compute WindowPoSt vanilla proofs and verify them.
+
+USAGE:
+   curio test window-post vanilla [command options]
+
+OPTIONS:
+   --deadline value                   deadline to compute WindowPoSt for  (default: 0)
+   --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --partition value                  partition to compute WindowPoSt for (default: 0)
    --addr value                       SP ID to compute WindowPoSt for
    --help, -h                         show help
 ```
@@ -1276,8 +1294,11 @@ USAGE:
    curio toolbox [command options]
 
 COMMANDS:
-   fix-msg  Updated DB with message data missing from chain node
-   help, h  Shows a list of commands or help for one command
+   fix-msg                        Updated DB with message data missing from chain node
+   register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
+   downgrade                      Downgrade a cluster's daatabase to a previous software version.
+   fix-boost-migration            Fix Boost migration
+   help, h                        Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -1294,4 +1315,60 @@ USAGE:
 OPTIONS:
    --all       Update data for messages in wait queue (default: false)
    --help, -h  show help
+```
+
+### curio toolbox register-pdp-service-provider
+```
+NAME:
+   curio toolbox register-pdp-service-provider - Register a PDP service provider with Filecoin Service Registry Contract
+
+USAGE:
+   curio toolbox register-pdp-service-provider [command options]
+
+OPTIONS:
+   --name value            Service provider name
+   --description value     Service provider description
+   --service-url value     URL of the service provider
+   --min-size value        Minimum piece size (default: "1 MiB")
+   --max-size value        Maximum piece size (default: "64 GiB")
+   --ipni-piece            Supports IPNI piece CID indexing (default: false)
+   --ipni-ipfs             Supports IPNI IPFS CID indexing (default: false)
+   --price value           Storage price per TiB per month in USDFC, Default is 1 USDFC. (default: 1000000)
+   --proving-period value  Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset (default: 60)
+   --location value        Location of the service provider
+   --token-address value   Token contract for payment (IERC20(address(0)) for FIL)
+   --help, -h              show help
+```
+
+### curio toolbox downgrade
+```
+NAME:
+   curio toolbox downgrade - Downgrade a cluster's daatabase to a previous software version.
+
+USAGE:
+   curio toolbox downgrade [command options]
+
+DESCRIPTION:
+   If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.
+
+OPTIONS:
+   --last_good_date value  YYYYMMDD when your cluster had the preferred schema. Ex: 20251128 (default: 0)
+   --help, -h              show help
+```
+
+### curio toolbox fix-boost-migration
+```
+NAME:
+   curio toolbox fix-boost-migration - Fix Boost migration
+
+USAGE:
+   curio toolbox fix-boost-migration [command options]
+
+OPTIONS:
+   --check                                                  check how many entries need to be fixed (default: false)
+   --db-file value                                          location of boost.db file
+   --boostd-data-hosts value [ --boostd-data-hosts value ]  yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'
+   --boostd-data-username value                             yugabyte username to connect to over cassandra interface eg 'cassandra'
+   --boostd-data-password value                             yugabyte password to connect to over cassandra interface eg 'cassandra'
+   --help, -h                                               show help
 ```

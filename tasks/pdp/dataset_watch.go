@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/curio/tasks/pdp/pdpv1"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
@@ -16,7 +17,7 @@ import (
 // create the data set, then add the pieces to it.
 func NewDataSetWatch(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingDataSetCreates(ctx, db, ethClient)
+		err := pdpv1.processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending data set creates: %v", err)
 		}

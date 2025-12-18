@@ -3,6 +3,7 @@ package mk12
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 
@@ -367,7 +368,7 @@ func cidOrNil(c cid.Cid) *cid.Cid {
 func getSealedDealStatus(ctx context.Context, db *harmonydb.DB, id string, onChain bool) (dealInfo, error) {
 	var dealInfos []struct {
 		Offline           bool            `db:"offline"`
-		Error             *string         `db:"error"`
+		Error             sql.NullString  `db:"error"`
 		Proposal          json.RawMessage `db:"proposal"`
 		SignedProposalCID string          `db:"signed_proposal_cid"`
 		Label             []byte          `db:"label"`
@@ -414,13 +415,13 @@ func getSealedDealStatus(ctx context.Context, db *harmonydb.DB, id string, onCha
 		return dealInfo{}, xerrors.Errorf("failed to parse signed proposal CID: %w", err)
 	}
 
-	if di.Error == nil {
-		di.Error = new(string)
+	if !di.Error.Valid {
+		di.Error = sql.NullString{}
 	}
 
 	ret := dealInfo{
 		Offline:           di.Offline,
-		Error:             *di.Error,
+		Error:             di.Error.String,
 		Proposal:          prop,
 		SignedProposalCID: spc,
 		ChainDealID:       abi.DealID(0),

@@ -1,4 +1,4 @@
-create table parked_pieces (
+create table if not exists parked_pieces (
     id bigserial primary key,
     created_at timestamp default current_timestamp,
 
@@ -12,6 +12,8 @@ create table parked_pieces (
     cleanup_task_id bigint default null,
 
     -- long_term boolean not null default false, -- Added in 20240930-pdp.sql
+
+    -- skip boolean not null default false, -- Added in 20250505-market-mk20.sql to allow skipping download
 
     -- NOTE: Following keys were dropped in 20240507-sdr-pipeline-fk-drop.sql
     foreign key (task_id) references harmony_task (id) on delete set null, -- dropped
@@ -37,7 +39,7 @@ create table parked_pieces (
  * 2. (MK12) A deal pipeline not yet assigned to a sector is deleted
  *
  */
-create table parked_piece_refs (
+create table if not exists parked_piece_refs (
     ref_id bigserial primary key,
     piece_id bigint not null,
 

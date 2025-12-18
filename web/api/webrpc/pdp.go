@@ -172,11 +172,12 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 	// Insert into the database within a transaction
 	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Check if the owner_address already exists
-		var existingAddress string
-		err := tx.QueryRow(`SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, address).Scan(&existingAddress)
+		var existingAddress bool
+
+		err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
 		if err == nil {
 			return false, fmt.Errorf("owner address %s already exists", address)
-		} else if err != pgx.ErrNoRows {
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return false, fmt.Errorf("failed to check existing owner address: %v", err)
 		}
 
@@ -218,7 +219,7 @@ func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 	var existingAddress string
 	err := a.deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress).Scan(&existingAddress)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("owner address %s does not exist", ownerAddress)
 		}
 		log.Errorf("RemovePDPKey: failed to check existing owner address: %v", err)

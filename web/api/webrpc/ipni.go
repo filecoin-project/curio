@@ -12,31 +12,37 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	itype "github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/market/mk20"
 )
 
 type IpniAd struct {
-	AdCid           string         `db:"ad_cid" json:"ad_cid"`
-	ContextID       []byte         `db:"context_id" json:"context_id"`
-	IsRM            bool           `db:"is_rm" json:"is_rm"`
-	IsSkip          bool           `db:"is_skip" json:"is_skip"`
-	PreviousAd      sql.NullString `db:"previous"`
-	Previous        string         `json:"previous"`
-	SpID            int64          `db:"sp_id" json:"sp_id"`
-	Addresses       sql.NullString `db:"addresses"`
-	AddressesString string         `json:"addresses"`
-	Entries         string         `db:"entries" json:"entries"`
-	PieceCid        string         `json:"piece_cid"`
-	PieceSize       int64          `json:"piece_size"`
-	Miner           string         `json:"miner"`
+	AdCid           string     `db:"ad_cid" json:"ad_cid"`
+	ContextID       []byte     `db:"context_id" json:"context_id"`
+	IsRM            bool       `db:"is_rm" json:"is_rm"`
+	IsSkip          bool       `db:"is_skip" json:"is_skip"`
+	PreviousAd      NullString `db:"previous"`
+	Previous        string     `json:"previous"`
+	SpID            int64      `db:"sp_id" json:"sp_id"`
+	Addresses       NullString `db:"addresses"`
+	AddressesString string     `json:"addresses"`
+	Entries         string     `db:"entries" json:"entries"`
+	PieceCid        string     `json:"piece_cid"`
+	PieceSize       int64      `json:"piece_size"`
+	Miner           string     `json:"miner"`
 
 	EntryCount int64 `json:"entry_count"`
 	CIDCount   int64 `json:"cid_count"`
 
-	AdCids []string `db:"-" json:"ad_cids"`
+	AdCids     []string `db:"-" json:"ad_cids"`
+	PieceCidV2 string   `db:"-" json:"piece_cid_v2"`
 }
 
 func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
@@ -90,15 +96,48 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 
 	details := ads[0]
 
-	var pi abi.PieceInfo
-	err = pi.UnmarshalCBOR(bytes.NewReader(details.ContextID))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
+	var pcid, pcid2 cid.Cid
+	var psize int64
+
+	if details.SpID == -1 {
+		var pi itype.PdpIpniContext
+		err = pi.Unmarshal(details.ContextID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to unmarshal PDP piece info: %w", err)
+		}
+		pcid2 = pi.PieceCID
+		pInfo, err := mk20.GetPieceInfo(pcid2)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get piece info: %w", err)
+		}
+		pcid = pInfo.PieceCIDV1
+		psize = int64(pInfo.Size)
+	} else {
+		var pi abi.PieceInfo
+		err = pi.UnmarshalCBOR(bytes.NewReader(details.ContextID))
+		if err != nil {
+			return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
+		}
+
+		pcid = pi.PieceCID
+		psize = int64(pi.Size)
+
+		// Get RawSize from market_piece_deal to calculate PieceCidV2
+		var rawSize uint64
+		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get raw size: %w", err)
+		}
+
+		pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get commp: %w", err)
+		}
 	}
 
-	details.PieceCid = pi.PieceCID.String()
-	size := int64(pi.Size)
-	details.PieceSize = size
+	details.PieceCid = pcid.String()
+	details.PieceSize = psize
+	details.PieceCidV2 = pcid2.String()
 
 	if details.SpID <= 0 {
 		details.Miner = "PDP"
@@ -127,7 +166,18 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		CIDCount   int64 `db:"cid_count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCid)
+	err = a.deps.DB.Select(ctx, &adEntryInfo, `WITH entry AS (
+													  SELECT is_pdp
+													  FROM ipni_chunks
+													  WHERE cid = $2
+													  LIMIT 1
+													)
+													SELECT
+													  COUNT(*)                             AS entry_count,
+													  COALESCE(SUM(ic.num_blocks), 0)      AS cid_count
+													FROM ipni_chunks ic
+													JOIN entry e ON ic.is_pdp = e.is_pdp
+													WHERE ic.piece_cid = $1;`, details.PieceCidV2, details.Entries)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch the ad entry count from DB: %w", err)
 	}
@@ -229,7 +279,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 		return nil, fmt.Errorf("failed to fetch IPNI configuration: %w", err)
 	}
 
-	for _, service := range services {
+	for _, service := range lo.Uniq(services) {
 		for _, d := range summary {
 			url := service + "/providers/" + d.PeerID
 			resp, err := http.Get(url)
@@ -292,11 +342,11 @@ type EntryInfo struct {
 	PieceCID string `db:"piece_cid"`
 	FromCar  bool   `db:"from_car"`
 
-	FirstCID    *string `db:"first_cid"`
-	StartOffset *int64  `db:"start_offset"`
-	NumBlocks   int64   `db:"num_blocks"`
+	FirstCID    sql.NullString `db:"first_cid"`
+	StartOffset sql.NullInt64  `db:"start_offset"`
+	NumBlocks   int64      `db:"num_blocks"`
 
-	PrevCID *string `db:"prev_cid"`
+	PrevCID sql.NullString `db:"prev_cid"`
 
 	Err  *string
 	Size int64

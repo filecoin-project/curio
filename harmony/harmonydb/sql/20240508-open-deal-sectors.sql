@@ -1,7 +1,6 @@
-ALTER TABLE sectors_sdr_initial_pieces
-    ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT current_timestamp;
+ALTER TABLE sectors_sdr_initial_pieces ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT current_timestamp;
 
-create table open_sector_pieces (
+create table if not exists open_sector_pieces (
     sp_id bigint not null,
     sector_number bigint not null,
 

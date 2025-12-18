@@ -41,8 +41,8 @@ type ParkPieceTask struct {
 	longTerm bool // Indicates if the task is for long-term pieces
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, nil, max, false)
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, false)
 }
 
 func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
@@ -76,6 +76,7 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
             FROM parked_pieces 
             WHERE long_term = $1 
               AND complete = FALSE 
+              AND skip = FALSE
               AND task_id IS NULL
         `, p.longTerm)
 		if err != nil {
@@ -96,7 +97,7 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// Update
 				n, err := tx.Exec(
-					`UPDATE parked_pieces SET task_id = $1 WHERE id = $2 AND complete = FALSE AND task_id IS NULL AND long_term = $3`,
+					`UPDATE parked_pieces SET task_id = $1 WHERE id = $2 AND complete = FALSE AND skip = FALSE AND task_id IS NULL AND long_term = $3`,
 					id, pieceID.ID, p.longTerm)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)

@@ -31,7 +31,7 @@ var log = logging.Logger("remote-blockstore")
 
 type idxAPI interface {
 	PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]indexstore.PieceInfo, error)
-	GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error)
+	GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash multihash.Multihash) (uint64, error)
 }
 
 // RemoteBlockstore is a read-only blockstore over all cids across all pieces on a provider.
@@ -115,8 +115,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
-			// Get a reader over the piece data
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid, true)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
@@ -125,7 +124,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}(reader)
 
 			// Get the offset of the block within the piece (CAR file)
-			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash())
+			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash()) // This can be pieceCidV2 or pieceCidV1, but we don't care because we are feeding back the db output
 			if err != nil {
 				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
 			}
