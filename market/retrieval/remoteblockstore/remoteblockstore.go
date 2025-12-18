@@ -151,6 +151,9 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 		merr = format.ErrNotFound{Cid: c}
 	}
 
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+	}
 	return nil, merr
 }
 

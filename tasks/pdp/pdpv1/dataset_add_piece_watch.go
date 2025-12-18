@@ -1,4 +1,4 @@
-package pdp
+package pdpv1
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
+	logger "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -18,6 +19,8 @@ import (
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+var log = logger.Logger("pdpv1")
 
 // Structures to represent database records
 type DataSetPieceAdd struct {

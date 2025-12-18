@@ -189,12 +189,20 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 											WHERE mpd.piece_cid = $1
 											  AND mpd.piece_length = $2;`, pieceCid.String(), pieceSize)
 	if err != nil {
-		return nil, 0, fmt.Errorf("getting piece deals: %w", err)
+		return nil, 0, xerrors.Errorf("getting piece deals: %w", err)
 	}
 
 	if len(deals) == 0 {
 		if retrieval {
-			return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+			// Remove this once PDPV0 is no longer supported and return the ErrNoDeal error instead
+			var refID int64
+			err = cpr.db.QueryRow(ctx, `SELECT piece_ref FROM pdp_piecerefs WHERE piece_cid = $1 LIMIT 1;`, pieceCid.String()).Scan(&refID)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+				}
+				return nil, 0, fmt.Errorf("failed to query pdp_piecerefs for piece cid %s: %w", pieceCid, err)
+			}
 		}
 		reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, nil, &pieceCid, &pieceSize)
 		if err != nil {
@@ -300,7 +308,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 
 	reader, err := cpr.pieceParkReader.ReadPiece(ctx, storiface.PieceNumber(pd[0].ID), pd[0].PieceRawSize, pcid)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
+		return nil, 0, xerrors.Errorf("failed to read piece from piece park: %w", err)
 	}
 
 	return reader, uint64(pd[0].PieceRawSize), nil
@@ -534,6 +542,8 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 	}
 
 	rs := io.NewSectionReader(r.reader, 0, int64(r.rawSize))
+
+	log.Debugw("Served piece reader", "piececid", pieceCid)
 
 	return struct {
 		io.Closer

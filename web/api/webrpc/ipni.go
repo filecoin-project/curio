@@ -3,6 +3,7 @@ package webrpc
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -138,7 +139,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	details.PieceSize = psize
 	details.PieceCidV2 = pcid2.String()
 
-	if details.SpID == -1 {
+	if details.SpID <= 0 {
 		details.Miner = "PDP"
 	} else {
 		maddr, err := address.NewIDAddress(uint64(details.SpID))
@@ -243,15 +244,14 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	}
 
 	for i := range summary {
-		if summary[i].SpId == -1 {
+		if summary[i].SpId <= 0 {
 			summary[i].Miner = "PDP"
-		} else {
-			maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert ID address: %w", err)
-			}
-			summary[i].Miner = maddr.String()
 		}
+		maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert ID address: %w", err)
+		}
+		summary[i].Miner = maddr.String()
 	}
 
 	type minimalIpniInfo struct {
@@ -342,11 +342,11 @@ type EntryInfo struct {
 	PieceCID string `db:"piece_cid"`
 	FromCar  bool   `db:"from_car"`
 
-	FirstCID    NullString `db:"first_cid"`
-	StartOffset NullInt64  `db:"start_offset"`
-	NumBlocks   int64      `db:"num_blocks"`
+	FirstCID    sql.NullString `db:"first_cid"`
+	StartOffset sql.NullInt64  `db:"start_offset"`
+	NumBlocks   int64          `db:"num_blocks"`
 
-	PrevCID NullString `db:"prev_cid"`
+	PrevCID sql.NullString `db:"prev_cid"`
 
 	Err  *string
 	Size int64

@@ -43,7 +43,9 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
+	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
+	"github.com/filecoin-project/curio/tasks/pdp/pdpv1"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -118,7 +120,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	var fetchOnce sync.Once
 	var fetchResult atomic.Pointer[result.Result[bool]]
 
-	var asyncParams = func() func() (bool, error) {
+	asyncParams := func() func() (bool, error) {
 		fetchOnce.Do(func() {
 			go func() {
 				seenSizes := make(map[uint64]bool)
@@ -131,7 +133,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 					seenSizes[provingSize] = true
 
 					err := fastparamfetch.GetParams(context.TODO(), proofparams.ParametersJSON(), proofparams.SrsJSON(), provingSize)
-
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)
 						fetchResult.Store(&result.Result[bool]{Value: false, Error: err})
@@ -155,7 +156,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	// eth message sender as needed
 	var senderEth *message.SenderETH
 	var senderEthOnce sync.Once
-	var getSenderEth = func() *message.SenderETH {
+	getSenderEth := func() *message.SenderETH {
 		senderEthOnce.Do(func() {
 			ec, err := dependencies.EthClient.Val()
 			if err != nil {
@@ -180,7 +181,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
 				ctx, cfg.Fees, cfg.Proving, full, verif, asyncParams(), sender, chainSched,
 				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
-
 			if err != nil {
 				return nil, err
 			}
@@ -300,35 +300,55 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			ethClient := must.One(dependencies.EthClient.Val())
 
-			pdp.NewWatcherDataSetCreate(db, ethClient, chainSched)
-			pdp.NewWatcherPieceAdd(db, chainSched, ethClient)
-			pdp.NewWatcherDelete(db, chainSched)
-			pdp.NewWatcherPieceDelete(db, chainSched)
+			// PDP v1
+			pdpv1.NewWatcherDataSetCreate(db, ethClient, chainSched)
+			pdpv1.NewWatcherPieceAdd(db, chainSched, ethClient)
+			pdpv1.NewWatcherDelete(db, chainSched)
+			pdpv1.NewWatcherPieceDelete(db, chainSched)
+			pdpv1AddDataSet := pdpv1.NewPDPTaskAddDataSet(db, es, ethClient, full)
+			pdpv1AddPiece := pdpv1.NewPDPTaskAddPiece(db, es, ethClient)
+			pdpv1DelDataSetTask := pdpv1.NewPDPTaskDeleteDataSet(db, es, ethClient, full)
+			pdpv1DelPieceTask := pdpv1.NewPDPTaskDeletePiece(db, es, ethClient)
+			pdpv1ProveTask := pdpv1.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
+			pdpAggregateTask := pdpv1.NewAggregatePDPDealTask(db, sc)
+			pdpCache := pdpv1.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
+			commPTask := pdpv1.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
+			pdpv1PpInit := pdpv1.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpv1PpNext := pdpv1.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
 
-			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
+			// PDP v0
+			pdp.NewDataSetWatch(db, ethClient, chainSched)
+			pdp.NewDataSetDeleteWatcher(db, ethClient, chainSched)
+			pdp.NewTerminateServiceWatcher(db, ethClient, chainSched)
+			pdp.NewPieceDeleteWatcher(&cfg.HTTP, db, ethClient, chainSched, iStore)
+			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
+			pdpTerminate := pdp.NewTerminateServiceTask(db, ethClient, senderEth)
+			pdpDelete := pdp.NewDeleteDataSetTask(db, ethClient, senderEth)
 
-			addProofSetTask := pdp.NewPDPTaskAddDataSet(db, es, ethClient, full)
-			pdpAddRoot := pdp.NewPDPTaskAddPiece(db, es, ethClient)
-			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, ethClient)
-			pdpDelProofSetTask := pdp.NewPDPTaskDeleteDataSet(db, es, ethClient, full)
+			// Filecoin pay
+			pay.NewSettleWatcher(db, ethClient, chainSched)
+			payTask := pay.NewSettleTask(db, ethClient, senderEth)
 
-			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
-			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
-			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
-
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpv1ProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpv1PpNext, pdpv1PpInit,
+				pdpv1AddDataSet, pdpv1AddPiece, pdpv1DelDataSetTask, pdpv1DelPieceTask, pdpAggregateTask, pdpCache, commPTask,
+				pdpTerminate, pdpDelete, payTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
+
+		pdpv1IdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpv1IPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+
+		pdpv0IdxTask := indexing.NewPDPv0IndexingTask(db, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpv0Ipni := indexing.NewPDPv0IPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpv1IdxTask, pdpv1IPNITask, pdpv0IdxTask, pdpv0Ipni)
 
 		if cfg.HTTP.Enable {
 			if !cfg.Subsystems.EnableDealMarket {

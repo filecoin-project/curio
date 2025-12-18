@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -51,14 +52,14 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		// Now query the db for data sets needing nextProvingPeriod
 		var toCallNext []struct {
-			DataSetID int64 `db:"id"`
+			DataSetId int64 `db:"id"`
 		}
 
 		err := db.Select(ctx, &toCallNext, `
                 SELECT id
-                FROM pdp_data_set
+                FROM pdp_data_sets
                 WHERE challenge_request_task_id IS NULL
-                AND (prove_at_epoch + challenge_window) <= $1 AND removed = FALSE
+                AND (prove_at_epoch + challenge_window) <= $1
             `, apply.Height())
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err)
@@ -66,14 +67,14 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		for _, ps := range toCallNext {
 			n.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				// Update pdp_data_set to set challenge_request_task_id = id
+				// Update pdp_data_sets to set challenge_request_task_id = id
 				affected, err := tx.Exec(`
-                        UPDATE pdp_data_set
+                        UPDATE pdp_data_sets
                         SET challenge_request_task_id = $1
-                        WHERE id = $2 AND challenge_request_task_id IS NULL AND removed = FALSE
-                    `, id, ps.DataSetID)
+                        WHERE id = $2 AND challenge_request_task_id IS NULL
+                    `, id, ps.DataSetId)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pdp_data_set: %w", err)
+					return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
 				}
 				if affected == 0 {
 					// Someone else might have already scheduled the task
@@ -90,23 +91,44 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 	return n
 }
 
+func (n *NextProvingPeriodTask) kickToInit(ctx context.Context, dataSetId int64) error {
+	log.Infow("moving proving for dataset to init state", "dataSetId", dataSetId)
+	_, err := n.db.Exec(ctx, `
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = TRUE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+		`, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed set values to trigger proving re-init: %w", err)
+	}
+	return nil
+}
+
 func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	// Select the data set where challenge_request_task_id = taskID
-	var dataSetID int64
+	var dataSetId int64
 
 	err = n.db.QueryRow(ctx, `
         SELECT id
-        FROM pdp_data_set
+        FROM pdp_data_sets
         WHERE challenge_request_task_id = $1 AND prove_at_epoch IS NOT NULL
-    `, taskID).Scan(&dataSetID)
+    `, taskID).Scan(&dataSetId)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No matching data set, task is done (something weird happened, and e.g another task was spawned in place of this one)
 		return true, nil
 	}
 	if err != nil {
-		return false, xerrors.Errorf("failed to query pdp_data_set: %w", err)
+		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
+
+	defer func() {
+		if err != nil {
+			log.Errorw("Next challange window scheduling failed", "dataSetId", dataSetId, "error", err)
+			err = fmt.Errorf("failed to set up next proving period for dataset %d: %w", dataSetId, err)
+		}
+	}()
 
 	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
@@ -114,9 +136,9 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetID))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetID, err)
+		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
@@ -124,9 +146,16 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
-
-	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetID))
+	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetId))
 	if err != nil {
+		// not my favourite way to handle this but pragmatic
+		// for some reason we are in a proving loop running but it is not initialized
+		if strings.Contains(err.Error(), "0x999010d5") { // Error.ProvingPeriodNotInitialized
+			if err := n.kickToInit(ctx, dataSetId); err != nil {
+				return false, xerrors.Errorf("failed to kick back to init: %w", err)
+			}
+			return true, nil // true as this task is done
+		}
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 
@@ -140,7 +169,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to get PDPVerifier ABI: %w", err)
 	}
 
-	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(dataSetID), next_prove_at, []byte{})
+	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(dataSetId), next_prove_at, []byte{})
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
@@ -160,7 +189,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, nil
 	}
 
-	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(nil, big.NewInt(dataSetID))
+	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(nil, big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get default sender address: %w", err)
 	}
@@ -178,30 +207,28 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	txHashLower := strings.ToLower(txHash.Hex())
-
 	// Update the database in a transaction
 	_, err = n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Update pdp_data_set
+		// Update pdp_data_sets
 		affected, err := tx.Exec(`
-            UPDATE pdp_data_set
+            UPDATE pdp_data_sets
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3
             WHERE id = $4
-        `, txHashLower, ts.Height(), next_prove_at.Uint64(), dataSetID)
+        `, txHash.Hex(), ts.Height(), next_prove_at.Uint64(), dataSetId)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_data_set: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
 		}
 		if affected == 0 {
-			return false, xerrors.Errorf("pdp_data_set update affected 0 rows")
+			return false, xerrors.Errorf("pdp_data_sets update affected 0 rows")
 		}
 
 		// Insert into message_waits_eth
 		_, err = tx.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, 'pending') ON CONFLICT DO NOTHING
-        `, txHashLower)
+        `, txHash.Hex())
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
 		}
@@ -213,7 +240,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	}
 
 	// Task completed successfully
-	log.Infow("Next challenge window scheduled", "epoch", next_prove_at)
+	log.Infow("Next challenge window scheduled", "epoch", next_prove_at, "dataSetId", dataSetId)
 
 	return true, nil
 }
@@ -225,7 +252,7 @@ func (n *NextProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *harm
 
 func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPProvingPeriod",
+		Name: "PDPv0_ProvPeriod",
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

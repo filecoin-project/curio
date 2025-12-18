@@ -295,16 +295,16 @@ jobs:
   build-supraseal-ubuntu24:
     runs-on: ubuntu-24.04
     needs: [ci-lint]
-    
+
     env:
       GCC_VERSION: "12"
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Free up disk space
         run: |
           # Remove unnecessary packages to free up space for CUDA installation
@@ -313,7 +313,7 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -334,13 +334,13 @@ jobs:
             python3 python3-pip python3-dev \
             curl wget git \
             xxd
-      
+
       - name: Set up Python virtual environment
         run: |
           # Python tools will be installed in venv by build.sh
           # Just ensure python3-venv is available
           python3 -m venv --help > /dev/null || sudo apt-get install -y python3-venv
-      
+
       - name: Set up GCC 12 as default
         run: |
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
@@ -349,7 +349,7 @@ jobs:
           sudo update-alternatives --set g++ /usr/bin/g++-12
           gcc --version
           g++ --version
-      
+
       - name: Cache CUDA installation
         id: cache-cuda
         uses: actions/cache@v4
@@ -358,7 +358,7 @@ jobs:
             /usr/local/cuda
             /usr/local/cuda-*
           key: cuda-toolkit-ubuntu-24.04-${{ runner.os }}-v1
-      
+
       - name: Install CUDA Toolkit from NVIDIA Repository
         if: steps.cache-cuda.outputs.cache-hit != 'true'
         run: |
@@ -382,7 +382,7 @@ jobs:
             echo "ERROR: CUDA installation not found"
             exit 1
           fi
-      
+
       - name: Set up CUDA environment
         run: |
           # Verify CUDA installation exists
@@ -403,7 +403,7 @@ jobs:
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-      
+
       - name: Install libconfig++
         run: |
           sudo apt-get install -y libconfig++-dev || {
@@ -418,11 +418,11 @@ jobs:
             cd ..
             rm -rf libconfig-1.7.3*
           }
-      
+
       - name: Install GMP library
         run: |
           sudo apt-get install -y libgmp-dev
-      
+
       - name: Cache Python venv
         id: cache-venv
         uses: actions/cache@v4
@@ -431,7 +431,7 @@ jobs:
           key: supraseal-venv-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
             supraseal-venv-ubuntu24-
-      
+
       - name: Cache SPDK build
         id: cache-spdk
         uses: actions/cache@v4
@@ -440,7 +440,7 @@ jobs:
           key: spdk-v24.05-gcc12-ubuntu24-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
             spdk-v24.05-gcc12-ubuntu24-
-      
+
       - name: Build Supraseal
         working-directory: extern/supraseal
         run: |
@@ -457,7 +457,7 @@ jobs:
           
           # Run the build script (creates and uses Python venv internally)
           ./build.sh
-      
+
       - name: Verify binaries
         working-directory: extern/supraseal
         run: |
@@ -478,7 +478,7 @@ jobs:
           
           echo ""
           echo "✅ All binaries built successfully!"
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -490,14 +490,14 @@ jobs:
             extern/supraseal/bin/tree_r_cpu
             extern/supraseal/bin/tree_d_cpu
           retention-days: 30
-      
+
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
         with:
           name: supraseal-library-ubuntu24-gcc12-cuda
           path: extern/supraseal/obj/libsupraseal.a
           retention-days: 30
-      
+
       - name: Build summary
         run: |
           echo "### 🎉 Supraseal Build Summary" >> $GITHUB_STEP_SUMMARY
