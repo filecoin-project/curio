@@ -772,22 +772,37 @@ func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, p
 				return false, xerrors.Errorf("failed to get piece ref for piece %d: %w", removeID, err)
 			}
 
-			// Delete the parked piece ref, this will cascade to the pdp piece ref too
-			_, err = tx.Exec(`
-				DELETE FROM parked_piece_refs
-				WHERE ref_id = $1
-			`, pdpPieceRefID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", pdpPieceRefID, err)
-			}
-
 			// Delete the piece entry
+			// Triggers on this table will decrement the refcount on pdp_piecerefs
 			_, err = tx.Exec(`
                 DELETE FROM pdp_data_set_pieces
                 WHERE data_set = $1 AND piece_id = $2
             `, dataSetId, removeID)
 			if err != nil {
 				return false, xerrors.Errorf("failed to delete piece %d: %w", removeID, err)
+			}
+
+			// Check if we should delete the underlying piece ref
+			var refCount int64
+			var pieceRefID int64
+			err = tx.QueryRow(`
+				SELECT data_set_refcount, piece_ref
+				FROM pdp_piecerefs
+				WHERE id = $1
+			`, pdpPieceRefID).Scan(&refCount, &pieceRefID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get refcount for pdp pieceref %d: %w", pdpPieceRefID, err)
+			}
+
+			if refCount == 0 {
+				// Delete the parked piece ref, this will cascade to the pdp piece ref too
+				_, err = tx.Exec(`
+					DELETE FROM parked_piece_refs
+					WHERE ref_id = $1
+				`, pieceRefID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", pieceRefID, err)
+				}
 			}
 		}
 
