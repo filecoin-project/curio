@@ -1,7 +1,9 @@
 package expmgr
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -567,6 +569,17 @@ func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, cfg extendPresetCon
 
 		return allMessages, nil
 	} else if err != nil {
+		var b bytes.Buffer
+		cerr := msg.MarshalCBOR(&b)
+		if cerr != nil {
+			return nil, xerrors.Errorf("marshalling message: %w", cerr)
+		}
+
+		log.Errorw("failed to estimate gas",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"error", err,
+			"msghex", hex.EncodeToString(b.Bytes()))
 		return nil, xerrors.Errorf("failed to estimate gas: %w", err)
 	}
 
