@@ -344,7 +344,7 @@ type EntryInfo struct {
 
 	FirstCID    sql.NullString `db:"first_cid"`
 	StartOffset sql.NullInt64  `db:"start_offset"`
-	NumBlocks   int64      `db:"num_blocks"`
+	NumBlocks   int64          `db:"num_blocks"`
 
 	PrevCID sql.NullString `db:"prev_cid"`
 

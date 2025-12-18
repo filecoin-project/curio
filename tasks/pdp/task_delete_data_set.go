@@ -126,7 +126,7 @@ func (t *DeleteDataSetTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "DeleteDataSet",
+		Name: "PDPv0_DelDataSet",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

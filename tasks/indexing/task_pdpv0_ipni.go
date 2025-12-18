@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -35,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/market/ipni/types"
 )
 
 const (
@@ -303,7 +303,7 @@ func (P *PDPv0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (P *PDPv0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPIpni",
+		Name: "PDPv0_IPNI",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

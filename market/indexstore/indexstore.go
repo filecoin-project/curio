@@ -51,7 +51,8 @@ type Record struct {
 	Size   uint64  `json:"size"`
 }
 
-func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStore {cluster := gocql.NewCluster(hosts...)
+func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStore {
+	cluster := gocql.NewCluster(hosts...)
 	cluster.Timeout = 5 * time.Minute
 	cluster.Consistency = gocql.One
 	cluster.NumConns = cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency * 8

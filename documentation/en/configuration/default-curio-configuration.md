@@ -546,7 +546,7 @@ description: The default curio configuration
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
   #
   # type: time.Duration
-  #IdleTimeout = "1h0m0s"
+  #IdleTimeout = "2m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
@@ -768,13 +768,13 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
+      #ServiceURL = ["https://cid.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
     # Indexing configuration for deal indexing
     #

@@ -30,7 +30,6 @@ import (
 )
 
 var ErrNoDeal = errors.New("no deals found")
-var ErrNotFound = errors.New("piece not found")
 
 var log = logging.Logger("cached-reader")
 
@@ -195,7 +194,15 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 	if len(deals) == 0 {
 		if retrieval {
-			return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+			// Remove this once PDPV0 is no longer supported and return the ErrNoDeal error instead
+			var refID int64
+			err = cpr.db.QueryRow(ctx, `SELECT piece_ref FROM pdp_piecerefs WHERE piece_cid = $1 LIMIT 1;`, pieceCid.String()).Scan(&refID)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+				}
+				return nil, 0, fmt.Errorf("failed to query pdp_piecerefs for piece cid %s: %w", pieceCid, err)
+			}
 		}
 		reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, nil, &pieceCid, &pieceSize)
 		if err != nil {
@@ -463,8 +470,6 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 			if err != nil {
 				log.Errorw("failed to get piece reader", "piececid", pieceCid, "piece size", pieceSize, "err", err)
 				finalErr := fmt.Errorf("failed to get piece reader from aggregate, sector or piece park: %w, %w", aerr, err)
-
-				// TODO: pdpv0-main - Bring in changes from pdpv0 about using HTTP codes here
 
 				// Record error metric
 				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{

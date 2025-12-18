@@ -1294,11 +1294,10 @@ USAGE:
    curio toolbox [command options]
 
 COMMANDS:
-   fix-msg                        Updated DB with message data missing from chain node
-   register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
-   downgrade                      Downgrade a cluster's daatabase to a previous software version.
-   fix-boost-migration            Fix Boost migration
-   help, h                        Shows a list of commands or help for one command
+   fix-msg              Updated DB with message data missing from chain node
+   downgrade            Downgrade a cluster's daatabase to a previous software version.
+   fix-boost-migration  Fix Boost migration
+   help, h              Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -1315,29 +1314,6 @@ USAGE:
 OPTIONS:
    --all       Update data for messages in wait queue (default: false)
    --help, -h  show help
-```
-
-### curio toolbox register-pdp-service-provider
-```
-NAME:
-   curio toolbox register-pdp-service-provider - Register a PDP service provider with Filecoin Service Registry Contract
-
-USAGE:
-   curio toolbox register-pdp-service-provider [command options]
-
-OPTIONS:
-   --name value            Service provider name
-   --description value     Service provider description
-   --service-url value     URL of the service provider
-   --min-size value        Minimum piece size (default: "1 MiB")
-   --max-size value        Maximum piece size (default: "64 GiB")
-   --ipni-piece            Supports IPNI piece CID indexing (default: false)
-   --ipni-ipfs             Supports IPNI IPFS CID indexing (default: false)
-   --price value           Storage price per TiB per month in USDFC, Default is 1 USDFC. (default: 1000000)
-   --proving-period value  Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset (default: 60)
-   --location value        Location of the service provider
-   --token-address value   Token contract for payment (IERC20(address(0)) for FIL)
-   --help, -h              show help
 ```
 
 ### curio toolbox downgrade

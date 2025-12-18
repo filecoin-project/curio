@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/reqcontext"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
