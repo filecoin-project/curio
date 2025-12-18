@@ -93,7 +93,7 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 				│
 				├── pdp_data_set_piece_adds.data_set       -- CASCADE
 				│
-				└── pdpv0_prove_tasks.data_set               -- CASCADE
+				└── pdp_prove_tasks.data_set               -- CASCADE
 
 				What this means at delete time:
 				1. We run:
@@ -102,7 +102,7 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 				2. Postgres automatically:
 					a. Deletes all matching rows in pdp_data_set_pieces (CASCADE).
 					b. Deletes all matching rows in pdp_data_set_piece_adds (CASCADE).
-					c. Deletes all matching rows in pdpv0_prove_tasks (CASCADE).
+					c. Deletes all matching rows in pdp_prove_tasks (CASCADE).
 
 				3. While removing pdp_data_set_pieces rows:
 					a. The row’s FK pdp_data_set_pieces.pdp_pieceref → pdp_piecerefs(id) is ON DELETE SET NULL (so we do not delete pdp_piecerefs).
