@@ -54,9 +54,47 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
-  build-mainnet:
+  setup-supraseal:
     runs-on: ubuntu-24.04
     needs: [ci-lint]
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Compute supraseal cache key
+        id: cache-key
+        run: |
+          # Get the last commit that touched extern/supraseal or the blst build script
+          SUPRA_COMMIT=$(git log -1 --format=%H -- extern/supraseal/ scripts/build-blst.sh)
+          echo "key=supraseal-${{ runner.os }}-${{ runner.arch }}-${SUPRA_COMMIT}-v1" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Cache supraseal build artifacts
+        id: cache-supraseal
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Build supraseal
+        if: steps.cache-supraseal.outputs.cache-hit != 'true'
+        run: |
+          # Build only blst and supraseal (skip filecoin-ffi which is cached separately)
+          make build/.blst-install build/.supraseal-install
+        shell: bash
+
+  build-mainnet:
+    runs-on: ubuntu-24.04
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +106,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -82,7 +135,7 @@ jobs:
 
   build-calibnet:
     runs-on: ubuntu-24.04
-    needs: [ ci-lint ]
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +147,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -108,7 +176,7 @@ jobs:
 
   build-debug:
     runs-on: ubuntu-24.04
-    needs: [ ci-lint ]
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -120,6 +188,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -134,7 +217,7 @@ jobs:
 
   build-2k:
     runs-on: ubuntu-24.04
-    needs: [ ci-lint ]
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -146,6 +229,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -160,7 +258,7 @@ jobs:
 
   build-forest:
     runs-on: ubuntu-24.04
-    needs: [ ci-lint ]
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -172,6 +270,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -186,7 +299,7 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
-    needs: [setup-params]
+    needs: [setup-params, setup-supraseal]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
@@ -220,6 +333,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -268,7 +396,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-24.04
-    needs: [ci-lint]
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -280,6 +408,21 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
+        shell: bash
 
       - name: Install FFI
         env:
@@ -553,7 +696,7 @@ jobs:
 
   gen-check:
     runs-on: ubuntu-24.04
-    needs: [ci-lint]
+    needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
 
@@ -580,6 +723,21 @@ jobs:
 
       - name: Install gotext
         run: go install golang.org/x/text/cmd/gotext
+        shell: bash
+
+      - name: Restore supraseal cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/.blst-install
+            build/.supraseal-install
+            extern/supraseal/obj/
+            extern/supraseal/deps/blst/
+            extern/supraseal/deps/spdk-v24.05/
+          key: ${{ needs.setup-supraseal.outputs.cache-key }}
+
+      - name: Touch marker files to prevent rebuild
+        run: touch -c build/.blst-install build/.supraseal-install 2>/dev/null || true
         shell: bash
 
       - name: Install FFI
