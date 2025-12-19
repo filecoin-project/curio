@@ -467,7 +467,7 @@ jobs:
         shell: bash
 
   build-supraseal-ubuntu24:
-    runs-on: [self-hosted, docker]
+    runs-on: ubuntu-24.04
     needs: [ci-lint]
     
     env:

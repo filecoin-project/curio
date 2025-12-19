@@ -17,7 +17,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
 
-//go:generate go run github.com/golang/mock/mockgen -destination=mocks/pf.go -package=mocks . PartialFileHandler
+//go:generate go run github.com/golang/mock/mockgen -source=interface.go -destination=mocks/pf.go -package=mocks PartialFileHandler
 
 // PartialFileHandler helps mock out the partial file functionality during testing.
 type PartialFileHandler interface {
@@ -36,7 +36,7 @@ type PartialFileHandler interface {
 	Close(pf *partialfile.PartialFile) error
 }
 
-//go:generate go run github.com/golang/mock/mockgen -destination=mocks/store.go -package=mocks . Store
+//go:generate go run github.com/golang/mock/mockgen -source=interface.go -destination=mocks/store.go -package=mocks Store
 
 type Store interface {
 	AcquireSector(ctx context.Context, s storiface.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, sealing storiface.PathType, op storiface.AcquireMode, opts ...storiface.AcquireOption) (paths storiface.SectorPaths, stores storiface.SectorPaths, err error)

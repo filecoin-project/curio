@@ -4,7 +4,7 @@ package supraffi
 
 /*
    #cgo CFLAGS: -I${SRCDIR}/../../extern/supraseal/sealing -fno-omit-frame-pointer
-   #cgo LDFLAGS: -Wl,-z,noexecstack -Wl,-z,relro,-z,now -Wl,--allow-multiple-definition -L${SRCDIR}/../../extern/supraseal/obj -lsupraseal -lcudart_static -L${SRCDIR}/../../extern/supraseal/deps/blst -lblst -lconfig++ -lgmp -lstdc++ -pthread -ldl -lrt
+   #cgo LDFLAGS: -Wl,-z,noexecstack -Wl,-z,relro,-z,now -Xlinker --allow-multiple-definition -L${SRCDIR}/../../extern/supraseal/obj -lsupraseal -lcudart_static -L${SRCDIR}/../../extern/supraseal/deps/blst -lblst -lconfig++ -lgmp -lstdc++ -pthread -ldl -lrt
    #include <stdint.h>
    #include <stdbool.h>
    #include "supra_seal.h"

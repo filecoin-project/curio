@@ -975,9 +975,22 @@ USAGE:
    curio test supra [command options]
 
 COMMANDS:
+   system-info  Display CPU and CUDA information relevant for supraseal
    tree-r-file  Test tree-r-file
    snap-encode  Test snap-encode
    help, h      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test supra system-info
+```
+NAME:
+   curio test supra system-info - Display CPU and CUDA information relevant for supraseal
+
+USAGE:
+   curio test supra system-info [command options]
 
 OPTIONS:
    --help, -h  show help
