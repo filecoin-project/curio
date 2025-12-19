@@ -44,10 +44,12 @@ jobs:
         run: |
           # Download lotus binary for fetching params
           LOTUS_VERSION="v1.34.3"
-          wget -q "https://github.com/filecoin-project/lotus/releases/download/${LOTUS_VERSION}/lotus_${LOTUS_VERSION}_linux_amd64_v1.tar.gz"
-          tar -xzf "lotus_${LOTUS_VERSION}_linux_amd64_v1.tar.gz"
-          sudo mv lotus /usr/local/bin/
-          rm -f "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+          LOTUS_ARCHIVE="lotus_${LOTUS_VERSION}_linux_amd64_v1.tar.gz"
+          LOTUS_DIR="lotus_${LOTUS_VERSION}_linux_amd64_v1"
+          wget -q "https://github.com/filecoin-project/lotus/releases/download/${LOTUS_VERSION}/${LOTUS_ARCHIVE}"
+          tar -xzf "${LOTUS_ARCHIVE}"
+          sudo mv "${LOTUS_DIR}/lotus" /usr/local/bin/lotus
+          rm -rf "${LOTUS_DIR}" "${LOTUS_ARCHIVE}"
         shell: bash
       
       - name: Fetch parameters

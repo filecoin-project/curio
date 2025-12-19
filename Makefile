@@ -12,7 +12,7 @@ $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
 CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
-CGO_LDFLAGS_ALLOW ?= "(-Wl,--whole-archive|-Xlinker|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)"
+CGO_LDFLAGS_ALLOW ?= "(-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)"
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
