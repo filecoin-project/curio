@@ -33,7 +33,10 @@ var testSupraSystemInfoCmd = &cli.Command{
 	Name:  "system-info",
 	Usage: "Display CPU and CUDA information relevant for supraseal",
 	Action: func(cctx *cli.Context) error {
-		logging.SetLogLevel("supraffi", "WARN")
+		err := logging.SetLogLevel("supraffi", "WARN")
+		if err != nil {
+			return xerrors.Errorf("set log level: %w", err)
+		}
 		features := supraffi.GetCPUFeatures()
 
 		fmt.Println("=== Supraseal System Information ===")
