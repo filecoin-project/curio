@@ -31,7 +31,7 @@ jobs:
         run: actionlint -shellcheck= -pyflakes=
 
   setup-params:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, docker]
     needs: [ci-lint]
     steps:
       - name: Fetch parameters
