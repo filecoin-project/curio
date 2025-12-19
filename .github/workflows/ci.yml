@@ -13,7 +13,7 @@ env:
 
 jobs:
   ci-lint:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
         run: actionlint -shellcheck= -pyflakes=
 
   setup-params:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint]
     steps:
       - name: Cache proof parameters
@@ -45,7 +45,7 @@ jobs:
           # Download lotus binary for fetching params
           LOTUS_VERSION="v1.34.3"
           wget -q "https://github.com/filecoin-project/lotus/releases/download/${LOTUS_VERSION}/lotus_${LOTUS_VERSION}_linux_amd64_v1.tar.gz"
-          tar -xzf "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "lotus_${LOTUS_VERSION}_linux_amd64_v1.tar.gz"
           sudo mv lotus /usr/local/bin/
           rm -f "lotus_${LOTUS_VERSION}_linux_amd64.tar.gz"
         shell: bash
@@ -55,7 +55,7 @@ jobs:
         shell: bash
 
   setup-supraseal:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint]
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
@@ -93,7 +93,7 @@ jobs:
         shell: bash
 
   build-mainnet:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -134,7 +134,7 @@ jobs:
         shell: bash
 
   build-calibnet:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -175,7 +175,7 @@ jobs:
         shell: bash
 
   build-debug:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -216,7 +216,7 @@ jobs:
         shell: bash
 
   build-2k:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -257,7 +257,7 @@ jobs:
         shell: bash
 
   build-forest:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -298,7 +298,7 @@ jobs:
         shell: bash
 
   test:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [setup-params, setup-supraseal]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
@@ -395,7 +395,7 @@ jobs:
         run: docker stop ${{ env.CONTAINER_NAME }}
 
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -442,7 +442,7 @@ jobs:
         shell: bash
 
   gofmt:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -467,7 +467,7 @@ jobs:
         shell: bash
 
   build-supraseal-ubuntu24:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint]
     
     env:
@@ -695,7 +695,7 @@ jobs:
           echo "✅ Library compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
 
   gen-check:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint, setup-supraseal]
     steps:
       - uses: actions/checkout@v4
@@ -762,7 +762,7 @@ jobs:
         shell: bash
 
   mod-tidy-check:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, docker]
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
