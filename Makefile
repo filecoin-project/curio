@@ -15,7 +15,7 @@ CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
-		FFI_DISABLE_FVM=1 $(MAKE) curio-libfilecoin; \
+		$(MAKE) curio-libfilecoin; \
 	else \
 		$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
 	fi
@@ -31,6 +31,7 @@ curio-libfilecoin:
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
 	FFI_USE_MULTICORE_SDR=1 \
+	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
 	@echo "Rebuilt libfilcrypto for Curio (OpenCL+multicore, no default features)."
@@ -107,12 +108,12 @@ test-deps: $(BUILD_DEPS)
 .PHONY: test-deps
 
 test: test-deps
-	go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
+	go test -v -tags="cgo" -timeout 30m ./itests/...
 .PHONY: test
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS ?= cunative
+CURIO_TAGS ?= cunative nofvm
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -127,7 +128,7 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
+	$(GOCC) build $(GOFLAGS)  -tags "$(CURIO_TAGS) " -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
