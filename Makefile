@@ -15,6 +15,8 @@ CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
 CGO_LDFLAGS_ALLOW ?= "(-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)"
 export CGO_LDFLAGS_ALLOW
 
+TEST_ENV_VARS := CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW)
+
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
 		FFI_DISABLE_FVM=1 $(MAKE) curio-libfilecoin; \
@@ -110,7 +112,7 @@ test-deps: $(BUILD_DEPS)
 .PHONY: test-deps
 
 test: test-deps
-	go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
+	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
 .PHONY: test
 
 ## ldflags -s -w strips binary
