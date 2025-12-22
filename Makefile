@@ -29,7 +29,7 @@ setup-cgo-env:
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
-		FFI_DISABLE_FVM=1 $(MAKE) curio-libfilecoin; \
+		$(MAKE) curio-libfilecoin; \
 	else \
 		$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
 	fi
@@ -45,6 +45,7 @@ curio-libfilecoin:
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
 	FFI_USE_MULTICORE_SDR=1 \
+	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
 	@echo "Rebuilt libfilcrypto for Curio (OpenCL+multicore, no default features)."
@@ -127,7 +128,7 @@ test: test-deps
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS ?= cunative
+CURIO_TAGS ?= cunative nofvm
 
 ifeq ($(shell uname),Linux)
 curio: CGO_LDFLAGS_ALLOW='.*'
