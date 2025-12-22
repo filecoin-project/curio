@@ -12,10 +12,20 @@ $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
 CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
-CGO_LDFLAGS_ALLOW ?= "(-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)"
+CGO_LDFLAGS_ALLOW_PATTERN := (-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)
+CGO_LDFLAGS_ALLOW ?= "$(CGO_LDFLAGS_ALLOW_PATTERN)"
 export CGO_LDFLAGS_ALLOW
 
 TEST_ENV_VARS := CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW)
+BUILD_DEPS := setup-cgo-env
+
+.PHONY: setup-cgo-env
+setup-cgo-env:
+	@current=$$(go env CGO_LDFLAGS_ALLOW); \
+	if [ "$$current" != "$(CGO_LDFLAGS_ALLOW_PATTERN)" ]; then \
+		echo "Configuring go to allow $(CGO_LDFLAGS_ALLOW_PATTERN)"; \
+		go env -w CGO_LDFLAGS_ALLOW='$(CGO_LDFLAGS_ALLOW_PATTERN)'; \
+	fi
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
