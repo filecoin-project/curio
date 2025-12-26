@@ -149,8 +149,57 @@ func (s *SyntheticProofTask) markFinished(ctx context.Context, spid, sector int6
 }
 
 func (s *SyntheticProofTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	var tasks []struct {
+		TaskID       harmonytask.TaskID `db:"task_id_synth"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector_number"`
+		StorageID    string             `db:"storage_id"`
+	}
+
+	if storiface.FTCache != 4 {
+		panic("storiface.FTCache != 4")
+	}
+
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	err := s.db.Select(ctx, &tasks, `
+		SELECT p.task_id_synth, p.sp_id, p.sector_number, l.storage_id FROM sectors_sdr_pipeline p
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
+			WHERE task_id_synth = ANY ($1) AND l.sector_filetype = 4
+`, indIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting tasks: %w", err)
+	}
+
+	ls, err := s.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+
+	acceptables := map[harmonytask.TaskID]bool{}
+
+	for _, t := range ids {
+		acceptables[t] = true
+	}
+
+	for _, t := range tasks {
+		if _, ok := acceptables[t.TaskID]; !ok {
+			continue
+		}
+
+		for _, l := range ls {
+			if string(l.ID) == t.StorageID {
+				return &t.TaskID, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
