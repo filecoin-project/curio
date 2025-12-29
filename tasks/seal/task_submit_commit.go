@@ -367,6 +367,10 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		sectors = append(sectors, sectorParams.SectorNumber)
 	}
 
+	if len(infos) == 0 {
+		return false, xerrors.Errorf("no eligible sectors to commit")
+	}
+
 	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(len(infos))
 
 	msg, err := s.createCommitMessage(ctx, maddr, mi, balance, sectorParamsArr[0].RegSealProof, sectorParamsArr[0].SpID, collateral, params, infos, ts)
