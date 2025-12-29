@@ -488,20 +488,19 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if s.slots.Available() == 0 {
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	// check if we have enough huge pages available
 	// sysctl vm.nr_hugepages should be >= 36 for 32G sectors
 	if err := hugepageutil.CheckHugePages(36); err != nil {
 		log.Warnw("huge pages check failed, try 'sudo sysctl -w vm.nr_hugepages=36' and make sure your system uses 1G huge pages", "err", err)
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 var ssizeToName = map[abi.SectorSize]string{

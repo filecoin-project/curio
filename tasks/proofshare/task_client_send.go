@@ -84,8 +84,8 @@ func (t *TaskClientSend) Adder(atf harmonytask.AddTaskFunc) {
 }
 
 // CanAccept implements harmonytask.TaskInterface.
-func (t *TaskClientSend) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (t *TaskClientSend) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 type Payment struct {

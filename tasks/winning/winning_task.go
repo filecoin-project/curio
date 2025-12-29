@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -508,30 +509,27 @@ func (t *WinPostTask) generateWinningPost(
 
 }
 
-func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to setup params: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
 		log.Infow("WinPostTask.CanAccept() params not ready, not scheduling")
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	// select task id, hoping to get the highest epoch
-	var highestTaskID harmonytask.TaskID
-	for _, id := range ids {
-		if id > highestTaskID {
-			highestTaskID = id
-		}
-	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] > ids[j]
+	})
 
-	return &highestTaskID, nil
+	return ids, nil
 }
 
 func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
