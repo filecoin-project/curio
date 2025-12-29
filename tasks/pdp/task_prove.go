@@ -111,7 +111,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 				// Process the first data set
 				todo := dataSets[0]
 
-				// Insert a new task into pdp_prove_tasks
+				// Insert a new task into pdpv0_prove_tasks
 				affected, err := tx.Exec(`
                     INSERT INTO pdp_prove_tasks (data_set, task_id)
                     VALUES ($1, $2) ON CONFLICT DO NOTHING
@@ -755,7 +755,7 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPProve",
+		Name: "PDPv0_Prove",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

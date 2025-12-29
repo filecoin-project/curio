@@ -312,7 +312,7 @@ func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 
 func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPIpni",
+		Name: "PDPv0_IPNI",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,
