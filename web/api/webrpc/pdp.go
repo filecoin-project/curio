@@ -436,10 +436,18 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("provider is already registered")
 	}
 
-	serviceURL := url.URL{
-		Scheme: "https",
-		Host:   a.deps.Cfg.HTTP.DomainName,
-	}
+	serviceURL := func() *url.URL {
+		if a.deps.Cfg.HTTP.ExternalUrl != "" {
+			u, err := url.Parse(a.deps.Cfg.HTTP.ExternalUrl)
+			if err == nil {
+				return u
+			}
+		}
+		return &url.URL{
+			Scheme: "https",
+			Host:   a.deps.Cfg.HTTP.DomainName,
+		}
+	}()
 
 	tokenAddress, err := contract.USDFCAddress()
 	if err != nil {
