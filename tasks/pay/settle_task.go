@@ -27,6 +27,14 @@ type SettleTask struct {
 	sender    *message.SenderETH
 }
 
+func NewSettleTask(db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *SettleTask {
+	return &SettleTask{
+		db:        db,
+		ethClient: ethClient,
+		sender:    sender,
+	}
+}
+
 func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 

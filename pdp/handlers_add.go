@@ -253,7 +253,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 }
 
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx := context.Background()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
@@ -403,12 +403,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		"dataSetId", dataSetIdUint64,
 		"pieceCount", len(payload.Pieces))
 
-	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
+	comm, err := p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		logAdd.Debugw("Inserting AddPieces into message_waits_eth",
 			"txHash", txHashLower,
 			"status", "pending")
-		_, err := txdb.Exec(`
+		n, err := txdb.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, $2)
         `, txHashLower, "pending")
@@ -417,6 +417,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				"txHash", txHashLower,
 				"error", err)
 			return false, err // Return false to rollback the transaction
+		}
+
+		if n != 1 {
+			logAdd.Errorw("Failed to insert AddPieces into message_waits_eth",
+				"txHash", txHashLower,
+				"expected_rows", 1,
+				"actual_rows", n)
+			return false, fmt.Errorf("expected 1 row to be inserted, got %d", n)
 		}
 
 		// Insert into pdp_data_set_pieces
@@ -440,6 +448,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if !comm {
+		logAdd.Errorw("Failed to commit database transaction", "txHash", txHashLower)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// Step 10: Respond with 201 Created
 	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
@@ -451,7 +465,7 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 			subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
 
 			// Insert into pdp_data_set_pieces
-			_, err := txdb.Exec(`
+			n, err := txdb.Exec(`
                     INSERT INTO pdp_data_set_piece_adds (
                         data_set,
                         piece,
@@ -475,6 +489,9 @@ func (p *PDPService) insertPieceAdds(txdb *harmonydb.Tx, dataSetId *uint64, txHa
 			)
 			if err != nil {
 				return err
+			}
+			if n != 1 {
+				return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_piece_adds, got %d", n)
 			}
 		}
 	}
