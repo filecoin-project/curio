@@ -847,3 +847,34 @@ func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, layerId
 		Hash:  hash,
 	}, nil
 }
+
+func (i *IndexStore) GetMultihashes(ctx context.Context, piecev2 cid.Cid) (<-chan multihash.Multihash, <-chan error) {
+	out := make(chan multihash.Multihash, 1000)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(out)
+		defer close(errCh)
+
+		qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? ORDER BY PayloadMultihash ASC"
+		iter := i.session.Query(qry, piecev2.Bytes()).WithContext(ctx).PageSize(10000).Iter()
+
+		var r []byte
+		for iter.Scan(&r) {
+			m := multihash.Multihash(r)
+			select {
+			case out <- m:
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			}
+			// Allocate new r, preallocating the typical size of a multihash (36 bytes)
+			r = make([]byte, 0, 36)
+		}
+		if err := iter.Close(); err != nil {
+			errCh <- xerrors.Errorf("iterating piece hash range (P:0x%02x): %w", piecev2.Bytes(), err)
+		}
+	}()
+
+	return out, errCh
+}

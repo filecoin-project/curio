@@ -2,7 +2,9 @@ package seal
 
 import (
 	"context"
+	"errors"
 
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -30,61 +32,50 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		return &ids[0], nil
 	}
 
-	if engine.Resources().Gpu > 0 {
-		if !t.bound {
-			return &ids[0], nil
-		}
-
-		var tasks []struct {
-			TaskID       harmonytask.TaskID `db:"task_id_tree_d"`
-			SpID         int64              `db:"sp_id"`
-			SectorNumber int64              `db:"sector_number"`
-			StorageID    string             `db:"storage_id"`
-		}
-
-		if storiface.FTCache != 4 {
-			panic("storiface.FTCache != 4")
-		}
-
-		ctx := context.Background()
-
-		indIDs := make([]int64, len(ids))
-		for i, id := range ids {
-			indIDs[i] = int64(id)
-		}
-
-		err := t.db.Select(ctx, &tasks, `
-		SELECT p.task_id_tree_d, p.sp_id, p.sector_number, l.storage_id FROM sectors_sdr_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
-			WHERE task_id_tree_d = ANY ($1) AND l.sector_filetype = 4`, indIDs)
-		if err != nil {
-			return nil, xerrors.Errorf("getting tasks: %w", err)
-		}
-
-		ls, err := t.sc.LocalStorage(ctx)
-		if err != nil {
-			return nil, xerrors.Errorf("getting local storage: %w", err)
-		}
-
-		acceptables := map[harmonytask.TaskID]bool{}
-
-		for _, t := range ids {
-			acceptables[t] = true
-		}
-
-		for _, t := range tasks {
-			if _, ok := acceptables[t.TaskID]; !ok {
-				continue
-			}
-
-			for _, l := range ls {
-				if string(l.ID) == t.StorageID {
-					return &t.TaskID, nil
-				}
-			}
-		}
+	if engine.Resources().Gpu <= 0 {
+		return nil, nil
 	}
-	return nil, nil
+
+	if !t.bound {
+		return &ids[0], nil
+	}
+
+	if storiface.FTCache != 4 {
+		panic("storiface.FTCache != 4")
+	}
+
+	ctx := context.Background()
+
+	ls, err := t.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+
+	storageIDs := make([]string, len(ls))
+	for i, l := range ls {
+		storageIDs[i] = string(l.ID)
+	}
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var acceptedID harmonytask.TaskID
+
+	err = t.db.QueryRow(ctx, `
+		SELECT p.task_id_tree_d FROM sectors_sdr_pipeline p
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
+			WHERE task_id_tree_d = ANY ($1) AND l.sector_filetype = 4 AND l.storage_id = ANY ($2) LIMIT 1`, indIDs, storageIDs).Scan(&acceptedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
+	}
+
+	return &acceptedID, nil
+
 }
 
 func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {

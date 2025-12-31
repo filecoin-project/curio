@@ -16,10 +16,7 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-varint"
-	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -38,7 +35,6 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/market/ipni/types"
-	"github.com/filecoin-project/curio/market/mk20"
 )
 
 type PDPIPNITask struct {
@@ -47,15 +43,17 @@ type PDPIPNITask struct {
 	sc  *ffi.SealCalls
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
+	idx *indexstore.IndexStore
 }
 
-func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIPNITask {
+func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *PDPIPNITask {
 	return &PDPIPNITask{
 		db:  db,
 		cpr: cpr,
 		sc:  sc,
 		cfg: cfg,
 		max: max,
+		idx: idx,
 	}
 }
 
@@ -252,91 +250,27 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	var lnk ipld.Link
 
 	if pinfo.Payload {
-		reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
-		if err != nil {
-			return false, xerrors.Errorf("getting piece reader from piece park: %w", err)
-		}
-
-		defer func() {
-			_ = reader.Close()
-		}()
-
-		recs := make(chan indexstore.Record, 1)
-
-		var eg errgroup.Group
-		addFail := make(chan struct{})
-		var interrupted bool
-		var subPieces []mk20.DataSource
 		chk := chunker.NewInitialChunker()
+		recs, errCh := P.idx.GetMultihashes(ctx, pcid2)
+		recordCount := int64(0)
 
-		eg.Go(func() error {
-			defer close(addFail)
-			for rec := range recs {
-				// CAR sections are [varint (length), CID, blockData]
-				combinedSize := rec.Size + uint64(rec.Cid.ByteLen())
-				lenSize := uint64(varint.UvarintSize(combinedSize))
-				sectionSize := combinedSize + lenSize
-				serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), sectionSize)
-				if serr != nil {
-					addFail <- struct{}{}
-					return serr
-				}
+		for rec := range recs {
+			if readRrr := <-errCh; readRrr != nil {
+				return false, xerrors.Errorf("reading index: %w", readRrr)
 			}
-			return nil
-		})
-
-		id, serr := ulid.Parse(task.ID)
-		if serr != nil {
-			return false, xerrors.Errorf("parsing task id: %w", serr)
-		}
-		deal, serr := mk20.DealFromDB(ctx, P.db, id)
-		if serr != nil {
-			return false, xerrors.Errorf("getting deal from db: %w", serr)
-		}
-
-		if deal.Data.Format.Raw != nil {
-			return false, xerrors.Errorf("raw data not supported")
-		}
-
-		if deal.Data.Format.Car != nil {
-			_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
-		}
-
-		if deal.Data.Format.Aggregate != nil {
-			if deal.Data.Format.Aggregate.Type > 0 {
-				var found bool
-				if len(deal.Data.Format.Aggregate.Sub) > 0 {
-					subPieces = deal.Data.Format.Aggregate.Sub
-					found = true
-				}
-				if len(deal.Data.SourceAggregate.Pieces) > 0 {
-					subPieces = deal.Data.SourceAggregate.Pieces
-					found = true
-				}
-				if !found {
-					return false, xerrors.Errorf("no sub pieces for aggregate mk20 deal")
-				}
-				_, _, interrupted, err = IndexAggregate(pcid2, reader, size, subPieces, recs, addFail)
-			} else {
-				return false, xerrors.Errorf("invalid aggregate type")
+			serr := chk.Accept(rec)
+			if serr != nil {
+				return false, xerrors.Errorf("adding index to chunk: %w", serr)
 			}
+			recordCount++
 		}
 
-		if err != nil {
-			// Chunking itself failed, stop early
-			close(recs) // still safe to close, chk.Accept() will exit on channel close
-			// wait for chk.Accept() goroutine to finish cleanly
-			_ = eg.Wait()
-			return false, xerrors.Errorf("chunking failed: %w", err)
+		if err := <-errCh; err != nil {
+			return false, xerrors.Errorf("reading index: %w", err)
 		}
 
-		// Close the channel
-		close(recs)
-
-		// Wait till is finished
-		err = eg.Wait()
-		if err != nil {
-			return false, xerrors.Errorf("adding index to chunk (interrupted %t): %w", interrupted, err)
+		if recordCount == 0 {
+			return false, xerrors.Errorf("no index record found for piece %s", pcid2.String())
 		}
 
 		// make sure we still own the task before writing to the database
@@ -350,7 +284,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	} else {
 		chk := chunker.NewInitialChunker()
-		err = chk.Accept(pcid2.Hash(), 0, uint64(size))
+		err = chk.Accept(pcid2.Hash())
 		if err != nil {
 			return false, xerrors.Errorf("adding index to chunk: %w", err)
 		}

@@ -61,7 +61,7 @@ func NewInitialChunker() *InitialChunker {
 	}
 }
 
-func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64, entryLen uint64) error {
+func (c *InitialChunker) Accept(mh multihash.Multihash) error {
 	if c.ingestedSoFar < longChainThreshold {
 		// db-order ingest
 		c.dbMultihashes = append(c.dbMultihashes, mh)
@@ -70,24 +70,24 @@ func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64, entryLen
 
 	// free db-order ingest
 	if c.ingestedSoFar >= longChainThreshold {
-		c.dbMultihashes = nil
+		return xerrors.Errorf("too many entries (%d), please inform the Curio dev team about this.", c.ingestedSoFar)
 	}
 	c.ingestedSoFar++
 
 	// car-order ingest
 
 	// append to car-order ingest
-	c.carPending = append(c.carPending, mh)
-	c.carPendingBytes += entryLen
-	if c.carChunkStart == nil {
-		c.carChunkStart = &startOff
-	}
-
-	if len(c.carPending) >= c.chunkSize || c.carPendingBytes >= maxCarChunkSize {
-		if err := c.processCarPending(); err != nil {
-			return xerrors.Errorf("process car pending: %w", err)
-		}
-	}
+	//c.carPending = append(c.carPending, mh)
+	//c.carPendingBytes += entryLen
+	//if c.carChunkStart == nil {
+	//	c.carChunkStart = &startOff
+	//}
+	//
+	//if len(c.carPending) >= c.chunkSize || c.carPendingBytes >= maxCarChunkSize {
+	//	if err := c.processCarPending(); err != nil {
+	//		return xerrors.Errorf("process car pending: %w", err)
+	//	}
+	//}
 
 	return nil
 }
