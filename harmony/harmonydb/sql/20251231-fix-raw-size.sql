@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS fix_raw_size (
+    id SERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL
+);
