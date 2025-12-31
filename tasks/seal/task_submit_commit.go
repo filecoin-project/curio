@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/ipfs/go-cid"
-	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -278,16 +277,17 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
 			if err != nil {
 				if unrecoverable {
-					_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET 
-                                 failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
-                                 task_id_commit_msg = NULL, after_commit_msg = FALSE
-                             WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), sectorParams.SpID, sectorParams.SectorNumber)
-					if err2 != nil {
-						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
-					}
-					log.Errorw("allocation check failed with an unrecoverable issue", "sp", sectorParams.SpID, "sector", sectorParams.SectorNumber, "err", err)
-					sectorFailed = true
-					break
+					return false, xerrors.Errorf("allocation check failed with an unrecoverable issue sp %d, sector %d: %w", sectorParams.SpID, sectorParams.SectorNumber, err)
+					//_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
+					//             failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
+					//             task_id_commit_msg = NULL, after_commit_msg = FALSE
+					//         WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), sectorParams.SpID, sectorParams.SectorNumber)
+					//if err2 != nil {
+					//	return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+					//}
+					//log.Errorw("allocation check failed with an unrecoverable issue", "sp", sectorParams.SpID, "sector", sectorParams.SectorNumber, "err", err)
+					//sectorFailed = true
+					//break
 				}
 			}
 			if pam.VerifiedAllocationKey != nil {
@@ -335,7 +335,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateral, ts, simulateSendParam)
 		if err != nil {
 			log.Errorw("failed to simulate commit for sector", "Miner", maddr.String(), "Sector", sectorParams.SectorNumber, "err", err)
-			continue
+			return false, xerrors.Errorf("failed to simulate commit for sector Miner %s, Sector %d: %w", maddr.String(), sectorParams.SectorNumber, err)
+			//continue
 		}
 
 		collateral = big.Add(collateral, collateralPerSector)
