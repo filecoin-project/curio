@@ -18,6 +18,10 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireNotificationSuccess: true,
 			IndexingMaxTasks:           8,
 			RemoteProofMaxUploads:      15,
+			EnableParkPiece:            true,
+			EnablePDP:                  true,
+			EnableCommP:                true,
+			EnableMoveStorage:          true,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -119,8 +123,10 @@ func DefaultCurioConfig() *CurioConfig {
 			},
 		},
 		HTTP: HTTPConfig{
+			Enable:            true,
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
+			DelegateTLS:       true,
 			ReadTimeout:       time.Minute * 30,
 			IdleTimeout:       time.Minute * 2,
 			ReadHeaderTimeout: time.Second * 5,
