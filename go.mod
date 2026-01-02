@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/codeskyblue/go-sh v0.0.0-20200712050446-30169cf553fe
 	github.com/consensys/gnark-crypto v0.19.0
+	github.com/curiostorage/harmonydb v0.0.0-20251228200118-7f09c9148b18
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
@@ -39,7 +40,6 @@ require (
 	github.com/filecoin-project/specs-actors/v6 v6.0.2
 	github.com/filecoin-project/specs-actors/v7 v7.0.1
 	github.com/gbrlsnchs/jwt/v3 v3.0.1
-	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-chi/httprate v0.15.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
@@ -74,7 +74,6 @@ require (
 	github.com/ipld/go-ipld-prime v0.21.0
 	github.com/ipld/go-trustless-utils v0.7.0
 	github.com/ipni/go-libipni v0.7.1
-	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jellydator/ttlcache/v2 v2.11.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/kr/pretty v0.3.1
@@ -97,7 +96,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/puzpuzpuz/xsync/v2 v2.5.1
 	github.com/raulk/clock v1.1.0
-	github.com/samber/lo v1.47.0
+	github.com/samber/lo v1.50.0
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/snadrus/must v0.0.0-20240605044437-98cedd57f8eb
@@ -194,6 +193,7 @@ require (
 	github.com/gammazero/deque v1.1.0 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
 	github.com/gdamore/tcell/v2 v2.2.0 // indirect
+	github.com/georgysavva/scany/v2 v2.1.4 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -239,6 +239,7 @@ require (
 	github.com/ipld/go-codec-dagpb v1.7.0 // indirect
 	github.com/ipld/go-ipld-adl-hamt v0.0.0-20250821073235-1979ffd425aa // indirect
 	github.com/ipni/index-provider v0.16.0 // indirect
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
