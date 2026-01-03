@@ -2,6 +2,7 @@ package proof
 
 import (
 	"fmt"
+
 	poseidondst "github.com/filecoin-project/curio/lib/proof/poseidon"
 )
 
@@ -31,5 +32,3 @@ func CommRLastFromTreeRLastRoots(roots []PoseidonDomain) (PoseidonDomain, error)
 		return PoseidonDomain{}, fmt.Errorf("unsupported tree-r-last partition count %d", len(roots))
 	}
 }
-
-
