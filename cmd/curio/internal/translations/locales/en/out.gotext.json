@@ -2,6 +2,41 @@
     "language": "en",
     "messages": [
         {
+            "id": "Manage batch sealing operations",
+            "message": "Manage batch sealing operations",
+            "translation": "Manage batch sealing operations",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+            "message": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+            "translation": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+            "message": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+            "translation": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Number of 1GB hugepages to configure",
+            "message": "Number of 1GB hugepages to configure",
+            "translation": "Number of 1GB hugepages to configure",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Minimum number of hugepages required",
+            "message": "Minimum number of hugepages required",
+            "translation": "Minimum number of hugepages required",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Math Utils",
             "message": "Math Utils",
             "translation": "Math Utils",
@@ -1167,6 +1202,13 @@
             "id": "Collection of debugging utilities",
             "message": "Collection of debugging utilities",
             "translation": "Collection of debugging utilities",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Supra consensus testing utilities",
+            "message": "Supra consensus testing utilities",
+            "translation": "Supra consensus testing utilities",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

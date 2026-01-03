@@ -268,6 +268,17 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		}
 	}
 
+	// If no reader is available (no unsealed copy), complete the task without actual indexing.
+	// This records the piece metadata but marks it as not indexed.
+	if reader == nil {
+		err = i.recordCompletion(ctx, task, taskID, false)
+		if err != nil {
+			return false, err
+		}
+		log.Infow("No unsealed copy available, skipping indexing", "piece_cid", task.PieceCid, "id", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+		return true, nil
+	}
+
 	defer func() {
 		_ = reader.Close()
 	}()
@@ -602,8 +613,24 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 		}
 	}
 
-	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed
-	if i.cfg.Market.StorageMarketConfig.IPNI.Disable {
+	// Determine if we should skip IPNI and mark complete directly.
+	// This happens when:
+	// 1. IPNI is globally disabled, OR
+	// 2. The piece wasn't actually indexed (indexed=false) AND we wanted to index+announce
+	//    (in this case IPNI would fail since the piece isn't in the index store)
+	//
+	// For deals with !Announce or !ShouldIndex, IPNI scheduler will skip them anyway,
+	// so we can let them proceed to IPNI phase where they'll be marked complete.
+	skipIPNI := i.cfg.Market.StorageMarketConfig.IPNI.Disable
+	if !indexed && task.ShouldIndex && task.Announce {
+		// We wanted to index and announce, but couldn't index (e.g., no unsealed copy).
+		// Skip IPNI since it would fail without indexed data.
+		skipIPNI = true
+		log.Warnw("Skipping IPNI for deal that could not be indexed", "piece_cid", task.PieceCid,
+			"id", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+	}
+
+	if skipIPNI {
 		if task.Mk20 {
 			n, err := i.db.Exec(ctx, `UPDATE market_mk20_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
                                      complete = TRUE WHERE id = $1 AND indexing_task_id = $2`, task.UUID, taskID)
@@ -723,10 +750,13 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 	var mk12tasks []task
 
-	err = i.db.Select(ctx, &mk12tasks, `SELECT dp.indexing_task_id, dp.should_index AS indexing, dp.sp_id, dp.sector, l.storage_id
+	// Use LEFT JOIN to include tasks without unsealed copies.
+	// Tasks with should_index = false don't need an unsealed copy since they
+	// complete immediately without reading the sector.
+	err = i.db.Select(ctx, &mk12tasks, `SELECT dp.indexing_task_id, dp.should_index AS indexing, dp.sp_id, dp.sector, COALESCE(l.storage_id, '') AS storage_id
 										FROM market_mk12_deal_pipeline dp
-										INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-										WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1`, indIDs)
+										LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num AND l.sector_filetype = 1
+										WHERE dp.indexing_task_id = ANY ($1)`, indIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting mk12 tasks: %w", err)
 	}
@@ -744,9 +774,16 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	}
 
 	for idx := range tasks {
+		// Tasks with Indexing = false don't need to read the sector, accept them
 		if !tasks[idx].Indexing {
 			return &tasks[idx].TaskID, nil
 		}
+		// Tasks with no unsealed copy (empty StorageID) can be accepted to handle
+		// gracefully in Do() - we'll complete them without actual indexing
+		if tasks[idx].StorageID == "" {
+			return &tasks[idx].TaskID, nil
+		}
+		// Tasks with unsealed copy on this node's storage can be accepted
 		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
 			return &tasks[idx].TaskID, nil
 		}

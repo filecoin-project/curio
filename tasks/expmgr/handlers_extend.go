@@ -1,7 +1,9 @@
 package expmgr
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -279,6 +281,40 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			break
 		}
 
+		// Load partition to check LiveSectors - sectors not in LiveSectors are terminated
+		// and cannot be extended (they're not in the expiration queue)
+		dl, err := mas.LoadDeadline(dlPart.Deadline)
+		if err != nil {
+			log.Warnw("failed to load deadline, skipping partition",
+				"preset", cfg.Name,
+				"sp_id", cfg.SpID,
+				"deadline", dlPart.Deadline,
+				"error", err)
+			continue
+		}
+
+		part, err := dl.LoadPartition(dlPart.Partition)
+		if err != nil {
+			log.Warnw("failed to load partition, skipping",
+				"preset", cfg.Name,
+				"sp_id", cfg.SpID,
+				"deadline", dlPart.Deadline,
+				"partition", dlPart.Partition,
+				"error", err)
+			continue
+		}
+
+		liveSectors, err := part.LiveSectors()
+		if err != nil {
+			log.Warnw("failed to get live sectors, skipping partition",
+				"preset", cfg.Name,
+				"sp_id", cfg.SpID,
+				"deadline", dlPart.Deadline,
+				"partition", dlPart.Partition,
+				"error", err)
+			continue
+		}
+
 		sectorsWithoutClaims := bitfield.New()
 		var sectorsWithClaims []miner.SectorClaim
 		numbersToExtend := make([]abi.SectorNumber, 0, len(sectorNums))
@@ -290,6 +326,24 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 
 			si := sectorInfoMap[sn]
 			if si == nil {
+				continue
+			}
+
+			// Check if sector is live - non-live sectors are terminated and not in expiration queue
+			isLive, err := liveSectors.IsSet(uint64(sn))
+			if err != nil {
+				log.Warnw("failed to check if sector is live",
+					"sector", sn,
+					"error", err)
+				continue
+			}
+			if !isLive {
+				log.Warnw("skipping sector: not in LiveSectors (terminated?)",
+					"preset", cfg.Name,
+					"sp_id", cfg.SpID,
+					"sector", sn,
+					"deadline", dlPart.Deadline,
+					"partition", dlPart.Partition)
 				continue
 			}
 
@@ -567,6 +621,17 @@ func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, cfg extendPresetCon
 
 		return allMessages, nil
 	} else if err != nil {
+		var b bytes.Buffer
+		cerr := msg.MarshalCBOR(&b)
+		if cerr != nil {
+			return nil, xerrors.Errorf("marshalling message: %w", cerr)
+		}
+
+		log.Errorw("failed to estimate gas",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"error", err,
+			"msghex", hex.EncodeToString(b.Bytes()))
 		return nil, xerrors.Errorf("failed to estimate gas: %w", err)
 	}
 

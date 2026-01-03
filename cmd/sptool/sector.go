@@ -40,7 +40,7 @@ var sectorsCmd = &cli.Command{
 	Name:  "sectors",
 	Usage: "interact with sector store",
 	Subcommands: []*cli.Command{
-		spcli.SectorsStatusCmd(SPTActorGetter, nil),
+		sectorStatusCmd,
 		sectorsListCmd, // in-house b/c chain-only is so different. Needs Curio *web* implementation
 		spcli.SectorPreCommitsCmd(SPTActorGetter),
 		spcli.SectorsCheckExpireCmd(SPTActorGetter),
@@ -49,6 +49,362 @@ var sectorsCmd = &cli.Command{
 		spcli.TerminateSectorCmd(SPTActorGetter),
 		spcli.SectorsCompactPartitionsCmd(SPTActorGetter),
 	}}
+
+var sectorStatusCmd = &cli.Command{
+	Name:      "status",
+	Usage:     "Get the on-chain status of a sector by its number",
+	ArgsUsage: "<sectorNum>",
+	Flags:     []cli.Flag{},
+	Action: func(cctx *cli.Context) error {
+		ctx := reqcontext.ReqContext(cctx)
+
+		if cctx.NArg() != 1 {
+			return lcli.IncorrectNumArgs(cctx)
+		}
+
+		id, err := strconv.ParseUint(cctx.Args().First(), 10, 64)
+		if err != nil {
+			return xerrors.Errorf("parsing sector number: %w", err)
+		}
+
+		maddr, err := SPTActorGetter(cctx)
+		if err != nil {
+			return xerrors.Errorf("getting miner address: %w", err)
+		}
+
+		fullApi, closer, err := lcli.GetFullNodeAPIV1(cctx)
+		if err != nil {
+			return xerrors.Errorf("getting full node API: %w", err)
+		}
+		defer closer()
+
+		head, err := fullApi.ChainHead(ctx)
+		if err != nil {
+			return xerrors.Errorf("getting chain head: %w", err)
+		}
+
+		// Get sector on-chain info
+		sectorInfo, err := fullApi.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(id), head.Key())
+		if err != nil {
+			fmt.Printf("%s getting sector info: %v\n", color.RedString("Error:"), err)
+			fmt.Printf("Sector %d may not exist on chain\n", id)
+			return nil
+		}
+
+		if sectorInfo == nil {
+			fmt.Printf("Sector %d not found on chain\n", id)
+
+			// Check if it's allocated
+			allocated, err := fullApi.StateMinerSectorAllocated(ctx, maddr, abi.SectorNumber(id), head.Key())
+			if err != nil {
+				fmt.Printf("%s checking if sector is allocated: %v\n", color.YellowString("Warning:"), err)
+			} else if allocated {
+				fmt.Printf("Sector %d is allocated but not committed\n", id)
+			} else {
+				fmt.Printf("Sector %d is not allocated\n", id)
+			}
+			return nil
+		}
+
+		nv, err := fullApi.StateNetworkVersion(ctx, head.Key())
+		if err != nil {
+			fmt.Printf("%s getting network version: %v\n", color.YellowString("Warning:"), err)
+		}
+
+		// Get sector expiration info
+		sectorExpiration, err := fullApi.StateSectorExpiration(ctx, maddr, abi.SectorNumber(id), head.Key())
+		if err != nil {
+			// Not fatal, some sectors may not have expiration info
+			fmt.Printf("%s could not get sector expiration info: %v\n\n", color.YellowString("Warning:"), err)
+		}
+
+		// Print basic sector info
+		fmt.Printf("=== Sector %d On-Chain Info ===\n\n", id)
+		fmt.Printf("SealProof:           %d\n", sectorInfo.SealProof)
+		fmt.Printf("SectorNumber:        %d\n", sectorInfo.SectorNumber)
+		fmt.Printf("SealedCID:           %s\n", sectorInfo.SealedCID)
+		fmt.Printf("Activation:          %s (epoch %d)\n", cliutil.EpochTime(head.Height(), sectorInfo.Activation), sectorInfo.Activation)
+		fmt.Printf("Expiration:          %s (epoch %d)\n", cliutil.EpochTime(head.Height(), sectorInfo.Expiration), sectorInfo.Expiration)
+
+		// Calculate remaining life
+		remainingEpochs := sectorInfo.Expiration - head.Height()
+		remainingDays := float64(remainingEpochs) / 2880.0
+		if remainingEpochs > 0 {
+			fmt.Printf("Remaining Life:      %.1f days (%d epochs)\n", remainingDays, remainingEpochs)
+		} else {
+			fmt.Printf("Remaining Life:      %s\n", color.RedString("EXPIRED"))
+		}
+
+		// Max lifetime (only if we have network version)
+		if nv != 0 {
+			maxLifetime := policy.GetSectorMaxLifetime(sectorInfo.SealProof, nv)
+			maxExpiration := sectorInfo.Activation + maxLifetime
+			maxRemainingEpochs := maxExpiration - head.Height()
+			maxRemainingDays := float64(maxRemainingEpochs) / 2880.0
+			fmt.Printf("Max Lifetime:        epoch %d (%.1f days from now)\n", maxExpiration, maxRemainingDays)
+		}
+
+		fmt.Println()
+
+		// Deal info
+		isCC := len(sectorInfo.DeprecatedDealIDs) == 0 && sectorInfo.DealWeight.IsZero() && sectorInfo.VerifiedDealWeight.IsZero()
+		if isCC {
+			fmt.Printf("Sector Type:         %s\n", color.BlueString("CC (Committed Capacity)"))
+		} else if !sectorInfo.VerifiedDealWeight.IsZero() {
+			fmt.Printf("Sector Type:         %s\n", color.GreenString("Verified Deals (FIL+)"))
+		} else {
+			fmt.Printf("Sector Type:         %s\n", color.CyanString("Deals"))
+		}
+
+		fmt.Printf("DealWeight:          %s\n", sectorInfo.DealWeight)
+		fmt.Printf("VerifiedDealWeight:  %s\n", sectorInfo.VerifiedDealWeight)
+		fmt.Printf("InitialPledge:       %s\n", types.FIL(sectorInfo.InitialPledge))
+		if sectorInfo.ExpectedDayReward != nil {
+			fmt.Printf("ExpectedDayReward:   %s\n", types.FIL(*sectorInfo.ExpectedDayReward))
+		}
+		if sectorInfo.ExpectedStoragePledge != nil {
+			fmt.Printf("ExpectedStoragePledge: %s\n", types.FIL(*sectorInfo.ExpectedStoragePledge))
+		}
+		fmt.Printf("PowerBaseEpoch:      %d\n", sectorInfo.PowerBaseEpoch)
+		if sectorInfo.ReplacedDayReward != nil && sectorInfo.ReplacedDayReward.Int != nil {
+			fmt.Printf("ReplacedDayReward:   %s\n", types.FIL(*sectorInfo.ReplacedDayReward))
+		}
+
+		fmt.Println()
+
+		// Expiration info
+		if sectorExpiration != nil {
+			fmt.Printf("=== Expiration Details ===\n\n")
+			fmt.Printf("OnTime Expiration:   %s (epoch %d)\n", cliutil.EpochTime(head.Height(), sectorExpiration.OnTime), sectorExpiration.OnTime)
+			if sectorExpiration.Early != 0 {
+				fmt.Printf("Early Expiration:    %s (epoch %d)\n", cliutil.EpochTime(head.Height(), sectorExpiration.Early), sectorExpiration.Early)
+			}
+			fmt.Println()
+		}
+
+		// Scan all deadlines/partitions to find where sector appears
+		fmt.Printf("=== Deadline/Partition Scan ===\n\n")
+
+		mact, err := fullApi.StateGetActor(ctx, maddr, head.Key())
+		if err != nil {
+			fmt.Printf("%s getting miner actor: %v\n", color.YellowString("Warning:"), err)
+		} else {
+			tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(fullApi), blockstore.NewMemory())
+			mas, err := miner.Load(adt.WrapStore(ctx, cbor.NewCborStore(tbs)), mact)
+			if err != nil {
+				fmt.Printf("%s loading miner state: %v\n", color.YellowString("Warning:"), err)
+			} else {
+				// Get current proving deadline info first
+				dinfo, err := mas.DeadlineInfo(head.Height())
+				if err != nil {
+					fmt.Printf("%s getting deadline info: %v\n", color.YellowString("Warning:"), err)
+				} else {
+					fmt.Printf("Current Proving Deadline: %d\n", dinfo.Index)
+					fmt.Printf("Current Epoch:            %d\n", head.Height())
+					fmt.Printf("Period Start:             %d\n\n", dinfo.PeriodStart)
+				}
+
+				foundInPartitions := 0
+
+				// Helper to check if sector is in any bitfield of the partition
+				sectorInPartition := func(part miner.Partition) (bool, error) {
+					bitfields := []func() (bitfield.BitField, error){
+						part.AllSectors,
+						part.LiveSectors,
+						part.ActiveSectors,
+						part.FaultySectors,
+						part.RecoveringSectors,
+						part.UnprovenSectors,
+					}
+					for _, getBf := range bitfields {
+						bf, err := getBf()
+						if err != nil {
+							return false, err
+						}
+						isSet, err := bf.IsSet(id)
+						if err != nil {
+							return false, err
+						}
+						if isSet {
+							return true, nil
+						}
+					}
+					return false, nil
+				}
+
+				// Iterate through all deadlines
+				err = mas.ForEachDeadline(func(dlIdx uint64, dl miner.Deadline) error {
+					return dl.ForEachPartition(func(partIdx uint64, part miner.Partition) error {
+						found, err := sectorInPartition(part)
+						if err != nil {
+							fmt.Printf("%s checking deadline %d partition %d: %v\n",
+								color.YellowString("Warning:"), dlIdx, partIdx, err)
+							return nil // continue checking other partitions
+						}
+
+						if !found {
+							return nil // sector not in this partition
+						}
+
+						foundInPartitions++
+
+						fmt.Printf("=== Sector State in Deadline %d, Partition %d ===\n\n", dlIdx, partIdx)
+
+						checkSectorState := func(name string, getBf func() (bitfield.BitField, error)) {
+							bf, err := getBf()
+							if err != nil {
+								fmt.Printf("  %-20s %s (%v)\n", name+":", color.YellowString("ERROR"), err)
+								return
+							}
+							isSet, err := bf.IsSet(id)
+							if err != nil {
+								fmt.Printf("  %-20s %s (%v)\n", name+":", color.YellowString("ERROR"), err)
+								return
+							}
+							status := color.RedString("NO")
+							if isSet {
+								status = color.GreenString("YES")
+							}
+							fmt.Printf("  %-20s %s\n", name+":", status)
+						}
+
+						checkSectorState("AllSectors", part.AllSectors)
+						checkSectorState("LiveSectors", part.LiveSectors)
+						checkSectorState("ActiveSectors", part.ActiveSectors)
+						checkSectorState("FaultySectors", part.FaultySectors)
+						checkSectorState("RecoveringSectors", part.RecoveringSectors)
+						checkSectorState("UnprovenSectors", part.UnprovenSectors)
+
+						// Check PoSt submission status for this partition
+						postsPosted, err := dl.PartitionsPoSted()
+						if err != nil {
+							fmt.Printf("  %s getting posted partitions: %v\n", color.YellowString("Warning:"), err)
+						} else {
+							isPosted, err := postsPosted.IsSet(partIdx)
+							if err != nil {
+								fmt.Printf("  %s checking if partition posted: %v\n", color.YellowString("Warning:"), err)
+							} else {
+								if isPosted {
+									fmt.Printf("  %-20s %s\n", "PoSt Submitted:", color.GreenString("YES"))
+								} else {
+									fmt.Printf("  %-20s %s\n", "PoSt Submitted:", color.YellowString("NO"))
+								}
+							}
+						}
+
+						// Calculate proving window timing
+						if dinfo != nil {
+							if dlIdx == dinfo.Index {
+								fmt.Printf("  %-20s %s\n", "Proving Status:", color.YellowString("IN CURRENT DEADLINE - proving now!"))
+							} else {
+								deadlinesPerPeriod := uint64(48)
+								epochsPerDeadline := dinfo.WPoStChallengeWindow
+
+								var epochsUntilOpen abi.ChainEpoch
+								if dlIdx > dinfo.Index {
+									epochsUntilOpen = abi.ChainEpoch(dlIdx-dinfo.Index) * epochsPerDeadline
+								} else {
+									epochsUntilOpen = abi.ChainEpoch(deadlinesPerPeriod-dinfo.Index+dlIdx) * epochsPerDeadline
+								}
+								epochsUntilOpen -= (head.Height() - dinfo.Open)
+
+								hoursUntil := float64(epochsUntilOpen) * 30.0 / 3600.0
+								fmt.Printf("  %-20s %.1f hours (%d epochs)\n", "Next Proving In:", hoursUntil, epochsUntilOpen)
+							}
+						}
+
+						fmt.Println()
+						return nil
+					})
+				})
+
+				if err != nil {
+					fmt.Printf("%s iterating deadlines: %v\n", color.YellowString("Warning:"), err)
+				}
+
+				if foundInPartitions == 0 {
+					fmt.Printf("%s\n", color.YellowString("Sector not found in any partition bitfield"))
+				} else if foundInPartitions > 1 {
+					fmt.Printf("%s Sector found in %d partitions!\n", color.RedString("WARNING:"), foundInPartitions)
+				}
+			}
+		}
+
+		// Check for verified registry claims
+		fmt.Println()
+		fmt.Printf("=== Verified Registry Claims ===\n\n")
+
+		verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, head.Key())
+		if err != nil {
+			fmt.Printf("%s loading verifreg actor: %v\n", color.YellowString("Warning:"), err)
+		} else {
+			tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(fullApi), blockstore.NewMemory())
+			verifregSt, err := verifreg.Load(adt.WrapStore(ctx, cbor.NewCborStore(tbs)), verifregAct)
+			if err != nil {
+				fmt.Printf("%s loading verifreg state: %v\n", color.YellowString("Warning:"), err)
+			} else {
+				claimIdsBySector, err := verifregSt.GetClaimIdsBySector(maddr)
+				if err != nil {
+					fmt.Printf("%s getting claim IDs: %v\n", color.YellowString("Warning:"), err)
+				} else {
+					claimIds, hasClaims := claimIdsBySector[abi.SectorNumber(id)]
+					if !hasClaims || len(claimIds) == 0 {
+						fmt.Printf("No verified claims for this sector\n")
+					} else {
+						claimsMap, err := verifregSt.GetClaims(maddr)
+						if err != nil {
+							fmt.Printf("%s getting claims: %v\n", color.YellowString("Warning:"), err)
+						} else {
+							fmt.Printf("Found %d claim(s):\n\n", len(claimIds))
+							for i, claimId := range claimIds {
+								claim, ok := claimsMap[claimId]
+								if !ok {
+									fmt.Printf("  Claim %d: ID %d (%s)\n", i+1, claimId, color.YellowString("not found in claims map"))
+									continue
+								}
+
+								termStart := claim.TermStart
+								termMax := claim.TermMax
+								termMin := claim.TermMin
+								termEnd := termStart + termMax
+
+								fmt.Printf("  Claim %d:\n", i+1)
+								fmt.Printf("    Claim ID:        %d\n", claimId)
+								fmt.Printf("    Client:          f0%d\n", claim.Client)
+								fmt.Printf("    Data CID:        %s\n", claim.Data)
+								fmt.Printf("    Size:            %s\n", types.SizeStr(types.NewInt(uint64(claim.Size))))
+								fmt.Printf("    Term Start:      epoch %d\n", termStart)
+								fmt.Printf("    Term Min:        %d epochs (%.1f days)\n", termMin, float64(termMin)/2880.0)
+								fmt.Printf("    Term Max:        %d epochs (%.1f days)\n", termMax, float64(termMax)/2880.0)
+								fmt.Printf("    Term End:        %s (epoch %d)\n", cliutil.EpochTime(head.Height(), termEnd), termEnd)
+
+								// Check if claim can be dropped
+								if head.Height() > termStart+termMin {
+									fmt.Printf("    Min Duration:    %s\n", color.GreenString("PASSED"))
+								} else {
+									remaining := (termStart + termMin) - head.Height()
+									fmt.Printf("    Min Duration:    %s (%.1f days remaining)\n",
+										color.YellowString("NOT YET"),
+										float64(remaining)/2880.0)
+								}
+
+								if termEnd < sectorInfo.Expiration {
+									fmt.Printf("    Claim vs Sector: %s (claim expires before sector)\n",
+										color.YellowString("SHORTER"))
+								} else {
+									fmt.Printf("    Claim vs Sector: %s\n", color.GreenString("OK"))
+								}
+								fmt.Println()
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return nil
+	},
+}
 
 var sectorsExpiredCmd = &cli.Command{
 	Name:  "expired",
@@ -61,7 +417,7 @@ var sectorsExpiredCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-		fullApi, nCloser, err := lcli.GetFullNodeAPI(cctx)
+		fullApi, nCloser, err := lcli.GetFullNodeAPIV1(cctx)
 		if err != nil {
 			return xerrors.Errorf("getting fullnode api: %w", err)
 		}

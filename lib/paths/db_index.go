@@ -564,7 +564,6 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, sector abi.SectorID, 
 	}
 
 	findSectorCache := ctx.Value(FindSectorCacheKey).(*ttlcache.Cache)
-
 	cacheKey := fmt.Sprintf("%d-%d-%d", sector.Miner, sector.Number, ft)
 
 	info, err := findSectorCache.Get(cacheKey)
