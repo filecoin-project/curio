@@ -203,18 +203,18 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 	return true, nil
 }
 
-func (w *WdPostRecoverDeclareTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (w *WdPostRecoverDeclareTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	if w.sender == nil {
 		// we can't send messages
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	return &ids[0], nil
+	return ids, nil
 }
 
 func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {

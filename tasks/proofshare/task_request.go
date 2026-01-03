@@ -170,18 +170,17 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 }
 
 // CanAccept implements harmonytask.TaskInterface.
-func (t *TaskRequestProofs) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TaskRequestProofs) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to setup params: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
 		log.Infow("TaskRequestProofs.CanAccept() params not ready, not scheduling")
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 // Do implements harmonytask.TaskInterface.

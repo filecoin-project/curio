@@ -79,7 +79,6 @@ const (
 // but those should not considerWork. Work completing may lower the resource numbers
 // unexpectedly, but that will not invalidate work being already able to fit.
 func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
-top:
 	if len(ids) == 0 {
 		return true // stop looking for takers
 	}
@@ -94,7 +93,7 @@ top:
 
 	// 2. Can we do any more work? From here onward, we presume the resource
 	// story will not change, so single-threaded calling is best.
-	err := h.AssertMachineHasCapacity()
+	maxAcceptable, err := h.AssertMachineHasCapacity()
 	if err != nil {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at capacity already: "+err.Error())
 		return false
@@ -103,8 +102,7 @@ top:
 	h.TaskEngine.WorkOrigin = from
 
 	// 3. What does the impl say?
-canAcceptAgain:
-	tID, err := h.CanAccept(ids, h.TaskEngine)
+	tIDs, err := h.CanAccept(ids, h.TaskEngine)
 
 	h.TaskEngine.WorkOrigin = ""
 
@@ -112,131 +110,148 @@ canAcceptAgain:
 		log.Error(err)
 		return false
 	}
-	if tID == nil {
-		log.Infow("did not accept task", "task_id", ids[0], "reason", "CanAccept() refused", "name", h.Name)
+	if len(tIDs) == 0 {
+		log.Infow("did not accept task", "task_ids", ids, "reason", "CanAccept() refused", "name", h.Name)
 		return false
 	}
 
-	releaseStorage := func() {
+	/// TODO FROM HERE handle multiple task IDs
+	headroomUntilMax := h.Max.Headroom()
+	if maxAcceptable > headroomUntilMax {
+		maxAcceptable = headroomUntilMax
 	}
+	releaseStorage := []func(){}
+
 	if h.Cost.Storage != nil {
-		markComplete, err := h.Cost.Claim(int(*tID))
-		if err != nil {
-			log.Infow("did not accept task", "task_id", strconv.Itoa(int(*tID)), "reason", "storage claim failed", "name", h.Name, "error", err)
-
-			if len(ids) > 1 {
-				var tryAgain = make([]TaskID, 0, len(ids)-1)
-				for _, id := range ids {
-					if id != *tID {
-						tryAgain = append(tryAgain, id)
-					}
+		for i, tID := range tIDs {
+			markComplete, err := h.Cost.Claim(int(tID))
+			if err != nil {
+				if i == 0 {
+					log.Infow("did not accept task", "task_id", strconv.Itoa(int(tID)), "reason", "storage claim failed", "name", h.Name, "error", err)
+					return false
 				}
-				ids = tryAgain
-				goto canAcceptAgain
+				break // lets process what we can
 			}
-
-			return false
-		}
-		releaseStorage = func() {
-			if err := markComplete(); err != nil {
-				log.Errorw("Could not release storage", "error", err)
-			}
+			releaseStorage = append(releaseStorage, func() {
+				if err := markComplete(); err != nil {
+					log.Errorw("Could not release storage", "error", err)
+				}
+			})
 		}
 	}
 
 	// if recovering we don't need to try to claim anything because those tasks are already claimed by us
 	if from != WorkSourceRecover {
 		// 4. Can we claim the work for our hostname?
-		ct, err := h.TaskEngine.db.Exec(h.TaskEngine.ctx, "UPDATE harmony_task SET owner_id=$1 WHERE id=$2 AND owner_id IS NULL", h.TaskEngine.ownerID, *tID)
+		var tasksAccepted []TaskID
+		err := h.TaskEngine.db.Select(h.TaskEngine.ctx, &tasksAccepted, `
+		WITH candidates AS (
+			SELECT t.id
+			FROM harmony_task t
+			JOIN unnest($2::bigint[]) AS x(id) ON x.id = t.id
+			WHERE t.owner_id IS NULL
+			ORDER BY t.id
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE harmony_task t
+		SET owner_id = $1
+		FROM candidates c
+		WHERE t.id = c.id
+		RETURNING t.*;`, h.TaskEngine.ownerID, tIDs, maxAcceptable)
 		if err != nil {
 			log.Error(err)
-
-			releaseStorage()
+			for _, rs := range releaseStorage {
+				rs()
+			}
 			return false
 		}
-		if ct == 0 {
-			log.Infow("did not accept task", "task_id", strconv.Itoa(int(*tID)), "reason", "already Taken", "name", h.Name)
-			releaseStorage()
-
-			var tryAgain = make([]TaskID, 0, len(ids)-1)
-			for _, id := range ids {
-				if id != *tID {
-					tryAgain = append(tryAgain, id)
-				}
+		if len(tasksAccepted) == 0 {
+			log.Infow("did not accept task", "task_id", tIDs, "reason", "already Taken", "name", h.Name)
+			for _, rs := range releaseStorage {
+				rs()
 			}
-			ids = tryAgain
-			goto top
+			return false
+		}
+		if len(tasksAccepted) != len(tIDs) {
+			for _, rs := range releaseStorage[len(tasksAccepted):] {
+				rs()
+			}
 		}
 	}
 
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, h.Name),
 		tag.Upsert(sourceTag, from),
-	}, TaskMeasures.TasksStarted.M(1))
+	}, TaskMeasures.TasksStarted.M(int64(len(tIDs))))
 
-	h.Max.Add(1)
+	h.Max.Add(len(tIDs))
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, h.Name),
 	}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
 
-	go func() {
-		var done bool
-		var doErr error
-		workStart := time.Now()
+	i := 0
+	for _, tID := range tIDs {
+		go func(tID TaskID, releaseStorage func()) {
+			var done bool
+			var doErr error
+			workStart := time.Now()
 
-		var sectorID *abi.SectorID
-		if ht, ok := h.TaskInterface.(PipelineTask); ok {
-			sectorID, err = ht.GetSectorID(h.TaskEngine.db, int64(*tID))
-			if err != nil {
-				log.Errorw("Could not get sector ID", "task", h.Name, "id", *tID, "error", err)
+			var sectorID *abi.SectorID
+			if ht, ok := h.TaskInterface.(PipelineTask); ok {
+				sectorID, err = ht.GetSectorID(h.TaskEngine.db, int64(tID))
+				if err != nil {
+					log.Errorw("Could not get sector ID", "task", h.Name, "id", tID, "error", err)
+				}
 			}
-		}
 
-		log.Infow("Beginning work on Task", "id", *tID, "from", from, "name", h.Name, "sector", sectorID)
+			log.Infow("Beginning work on Task", "id", tID, "from", from, "name", h.Name, "sector", sectorID)
 
-		defer func() {
-			if r := recover(); r != nil {
-				stackSlice := make([]byte, 4092)
-				sz := runtime.Stack(stackSlice, false)
-				log.Error("Recovered from a serious error "+
-					"while processing "+h.Name+" task "+strconv.Itoa(int(*tID))+": ", r,
-					" Stack: ", string(stackSlice[:sz]))
-			}
-			h.Max.Add(-1)
+			defer func() {
+				if r := recover(); r != nil {
+					stackSlice := make([]byte, 4092)
+					sz := runtime.Stack(stackSlice, false)
+					log.Error("Recovered from a serious error "+
+						"while processing "+h.Name+" task "+strconv.Itoa(int(tID))+": ", r,
+						" Stack: ", string(stackSlice[:sz]))
+				}
+				h.Max.Add(-1)
 
-			releaseStorage()
-			h.recordCompletion(*tID, sectorID, workStart, done, doErr)
-			if done {
-				for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
-					if _, err := fs.f(*tID, fs.h.AddTask); err != nil {
-						log.Error("Could not follow", "error", err, "from", h.Name, "to", fs.name)
+				releaseStorage()
+				h.recordCompletion(tID, sectorID, workStart, done, doErr)
+				if done {
+					for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
+						if _, err := fs.f(tID, fs.h.AddTask); err != nil {
+							log.Error("Could not follow", "error", err, "from", h.Name, "to", fs.name)
+						}
 					}
 				}
-			}
-		}()
+			}()
 
-		done, doErr = h.Do(*tID, func() bool {
-			if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
-				if h.TaskEngine.yieldBackground.Load() {
-					log.Infow("yielding background task", "name", h.Name, "id", *tID)
+			done, doErr = h.Do(tID, func() bool {
+				if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
+					if h.TaskEngine.yieldBackground.Load() {
+						log.Infow("yielding background task", "name", h.Name, "id", tID)
+						return false
+					}
+				}
+
+				var owner int
+				// Background here because we don't want GracefulRestart to block this save.
+				err := h.TaskEngine.db.QueryRow(context.Background(),
+					`SELECT owner_id FROM harmony_task WHERE id=$1`, tID).Scan(&owner)
+				if err != nil {
+					log.Error("Cannot determine ownership: ", err)
 					return false
 				}
+				return owner == h.TaskEngine.ownerID
+			})
+			if doErr != nil {
+				log.Errorw("Do() returned error", "type", h.Name, "id", strconv.Itoa(int(tID)), "error", doErr)
 			}
-
-			var owner int
-			// Background here because we don't want GracefulRestart to block this save.
-			err := h.TaskEngine.db.QueryRow(context.Background(),
-				`SELECT owner_id FROM harmony_task WHERE id=$1`, *tID).Scan(&owner)
-			if err != nil {
-				log.Error("Cannot determine ownership: ", err)
-				return false
-			}
-			return owner == h.TaskEngine.ownerID
-		})
-		if doErr != nil {
-			log.Errorw("Do() returned error", "type", h.Name, "id", strconv.Itoa(int(*tID)), "error", doErr)
-		}
-	}()
+		}(tID, releaseStorage[i])
+		i++
+	}
 	return true
 }
 
@@ -333,27 +348,43 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	}
 }
 
-func (h *taskTypeHandler) AssertMachineHasCapacity() error {
+func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 	r := h.TaskEngine.ResourcesAvailable()
-
+	var headroom int = 100
 	if h.Max.AtMax() {
-		return errors.New("Did not accept " + h.Name + " task: at max already")
+		return 0, errors.New("Did not accept " + h.Name + " task: at max already")
 	}
 
 	if r.Cpu-h.Cost.Cpu < 0 {
-		return xerrors.Errorf("Did not accept %s task: out of cpu: required %d available %d)", h.Name, h.Cost.Cpu, r.Cpu)
+		return 0, xerrors.Errorf("Did not accept %s task: out of cpu: required %d available %d)", h.Name, h.Cost.Cpu, r.Cpu)
 	}
-	if h.Cost.Ram > r.Ram {
-		return xerrors.Errorf("Did not accept %s task: out of RAM: required %d available %d)", h.Name, h.Cost.Ram, r.Ram)
-	}
-	if r.Gpu-h.Cost.Gpu < 0 {
-		return xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
-	}
-
-	if h.Cost.Storage != nil {
-		if !h.Cost.HasCapacity() {
-			return errors.New("Did not accept " + h.Name + " task: out of available Storage")
+	if h.Cost.Cpu > 0 {
+		cpuHeadroom := r.Cpu / h.Cost.Cpu
+		if cpuHeadroom < headroom {
+			headroom = cpuHeadroom
 		}
 	}
-	return nil
+	if h.Cost.Ram > r.Ram {
+		return 0, xerrors.Errorf("Did not accept %s task: out of RAM: required %d available %d)", h.Name, h.Cost.Ram, r.Ram)
+	}
+	ramHeadroom := r.Ram / h.Cost.Ram
+	if ramHeadroom < uint64(headroom) {
+		headroom = int(ramHeadroom)
+	}
+	if r.Gpu-h.Cost.Gpu < 0 {
+		return 0, xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
+	}
+	if h.Cost.Gpu > 0 {
+		gpuHeadroom := r.Gpu / h.Cost.Gpu
+		if gpuHeadroom < float64(headroom) {
+			headroom = int(gpuHeadroom)
+		}
+	}
+
+	if h.Cost.Storage != nil { // Counts > 1 handled by CanAccept()
+		if !h.Cost.HasCapacity() {
+			return 0, errors.New("Did not accept " + h.Name + " task: out of available Storage")
+		}
+	}
+	return headroom, nil
 }

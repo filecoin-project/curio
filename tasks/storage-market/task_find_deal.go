@@ -308,8 +308,8 @@ func (f *FindDealTask) resendPSD(ctx context.Context, deal string, taskID harmon
 	return nil
 }
 
-func (f *FindDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (f *FindDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {

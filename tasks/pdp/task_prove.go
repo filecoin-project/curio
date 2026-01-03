@@ -602,12 +602,11 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 	return address, nil
 }
 
-func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
