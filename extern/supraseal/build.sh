@@ -52,6 +52,27 @@ CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
 MARCH_FLAGS=${MARCH_FLAGS:-"-march=native"}
 
+# DPDK (via SPDK) ISA/portability controls.
+#
+# SPDK builds its bundled DPDK with Meson. On x86 the default is DPDK's
+# `platform=native`, which can produce binaries that SIGILL when run on a
+# different (older) CPU than the build machine (e.g. AVX-512 instructions in
+# initialization code).
+#
+# Default to `generic` for safety/portability. You can opt back into `native` for
+# maximum performance on the same host you build on:
+#   SUPRASEAL_DPDK_PLATFORM=native ./build.sh
+SUPRASEAL_DPDK_PLATFORM=${SUPRASEAL_DPDK_PLATFORM:-generic}
+# Optional: override DPDK cpu_instruction_set/machine (e.g. corei7, haswell, znver2).
+SUPRASEAL_DPDK_CPU_INSTRUCTION_SET=${SUPRASEAL_DPDK_CPU_INSTRUCTION_SET:-}
+# Optional: pass any extra raw Meson flags for DPDK.
+SUPRASEAL_DPDK_EXTRA_FLAGS=${SUPRASEAL_DPDK_EXTRA_FLAGS:-}
+# Optional: override SPDK's own CFLAGS/CXXFLAGS. By default we do NOT pass
+# `MARCH_FLAGS` through, so that DPDK's `platform`/`cpu_instruction_set` fully
+# controls ISA portability.
+SUPRASEAL_SPDK_CFLAGS=${SUPRASEAL_SPDK_CFLAGS:-"-g -O3"}
+SUPRASEAL_SPDK_CXXFLAGS=${SUPRASEAL_SPDK_CXXFLAGS:-"-g -O3"}
+
 # Create and activate Python virtual environment
 # This avoids needing PIP_BREAK_SYSTEM_PACKAGES on Ubuntu 24.04+
 VENV_DIR="$(pwd)/.venv"
@@ -245,18 +266,57 @@ rm -fr bin
 mkdir -p bin
 
 mkdir -p deps
-if [ ! -d $SPDK ]; then
-    git clone --branch v24.05 https://github.com/spdk/spdk --recursive $SPDK
-    (cd $SPDK
+if [ ! -d "$SPDK" ]; then
+    git clone --branch v24.05 https://github.com/spdk/spdk --recursive "$SPDK"
+fi
+
+# Build (or rebuild) SPDK+DPDK when flags change.
+SPDK_STAMP="$SPDK/build/.supraseal_build_flags"
+DPDKBUILD_FLAGS="-Dplatform=$SUPRASEAL_DPDK_PLATFORM"
+if [ -n "$SUPRASEAL_DPDK_CPU_INSTRUCTION_SET" ]; then
+    DPDKBUILD_FLAGS="$DPDKBUILD_FLAGS -Dcpu_instruction_set=$SUPRASEAL_DPDK_CPU_INSTRUCTION_SET"
+elif [ "$SUPRASEAL_DPDK_PLATFORM" = "generic" ]; then
+    # SPDK's dpdkbuild forces `-Dcpu_instruction_set=$(TARGET_ARCHITECTURE)` which
+    # defaults to "native". When building portable binaries we must override that
+    # explicitly, otherwise DPDK will still be built for the build machine ISA.
+    DPDKBUILD_FLAGS="$DPDKBUILD_FLAGS -Dcpu_instruction_set=generic"
+fi
+if [ -n "$SUPRASEAL_DPDK_EXTRA_FLAGS" ]; then
+    DPDKBUILD_FLAGS="$DPDKBUILD_FLAGS $SUPRASEAL_DPDK_EXTRA_FLAGS"
+fi
+
+SPDK_WANT_FLAGS="CC=$CC CXX=$CXX SUPRASEAL_SPDK_CFLAGS=$SUPRASEAL_SPDK_CFLAGS SUPRASEAL_SPDK_CXXFLAGS=$SUPRASEAL_SPDK_CXXFLAGS DPDKBUILD_FLAGS=$DPDKBUILD_FLAGS"
+NEED_SPDK_BUILD=0
+if [ ! -f "$SPDK_STAMP" ]; then
+    NEED_SPDK_BUILD=1
+elif [ "$(cat "$SPDK_STAMP" 2>/dev/null || true)" != "$SPDK_WANT_FLAGS" ]; then
+    NEED_SPDK_BUILD=1
+fi
+
+if [ "$NEED_SPDK_BUILD" -eq 1 ]; then
+    (cd "$SPDK"
      # Use the virtual environment for Python packages
      # Ensure venv is active and in PATH for Python package installation
      export VIRTUAL_ENV="$VENV_DIR"
      export PATH="$VENV_DIR/bin:$PATH"
      export PIP="$VENV_DIR/bin/pip"
      export PYTHON="$VENV_DIR/bin/python"
-     # Inject march flags for SPDK build
-     export CFLAGS="$MARCH_FLAGS -g -O3"
-     export CXXFLAGS="$MARCH_FLAGS -g -O3"
+
+     # Ensure SPDK's bundled DPDK uses a portable ISA unless explicitly overridden.
+     export DPDKBUILD_FLAGS
+
+     # Do NOT inject `MARCH_FLAGS` by default: it can override DPDK's ISA choice
+     # (even if we request `-Dplatform=generic`) and produce non-portable builds.
+     export CFLAGS="$SUPRASEAL_SPDK_CFLAGS"
+     export CXXFLAGS="$SUPRASEAL_SPDK_CXXFLAGS"
+
+     # SPDK/DPDK can fail configuration on some distros if the linker flavor isn't recognized.
+     # Prefer bfd to avoid "Unsupported linker: ld" issues.
+     export LDFLAGS="-fuse-ld=bfd"
+
+     # Clean prior builds when we change flags.
+     rm -rf build dpdk/build dpdk/build-tmp
+
      # Run pkgdep.sh without sudo - system packages should already be installed
      # Python packages will be installed in the venv automatically
      # If system packages are missing, pkgdep.sh will fail gracefully
@@ -270,7 +330,9 @@ if [ ! -d $SPDK ]; then
                  --without-fio --without-xnvme --without-vbdev-compress \
                  --without-rbd --without-rdma --without-iscsi-initiator \
                  --without-ocf --without-uring
-     make -j$(nproc))
+     make -j"$(nproc)"
+     mkdir -p "$(dirname "$SPDK_STAMP")"
+     echo "$SPDK_WANT_FLAGS" > "$SPDK_STAMP")
 fi
 if [ ! -d "deps/sppark" ]; then
     git clone --branch v0.1.10 https://github.com/supranational/sppark.git deps/sppark

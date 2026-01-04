@@ -145,6 +145,50 @@ curio: $(BUILD_DEPS)
 .PHONY: curio
 BINS+=curio
 
+## Native-curio binary (host-optimized ISA; may not run on older CPUs)
+#
+# For amd64, automatically selects the highest GOAMD64 level supported by the
+# build host CPU:
+# - v4: AVX-512 (avx512f)
+# - v3: AVX2 (avx2)
+# - v2: SSE4.2 (sse4_2)
+# - v1: baseline amd64
+#
+# Override manually if desired:
+#   make curio-native GOAMD64_NATIVE=v3
+GOAMD64_NATIVE ?= $(shell \
+	if [ "$$(go env GOARCH)" = "amd64" ] && [ -r /proc/cpuinfo ]; then \
+		if grep -qm1 'avx512f' /proc/cpuinfo; then echo v4; \
+		elif grep -qm1 'avx2' /proc/cpuinfo; then echo v3; \
+		elif grep -qm1 'sse4_2' /proc/cpuinfo; then echo v2; \
+		else echo v1; fi; \
+	fi)
+
+ifeq ($(shell uname),Linux)
+curio-native: CGO_LDFLAGS_ALLOW='.*'
+endif
+
+curio-native: $(BUILD_DEPS)
+	rm -f curio
+	if [ -n "$(GOAMD64_NATIVE)" ]; then \
+		echo "Building curio-native with GOAMD64=$(GOAMD64_NATIVE)"; \
+		GOAMD64="$(GOAMD64_NATIVE)" CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+			-tags "$(CURIO_TAGS)" \
+			-o curio -ldflags " -s -w \
+			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			./cmd/curio ; \
+	else \
+		echo "Building curio-native (non-amd64; GOAMD64 not applicable)"; \
+		CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+			-tags "$(CURIO_TAGS)" \
+			-o curio -ldflags " -s -w \
+			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			./cmd/curio ; \
+	fi
+.PHONY: curio-native
+
 sptool: $(BUILD_DEPS)
 	rm -f sptool
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
