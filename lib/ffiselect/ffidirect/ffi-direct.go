@@ -98,9 +98,11 @@ func (FFI) GenerateUpdateProofWithVanilla(
 	return ffi.SectorUpdate.GenerateUpdateProofWithVanilla(proofType, key, sealed, unsealed, vproofs)
 }
 
+var disableSupraTreeR = os.Getenv("DISABLE_SUPRA_TREE_R") == "1"
+
 func (FFI) TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) error {
 	// Check CPU features and CUDA availability before calling supraseal
-	if !supraffi.HasAMD64v4() || !supraffi.HasUsableCUDAGPU() {
+	if !supraffi.HasAMD64v4() || !supraffi.HasUsableCUDAGPU() || disableSupraTreeR {
 		// Missing prerequisites, fallback to filecoin-ffi's GenerateTreeRLast
 		// Convert sector size to RegisteredPoStProof (WindowPoSt version)
 		var postProof abi.RegisteredPoStProof
