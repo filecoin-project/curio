@@ -26,7 +26,7 @@ SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封
 * 具有高 IOPS 的 NVMe 驱动器（建议总 IOPS 为 1000-2000 万）
 * 用于 PC2 阶段的 GPU（建议使用 NVIDIA RTX 3090 或更好的）
 * 配置 1GB 大页（最少 36 页）
-* Ubuntu 22.04 或兼容的 Linux 发行版（需要 gcc-11，不需要系统范围内安装）
+* Ubuntu 或兼容的 Linux 发行版（**需要 gcc-13**，不需要系统范围内安装）
 * 至少 256GB RAM，所有内存通道都已填满
   * 如果没有填满**所有**内存通道，封装**性能将大幅下降**
 * NUMA-Per-Socket (NPS) 设置为 1
@@ -105,11 +105,10 @@ Total                                  : 8006785.90   31276.51      71.91      1
 ### Dependencies
 ### 依赖项
 
-需要 CUDA 12.x，11.x 不能工作。构建过程依赖于系统范围内的 GCC 11.x 或本地安装的 gcc-11/g++-11。
+需要 CUDA 12.x，11.x 不能工作。构建过程依赖于系统范围内的 GCC 13.x 或本地安装的 `gcc-13`/`g++-13`。
 
-* 在 Arch 上安装 https://aur.archlinux.org/packages/gcc11
-* Ubuntu 22.04 默认有 GCC 11.x
-* 在较新的 Ubuntu 上安装 `gcc-11` 和 `g++-11` 包
+* 在 Arch 上根据发行版/AUR 安装 GCC 13
+* 在 Ubuntu/Debian 上安装 `gcc-13` 和 `g++-13` 包
 
 
 ### Building

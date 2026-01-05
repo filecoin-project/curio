@@ -25,7 +25,7 @@ SupraSeal is an optimized batch sealing implementation for Filecoin that allows 
 * NVMe drives with high IOPS (10-20M total IOPS recommended)
 * GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
 * 1GB hugepages configured (minimum 36 pages)
-* Ubuntu 22.04 or compatible Linux distribution (gcc-11 required, doesn't need to be system-wide)
+* Ubuntu or compatible Linux distribution (**gcc-13 required**, doesn't need to be system-wide)
 * At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
   * Without **all** memory channels populated sealing **performance will suffer drastically**
 * NUMA-Per-Socket (NPS) set to 1
@@ -123,18 +123,25 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 
 ### Dependencies
 
-CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
+CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x system-wide or `gcc-13`/`g++-13` installed locally.
 
-* On Arch install https://aur.archlinux.org/packages/gcc11
-* Ubuntu 22.04 has GCC 11.x by default
-* On newer Ubuntu install `gcc-11` and `g++-11` packages
+* On Arch install GCC 13 via your distro/AUR as appropriate
+* On Ubuntu/Debian install `gcc-13` and `g++-13` packages
     ```shell
-    sudo apt install gcc-11 g++-11
+    sudo apt install gcc-13 g++-13
     ```
 * In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
+
+{% hint style="info" %}
+For SnapDeals “fastsnap” troubleshooting (fast TreeR path), you can check CPU/CUDA prerequisites with:
+
+```bash
+curio test supra system-info
+```
+{% endhint %}
 
 ### Building
 

@@ -59,16 +59,45 @@ sudo apt install curio-opencl
 
 构建Curio需要一些系统依赖，通常由您的发行版提供。
 
+{% hint style="warning" %}
+**注意（Linux 上默认会构建 Supraseal）：** Curio 的 Linux 构建流程现在会在常规的 `make deps/build` 中默认构建 `extern/supraseal`。因此在 Linux 上从源代码构建 Curio 需要 Supraseal 的额外依赖，包括：
+
+- CUDA Toolkit **12.x 或更高版本**（需要 `nvcc`，即使你不打算在运行时使用 Supraseal）
+- GCC **13** 工具链（`gcc-13` / `g++-13`）
+- Python venv 工具（`python3-venv`）以及常见构建工具（`autoconf`、`automake`、`libtool`、`nasm`、`xxd` 等）
+
+要检查机器是否支持 SnapDeals 的 **快速 TreeR** 路径，可运行：
+
+```bash
+curio test supra system-info
+```
+{% endhint %}
+
 Arch:
 
 ```bash
-sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-icd-loader opencl-headers opencl-nvidia hwloc libarchive
+sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
+# Supraseal 构建依赖（需要 nvcc）
+sudo pacman -Syu cuda
+# GCC 13 可能需要通过发行版/AUR 安装（取决于当前 supraseal 版本）
 ```
 
 Ubuntu/Debian:
 
 ```bash
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev libgmp-dev libconfig++-dev wget -y && sudo apt upgrade -y
+sudo apt install -y \
+  mesa-opencl-icd ocl-icd-opencl-dev \
+  gcc-13 g++-13 \
+  gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev wget \
+  python3 python3-dev python3-pip python3-venv \
+  autoconf automake libtool \
+  xxd nasm \
+  libssl-dev uuid-dev libfuse3-dev \
+  libnuma-dev libaio-dev libkeyutils-dev libncurses-dev \
+  libgmp-dev libconfig++-dev \
+  && sudo apt upgrade -y
+
+# CUDA Toolkit（Supraseal 构建依赖；需要 nvcc）
 ```
 
 Fedora:

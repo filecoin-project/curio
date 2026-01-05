@@ -52,16 +52,46 @@ You will need the following software installed to install and run Curio.
 
 Building Curio requires some system dependencies, usually provided by your distribution.
 
+{% hint style="warning" %}
+**Note (Supraseal now builds by default on Linux):** Curio’s Linux build chain now always builds `extern/supraseal` as part of the normal `make deps/build` flow. This means **building Curio on Linux requires Supraseal build dependencies**, including:
+
+- CUDA Toolkit **12.x or newer** (needs `nvcc`, even if you won’t run Supraseal at runtime)
+- GCC **13** toolchain (`gcc-13` / `g++-13`)
+- Python venv tooling (`python3-venv`) and common build tools (`autoconf`, `automake`, `libtool`, `nasm`, `xxd`, etc.)
+
+If you’re troubleshooting whether your machine can run the **fast TreeR** path used by SnapDeals, run:
+
+```bash
+curio test supra system-info
+```
+{% endhint %}
+
 Arch:
 
 ```shell
-sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-icd-loader opencl-headers opencl-nvidia hwloc libarchive
+sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
+# For Supraseal builds (SnapDeals fast TreeR / batch sealing toolchain):
+sudo pacman -Syu cuda
+# GCC 13 may be required depending on your supraseal version; install via your distro/AUR as appropriate.
 ```
 
 Ubuntu/Debian:
 
 ```shell
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev libgmp-dev libconfig++-dev -y && sudo apt upgrade -y
+sudo apt install -y \
+  mesa-opencl-icd ocl-icd-opencl-dev \
+  gcc-13 g++-13 \
+  git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget \
+  python3 python3-dev python3-pip python3-venv \
+  autoconf automake libtool \
+  xxd nasm \
+  libarchive-dev libssl-dev uuid-dev libfuse3-dev \
+  libnuma-dev libaio-dev libkeyutils-dev libncurses-dev \
+  libgmp-dev libconfig++-dev \
+  && sudo apt upgrade -y
+
+# CUDA Toolkit (Supraseal build requirement; needs nvcc)
+# Install via NVIDIA’s CUDA repository packages for your distro, or use `cuda-toolkit` packages if available.
 ```
 
 Fedora:
