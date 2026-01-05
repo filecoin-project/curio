@@ -464,7 +464,7 @@ jobs:
     needs: [ci-lint]
     
     env:
-      GCC_VERSION: "12"
+      GCC_VERSION: "13"
     
     steps:
       - name: Checkout repository
@@ -486,7 +486,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            gcc-12 g++-12 \
+            gcc-13 g++-13 \
             nasm \
             pkg-config \
             autoconf automake libtool \
@@ -508,12 +508,12 @@ jobs:
           # Just ensure python3-venv is available
           python3 -m venv --help > /dev/null || sudo apt-get install -y python3-venv
       
-      - name: Set up GCC 12 as default
+      - name: Set up GCC 13 as default
         run: |
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
-          sudo update-alternatives --set gcc /usr/bin/gcc-12
-          sudo update-alternatives --set g++ /usr/bin/g++-12
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+          sudo update-alternatives --set gcc /usr/bin/gcc-13
+          sudo update-alternatives --set g++ /usr/bin/g++-13
           gcc --version
           g++ --version
       
@@ -630,16 +630,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: extern/supraseal/deps/spdk-v24.05
-          key: spdk-v24.05-gcc12-ubuntu24-v3-${{ hashFiles('extern/supraseal/build.sh') }}
+          key: spdk-v24.05-gcc13-ubuntu24-v1-${{ hashFiles('extern/supraseal/build.sh') }}
           restore-keys: |
-            spdk-v24.05-gcc12-ubuntu24-v3-
+            spdk-v24.05-gcc13-ubuntu24-v1-
       
       - name: Build Supraseal
         working-directory: extern/supraseal
         run: |
-          # Ensure we're using GCC 12 and CUDA
-          export CC=gcc-12
-          export CXX=g++-12
+          # Ensure we're using GCC 13 and CUDA
+          export CC=gcc-13
+          export CXX=g++-13
           export CUDA=/usr/local/cuda
           export PATH=/usr/local/cuda/bin:$PATH
           export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
@@ -667,7 +667,7 @@ jobs:
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
         with:
-          name: supraseal-library-ubuntu24-gcc12-cuda
+          name: supraseal-library-ubuntu24-gcc13-cuda
           path: extern/supraseal/obj/libsupraseal.a
           retention-days: 30
       

@@ -35,7 +35,7 @@ COPY --from=lotus-test /usr/local/bin/lotus /usr/local/bin/
 
 RUN apt-get update && apt-get install -y \
       build-essential \
-      gcc-12 g++-12 \
+      gcc-13 g++-13 \
       pkg-config \
       autoconf automake libtool \
       clang \
@@ -49,16 +49,16 @@ RUN apt-get update && apt-get install -y \
       mesa-opencl-icd \
       ocl-icd-opencl-dev \
       libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
-      libgmp-dev libconfig++-dev gcc-12 g++-12 \
+      libgmp-dev libconfig++-dev gcc-13 g++-13 \
       ca-certificates gnupg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up GCC 12 as default
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100 \
-    && update-alternatives --set gcc /usr/bin/gcc-12 \
-    && update-alternatives --set g++ /usr/bin/g++-12
+# Set up GCC 13 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && update-alternatives --set gcc /usr/bin/gcc-13 \
+    && update-alternatives --set g++ /usr/bin/g++-13
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \

@@ -9,7 +9,7 @@ runs:
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
-          gcc-12 g++-12 \
+          gcc-13 g++-13 \
           pkg-config \
           autoconf automake libtool \
           curl wget git \
@@ -21,14 +21,14 @@ runs:
           libgmp-dev libconfig++-dev
       shell: bash
 
-    - name: Set up GCC 12 as default
+    - name: Set up GCC 13 as default
       run: |
         sudo update-alternatives --remove-all gcc 2>/dev/null || true
         sudo update-alternatives --remove-all g++ 2>/dev/null || true
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
-        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
-        echo "CC=gcc-12" >> $GITHUB_ENV
-        echo "CXX=g++-12" >> $GITHUB_ENV
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+        echo "CC=gcc-13" >> $GITHUB_ENV
+        echo "CXX=g++-13" >> $GITHUB_ENV
       shell: bash
 
     - name: Install CUDA Toolkit

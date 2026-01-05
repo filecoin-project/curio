@@ -13,32 +13,32 @@ do
     esac
 done
 
-# Function to check GCC version - enforces GCC 12 for compatibility
+# Function to check GCC version - enforces GCC 13 for compatibility
 check_gcc_version() {
     local gcc_version=$(gcc -dumpversion | cut -d. -f1)
-    local target_gcc_version=12
+    local target_gcc_version=13
     
-    # Check if default GCC is version 12
+    # Check if default GCC is version 13
     if [ "$gcc_version" -eq "$target_gcc_version" ]; then
         echo "Using GCC $gcc_version"
         return 0
     fi
     
-    # If not GCC 12, try to find and use gcc-12
-    if command -v gcc-12 &> /dev/null && command -v g++-12 &> /dev/null; then
-        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 12 for compatibility."
-        export CC=gcc-12
-        export CXX=g++-12
-        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-12"
+    # If not GCC 13, try to find and use gcc-13
+    if command -v gcc-13 &> /dev/null && command -v g++-13 &> /dev/null; then
+        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 13 for compatibility."
+        export CC=gcc-13
+        export CXX=g++-13
+        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-13"
         return 0
     fi
     
-    # GCC 12 not found
-    echo "Error: GCC 12 is required but not found."
+    # GCC 13 not found
+    echo "Error: GCC 13 is required but not found."
     echo "Current GCC version: $gcc_version"
-    echo "Please install GCC 12:"
-    echo "  On Ubuntu/Debian: sudo apt-get install gcc-12 g++-12"
-    echo "  On Fedora: sudo dnf install gcc-12 gcc-c++-12"
+    echo "Please install GCC 13:"
+    echo "  On Ubuntu/Debian: sudo apt-get install gcc-13 g++-13"
+    echo "  On Fedora: sudo dnf install gcc-13 gcc-c++-13"
     exit 1
 }
 

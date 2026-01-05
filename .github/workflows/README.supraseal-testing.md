@@ -75,7 +75,7 @@ If you prefer to test without Docker on Ubuntu 24.04:
 ```bash
 # Install dependencies (requires sudo)
 sudo apt-get update && sudo apt-get install -y \
-    build-essential gcc-12 g++-12 nasm pkg-config \
+    build-essential gcc-13 g++-13 nasm pkg-config \
     autoconf automake libtool libssl-dev libnuma-dev \
     uuid-dev libaio-dev libfuse3-dev libarchive-dev \
     libkeyutils-dev libncurses-dev python3 python3-pip \
@@ -84,9 +84,9 @@ sudo apt-get update && sudo apt-get install -y \
 # Install Python tools
 pip3 install --break-system-packages meson ninja pyelftools
 
-# Set GCC 12 as default
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
-sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+# Set GCC 13 as default
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
 
 # Build
 cd extern/supraseal
