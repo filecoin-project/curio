@@ -22,6 +22,8 @@ type pipelinePhase struct {
 	waiting    int64
 	ema        float64 // Exponential Moving Average in seconds
 	lastLockAt time.Time
+
+	soFarUpdateCancel context.CancelFunc
 }
 
 func (p *pipelinePhase) Lock() {
@@ -40,9 +42,29 @@ func (p *pipelinePhase) Lock() {
 		SupraSealMeasures.PhaseWaitingCount.M(atomic.LoadInt64(&p.waiting)))
 
 	p.lastLockAt = time.Now()
+
+	ctx, updateCancel := context.WithCancel(context.Background())
+	p.soFarUpdateCancel = updateCancel
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+				duration := time.Since(p.lastLockAt)
+				durationSeconds := duration.Seconds()
+
+				_ = stats.RecordWithTags(ctx,
+					[]tag.Mutator{tag.Upsert(phaseKey, fmt.Sprintf("phase_%d", p.phaseNum))},
+					SupraSealMeasures.PhaseDurationSoFar.M(durationSeconds))
+			}
+		}
+	}()
 }
 
 func (p *pipelinePhase) Unlock() {
+	p.soFarUpdateCancel()
 	duration := time.Since(p.lastLockAt)
 	durationSeconds := duration.Seconds()
 
@@ -60,4 +82,10 @@ func (p *pipelinePhase) Unlock() {
 		SupraSealMeasures.PhaseAvgDuration.M(p.ema))
 
 	p.phaseLock.Unlock()
+}
+
+func (p *pipelinePhase) IsInPhase() func() bool {
+	return func() bool {
+		return atomic.LoadInt64(&p.active) > 0
+	}
 }

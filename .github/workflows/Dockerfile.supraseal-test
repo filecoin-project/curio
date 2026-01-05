@@ -4,13 +4,12 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CUDA_VERSION=13.0
-ENV GCC_VERSION=12
+ENV GCC_VERSION=13
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    gcc-12 g++-12 \
+    gcc-13 g++-13 \
     nasm \
     pkg-config \
     autoconf automake libtool \
@@ -30,11 +29,11 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up GCC 12 as default
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 && \
-    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100 && \
-    update-alternatives --set gcc /usr/bin/gcc-12 && \
-    update-alternatives --set g++ /usr/bin/g++-12
+# Set up GCC 13 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 && \
+    update-alternatives --set gcc /usr/bin/gcc-13 && \
+    update-alternatives --set g++ /usr/bin/g++-13
 
 # Install CUDA Toolkit from NVIDIA Repository
 # Source: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_local
@@ -43,13 +42,21 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86
     rm cuda-keyring_1.1-1_all.deb && \
     apt-get update && \
     apt-get -y install cuda-toolkit && \
-    ln -sf /usr/local/cuda /usr/local/cuda-13.0 && \
     rm -rf /var/lib/apt/lists/*
 
-# Set up CUDA environment
+# Set up CUDA environment and verify installation
 ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV CUDA_HOME=/usr/local/cuda
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
+
+# Verify CUDA installation and version
+RUN nvcc --version && \
+    CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1/p') && \
+    echo "Installed CUDA version: $CUDA_VERSION" && \
+    if [ "$CUDA_VERSION" -lt 12 ]; then \
+        echo "ERROR: CUDA $CUDA_VERSION is too old. Need CUDA 12 or newer."; \
+        exit 1; \
+    fi
 
 # Set working directory
 WORKDIR /workspace

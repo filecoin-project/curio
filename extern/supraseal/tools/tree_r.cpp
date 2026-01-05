@@ -65,6 +65,7 @@ void gpu_tree_r(std::string config_filename,
 
   std::vector<std::string> layer_filenames;
   layer_filenames.push_back(last_layer_filename);
+  // Binaries use NVMe reader only
   streaming_node_reader_t<sealing_config_t<1, P>> node_reader(P::GetSectorSize(), layer_filenames);
 
   // Allocate storage for 2x the streams to support tree-c and tree-r

@@ -59,7 +59,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 			// create a task for each piece
 			c.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// update
-				n, err := tx.Exec(`UPDATE parked_pieces SET cleanup_task_id = $1 WHERE id = $2 AND (SELECT count(*) FROM parked_piece_refs WHERE piece_id = parked_pieces.id) = 0`, id, pieceID.ID)
+				n, err := tx.Exec(`UPDATE parked_pieces SET cleanup_task_id = $1 WHERE cleanup_task_id IS NULL AND id = $2 AND (SELECT count(*) FROM parked_piece_refs WHERE piece_id = parked_pieces.id) = 0`, id, pieceID.ID)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
 				}

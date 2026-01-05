@@ -77,6 +77,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jellydator/ttlcache/v2 v2.11.1
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/klauspost/cpuid/v2 v2.3.0
 	github.com/kr/pretty v0.3.1
 	github.com/libp2p/go-buffer-pool v0.1.0
 	github.com/libp2p/go-libp2p v0.44.0
@@ -250,7 +251,6 @@ require (
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kilic/bls12-381 v0.1.1-0.20220929213557-ca162e8a70f4 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/koron/go-ssdp v0.1.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect

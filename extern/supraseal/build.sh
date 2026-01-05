@@ -13,32 +13,32 @@ do
     esac
 done
 
-# Function to check GCC version - enforces GCC 12 for compatibility
+# Function to check GCC version - enforces GCC 13 for compatibility
 check_gcc_version() {
     local gcc_version=$(gcc -dumpversion | cut -d. -f1)
-    local target_gcc_version=12
+    local target_gcc_version=13
     
-    # Check if default GCC is version 12
+    # Check if default GCC is version 13
     if [ "$gcc_version" -eq "$target_gcc_version" ]; then
         echo "Using GCC $gcc_version"
         return 0
     fi
     
-    # If not GCC 12, try to find and use gcc-12
-    if command -v gcc-12 &> /dev/null && command -v g++-12 &> /dev/null; then
-        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 12 for compatibility."
-        export CC=gcc-12
-        export CXX=g++-12
-        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-12"
+    # If not GCC 13, try to find and use gcc-13
+    if command -v gcc-13 &> /dev/null && command -v g++-13 &> /dev/null; then
+        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 13 for compatibility."
+        export CC=gcc-13
+        export CXX=g++-13
+        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-13"
         return 0
     fi
     
-    # GCC 12 not found
-    echo "Error: GCC 12 is required but not found."
+    # GCC 13 not found
+    echo "Error: GCC 13 is required but not found."
     echo "Current GCC version: $gcc_version"
-    echo "Please install GCC 12:"
-    echo "  On Ubuntu/Debian: sudo apt-get install gcc-12 g++-12"
-    echo "  On Fedora: sudo dnf install gcc-12 gcc-c++-12"
+    echo "Please install GCC 13:"
+    echo "  On Ubuntu/Debian: sudo apt-get install gcc-13 g++-13"
+    echo "  On Fedora: sudo dnf install gcc-13 gcc-c++-13"
     exit 1
 }
 
@@ -50,6 +50,28 @@ set -x
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
+MARCH_FLAGS=${MARCH_FLAGS:-"-march=native"}
+
+# DPDK (via SPDK) ISA/portability controls.
+#
+# SPDK builds its bundled DPDK with Meson. On x86 the default is DPDK's
+# `platform=native`, which can produce binaries that SIGILL when run on a
+# different (older) CPU than the build machine (e.g. AVX-512 instructions in
+# initialization code).
+#
+# Default to `generic` for safety/portability. You can opt back into `native` for
+# maximum performance on the same host you build on:
+#   SUPRASEAL_DPDK_PLATFORM=native ./build.sh
+SUPRASEAL_DPDK_PLATFORM=${SUPRASEAL_DPDK_PLATFORM:-generic}
+# Optional: override DPDK cpu_instruction_set/machine (e.g. corei7, haswell, znver2).
+SUPRASEAL_DPDK_CPU_INSTRUCTION_SET=${SUPRASEAL_DPDK_CPU_INSTRUCTION_SET:-}
+# Optional: pass any extra raw Meson flags for DPDK.
+SUPRASEAL_DPDK_EXTRA_FLAGS=${SUPRASEAL_DPDK_EXTRA_FLAGS:-}
+# Optional: override SPDK's own CFLAGS/CXXFLAGS. By default we do NOT pass
+# `MARCH_FLAGS` through, so that DPDK's `platform`/`cpu_instruction_set` fully
+# controls ISA portability.
+SUPRASEAL_SPDK_CFLAGS=${SUPRASEAL_SPDK_CFLAGS:-"-g -O3"}
+SUPRASEAL_SPDK_CXXFLAGS=${SUPRASEAL_SPDK_CXXFLAGS:-"-g -O3"}
 
 # Create and activate Python virtual environment
 # This avoids needing PIP_BREAK_SYSTEM_PACKAGES on Ubuntu 24.04+
@@ -144,7 +166,7 @@ CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
 
 INCLUDE="-I$SPDK/include -I$SPDK/isa-l/.. -I$SPDK/dpdk/build/include"
 CFLAGS="$SECTOR_SIZE $INCLUDE -g -O2"
-CXXFLAGS="$CFLAGS -march=native $CXXSTD \
+CXXFLAGS="$CFLAGS $MARCH_FLAGS $CXXSTD \
           -fPIC -fno-omit-frame-pointer -fno-strict-aliasing \
           -fstack-protector -fno-common \
           -D_GNU_SOURCE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 \
@@ -244,15 +266,57 @@ rm -fr bin
 mkdir -p bin
 
 mkdir -p deps
-if [ ! -d $SPDK ]; then
-    git clone --branch v24.05 https://github.com/spdk/spdk --recursive $SPDK
-    (cd $SPDK
+if [ ! -d "$SPDK" ]; then
+    git clone --branch v24.05 https://github.com/spdk/spdk --recursive "$SPDK"
+fi
+
+# Build (or rebuild) SPDK+DPDK when flags change.
+SPDK_STAMP="$SPDK/build/.supraseal_build_flags"
+DPDKBUILD_FLAGS="-Dplatform=$SUPRASEAL_DPDK_PLATFORM"
+if [ -n "$SUPRASEAL_DPDK_CPU_INSTRUCTION_SET" ]; then
+    DPDKBUILD_FLAGS="$DPDKBUILD_FLAGS -Dcpu_instruction_set=$SUPRASEAL_DPDK_CPU_INSTRUCTION_SET"
+elif [ "$SUPRASEAL_DPDK_PLATFORM" = "generic" ]; then
+    # SPDK's dpdkbuild forces `-Dcpu_instruction_set=$(TARGET_ARCHITECTURE)` which
+    # defaults to "native". When building portable binaries we must override that
+    # explicitly, otherwise DPDK will still be built for the build machine ISA.
+    DPDKBUILD_FLAGS="$DPDKBUILD_FLAGS -Dcpu_instruction_set=generic"
+fi
+if [ -n "$SUPRASEAL_DPDK_EXTRA_FLAGS" ]; then
+    DPDKBUILD_FLAGS="$DPDKBUILD_FLAGS $SUPRASEAL_DPDK_EXTRA_FLAGS"
+fi
+
+SPDK_WANT_FLAGS="CC=$CC CXX=$CXX SUPRASEAL_SPDK_CFLAGS=$SUPRASEAL_SPDK_CFLAGS SUPRASEAL_SPDK_CXXFLAGS=$SUPRASEAL_SPDK_CXXFLAGS DPDKBUILD_FLAGS=$DPDKBUILD_FLAGS"
+NEED_SPDK_BUILD=0
+if [ ! -f "$SPDK_STAMP" ]; then
+    NEED_SPDK_BUILD=1
+elif [ "$(cat "$SPDK_STAMP" 2>/dev/null || true)" != "$SPDK_WANT_FLAGS" ]; then
+    NEED_SPDK_BUILD=1
+fi
+
+if [ "$NEED_SPDK_BUILD" -eq 1 ]; then
+    (cd "$SPDK"
      # Use the virtual environment for Python packages
      # Ensure venv is active and in PATH for Python package installation
      export VIRTUAL_ENV="$VENV_DIR"
      export PATH="$VENV_DIR/bin:$PATH"
      export PIP="$VENV_DIR/bin/pip"
      export PYTHON="$VENV_DIR/bin/python"
+
+     # Ensure SPDK's bundled DPDK uses a portable ISA unless explicitly overridden.
+     export DPDKBUILD_FLAGS
+
+     # Do NOT inject `MARCH_FLAGS` by default: it can override DPDK's ISA choice
+     # (even if we request `-Dplatform=generic`) and produce non-portable builds.
+     export CFLAGS="$SUPRASEAL_SPDK_CFLAGS"
+     export CXXFLAGS="$SUPRASEAL_SPDK_CXXFLAGS"
+
+     # SPDK/DPDK can fail configuration on some distros if the linker flavor isn't recognized.
+     # Prefer bfd to avoid "Unsupported linker: ld" issues.
+     export LDFLAGS="-fuse-ld=bfd"
+
+     # Clean prior builds when we change flags.
+     rm -rf build dpdk/build dpdk/build-tmp
+
      # Run pkgdep.sh without sudo - system packages should already be installed
      # Python packages will be installed in the venv automatically
      # If system packages are missing, pkgdep.sh will fail gracefully
@@ -260,13 +324,15 @@ if [ ! -d $SPDK ]; then
          echo "Warning: pkgdep.sh failed (likely system packages already installed). Continuing..."
      }
      ./configure --with-virtio --with-vhost \
-                 --without-fuse --without-crypto \
+                 --without-fuse --without-nvme-cuse --without-crypto \
                  --disable-unit-tests --disable-tests \
                  --disable-examples --disable-apps \
                  --without-fio --without-xnvme --without-vbdev-compress \
                  --without-rbd --without-rdma --without-iscsi-initiator \
                  --without-ocf --without-uring
-     make -j$(nproc))
+     make -j"$(nproc)"
+     mkdir -p "$(dirname "$SPDK_STAMP")"
+     echo "$SPDK_WANT_FLAGS" > "$SPDK_STAMP")
 fi
 if [ ! -d "deps/sppark" ]; then
     git clone --branch v0.1.10 https://github.com/supranational/sppark.git deps/sppark
@@ -275,91 +341,59 @@ if [ ! -d "deps/blst" ]; then
     git clone https://github.com/supranational/blst.git deps/blst
     (cd deps/blst
     git checkout bef14ca512ea575aff6f661fdad794263938795d
-     ./build.sh -march=native)
+     ./build.sh $MARCH_FLAGS)
 fi
 
-$CC -c sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o
+# Generate .h files for the Poseidon constants (needed for tree_r binaries)
+# These are fast and can run in parallel, but must complete before tree_r binaries compile
+xxd -i poseidon/constants/constants_2  > obj/constants_2.h &
+xxd -i poseidon/constants/constants_4  > obj/constants_4.h &
+xxd -i poseidon/constants/constants_8  > obj/constants_8.h &
+xxd -i poseidon/constants/constants_11 > obj/constants_11.h &
+xxd -i poseidon/constants/constants_16 > obj/constants_16.h &
+xxd -i poseidon/constants/constants_24 > obj/constants_24.h &
+xxd -i poseidon/constants/constants_36 > obj/constants_36.h &
 
-# Generate .h files for the Poseidon constants
-xxd -i poseidon/constants/constants_2  > obj/constants_2.h
-xxd -i poseidon/constants/constants_4  > obj/constants_4.h
-xxd -i poseidon/constants/constants_8  > obj/constants_8.h
-xxd -i poseidon/constants/constants_11 > obj/constants_11.h
-xxd -i poseidon/constants/constants_16 > obj/constants_16.h
-xxd -i poseidon/constants/constants_24 > obj/constants_24.h
-xxd -i poseidon/constants/constants_36 > obj/constants_36.h
+# wait for poseidon constants generation
+wait
+
+# Compile all object files in parallel - these are independent of constants headers
+$CC -c sha/sha_ext_mbx2.S -o obj/sha_ext_mbx2.o &
 
 # PC1
 $CXX $CXXFLAGS -Ideps/sppark/util -o obj/pc1.o -c pc1/pc1.cpp &
 
-# PC2
+# PC2 - compile once with unified interface supporting both NVMe and FileReader
 $CXX $CXXFLAGS -o obj/streaming_node_reader_nvme.o -c nvme/streaming_node_reader_nvme.cpp &
 $CXX $CXXFLAGS -o obj/ring_t.o -c nvme/ring_t.cpp &
-$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -Xcompiler -march=native \
-      -Xcompiler -Wall,-Wextra,-Wno-subobject-linkage,-Wno-unused-parameter \
+# Single compilation of pc2.cu - works with both reader types via template interface
+# Note: AVX512BF16 must be disabled because nvcc doesn't support GCC 12's BF16 intrinsics
+# We use both -mno-avx512bf16 AND -U__AVX512BF16__ to ensure the header isn't processed
+$NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK \
+      -Xcompiler $MARCH_FLAGS -Xcompiler -mtune=generic \
+      -Xcompiler -mno-avx512bf16 -Xcompiler -U__AVX512BF16__ \
+      -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -Wno-subobject-linkage -Xcompiler -Wno-unused-parameter \
       -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c pc2/cuda/pc2.cu -o obj/pc2.o &
 
 $CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     -c sealing/supra_seal.cpp -o obj/supra_seal.o -Wno-subobject-linkage &
 
+$CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
+    -c sealing/supra_tree_r_file.cpp -o obj/supra_tree_r_file.o -Wno-subobject-linkage &
+
 wait
 
-# Sppark object dedupe
-nm obj/pc2.o | grep -E 'select_gpu|all_gpus|cuda_available|gpu_props|ngpus|drop_gpu_ptr_t|clone_gpu_ptr_t' | awk '{print $3 " supra_" $3}' > symbol_rename.txt
-
-for obj in obj/pc1.o obj/pc2.o obj/ring_t.o obj/streaming_node_reader_nvme.o obj/supra_seal.o obj/sha_ext_mbx2.o; do
-  objcopy --redefine-syms=symbol_rename.txt $obj
-done
-
-rm symbol_rename.txt
-
+# All object files and constants headers are now ready
 ar rvs obj/libsupraseal.a \
    obj/pc1.o \
    obj/pc2.o \
    obj/ring_t.o \
    obj/streaming_node_reader_nvme.o \
    obj/supra_seal.o \
+   obj/supra_tree_r_file.o \
    obj/sha_ext_mbx2.o
 
-$CXX $CXXFLAGS -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
-    -o bin/seal demos/main.cpp \
-    -Lobj -lsupraseal \
-    $LDFLAGS -Ldeps/blst -lblst -L$CUDA/lib64 -lcudart_static -lgmp -lconfig++ &
-
-# tree-r CPU only
-$CXX $SECTOR_SIZE $CXXSTD -pthread -g -O3 -march=native \
-    -Wall -Wextra -Werror -Wno-subobject-linkage \
-    tools/tree_r.cpp poseidon/poseidon.cpp \
-    -o bin/tree_r_cpu -Iposeidon -Ideps/sppark -Ideps/blst/src -L deps/blst -lblst &
-
-# tree-r CPU + GPU
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=native \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/tree_r.cpp -o bin/tree_r \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-# tree-d CPU only
-$CXX -DRUNTIME_SECTOR_SIZE $CXXSTD -g -O3 -march=native \
-    -Wall -Wextra -Werror -Wno-subobject-linkage \
-    tools/tree_d.cpp \
-    -o bin/tree_d_cpu -Ipc1 -L deps/blst -lblst &
-
-# Standalone GPU pc2
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=native \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/tree_r.cpp -o bin/tree_r \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-# Standalone GPU pc2
-$NVCC $SECTOR_SIZE -DNO_SPDK -DSTREAMING_NODE_READER_FILES \
-     $CUDA_ARCH -std=c++17 -g -O3 -Xcompiler -march=native \
-     -Xcompiler -Wall,-Wextra,-Werror \
-     -Xcompiler -Wno-subobject-linkage,-Wno-unused-parameter \
-     -x cu tools/pc2.cu -o bin/pc2 \
-     -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -L deps/blst -lblst -lconfig++ &
-
-wait
+# Wait for all background jobs and check their exit codes
+for job in $(jobs -p); do
+    wait $job || (echo "ERROR: Some binaries failed to build" && exit 1)
+done

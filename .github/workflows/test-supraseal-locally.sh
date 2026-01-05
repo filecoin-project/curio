@@ -27,8 +27,8 @@ echo ""
 # - Python venv will be created by build.sh
 docker run --rm \
     -v "$REPO_ROOT:/workspace" \
-    -e CC=gcc-12 \
-    -e CXX=g++-12 \
+    -e CC=gcc-13 \
+    -e CXX=g++-13 \
     -e CUDA=/usr/local/cuda \
     -e PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     -e LD_LIBRARY_PATH=/usr/local/cuda/lib64 \

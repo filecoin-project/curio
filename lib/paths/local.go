@@ -41,6 +41,17 @@ import (
 
 // time abow which a warn log will be emitted for slow PoSt reads
 var SlowPoStCheckThreshold = 45 * time.Second
+var LocalSinfoTTL = 30 * time.Second
+
+var ParallelDeclare = 5
+
+func init() {
+	if v := os.Getenv("CURIO_PARALLEL_DECLARE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ParallelDeclare = n
+		}
+	}
+}
 
 type LocalStorage interface {
 	GetStorage() (storiface.StorageConfig, error)
@@ -112,6 +123,9 @@ type path struct {
 	Reservations map[string]int64
 
 	CanSeal bool
+
+	lastSinfoTime time.Time
+	lastSinfo     *storiface.StorageInfo
 }
 
 // statExistingSectorForReservation is optional parameter for stat method
@@ -279,21 +293,28 @@ func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url strin
 }
 
 func (st *Local) OpenPath(ctx context.Context, p string) error {
+	_, _, err := st.openPath(ctx, p, true)
+	return err
+}
+
+// openPath opens a storage path. If declare is true, it will also declare sectors.
+// Returns the storage ID and canStore flag for use with declareSectors if declare is false.
+func (st *Local) openPath(ctx context.Context, p string, declare bool) (storiface.ID, bool, error) {
 	st.localLk.Lock()
 	defer st.localLk.Unlock()
 
 	mb, err := os.ReadFile(filepath.Join(p, MetaFile))
 	if err != nil {
-		return xerrors.Errorf("reading storage metadata for %s: %w", p, err)
+		return "", false, xerrors.Errorf("reading storage metadata for %s: %w", p, err)
 	}
 
 	var meta storiface.LocalStorageMeta
 	if err := json.Unmarshal(mb, &meta); err != nil {
-		return xerrors.Errorf("unmarshalling storage metadata for %s: %w", p, err)
+		return "", false, xerrors.Errorf("unmarshalling storage metadata for %s: %w", p, err)
 	}
 
 	if p, exists := st.paths[meta.ID]; exists {
-		return xerrors.Errorf("path with ID %s already opened: '%s'", meta.ID, p.Local)
+		return "", false, xerrors.Errorf("path with ID %s already opened: '%s'", meta.ID, p.Local)
 	}
 
 	// TODO: Check existing / dedupe
@@ -312,17 +333,17 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		stashDir := filepath.Join(p, StashDirName)
 		err := os.RemoveAll(stashDir)
 		if err != nil && !os.IsNotExist(err) {
-			return xerrors.Errorf("removing stash directory %s: %w", stashDir, err)
+			return "", false, xerrors.Errorf("removing stash directory %s: %w", stashDir, err)
 		}
 		// Re-create stash directory
 		if err := os.MkdirAll(stashDir, 0755); err != nil {
-			return xerrors.Errorf("creating stash directory %s: %w", stashDir, err)
+			return "", false, xerrors.Errorf("creating stash directory %s: %w", stashDir, err)
 		}
 	}
 
 	fst, _, err := out.stat(st.localStorage)
 	if err != nil {
-		return err
+		return "", false, err
 	}
 
 	err = st.index.StorageAttach(ctx, storiface.StorageInfo{
@@ -340,16 +361,18 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		DenyMiners:  meta.DenyMiners,
 	}, fst)
 	if err != nil {
-		return xerrors.Errorf("declaring storage in index: %w", err)
+		return "", false, xerrors.Errorf("declaring storage in index: %w", err)
 	}
 
-	if err := st.declareSectors(ctx, p, meta.ID, meta.CanStore, true); err != nil {
-		return err
+	if declare {
+		if err := st.declareSectors(ctx, p, meta.ID, meta.CanStore, true); err != nil {
+			return "", false, err
+		}
 	}
 
 	st.paths[meta.ID] = out
 
-	return nil
+	return meta.ID, meta.CanStore, nil
 }
 
 func (st *Local) ClosePath(ctx context.Context, id storiface.ID) error {
@@ -378,10 +401,51 @@ func (st *Local) open(ctx context.Context) error {
 	startCtr := declareCounter.Load()
 	startTime := time.Now()
 
+	// First, open all paths without declaring sectors (sequential, needs lock)
+	type pathToDeclare struct {
+		localPath string
+		id        storiface.ID
+		canStore  bool
+	}
+	var pathsToDeclare []pathToDeclare
+
 	for _, path := range cfg.StoragePaths {
-		err := st.OpenPath(ctx, path.Path)
+		id, canStore, err := st.openPath(ctx, path.Path, false)
 		if err != nil {
 			return xerrors.Errorf("opening path %s: %w", path.Path, err)
+		}
+		pathsToDeclare = append(pathsToDeclare, pathToDeclare{
+			localPath: path.Path,
+			id:        id,
+			canStore:  canStore,
+		})
+	}
+
+	// Then declare sectors concurrently with limited parallelism
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, ParallelDeclare)
+	errCh := make(chan error, len(pathsToDeclare))
+
+	for _, p := range pathsToDeclare {
+		p := p
+		wg.Add(1)
+		sem <- struct{}{} // acquire semaphore
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }() // release semaphore
+			if err := st.declareSectors(ctx, p.localPath, p.id, p.canStore, true); err != nil {
+				errCh <- xerrors.Errorf("declaring sectors for %s: %w", p.localPath, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Check for errors
+	for err := range errCh {
+		if err != nil {
+			return err
 		}
 	}
 
@@ -861,9 +925,17 @@ func (st *Local) Local(ctx context.Context) ([]storiface.StoragePath, error) {
 			continue
 		}
 
-		si, err := st.index.StorageInfo(ctx, id)
-		if err != nil {
-			return nil, xerrors.Errorf("get storage info for %s: %w", id, err)
+		var si storiface.StorageInfo
+		if p.lastSinfo == nil || time.Since(p.lastSinfoTime) > LocalSinfoTTL {
+			var err error
+			si, err = st.index.StorageInfo(ctx, id)
+			if err != nil {
+				return nil, xerrors.Errorf("get storage info for %s: %w", id, err)
+			}
+			p.lastSinfoTime = time.Now()
+			p.lastSinfo = &si
+		} else {
+			si = *p.lastSinfo
 		}
 
 		out = append(out, storiface.StoragePath{

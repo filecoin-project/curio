@@ -68,22 +68,50 @@ type SupraSeal struct {
 	slots *slotmgr.SlotMgr
 }
 
+type P2Active func() bool
+
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
-	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex, sc *ffi.SealCalls) (*SupraSeal, *slotmgr.SlotMgr, error) {
+	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex, sc *ffi.SealCalls) (*SupraSeal, *slotmgr.SlotMgr, P2Active, error) {
+
+	// Check CPU features before initializing supraseal
+	// supraseal's PC1 (sha_ext_mbx2) requires:
+	// - Intel SHA Extensions (SHA-NI) for sha256rnds2, sha256msg1, sha256msg2
+	// - SSE2, SSSE3, SSE4.1 for supporting SIMD operations
+	if !supraffi.CanRunSupraSealPC1() {
+		cpuInfo := supraffi.CPUFeaturesSummary()
+		return nil, nil, nil, xerrors.Errorf("CPU does not support supraseal requirements (SHA-NI + SSE4.1 required). "+
+			"Detected features: %s. "+
+			"Use single-sector sealing with filecoin-ffi instead, or upgrade to AMD Zen1+ / Intel Ice Lake+ CPU", cpuInfo)
+	}
+
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
 		spt = abi.RegisteredSealProof_StackedDrg32GiBV1_1
 	default:
-		return nil, nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
+		return nil, nil, nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
 	}
 
 	ssize, err := spt.SectorSize()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	log.Infow("start supraseal init")
+	log.Infow("start supraseal init", "cpu_features", supraffi.CPUFeaturesSummary())
+
+	// Automatically setup SPDK (configure hugepages and bind NVMe devices)
+	if os.Getenv("DISABLE_SPDK_SETUP") != "" {
+		log.Infow("SPDK setup disabled by environment variable")
+	} else {
+		log.Infow("checking and setting up SPDK for supraseal")
+		if err := supraffi.CheckAndSetupSPDK(36, 36); err != nil {
+			return nil, nil, nil, xerrors.Errorf("SPDK setup failed: %w. Please ensure you have:\n"+
+				"1. Configured 1GB hugepages (add 'hugepages=36 default_hugepagesz=1G hugepagesz=1G' to /etc/default/grub)\n"+
+				"2. Raw NVMe devices available (no filesystems on them)\n"+
+				"3. Root/sudo access for SPDK setup", err)
+		}
+	}
+
 	var configFile string
 	if configFile = os.Getenv(suprasealConfigEnv); configFile == "" {
 		// not set from env (should be the case in most cases), auto-generate a config
@@ -91,26 +119,26 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		var cstr string
 		cstr, nvmeDevices, err = GenerateSupraSealConfigString(dualHashers, batchSize, nvmeDevices)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("generating supraseal config: %w", err)
+			return nil, nil, nil, xerrors.Errorf("generating supraseal config: %w", err)
 		}
 
 		log.Infow("nvme devices", "nvmeDevices", nvmeDevices)
 		if len(nvmeDevices) == 0 {
-			return nil, nil, xerrors.Errorf("no nvme devices found, run spdk setup.sh")
+			return nil, nil, nil, xerrors.Errorf("no nvme devices found. Please ensure you have raw NVMe devices (without filesystems) available")
 		}
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
 		if err != nil {
-			return nil, nil, xerrors.Errorf("creating temp file: %w", err)
+			return nil, nil, nil, xerrors.Errorf("creating temp file: %w", err)
 		}
 
 		if _, err := cfgFile.WriteString(cstr); err != nil {
-			return nil, nil, xerrors.Errorf("writing temp file: %w", err)
+			return nil, nil, nil, xerrors.Errorf("writing temp file: %w", err)
 		}
 
 		configFile = cfgFile.Name()
 		if err := cfgFile.Close(); err != nil {
-			return nil, nil, xerrors.Errorf("closing temp file: %w", err)
+			return nil, nil, nil, xerrors.Errorf("closing temp file: %w", err)
 		}
 
 		log.Infow("generated supraseal config", "config", cstr, "file", configFile)
@@ -122,7 +150,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	{
 		hp, err := supraffi.GetHealthInfo()
 		if err != nil {
-			return nil, nil, xerrors.Errorf("get health page: %w", err)
+			return nil, nil, nil, xerrors.Errorf("get health page: %w", err)
 		}
 
 		log.Infow("nvme health page", "hp", hp)
@@ -198,7 +226,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	maxPipelines := space / slotSize
 	if maxPipelines < uint64(pipelines) {
-		return nil, nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
+		return nil, nil, nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
 	}
 
 	var slotOffs []uint64
@@ -210,10 +238,10 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	slots, err := slotmgr.NewSlotMgr(db, machineHostAndPort, slotOffs)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("creating slot manager: %w", err)
+		return nil, nil, nil, xerrors.Errorf("creating slot manager: %w", err)
 	}
 
-	return &SupraSeal{
+	ssl := &SupraSeal{
 		db:      db,
 		api:     api,
 		storage: storage,
@@ -228,7 +256,9 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		outSDR: &pipelinePhase{phaseNum: 2},
 
 		slots: slots,
-	}, slots, nil
+	}
+
+	return ssl, slots, ssl.outSDR.IsInPhase(), nil
 }
 
 func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
