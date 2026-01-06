@@ -1,16 +1,11 @@
 package storage_market
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	carv2 "github.com/ipld/go-car/v2"
-	"github.com/multiformats/go-varint"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -22,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/market"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -74,89 +70,13 @@ func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 
-	var carSize uint64
+	defer func() {
+		_ = reader.Close()
+	}()
 
-	version, err := carv2.ReadVersion(reader, carv2.ZeroLengthSectionAsEOF(true))
+	carSize, err := market.GetRawSizeFromCarReader(reader)
 	if err != nil {
-		return false, xerrors.Errorf("failed to read car version: %w", err)
-	}
-
-	_, err = reader.Seek(0, 0)
-	if err != nil {
-		return false, xerrors.Errorf("failed to seek to beginning of car: %w", err)
-	}
-
-	if version == 2 {
-		fmt.Println("Car Version 1")
-		rx, err := carv2.NewReader(reader, carv2.ZeroLengthSectionAsEOF(true))
-		if err != nil {
-			return false, xerrors.Errorf("failed to create car reader: %w", err)
-		}
-
-		if rx.Header.HasIndex() {
-			ir, err := rx.IndexReader()
-			if err != nil {
-				return false, xerrors.Errorf("failed to create index reader: %w", err)
-			}
-
-			n, err := io.Copy(io.Discard, ir)
-			if err != nil {
-				return false, xerrors.Errorf("failed to read index: %w", err)
-			}
-
-			carSize = rx.Header.IndexOffset + uint64(n)
-		} else {
-			carSize = rx.Header.DataOffset + rx.Header.DataSize
-		}
-	}
-
-	if version == 1 {
-		fmt.Println("Car Version 1")
-
-		rd, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), carv2.ZeroLengthSectionAsEOF(true))
-		if err != nil {
-			return false, xerrors.Errorf("failed to create block reader: %w", err)
-		}
-
-		// Read the first block to know the header size
-		b, err := rd.SkipNext()
-		if err != nil && err != io.EOF {
-			return false, xerrors.Errorf("failed to read first block: %w", err)
-		}
-
-		if err == io.EOF {
-			return false, xerrors.Errorf("no blocks found")
-		}
-
-		if b == nil {
-			return false, xerrors.Errorf("block is nil")
-		}
-
-		// CAR sections are [varint (length), CID, blockData]
-		combinedSize := b.Size + uint64(b.Cid.ByteLen())
-		lenSize := uint64(varint.UvarintSize(combinedSize))
-		sectionSize := combinedSize + lenSize
-
-		length := b.SourceOffset + sectionSize
-
-		for {
-			b, err := rd.SkipNext()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return false, xerrors.Errorf("failed to read next block: %w", err)
-			}
-			if b == nil {
-				return false, xerrors.Errorf("block is nil")
-			}
-			combinedSize = b.Size + uint64(b.Cid.ByteLen())
-			lenSize = uint64(varint.UvarintSize(combinedSize))
-			sectionSize = combinedSize + lenSize
-
-			length += sectionSize
-		}
-		carSize = length
+		return false, xerrors.Errorf("getting raw size from CAR: %w", err)
 	}
 
 	if carSize == 0 {
@@ -240,7 +160,7 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 64 << 30,
+			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
@@ -256,11 +176,21 @@ func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
+			var running int64
+			err := tx.QueryRow(`SELECT COUNT(*) FROM harmony_task WHERE name = $1`, "FixRawSize").Scan(&running)
+			if err != nil {
+				return false, xerrors.Errorf("getting running FixRawSize tasks: %w", err)
+			}
+
+			if running >= 100 {
+				return false, nil
+			}
+
 			var tasks []struct {
 				ID string `db:"id"`
 			}
 
-			err := tx.Select(&tasks, `SELECT mpd.id FROM market_piece_deal mpd
+			err = tx.Select(&tasks, `SELECT mpd.id FROM market_piece_deal mpd
           									WHERE mpd.raw_size = 0 
           									  AND mpd.piece_offset IS NOT NULL 
           									  AND NOT EXISTS(SELECT 1 FROM fix_raw_size f WHERE f.id = mpd.id) 
