@@ -228,7 +228,7 @@ jobs:
           YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
           echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
           LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
@@ -237,7 +237,16 @@ jobs:
           echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          go test -v --tags="debug,fvm" -timeout 30m ${{ matrix.test-suite.target }}
+          mkdir -p coverage
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.test-suite.name }}
+          path: coverage/${{ matrix.test-suite.name }}.out
+          retention-days: 1
 
       - name: Stop YugabyteDB container
         if: always()  # Ensure this run even if the tests fail
@@ -590,3 +599,56 @@ jobs:
       - name: Run mod tidy check
         run: go mod tidy -v
         shell: bash
+
+  coverage-report:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: always() && needs.test.result != 'cancelled'
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-artifacts
+          merge-multiple: false
+
+      - name: Generate coverage report
+        uses: ./.github/actions/coverage-report
+        id: coverage
+        with:
+          artifacts-dir: coverage-artifacts
+          output-dir: coverage
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          create-check: 'true'
+          create-comment: 'true'
+          minimum-coverage: '0'
+
+      - name: Upload merged coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-merged
+          path: |
+            coverage/merged.out
+            coverage/coverage.txt
+            coverage/coverage.html
+            coverage/coverage.json
+          retention-days: 30
+
+      - name: Add coverage to job summary
+        run: |
+          echo "## 📊 Code Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total Coverage:** ${{ steps.coverage.outputs.total-coverage }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY

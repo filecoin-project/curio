@@ -1,0 +1,137 @@
+name: 'Generate Coverage Report'
+description: 'Merge and report Go test coverage from multiple test runs'
+author: 'Curio Team'
+
+inputs:
+  artifacts-dir:
+    description: 'Directory containing coverage artifacts'
+    required: false
+    default: 'coverage-artifacts'
+  output-dir:
+    description: 'Directory for output coverage files'
+    required: false
+    default: 'coverage'
+  github-token:
+    description: 'GitHub token for creating checks and comments'
+    required: true
+  create-check:
+    description: 'Create a GitHub Check for coverage'
+    required: false
+    default: 'true'
+  create-comment:
+    description: 'Create/update PR comment with coverage'
+    required: false
+    default: 'true'
+  minimum-coverage:
+    description: 'Minimum acceptable coverage percentage'
+    required: false
+    default: '0'
+
+outputs:
+  total-coverage:
+    description: 'Total coverage percentage'
+    value: ${{ steps.coverage.outputs.coverage }}
+  badge-color:
+    description: 'Badge color based on coverage'
+    value: ${{ steps.coverage.outputs.badge-color }}
+  coverage-file:
+    description: 'Path to merged coverage file'
+    value: ${{ steps.coverage.outputs.coverage-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate coverage report
+      id: coverage
+      shell: bash
+      run: |
+        export COVERAGE_DIR="${{ inputs.output-dir }}"
+        export ARTIFACTS_DIR="${{ inputs.artifacts-dir }}"
+        chmod +x "$GITHUB_ACTION_PATH/../../utils/coverage-report.sh"
+        "$GITHUB_ACTION_PATH/../../utils/coverage-report.sh"
+        
+        # Set outputs
+        COVERAGE_TOTAL=$(cat ${COVERAGE_DIR}/coverage.json | grep -o '"total_coverage": "[^"]*"' | cut -d'"' -f4)
+        BADGE_COLOR=$(cat ${COVERAGE_DIR}/coverage.json | grep -o '"badge_color": "[^"]*"' | cut -d'"' -f4)
+        
+        echo "coverage=${COVERAGE_TOTAL}" >> $GITHUB_OUTPUT
+        echo "badge-color=${BADGE_COLOR}" >> $GITHUB_OUTPUT
+        echo "coverage-file=${COVERAGE_DIR}/merged.out" >> $GITHUB_OUTPUT
+    
+    - name: Check minimum coverage
+      shell: bash
+      run: |
+        COVERAGE_NUM=$(echo "${{ steps.coverage.outputs.coverage }}" | sed 's/%//')
+        MIN_COV="${{ inputs.minimum-coverage }}"
+        
+        if (( $(echo "$COVERAGE_NUM < $MIN_COV" | bc -l) )); then
+          echo "::error::Coverage ${COVERAGE_NUM}% is below minimum required ${MIN_COV}%"
+          exit 1
+        fi
+    
+    - name: Create GitHub Check
+      if: inputs.create-check == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const coverageText = fs.readFileSync('${{ inputs.output-dir }}/coverage.txt', 'utf8');
+          const coverage = '${{ steps.coverage.outputs.coverage }}';
+          
+          await github.rest.checks.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            name: 'Code Coverage Report',
+            head_sha: context.payload.pull_request.head.sha,
+            status: 'completed',
+            conclusion: 'success',
+            output: {
+              title: `Total Coverage: ${coverage}`,
+              summary: `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}\n\n### Coverage by Package\n\n\`\`\`\n${coverageText}\`\`\``,
+              text: coverageText
+            }
+          });
+    
+    - name: Create/Update PR Comment
+      if: inputs.create-comment == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const coverageText = fs.readFileSync('${{ inputs.output-dir }}/coverage.txt', 'utf8');
+          const coverage = '${{ steps.coverage.outputs.coverage }}';
+          const badgeColor = '${{ steps.coverage.outputs.badge-color }}';
+          
+          const emoji = badgeColor === 'brightgreen' ? '✅' : badgeColor === 'yellow' ? '⚠️' : '❌';
+          
+          const commentBody = `## ${emoji} Code Coverage Report\n\n**Total Coverage:** \`${coverage}\`\n\n![Coverage Badge](https://img.shields.io/badge/coverage-${coverage.replace('%', '%25')}-${badgeColor})\n\n<details>\n<summary>📋 Coverage by Package</summary>\n\n\`\`\`\n${coverageText}\`\`\`\n\n</details>\n\n<sub>📊 [View detailed HTML report](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})</sub>`;
+          
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('Code Coverage Report')
+          );
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: commentBody
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: commentBody
+            });
+          }
+
