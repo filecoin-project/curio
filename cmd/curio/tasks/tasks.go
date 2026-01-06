@@ -245,15 +245,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 
-	miners := config.NewDynamic(make([]address.Address, 0, len(maddrs.Get())))
-	forMiners := func() {
-		minersTmp := make([]address.Address, 0, len(maddrs.Get()))
-		for k := range maddrs.Get() {
-			minersTmp = append(minersTmp, address.Address(k))
-		}
-		miners.Set(minersTmp)
-	}
-	maddrs.OnChange(forMiners)
+	miners := config.Becomes(maddrs, func() []address.Address {
+		return lo.Map(maps.Keys(maddrs.Get()), func(k dtypes.MinerAddress, _ int) address.Address {
+			return address.Address(k)
+		})
+	})
 
 	{
 		var sdeps cuhttp.ServiceDeps
