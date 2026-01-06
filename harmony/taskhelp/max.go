@@ -44,6 +44,10 @@ func (m *MaxCounter) AtMax() bool {
 }
 
 func (m *MaxCounter) Headroom() int {
+	if m.N <= 0 {
+		// No limit configured, return large number to indicate unlimited headroom
+		return 1000000
+	}
 	return m.Max() - m.Active()
 }
 
