@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -206,4 +207,18 @@ func TestCurioConfigRoundTrip(t *testing.T) {
 
 	// Verify static fields were preserved
 	assert.Equal(t, cfg1.Subsystems.GuiAddress, cfg2.Subsystems.GuiAddress)
+}
+
+func TestBecomes(t *testing.T) {
+	d := NewDynamic(10)
+	d2 := Becomes(d, func() int {
+		fmt.Println("d.Get()", d.GetWithoutLock())
+		return d.Get() + 1
+	})
+	assert.Equal(t, 11, d2.Get())
+	dynamicLocker.Lock()
+	d.SetWithoutLock(20)
+	dynamicLocker.Unlock()
+	time.Sleep(time.Second) // applies over time
+	assert.Equal(t, 21, d2.Get())
 }
