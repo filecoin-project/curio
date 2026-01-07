@@ -286,9 +286,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		}
 		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
 		if err != nil {
-			if err != nil {
-				return false, xerrors.Errorf("getting miner balance: %w", err)
-			}
+			return false, xerrors.Errorf("getting miner balance: %w", err)
 		}
 		needFunds = big.Sub(needFunds, balance)
 		if needFunds.LessThan(big.Zero()) {
