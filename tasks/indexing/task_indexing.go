@@ -663,16 +663,6 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		indIDs[x] = int64(id)
 	}
 
-	ls, err := i.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	localIDs := make([]string, len(ls))
-	for x, l := range ls {
-		localIDs[x] = string(l.ID)
-	}
-
 	var result struct {
 		TaskID    harmonytask.TaskID `db:"indexing_task_id"`
 		StorageID sql.NullString     `db:"storage_id"`
@@ -683,29 +673,38 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	// Query MK20 table and get piece_ref, then join with parked_piece_refs to get piece_id and finally join with sector_location to get storage_id
 	// Query MK12 table and get sector_id, then join with sector_location to get storage_id
 	// Create a Union All query to get the first task that is either DOES NOT require indexing or has a storage_id that is in the local storage
-	err = i.db.QueryRow(ctx, `
-		WITH input_ids AS (SELECT unnest($1::bigint[]) AS task_id),
-		mk20_res AS (
-			SELECT m20.indexing_task_id, m20.indexing, sl.storage_id
-			FROM market_mk20_pipeline m20
-			INNER JOIN input_ids ON m20.indexing_task_id = input_ids.task_id
-			LEFT JOIN parked_piece_refs ppr ON (m20.url LIKE 'pieceref:%' AND CAST(substring(m20.url from 10) AS BIGINT) = ppr.ref_id)
-			LEFT JOIN sector_location sl ON sl.sector_num = ppr.piece_id AND sl.miner_id = 0 AND sl.sector_filetype = 32
-		),
-		mk12_res AS (
-			SELECT dp.indexing_task_id, dp.should_index AS indexing, l.storage_id
-			FROM market_mk12_deal_pipeline dp
-			INNER JOIN input_ids ON dp.indexing_task_id = input_ids.task_id
-			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-			WHERE l.sector_filetype = 1
-		)
-		SELECT indexing_task_id, storage_id, indexing FROM (
-			SELECT * FROM mk20_res 
-			UNION ALL 
-			SELECT * FROM mk12_res
-		) t
-		WHERE indexing = FALSE OR storage_id = ANY($2::text[])
-		LIMIT 1`, indIDs, localIDs).Scan(&result.TaskID, &result.StorageID, &result.Indexing)
+	err := i.db.QueryRow(ctx, `
+			SELECT indexing_task_id, storage_id, need_indexing
+			FROM (
+			  SELECT m20.indexing_task_id, m20.indexing AS need_indexing, sl.storage_id
+			  FROM market_mk20_pipeline m20
+			  LEFT JOIN parked_piece_refs ppr
+				ON (m20.url LIKE 'pieceref:%'
+					AND CAST(substring(m20.url FROM 10) AS BIGINT) = ppr.ref_id)
+			  LEFT JOIN sector_location sl
+				ON sl.sector_num = ppr.piece_id
+			   AND sl.miner_id   = 0
+			   AND sl.sector_filetype = 32
+			  WHERE m20.indexing_task_id = ANY($1::bigint[])
+			
+			  UNION ALL
+			
+			  SELECT dp.indexing_task_id, dp.should_index AS need_indexing, l.storage_id
+			  FROM market_mk12_deal_pipeline dp
+			  JOIN sector_location l
+				ON l.miner_id = dp.sp_id
+			   AND l.sector_num = dp.sector
+			   AND l.sector_filetype = 1
+			  WHERE dp.indexing_task_id = ANY($1::bigint[])
+			) t
+			WHERE t.need_indexing = FALSE
+			   OR EXISTS (
+					SELECT 1
+					FROM storage_path sp
+					WHERE sp.storage_id = t.storage_id
+					  AND sp.urls LIKE '%' || $2 || '%'
+				  )
+			LIMIT 1`, indIDs, engine.Host()).Scan(&result.TaskID, &result.StorageID, &result.Indexing)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

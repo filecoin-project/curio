@@ -2,9 +2,11 @@ package seal
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -149,8 +151,36 @@ func (s *SyntheticProofTask) markFinished(ctx context.Context, spid, sector int6
 }
 
 func (s *SyntheticProofTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	if IsDevnet {
+		return &ids[0], nil
+	}
+
+	if storiface.FTCache != 4 {
+		panic("storiface.FTCache != 4")
+	}
+
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var acceptedID harmonytask.TaskID
+
+	err := s.db.QueryRow(ctx, `
+		SELECT p.task_id_synth FROM sectors_sdr_pipeline p
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+		    INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
+			WHERE task_id_synth = ANY ($1) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 '%' LIMIT 1`, indIDs, engine.Host()).Scan(&acceptedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
+	}
+
+	return &acceptedID, nil
 }
 
 func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {

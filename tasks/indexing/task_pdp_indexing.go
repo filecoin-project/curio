@@ -256,29 +256,29 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		panic("storiface.FTPiece != 32")
 	}
 
-	ls, err := P.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	localIDs := make([]string, len(ls))
-	for x, l := range ls {
-		localIDs[x] = string(l.ID)
-	}
-
 	var resultTaskID harmonytask.TaskID
 
 	// Single query to resolve storage locations and filter for acceptable tasks
-	err = P.db.QueryRow(ctx, `
-		SELECT indexing_task_id
+	err := P.db.QueryRow(ctx, `
+		SELECT p.indexing_task_id
 		FROM pdp_pipeline p
-		LEFT JOIN parked_piece_refs ppr ON p.piece_ref = ppr.ref_id
-		LEFT JOIN sector_location sl ON sl.sector_num = ppr.piece_id 
-		  AND sl.miner_id = 0 
-		  AND sl.sector_filetype = 32
+		LEFT JOIN parked_piece_refs ppr
+		  ON p.piece_ref = ppr.ref_id
+		LEFT JOIN sector_location sl
+		  ON sl.sector_num = ppr.piece_id
+		 AND sl.miner_id = 0
+		 AND sl.sector_filetype = 32
+		LEFT JOIN storage_path sp
+		  ON sp.storage_id = sl.storage_id
 		WHERE p.indexing_task_id = ANY($1::bigint[])
-		  AND (p.indexing = FALSE OR sl.storage_id = ANY($2::text[]))
-		LIMIT 1`, indIDs, localIDs).Scan(&resultTaskID)
+		  AND (
+			p.indexing = FALSE
+			OR (
+			  sp.urls IS NOT NULL
+			  AND sp.urls LIKE '%' || $2 || '%'
+			)
+		  )
+		LIMIT 1;`, indIDs, engine.Host()).Scan(&resultTaskID)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

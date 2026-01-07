@@ -46,16 +46,6 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 	ctx := context.Background()
 
-	ls, err := t.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	storageIDs := make([]string, len(ls))
-	for i, l := range ls {
-		storageIDs[i] = string(l.ID)
-	}
-
 	indIDs := make([]int64, len(ids))
 	for i, id := range ids {
 		indIDs[i] = int64(id)
@@ -63,10 +53,11 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 	var acceptedID harmonytask.TaskID
 
-	err = t.db.QueryRow(ctx, `
+	err := t.db.QueryRow(ctx, `
 		SELECT p.task_id_tree_d FROM sectors_sdr_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
-			WHERE task_id_tree_d = ANY ($1) AND l.sector_filetype = 4 AND l.storage_id = ANY ($2) LIMIT 1`, indIDs, storageIDs).Scan(&acceptedID)
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+		    INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
+			WHERE task_id_tree_d = ANY ($1) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 '%' LIMIT 1`, indIDs, engine.Host()).Scan(&acceptedID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
