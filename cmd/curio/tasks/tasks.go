@@ -324,7 +324,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
+		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
 		if cfg.HTTP.Enable {
 			if !cfg.Subsystems.EnableDealMarket {
