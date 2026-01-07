@@ -2,8 +2,10 @@ package seal
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -106,13 +108,6 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 }
 
 func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"task_id_tree_c"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector_number"`
-		StorageID    string             `db:"storage_id"`
-	}
-
 	if storiface.FTCache != 4 {
 		panic("storiface.FTCache != 4")
 	}
@@ -124,39 +119,20 @@ func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		indIDs[i] = int64(id)
 	}
 
-	err := t.db.Select(ctx, &tasks, `
-		SELECT p.task_id_tree_c, p.sp_id, p.sector_number, l.storage_id FROM sectors_sdr_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
-			WHERE task_id_tree_r = ANY ($1) AND l.sector_filetype = 4
-`, indIDs)
+	var acceptedID harmonytask.TaskID
+	err := t.db.QueryRow(ctx, `
+		SELECT p.task_id_tree_c FROM sectors_sdr_pipeline p
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+			INNER JOIN storage_path sp ON sp.storage_id = l.storage_id
+			WHERE task_id_tree_c = ANY ($1) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 1`, indIDs, engine.Host()).Scan(&acceptedID)
 	if err != nil {
-		return nil, xerrors.Errorf("getting tasks: %w", err)
-	}
-
-	ls, err := t.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	acceptables := map[harmonytask.TaskID]bool{}
-
-	for _, t := range ids {
-		acceptables[t] = true
-	}
-
-	for _, t := range tasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
 		}
-
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
-			}
-		}
+		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
 
-	return nil, nil
+	return &acceptedID, nil
 }
 
 func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {

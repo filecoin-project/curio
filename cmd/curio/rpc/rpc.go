@@ -422,7 +422,7 @@ func (p *CurioAPI) IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.
 
 	firstHash := multihash.Multihash(cb)
 
-	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks)
+	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks, true)
 }
 
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {

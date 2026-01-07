@@ -18,7 +18,7 @@ import (
 
 var log = logging.Logger("chunker")
 
-const entriesChunkSize = 16384
+const EntriesChunkSize = 16384
 
 func NewEntriesChunkNode(mhs []multihash.Multihash, next ipld.Link) (datamodel.Node, error) {
 	chunk := schema.EntryChunk{
