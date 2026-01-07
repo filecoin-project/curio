@@ -172,7 +172,7 @@ func (s *SyntheticProofTask) CanAccept(ids []harmonytask.TaskID, engine *harmony
 		SELECT p.task_id_synth FROM sectors_sdr_pipeline p
 			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
 		    INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
-			WHERE task_id_synth = ANY ($1) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 '%' LIMIT 1`, indIDs, engine.Host()).Scan(&acceptedID)
+			WHERE task_id_synth = ANY ($1) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 1`, indIDs, engine.Host()).Scan(&acceptedID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
