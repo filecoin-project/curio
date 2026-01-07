@@ -400,7 +400,7 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev
 	if numBlocks == 1 {
 		mhs = []multihash.Multihash{firstHash}
 	} else {
-		mhs, err = p.indexStore.GetPieceHashRange(ctx, piecev2, firstHash, numBlocks)
+		mhs, err = p.indexStore.GetPieceHashRange(ctx, piecev2, firstHash, numBlocks, true)
 		if err != nil {
 			return nil, xerrors.Errorf("getting piece hash range: %w", err)
 		}

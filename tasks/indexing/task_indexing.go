@@ -715,8 +715,6 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	}
 
 	return &result.TaskID, nil
-
-	return nil, nil
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {

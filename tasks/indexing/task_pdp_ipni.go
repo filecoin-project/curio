@@ -16,6 +16,7 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -28,8 +29,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
@@ -39,18 +38,14 @@ import (
 
 type PDPIPNITask struct {
 	db  *harmonydb.DB
-	cpr *cachedreader.CachedPieceReader
-	sc  *ffi.SealCalls
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
 	idx *indexstore.IndexStore
 }
 
-func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *PDPIPNITask {
+func NewPDPIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *PDPIPNITask {
 	return &PDPIPNITask{
 		db:  db,
-		cpr: cpr,
-		sc:  sc,
 		cfg: cfg,
 		max: max,
 		idx: idx,
@@ -105,7 +100,6 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				Previous  string `db:"previous"`
 				Provider  string `db:"provider"`
 				Addresses string `db:"addresses"`
-				Entries   string `db:"entries"`
 				Metadata  []byte `db:"metadata"`
 				Pcid2     string `db:"piece_cid_v2"`
 				Pcid1     string `db:"piece_cid"`
@@ -119,7 +113,6 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 										previous, 
 										provider, 
 										addresses, 
-										entries,
 										metadata,
 										piece_cid_v2,
 										piece_cid,
@@ -143,11 +136,6 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			}
 
 			a := ads[0]
-
-			e, err := cid.Parse(a.Entries)
-			if err != nil {
-				return false, xerrors.Errorf("parsing entry CID: %w", err)
-			}
 
 			var prev string
 
@@ -176,7 +164,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				PreviousID: cidlink.Link{Cid: prevCID},
 				Provider:   a.Provider,
 				Addresses:  strings.Split(a.Addresses, "|"),
-				Entries:    cidlink.Link{Cid: e},
+				Entries:    schema.NoEntries,
 				ContextID:  a.ContextID,
 				IsRm:       true,
 				Metadata:   a.Metadata,
@@ -251,26 +239,41 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	if pinfo.Payload {
 		chk := chunker.NewInitialChunker()
-		recs, errCh := P.idx.GetMultihashes(ctx, pcid2)
-		recordCount := int64(0)
+		offset := multihash.Multihash{0}
+		ostr := offset.String()
 
-		for rec := range recs {
-			if readRrr := <-errCh; readRrr != nil {
-				return false, xerrors.Errorf("reading index: %w", readRrr)
+		for {
+			// Get the next EntriesChunkSize+1 (16384+1) entries for chunking
+			mhs, err := P.idx.GetPieceHashRange(ctx, pcid2, offset, chunker.EntriesChunkSize+1, false)
+			if err != nil {
+				return false, xerrors.Errorf("getting piece hashes: %w", err)
 			}
-			serr := chk.Accept(rec)
-			if serr != nil {
-				return false, xerrors.Errorf("adding index to chunk: %w", serr)
+
+			if offset.String() == ostr && len(mhs) == 0 {
+				return false, xerrors.Errorf("no index record found for piece %s", pcid2.String())
 			}
-			recordCount++
-		}
 
-		if err := <-errCh; err != nil {
-			return false, xerrors.Errorf("reading index: %w", err)
-		}
+			if len(mhs) <= chunker.EntriesChunkSize && len(mhs) > 0 {
+				// Send EntriesChunkSize (16384) or less entries for chunking
+				err = chk.Accept(mhs)
+				if err != nil {
+					return false, xerrors.Errorf("adding index to chunk: %w", err)
+				}
+				break
+			}
 
-		if recordCount == 0 {
-			return false, xerrors.Errorf("no index record found for piece %s", pcid2.String())
+			if len(mhs) == chunker.EntriesChunkSize+1 {
+				// Send EntriesChunkSize (16384) entries for chunking
+				err = chk.Accept(mhs[:len(mhs)-1])
+				if err != nil {
+					return false, xerrors.Errorf("adding index to chunk: %w", err)
+				}
+				// Use the last entry as the offset for the next iteration
+				offset = mhs[len(mhs)-1]
+				continue
+			}
+
+			return false, xerrors.Errorf("number of index records is not expected: %d", len(mhs))
 		}
 
 		// make sure we still own the task before writing to the database
@@ -284,7 +287,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	} else {
 		chk := chunker.NewInitialChunker()
-		err = chk.Accept(pcid2.Hash())
+		err = chk.Accept([]multihash.Multihash{pcid2.Hash()})
 		if err != nil {
 			return false, xerrors.Errorf("adding index to chunk: %w", err)
 		}

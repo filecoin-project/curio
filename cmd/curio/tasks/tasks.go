@@ -325,9 +325,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax, iStore)
+		ipniTask := indexing.NewIPNITask(db, cfg, idxMax, iStore)
 		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax, iStore)
+		pdpIPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
 		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
 
 		if cfg.HTTP.Enable {

@@ -400,7 +400,7 @@ func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash mul
 	return offset, nil
 }
 
-func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
+func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64, strictCheck bool) ([]multihash.Multihash, error) {
 	getHashes := func(pieceCid cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
 		qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
 		iter := i.session.Query(qry, pieceCid.Bytes(), []byte(start), num).WithContext(ctx).Iter()
@@ -435,7 +435,7 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 		}
 	}
 
-	if len(hashes) != int(num) {
+	if strictCheck && len(hashes) != int(num) {
 		return nil, xerrors.Errorf("expected %d hashes, got %d (possibly missing indexes)", num, len(hashes))
 	}
 
@@ -846,35 +846,4 @@ func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, layerId
 		Index: index,
 		Hash:  hash,
 	}, nil
-}
-
-func (i *IndexStore) GetMultihashes(ctx context.Context, piecev2 cid.Cid) (<-chan multihash.Multihash, <-chan error) {
-	out := make(chan multihash.Multihash, 1000)
-	errCh := make(chan error, 1)
-
-	go func() {
-		defer close(out)
-		defer close(errCh)
-
-		qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? ORDER BY PayloadMultihash ASC"
-		iter := i.session.Query(qry, piecev2.Bytes()).WithContext(ctx).PageSize(10000).Iter()
-
-		var r []byte
-		for iter.Scan(&r) {
-			m := multihash.Multihash(r)
-			select {
-			case out <- m:
-			case <-ctx.Done():
-				errCh <- ctx.Err()
-				return
-			}
-			// Allocate new r, preallocating the typical size of a multihash (36 bytes)
-			r = make([]byte, 0, 36)
-		}
-		if err := iter.Close(); err != nil {
-			errCh <- xerrors.Errorf("iterating piece hash range (P:0x%02x): %w", piecev2.Bytes(), err)
-		}
-	}()
-
-	return out, errCh
 }
