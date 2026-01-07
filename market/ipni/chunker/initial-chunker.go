@@ -66,8 +66,12 @@ func (c *InitialChunker) Accept(mhs []multihash.Multihash) error {
 }
 
 func (c *InitialChunker) chunk() error {
-	mhs := make([]multihash.Multihash, c.chunkSize)
-	copy(mhs, c.dbMultihashes[:c.chunkSize])
+	l := c.chunkSize
+	if len(c.dbMultihashes) < l {
+		l = len(c.dbMultihashes)
+	}
+	mhs := make([]multihash.Multihash, l)
+	copy(mhs, c.dbMultihashes[:l])
 
 	// Sort multihashes
 	sort.Slice(mhs, func(i, j int) bool {
@@ -92,7 +96,7 @@ func (c *InitialChunker) chunk() error {
 	if len(mhs) != n {
 		mhs = mhs[:n]
 		// Shift remaining data to the front of the internal buffer
-		extra := c.dbMultihashes[c.chunkSize:]
+		extra := c.dbMultihashes[l:]
 		copy(c.dbMultihashes, mhs)
 		extraLen := copy(c.dbMultihashes[len(mhs):], extra)
 		c.dbMultihashes = c.dbMultihashes[:len(mhs)+extraLen]
@@ -116,7 +120,7 @@ func (c *InitialChunker) chunk() error {
 
 	c.prevChunks = append(c.prevChunks, chunkMeta{link, mhs[0], int64(len(mhs))})
 
-	count := copy(c.dbMultihashes, c.dbMultihashes[c.chunkSize:])
+	count := copy(c.dbMultihashes, c.dbMultihashes[l:])
 	c.dbMultihashes = c.dbMultihashes[:count]
 
 	return nil
