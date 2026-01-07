@@ -158,7 +158,8 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		SET owner_id = $1
 		FROM candidates c
 		WHERE t.id = c.id
-		RETURNING t.*;`, h.TaskEngine.ownerID, tIDs, maxAcceptable)
+		RETURNING t.id;`, h.TaskEngine.ownerID, tIDs, maxAcceptable)
+
 		if err != nil {
 			log.Error(err)
 			for _, rs := range releaseStorage {
