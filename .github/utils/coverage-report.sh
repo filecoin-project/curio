@@ -99,17 +99,50 @@ echo "  ✓ HTML report: ${HTML_FILE}"
 
 # Display top 10 packages by coverage
 echo ""
-echo "📈 Top Packages by Coverage:"
+echo "📈 Top Functions by Coverage:"
 echo "----------------------------"
 head -n -1 "${SUMMARY_FILE}" | tail -n +2 | sort -k3 -rn | head -10 | \
     awk '{printf "  %s: %s\n", $3, $1}'
 
 # Display bottom 10 packages (needing improvement)
 echo ""
-echo "⚠️  Packages Needing Coverage Improvement:"
+echo "⚠️  Functions Needing Coverage Improvement:"
 echo "-------------------------------------------"
 head -n -1 "${SUMMARY_FILE}" | tail -n +2 | sort -k3 -n | head -10 | \
     awk '{printf "  %s: %s\n", $3, $1}'
+
+# Generate package-level summary
+echo ""
+echo "📦 Generating package-level summary..."
+PACKAGE_SUMMARY="${COVERAGE_DIR}/packages.txt"
+head -n -1 "${SUMMARY_FILE}" | tail -n +2 | \
+    awk -F: '{
+        # Extract package path (everything before the last colon with line number)
+        pkg = $1
+        # Extract coverage percentage from the last field
+        match($0, /([0-9.]+%)[[:space:]]*$/, arr)
+        coverage = arr[1]
+        gsub(/%/, "", coverage)
+        
+        if (pkg != "" && coverage != "") {
+            sum[pkg] += coverage
+            count[pkg]++
+        }
+    }
+    END {
+        for (pkg in sum) {
+            avg = sum[pkg] / count[pkg]
+            printf "%s: %.1f%% (%d functions)\n", pkg, avg, count[pkg]
+        }
+    }' | sort -t: -k2 -rn > "${PACKAGE_SUMMARY}"
+
+echo "  ✓ Package summary: ${PACKAGE_SUMMARY}"
+
+# Show top 10 packages
+echo ""
+echo "📊 Top 10 Packages by Average Coverage:"
+echo "---------------------------------------"
+head -10 "${PACKAGE_SUMMARY}"
 
 # Export coverage info for CI
 if [ -n "$GITHUB_ENV" ]; then
@@ -117,6 +150,10 @@ if [ -n "$GITHUB_ENV" ]; then
     echo "BADGE_COLOR=${BADGE_COLOR}" >> "$GITHUB_ENV"
     echo "COVERAGE_NUM=${COVERAGE_NUM}" >> "$GITHUB_ENV"
 fi
+
+# Count total functions and packages
+TOTAL_FUNCTIONS=$(head -n -1 "${SUMMARY_FILE}" | tail -n +2 | wc -l | tr -d ' ')
+TOTAL_PACKAGES=$(wc -l < "${PACKAGE_SUMMARY}" | tr -d ' ')
 
 # Generate JSON report for programmatic use
 echo ""
@@ -127,10 +164,13 @@ cat > "${COVERAGE_DIR}/coverage.json" <<EOF
   "coverage_percentage": ${COVERAGE_NUM},
   "badge_color": "${BADGE_COLOR}",
   "files_processed": ${PROCESSED},
+  "total_functions": ${TOTAL_FUNCTIONS},
+  "total_packages": ${TOTAL_PACKAGES},
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "report_files": {
     "merged": "${OUTPUT_FILE}",
     "summary": "${SUMMARY_FILE}",
+    "packages": "${PACKAGE_SUMMARY}",
     "html": "${HTML_FILE}"
   }
 }

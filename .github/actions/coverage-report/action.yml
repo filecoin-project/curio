@@ -37,10 +37,34 @@ outputs:
   coverage-file:
     description: 'Path to merged coverage file'
     value: ${{ steps.coverage.outputs.coverage-file }}
+  has-baseline:
+    description: 'Whether baseline comparison is available'
+    value: ${{ steps.coverage.outputs.has-baseline }}
+  baseline-coverage:
+    description: 'Baseline coverage percentage from main'
+    value: ${{ steps.coverage.outputs.baseline-coverage }}
+  coverage-diff:
+    description: 'Coverage difference from baseline (+/- percentage)'
+    value: ${{ steps.coverage.outputs.coverage-diff }}
+  baseline-commit:
+    description: 'Git commit SHA of baseline'
+    value: ${{ steps.coverage.outputs.baseline-commit }}
 
 runs:
   using: 'composite'
   steps:
+    - name: Download baseline coverage
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: dawidd6/action-download-artifact@v3
+      with:
+        workflow: coverage-baseline.yml
+        branch: main
+        name: coverage-baseline-main
+        path: baseline-coverage
+        github_token: ${{ inputs.github-token }}
+        search_artifacts: true
+
     - name: Generate coverage report
       id: coverage
       shell: bash
@@ -57,6 +81,32 @@ runs:
         echo "coverage=${COVERAGE_TOTAL}" >> $GITHUB_OUTPUT
         echo "badge-color=${BADGE_COLOR}" >> $GITHUB_OUTPUT
         echo "coverage-file=${COVERAGE_DIR}/merged.out" >> $GITHUB_OUTPUT
+        
+        # Calculate diff if baseline exists
+        if [ -f "baseline-coverage/baseline.json" ]; then
+          BASELINE_COV=$(cat baseline-coverage/baseline.json | grep -o '"coverage_percentage": [0-9.]*' | cut -d' ' -f2)
+          CURRENT_COV=$(cat ${COVERAGE_DIR}/coverage.json | grep -o '"coverage_percentage": [0-9.]*' | cut -d' ' -f2)
+          BASELINE_COMMIT=$(cat baseline-coverage/baseline.json | grep -o '"commit": "[^"]*"' | cut -d'"' -f4 | cut -c1-7)
+          
+          DIFF=$(echo "$CURRENT_COV - $BASELINE_COV" | bc)
+          
+          echo "baseline-coverage=${BASELINE_COV}%" >> $GITHUB_OUTPUT
+          echo "coverage-diff=${DIFF}%" >> $GITHUB_OUTPUT
+          echo "baseline-commit=${BASELINE_COMMIT}" >> $GITHUB_OUTPUT
+          echo "has-baseline=true" >> $GITHUB_OUTPUT
+          
+          # Add diff info to coverage JSON
+          cat ${COVERAGE_DIR}/coverage.json | jq \
+            --arg diff "$DIFF" \
+            --arg baseline "$BASELINE_COV" \
+            --arg commit "$BASELINE_COMMIT" \
+            '. + {comparison: {baseline_coverage: ($baseline + "%"), diff: ($diff + "%"), baseline_commit: $commit}}' \
+            > ${COVERAGE_DIR}/coverage-with-diff.json
+          mv ${COVERAGE_DIR}/coverage-with-diff.json ${COVERAGE_DIR}/coverage.json
+        else
+          echo "has-baseline=false" >> $GITHUB_OUTPUT
+          echo "No baseline coverage found - this is expected for first run or on main branch" >> $GITHUB_STEP_SUMMARY
+        fi
     
     - name: Check minimum coverage
       shell: bash
@@ -78,6 +128,31 @@ runs:
           const fs = require('fs');
           const coverageText = fs.readFileSync('${{ inputs.output-dir }}/coverage.txt', 'utf8');
           const coverage = '${{ steps.coverage.outputs.coverage }}';
+          const hasBaseline = '${{ steps.coverage.outputs.has-baseline }}' === 'true';
+          const baselineCov = '${{ steps.coverage.outputs.baseline-coverage }}';
+          const diff = '${{ steps.coverage.outputs.coverage-diff }}';
+          const baselineCommit = '${{ steps.coverage.outputs.baseline-commit }}';
+          
+          // Extract top and bottom packages for summary
+          const lines = coverageText.split('\n').filter(line => line.trim());
+          const totalLine = lines[lines.length - 1];
+          const functionLines = lines.slice(0, -1);
+          
+          // Get top 20 and bottom 20 packages
+          const topPackages = functionLines.slice(0, 20).join('\n');
+          const bottomPackages = functionLines.slice(-20).join('\n');
+          
+          // Build comparison section if baseline exists
+          let comparisonSection = '';
+          if (hasBaseline) {
+            const diffNum = parseFloat(diff);
+            const diffEmoji = diffNum > 0 ? '📈' : diffNum < 0 ? '📉' : '➡️';
+            const diffSign = diffNum > 0 ? '+' : '';
+            comparisonSection = `\n\n### ${diffEmoji} Coverage Change\n\n**Baseline (main):** ${baselineCov} (commit \`${baselineCommit}\`)\n**This PR:** ${coverage}\n**Difference:** ${diffSign}${diff}\n`;
+          }
+          
+          // Create a summary that fits within GitHub's 65k character limit
+          const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}\n\n### Top Functions (Highest Coverage)\n\`\`\`\n${topPackages}\n\`\`\`\n\n### Functions Needing Coverage (Lowest Coverage)\n\`\`\`\n${bottomPackages}\n\`\`\`\n\n📄 **Full Report:** Download the coverage artifacts to view the complete HTML report with all ${functionLines.length} functions.\n\n${totalLine}`;
           
           await github.rest.checks.create({
             owner: context.repo.owner,
@@ -87,9 +162,9 @@ runs:
             status: 'completed',
             conclusion: 'success',
             output: {
-              title: `Total Coverage: ${coverage}`,
-              summary: `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}\n\n### Coverage by Package\n\n\`\`\`\n${coverageText}\`\`\``,
-              text: coverageText
+              title: `Total Coverage: ${coverage}${hasBaseline ? ` (${parseFloat(diff) > 0 ? '+' : ''}${diff})` : ''}`,
+              summary: summary.substring(0, 65000), // Ensure it fits
+              text: `Total functions analyzed: ${functionLines.length}\n\nDownload the coverage-merged artifact for the complete report.`
             }
           });
     
@@ -103,10 +178,57 @@ runs:
           const coverageText = fs.readFileSync('${{ inputs.output-dir }}/coverage.txt', 'utf8');
           const coverage = '${{ steps.coverage.outputs.coverage }}';
           const badgeColor = '${{ steps.coverage.outputs.badge-color }}';
+          const hasBaseline = '${{ steps.coverage.outputs.has-baseline }}' === 'true';
+          const baselineCov = '${{ steps.coverage.outputs.baseline-coverage }}';
+          const diff = '${{ steps.coverage.outputs.coverage-diff }}';
+          const baselineCommit = '${{ steps.coverage.outputs.baseline-commit }}';
           
           const emoji = badgeColor === 'brightgreen' ? '✅' : badgeColor === 'yellow' ? '⚠️' : '❌';
           
-          const commentBody = `## ${emoji} Code Coverage Report\n\n**Total Coverage:** \`${coverage}\`\n\n![Coverage Badge](https://img.shields.io/badge/coverage-${coverage.replace('%', '%25')}-${badgeColor})\n\n<details>\n<summary>📋 Coverage by Package</summary>\n\n\`\`\`\n${coverageText}\`\`\`\n\n</details>\n\n<sub>📊 [View detailed HTML report](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})</sub>`;
+          // Extract summary data
+          const lines = coverageText.split('\n').filter(line => line.trim());
+          const totalLine = lines[lines.length - 1];
+          const functionLines = lines.slice(0, -1);
+          
+          // Get package-level summary (aggregate by package)
+          const packageCoverage = {};
+          functionLines.forEach(line => {
+            const match = line.match(/^(.+?):\d+:.*?(\d+\.\d+%)/);
+            if (match) {
+              const pkg = match[1];
+              const cov = parseFloat(match[2]);
+              if (!packageCoverage[pkg]) {
+                packageCoverage[pkg] = { total: 0, count: 0 };
+              }
+              packageCoverage[pkg].total += cov;
+              packageCoverage[pkg].count += 1;
+            }
+          });
+          
+          // Calculate average coverage per package
+          const pkgSummary = Object.entries(packageCoverage)
+            .map(([pkg, data]) => ({ pkg, avg: data.total / data.count, funcs: data.count }))
+            .sort((a, b) => b.avg - a.avg);
+          
+          // Top 10 and bottom 10 packages
+          const topPkgs = pkgSummary.slice(0, 10)
+            .map(p => `${p.pkg}: ${p.avg.toFixed(1)}% (${p.funcs} functions)`)
+            .join('\n');
+          const bottomPkgs = pkgSummary.slice(-10)
+            .map(p => `${p.pkg}: ${p.avg.toFixed(1)}% (${p.funcs} functions)`)
+            .join('\n');
+          
+          // Build comparison section if baseline exists
+          let comparisonSection = '';
+          if (hasBaseline) {
+            const diffNum = parseFloat(diff);
+            const diffEmoji = diffNum > 0 ? '📈' : diffNum < 0 ? '📉' : '➡️';
+            const diffSign = diffNum > 0 ? '+' : '';
+            const diffColor = diffNum > 0 ? 'brightgreen' : diffNum < 0 ? 'red' : 'lightgrey';
+            comparisonSection = `\n### ${diffEmoji} Coverage vs Main\n\n| | Coverage |\n|---|---|\n| **This PR** | ${coverage} |\n| **Main** | ${baselineCov} ([\`${baselineCommit}\`](https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${baselineCommit})) |\n| **Difference** | ![${diffSign}${diff}](https://img.shields.io/badge/diff-${diffSign}${diff.replace('%', '%25')}-${diffColor}) |\n\n`;
+          }
+          
+          const commentBody = `## ${emoji} Code Coverage Report\n\n**Total Coverage:** \`${coverage}\`\n\n![Coverage Badge](https://img.shields.io/badge/coverage-${coverage.replace('%', '%25')}-${badgeColor})${comparisonSection}\n### 📊 Summary\n- **Total Functions:** ${functionLines.length}\n- **Total Packages:** ${pkgSummary.length}\n\n<details>\n<summary>🏆 Top 10 Packages by Coverage</summary>\n\n\`\`\`\n${topPkgs}\n\`\`\`\n\n</details>\n\n<details>\n<summary>⚠️ Bottom 10 Packages (Need Improvement)</summary>\n\n\`\`\`\n${bottomPkgs}\n\`\`\`\n\n</details>\n\n<sub>📊 [View detailed HTML report in artifacts](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})</sub>`;
           
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,

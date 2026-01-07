@@ -641,6 +641,7 @@ jobs:
           path: |
             coverage/merged.out
             coverage/coverage.txt
+            coverage/packages.txt
             coverage/coverage.html
             coverage/coverage.json
           retention-days: 30
