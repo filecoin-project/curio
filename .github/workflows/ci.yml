@@ -623,15 +623,25 @@ jobs:
           path: coverage-artifacts
           merge-multiple: false
 
+      - name: Merge coverage reports
+        run: |
+          chmod +x .github/utils/coverage-report.sh
+          .github/utils/coverage-report.sh
+
       - name: Upload coverage HTML to transfer.sh (temporary hosting)
         id: upload-coverage
         if: github.event_name == 'pull_request'
         run: |
           # Upload to transfer.sh (14-day retention, no account needed)
-          COVERAGE_URL=$(curl --upload-file coverage/coverage.html https://transfer.sh/coverage-pr-${{ github.event.pull_request.number }}.html)
-          echo "url=${COVERAGE_URL}" >> $GITHUB_OUTPUT
-          echo "Coverage HTML available at: ${COVERAGE_URL}"
-          echo "This link expires in 14 days"
+          echo "Uploading coverage HTML to transfer.sh..."
+          COVERAGE_URL=$(curl -s --upload-file coverage/coverage.html https://transfer.sh/coverage-pr-${{ github.event.pull_request.number }}.html)
+          if [ -n "$COVERAGE_URL" ]; then
+            echo "url=${COVERAGE_URL}" >> $GITHUB_OUTPUT
+            echo "✅ Coverage HTML available at: ${COVERAGE_URL}"
+            echo "This link expires in 14 days"
+          else
+            echo "⚠️ Upload to transfer.sh failed, will use artifacts only"
+          fi
         continue-on-error: true
 
       - name: Generate coverage report
@@ -642,7 +652,7 @@ jobs:
           output-dir: coverage
           github-token: ${{ secrets.GITHUB_TOKEN }}
           create-check: 'true'
-          create-comment: 'true'
+          create-comment: 'false'
           minimum-coverage: '0'
           coverage-html-url: ${{ steps.upload-coverage.outputs.url || '' }}
 
@@ -667,27 +677,25 @@ jobs:
           echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ -n "${{ steps.upload-coverage.outputs.url || '' }}" ]; then
+          COVERAGE_URL="${{ steps.upload-coverage.outputs.url || '' }}"
+          if [ -n "$COVERAGE_URL" ] && [ "$COVERAGE_URL" != "null" ]; then
             echo "### 🌐 View Coverage Report" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**[📊 Open Interactive Coverage in Browser](${{ steps.upload-coverage.outputs.url || '' }})**" >> $GITHUB_STEP_SUMMARY
+            echo "**[📊 Open Interactive Coverage HTML in Browser](${COVERAGE_URL})**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "- 🟢 Green: Covered by tests" >> $GITHUB_STEP_SUMMARY
             echo "- 🔴 Red: Not covered" >> $GITHUB_STEP_SUMMARY
             echo "- ⚪ Gray: Non-executable code" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "_Link expires in 14 days. Download artifact below for permanent copy._" >> $GITHUB_STEP_SUMMARY
+            echo "_Link expires in 14 days_" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "---" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "### 📥 Download Coverage Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Permanent Copy (Artifacts)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Scroll down to **Artifacts** section and download **coverage-merged** for:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **\`coverage.html\`** - Interactive HTML report (permanent copy)" >> $GITHUB_STEP_SUMMARY
-          echo "- **\`coverage.txt\`** - Text summary of all functions" >> $GITHUB_STEP_SUMMARY
-          echo "- **\`packages.txt\`** - Package-level summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **\`merged.out\`** - Go coverage profile for tools" >> $GITHUB_STEP_SUMMARY
-          echo "- **\`coverage.json\`** - JSON metadata" >> $GITHUB_STEP_SUMMARY
+          echo "Download **coverage-merged** artifact for:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`coverage.html\` - Interactive HTML (permanent copy)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`coverage.txt\` - Text summary" >> $GITHUB_STEP_SUMMARY
+          echo "- \`merged.out\` - Go coverage profile" >> $GITHUB_STEP_SUMMARY
