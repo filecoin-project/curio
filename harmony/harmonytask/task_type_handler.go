@@ -175,7 +175,8 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 			return false
 		}
 		if len(tasksAccepted) != len(tIDs) {
-			for _, rs := range releaseStorage[len(tasksAccepted):] {
+			tIDs = tasksAccepted                            // update tIDs to the accepted tasks
+			for _, rs := range releaseStorage[len(tIDs):] { // release the storage for the rejected tasks
 				rs()
 			}
 		}
