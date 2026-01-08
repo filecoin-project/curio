@@ -26,6 +26,10 @@ inputs:
     description: 'Minimum acceptable coverage percentage'
     required: false
     default: '0'
+  coverage-html-url:
+    description: 'Direct URL to view coverage HTML (if uploaded to external host)'
+    required: false
+    default: ''
 
 outputs:
   total-coverage:
@@ -56,14 +60,13 @@ runs:
     - name: Download baseline coverage
       if: github.event_name == 'pull_request'
       continue-on-error: true
-      uses: dawidd6/action-download-artifact@v3
+      uses: dawidd6/action-download-artifact@v6
       with:
         workflow: coverage-baseline.yml
         branch: main
         name: coverage-baseline-main
         path: baseline-coverage
         github_token: ${{ inputs.github-token }}
-        search_artifacts: true
 
     - name: Generate coverage report
       id: coverage
@@ -153,7 +156,16 @@ runs:
           
           // Create a summary that fits within GitHub's 65k character limit
           const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}\n\n### Top Functions (Highest Coverage)\n\`\`\`\n${topPackages}\n\`\`\`\n\n### Functions Needing Coverage (Lowest Coverage)\n\`\`\`\n${bottomPackages}\n\`\`\`\n\n📄 **[View Full HTML Coverage Report](${artifactUrl})** - Download \`coverage-merged\` artifact and open \`coverage.html\` to see line-by-line coverage for all ${functionLines.length} functions.\n\n${totalLine}`;
+          const coverageHtmlUrl = '${{ inputs.coverage-html-url }}';
+          
+          let htmlLink = '';
+          if (coverageHtmlUrl && coverageHtmlUrl !== '') {
+            htmlLink = `\n\n## 🌐 [View Interactive Coverage Report in Browser](${coverageHtmlUrl})\n\n**Click above to open the full HTML coverage report directly in your browser!**\n\nShows:\n- 🟢 Green: Lines covered by tests\n- 🔴 Red: Lines not covered\n- ⚪ Gray: Non-executable code\n- Interactive navigation by package/file\n- All ${functionLines.length} functions\n\n_Note: Link expires in 14 days. Download artifact for permanent copy._\n\n---\n\n`;
+          } else {
+            htmlLink = `\n\n📥 **[Download Coverage Report](${artifactUrl})** - Download \`coverage-merged\` artifact and open \`coverage.html\` locally.\n\n`;
+          }
+          
+          const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}${htmlLink}### Top Functions (Highest Coverage)\n\`\`\`\n${topPackages}\n\`\`\`\n\n### Functions Needing Coverage (Lowest Coverage)\n\`\`\`\n${bottomPackages}\n\`\`\`\n\n${totalLine}`;
           
           await github.rest.checks.create({
             owner: context.repo.owner,
@@ -165,6 +177,6 @@ runs:
             output: {
               title: `Total Coverage: ${coverage}${hasBaseline ? ` (${parseFloat(diff) > 0 ? '+' : ''}${diff})` : ''}`,
               summary: summary.substring(0, 65000), // Ensure it fits
-              text: `Total functions analyzed: ${functionLines.length}\n\nDownload the coverage-merged artifact for the complete HTML report with line-by-line coverage.\n\n📊 [Go to artifacts](${artifactUrl})`
+              text: coverageHtmlUrl && coverageHtmlUrl !== '' ? `Total functions analyzed: ${functionLines.length}\n\n🌐 View in browser: ${coverageHtmlUrl}` : `Total functions analyzed: ${functionLines.length}\n\n[Download artifacts](${artifactUrl})`
             }
           });
