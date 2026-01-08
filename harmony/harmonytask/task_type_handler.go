@@ -120,7 +120,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	if maxAcceptable > headroomUntilMax {
 		maxAcceptable = headroomUntilMax
 	}
-	releaseStorage := []func(){}
+	releaseStorage := make([]func(), len(tIDs))
 
 	if h.Cost.Storage != nil {
 		for i, tID := range tIDs {
@@ -170,14 +170,18 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		if len(tasksAccepted) == 0 {
 			log.Infow("did not accept task", "task_id", tIDs, "reason", "already Taken", "name", h.Name)
 			for _, rs := range releaseStorage {
-				rs()
+				if rs != nil {
+					rs()
+				}
 			}
 			return false
 		}
 		if len(tasksAccepted) != len(tIDs) {
 			tIDs = tasksAccepted                            // update tIDs to the accepted tasks
 			for _, rs := range releaseStorage[len(tIDs):] { // release the storage for the rejected tasks
-				rs()
+				if rs != nil {
+					rs()
+				}
 			}
 		}
 	}
@@ -219,7 +223,9 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 				}
 				h.Max.Add(-1)
 
-				releaseStorage()
+				if releaseStorage != nil {
+					releaseStorage()
+				}
 				h.recordCompletion(tID, sectorID, workStart, done, doErr)
 				if done {
 					for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
