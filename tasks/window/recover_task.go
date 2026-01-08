@@ -79,7 +79,7 @@ func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	}
 
 	if pcs != nil {
-		if err := pcs.AddHandler(t.processHeadChange); err != nil {
+		if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: t.processHeadChange, Priority: chainsched.PriorityEarly}); err != nil {
 			return nil, err
 		}
 	}

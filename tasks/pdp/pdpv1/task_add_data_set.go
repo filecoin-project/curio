@@ -67,7 +67,7 @@ func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	// Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
-	fromAddress, err := p.getSenderAddress(ctx)
+	fromAddress, err := getSenderAddress(ctx, p.db)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sender address: %w", err)
 	}
@@ -182,9 +182,9 @@ func (p *PDPTaskAddDataSet) schedule(ctx context.Context, taskFunc harmonytask.A
 }
 
 // getSenderAddress retrieves the sender address from the database where role = 'pdp' limit 1
-func (p *PDPTaskAddDataSet) getSenderAddress(ctx context.Context) (common.Address, error) {
+func getSenderAddress(ctx context.Context, db *harmonydb.DB) (common.Address, error) {
 	var addressStr string
-	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
+	err := db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return common.Address{}, errors.New("no sender address with role 'pdp' found")

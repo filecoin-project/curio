@@ -608,11 +608,17 @@ CREATE TABLE IF NOT EXISTS pdp_data_set_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
-    set_id BIGINT NOT NULL,
+    set_id BIGINT NOT NULL, -- Unique (Added in 20260108-pdpv1.sql)
     extra_data BYTEA,
 
     task_id BIGINT DEFAULT NULL,
     tx_hash TEXT DEFAULT NULL
+    -- terminate_service_task_id BIGINT DEFAULT NULL (Added in 20260108-pdpv1.sql)
+    -- after_terminate_service BOOLEAN NOT NULL DEFAULT FALSE (Added in 20260108-pdpv1.sql)
+    -- terminate_tx_hash TEXT DEFAULT NULL (Added in 20260108-pdpv1.sql)
+    -- service_termination_epoch BIGINT DEFAULT NULL (Added in 20260108-pdpv1.sql)
+    -- after_delete_data_set BOOLEAN NOT NULL DEFAULT FALSE (Added in 20260108-pdpv1.sql)
+    -- terminated BOOLEAN NOT NULL DEFAULT FALSE (Added in 20260108-pdpv1.sql)
 );
 
 -- This table governs the delete piece tasks
@@ -626,6 +632,7 @@ CREATE TABLE IF NOT EXISTS pdp_piece_delete (
 
     task_id BIGINT DEFAULT NULL,
     tx_hash TEXT DEFAULT NULL
+    -- terminated BOOLEAN NOT NULL DEFAULT FALSE (Added in 20260108-pdpv1.sql)
 );
 
 -- Main DataSet Piece table. Any and all pieces ever added by SP must be part of this table

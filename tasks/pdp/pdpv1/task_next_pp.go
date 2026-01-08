@@ -44,7 +44,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 		fil:       fil,
 	}
 
-	_ = chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	_ = chainSched.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		if apply == nil {
 			return nil
 		}
@@ -85,7 +85,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 		}
 
 		return nil
-	})
+	}, Priority: chainsched.PriorityEarly})
 
 	return n
 }

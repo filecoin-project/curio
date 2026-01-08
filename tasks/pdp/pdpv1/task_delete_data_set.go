@@ -2,9 +2,9 @@ package pdpv1
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -26,111 +26,107 @@ type PDPTaskDeleteDataSet struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
 	ethClient *ethclient.Client
-	filClient PDPServiceNodeApi
 }
 
-func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client, filClient PDPServiceNodeApi) *PDPTaskDeleteDataSet {
+func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client) *PDPTaskDeleteDataSet {
 	return &PDPTaskDeleteDataSet{
 		db:        db,
 		sender:    sender,
 		ethClient: ethClient,
-		filClient: filClient,
 	}
 }
 
 func (p *PDPTaskDeleteDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
-	var pdeletes []struct {
-		SetID     int64  `db:"set_id"`
-		ExtraData []byte `db:"extra_data"`
-	}
 
-	err = p.db.Select(ctx, &pdeletes, `SELECT set_id, extra_data FROM pdp_data_set_delete WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
+	var dataSetId int64
+	err = p.db.QueryRow(ctx, `SELECT set_id FROM pdp_data_set_delete WHERE task_id = $1`, taskID).Scan(&dataSetId)
 	if err != nil {
-		return false, xerrors.Errorf("failed to get task details from DB: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		return false, xerrors.Errorf("failed to select data set: %w", err)
 	}
 
-	if len(pdeletes) != 1 {
-		return false, xerrors.Errorf("incorrect rows for dataset delete found for taskID %d", taskID)
-	}
-
-	pdelete := pdeletes[0]
-
-	extraDataBytes := []byte{}
-
-	dataSetID := new(big.Int).SetUint64(uint64(pdelete.SetID))
-
-	if pdelete.ExtraData != nil {
-		extraDataBytes = pdelete.ExtraData
-	}
-
-	pdpContracts := contract.ContractAddresses()
-	pdpVerifierAddress := pdpContracts.PDPVerifier
-
-	pdpVerifier, err := contract.NewPDPVerifier(pdpVerifierAddress, p.ethClient)
+	sender, err := getSenderAddress(ctx, p.db)
 	if err != nil {
-		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpVerifierAddress.Hex(), err)
+		return false, xerrors.Errorf("failed to get pdp owner: %w", err)
 	}
 
-	callOpts := &bind.CallOpts{
-		Context: ctx,
-	}
+	pdpAddress := contract.ContractAddresses().PDPVerifier
 
-	// Get the sender address for this dataset
-	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, dataSetID)
+	verifier, err := contract.NewPDPVerifier(pdpAddress, p.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to get owner: %w", err)
+		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	// Manually create the transaction without requiring a Signer
-	// Obtain the ABI of the PDPVerifier contract
-	abiData, err := contract.PDPVerifierMetaData.GetAbi()
+	live, err := verifier.DataSetLive(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetId))
 	if err != nil {
-		return false, xerrors.Errorf("getting PDPVerifier ABI: %w", err)
+		return false, xerrors.Errorf("failed to check if data set is live: %w", err)
 	}
 
-	// Pack the method call data
-	data, err := abiData.Pack("deleteDataSet", dataSetID, extraDataBytes)
+	if !live {
+		n, err := p.db.Exec(ctx, `UPDATE pdp_data_set_delete SET 
+                               after_delete_data_set = TRUE,
+                               task_id = NULL,
+                               terminated  = TRUE
+                           WHERE task_id = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
+		}
+
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+		}
+
+		return true, nil
+	}
+
+	pdpABi, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
-		return false, xerrors.Errorf("packing data: %w", err)
+		return false, xerrors.Errorf("failed to get PDPVerifier ABI: %w", err)
 	}
 
-	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
-	tx := types.NewTransaction(
+	data, err := pdpABi.Pack("deleteDataSet", big.NewInt(dataSetId), []byte{})
+	if err != nil {
+		return false, xerrors.Errorf("failed to pack data: %w", err)
+	}
+
+	txEth := types.NewTransaction(
 		0,
-		contract.ContractAddresses().PDPVerifier,
+		pdpAddress,
 		big.NewInt(0),
 		0,
 		nil,
 		data,
 	)
 
-	// Send the transaction using SenderETH
-	reason := "pdp-delete-data-set"
-	txHash, err := p.sender.Send(ctx, owner, tx, reason)
+	txHash, err := p.sender.Send(ctx, sender, txEth, "pdpv1-terminate-data-set")
 	if err != nil {
-		return false, xerrors.Errorf("sending transaction: %w", err)
+		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	// Insert into message_waits_eth and pdp_data_set_delete
-	txHashLower := strings.ToLower(txHash.Hex())
-
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		n, err := tx.Exec(`UPDATE pdp_data_set_delete SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+		n, err := tx.Exec(`UPDATE pdp_data_set_delete SET 
+                               tx_hash = $2, 
+                               after_delete_data_set = TRUE,
+                               task_id = NULL
+                           WHERE task_id = $1`, taskID, txHash.Hex())
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
 		}
+
 		if n != 1 {
-			return false, xerrors.Errorf("incorrect number of rows updated for pdp_data_set_delete: %d", n)
+			return false, xerrors.Errorf("expected to update 1 row but got %d", n)
 		}
 
-		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHashLower, "pending")
+		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHash.Hex(), "pending")
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
 		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		return false, xerrors.Errorf("failed to commit transaction: %w", err)
 	}
@@ -167,22 +163,49 @@ func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytas
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_data_set_delete WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
+			current, err := p.ethClient.BlockNumber(ctx)
 			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
-				}
-				return false, xerrors.Errorf("failed to query pdp_data_set_delete: %w", err)
-			}
-			if did == "" {
-				return false, xerrors.Errorf("no valid id found for taskID")
+				return false, xerrors.Errorf("failed to get current block number: %w", err)
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_data_set_delete SET task_id = $1 WHERE id = $2 AND tx_hash IS NULL`, id, did)
+			var did sql.NullString
+
+			err = tx.QueryRow(`SELECT id 
+									FROM pdp_data_set_delete 
+									WHERE task_id IS NULL 
+									  AND after_delete_data_set = FALSE 
+									  AND service_termination_epoch IS NOT NULL
+									  AND service_termination_epoch >= $1 LIMIT 1`, current).Scan(&did)
+
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					log.Debugw("no pending data sets to terminate")
+					return false, nil
+				}
+				return false, xerrors.Errorf("failed to select pending data sets: %w", err)
+			}
+
+			if !did.Valid {
+				log.Debugw("no pending data sets to terminate")
+				return false, nil
+			}
+
+			n, err := tx.Exec(`UPDATE pdp_data_set_delete 
+									SET task_id = $1 
+									WHERE id = $2 
+									  AND task_id IS NULL 
+									  AND after_delete_data_set = FALSE
+									  AND after_terminate_service = TRUE`, id, did)
+
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
 			}
+
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows", n)
+			}
+
+			log.Debugw("scheduled terminate data set task", "dataSetId", did.String)
 
 			stop = false // we found a task to schedule, keep going
 			return true, nil

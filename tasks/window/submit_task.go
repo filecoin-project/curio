@@ -64,7 +64,7 @@ func NewWdPostSubmitTask(pcs *chainsched.CurioChainSched, send *message.Sender, 
 	}
 
 	if pcs != nil {
-		if err := pcs.AddHandler(res.processHeadChange); err != nil {
+		if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: res.processHeadChange, Priority: chainsched.PriorityEarly}); err != nil {
 			return nil, err
 		}
 	}

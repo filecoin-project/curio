@@ -35,14 +35,14 @@ type DataSetPieceAdd struct {
 
 // NewWatcherPieceAdd sets up the watcher for data set piece additions
 func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethClient *ethclient.Client) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDataSetPieceAdds(ctx, db, ethClient)
 		if err != nil {
 			log.Errorf("Failed to process pending data set piece adds: %s", err)
 		}
 
 		return nil
-	}); err != nil {
+	}, Priority: chainsched.PriorityNormal}); err != nil {
 		panic(err)
 	}
 }

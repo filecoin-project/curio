@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -27,13 +29,13 @@ type DataSetCreate struct {
 }
 
 func NewWatcherDataSetCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {
 			log.Errorf("Failed to process pending data set creates: %s", err)
 		}
 		return nil
-	}); err != nil {
+	}, Priority: chainsched.PriorityEarly}); err != nil {
 		panic(err)
 	}
 }
@@ -156,14 +158,31 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, dsc DataSetCrea
 			return false, xerrors.Errorf("expected 1 row to be inserted, got %d", n)
 		}
 
-		n, err = tx.Exec(`UPDATE market_mk20_deal
+		dealID, err := ulid.Parse(dsc.ID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to parse deal ID: %w", err)
+		}
+
+		deal, err := mk20.DealFromTX(tx, dealID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get deal from DB: %w", err)
+		}
+
+		if deal.Products.PDPV1 == nil {
+			return false, xerrors.Errorf("deal %s does not have PDPV1 products", dsc.ID)
+		}
+
+		// Mark deal as success if only create Data set was requested
+		if deal.Products.PDPV1.CreateDataSet && !deal.Products.PDPV1.AddPiece {
+			n, err = tx.Exec(`UPDATE market_mk20_deal
 							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
 							WHERE id = $1;`, dsc.ID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+			}
 		}
 
 		_, err = tx.Exec(`DELETE FROM pdp_data_set_create WHERE id = $1`, dsc.ID)

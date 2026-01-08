@@ -3,6 +3,7 @@ package chainsched
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,13 +31,22 @@ type NodeAPI interface {
 	ChainNotify(context.Context) (<-chan []*api.HeadChange, error)
 }
 
+type HandlerPriority uint8
+
+const (
+	PriorityEarly HandlerPriority = iota
+	PriorityNormal
+	PriorityLate
+	PriorityFinal
+)
+
 type CurioChainSched struct {
 	api NodeAPI
 
 	wlk      sync.RWMutex
 	watchers []UpdateFunc
 
-	callbacks []UpdateFunc
+	callbacks []HandlerEntry
 	lk        sync.RWMutex
 
 	started bool
@@ -58,13 +68,24 @@ func NewWithNotificationTimeout(api NodeAPI, timeout time.Duration) *CurioChainS
 	}
 }
 
+type HandlerEntry struct {
+	Fn       UpdateFunc
+	Priority HandlerPriority
+}
+
 type UpdateFunc func(ctx context.Context, revert, apply *types.TipSet) error
 
-func (s *CurioChainSched) AddHandler(ch UpdateFunc) error {
+func (s *CurioChainSched) AddHandler(ch HandlerEntry) error {
 	s.lk.Lock()
 	defer s.lk.Unlock()
 	if s.started {
 		return xerrors.Errorf("cannot add handler after start")
+	}
+	switch ch.Priority {
+	case PriorityEarly, PriorityNormal, PriorityLate, PriorityFinal:
+		// ok
+	default:
+		return xerrors.Errorf("invalid handler priority: %d", ch.Priority)
 	}
 	s.callbacks = append(s.callbacks, ch)
 	return nil
@@ -82,6 +103,9 @@ func (s *CurioChainSched) AddWatcher(ch UpdateFunc) error {
 
 func (s *CurioChainSched) Run(ctx context.Context) {
 	s.lk.Lock()
+	sort.SliceStable(s.callbacks, func(i, j int) bool {
+		return s.callbacks[i].Priority < s.callbacks[j].Priority
+	})
 	s.started = true
 	s.lk.Unlock()
 
@@ -217,7 +241,7 @@ func (s *CurioChainSched) update(ctx context.Context, revert, apply *types.TipSe
 	s.wlk.RUnlock()
 
 	s.lk.RLock()
-	callbacksCopy := make([]UpdateFunc, len(s.callbacks))
+	callbacksCopy := make([]HandlerEntry, len(s.callbacks))
 	copy(callbacksCopy, s.callbacks)
 	s.lk.RUnlock()
 
@@ -229,7 +253,7 @@ func (s *CurioChainSched) update(ctx context.Context, revert, apply *types.TipSe
 	}
 
 	for _, ch := range callbacksCopy {
-		if err := ch(ctx, revert, apply); err != nil {
+		if err := ch.Fn(ctx, revert, apply); err != nil {
 			log.Errorf("handling head updates in CurioChainSched: %+v", err)
 		}
 	}

@@ -68,7 +68,7 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
                                after_delete_data_set = TRUE,
                                delete_data_set_task_id = NULL,
                                terminated  = TRUE
-                           WHERE terminate_service_task_id = $1`, taskID)
+                           WHERE delete_data_set_task_id = $1`, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
 		}
@@ -99,22 +99,38 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		data,
 	)
 
-	txHash, err := t.sender.Send(ctx, sender, txEth, "pdp-terminate-data-set")
+	txHash, err := t.sender.Send(ctx, sender, txEth, "pdpv0-terminate-data-set")
 	if err != nil {
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set SET 
+	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`UPDATE pdp_delete_data_set SET 
                                delete_tx_hash = $2, 
                                after_delete_data_set = TRUE,
                                delete_data_set_task_id = NULL
-                           WHERE terminate_service_task_id = $1`, taskID, txHash.Hex())
+                           WHERE delete_data_set_task_id = $1`, taskID, txHash.Hex())
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+		}
+
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+		}
+
+		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHash.Hex(), "pending")
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+		return false, xerrors.Errorf("failed to commit transaction: %w", err)
 	}
 
-	if n != 1 {
-		return false, xerrors.Errorf("expected to update 1 row but got %d", n)
+	if !comm {
+		return false, xerrors.Errorf("failed to commit transaction")
 	}
 
 	return true, nil

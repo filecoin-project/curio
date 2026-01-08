@@ -31,12 +31,23 @@ type PDPV1 struct {
 	// RecordKeeper specifies the record keeper contract address for the new PDP dataset.
 	RecordKeeper string `json:"record_keeper"`
 
-	// PieceIDs is a list of Piece ids in a proof set.
+	// PieceIDs is a list of Piece ids in a data set.
 	PieceIDs []uint64 `json:"piece_ids,omitempty"`
 
 	// ExtraData can be used to send additional information to service contract when Verifier action like AddPiece, DeletePiece, etc. are performed.
 	ExtraData []byte `json:"extra_data,omitempty"`
 }
+
+const (
+	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
+	MaxCreateDataSetExtraDataSize = 4096
+
+	// MaxAddPiecesExtraDataSize defines the limit for extraData size in AddPieces calls (8KB).
+	MaxAddPiecesExtraDataSize = 8192
+
+	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
+	MaxDeletePieceExtraDataSize = 256
+)
 
 func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	code, err := IsProductEnabled(db, p.ProductName())
@@ -48,9 +59,17 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		return ErrBadProposal, xerrors.Errorf("deal must have one of the following flags set: create_data_set, delete_data_set, add_piece, delete_piece")
 	}
 
+	// Only 1 action is allowed per deal
+	// TODO: pdpv0-main - fix this for Create+Add
+	if btoi(p.CreateDataSet)+btoi(p.DeleteDataSet)+btoi(p.AddPiece)+btoi(p.DeletePiece) > 1 {
+		return ErrBadProposal, xerrors.Errorf("only one action is allowed per deal")
+	}
+
 	var existingAddress bool
 
-	err = db.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
+	ctx := context.Background()
+
+	err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
 	if err != nil {
 		return ErrServerInternalError, xerrors.Errorf("checking if pdp address exists: %w", err)
 	}
@@ -61,26 +80,19 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 
 	if p.CreateDataSet {
 		if p.DataSetID != nil {
-			return ErrBadProposal, xerrors.Errorf("create_proof_set cannot be set with data_set_id")
+			return ErrBadProposal, xerrors.Errorf("create_data_set cannot be set with data_set_id")
 		}
 		if p.RecordKeeper == "" {
-			return ErrBadProposal, xerrors.Errorf("record_keeper must be defined for create_proof_set")
+			return ErrBadProposal, xerrors.Errorf("record_keeper must be defined for create_data_set")
 		}
 		if !common.IsHexAddress(p.RecordKeeper) {
 			return ErrBadProposal, xerrors.Errorf("record_keeper must be a valid address")
 		}
 	}
 
-	// Only 1 action is allowed per deal
-	if btoi(p.CreateDataSet)+btoi(p.DeleteDataSet)+btoi(p.AddPiece)+btoi(p.DeletePiece) > 1 {
-		return ErrBadProposal, xerrors.Errorf("only one action is allowed per deal")
-	}
-
-	ctx := context.Background()
-
 	if p.DeleteDataSet {
 		if p.DataSetID == nil {
-			return ErrBadProposal, xerrors.Errorf("delete_proof_set must have data_set_id defined")
+			return ErrBadProposal, xerrors.Errorf("delete_data_set must have data_set_id defined")
 		}
 		pid := *p.DataSetID
 		var exists bool
@@ -93,7 +105,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		}
 	}
 
-	if p.AddPiece {
+	if p.AddPiece && !p.CreateDataSet {
 		if p.DataSetID == nil {
 			return ErrBadProposal, xerrors.Errorf("add_piece must have data_set_id defined")
 		}
@@ -114,7 +126,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		}
 		pid := *p.DataSetID
 		if len(p.PieceIDs) == 0 {
-			return ErrBadProposal, xerrors.Errorf("piece_ids must be defined for delete_proof_set")
+			return ErrBadProposal, xerrors.Errorf("piece_ids must be defined for delete_data_set")
 		}
 		var exists bool
 		err := db.QueryRow(ctx, `SELECT COUNT(*) = cardinality($2::BIGINT[]) AS all_exist_and_active

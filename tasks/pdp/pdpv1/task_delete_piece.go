@@ -102,7 +102,7 @@ func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	)
 
 	// Send the transaction using SenderETH
-	reason := "pdp-remove-piece"
+	reason := "pdpv1-remove-piece"
 	txHash, err := p.sender.Send(ctx, owner, tx, reason)
 	if err != nil {
 		return false, xerrors.Errorf("sending transaction: %w", err)
@@ -125,9 +125,6 @@ func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() boo
 			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
 		}
 		return true, nil
-
-		// TODO: INSERT IPNI and Index removal tasks
-
 	}, harmonydb.OptionRetry())
 
 	if err != nil {

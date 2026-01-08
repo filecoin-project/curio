@@ -26,13 +26,13 @@ type settled struct {
 }
 
 func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingTransactions(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending settle transactions: %s", err)
 		}
 		return nil
-	}); err != nil {
+	}, Priority: chainsched.PriorityEarly}); err != nil {
 		panic(err)
 	}
 }
@@ -111,6 +111,19 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		if dataSet.Int64() == int64(0) {
 			continue
 		}
+
+		var v0 bool
+
+		err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_sets WHERE id = $1)`, dataSet.Int64()).Scan(&v0)
+		if err != nil {
+			return xerrors.Errorf("failed to check if dataSet exists in pdpv0: %w", err)
+		}
+
+		if !v0 {
+			continue
+		}
+
+		// TODO: Plugin PDPv1 safely here (Dep: Need to figure out delete pipeline without deal ID and client)
 
 		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSet.Int64())
 		if err != nil {

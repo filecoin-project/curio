@@ -76,7 +76,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 	// ProveTasks are created on pdp_data_set entries where
 	// challenge_request_msg_hash is not null (=not yet landed)
 
-	err := chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	err := chainSched.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		if apply == nil {
 			return nil
 		}
@@ -149,7 +149,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 		}
 
 		return nil
-	})
+	}, Priority: chainsched.PriorityEarly})
 	if err != nil {
 		// Handler registration failed
 		panic(err)

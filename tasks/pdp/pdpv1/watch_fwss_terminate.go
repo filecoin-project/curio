@@ -1,4 +1,4 @@
-package pdp
+package pdpv1
 
 import (
 	"context"
@@ -17,14 +17,14 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
+func NewPDPv1TerminateServiceWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingTerminations(ctx, db, ethClient)
 		if err != nil {
-			log.Warnf("Failed to process pending service termination transactions: %s", err)
+			log.Warnf("Failed to process pending PDPv1 service termination transactions: %s", err)
 		}
 		return nil
-	}, Priority: chainsched.PriorityNormal}); err != nil {
+	}, Priority: chainsched.PriorityEarly}); err != nil {
 		panic(err)
 	}
 }
@@ -38,10 +38,10 @@ func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	err := db.Select(ctx, &details, `SELECT 
-    										pdds.id, 
+    										pdds.set_id, 
     										pdds.terminate_tx_hash,
     										mwe.tx_success
-										FROM pdp_delete_data_set pdds
+										FROM pdp_data_set_delete pdds
 										LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = pdds.terminate_tx_hash
 										WHERE pdds.service_termination_epoch IS NULL 
 										  AND pdds.after_terminate_service = TRUE`)
@@ -79,16 +79,16 @@ func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient
 			return xerrors.Errorf("data set %d has no termination epoch", detail.DataSetId)
 		}
 
-		n, err := db.Exec(ctx, `UPDATE pdp_delete_data_set SET service_termination_epoch = $1 WHERE id = $2`, ds.PdpEndEpoch.Int64(), detail.DataSetId)
+		n, err := db.Exec(ctx, `UPDATE pdp_data_set_delete SET service_termination_epoch = $1 WHERE id = $2`, ds.PdpEndEpoch.Int64(), detail.DataSetId)
 		if err != nil {
-			return xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
+			return xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
 		}
 
 		if n != 1 {
 			return xerrors.Errorf("expected to update 1 row, updated %d", n)
 		}
 
-		log.Infow("Successfully confirmed data set termination", "dataSetId", detail.DataSetId, "epoch", ds.PdpEndEpoch.Int64(), "txHash", detail.TxHash)
+		log.Infow("Successfully confirmed PDPv1 data set termination", "dataSetId", detail.DataSetId, "epoch", ds.PdpEndEpoch.Int64(), "txHash", detail.TxHash)
 	}
 	return nil
 }

@@ -33,7 +33,7 @@ import (
 )
 
 func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched, idx *indexstore.IndexStore) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingPieceDeletes(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending piece delete: %s", err)
@@ -50,7 +50,7 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *
 		}
 
 		return nil
-	}); err != nil {
+	}, Priority: chainsched.PriorityNormal}); err != nil {
 		panic(err)
 	}
 }

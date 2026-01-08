@@ -76,8 +76,9 @@ func TestAddHandlerConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
-				return nil
+			err := sched.AddHandler(HandlerEntry{
+				Fn: func(ctx context.Context, revert, apply *types.TipSet) error {return nil},
+				Priority: PriorityEarly,
 			})
 			if err != nil {
 				errors <- err
@@ -114,9 +115,9 @@ func TestAddHandlerAfterStart(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Try to add handler after start
-	err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+	err := sched.AddHandler(HandlerEntry{func(ctx context.Context, revert, apply *types.TipSet) error {
 		return nil
-	})
+	}, PriorityEarly})
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot add handler after start")
@@ -190,14 +191,14 @@ func TestCallbackExecution(t *testing.T) {
 	callbackCalled := false
 	var receivedRevert, receivedApply *types.TipSet
 
-	err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+	err := sched.AddHandler(HandlerEntry{func(ctx context.Context, revert, apply *types.TipSet) error {
 		callbackMu.Lock()
 		defer callbackMu.Unlock()
 		callbackCalled = true
 		receivedRevert = revert
 		receivedApply = apply
 		return nil
-	})
+	}, PriorityEarly})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -479,7 +480,7 @@ func TestMultipleChanges(t *testing.T) {
 	firstCallDone := make(chan struct{})
 	secondCallDone := make(chan struct{})
 
-	err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+	err := sched.AddHandler(HandlerEntry{func(ctx context.Context, revert, apply *types.TipSet) error {
 		callbackMu.Lock()
 		defer callbackMu.Unlock()
 		callCount++
@@ -492,7 +493,7 @@ func TestMultipleChanges(t *testing.T) {
 			close(secondCallDone)
 		}
 		return nil
-	})
+	}, PriorityEarly})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(testCtx)
@@ -563,12 +564,12 @@ func TestWatchersExecutedFirst(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+			err := sched.AddHandler(HandlerEntry{func(ctx context.Context, revert, apply *types.TipSet) error {
 				executionOrderMu.Lock()
 				defer executionOrderMu.Unlock()
 				executionOrder = append(executionOrder, "handler")
 				return nil
-			})
+			}, PriorityEarly})
 			if err != nil {
 				errors <- err
 			}
@@ -621,4 +622,82 @@ func TestWatchersExecutedFirst(t *testing.T) {
 	require.Equal(t, executionOrder[:5], []string{"watcher", "watcher", "watcher", "watcher", "watcher"})
 	require.Equal(t, executionOrder[5:], []string{"handler", "handler", "handler", "handler", "handler"})
 	executionOrderMu.Unlock()
+}
+
+func TestHandlerPriority(t *testing.T) {
+	notifCh := make(chan []*api.HeadChange, 10)
+	mockAPI := &mockNodeAPI{
+		notifCh: notifCh,
+	}
+	sched := New(mockAPI)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var executionOrderMu sync.Mutex
+	var executionOrder []string
+
+	// Define priorities in an unsorted order to test internal sorting
+	priorities := []HandlerPriority{PriorityFinal, PriorityNormal, PriorityEarly, PriorityLate, PriorityNormal}
+	expectedOrder := []string{"early", "normal", "normal", "late", "final"}
+
+	// Add handlers
+	var wg sync.WaitGroup
+	errors := make(chan error, len(priorities))
+
+	for i, p := range priorities {
+		wg.Add(1)
+		go func(i int, prio HandlerPriority) {
+			defer wg.Done()
+
+			// Map priority to a label for verification
+			label := "normal"
+			switch prio {
+			case PriorityEarly: label = "early"
+			case PriorityLate: label = "late"
+			case PriorityFinal: label = "final"
+			}
+
+			err := sched.AddHandler(HandlerEntry{
+				Fn: func(ctx context.Context, revert, apply *types.TipSet) error {
+					executionOrderMu.Lock()
+					defer executionOrderMu.Unlock()
+					executionOrder = append(executionOrder, label)
+					return nil
+				},
+				Priority: prio,
+			})
+			if err != nil {
+				errors <- err
+			}
+		}(i, p)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Should have no errors
+	for err := range errors {
+		require.NoError(t, err)
+	}
+
+	// Start the scheduler
+	go sched.Run(ctx)
+
+	// Send an initial notification
+	testTipSet := makeMockTipSet(100)
+	notifCh <- []*api.HeadChange{{
+		Type: store.HCCurrent,
+		Val:  testTipSet,
+	}}
+
+	// Allow some time for processing
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify execution order reflects priority sorting
+	executionOrderMu.Lock()
+	defer executionOrderMu.Unlock()
+
+	require.Len(t, executionOrder, len(priorities))
+	require.Equal(t, expectedOrder, executionOrder, "Handlers did not execute in the correct priority order")
 }
