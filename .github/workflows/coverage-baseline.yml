@@ -1,0 +1,142 @@
+name: Coverage Baseline
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  GO_VERSION: "1.24.7"
+
+jobs:
+  baseline-coverage:
+    runs-on: [self-hosted, docker]
+    env:
+      CONTAINER_NAME: yugabyte-baseline-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main  # Always use main branch
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Install FFI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
+        run: make deps
+        shell: bash
+
+      - name: Start YugabyteDB container
+        run: |
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+
+      - name: Wait for YugabyteDB to start
+        run: |
+          while true; do
+            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
+            echo $status;
+            echo $status | grep Running && break;
+            sleep 1;
+          done
+        shell: bash
+
+      - name: Get YugabyteDB container IP
+        id: get-yb-ip
+        run: |
+          YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
+
+      - name: Run all tests with coverage
+        env:
+          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
+        run: |
+          mkdir -p coverage
+          
+          # Run all test suites and collect coverage
+          echo "Running test-itest-curio..."
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/test-itest-curio.out -covermode=atomic ./itests/curio_test.go || true
+          
+          echo "Running test-all..."
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/test-all.out -covermode=atomic `go list ./... | grep -v curio/itests` || true
+          
+          echo "Running test-itest-harmonyDB..."
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/test-itest-harmonyDB.out -covermode=atomic ./itests/harmonydb_test.go || true
+          
+          echo "Running test-itest-alertnow..."
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/test-itest-alertnow.out -covermode=atomic ./itests/alertnow_test.go || true
+          
+          echo "Running test-itest-pdp-prove..."
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/test-itest-pdp-prove.out -covermode=atomic ./itests/pdp_prove_test.go || true
+
+      - name: Stop YugabyteDB container
+        if: always()
+        run: docker stop ${{ env.CONTAINER_NAME }}
+
+      - name: Merge coverage profiles
+        run: |
+          chmod +x .github/utils/coverage-report.sh
+          
+          # Create artifacts directory structure expected by the script
+          mkdir -p coverage-artifacts
+          for file in coverage/*.out; do
+            if [ -f "$file" ]; then
+              basename=$(basename "$file" .out)
+              mkdir -p "coverage-artifacts/coverage-$basename"
+              cp "$file" "coverage-artifacts/coverage-$basename/"
+            fi
+          done
+          
+          # Run the merge script
+          .github/utils/coverage-report.sh
+
+      - name: Generate baseline metadata
+        run: |
+          # Add git info to the JSON
+          COMMIT_SHA=$(git rev-parse HEAD)
+          COMMIT_DATE=$(git log -1 --format=%cI)
+          
+          # Update the JSON with baseline info
+          cat coverage/coverage.json | jq \
+            --arg sha "$COMMIT_SHA" \
+            --arg date "$COMMIT_DATE" \
+            '. + {baseline: {commit: $sha, date: $date, branch: "main"}}' \
+            > coverage/baseline.json
+
+      - name: Upload baseline coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-baseline-main
+          path: |
+            coverage/merged.out
+            coverage/coverage.txt
+            coverage/packages.txt
+            coverage/coverage.html
+            coverage/baseline.json
+          retention-days: 90  # Keep baseline for 3 months
+
+      - name: Create baseline summary
+        run: |
+          COVERAGE=$(cat coverage/baseline.json | jq -r '.total_coverage')
+          COMMIT_SHA=$(cat coverage/baseline.json | jq -r '.baseline.commit')
+          
+          echo "## 📊 Baseline Coverage Updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage:** $COVERAGE" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${COMMIT_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** main" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This baseline will be used for PR coverage comparisons." >> $GITHUB_STEP_SUMMARY
+

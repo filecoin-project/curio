@@ -228,7 +228,7 @@ jobs:
           YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
           echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
           LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
@@ -237,7 +237,16 @@ jobs:
           echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          go test -v --tags="debug,fvm" -timeout 30m ${{ matrix.test-suite.target }}
+          mkdir -p coverage
+          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.test-suite.name }}
+          path: coverage/${{ matrix.test-suite.name }}.out
+          retention-days: 1
 
       - name: Stop YugabyteDB container
         if: always()  # Ensure this run even if the tests fail
@@ -590,3 +599,109 @@ jobs:
       - name: Run mod tidy check
         run: go mod tidy -v
         shell: bash
+
+  coverage-report:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: always() && needs.test.result != 'cancelled'
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-artifacts
+          merge-multiple: false
+
+      - name: Merge coverage reports
+        run: |
+          chmod +x .github/utils/coverage-report.sh
+          .github/utils/coverage-report.sh
+
+      - name: Upload coverage HTML to transfer.sh (temporary hosting)  # DEBUG instrumentation added
+        id: upload-coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          # Upload to transfer.sh (14-day retention, no account needed)
+          echo "Uploading coverage HTML to transfer.sh..."
+          COVERAGE_URL=$(curl -s --upload-file coverage/coverage.html https://transfer.sh/coverage-pr-${{ github.event.pull_request.number }}.html)
+          #region agent log
+          echo '{"sessionId":"debug-session","runId":"run1","hypothesisId":"H1","location":"ci.yml:UPLOAD","message":"upload result","data":{"url":"'"$COVERAGE_URL"'"},"timestamp":'$(date +%s%3N)'}' 
+          #endregion
+          if [ -n "$COVERAGE_URL" ]; then
+            echo "url=${COVERAGE_URL}" >> $GITHUB_OUTPUT
+            echo "✅ Coverage HTML available at: ${COVERAGE_URL}"
+            echo "This link expires in 14 days"
+          else
+            echo "⚠️ Upload to transfer.sh failed, will use artifacts only"
+          fi
+        continue-on-error: true
+
+      - name: Generate coverage report
+        uses: ./.github/actions/coverage-report
+        id: coverage
+        with:
+          artifacts-dir: coverage-artifacts
+          output-dir: coverage
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          create-check: 'true'
+          create-comment: 'false'
+          minimum-coverage: '0'
+          coverage-html-url: ${{ steps.upload-coverage.outputs.url || '' }}
+
+      - name: Upload merged coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-merged
+          path: |
+            coverage/merged.out
+            coverage/coverage.txt
+            coverage/packages.txt
+            coverage/coverage.html
+            coverage/coverage.json
+          retention-days: 30
+
+      - name: Add coverage to job summary
+        run: |
+          echo "## 📊 Code Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total Coverage:** ${{ steps.coverage.outputs.total-coverage }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          COVERAGE_URL="${{ steps.upload-coverage.outputs.url || '' }}"
+          #region agent log
+          echo '{"sessionId":"debug-session","runId":"run1","hypothesisId":"H2","location":"ci.yml:SUMMARY","message":"env coverage url","data":{"url":"'"$COVERAGE_URL"'"},"timestamp":'$(date +%s%3N)'}' 
+          #endregion
+          if [ -n "$COVERAGE_URL" ] && [ "$COVERAGE_URL" != "null" ]; then
+            echo "### 🌐 View Coverage Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**[📊 Open Interactive Coverage HTML in Browser](${COVERAGE_URL})**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- 🟢 Green: Covered by tests" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔴 Red: Not covered" >> $GITHUB_STEP_SUMMARY
+            echo "- ⚪ Gray: Non-executable code" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "_Link expires in 14 days_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### 📥 Permanent Copy (Artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download **coverage-merged** artifact for:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`coverage.html\` - Interactive HTML (permanent copy)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`coverage.txt\` - Text summary" >> $GITHUB_STEP_SUMMARY
+          echo "- \`merged.out\` - Go coverage profile" >> $GITHUB_STEP_SUMMARY
