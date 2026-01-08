@@ -152,7 +152,8 @@ runs:
           }
           
           // Create a summary that fits within GitHub's 65k character limit
-          const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}\n\n### Top Functions (Highest Coverage)\n\`\`\`\n${topPackages}\n\`\`\`\n\n### Functions Needing Coverage (Lowest Coverage)\n\`\`\`\n${bottomPackages}\n\`\`\`\n\n📄 **Full Report:** Download the coverage artifacts to view the complete HTML report with all ${functionLines.length} functions.\n\n${totalLine}`;
+          const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}\n\n### Top Functions (Highest Coverage)\n\`\`\`\n${topPackages}\n\`\`\`\n\n### Functions Needing Coverage (Lowest Coverage)\n\`\`\`\n${bottomPackages}\n\`\`\`\n\n📄 **[View Full HTML Coverage Report](${artifactUrl})** - Download \`coverage-merged\` artifact and open \`coverage.html\` to see line-by-line coverage for all ${functionLines.length} functions.\n\n${totalLine}`;
           
           await github.rest.checks.create({
             owner: context.repo.owner,
@@ -164,96 +165,6 @@ runs:
             output: {
               title: `Total Coverage: ${coverage}${hasBaseline ? ` (${parseFloat(diff) > 0 ? '+' : ''}${diff})` : ''}`,
               summary: summary.substring(0, 65000), // Ensure it fits
-              text: `Total functions analyzed: ${functionLines.length}\n\nDownload the coverage-merged artifact for the complete report.`
+              text: `Total functions analyzed: ${functionLines.length}\n\nDownload the coverage-merged artifact for the complete HTML report with line-by-line coverage.\n\n📊 [Go to artifacts](${artifactUrl})`
             }
           });
-    
-    - name: Create/Update PR Comment
-      if: inputs.create-comment == 'true' && github.event_name == 'pull_request'
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const fs = require('fs');
-          const coverageText = fs.readFileSync('${{ inputs.output-dir }}/coverage.txt', 'utf8');
-          const coverage = '${{ steps.coverage.outputs.coverage }}';
-          const badgeColor = '${{ steps.coverage.outputs.badge-color }}';
-          const hasBaseline = '${{ steps.coverage.outputs.has-baseline }}' === 'true';
-          const baselineCov = '${{ steps.coverage.outputs.baseline-coverage }}';
-          const diff = '${{ steps.coverage.outputs.coverage-diff }}';
-          const baselineCommit = '${{ steps.coverage.outputs.baseline-commit }}';
-          
-          const emoji = badgeColor === 'brightgreen' ? '✅' : badgeColor === 'yellow' ? '⚠️' : '❌';
-          
-          // Extract summary data
-          const lines = coverageText.split('\n').filter(line => line.trim());
-          const totalLine = lines[lines.length - 1];
-          const functionLines = lines.slice(0, -1);
-          
-          // Get package-level summary (aggregate by package)
-          const packageCoverage = {};
-          functionLines.forEach(line => {
-            const match = line.match(/^(.+?):\d+:.*?(\d+\.\d+%)/);
-            if (match) {
-              const pkg = match[1];
-              const cov = parseFloat(match[2]);
-              if (!packageCoverage[pkg]) {
-                packageCoverage[pkg] = { total: 0, count: 0 };
-              }
-              packageCoverage[pkg].total += cov;
-              packageCoverage[pkg].count += 1;
-            }
-          });
-          
-          // Calculate average coverage per package
-          const pkgSummary = Object.entries(packageCoverage)
-            .map(([pkg, data]) => ({ pkg, avg: data.total / data.count, funcs: data.count }))
-            .sort((a, b) => b.avg - a.avg);
-          
-          // Top 10 and bottom 10 packages
-          const topPkgs = pkgSummary.slice(0, 10)
-            .map(p => `${p.pkg}: ${p.avg.toFixed(1)}% (${p.funcs} functions)`)
-            .join('\n');
-          const bottomPkgs = pkgSummary.slice(-10)
-            .map(p => `${p.pkg}: ${p.avg.toFixed(1)}% (${p.funcs} functions)`)
-            .join('\n');
-          
-          // Build comparison section if baseline exists
-          let comparisonSection = '';
-          if (hasBaseline) {
-            const diffNum = parseFloat(diff);
-            const diffEmoji = diffNum > 0 ? '📈' : diffNum < 0 ? '📉' : '➡️';
-            const diffSign = diffNum > 0 ? '+' : '';
-            const diffColor = diffNum > 0 ? 'brightgreen' : diffNum < 0 ? 'red' : 'lightgrey';
-            comparisonSection = `\n### ${diffEmoji} Coverage vs Main\n\n| | Coverage |\n|---|---|\n| **This PR** | ${coverage} |\n| **Main** | ${baselineCov} ([\`${baselineCommit}\`](https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${baselineCommit})) |\n| **Difference** | ![${diffSign}${diff}](https://img.shields.io/badge/diff-${diffSign}${diff.replace('%', '%25')}-${diffColor}) |\n\n`;
-          }
-          
-          const commentBody = `## ${emoji} Code Coverage Report\n\n**Total Coverage:** \`${coverage}\`\n\n![Coverage Badge](https://img.shields.io/badge/coverage-${coverage.replace('%', '%25')}-${badgeColor})${comparisonSection}\n### 📊 Summary\n- **Total Functions:** ${functionLines.length}\n- **Total Packages:** ${pkgSummary.length}\n\n<details>\n<summary>🏆 Top 10 Packages by Coverage</summary>\n\n\`\`\`\n${topPkgs}\n\`\`\`\n\n</details>\n\n<details>\n<summary>⚠️ Bottom 10 Packages (Need Improvement)</summary>\n\n\`\`\`\n${bottomPkgs}\n\`\`\`\n\n</details>\n\n<sub>📊 [View detailed HTML report in artifacts](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})</sub>`;
-          
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.payload.pull_request.number,
-          });
-          
-          const botComment = comments.find(comment => 
-            comment.user.type === 'Bot' && 
-            comment.body.includes('Code Coverage Report')
-          );
-          
-          if (botComment) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: botComment.id,
-              body: commentBody
-            });
-          } else {
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: commentBody
-            });
-          }
-

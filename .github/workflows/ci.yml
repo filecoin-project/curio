@@ -653,3 +653,14 @@ jobs:
           echo "**Total Coverage:** ${{ steps.coverage.outputs.total-coverage }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Download Coverage Reports" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Scroll down to **Artifacts** section" >> $GITHUB_STEP_SUMMARY
+          echo "2. Download **coverage-merged**" >> $GITHUB_STEP_SUMMARY
+          echo "3. Extract and open **coverage.html** in your browser" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The HTML report shows line-by-line coverage with color coding:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟢 **Green**: Code covered by tests" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔴 **Red**: Code not covered" >> $GITHUB_STEP_SUMMARY
+          echo "- ⚪ **Gray**: Non-executable code" >> $GITHUB_STEP_SUMMARY
