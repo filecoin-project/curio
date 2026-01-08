@@ -1,4 +1,4 @@
-package pdp
+package pdpv0
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 // These two are run in sequence to allow for combined create-and-add flow to first
 // create the data set, then add the pieces to it.
 func NewDataSetWatch(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
-	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn:func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+	if err := pcs.AddHandler(chainsched.HandlerEntry{Fn: func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending data set creates: %v", err)

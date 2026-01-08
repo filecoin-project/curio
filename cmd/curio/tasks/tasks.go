@@ -44,7 +44,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	"github.com/filecoin-project/curio/tasks/pay"
-	"github.com/filecoin-project/curio/tasks/pdp"
+	"github.com/filecoin-project/curio/tasks/pdp/pdpv0"
 	"github.com/filecoin-project/curio/tasks/pdp/pdpv1"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
@@ -317,16 +317,16 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpv1PpNext := pdpv1.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
 
 			// PDP v0
-			pdp.NewDataSetWatch(db, ethClient, chainSched)
-			pdp.NewDataSetDeleteWatcher(db, ethClient, chainSched)
-			pdp.NewTerminateServiceWatcher(db, ethClient, chainSched)
-			pdp.NewPieceDeleteWatcher(&cfg.HTTP, db, ethClient, chainSched, iStore)
-			pdpProveTask := pdp.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader)
-			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
-			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			pdpTerminate := pdp.NewTerminateServiceTask(db, ethClient, senderEth)
-			pdpDelete := pdp.NewDeleteDataSetTask(db, ethClient, senderEth)
+			pdpv0.NewDataSetWatch(db, ethClient, chainSched)
+			pdpv0.NewDataSetDeleteWatcher(db, ethClient, chainSched)
+			pdpv0.NewTerminateServiceWatcher(db, ethClient, chainSched)
+			pdpv0.NewPieceDeleteWatcher(&cfg.HTTP, db, ethClient, chainSched, iStore)
+			pdpProveTask := pdpv0.NewProveTask(chainSched, db, ethClient, dependencies.Chain, es, dependencies.CachedPieceReader)
+			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, ethClient, dependencies.Chain, chainSched, es)
+			pdpNotifTask := pdpv0.NewPDPNotifyTask(db)
+			pdpTerminate := pdpv0.NewTerminateServiceTask(db, ethClient, senderEth)
+			pdpDelete := pdpv0.NewDeleteDataSetTask(db, ethClient, senderEth)
 
 			// Filecoin pay
 			pay.NewSettleWatcher(db, ethClient, chainSched)

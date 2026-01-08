@@ -23,6 +23,8 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -64,6 +66,7 @@ func (P *PDPv0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		ID       int64  `db:"id"`
 		PieceCID string `db:"piece_cid"`
 		Size     int64  `db:"piece_padded_size"`
+		RawSize  int64  `db:"piece_raw_size"`
 		Prov     string `db:"peer_id"`
 	}
 
@@ -72,6 +75,7 @@ func (P *PDPv0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 										pr.id,
 										pr.piece_cid,
 										pp.piece_padded_size,
+										pp.piece_raw_size,
 										ipni_peer.peer_id
 									FROM
 										pdp_piecerefs pr
@@ -114,8 +118,14 @@ func (P *PDPv0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("marshaling metadata: %w", err)
 	}
 
+	// Convert to PieceCIDv2 for IPNI ContextID
+	pcidV2, err := commcid.PieceCidV2FromV1(pcid, uint64(task.RawSize))
+	if err != nil {
+		return false, xerrors.Errorf("converting piece CID to v2: %w", err)
+	}
+
 	pi := &types.PdpIpniContext{
-		PieceCID: pcid,
+		PieceCID: pcidV2,
 		Payload:  true,
 	}
 

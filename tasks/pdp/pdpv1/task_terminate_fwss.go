@@ -149,7 +149,7 @@ func (t *PDPv1TerminateFWSSTask) schedule(ctx context.Context, addTaskFunc harmo
 
 			var pending sql.NullString
 
-			err := tx.QueryRow( `SELECT id 
+			err := tx.QueryRow(`SELECT id 
 									FROM pdp_data_set_delete 
 									WHERE terminate_service_task_id IS NULL 
 									  AND after_terminate_service = FALSE LIMIT 1`).Scan(&pending)

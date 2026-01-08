@@ -77,7 +77,7 @@ func TestAddHandlerConcurrency(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			err := sched.AddHandler(HandlerEntry{
-				Fn: func(ctx context.Context, revert, apply *types.TipSet) error {return nil},
+				Fn:       func(ctx context.Context, revert, apply *types.TipSet) error { return nil },
 				Priority: PriorityEarly,
 			})
 			if err != nil {
@@ -653,9 +653,12 @@ func TestHandlerPriority(t *testing.T) {
 			// Map priority to a label for verification
 			label := "normal"
 			switch prio {
-			case PriorityEarly: label = "early"
-			case PriorityLate: label = "late"
-			case PriorityFinal: label = "final"
+			case PriorityEarly:
+				label = "early"
+			case PriorityLate:
+				label = "late"
+			case PriorityFinal:
+				label = "final"
 			}
 
 			err := sched.AddHandler(HandlerEntry{
