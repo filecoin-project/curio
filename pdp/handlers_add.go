@@ -10,6 +10,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -253,7 +254,10 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 }
 
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx := r.Context()
+
+	workCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
@@ -389,7 +393,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// Step 9: Send the transaction
 	reason := "pdp-addpieces"
-	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
+	txHash, err := p.sender.Send(workCtx, fromAddress, txEth, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
 		logAdd.Errorf("Failed to send transaction: %+v", err)
@@ -403,7 +407,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		"dataSetId", dataSetIdUint64,
 		"pieceCount", len(payload.Pieces))
 
-	comm, err := p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
+	comm, err := p.db.BeginTransaction(workCtx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		logAdd.Debugw("Inserting AddPieces into message_waits_eth",
 			"txHash", txHashLower,
@@ -442,6 +446,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		// Return true to commit the transaction
 		return true, nil
 	}, harmonydb.OptionRetry())
+
 	if err != nil {
 		logAdd.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
