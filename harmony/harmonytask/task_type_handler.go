@@ -130,6 +130,9 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 					log.Infow("did not accept task", "task_id", strconv.Itoa(int(tID)), "reason", "storage claim failed", "name", h.Name, "error", err)
 					return false
 				}
+				if i < maxAcceptable {
+					maxAcceptable = i
+				}
 				break // lets process what we can
 			}
 			releaseStorage = append(releaseStorage, func() {
