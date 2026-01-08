@@ -379,12 +379,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	// Remove the pieces previously scheduled for deletion
-	err = p.cleanupDeletedPieces(ctx, dataSetId, pdpVerifier)
-	if err != nil {
-		return false, xerrors.Errorf("failed to cleanup deleted pieces: %w", err)
-	}
-
 	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "dataSetId", dataSetId, "taskID", taskID)
 
 	// Task completed successfully
@@ -748,62 +742,6 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 	}
 	address := common.HexToAddress(addressStr)
 	return address, nil
-}
-
-func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, pdpVerifier *contract.PDPVerifier) error {
-	removals, err := pdpVerifier.GetScheduledRemovals(nil, big.NewInt(dataSetId))
-	if err != nil {
-		return xerrors.Errorf("failed to get scheduled removals: %w", err)
-	}
-
-	// Execute cleanup in a transaction
-	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		for _, removeID := range removals {
-			log.Debugw("cleanupDeletedPieces", "removeID", removeID)
-			// Get the pdp_pieceref ID for the piece before deleting
-			var pdpPieceRefID int64
-			err := tx.QueryRow(`
-                SELECT pdp_pieceref
-                FROM pdp_data_set_pieces
-                WHERE data_set = $1 AND piece_id = $2
-            `, dataSetId, removeID.Int64()).Scan(&pdpPieceRefID)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					// Piece already deleted, skip
-					continue
-				}
-				return false, xerrors.Errorf("failed to get piece ref for piece %d: %w", removeID, err)
-			}
-
-			// Delete the parked piece ref, this will cascade to the pdp piece ref too
-			_, err = tx.Exec(`
-				DELETE FROM parked_piece_refs
-				WHERE ref_id = $1
-			`, pdpPieceRefID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", pdpPieceRefID, err)
-			}
-
-			// Delete the piece entry
-			_, err = tx.Exec(`
-                DELETE FROM pdp_data_set_pieces
-                WHERE data_set = $1 AND piece_id = $2
-            `, dataSetId, removeID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete piece %d: %w", removeID, err)
-			}
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return xerrors.Errorf("failed to cleanup deleted pieces: %w", err)
-	}
-	if !ok {
-		return xerrors.Errorf("database delete not committed")
-	}
-
-	return nil
 }
 
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
