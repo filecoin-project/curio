@@ -635,6 +635,9 @@ jobs:
           # Upload to transfer.sh (14-day retention, no account needed)
           echo "Uploading coverage HTML to transfer.sh..."
           COVERAGE_URL=$(curl -s --upload-file coverage/coverage.html https://transfer.sh/coverage-pr-${{ github.event.pull_request.number }}.html)
+          #region agent log
+          echo '{"sessionId":"debug-session","runId":"run1","hypothesisId":"H1","location":"ci.yml:UPLOAD","message":"upload result","data":{"url":"'"$COVERAGE_URL"'"},"timestamp":'$(date +%s%3N)'}' >> /Users/andy/GitHub/curio/.cursor/debug.log
+          #endregion
           if [ -n "$COVERAGE_URL" ]; then
             echo "url=${COVERAGE_URL}" >> $GITHUB_OUTPUT
             echo "✅ Coverage HTML available at: ${COVERAGE_URL}"
@@ -678,6 +681,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           COVERAGE_URL="${{ steps.upload-coverage.outputs.url || '' }}"
+          #region agent log
+          echo '{"sessionId":"debug-session","runId":"run1","hypothesisId":"H2","location":"ci.yml:SUMMARY","message":"env coverage url","data":{"url":"'"$COVERAGE_URL"'"},"timestamp":'$(date +%s%3N)'}' >> /Users/andy/GitHub/curio/.cursor/debug.log
+          #endregion
           if [ -n "$COVERAGE_URL" ] && [ "$COVERAGE_URL" != "null" ]; then
             echo "### 🌐 View Coverage Report" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
