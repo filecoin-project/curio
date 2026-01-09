@@ -143,10 +143,15 @@ func getResources() (res Resources, err error) {
 		return Resources{}, err
 	}
 
+	gpus, err := getGPUDevices()
+	if err != nil {
+		return Resources{}, err
+	}
+
 	res = Resources{
 		Cpu: runtime.NumCPU(),
 		Ram: mem.Available,
-		Gpu: getGPUDevices(),
+		Gpu: gpus,
 	}
 
 	return res, nil

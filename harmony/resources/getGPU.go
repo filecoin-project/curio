@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/xerrors"
+
 	ffi "github.com/filecoin-project/filecoin-ffi"
 )
 
@@ -23,24 +25,25 @@ func init() {
 	}
 }
 
-func getGPUDevices() float64 { // GPU boolean
+func getGPUDevices() (float64, error) { // GPU boolean
 	if nstr := os.Getenv("HARMONY_OVERRIDE_GPUS"); nstr != "" {
 		n, err := strconv.ParseFloat(nstr, 64)
 		if err != nil {
 			logger.Errorf("parsing HARMONY_OVERRIDE_GPUS failed: %+v", err)
 		} else {
-			return n
+			return n, nil
 		}
 	}
 
 	gpus, err := ffi.GetGPUDevices()
-	logger.Infow("GPUs", "list", gpus, "overprovision_factor", GpuOverprovisionFactor)
 	if err != nil {
 		logger.Errorf("getting gpu devices failed: %+v", err)
+		return 0, xerrors.Errorf("getting gpu devices failed: %w", err)
 	}
+	logger.Infow("GPUs", "list", gpus, "overprovision_factor", GpuOverprovisionFactor)
 	all := strings.ToLower(strings.Join(gpus, ","))
 	if len(gpus) > 1 || strings.Contains(all, "ati") || strings.Contains(all, "nvidia") {
-		return float64(len(gpus) * GpuOverprovisionFactor)
+		return float64(len(gpus) * GpuOverprovisionFactor), nil
 	}
-	return 0
+	return 0, nil
 }
