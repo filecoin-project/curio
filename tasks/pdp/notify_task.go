@@ -45,35 +45,38 @@ func (t *PDPNotifyTask) poll(ctx context.Context) {
                 WHERE 
                     pu.piece_ref IS NOT NULL
                     AND pp.complete = TRUE
-                    AND pu.notify_task_id IS NULL`)
+                    AND pu.notify_task_id IS NULL LIMIT 10`)
 		if err != nil {
 			log.Errorf("getting uploads to notify: %s", err)
 		}
 
-		log.Infow("Found uploads to notify", "uploads", uploads)
-
 		if len(uploads) == 0 {
 			// No uploads to process
-			time.Sleep(time.Second * 2)
 			continue
-		}
+		} else {
+			for _, upload := range uploads {
+				upload := upload
+				failed := false
 
-		for _, upload := range uploads {
-			upload := upload
-			log.Infow("Scheduling PDP notify task", "upload_id", upload.ID)
-
-			t.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				n, err := tx.Exec(`
-                UPDATE pdp_piece_uploads 
-                SET notify_task_id = $1 
-                WHERE id = $2 AND notify_task_id IS NULL`, id, upload.ID)
-				if err != nil {
-					return false, xerrors.Errorf("updating notify_task_id: %w", err)
+				t.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+					n, err := tx.Exec(`
+						UPDATE pdp_piece_uploads 
+						SET notify_task_id = $1 
+						WHERE id = $2 AND notify_task_id IS NULL`, id, upload.ID)
+					if err != nil {
+						failed = true
+						return false, xerrors.Errorf("updating notify_task_id: %w", err)
+					}
+					return n > 0, nil
+				})
+				if failed {
+					// Let's exit the loop and try again later
+					break
 				}
-
-				return n > 0, nil
-			})
+			}
 		}
+
+		time.Sleep(time.Second * 2)
 	}
 }
 
