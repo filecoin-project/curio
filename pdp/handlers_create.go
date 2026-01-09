@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -23,6 +25,13 @@ var logCreate = logger.Logger("pdp/create")
 // handleCreateDataSetAndAddPieces handles the creation of a new data set and adding pieces at the same time
 func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	// We should use background context here for consistency.
+	//	If some task is taking longer than expected, a client might time out and context will be canceled.
+	//	This can result in an inconsistent state in the database where we created the dataSet but did not add to DB.
+
+	workCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
@@ -116,7 +125,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	)
 
 	reason := "pdp-create-and-add"
-	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
+	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
 		logCreate.Errorf("Failed to send transaction: %+v", err)
@@ -129,7 +138,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
 	// Begin a database transaction
-	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
 		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
 		if err != nil {
 			return false, err
@@ -150,8 +159,15 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 		return true, err
 	}, harmonydb.OptionRetry())
+
 	if err != nil {
 		logCreate.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !comm {
+		logCreate.Error("Failed to commit database transaction")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -178,6 +194,9 @@ func decodeExtraData(extraDataString *string) ([]byte, error) {
 // handleCreateDataSet handles the creation of a new data set
 func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	workCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
@@ -270,7 +289,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	// Step 5: Send the transaction using SenderETH
 	reason := "pdp-mkdataset"
-	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
+	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
 		logCreate.Errorf("Failed to send transaction: %+v", err)
@@ -285,7 +304,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		"recordKeeper", recordKeeperAddr.Hex())
 
 	// Begin a database transaction
-	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
 		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
 		if err != nil {
 			return false, err
@@ -293,8 +312,15 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 		return true, nil
 	}, harmonydb.OptionRetry())
+
 	if err != nil {
 		logCreate.Errorf("Failed to insert database tracking records: %+v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !comm {
+		logCreate.Error("Failed to commit database transaction")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -310,7 +336,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 	logCreate.Debugw("Inserting into message_waits_eth",
 		"txHash", txHashHex,
 		"status", "pending")
-	_, err := tx.Exec(`
+	n, err := tx.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, $2)
         `, txHashHex, "pending")
@@ -321,11 +347,15 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		return err
 	}
 
+	if n != 1 {
+		return fmt.Errorf("expected 1 row to be inserted into message_waits_eth, got %d", n)
+	}
+
 	// Insert into pdp_data_set_creates
 	logCreate.Debugw("Inserting into pdp_data_set_creates",
 		"txHash", txHashHex,
 		"service", serviceLabel)
-	_, err = tx.Exec(`
+	n, err = tx.Exec(`
             INSERT INTO pdp_data_set_creates (create_message_hash, service)
             VALUES ($1, $2)
         `, txHashHex, serviceLabel)
@@ -334,6 +364,10 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 			"txHash", txHashHex,
 			"error", err)
 		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_creates, got %d", n)
 	}
 
 	logCreate.Infow("Successfully inserted transaction tracking records",
