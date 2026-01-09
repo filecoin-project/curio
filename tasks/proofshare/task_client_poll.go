@@ -123,8 +123,8 @@ func (t *TaskClientPoll) Adder(atf harmonytask.AddTaskFunc) {
 }
 
 // CanAccept implements harmonytask.TaskInterface.
-func (t *TaskClientPoll) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (t *TaskClientPoll) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 // Do implements harmonytask.TaskInterface.

@@ -23,6 +23,9 @@ type Limiter interface {
 	// Instance spawns a sub-instance of this limiter. This is called by harmonytask on startup for each task
 	// using this limiter. Each sub-instance has it's own individual "This" counter, but can share a common counter.
 	Instance() Limiter
+
+	// Headroom returns the number of tasks of this type that can be run until the max is reached.
+	Headroom() int
 }
 
 type MaxCounter struct {
@@ -38,6 +41,14 @@ type MaxCounter struct {
 
 func (m *MaxCounter) AtMax() bool {
 	return m.Max() > 0 && m.Active() >= m.Max()
+}
+
+func (m *MaxCounter) Headroom() int {
+	if m.N <= 0 {
+		// No limit configured, return large number to indicate unlimited headroom
+		return 1000000
+	}
+	return m.Max() - m.Active()
 }
 
 func (m *MaxCounter) Max() int {

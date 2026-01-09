@@ -440,9 +440,8 @@ func (s *SectorMetadata) updateVerifregClaims(ctx context.Context, astor adt.Sto
 	return nil
 }
 
-func (s *SectorMetadata) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (s *SectorMetadata) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (s *SectorMetadata) TypeDetails() harmonytask.TaskTypeDetails {

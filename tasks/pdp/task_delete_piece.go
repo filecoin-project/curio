@@ -141,8 +141,8 @@ func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	return true, nil
 }
 
-func (p *PDPTaskDeletePiece) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (p *PDPTaskDeletePiece) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (p *PDPTaskDeletePiece) TypeDetails() harmonytask.TaskTypeDetails {

@@ -315,9 +315,9 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 	return true, nil
 }
 
-func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// If no local pieceRef was found then just return first TaskID
-	return &ids[0], nil
+	return ids, nil
 }
 
 func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {

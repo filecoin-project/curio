@@ -265,7 +265,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 }
 
-func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// CommP task can be of 2 types
 	// 1. Using ParkPiece pieceRef
 	// 2. Using remote HTTP reader
@@ -352,11 +352,11 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		return nil, err
+		return []harmonytask.TaskID{}, err
 	}
 
 	if !comm {
-		return nil, xerrors.Errorf("failed to commit the transaction")
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to commit the transaction")
 	}
 
 	ls, err := c.sc.LocalStorage(ctx)
@@ -370,6 +370,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		acceptables[t] = true
 	}
 
+	result := []harmonytask.TaskID{}
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
@@ -377,13 +378,13 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
+				result = append(result, t.TaskID)
 			}
 		}
 	}
 
 	// If no local pieceRef was found then just return first TaskID
-	return &ids[0], nil
+	return result, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {

@@ -82,9 +82,8 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	return true, nil
 }
 
-func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {

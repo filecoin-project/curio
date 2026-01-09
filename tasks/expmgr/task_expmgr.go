@@ -241,11 +241,8 @@ func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 func (e *ExpMgrTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
-func (e *ExpMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	if len(ids) > 0 {
-		return &ids[0], nil
-	}
-	return nil, nil
+func (e *ExpMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (e *ExpMgrTask) TypeDetails() harmonytask.TaskTypeDetails {

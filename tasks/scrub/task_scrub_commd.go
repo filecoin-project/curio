@@ -100,9 +100,8 @@ func (c *ScrubCommDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	return true, nil
 }
 
-func (c *ScrubCommDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (c *ScrubCommDTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (c *ScrubCommDTask) TypeDetails() harmonytask.TaskTypeDetails {

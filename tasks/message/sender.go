@@ -223,18 +223,18 @@ func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	return true, nil
 }
 
-func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	if s.signer == nil {
 		// can't sign messages here
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	return &ids[0], nil
+	return ids, nil
 }
 
 func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
