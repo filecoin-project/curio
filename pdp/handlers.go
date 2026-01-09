@@ -18,11 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-chi/chi/v5"
-	"github.com/ipfs/go-cid"
-	"github.com/multiformats/go-multicodec"
 	"github.com/yugabyte/pgx/v5"
-
-	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -56,6 +52,8 @@ type PDPService struct {
 	sender    *message.SenderETH
 	ethClient *ethclient.Client
 	filClient PDPServiceNodeApi
+
+	pullHandler *PullHandler
 }
 
 type PDPServiceNodeApi interface {
@@ -64,14 +62,20 @@ type PDPServiceNodeApi interface {
 
 // NewPDPService creates a new instance of PDPService with the provided stores
 func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
+	auth := &NullAuth{}
+	pullStore := NewDBPullStore(db)
+	pullValidator := NewEthCallValidator(ec, db)
+
 	p := &PDPService{
-		Auth:    &NullAuth{},
+		Auth:    auth,
 		db:      db,
 		storage: stor,
 
 		sender:    sn,
 		ethClient: ec,
 		filClient: fc,
+
+		pullHandler: NewPullHandler(auth, pullStore, pullValidator),
 	}
 
 	go p.cleanup(ctx)
@@ -146,6 +150,9 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 	// POST /pdp/piece/uploads/{uploadUUID}
 	r.Post(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleFinalizeStreamingUpload)
+
+	// POST /pdp/piece/pull - Pull pieces from other SPs
+	r.Post(path.Join(PDPRoutePath, "/piece/pull"), p.pullHandler.HandlePull)
 }
 
 // Handler functions
@@ -181,12 +188,12 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Convert to v1 format (database stores v1)
-	pieceCidV1, err := asPieceCIDv1(pieceCidStr)
+	info, err := ParsePieceCid(pieceCidStr)
 	if err != nil {
 		http.Error(w, "Invalid pieceCid format: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	pieceCidV1Str := pieceCidV1.String()
+	pieceCidV1Str := info.CidV1.String()
 
 	// Query status from database
 	var result struct {
@@ -256,7 +263,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Convert authoritative PieceCID back from v1 to v2 for external API
-	pieceCidV2, _, err := asPieceCIDv2(result.PieceCID, result.PieceRawSize)
+	pieceInfo, err := PieceCidV2FromV1Str(result.PieceCID, result.PieceRawSize)
 	if err != nil {
 		http.Error(w, "Failed to convert PieceCID to v2: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -271,7 +278,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		Retrieved   bool       `json:"retrieved"`
 		RetrievedAt *time.Time `json:"retrievedAt,omitempty"`
 	}{
-		PieceCID:    pieceCidV2.String(),
+		PieceCID:    pieceInfo.CidV2.String(),
 		Status:      result.Status,
 		Indexed:     result.Indexed,
 		Advertised:  result.Advertised,
@@ -573,17 +580,17 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		pcv2Str, exists := aggregatePieceCIDs[piece.PieceID]
 		if !exists {
 			aggregateRawSize := pieceRawSizes[piece.PieceID]
-			pcv2, _, err := asPieceCIDv2(piece.PieceCid, aggregateRawSize)
+			pcInfo, err := PieceCidV2FromV1Str(piece.PieceCid, aggregateRawSize)
 			if err != nil {
 				http.Error(w, "Invalid PieceCID: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			pcv2Str = pcv2.String()
+			pcv2Str = pcInfo.CidV2.String()
 			aggregatePieceCIDs[piece.PieceID] = pcv2Str
 		}
 
 		// Use the raw size for the sub piece
-		spcv2, _, err := asPieceCIDv2(piece.SubPieceCID, piece.SubPieceRawSize)
+		spcInfo, err := PieceCidV2FromV1Str(piece.SubPieceCID, piece.SubPieceRawSize)
 		if err != nil {
 			http.Error(w, "Invalid SubPieceCID: "+err.Error(), http.StatusBadRequest)
 			return
@@ -591,7 +598,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		response.Pieces = append(response.Pieces, PieceEntry{
 			PieceID:        piece.PieceID,
 			PieceCID:       pcv2Str,
-			SubPieceCID:    spcv2.String(),
+			SubPieceCID:    spcInfo.CidV2.String(),
 			SubPieceOffset: piece.SubPieceOffset,
 		})
 	}
@@ -1095,48 +1102,6 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func asPieceCIDv1(cidStr string) (cid.Cid, error) {
-	pieceCid, err := cid.Decode(cidStr)
-	if err != nil {
-		return cid.Undef, fmt.Errorf("failed to decode PieceCID: %w", err)
-	}
-	if pieceCid.Prefix().MhType == uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
-		c1, _, err := commcid.PieceCidV1FromV2(pieceCid)
-		return c1, err
-	}
-	return pieceCid, nil
-}
-
-// asPieceCIDv2 converts a string to a PieceCIDv2. Where the input is expected to be a PieceCIDv1,
-// a size argument is required. Where it's expected to be a v2, the size argument is ignored. The
-// size either derived from the v2 or from the size argument in the case of a v1 is returned.
-func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
-	pieceCid, err := cid.Decode(cidStr)
-	if err != nil {
-		return cid.Undef, 0, fmt.Errorf("failed to decode PieceCid: %w", err)
-	}
-	switch pieceCid.Prefix().MhType {
-	case uint64(multicodec.Sha2_256Trunc254Padded):
-		if size == 0 {
-			return cid.Undef, 0, fmt.Errorf("size must be provided for PieceCIDv1")
-		}
-		c, err := commcid.PieceCidV2FromV1(pieceCid, size)
-		if err != nil {
-			return cid.Undef, 0, err
-		}
-		return c, size, nil
-	case uint64(multicodec.Fr32Sha256Trunc254Padbintree):
-		// get the size from the CID, not the argument
-		_, size, err := commcid.PieceCidV2ToDataCommitment(pieceCid)
-		if err != nil {
-			return cid.Undef, 0, fmt.Errorf("failed to get size from Sha2_256Trunc254Padded PieceCid: %w", err)
-		}
-		return pieceCid, size, nil
-	default:
-		return cid.Undef, 0, fmt.Errorf("unsupported piece CID type: %d", pieceCid.Prefix().MhType)
-	}
-}
-
 func (p *PDPService) cleanup(ctx context.Context) {
 	rm := func(ctx context.Context, db *harmonydb.DB) {
 		var RefIDs []int64
@@ -1154,6 +1119,13 @@ func (p *PDPService) cleanup(ctx context.Context) {
 			if err != nil {
 				log.Errorw("failed to delete non-finalized uploads", "error", err)
 			}
+		}
+
+		// Clean up old piece fetch records (older than 5 days)
+		// CASCADE deletes pdp_piece_fetch_items automatically
+		_, err = db.Exec(ctx, `DELETE FROM pdp_piece_fetches WHERE created_at < NOW() - INTERVAL '5 days'`)
+		if err != nil {
+			log.Errorw("failed to delete old piece fetch records", "error", err)
 		}
 	}
 
