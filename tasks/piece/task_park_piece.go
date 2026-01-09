@@ -3,11 +3,14 @@ package piece
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -90,8 +93,6 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 		}
 
 		for _, pieceID := range pieceIDs {
-			pieceID := pieceID
-
 			// Create a task for each piece
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// Update
@@ -163,6 +164,12 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	var merr error
 
+	// Parse expected PieceCID for verification
+	expectedCID, err := cid.Parse(pieceData.PieceCID)
+	if err != nil {
+		return false, xerrors.Errorf("parsing expected piece CID: %w", err)
+	}
+
 	for i := range refData {
 		if refData[i].DataURL != "" {
 			hdrs := make(http.Header)
@@ -183,12 +190,48 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				storageType = storiface.PathStorage
 			}
 
-			if err := p.sc.WritePiece(ctx, &taskID, pnum, pieceData.PieceRawSize, upr, storageType); err != nil {
-				merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
-				continue
+			// Check if this is an internal custore:// source (already verified during upload)
+			// or an external URL (needs CommP verification)
+			isCustore := strings.HasPrefix(refData[i].DataURL, dealdata.CustoreScheme+"://")
+
+			if isCustore {
+				// Internal source: CommP was verified during upload, just copy the data
+				err = p.sc.WritePiece(ctx, nil, pnum, pieceData.PieceRawSize, upr, storageType)
+				if err != nil {
+					merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
+					continue
+				}
+			} else {
+				// External source: compute and verify CommP during write
+				// Limit to expected size + 1 to detect oversized data from malicious sources
+				dataReader := io.LimitReader(upr, pieceData.PieceRawSize+1)
+
+				pieceInfo, rawSize, err := p.sc.WriteUploadPiece(ctx, pnum, pieceData.PieceRawSize, dataReader, storageType, true)
+				if err != nil {
+					merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
+					continue
+				}
+
+				// Verify the computed CommP matches the expected one
+				if !expectedCID.Equals(pieceInfo.PieceCID) {
+					if rmErr := p.sc.RemovePiece(ctx, pnum); rmErr != nil {
+						log.Errorw("failed to remove piece after CommP mismatch", "error", rmErr, "piece", pnum)
+					}
+					merr = multierror.Append(merr, xerrors.Errorf("CommP mismatch: expected %s, got %s", expectedCID, pieceInfo.PieceCID))
+					continue
+				}
+
+				// Verify the size matches (defense against truncated data)
+				if int64(rawSize) != pieceData.PieceRawSize {
+					if rmErr := p.sc.RemovePiece(ctx, pnum); rmErr != nil {
+						log.Errorw("failed to remove piece after size mismatch", "error", rmErr, "piece", pnum)
+					}
+					merr = multierror.Append(merr, xerrors.Errorf("size mismatch: expected %d, got %d", pieceData.PieceRawSize, rawSize))
+					continue
+				}
 			}
 
-			// Update the piece as complete after a successful write.
+			// Update the piece as complete after a successful write
 			_, err = p.db.Exec(ctx, `UPDATE parked_pieces SET complete = TRUE, task_id = NULL WHERE id = $1`, pieceData.PieceID)
 			if err != nil {
 				return false, xerrors.Errorf("marking piece as complete: %w", err)
@@ -229,7 +272,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram:     64 << 20,
 			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, ParkMinFreeStoragePercent),
 		},
-		MaxFailures: 10,
+		MaxFailures: 5,
 		RetryWait: func(retries int) time.Duration {
 			const baseWait, maxWait, factor = 5 * time.Second, time.Minute, 1.5
 			// Use math.Pow for exponential backoff
