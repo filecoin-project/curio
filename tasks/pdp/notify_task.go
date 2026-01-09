@@ -15,17 +15,66 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/promise"
 )
 
 var log = logger.Logger("pdp")
 
 type PDPNotifyTask struct {
 	db *harmonydb.DB
+	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
 func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
-	return &PDPNotifyTask{db: db}
+	n := &PDPNotifyTask{db: db}
+	go n.poll(context.Background())
+	return n
+}
+
+func (t *PDPNotifyTask) poll(ctx context.Context) {
+	for {
+		var uploads []struct {
+			ID string `db:"id"`
+		}
+
+		err := t.db.Select(ctx, &uploads, `
+                SELECT pu.id
+                FROM pdp_piece_uploads pu
+                JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
+                JOIN parked_pieces pp ON pp.id = pr.piece_id
+                WHERE 
+                    pu.piece_ref IS NOT NULL
+                    AND pp.complete = TRUE
+                    AND pu.notify_task_id IS NULL`)
+		if err != nil {
+			log.Errorf("getting uploads to notify: %s", err)
+		}
+
+		log.Infow("Found uploads to notify", "uploads", uploads)
+
+		if len(uploads) == 0 {
+			// No uploads to process
+			time.Sleep(time.Second * 2)
+			continue
+		}
+
+		for _, upload := range uploads {
+			upload := upload
+			log.Infow("Scheduling PDP notify task", "upload_id", upload.ID)
+
+			t.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+				n, err := tx.Exec(`
+                UPDATE pdp_piece_uploads 
+                SET notify_task_id = $1 
+                WHERE id = $2 AND notify_task_id IS NULL`, id, upload.ID)
+				if err != nil {
+					return false, xerrors.Errorf("updating notify_task_id: %w", err)
+				}
+
+				return n > 0, nil
+			})
+		}
+	}
 }
 
 func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -110,66 +159,11 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 14,
 		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
-		IAmBored: passcall.Every(time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
-			return t.schedule(context.Background(), taskFunc)
-		}),
 	}
-}
-
-func (t *PDPNotifyTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var stop bool
-	for !stop {
-		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			stop = true // Assume we're done unless we find more tasks to schedule
-
-			// Query for pending notifications where:
-			// - piece_ref is not null
-			// - The piece_ref points to a parked_piece_refs entry
-			// - The parked_piece_refs entry points to a parked_pieces entry where complete = TRUE
-			// - notify_task_id is NULL
-
-			var uploads []struct {
-				ID string `db:"id"`
-			}
-
-			err := tx.Select(&uploads, `
-                SELECT pu.id
-                FROM pdp_piece_uploads pu
-                JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
-                JOIN parked_pieces pp ON pp.id = pr.piece_id
-                WHERE 
-                    pu.piece_ref IS NOT NULL
-                    AND pp.complete = TRUE
-                    AND pu.notify_task_id IS NULL
-                LIMIT 1
-            `)
-			if err != nil {
-				return false, xerrors.Errorf("getting uploads to notify: %w", err)
-			}
-
-			if len(uploads) == 0 {
-				// No uploads to process
-				return false, nil
-			}
-
-			// Update the pdp_piece_uploads entry to set notify_task_id
-			_, err = tx.Exec(`
-                UPDATE pdp_piece_uploads 
-                SET notify_task_id = $1 
-                WHERE id = $2 AND notify_task_id IS NULL
-            `, id, uploads[0].ID)
-			if err != nil {
-				return false, xerrors.Errorf("updating notify_task_id: %w", err)
-			}
-
-			stop = false     // Continue scheduling as there might be more tasks
-			return true, nil // Commit the transaction
-		})
-	}
-	return nil
 }
 
 func (t *PDPNotifyTask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	t.TF.Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&PDPNotifyTask{})
