@@ -55,12 +55,15 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 			DataSetId int64 `db:"id"`
 		}
 
+		currentHeight := apply.Height()
 		err := db.Select(ctx, &toCallNext, `
                 SELECT id
                 FROM pdp_data_sets
                 WHERE challenge_request_task_id IS NULL
-                AND (prove_at_epoch + challenge_window) <= $1
-            `, apply.Height())
+                  AND (prove_at_epoch + challenge_window) <= $1
+                  AND terminated_at_epoch IS NULL
+                  AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
+            `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err)
 		}
@@ -204,7 +207,12 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	reason := "pdp-proving-period"
 	txHash, err := n.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
-		return false, xerrors.Errorf("failed to send transaction: %w", err)
+		currentHeight := int64(ts.Height())
+		done, handleErr := HandleProvingSendError(ctx, n.db, dataSetId, currentHeight, err)
+		if done {
+			return true, nil
+		}
+		return false, xerrors.Errorf("failed to send transaction: %w", handleErr)
 	}
 
 	// Update the database in a transaction

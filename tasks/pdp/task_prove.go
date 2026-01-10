@@ -89,13 +89,18 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 					ID int64 `db:"id"`
 				}
 
+				currentHeight := apply.Height() - 1 // -1 to delay by a block to reduce chance for `premature proof` due to reorgs
 				err := tx.Select(&dataSets, `
                     SELECT p.id
                     FROM pdp_data_sets p
                     INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
-                    WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE AND p.prove_at_epoch < $1
+                    WHERE p.challenge_request_msg_hash IS NOT NULL
+                      AND mw.tx_success = TRUE
+                      AND p.prove_at_epoch < $1
+                      AND p.terminated_at_epoch IS NULL
+                      AND (p.next_prove_attempt_at IS NULL OR p.next_prove_attempt_at <= $1)
                     LIMIT 2
-                `, apply.Height()-1) // -1 to delay it by a block to reduce chance for `premature proof` due to reorgs
+                `, currentHeight)
 				if err != nil {
 					return false, xerrors.Errorf("failed to select data sets: %w", err)
 				}
@@ -375,7 +380,28 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	reason := "pdp-prove"
 	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
-		return false, xerrors.Errorf("failed to send transaction: %w", err)
+		// Get current height for error handling
+		ts, heightErr := p.fil.ChainHead(ctx)
+		if heightErr != nil {
+			// Can't get chain height, fall back to cached head
+			ts = p.head.Load()
+		}
+		if ts == nil {
+			// No chain state available, let harmony retry
+			return false, xerrors.Errorf("failed to send transaction (no chain state): %w", err)
+		}
+		currentHeight := int64(ts.Height())
+
+		done, handleErr := HandleProvingSendError(ctx, p.db, dataSetId, currentHeight, err)
+		if done {
+			return true, nil
+		}
+		return false, xerrors.Errorf("failed to send transaction: %w", handleErr)
+	}
+
+	// Success, reset any accumulated failure count
+	if resetErr := ResetProvingFailures(ctx, p.db, dataSetId); resetErr != nil {
+		log.Warnw("Failed to reset proving failures after success", "error", resetErr, "dataSetId", dataSetId)
 	}
 
 	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "dataSetId", dataSetId, "taskID", taskID)
