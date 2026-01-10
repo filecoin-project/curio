@@ -1,7 +1,9 @@
 package contract
 
 import (
+	"fmt"
 	"math/big"
+	"os"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/snadrus/must"
@@ -42,6 +44,51 @@ func ContractAddresses() PDPContracts {
 				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
+	case build.Build2k:
+		// For 2k, require environment variables
+		payAddr := os.Getenv("FOC_CONTRACT_PAY")
+		if payAddr == "" {
+			panic("FOC_CONTRACT_PAY environment variable must be set for 2k")
+		}
+		if !common.IsHexAddress(payAddr) {
+			panic("FOC_CONTRACT_PAY must be a valid hex address")
+		}
+
+		pdpVerifierAddr := os.Getenv("FOC_PDP_VERIFIER_PROXY")
+		if pdpVerifierAddr == "" {
+			panic("FOC_PDP_VERIFIER_PROXY environment variable must be set for 2k")
+		}
+		if !common.IsHexAddress(pdpVerifierAddr) {
+			panic("FOC_PDP_VERIFIER_PROXY must be a valid hex address")
+		}
+
+		fmt.Fprintf(os.Stderr, "[2K] FOC_PDP_VERIFIER_PROXY=%s\n", pdpVerifierAddr)
+
+		fwssAddr := os.Getenv("FOC_CONTRACT_FWSS")
+		if fwssAddr == "" {
+			panic("FOC_CONTRACT_FWSS environment variable must be set for 2k")
+		}
+		if !common.IsHexAddress(fwssAddr) {
+			panic("FOC_CONTRACT_FWSS must be a valid hex address")
+		}
+		fmt.Fprintf(os.Stderr, "[2K] FOC_CONTRACT_FWSS=%s\n", fwssAddr)
+
+		simpleAddr := os.Getenv("FOC_CONTRACT_SIMPLE")
+		if simpleAddr == "" {
+			panic("FOC_CONTRACT_SIMPLE environment variable must be set for 2k")
+		}
+		if !common.IsHexAddress(simpleAddr) {
+			panic("FOC_CONTRACT_SIMPLE must be a valid hex address")
+		}
+		fmt.Fprintf(os.Stderr, "[2K] FOC_CONTRACT_SIMPLE=%s\n", simpleAddr)
+
+		return PDPContracts{
+			PDPVerifier: common.HexToAddress(pdpVerifierAddr),
+			AllowedPublicRecordKeepers: RecordKeeperAddresses{
+				FWSService: common.HexToAddress(fwssAddr),
+				Simple:     common.HexToAddress(simpleAddr),
+			},
+		}
 	default:
 		panic("PDP contract unknown for this network")
 	}
@@ -79,6 +126,15 @@ func ServiceRegistryAddress() (common.Address, error) {
 		return common.HexToAddress(ServiceRegistryCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(ServiceRegistryMainnet), nil
+	case build.Build2k:
+		simpleAddr := os.Getenv("FOC_CONTRACT_SIMPLE")
+		if simpleAddr == "" {
+			return common.Address{}, xerrors.Errorf("FOC_CONTRACT_SIMPLE environment variable must be set for 2k")
+		}
+		if !common.IsHexAddress(simpleAddr) {
+			return common.Address{}, xerrors.Errorf("FOC_CONTRACT_SIMPLE must be a valid hex address")
+		}
+		return common.HexToAddress(simpleAddr), nil
 	default:
 		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
 	}
@@ -93,6 +149,17 @@ func USDFCAddress() (common.Address, error) {
 		return common.HexToAddress(USDFCAddressCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
+	case build.Build2k:
+		// For 2k, require environment variables
+		usdfc := os.Getenv("FOC_CONTRACT_USDFC")
+		if usdfc == "" {
+			return common.Address{}, xerrors.Errorf("FOC_CONTRACT_USDFC environment variable must be set for 2k")
+		}
+		if !common.IsHexAddress(usdfc) {
+			return common.Address{}, xerrors.Errorf("FOC_CONTRACT_USDFC must be a valid hex address")
+		}
+		fmt.Fprintf(os.Stderr, "[2K] FOC_CONTRACT_USDFC=%s\n", usdfc)
+		return common.HexToAddress(usdfc), nil
 	default:
 		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
 	}
