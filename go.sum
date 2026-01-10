@@ -214,10 +214,8 @@ github.com/crate-crypto/go-kzg-4844 v1.1.0/go.mod h1:JolLjpSff1tCCJKaJx4psrlEdlX
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/cskr/pubsub v1.0.2 h1:vlOzMhl6PFn60gRlTQQsIfVwaPB/B/8MziK8FhEPt/0=
 github.com/cskr/pubsub v1.0.2/go.mod h1:/8MzYXk/NJAz782G8RPkFzXTZVu63VotefPnR9TIRis=
-github.com/curiostorage/harmonydb v0.0.0-20251228200118-7f09c9148b18 h1:JriXgKMvFq5kHjvWrE+CITmxrYNFhfhPLTxEUo5Xo/g=
-github.com/curiostorage/harmonydb v0.0.0-20251228200118-7f09c9148b18/go.mod h1:4wK9nYPGlTcrmJzud0nZwtOOQ2gHgFHP/IJpTFWm6ko=
-github.com/curiostorage/harmonydb v0.0.0-20260103212740-4309ae2f2e0e h1:vipZYEp/8SGiLU2Fm/B/WgjTK7TSQwcdnJ51h0J396Q=
-github.com/curiostorage/harmonydb v0.0.0-20260103212740-4309ae2f2e0e/go.mod h1:bFnQ2AwGl3X+ff2kEU+G3uMPchPvJq8qNRuzSlmUORM=
+github.com/curiostorage/harmonydb v0.0.0-20260109235611-1d3bd5eba2ef h1:QvU3K76EmZH3PPNclqGyvj+NGPmrVwmnNAjkhABiHc4=
+github.com/curiostorage/harmonydb v0.0.0-20260109235611-1d3bd5eba2ef/go.mod h1:bFnQ2AwGl3X+ff2kEU+G3uMPchPvJq8qNRuzSlmUORM=
 github.com/daaku/go.zipexe v1.0.2 h1:Zg55YLYTr7M9wjKn8SY/WcpuuEi+kR2u4E8RhvpyXmk=
 github.com/daaku/go.zipexe v1.0.2/go.mod h1:5xWogtqlYnfBXkSB1o9xysukNP9GTvaNkqzUZbt3Bw8=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

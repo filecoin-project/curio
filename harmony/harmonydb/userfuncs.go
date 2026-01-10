@@ -24,8 +24,6 @@ type Row = harmonydb.Row
 type Tx = harmonydb.Tx
 type TransactionOptions = harmonydb.TransactionOptions
 
-var OptionSerialRetryTime = harmonydb.OptionSerialRetryTime
-
 var IsErrUniqueContraint = harmonydb.IsErrUniqueContraint
 var IsErrSerialization = harmonydb.IsErrSerialization
 
