@@ -153,7 +153,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 			FROM harmony_task t
 			JOIN unnest($2::bigint[]) AS x(id) ON x.id = t.id
 			WHERE t.owner_id IS NULL
-			ORDER BY array_position($2,items.id)
+			ORDER BY array_position($2,t.id)
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED
 		)
