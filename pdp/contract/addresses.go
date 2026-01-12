@@ -24,11 +24,25 @@ type RecordKeeperAddresses struct {
 	Simple     common.Address
 }
 
+// lazyValue holds a value that is loaded exactly once on first access.
+type lazyValue[T any] struct {
+	once  sync.Once
+	value T
+	err   error
+}
+
+// get loads the value on first call, then returns the cached result.
+func (l *lazyValue[T]) get(loader func() (T, error)) (T, error) {
+	l.once.Do(func() {
+		l.value, l.err = loader()
+	})
+	return l.value, l.err
+}
+
 var (
-	cachedContracts       *PDPContracts
-	cachedServiceRegistry *common.Address
-	cachedUSDFC           *common.Address
-	cacheMu               sync.RWMutex
+	contracts       lazyValue[PDPContracts]
+	serviceRegistry lazyValue[common.Address]
+	usdFC           lazyValue[common.Address]
 )
 
 func (a RecordKeeperAddresses) List() []common.Address {
@@ -52,44 +66,31 @@ func ContractAddresses() PDPContracts {
 			},
 		}
 	case build.Build2k:
-		// Check cache first
-		cacheMu.RLock()
-		if cachedContracts != nil {
-			defer cacheMu.RUnlock()
-			return *cachedContracts
-		}
-		cacheMu.RUnlock()
+		result, err := contracts.get(func() (PDPContracts, error) {
+			// For 2k, use env vars FOC_2K_*
+			pdpVerifier := os.Getenv("FOC_2K_PDP_VERIFIER")
+			if pdpVerifier == "" {
+				return PDPContracts{}, xerrors.Errorf("FOC_2K_PDP_VERIFIER env var not set for 2k")
+			}
 
-		// Cache miss, load from env vars
-		cacheMu.Lock()
-		defer cacheMu.Unlock()
+			contracts := PDPContracts{
+				PDPVerifier: common.HexToAddress(pdpVerifier),
+			}
 
-		// Double-check after acquiring write lock
-		if cachedContracts != nil {
-			return *cachedContracts
-		}
+			// Optional record keepers
+			if fwsService := os.Getenv("FOC_2K_FWS_SERVICE"); fwsService != "" {
+				contracts.AllowedPublicRecordKeepers.FWSService = common.HexToAddress(fwsService)
+			}
+			if simple := os.Getenv("FOC_2K_SIMPLE_RECORD_KEEPER"); simple != "" {
+				contracts.AllowedPublicRecordKeepers.Simple = common.HexToAddress(simple)
+			}
 
-		// For localnet, use env vars FOC_LOCALNET_*
-		pdpVerifier := os.Getenv("FOC_LOCALNET_PDP_VERIFIER")
-		if pdpVerifier == "" {
-			panic("FOC_LOCALNET_PDP_VERIFIER env var not set for localnet")
+			return contracts, nil
+		})
+		if err != nil {
+			panic(err)
 		}
-
-		contracts := PDPContracts{
-			PDPVerifier: common.HexToAddress(pdpVerifier),
-		}
-
-		// Optional record keepers
-		if fwsService := os.Getenv("FOC_LOCALNET_FWS_SERVICE"); fwsService != "" {
-			contracts.AllowedPublicRecordKeepers.FWSService = common.HexToAddress(fwsService)
-		}
-		if simple := os.Getenv("FOC_LOCALNET_SIMPLE_RECORD_KEEPER"); simple != "" {
-			contracts.AllowedPublicRecordKeepers.Simple = common.HexToAddress(simple)
-		}
-
-		// Cache the result
-		cachedContracts = &contracts
-		return contracts
+		return result
 	default:
 		panic("PDP contract unknown for this network")
 	}
@@ -128,30 +129,13 @@ func ServiceRegistryAddress() (common.Address, error) {
 	case build.BuildMainnet:
 		return common.HexToAddress(ServiceRegistryMainnet), nil
 	case build.Build2k:
-		// Check cache first
-		cacheMu.RLock()
-		if cachedServiceRegistry != nil {
-			defer cacheMu.RUnlock()
-			return *cachedServiceRegistry, nil
-		}
-		cacheMu.RUnlock()
-
-		// Cache miss, load from env var
-		cacheMu.Lock()
-		defer cacheMu.Unlock()
-
-		// Double-check after acquiring write lock
-		if cachedServiceRegistry != nil {
-			return *cachedServiceRegistry, nil
-		}
-
-		// For localnet, use env var FOC_LOCALNET_SERVICE_REGISTRY
-		if addr := os.Getenv("FOC_LOCALNET_SERVICE_REGISTRY"); addr != "" {
-			address := common.HexToAddress(addr)
-			cachedServiceRegistry = &address
-			return address, nil
-		}
-		return common.Address{}, xerrors.Errorf("service registry address not configured for localnet - set FOC_LOCALNET_SERVICE_REGISTRY env var")
+		return serviceRegistry.get(func() (common.Address, error) {
+			// For 2k, use env var FOC_2K_SERVICE_REGISTRY
+			if addr := os.Getenv("FOC_2K_SERVICE_REGISTRY"); addr != "" {
+				return common.HexToAddress(addr), nil
+			}
+			return common.Address{}, xerrors.Errorf("service registry address not configured for 2k - set FOC_2K_SERVICE_REGISTRY env var")
+		})
 	default:
 		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
 	}
@@ -167,30 +151,13 @@ func USDFCAddress() (common.Address, error) {
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
 	case build.Build2k:
-		// Check cache first
-		cacheMu.RLock()
-		if cachedUSDFC != nil {
-			defer cacheMu.RUnlock()
-			return *cachedUSDFC, nil
-		}
-		cacheMu.RUnlock()
-
-		// Cache miss, load from env var
-		cacheMu.Lock()
-		defer cacheMu.Unlock()
-
-		// Double-check after acquiring write lock
-		if cachedUSDFC != nil {
-			return *cachedUSDFC, nil
-		}
-
-		// For localnet, use env var FOC_LOCALNET_USDFC
-		if addr := os.Getenv("FOC_LOCALNET_USDFC"); addr != "" {
-			address := common.HexToAddress(addr)
-			cachedUSDFC = &address
-			return address, nil
-		}
-		return common.Address{}, xerrors.Errorf("USDFC address not configured for localnet - set FOC_LOCALNET_USDFC env var")
+		return usdFC.get(func() (common.Address, error) {
+			// For 2k, use env var FOC_2K_USDFC
+			if addr := os.Getenv("FOC_2K_USDFC"); addr != "" {
+				return common.HexToAddress(addr), nil
+			}
+			return common.Address{}, xerrors.Errorf("USDFC address not configured for 2k - set FOC_2K_USDFC env var")
+		})
 	default:
 		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
 	}
