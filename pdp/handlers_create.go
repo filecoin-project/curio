@@ -3,6 +3,7 @@ package pdp
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -62,6 +63,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
 		http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+		return
+	}
+
+	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSetAndAddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
 
@@ -222,6 +229,12 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
 		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(extraDataBytes) > MaxCreateDataSetExtraDataSize {
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSet (%d bytes)", len(extraDataBytes), MaxCreateDataSetExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
 

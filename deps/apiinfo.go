@@ -87,8 +87,8 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 				continue
 			}
 		} else if build.BuildType == build.Build2k {
-			// For 2k builds, accept any network with "local" prefix
-			if !strings.HasPrefix(string(networkName), "local") {
+			// For 2k builds, accept any network with "2k" prefix
+			if !strings.HasPrefix(string(networkName), "2k") {
 				clog.Warnf("Network mismatch for node %s: binary built for 2k but node is on %s",
 					head.addr, networkName)
 				closer()
