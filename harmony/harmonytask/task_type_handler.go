@@ -121,6 +121,9 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		maxAcceptable = headroomUntilMax
 	}
 	releaseStorage := make([]func(), len(tIDs))
+	for i := range tIDs {
+		releaseStorage[i] = func() {}
+	}
 
 	if h.Cost.Storage != nil {
 		for i, tID := range tIDs {
