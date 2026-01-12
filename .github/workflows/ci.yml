@@ -628,22 +628,17 @@ jobs:
           chmod +x .github/utils/coverage-report.sh
           .github/utils/coverage-report.sh
 
-      - name: Upload coverage HTML to transfer.sh (temporary hosting)  # DEBUG instrumentation added
+      - name: Upload coverage HTML to 0x0.st (temporary hosting)
         id: upload-coverage
         if: github.event_name == 'pull_request'
         run: |
-          # Upload to transfer.sh (14-day retention, no account needed)
-          echo "Uploading coverage HTML to transfer.sh..."
-          COVERAGE_URL=$(curl -s --upload-file coverage/coverage.html https://transfer.sh/coverage-pr-${{ github.event.pull_request.number }}.html)
-          #region agent log
-          echo '{"sessionId":"debug-session","runId":"run1","hypothesisId":"H1","location":"ci.yml:UPLOAD","message":"upload result","data":{"url":"'"$COVERAGE_URL"'"},"timestamp":'$(date +%s%3N)'}' 
-          #endregion
-          if [ -n "$COVERAGE_URL" ]; then
-            echo "url=${COVERAGE_URL}" >> $GITHUB_OUTPUT
-            echo "✅ Coverage HTML available at: ${COVERAGE_URL}"
-            echo "This link expires in 14 days"
+          if [ -f "coverage/coverage.html" ]; then
+            # Upload to 0x0.st : returns a URL like https://0x0.st/abcd.html
+            COVERAGE_URL=$(curl -sF file=@"coverage/coverage.html" https://0x0.st || true)
+            echo "RAW_UPLOAD_RESULT=$COVERAGE_URL"
+            echo "url=$COVERAGE_URL" >> "$GITHUB_OUTPUT"
           else
-            echo "⚠️ Upload to transfer.sh failed, will use artifacts only"
+            echo "⚠️  coverage.html not found!"
           fi
         continue-on-error: true
 
