@@ -19,11 +19,11 @@ func MultiCallAddress() (common.Address, error) {
 	case build.BuildMainnet:
 		return common.HexToAddress(MultiCallAddressMainnet), nil
 	case build.Build2k:
-		// For 2k, use env var CURIO_2K_MULTICALL_ADDRESS
-		if addr := os.Getenv("CURIO_2K_MULTICALL_ADDRESS"); addr != "" {
+		// For 2k, use env var CURIO_MULTICALL_ADDRESS
+		if addr := os.Getenv("CURIO_MULTICALL_ADDRESS"); addr != "" {
 			return common.HexToAddress(addr), nil
 		}
-		return common.Address{}, xerrors.Errorf("multicall address not configured for 2k - set CURIO_2K_MULTICALL_ADDRESS env var")
+		return common.Address{}, xerrors.Errorf("multicall address not configured for 2k - set CURIO_MULTICALL_ADDRESS env var")
 	default:
 		return common.Address{}, xerrors.Errorf("multicall address not set for this network %s", build.BuildTypeString()[1:])
 	}

@@ -19,11 +19,11 @@ func PaymentContractAddress() (common.Address, error) {
 	case build.BuildMainnet:
 		return common.HexToAddress(PaymentContractMainnet), nil
 	case build.Build2k:
-		// For 2k, use env var CURIO_2K_PAYMENT_CONTRACT
-		if addr := os.Getenv("CURIO_2K_PAYMENT_CONTRACT"); addr != "" {
+		// For 2k, use env var CURIO_PAYMENT_CONTRACT
+		if addr := os.Getenv("CURIO_PAYMENT_CONTRACT"); addr != "" {
 			return common.HexToAddress(addr), nil
 		}
-		return common.Address{}, xerrors.Errorf("payment contract address not configured for 2k - set CURIO_2K_PAYMENT_CONTRACT env var")
+		return common.Address{}, xerrors.Errorf("payment contract address not configured for 2k - set CURIO_PAYMENT_CONTRACT env var")
 	default:
 		return common.Address{}, xerrors.Errorf("payment contract address not set for this network %s", build.BuildTypeString()[1:])
 	}
