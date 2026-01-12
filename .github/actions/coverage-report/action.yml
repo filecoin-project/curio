@@ -154,12 +154,7 @@ runs:
           const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
           const coverageHtmlUrl = '${{ inputs.coverage-html-url }}';
           
-          let htmlLink = '';
-          if (coverageHtmlUrl && coverageHtmlUrl !== '' && coverageHtmlUrl !== 'undefined') {
-            htmlLink = `\n\n## 🌐 [View Interactive Coverage Report in Browser](${coverageHtmlUrl})\n\n**Click above to open the full HTML coverage report directly in your browser!**\n\n- 🟢 Green: Lines covered by tests\n- 🔴 Red: Lines not covered\n- ⚪ Gray: Non-executable code\n- Interactive navigation by package/file\n- All ${functionLines.length} functions analyzed\n\n_Link expires in 14 days. [Download artifact](${artifactUrl}) for permanent copy._\n\n---\n\n`;
-          } else {
-            htmlLink = `\n\n📥 **[Download Coverage Report](${artifactUrl})**\n\nDownload \`coverage-merged\` artifact and open \`coverage.html\` to view:\n- Line-by-line coverage with color highlighting\n- Interactive navigation\n- All ${functionLines.length} functions\n\n`;
-          }
+          let htmlLink = `\n\n📥 **[Download Coverage Report](${artifactUrl})**\n\nDownload \`coverage-merged\` artifact and open \`coverage.html\` to view:\n- Line-by-line coverage with color highlighting\n- Interactive navigation\n- All ${functionLines.length} functions\n\n`;
           
           const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}${htmlLink}**Summary:** ${totalLine}`;
           
@@ -173,6 +168,6 @@ runs:
             output: {
               title: `Total Coverage: ${coverage}${hasBaseline ? ` (${parseFloat(diff) > 0 ? '+' : ''}${diff})` : ''}`,
               summary: summary.substring(0, 65000), // Ensure it fits
-              text: coverageHtmlUrl && coverageHtmlUrl !== '' && coverageHtmlUrl !== 'undefined' ? `🌐 View interactive report: ${coverageHtmlUrl}\n\nTotal functions: ${functionLines.length}` : `📥 Download coverage-merged artifact\n\nTotal functions: ${functionLines.length}`
+              text:  `📥 Download coverage-merged artifact\n\nTotal functions: ${functionLines.length}`
             }
           });

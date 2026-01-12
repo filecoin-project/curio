@@ -627,21 +627,6 @@ jobs:
         run: |
           chmod +x .github/utils/coverage-report.sh
           .github/utils/coverage-report.sh
-
-      - name: Upload coverage HTML to 0x0.st (temporary hosting)
-        id: upload-coverage
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -f "coverage/coverage.html" ]; then
-            # Upload to 0x0.st : returns a URL like https://0x0.st/abcd.html
-            COVERAGE_URL=$(curl -sF file=@"coverage/coverage.html" https://0x0.st || true)
-            echo "RAW_UPLOAD_RESULT=$COVERAGE_URL"
-            echo "url=$COVERAGE_URL" >> "$GITHUB_OUTPUT"
-          else
-            echo "⚠️  coverage.html not found!"
-          fi
-        continue-on-error: true
-
       - name: Generate coverage report
         uses: ./.github/actions/coverage-report
         id: coverage
@@ -652,7 +637,6 @@ jobs:
           create-check: 'true'
           create-comment: 'false'
           minimum-coverage: '0'
-          coverage-html-url: ${{ steps.upload-coverage.outputs.url || '' }}
 
       - name: Upload merged coverage artifact
         uses: actions/upload-artifact@v4
