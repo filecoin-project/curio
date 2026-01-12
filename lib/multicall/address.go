@@ -18,7 +18,7 @@ func MultiCallAddress() (common.Address, error) {
 		return common.HexToAddress(MultiCallAddressCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(MultiCallAddressMainnet), nil
-	case build.BuildLocalnet:
+	case build.Build2k:
 		// For localnet, use env var CURIO_LOCALNET_MULTICALL_ADDRESS
 		if addr := os.Getenv("CURIO_LOCALNET_MULTICALL_ADDRESS"); addr != "" {
 			return common.HexToAddress(addr), nil

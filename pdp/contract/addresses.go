@@ -51,7 +51,7 @@ func ContractAddresses() PDPContracts {
 				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
-	case build.BuildLocalnet:
+	case build.Build2k:
 		// Check cache first
 		cacheMu.RLock()
 		if cachedContracts != nil {
@@ -127,7 +127,7 @@ func ServiceRegistryAddress() (common.Address, error) {
 		return common.HexToAddress(ServiceRegistryCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(ServiceRegistryMainnet), nil
-	case build.BuildLocalnet:
+	case build.Build2k:
 		// Check cache first
 		cacheMu.RLock()
 		if cachedServiceRegistry != nil {
@@ -166,7 +166,7 @@ func USDFCAddress() (common.Address, error) {
 		return common.HexToAddress(USDFCAddressCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
-	case build.BuildLocalnet:
+	case build.Build2k:
 		// Check cache first
 		cacheMu.RLock()
 		if cachedUSDFC != nil {

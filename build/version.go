@@ -23,7 +23,6 @@ const (
 	Build2k       = 0x2
 	BuildDebug    = 0x3
 	BuildCalibnet = 0x4
-	BuildLocalnet = 0x5
 )
 
 func BuildTypeString() string {
@@ -36,8 +35,6 @@ func BuildTypeString() string {
 		return "+debug"
 	case BuildCalibnet:
 		return "+calibnet"
-	case BuildLocalnet:
-		return "+localnet"
 	default:
 		return "+huh?"
 	}

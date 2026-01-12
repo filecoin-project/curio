@@ -18,7 +18,7 @@ func PaymentContractAddress() (common.Address, error) {
 		return common.HexToAddress(PaymentContractCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(PaymentContractMainnet), nil
-	case build.BuildLocalnet:
+	case build.Build2k:
 		// For localnet, use env var CURIO_LOCALNET_PAYMENT_CONTRACT
 		if addr := os.Getenv("CURIO_LOCALNET_PAYMENT_CONTRACT"); addr != "" {
 			return common.HexToAddress(addr), nil
