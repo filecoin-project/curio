@@ -40,9 +40,9 @@ func (l *lazyValue[T]) get(loader func() (T, error)) (T, error) {
 }
 
 var (
-	contracts       lazyValue[PDPContracts]
+	pdpContracts    lazyValue[PDPContracts]
 	serviceRegistry lazyValue[common.Address]
-	usdFC           lazyValue[common.Address]
+	usdfc           lazyValue[common.Address]
 )
 
 func (a RecordKeeperAddresses) List() []common.Address {
@@ -66,11 +66,11 @@ func ContractAddresses() PDPContracts {
 			},
 		}
 	case build.Build2k:
-		result, err := contracts.get(func() (PDPContracts, error) {
-			// For 2k, use env vars FOC_2K_*
-			pdpVerifier := os.Getenv("FOC_2K_PDP_VERIFIER")
+		result, err := pdpContracts.get(func() (PDPContracts, error) {
+			// For 2k, use env vars CURIO_*
+			pdpVerifier := os.Getenv("CURIO_PDP_VERIFIER")
 			if pdpVerifier == "" {
-				return PDPContracts{}, xerrors.Errorf("FOC_2K_PDP_VERIFIER env var not set for 2k")
+				return PDPContracts{}, xerrors.Errorf("CURIO_PDP_VERIFIER env var not set for 2k")
 			}
 
 			contracts := PDPContracts{
@@ -78,10 +78,10 @@ func ContractAddresses() PDPContracts {
 			}
 
 			// Optional record keepers
-			if fwsService := os.Getenv("FOC_2K_FWS_SERVICE"); fwsService != "" {
+			if fwsService := os.Getenv("CURIO_FWS_SERVICE"); fwsService != "" {
 				contracts.AllowedPublicRecordKeepers.FWSService = common.HexToAddress(fwsService)
 			}
-			if simple := os.Getenv("FOC_2K_SIMPLE_RECORD_KEEPER"); simple != "" {
+			if simple := os.Getenv("CURIO_SIMPLE_RECORD_KEEPER"); simple != "" {
 				contracts.AllowedPublicRecordKeepers.Simple = common.HexToAddress(simple)
 			}
 
@@ -130,11 +130,11 @@ func ServiceRegistryAddress() (common.Address, error) {
 		return common.HexToAddress(ServiceRegistryMainnet), nil
 	case build.Build2k:
 		return serviceRegistry.get(func() (common.Address, error) {
-			// For 2k, use env var FOC_2K_SERVICE_REGISTRY
-			if addr := os.Getenv("FOC_2K_SERVICE_REGISTRY"); addr != "" {
+			// For 2k, use env var CURIO_SERVICE_REGISTRY
+			if addr := os.Getenv("CURIO_SERVICE_REGISTRY"); addr != "" {
 				return common.HexToAddress(addr), nil
 			}
-			return common.Address{}, xerrors.Errorf("service registry address not configured for 2k - set FOC_2K_SERVICE_REGISTRY env var")
+			return common.Address{}, xerrors.Errorf("service registry address not configured for 2k - set CURIO_SERVICE_REGISTRY env var")
 		})
 	default:
 		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
@@ -151,12 +151,12 @@ func USDFCAddress() (common.Address, error) {
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
 	case build.Build2k:
-		return usdFC.get(func() (common.Address, error) {
-			// For 2k, use env var FOC_2K_USDFC
-			if addr := os.Getenv("FOC_2K_USDFC"); addr != "" {
+		return usdfc.get(func() (common.Address, error) {
+			// For 2k, use env var CURIO_USDFC
+			if addr := os.Getenv("CURIO_USDFC"); addr != "" {
 				return common.HexToAddress(addr), nil
 			}
-			return common.Address{}, xerrors.Errorf("USDFC address not configured for 2k - set FOC_2K_USDFC env var")
+			return common.Address{}, xerrors.Errorf("USDFC address not configured for 2k - set CURIO_USDFC env var")
 		})
 	default:
 		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
