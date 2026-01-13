@@ -20,19 +20,40 @@ import (
 
 var log = logger.Logger("pdp")
 
+// NotifyPollInterval is how often to poll for uploads ready to finalize.
+var NotifyPollInterval = 2 * time.Second
+
+// PDPNotifyTask finalizes completed piece uploads.
+//
+// When piece data finishes uploading (parked_pieces.complete = TRUE), this task:
+//  1. Sends an optional HTTP POST callback to notify_url if configured
+//  2. Creates a permanent reference in pdp_piecerefs linking piece_cid to piece_ref
+//  3. Removes the temporary upload record from pdp_piece_uploads
+//
+// The poll goroutine watches for uploads where the underlying piece is complete
+// but no finalization task has been assigned yet.
 type PDPNotifyTask struct {
 	db *harmonydb.DB
 	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
+func NewPDPNotifyTask(ctx context.Context, db *harmonydb.DB) *PDPNotifyTask {
 	n := &PDPNotifyTask{db: db}
-	go n.poll(context.Background())
+	go n.poll(ctx)
 	return n
 }
 
 func (t *PDPNotifyTask) poll(ctx context.Context) {
+	ticker := time.NewTicker(NotifyPollInterval)
+	defer ticker.Stop()
+
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
 		var uploads []struct {
 			ID string `db:"id"`
 		}
@@ -42,41 +63,37 @@ func (t *PDPNotifyTask) poll(ctx context.Context) {
                 FROM pdp_piece_uploads pu
                 JOIN parked_piece_refs pr ON pr.ref_id = pu.piece_ref
                 JOIN parked_pieces pp ON pp.id = pr.piece_id
-                WHERE 
+                WHERE
                     pu.piece_ref IS NOT NULL
                     AND pp.complete = TRUE
                     AND pu.notify_task_id IS NULL LIMIT 10`)
 		if err != nil {
 			log.Errorf("getting uploads to notify: %s", err)
+			continue
 		}
 
 		if len(uploads) == 0 {
-			// No uploads to process
 			continue
-		} else {
-			for _, upload := range uploads {
-				upload := upload
-				failed := false
-
-				t.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-					n, err := tx.Exec(`
-						UPDATE pdp_piece_uploads 
-						SET notify_task_id = $1 
-						WHERE id = $2 AND notify_task_id IS NULL`, id, upload.ID)
-					if err != nil {
-						failed = true
-						return false, xerrors.Errorf("updating notify_task_id: %w", err)
-					}
-					return n > 0, nil
-				})
-				if failed {
-					// Let's exit the loop and try again later
-					break
-				}
-			}
 		}
 
-		time.Sleep(time.Second * 2)
+		for _, upload := range uploads {
+			failed := false
+
+			t.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+				n, err := tx.Exec(`
+					UPDATE pdp_piece_uploads
+					SET notify_task_id = $1
+					WHERE id = $2 AND notify_task_id IS NULL`, id, upload.ID)
+				if err != nil {
+					failed = true
+					return false, xerrors.Errorf("updating notify_task_id: %w", err)
+				}
+				return n > 0, nil
+			})
+			if failed {
+				break
+			}
+		}
 	}
 }
 
