@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curio Coverage Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script type="module">
+        import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+
+        class CoverageViewer extends LitElement {
+            static properties = {
+                state: { type: String },      // 'landing' | 'loading' | 'viewer'
+                error: { type: String },
+                fileName: { type: String },
+                htmlContent: { type: String },
+            };
+
+            static styles = css`
+                :host {
+                    display: block;
+                    height: 100vh;
+                    width: 100vw;
+                    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+                    background: var(--bg-primary);
+                    color: var(--text-primary);
+                    --bg-primary: #0d1117;
+                    --bg-secondary: #161b22;
+                    --bg-tertiary: #21262d;
+                    --accent: #58a6ff;
+                    --accent-hover: #79b8ff;
+                    --success: #3fb950;
+                    --text-primary: #e6edf3;
+                    --text-secondary: #8b949e;
+                    --border: #30363d;
+                }
+
+                .landing {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
+                    padding: 2rem;
+                    background: 
+                        radial-gradient(ellipse at 20% 20%, rgba(88, 166, 255, 0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 80%, rgba(63, 185, 80, 0.06) 0%, transparent 50%),
+                        var(--bg-primary);
+                }
+
+                .logo {
+                    font-size: 3rem;
+                    font-weight: 600;
+                    margin-bottom: 0.5rem;
+                    background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    background-clip: text;
+                }
+
+                .subtitle {
+                    color: var(--text-secondary);
+                    font-size: 1.1rem;
+                    margin-bottom: 3rem;
+                    font-weight: 300;
+                }
+
+                .drop-zone {
+                    width: 100%;
+                    max-width: 600px;
+                    padding: 4rem 2rem;
+                    border: 2px dashed var(--border);
+                    border-radius: 16px;
+                    background: var(--bg-secondary);
+                    text-align: center;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                }
+
+                .drop-zone:hover,
+                .drop-zone.dragover {
+                    border-color: var(--accent);
+                    background: rgba(88, 166, 255, 0.05);
+                    transform: scale(1.01);
+                }
+
+                .drop-zone.dragover {
+                    border-style: solid;
+                    box-shadow: 0 0 40px rgba(88, 166, 255, 0.2);
+                }
+
+                .drop-icon {
+                    font-size: 4rem;
+                    margin-bottom: 1.5rem;
+                    opacity: 0.8;
+                }
+
+                .drop-text {
+                    font-size: 1.3rem;
+                    font-weight: 500;
+                    margin-bottom: 0.5rem;
+                }
+
+                .drop-hint {
+                    color: var(--text-secondary);
+                    font-size: 0.95rem;
+                }
+
+                .drop-hint code {
+                    font-family: 'JetBrains Mono', monospace;
+                    background: var(--bg-tertiary);
+                    padding: 0.2rem 0.5rem;
+                    border-radius: 4px;
+                    font-size: 0.85rem;
+                }
+
+                .file-input {
+                    display: none;
+                }
+
+                .or-divider {
+                    display: flex;
+                    align-items: center;
+                    width: 100%;
+                    max-width: 600px;
+                    margin: 2rem 0;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                }
+
+                .or-divider::before,
+                .or-divider::after {
+                    content: '';
+                    flex: 1;
+                    height: 1px;
+                    background: var(--border);
+                }
+
+                .or-divider span {
+                    padding: 0 1rem;
+                }
+
+                .url-form {
+                    width: 100%;
+                    max-width: 600px;
+                    display: flex;
+                    gap: 0.75rem;
+                }
+
+                .url-input {
+                    flex: 1;
+                    padding: 0.9rem 1.2rem;
+                    background: var(--bg-secondary);
+                    border: 1px solid var(--border);
+                    border-radius: 8px;
+                    color: var(--text-primary);
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 0.9rem;
+                    outline: none;
+                    transition: border-color 0.2s;
+                }
+
+                .url-input:focus {
+                    border-color: var(--accent);
+                }
+
+                .url-input::placeholder {
+                    color: var(--text-secondary);
+                }
+
+                .load-btn {
+                    padding: 0.9rem 1.5rem;
+                    background: var(--accent);
+                    border: none;
+                    border-radius: 8px;
+                    color: var(--bg-primary);
+                    font-family: 'Outfit', sans-serif;
+                    font-size: 0.95rem;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                }
+
+                .load-btn:hover {
+                    background: var(--accent-hover);
+                }
+
+                .load-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+
+                .loading {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
+                    gap: 1.5rem;
+                    background: var(--bg-primary);
+                }
+
+                .spinner {
+                    width: 48px;
+                    height: 48px;
+                    border: 3px solid var(--border);
+                    border-top-color: var(--accent);
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
+
+                .loading-text {
+                    color: var(--text-secondary);
+                    font-size: 1.1rem;
+                }
+
+                .error-message {
+                    margin-top: 1.5rem;
+                    padding: 1rem 1.5rem;
+                    background: rgba(248, 81, 73, 0.1);
+                    border: 1px solid rgba(248, 81, 73, 0.3);
+                    border-radius: 8px;
+                    color: #f85149;
+                    max-width: 600px;
+                    text-align: center;
+                }
+
+                .viewer {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    z-index: 9999;
+                }
+
+                .coverage-frame {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    border: none;
+                    background: #fff;
+                }
+
+                .info {
+                    margin-top: 3rem;
+                    text-align: center;
+                    color: var(--text-secondary);
+                    font-size: 0.85rem;
+                    max-width: 500px;
+                }
+
+                .info p {
+                    margin-bottom: 0.5rem;
+                }
+            `;
+
+            constructor() {
+                super();
+                this.state = 'landing';
+                this.error = '';
+                this.fileName = '';
+                this.htmlContent = '';
+                this._dragover = false;
+            }
+
+            connectedCallback() {
+                super.connectedCallback();
+                // Check URL params for direct linking
+                const params = new URLSearchParams(window.location.search);
+                const zipUrl = params.get('zip') || params.get('url');
+                if (zipUrl) {
+                    this._loadFromUrl(zipUrl);
+                }
+            }
+
+            async _processZip(file) {
+                this.state = 'loading';
+                this.error = '';
+
+                try {
+                    const zip = await JSZip.loadAsync(file);
+
+                    let htmlFile = null;
+                    let htmlPath = null;
+
+                    for (const [path, zipEntry] of Object.entries(zip.files)) {
+                        if (path.endsWith('coverage.html') && !zipEntry.dir) {
+                            htmlFile = zipEntry;
+                            htmlPath = path;
+                            break;
+                        }
+                    }
+
+                    if (!htmlFile) {
+                        throw new Error('No coverage.html found in ZIP. Make sure this is a coverage artifact.');
+                    }
+
+                    this.htmlContent = await htmlFile.async('string');
+                    this.fileName = htmlPath;
+                    this.state = 'viewer';
+                } catch (err) {
+                    this.state = 'landing';
+                    this.error = err.message || 'Failed to process ZIP file';
+                    console.error(err);
+                }
+            }
+
+            async _loadFromUrl(url) {
+                this.state = 'loading';
+                this.error = '';
+
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+                    }
+
+                    const blob = await response.blob();
+                    await this._processZip(blob);
+                } catch (err) {
+                    this.state = 'landing';
+                    if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
+                        this.error = 'Could not fetch URL. Check CORS policy or try downloading the file directly.';
+                    } else {
+                        this.error = err.message || 'Failed to load from URL';
+                    }
+                    console.error(err);
+                }
+            }
+
+            _handleDragOver(e) {
+                e.preventDefault();
+                this._dragover = true;
+                this.requestUpdate();
+            }
+
+            _handleDragLeave(e) {
+                e.preventDefault();
+                this._dragover = false;
+                this.requestUpdate();
+            }
+
+            async _handleDrop(e) {
+                e.preventDefault();
+                this._dragover = false;
+
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.name.endsWith('.zip')) {
+                        await this._processZip(file);
+                    } else {
+                        this.error = 'Please drop a ZIP file';
+                    }
+                }
+            }
+
+            _handleClick() {
+                this.renderRoot.querySelector('.file-input').click();
+            }
+
+            async _handleFileSelect(e) {
+                if (e.target.files.length > 0) {
+                    await this._processZip(e.target.files[0]);
+                }
+            }
+
+            async _handleUrlSubmit(e) {
+                e.preventDefault();
+                const url = this.renderRoot.querySelector('.url-input').value.trim();
+                if (url) {
+                    await this._loadFromUrl(url);
+                }
+            }
+
+            _goBack() {
+                this.state = 'landing';
+                this.htmlContent = '';
+                this.fileName = '';
+                this.error = '';
+            }
+
+            _renderLanding() {
+                return html`
+                    <div class="landing">
+                        <div class="logo">📊 Curio Coverage</div>
+                        <div class="subtitle">Interactive Go test coverage viewer</div>
+
+                        <div 
+                            class="drop-zone ${this._dragover ? 'dragover' : ''}"
+                            @dragover=${this._handleDragOver}
+                            @dragleave=${this._handleDragLeave}
+                            @drop=${this._handleDrop}
+                            @click=${this._handleClick}
+                        >
+                            <div class="drop-icon">📁</div>
+                            <div class="drop-text">Drop your coverage ZIP here</div>
+                            <div class="drop-hint">or click to select <code>coverage-merged.zip</code></div>
+                        </div>
+                        <input 
+                            type="file" 
+                            class="file-input" 
+                            accept=".zip"
+                            @change=${this._handleFileSelect}
+                        >
+
+                        <div class="or-divider"><span>or load from URL</span></div>
+
+                        <form class="url-form" @submit=${this._handleUrlSubmit}>
+                            <input 
+                                type="url" 
+                                class="url-input" 
+                                placeholder="https://example.com/coverage.zip"
+                            >
+                            <button type="submit" class="load-btn">Load</button>
+                        </form>
+
+                        ${this.error ? html`<div class="error-message">${this.error}</div>` : ''}
+
+                        <div class="info">
+                            <p>Download the <strong>coverage-merged</strong> artifact from GitHub Actions,</p>
+                            <p>then drag the ZIP file here to view your coverage report.</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            _renderLoading() {
+                return html`
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div class="loading-text">Extracting coverage report...</div>
+                    </div>
+                `;
+            }
+
+            _renderViewer() {
+                return html`
+                    <div class="viewer">
+                        <iframe 
+                            class="coverage-frame" 
+                            sandbox="allow-same-origin allow-scripts"
+                            .srcdoc=${this.htmlContent}
+                        ></iframe>
+                    </div>
+                `;
+            }
+
+            render() {
+                switch (this.state) {
+                    case 'loading':
+                        return this._renderLoading();
+                    case 'viewer':
+                        return this._renderViewer();
+                    default:
+                        return this._renderLanding();
+                }
+            }
+        }
+
+        customElements.define('coverage-viewer', CoverageViewer);
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; width: 100%; overflow: hidden; background: #0d1117; }
+    </style>
+</head>
+<body>
+    <coverage-viewer></coverage-viewer>
+</body>
+</html>

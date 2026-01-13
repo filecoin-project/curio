@@ -678,9 +678,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "### 📥 Permanent Copy (Artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 View Coverage Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download **coverage-merged** artifact for:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`coverage.html\` - Interactive HTML (permanent copy)" >> $GITHUB_STEP_SUMMARY
-          echo "- \`coverage.txt\` - Text summary" >> $GITHUB_STEP_SUMMARY
-          echo "- \`merged.out\` - Go coverage profile" >> $GITHUB_STEP_SUMMARY
+          echo "1. [Download coverage-merged artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "2. [Open Coverage Viewer](https://filecoin-project.github.io/curio/coverage-viewer.html) and drop the ZIP" >> $GITHUB_STEP_SUMMARY
