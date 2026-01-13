@@ -24,4 +24,4 @@ The `curio` CLI references can be found [here](curio.md).
 
 Certain administrative and monitoring operations require updating or fetching information about the minerID from the chain. These operations do not need access to the database and therefore are not included in the Curio binary. Instead, these commands are hosted under the `sptool` binary. The `sptool` binary provides an interface with the Filecoin blockchain for operations required by a storage provider.
 
-The `sptool` CLI references can be found [here](sptool.md).\
+The `sptool` CLI references can be found [here](sptool.md).<br>

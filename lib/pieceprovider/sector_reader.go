@@ -45,12 +45,7 @@ func (p *SectorReader) ReadPiece(ctx context.Context, sector storiface.SectorRef
 		return nil, xerrors.Errorf("size is not a valid piece size: %w", err)
 	}
 
-	// acquire a lock purely for reading unsealed sectors
 	ctx, cancel := context.WithCancel(ctx)
-	if err := p.index.StorageLock(ctx, sector.ID, storiface.FTUnsealed, storiface.FTNone); err != nil {
-		cancel()
-		return nil, xerrors.Errorf("acquiring read sector lock: %w", err)
-	}
 
 	// Reader returns a reader getter for an unsealed piece at the given offset in the given sector.
 	// The returned reader will be nil if none of the workers has an unsealed sector file containing
@@ -83,10 +78,14 @@ func (p *SectorReader) ReadPiece(ctx context.Context, sector storiface.SectorRef
 				return nil, xerrors.Errorf("getting reader at +%d: %w", startOffsetAligned, err)
 			}
 
-			buf := pool.Get(fr32.BufSize(pieceSize.Padded()))
+			// The actual padded size we're reading from the underlying reader
+			readPaddedSize := abi.PaddedPieceSize(endOffsetAligned.Padded() - startOffsetAligned.Padded())
 
-			upr, err := fr32.NewUnpadReaderBuf(r, pieceSize.Padded(), buf)
+			buf := pool.Get(fr32.BufSize(readPaddedSize))
+
+			upr, err := fr32.NewUnpadReaderBuf(r, readPaddedSize, buf)
 			if err != nil {
+				pool.Put(buf)
 				r.Close() // nolint
 				return nil, xerrors.Errorf("creating unpadded reader: %w", err)
 			}
@@ -94,6 +93,7 @@ func (p *SectorReader) ReadPiece(ctx context.Context, sector storiface.SectorRef
 			bir := bufio.NewReaderSize(upr, 127)
 			if startOffset > uint64(startOffsetAligned) {
 				if _, err := bir.Discard(startOffsetDiff); err != nil {
+					pool.Put(buf)
 					r.Close() // nolint
 					return nil, xerrors.Errorf("discarding bytes for startOffset: %w", err)
 				}
@@ -138,14 +138,7 @@ func (p *SectorReader) IsUnsealed(ctx context.Context, sector storiface.SectorRe
 		return false, xerrors.Errorf("size is not a valid piece size: %w", err)
 	}
 
-	ctxLock, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if err := p.index.StorageLock(ctxLock, sector.ID, storiface.FTUnsealed, storiface.FTNone); err != nil {
-		return false, xerrors.Errorf("acquiring read sector lock: %w", err)
-	}
-
-	return p.storage.CheckIsUnsealed(ctxLock, sector, abi.PaddedPieceSize(offset.Padded()), size.Padded())
+	return p.storage.CheckIsUnsealed(ctx, sector, abi.PaddedPieceSize(offset.Padded()), size.Padded())
 }
 
 type funcCloser func() error

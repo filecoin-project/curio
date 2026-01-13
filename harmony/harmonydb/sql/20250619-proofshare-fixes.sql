@@ -7,5 +7,5 @@ WHERE EXISTS (
     AND pq1.obtained_at < pq2.obtained_at
 );
 
-create unique index proofshare_queue_request_cid_uindex
+create unique index if not exists proofshare_queue_request_cid_uindex
  on proofshare_queue (request_cid);

@@ -1,4 +1,4 @@
-CREATE TABLE sectors_unseal_pipeline (
+CREATE TABLE IF NOT EXISTS sectors_unseal_pipeline (
     sp_id BIGINT NOT NULL,
     sector_number BIGINT NOT NULL,
     reg_seal_proof BIGINT NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE sectors_unseal_pipeline (
     primary key (sp_id, sector_number)
 );
 
-ALTER TABLE sectors_meta ADD COLUMN target_unseal_state BOOLEAN;
+ALTER TABLE sectors_meta ADD COLUMN IF NOT EXISTS target_unseal_state BOOLEAN;
 
 -- To unseal
 -- 1. Target unseal state is true
@@ -91,8 +91,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trig_sectors_meta_update_materialized
-    AFTER INSERT OR UPDATE OR DELETE ON sectors_meta
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'trig_sectors_meta_update_materialized'
+    ) THEN
+        CREATE TRIGGER trig_sectors_meta_update_materialized AFTER INSERT OR UPDATE OR DELETE ON sectors_meta
     FOR EACH ROW EXECUTE FUNCTION trig_sectors_meta_update_materialized();
+    END IF;
+END $$;
 
 -- not triggering on sector_location, storage can be detached occasionally and auto-scheduling 10000s of unseals is bad

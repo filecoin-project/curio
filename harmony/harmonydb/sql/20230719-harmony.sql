@@ -1,6 +1,6 @@
 /* For HarmonyTask base implementation. */
 
-CREATE TABLE harmony_machines (
+CREATE TABLE IF NOT EXISTS harmony_machines (
     id SERIAL PRIMARY KEY NOT NULL,
     last_contact TIMESTAMP NOT NULL DEFAULT current_timestamp,
     host_and_port varchar(300) NOT NULL, 
@@ -9,7 +9,7 @@ CREATE TABLE harmony_machines (
     gpu FLOAT NOT NULL
 );
 
-CREATE TABLE harmony_task (
+CREATE TABLE IF NOT EXISTS harmony_task (
     id SERIAL PRIMARY KEY NOT NULL,
     initiated_by INTEGER,     
     update_time TIMESTAMP NOT NULL DEFAULT current_timestamp,
@@ -28,7 +28,7 @@ COMMENT ON COLUMN harmony_task.name IS 'The name of the task type.';
 COMMENT ON COLUMN harmony_task.owner_id IS 'may be null if between owners or not yet taken';
 COMMENT ON COLUMN harmony_task.update_time IS 'When it was last modified. not a heartbeat';
 
-CREATE TABLE harmony_task_history (
+CREATE TABLE IF NOT EXISTS harmony_task_history (
     id SERIAL PRIMARY KEY NOT NULL,  
     task_id INTEGER NOT NULL, 
     name VARCHAR(16) NOT NULL,
@@ -40,14 +40,14 @@ CREATE TABLE harmony_task_history (
 );
 COMMENT ON COLUMN harmony_task_history.result IS 'Use to detemine if this was a successful run.';
 
-CREATE TABLE harmony_task_follow (
+CREATE TABLE IF NOT EXISTS harmony_task_follow (
     id SERIAL PRIMARY KEY NOT NULL,  
     owner_id INTEGER NOT NULL REFERENCES harmony_machines (id) ON DELETE CASCADE,
     to_type VARCHAR(16) NOT NULL,
     from_type VARCHAR(16) NOT NULL
 );
 
-CREATE TABLE harmony_task_impl (
+CREATE TABLE IF NOT EXISTS harmony_task_impl (
     id SERIAL PRIMARY KEY NOT NULL,  
     owner_id INTEGER NOT NULL REFERENCES harmony_machines (id) ON DELETE CASCADE,
     name VARCHAR(16) NOT NULL

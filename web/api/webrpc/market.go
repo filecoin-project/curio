@@ -21,6 +21,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
@@ -93,30 +95,36 @@ func (a *WebRPC) SetStorageAsk(ctx context.Context, ask *StorageAsk) error {
 }
 
 type MK12Pipeline struct {
-	UUID           string        `db:"uuid" json:"uuid"`
-	SpID           int64         `db:"sp_id" json:"sp_id"`
-	Started        bool          `db:"started" json:"started"`
-	PieceCid       string        `db:"piece_cid" json:"piece_cid"`
-	PieceSize      int64         `db:"piece_size" json:"piece_size"`
-	PieceCidV2     string        `db:"-" json:"piece_cid_v2"`
-	RawSize        sql.NullInt64 `db:"raw_size" json:"raw_size"`
-	Offline        bool          `db:"offline" json:"offline"`
-	URL            *string       `db:"url" json:"url"`
-	Headers        []byte        `db:"headers" json:"headers"`
-	CommTaskID     *int64        `db:"commp_task_id" json:"commp_task_id"`
-	AfterCommp     bool          `db:"after_commp" json:"after_commp"`
-	PSDTaskID      *int64        `db:"psd_task_id" json:"psd_task_id"`
-	AfterPSD       bool          `db:"after_psd" json:"after_psd"`
-	PSDWaitTime    *time.Time    `db:"psd_wait_time" json:"psd_wait_time"`
-	FindDealTaskID *int64        `db:"find_deal_task_id" json:"find_deal_task_id"`
-	AfterFindDeal  bool          `db:"after_find_deal" json:"after_find_deal"`
-	Sector         *int64        `db:"sector" json:"sector"`
-	Offset         *int64        `db:"sector_offset" json:"sector_offset"`
-	CreatedAt      time.Time     `db:"created_at" json:"created_at"`
-	Indexed        bool          `db:"indexed" json:"indexed"`
-	Announce       bool          `db:"announce" json:"announce"`
-	Complete       bool          `db:"complete" json:"complete"`
-	Miner          string        `json:"miner"`
+	// Cache line 1 (bytes 0-64): Hot path - piece identification and early checks
+	UUID      string `db:"uuid" json:"uuid"`             // 16 bytes (0-16)
+	SpID      int64  `db:"sp_id" json:"sp_id"`           // 8 bytes (16-24)
+	PieceCid  string `db:"piece_cid" json:"piece_cid"`   // 16 bytes (24-40)
+	PieceSize int64  `db:"piece_size" json:"piece_size"` // 8 bytes (40-48)
+	Offline   bool   `db:"offline" json:"offline"`       // 1 byte (48-49) - checked early for download decisions
+	Started   bool   `db:"started" json:"started"`       // 1 byte (49-50) - checked early
+	// Cache line 2 (bytes 64-128): Task IDs and stage tracking (NullInt64 = 16 bytes)
+	CommTaskID     sql.NullInt64 `db:"commp_task_id" json:"commp_task_id"`         // 16 bytes
+	PSDTaskID      sql.NullInt64 `db:"psd_task_id" json:"psd_task_id"`             // 16 bytes
+	FindDealTaskID sql.NullInt64 `db:"find_deal_task_id" json:"find_deal_task_id"` // 16 bytes
+	AfterCommp     bool          `db:"after_commp" json:"after_commp"`             // 1 byte
+	AfterPSD       bool          `db:"after_psd" json:"after_psd"`                 // 1 byte
+	AfterFindDeal  bool          `db:"after_find_deal" json:"after_find_deal"`     // 1 byte
+	// Cache line 3 (bytes 128-192): Sector placement and sizing (NullInt64 = 16 bytes)
+	RawSize sql.NullInt64 `db:"raw_size" json:"raw_size"`           // 16 bytes
+	Sector  sql.NullInt64 `db:"sector" json:"sector"`               // 16 bytes
+	Offset  sql.NullInt64 `db:"sector_offset" json:"sector_offset"` // 16 bytes
+	// Cache line 4 (bytes 192-256): Timing information
+	PSDWaitTime sql.NullTime `db:"psd_wait_time" json:"psd_wait_time"` // 32 bytes (NullTime)
+	CreatedAt   time.Time    `db:"created_at" json:"created_at"`       // 24 bytes
+	// Cache line 5+ (bytes 256+): Data URL and larger fields (NullString = 24 bytes)
+	URL        sql.NullString `db:"url" json:"url"`         // 24 bytes - only for online deals
+	PieceCidV2 string         `db:"-" json:"piece_cid_v2"`  // 16 bytes - computed field
+	Miner      string         `json:"miner"`                // 16 bytes - display field
+	Headers    []byte         `db:"headers" json:"headers"` // 24 bytes - only for online deals
+	// Status bools: rarely checked ones at end
+	Indexed  bool `db:"indexed" json:"indexed"`   // checked for indexing
+	Announce bool `db:"announce" json:"announce"` // checked for IPNI announce
+	Complete bool `db:"complete" json:"complete"` // checked for completion
 }
 
 func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int) ([]*MK12Pipeline, error) {
@@ -174,7 +182,7 @@ func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
 			}
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(s.RawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(s.RawSize.Int64))
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
 			}
@@ -188,7 +196,7 @@ func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int
 type StorageDealSummary struct {
 	ID                string         `db:"uuid" json:"id"`
 	MinerID           int64          `db:"sp_id" json:"sp_id"`
-	Sector            sql.NullInt64  `db:"sector_num" json:"sector"`
+	Sector            NullInt64      `db:"sector_num" json:"sector"`
 	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
 	SignedProposalCid string         `db:"signed_proposal_cid" json:"signed_proposal_cid"`
 	Offline           bool           `db:"offline" json:"offline"`
@@ -196,8 +204,8 @@ type StorageDealSummary struct {
 	StartEpoch        int64          `db:"start_epoch" json:"start_epoch"`
 	EndEpoch          int64          `db:"end_epoch" json:"end_epoch"`
 	ClientPeerId      string         `db:"client_peer_id" json:"client_peer_id"`
-	ChainDealId       sql.NullInt64  `db:"chain_deal_id" json:"chain_deal_id"`
-	PublishCid        sql.NullString `db:"publish_cid" json:"publish_cid"`
+	ChainDealId       NullInt64      `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        NullString     `db:"publish_cid" json:"publish_cid"`
 	PieceCid          string         `db:"piece_cid" json:"piece_cid"`
 	PieceSize         int64          `db:"piece_size" json:"piece_size"`
 	RawSize           sql.NullInt64  `db:"raw_size"`
@@ -346,7 +354,7 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 		if err != nil {
 			return &StorageDealSummary{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 		}
-		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(d.RawSize.Int64))
+		pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(d.RawSize.Int64))
 		if err != nil {
 			return &StorageDealSummary{}, xerrors.Errorf("failed to get commP from piece info: %w", err)
 		}
@@ -358,16 +366,16 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 }
 
 type StorageDealList struct {
-	ID         string         `db:"uuid" json:"id"`
-	MinerID    int64          `db:"sp_id" json:"sp_id"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
-	PieceCidV1 string         `db:"piece_cid" json:"piece_cid"`
-	PieceSize  int64          `db:"piece_size" json:"piece_size"`
-	RawSize    sql.NullInt64  `db:"raw_size"`
-	PieceCidV2 string         `json:"piece_cid_v2"`
-	Processed  bool           `db:"processed" json:"processed"`
-	Error      sql.NullString `db:"error" json:"error"`
-	Miner      string         `json:"miner"`
+	ID         string     `db:"uuid" json:"id"`
+	MinerID    int64      `db:"sp_id" json:"sp_id"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	PieceCidV1 string     `db:"piece_cid" json:"piece_cid"`
+	PieceSize  int64      `db:"piece_size" json:"piece_size"`
+	RawSize    NullInt64  `db:"raw_size"`
+	PieceCidV2 string     `json:"piece_cid_v2"`
+	Processed  bool       `db:"processed" json:"processed"`
+	Error      NullString `db:"error" json:"error"`
+	Miner      string     `json:"miner"`
 }
 
 func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
@@ -404,7 +412,7 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
 			}
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
 			}
@@ -536,28 +544,35 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 }
 
 type PieceDeal struct {
-	ID          string        `db:"id" json:"id"`
-	BoostDeal   bool          `db:"boost_deal" json:"boost_deal"`
-	LegacyDeal  bool          `db:"legacy_deal" json:"legacy_deal"`
-	SpId        int64         `db:"sp_id" json:"sp_id"`
-	ChainDealId int64         `db:"chain_deal_id" json:"chain_deal_id"`
-	Sector      int64         `db:"sector_num" json:"sector"`
-	Offset      sql.NullInt64 `db:"piece_offset" json:"offset"`
-	Length      int64         `db:"piece_length" json:"length"`
-	RawSize     int64         `db:"raw_size" json:"raw_size"`
-	Miner       string        `json:"miner"`
-	MK20        bool          `db:"-" json:"mk20"`
+	// Cache line 1 (0-64 bytes): Hot path - identification fields used together
+	ID    string `db:"id" json:"id"`       // 16 bytes - used with SpId (line 621-623)
+	SpId  int64  `db:"sp_id" json:"sp_id"` // 8 bytes - checked early (line 614), used with ID (line 617)
+	Miner string `json:"miner"`            // 16 bytes - set based on SpId (line 615, 625)
+	// Cache line 2: Additional 8-byte types grouped together
+	ChainDealId int64 `db:"chain_deal_id" json:"chain_deal_id"` // 8 bytes
+	Sector      int64 `db:"sector_num" json:"sector"`           // 8 bytes
+	Length      int64 `db:"piece_length" json:"length"`         // 8 bytes
+	RawSize     int64 `db:"raw_size" json:"raw_size"`           // 8 bytes
+	// NullInt64 (16 bytes)
+	Offset NullInt64 `db:"piece_offset" json:"offset"` // 16 bytes
+	// Cache line 3 (64+ bytes): Bools grouped together at the end to minimize padding
+	MK20       bool `db:"-" json:"mk20"`                  // Used with ID check (line 621-623) - hot path
+	BoostDeal  bool `db:"boost_deal" json:"boost_deal"`   // Less frequently accessed
+	LegacyDeal bool `db:"legacy_deal" json:"legacy_deal"` // Less frequently accessed
 }
 
 type PieceInfo struct {
-	PieceCidv2 string       `json:"piece_cid_v2"`
-	PieceCid   string       `json:"piece_cid"`
-	Size       int64        `json:"size"`
-	CreatedAt  time.Time    `json:"created_at"`
-	Indexed    bool         `json:"indexed"`
-	IndexedAT  time.Time    `json:"indexed_at"`
-	IPNIAd     []string     `json:"ipni_ads"`
-	Deals      []*PieceDeal `json:"deals"`
+	// Cache line 1 (0-64 bytes): Hot path - piece identification used together
+	PieceCidv2 string   `json:"piece_cid_v2"` // 16 bytes - used together with PieceCid (line 584)
+	PieceCid   string   `json:"piece_cid"`    // 16 bytes - used with PieceCidv2 (line 584)
+	Size       int64    `json:"size"`         // 8 bytes - used with PieceCid (line 587, 604)
+	IPNIAd     []string `json:"ipni_ads"`     // 24 bytes - used for results
+	// Cache line 2 (64+ bytes): Display
+	CreatedAt time.Time `json:"created_at"` // 24 bytes - used for display
+	IndexedAT time.Time `json:"indexed_at"` // 24 bytes - used for display
+	Indexed   bool      `json:"indexed"`    // Used for display
+	// Cache line 3
+	Deals []PieceDeal `json:"deals"` // 24 bytes - used for results
 }
 
 func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
@@ -570,25 +585,25 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		return nil, xerrors.Errorf("invalid piece CID V2: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(piece)
+	pcid, rawSize, err := commcid.PieceCidV1FromV2(piece)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get commP from piece CID: %w", err)
+		return nil, xerrors.Errorf("failed to get pieceCidv1 from piece CID v2: %w", err)
 	}
 
-	pi := commp.PieceInfo()
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	ret := &PieceInfo{
 		PieceCidv2: piece.String(),
-		PieceCid:   pi.PieceCID.String(),
-		Size:       int64(pi.Size),
+		PieceCid:   pcid.String(),
+		Size:       int64(size),
 	}
 
-	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pi.PieceCID.String(), pi.Size).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
+	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pcid.String(), size).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 	}
 
-	pieceDeals := []*PieceDeal{}
+	pieceDeals := []PieceDeal{}
 
 	err = a.deps.DB.Select(ctx, &pieceDeals, `SELECT 
 														id, 
@@ -601,7 +616,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 														piece_length, 
 														raw_size 
 													FROM market_piece_deal
-													WHERE piece_cid = $1 AND piece_length = $2`, pi.PieceCID.String(), pi.Size)
+													WHERE piece_cid = $1 AND piece_length = $2`, pcid.String(), size)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get piece deals: %w", err)
 	}
@@ -624,6 +639,11 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	ret.Deals = pieceDeals
 
 	b := new(bytes.Buffer)
+
+	pi := abi.PieceInfo{
+		PieceCID: pcid,
+		Size:     size,
+	}
 
 	err = pi.MarshalCBOR(b)
 	if err != nil {
@@ -705,12 +725,12 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 		return nil, xerrors.Errorf("invalid piece CID V2: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(pcid)
+	pcid1, rawSize, err := commcid.PieceCidV1FromV2(pcid)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get commP from piece CID: %w", err)
+		return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pi := commp.PieceInfo()
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	var pps ParkedPieceState
 
@@ -718,7 +738,7 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 	err = a.deps.DB.QueryRow(ctx, `
         SELECT id, created_at, piece_cid, piece_padded_size, piece_raw_size, complete, task_id, cleanup_task_id
         FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2
-    `, pi.PieceCID.String(), pi.Size).Scan(
+    `, pcid1.String(), size).Scan(
 		&pps.ID, &pps.CreatedAt, &pps.PieceCID, &pps.PiecePaddedSize, &pps.PieceRawSize,
 		&pps.Complete, &pps.TaskID, &pps.CleanupTaskID,
 	)
@@ -902,13 +922,12 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		return nil, xerrors.Errorf("invalid piece CID V2: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(pcid)
+	pcid1, rawSize, err := commcid.PieceCidV1FromV2(pcid)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
 	}
 
-	pieceCid = commp.PieceInfo().PieceCID.String()
-	size := commp.PieceInfo().Size
+	size := padreader.PaddedSize(rawSize).Padded()
 
 	var mk12Deals []*MK12Deal
 
@@ -954,18 +973,18 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 											start_epoch,
 											end_epoch,
 											'' AS client_peer_id,            -- Empty string for missing client_peer_id
-											NULL AS chain_deal_id,           -- NULL handled by Go (sql.NullInt64)
-											NULL AS publish_cid,             -- NULL handled by Go (sql.NullString)
+											NULL AS chain_deal_id,           -- NULL handled by Go (NullInt64)
+											NULL AS publish_cid,             -- NULL handled by Go (NullString)
 											piece_cid,
 											piece_size,
 											fast_retrieval,
 											announce_to_ipni,
-											NULL AS url,                     -- NULL handled by Go (sql.NullString)
+											NULL AS url,                     -- NULL handled by Go (NullString)
 											'{}'::JSONB AS url_headers,      -- Empty JSON object for url_headers
-											NULL AS error,                    -- NULL handled by Go (sql.NullString)
+											NULL AS error,                    -- NULL handled by Go (NullString)
 										    TRUE AS is_ddo
 										FROM market_direct_deals
-										WHERE piece_cid = $1 AND piece_size = $2`, pieceCid, size)
+										WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), size)
 	if err != nil {
 		return nil, err
 	}
@@ -1031,7 +1050,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 													data,
 													ddo_v1,
 													retrieval_v1,
-													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid.String())
+													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid1.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
 	}
@@ -1046,7 +1065,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		}
 		ids[i] = deal.Identifier.String()
 
-		var Err sql.NullString
+		var Err NullString
 
 		if len(dbdeal.DDOv1) > 0 && string(dbdeal.DDOv1) != "null" {
 			var dddov1 mk20.DBDDOV1
@@ -1208,12 +1227,12 @@ func (a *WebRPC) DealPipelineRemove(ctx context.Context, id string) error {
 func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var pipelines []struct {
-			Url    string        `db:"url"`
-			Sector sql.NullInt64 `db:"sector"`
+			Url    NullString `db:"url"`
+			Sector NullInt64  `db:"sector"`
 
-			CommpTaskID    sql.NullInt64 `db:"commp_task_id"`
-			AggrTaskID     sql.NullInt64 `db:"agg_task_id"`
-			IndexingTaskID sql.NullInt64 `db:"indexing_task_id"`
+			CommpTaskID    NullInt64 `db:"commp_task_id"`
+			AggrTaskID     NullInt64 `db:"agg_task_id"`
+			IndexingTaskID NullInt64 `db:"indexing_task_id"`
 		}
 
 		err = tx.Select(&pipelines, `SELECT url, sector, commp_task_id, agg_task_id, indexing_task_id
@@ -1269,10 +1288,10 @@ func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
 
 		// If sector is null, remove related pieceref
 		for _, pipeline := range pipelines {
-			if !pipeline.Sector.Valid {
+			if !pipeline.Sector.Valid && pipeline.Url.Valid {
 				const prefix = "pieceref:"
-				if strings.HasPrefix(pipeline.Url, prefix) {
-					refIDStr := pipeline.Url[len(prefix):]
+				if strings.HasPrefix(pipeline.Url.String, prefix) {
+					refIDStr := pipeline.Url.String[len(prefix):]
 					refID, err := strconv.ParseInt(refIDStr, 10, 64)
 					if err != nil {
 						return false, fmt.Errorf("invalid refID in URL: %v", err)
@@ -1294,13 +1313,13 @@ func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error 
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// First, get deal_pipeline.url, task_ids, and sector values
 		var (
-			url    string
-			sector sql.NullInt64
+			url    NullString
+			sector NullInt64
 
-			commpTaskID    sql.NullInt64
-			psdTaskID      sql.NullInt64
-			findDealTaskID sql.NullInt64
-			indexingTaskID sql.NullInt64
+			commpTaskID    NullInt64
+			psdTaskID      NullInt64
+			findDealTaskID NullInt64
+			indexingTaskID NullInt64
 		)
 
 		err = tx.QueryRow(`SELECT url, sector, commp_task_id, psd_task_id, find_deal_task_id, indexing_task_id
@@ -1363,11 +1382,11 @@ func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error 
 		}
 
 		// If sector is null, remove related pieceref
-		if !sector.Valid {
+		if !sector.Valid && url.Valid {
 			// Extract refID from deal_pipeline.url (format: "pieceref:[refid]")
 			const prefix = "pieceref:"
-			if strings.HasPrefix(url, prefix) {
-				refIDStr := url[len(prefix):]
+			if strings.HasPrefix(url.String, prefix) {
+				refIDStr := url.String[len(prefix):]
 				refID, err := strconv.ParseInt(refIDStr, 10, 64)
 				if err != nil {
 					return false, fmt.Errorf("invalid refID in URL: %v", err)
@@ -1701,11 +1720,11 @@ func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 		type pipelineInfo struct {
 			uuid           string
 			url            string
-			sector         sql.NullInt64
-			commpTaskID    sql.NullInt64
-			psdTaskID      sql.NullInt64
-			findDealTaskID sql.NullInt64
-			indexingTaskID sql.NullInt64
+			sector         NullInt64
+			commpTaskID    NullInt64
+			psdTaskID      NullInt64
+			findDealTaskID NullInt64
+			indexingTaskID NullInt64
 		}
 
 		var pipelines []pipelineInfo
@@ -1830,7 +1849,7 @@ func (a *WebRPC) MK12DDOStorageDealList(ctx context.Context, limit int, offset i
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
 			}
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(mk12Summaries[i].RawSize.Int64))
 			if err != nil {
 				return nil, xerrors.Errorf("failed to convert v1 piece CID to v2: %w", err)
 			}

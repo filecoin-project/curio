@@ -2,6 +2,7 @@ package storage_market
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -35,41 +37,41 @@ import (
 )
 
 type MK20PipelinePiece struct {
-	ID               string  `db:"id"`
-	SPID             int64   `db:"sp_id"`
-	Client           string  `db:"client"`
-	Contract         string  `db:"contract"`
-	PieceCIDV2       string  `db:"piece_cid_v2"`
-	PieceCID         string  `db:"piece_cid"`
-	PieceSize        int64   `db:"piece_size"`
-	RawSize          int64   `db:"raw_size"`
-	Offline          bool    `db:"offline"`
-	URL              *string `db:"url"` // Nullable fields use pointers
-	Indexing         bool    `db:"indexing"`
-	Announce         bool    `db:"announce"`
-	AllocationID     *int64  `db:"allocation_id"` // Nullable fields use pointers
-	Duration         *int64  `db:"duration"`      // Nullable fields use pointers
-	PieceAggregation int     `db:"piece_aggregation"`
+	ID               string         `db:"id"`
+	SPID             int64          `db:"sp_id"`
+	Client           string         `db:"client"`
+	Contract         string         `db:"contract"`
+	PieceCIDV2       string         `db:"piece_cid_v2"`
+	PieceCID         string         `db:"piece_cid"`
+	PieceSize        int64          `db:"piece_size"`
+	RawSize          int64          `db:"raw_size"`
+	Offline          bool           `db:"offline"`
+	URL              sql.NullString `db:"url"`
+	Indexing         bool           `db:"indexing"`
+	Announce         bool           `db:"announce"`
+	AllocationID     sql.NullInt64  `db:"allocation_id"`
+	Duration         sql.NullInt64  `db:"duration"`
+	PieceAggregation int            `db:"piece_aggregation"`
 
 	Started bool `db:"started"`
 
 	Downloaded bool `db:"downloaded"`
 
-	CommTaskID *int64 `db:"commp_task_id"`
-	AfterCommp bool   `db:"after_commp"`
+	CommTaskID sql.NullInt64 `db:"commp_task_id"`
+	AfterCommp bool          `db:"after_commp"`
 
-	DealAggregation   int    `db:"deal_aggregation"`
-	AggregationIndex  int64  `db:"aggr_index"`
-	AggregationTaskID *int64 `db:"agg_task_id"`
-	Aggregated        bool   `db:"aggregated"`
+	DealAggregation   int           `db:"deal_aggregation"`
+	AggregationIndex  int64         `db:"aggr_index"`
+	AggregationTaskID sql.NullInt64 `db:"agg_task_id"`
+	Aggregated        bool          `db:"aggregated"`
 
-	Sector       *int64 `db:"sector"`         // Nullable fields use pointers
-	RegSealProof *int   `db:"reg_seal_proof"` // Nullable fields use pointers
-	SectorOffset *int64 `db:"sector_offset"`  // Nullable fields use pointers
+	Sector       sql.NullInt64 `db:"sector"`
+	RegSealProof sql.NullInt64 `db:"reg_seal_proof"`
+	SectorOffset sql.NullInt64 `db:"sector_offset"`
 
-	IndexingCreatedAt *time.Time `db:"indexing_created_at"` // Nullable fields use pointers
-	IndexingTaskID    *int64     `db:"indexing_task_id"`
-	Indexed           bool       `db:"indexed"`
+	IndexingCreatedAt sql.NullTime  `db:"indexing_created_at"`
+	IndexingTaskID    sql.NullInt64 `db:"indexing_task_id"`
+	Indexed           bool          `db:"indexed"`
 }
 
 func (d *CurioStorageDealMarket) processMK20Deals(ctx context.Context) {
@@ -630,71 +632,70 @@ func (d *CurioStorageDealMarket) processMk20Pieces(ctx context.Context, piece MK
 // If the pieces are part of an aggregation deal then we download for short term otherwise,
 // we download for long term to avoid the need to have unsealed copy
 func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK20PipelinePiece) error {
-	//n, err := d.db.Exec(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1)
-	//if err != nil {
-	//	log.Errorf("failed to mark PDP downloaded piece: %v", err)
-	//
-	//}
-	//log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
-
-	if !piece.Downloaded && piece.Started {
-		_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var refid int64
-			err = tx.QueryRow(`SELECT u.ref_id FROM (
-								  SELECT unnest(dp.ref_ids) AS ref_id
-								  FROM market_mk20_download_pipeline dp
-								  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
-								) u
-								JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
-								JOIN parked_pieces pp ON pp.id = pr.piece_id
-								WHERE pp.complete = TRUE
-								LIMIT 1;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&refid)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
-				}
-				return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
-			}
-
-			// Remove other ref_ids from piece_park_refs
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs
-							WHERE ref_id IN (
-							  SELECT unnest(dp.ref_ids)
-							  FROM market_mk20_download_pipeline dp
-							  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
-							)
-							AND ref_id != $5;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1, refid)
-			if err != nil {
-				return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
-			}
-
-			_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
-				piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
-			}
-
-			pieceIDUrl := url.URL{
-				Scheme: "pieceref",
-				Opaque: fmt.Sprintf("%d", refid),
-			}
-
-			_, err = tx.Exec(`UPDATE market_mk20_pipeline SET downloaded = TRUE, url = $1
-	                          WHERE id = $2
-	                          AND piece_cid = $3
-	                          AND piece_size = $4`,
-				pieceIDUrl.String(), piece.ID, piece.PieceCID, piece.PieceSize)
-			if err != nil {
-				return false, xerrors.Errorf("failed to update pipeline piece table: %w", err)
-			}
-			piece.Downloaded = true
-			return true, nil
-		}, harmonydb.OptionRetry())
-
-		if err != nil {
-			return xerrors.Errorf("failed to schedule the deal for download: %w", err)
-		}
+	n, err := d.db.Exec(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1)
+	if err != nil {
+		log.Errorf("failed to mark PDP downloaded piece: %v", err)
 	}
+	log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
+
+	//if !piece.Downloaded && piece.Started {
+	//	_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	//		var refid int64
+	//		err = tx.QueryRow(`SELECT u.ref_id FROM (
+	//							  SELECT unnest(dp.ref_ids) AS ref_id
+	//							  FROM market_mk20_download_pipeline dp
+	//							  WHERE dp.id = $1 AND dp.piece_cid_v2 = $2 AND dp.product = $3
+	//							) u
+	//							JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
+	//							JOIN parked_pieces pp ON pp.id = pr.piece_id
+	//							WHERE pp.complete = TRUE
+	//							LIMIT 1;`, piece.ID, piece.PieceCIDV2, mk20.ProductNameDDOV1).Scan(&refid)
+	//		if err != nil {
+	//			if errors.Is(err, pgx.ErrNoRows) {
+	//				return false, nil
+	//			}
+	//			return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
+	//		}
+	//
+	//		// Remove other ref_ids from piece_park_refs
+	//		_, err = tx.Exec(`DELETE FROM parked_piece_refs
+	//						WHERE ref_id IN (
+	//						  SELECT unnest(dp.ref_ids)
+	//						  FROM market_mk20_download_pipeline dp
+	//						  WHERE dp.id = $1 AND dp.piece_cid_v2 = $2 AND dp.product = $3
+	//						)
+	//						AND ref_id != $4;`, piece.ID, piece.PieceCIDV2, mk20.ProductNameDDOV1, refid)
+	//		if err != nil {
+	//			return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
+	//		}
+	//
+	//		_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid_v2 = $2 AND product = $3;`,
+	//			piece.ID, piece.PieceCIDV2, mk20.ProductNameDDOV1)
+	//		if err != nil {
+	//			return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
+	//		}
+	//
+	//		pieceIDUrl := url.URL{
+	//			Scheme: "pieceref",
+	//			Opaque: fmt.Sprintf("%d", refid),
+	//		}
+	//
+	//		_, err = tx.Exec(`UPDATE market_mk20_pipeline SET downloaded = TRUE, url = $1
+	//                          WHERE id = $2
+	//                          AND piece_cid = $3
+	//                          AND piece_size = $4`,
+	//			pieceIDUrl.String(), piece.ID, piece.PieceCID, piece.PieceSize)
+	//		if err != nil {
+	//			return false, xerrors.Errorf("failed to update pipeline piece table: %w", err)
+	//		}
+	//		piece.Downloaded = true
+	//		return true, nil
+	//	}, harmonydb.OptionRetry())
+	//
+	//	if err != nil {
+	//		return xerrors.Errorf("failed to schedule the deal for download: %w", err)
+	//	}
+	//}
 	return nil
 }
 
@@ -837,7 +838,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 
 // createCommPMk20Piece handles the creation of a CommP task for an MK20 pipeline piece, updating its status based on piece attributes.
 func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece MK20PipelinePiece) error {
-	if piece.Downloaded && !piece.AfterCommp && piece.CommTaskID == nil {
+	if piece.Downloaded && !piece.AfterCommp && !piece.CommTaskID.Valid {
 		// Skip commP is configured to do so
 		if d.cfg.Market.StorageMarketConfig.MK20.SkipCommP {
 			_, err := d.db.Exec(ctx, `UPDATE market_mk20_pipeline SET after_commp = TRUE, commp_task_id = NULL
@@ -889,7 +890,7 @@ func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece
 
 func (d *CurioStorageDealMarket) addDealOffset(ctx context.Context, piece MK20PipelinePiece) error {
 	// Get the deal offset if sector has started sealing
-	if piece.Sector != nil && piece.RegSealProof != nil && piece.SectorOffset == nil {
+	if piece.Sector.Valid && piece.RegSealProof.Valid && !piece.SectorOffset.Valid {
 		_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			type pieces struct {
 				Cid   string              `db:"piece_cid"`
@@ -908,7 +909,7 @@ func (d *CurioStorageDealMarket) addDealOffset(ctx context.Context, piece MK20Pi
 												FROM sectors_snap_initial_pieces
 												WHERE sp_id = $1 AND sector_number = $2
 												
-												ORDER BY piece_index ASC;`, piece.SPID, piece.Sector)
+												ORDER BY piece_index ASC;`, piece.SPID, piece.Sector.Int64)
 			if err != nil {
 				return false, xerrors.Errorf("getting pieces for sector: %w", err)
 			}
@@ -924,7 +925,7 @@ func (d *CurioStorageDealMarket) addDealOffset(ctx context.Context, piece MK20Pi
 				_, padLength := proofs.GetRequiredPadding(offset.Padded(), p.Size)
 				offset += padLength.Unpadded()
 				if p.Cid == piece.PieceCID && p.Size == abi.PaddedPieceSize(piece.PieceSize) {
-					n, err := tx.Exec(`UPDATE market_mk20_pipeline SET sector_offset = $1 WHERE id = $2 AND sector = $3 AND sector_offset IS NULL`, offset.Padded(), piece.ID, piece.Sector)
+					n, err := tx.Exec(`UPDATE market_mk20_pipeline SET sector_offset = $1 WHERE id = $2 AND sector = $3 AND sector_offset IS NULL`, offset.Padded(), piece.ID, piece.Sector.Int64)
 					if err != nil {
 						return false, xerrors.Errorf("updating deal offset: %w", err)
 					}
@@ -999,16 +1000,16 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 	}
 
 	var deals []struct {
-		ID           string `db:"id"`
-		SPID         int64  `db:"sp_id"`
-		Client       string `db:"client"`
-		PieceCID     string `db:"piece_cid"`
-		PieceSize    int64  `db:"piece_size"`
-		RawSize      int64  `db:"raw_size"`
-		AllocationID *int64 `db:"allocation_id"`
-		Duration     int64  `db:"duration"`
-		Url          string `db:"url"`
-		Count        int    `db:"unassigned_count"`
+		ID           string        `db:"id"`
+		SPID         int64         `db:"sp_id"`
+		Client       string        `db:"client"`
+		PieceCID     string        `db:"piece_cid"`
+		PieceSize    int64         `db:"piece_size"`
+		RawSize      int64         `db:"raw_size"`
+		AllocationID sql.NullInt64 `db:"allocation_id"`
+		Duration     int64         `db:"duration"`
+		Url          string        `db:"url"`
+		Count        int           `db:"unassigned_count"`
 	}
 
 	err = d.db.Select(ctx, &deals, `SELECT 
@@ -1072,8 +1073,8 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		start := head.Height() + 2*builtin.EpochsInDay
 		end := start + abi.ChainEpoch(deal.Duration)
 		var vak *miner.VerifiedAllocationKey
-		if deal.AllocationID != nil {
-			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*deal.AllocationID), types.EmptyTSK)
+		if deal.AllocationID.Valid {
+			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(deal.AllocationID.Int64), types.EmptyTSK)
 			if err != nil {
 				log.Errorw("failed to get allocation", "deal", deal, "error", err)
 				continue
@@ -1089,7 +1090,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			end = start + alloc.TermMin
 			vak = &miner.VerifiedAllocationKey{
 				Client: abi.ActorID(clientId),
-				ID:     verifreg13.AllocationId(*deal.AllocationID),
+				ID:     verifreg13.AllocationId(deal.AllocationID.Int64),
 			}
 		}
 
@@ -1189,7 +1190,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 				log.Errorf("failed to get piece deal: %w", err)
 			}
 
-			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, rawSize)
+			pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
 			if err != nil {
 				return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
 			}
@@ -1241,7 +1242,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 			log.Errorf("failed to parse piece CID: %w", err)
 		}
 
-		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
+		pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
 		if err != nil {
 			log.Errorf("failed to convert to piece cid v2: %w", err)
 		}

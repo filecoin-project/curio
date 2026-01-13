@@ -18,6 +18,7 @@ This is the compatibility matrix for the latest free Curio releases.
 | v1.26.0                                                      | v1.33.1       | Mainnet | NA         | v2024.2 / Automatic | 0.26 / Automatic |
 | v1.27.0                                                      | v1.34.0       | Mainnet | NA         | v2025.1 / Automatic | 0.30 / Automatic |
 | v1.27.1                                                      | v1.34.1       | Mainnet | NA         | v2025.1 / Automatic | 0.30 / Automatic |
+| v1.27.2                                                      | v1.34.1       | Mainnet | NA         | v2025.1 / Automatic | 0.30 / Automatic |
 
 {% hint style="danger" %}
 Releases in <mark style="color:red;">red color</mark> are **not recommended**. Please proceed with the next stable release.
@@ -34,6 +35,11 @@ Configurations and the number of machines needed: A: Lotus, Curio (numerous), Yu
 * Today, only Lotus & Boost lacks automatic updates and must be built and deployed.
 * Curio's DEBs include curio-cuda (for Nvidia) and curio-opencl (others like ATI).
   * These can be mixed in a Curio cluster as they only relate to the hardware on the box.
+
+## Database Schema Versions
+* When the latest Curio starts-up, it applies any upgrades & migrations to Yugabyte's schema.
+* This may cause errors on other nodes in your cluster that run the old version (low likelihood), which has the simple solution of completing the upgrade.
+* If, however, the upgrade has a serious bug and you need to downgrade, "curio toolbox downgrade --last_good_date=20250515"
 
 ## Notes
 

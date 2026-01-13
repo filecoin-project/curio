@@ -108,14 +108,14 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 		return nil, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
 	}
 	if len(pieces) == 0 {
-		return nil, fmt.Errorf("no pieces with cid %s found", c)
+		return nil, format.ErrNotFound{Cid: c}
 	}
 
 	// Get a reader over one of the pieces and extract the block data
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCidV2)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid, true)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
@@ -124,19 +124,19 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}(reader)
 
 			// Get the offset of the block within the piece (CAR file)
-			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCidV2, c.Hash())
+			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash()) // This can be pieceCidV2 or pieceCidV1, but we don't care because we are feeding back the db output
 			if err != nil {
-				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCidV2, err)
+				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
 			}
 
 			// Seek to the section offset
 			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize+MaxCarBlockPrefixSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
 			if err != nil {
-				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCidV2, err)
+				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
 			}
 			if !bytes.Equal(readCid.Hash(), c.Hash()) {
-				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCidV2, c)
+				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
 			}
 			return data, nil
 		}()
@@ -148,7 +148,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	}
 
 	if merr == nil {
-		merr = fmt.Errorf("no block with cid %s found", c)
+		merr = format.ErrNotFound{Cid: c}
 	}
 
 	return nil, merr

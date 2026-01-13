@@ -1,4 +1,4 @@
-CREATE TABLE storage_removal_marks (
+CREATE TABLE IF NOT EXISTS storage_removal_marks (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
     sector_filetype BIGINT NOT NULL,
@@ -12,7 +12,7 @@ CREATE TABLE storage_removal_marks (
     primary key (sp_id, sector_num, sector_filetype, storage_id)
 );
 
-CREATE TABLE storage_gc_pins (
+CREATE TABLE IF NOT EXISTS storage_gc_pins (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
 

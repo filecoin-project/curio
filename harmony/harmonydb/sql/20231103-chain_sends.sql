@@ -1,4 +1,4 @@
-create table message_sends
+create table if not exists message_sends
 (
     from_key     text   not null,
     to_addr      text   not null,
@@ -37,14 +37,14 @@ comment on column message_sends.send_time is 'time when the send task was execut
 comment on column message_sends.send_success is 'whether this message was broadcasted to the network already, null if not yet attempted, true if successful, false if failed';
 comment on column message_sends.send_error is 'error message if send_success is false';
 
-create unique index message_sends_success_index
+create unique index if not exists message_sends_success_index
     on message_sends (from_key, nonce)
     where send_success is not false;
 
 comment on index message_sends_success_index is
 'message_sends_success_index enforces sender/nonce uniqueness, it is a conditional index that only indexes rows where send_success is not false. This allows us to have multiple rows with the same sender/nonce, as long as only one of them was successfully broadcasted (true) to the network or is in the process of being broadcasted (null).';
 
-create table message_send_locks
+create table if not exists message_send_locks
 (
     from_key text   not null,
     task_id  bigint not null,

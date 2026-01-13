@@ -2,6 +2,7 @@ package multictladdr
 
 import (
 	"context"
+	"sync"
 
 	logging "github.com/ipfs/go-log/v2"
 
@@ -17,7 +18,8 @@ import (
 var log = logging.Logger("curio/multictladdr")
 
 type MultiAddressSelector struct {
-	MinerMap map[address.Address]api.AddressConfig
+	MinerMap map[address.Address]AddressConfig
+	mmLock   sync.RWMutex
 }
 
 func (as *MultiAddressSelector) AddressFor(ctx context.Context, a ctladdr.NodeApi, minerID address.Address, mi api.MinerInfo, use api.AddrUse, goodFunds, minFunds abi.TokenAmount) (address.Address, abi.TokenAmount, error) {
@@ -27,7 +29,12 @@ func (as *MultiAddressSelector) AddressFor(ctx context.Context, a ctladdr.NodeAp
 		return mi.Worker, big.Zero(), nil
 	}
 
-	tmp := as.MinerMap[minerID]
+	as.mmLock.RLock()
+	tmp, ok := as.MinerMap[minerID]
+	as.mmLock.RUnlock()
+	if !ok {
+		return mi.Worker, big.Zero(), nil
+	}
 
 	var addrs []address.Address
 	switch use {

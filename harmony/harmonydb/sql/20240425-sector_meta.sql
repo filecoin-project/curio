@@ -1,4 +1,4 @@
-CREATE TABLE sectors_meta (
+CREATE TABLE IF NOT EXISTS sectors_meta (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
 
@@ -30,10 +30,14 @@ CREATE TABLE sectors_meta (
     -- Added in 20240903-unseal-pipeline.sql
     -- target_unseal_state BOOLEAN, (null = either way, true - ensure unsealed, false - ensure sealed only)
 
+    -- Added in 20251125-sector-ext-mgr.sql
+    -- min_claim_epoch BIGINT, -- earliest fil+ claim epoch for this sector (null = not crawled or no fil+ claims)
+    -- max_claim_epoch BIGINT, -- latest fil+ claim epoch for this sector (null = not crawled or no fil+ claims)
+
     PRIMARY KEY (sp_id, sector_num)
 );
 
-CREATE TABLE sectors_meta_pieces (
+CREATE TABLE IF NOT EXISTS sectors_meta_pieces (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
     piece_num BIGINT NOT NULL,

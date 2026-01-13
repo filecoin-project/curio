@@ -25,6 +25,10 @@ type spaceUseCtxKey struct{}
 
 var SpaceUseKey = spaceUseCtxKey{}
 
+type findSectorCacheKey struct{}
+
+var FindSectorCacheKey = findSectorCacheKey{}
+
 type SectorIndex interface { // part of storage-miner api
 	StorageAttach(context.Context, storiface.StorageInfo, fsutil.FsStat) error
 	StorageDetach(ctx context.Context, id storiface.ID, url string) error
@@ -33,8 +37,10 @@ type SectorIndex interface { // part of storage-miner api
 
 	StorageDeclareSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType, primary bool) error
 	StorageDropSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType) error
-	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error)
 	BatchStorageDeclareSectors(ctx context.Context, declarations []SectorDeclaration) error
+
+	// FindSector can be cached if the ctx propagates a ttlcache instance over FindSectorCacheKey
+	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error)
 
 	StorageBestAlloc(ctx context.Context, allocate storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, miner abi.ActorID) ([]storiface.StorageInfo, error)
 

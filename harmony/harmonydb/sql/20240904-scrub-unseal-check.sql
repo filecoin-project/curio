@@ -1,4 +1,4 @@
-CREATE TABLE scrub_unseal_commd_check (
+CREATE TABLE IF NOT EXISTS scrub_unseal_commd_check (
     check_id BIGSERIAL PRIMARY KEY,
 
     sp_id BIGINT NOT NULL,

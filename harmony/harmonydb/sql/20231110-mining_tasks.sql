@@ -1,4 +1,4 @@
-create table mining_tasks
+create table if not exists mining_tasks
 (
     task_id bigint not null
         constraint mining_tasks_pk
@@ -20,7 +20,7 @@ create table mining_tasks
         unique (sp_id, epoch)
 );
 
-create table mining_base_block
+create table if not exists mining_base_block
 (
     id        bigserial not null
         constraint mining_base_block_pk
@@ -38,4 +38,4 @@ create table mining_base_block
         unique (sp_id, task_id, block_cid)
 );
 
-CREATE UNIQUE INDEX mining_base_block_cid_k ON mining_base_block (sp_id, block_cid) WHERE no_win = false;
+CREATE UNIQUE INDEX IF NOT EXISTS mining_base_block_cid_k ON mining_base_block (sp_id, block_cid) WHERE no_win = false;

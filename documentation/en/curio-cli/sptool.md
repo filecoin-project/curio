@@ -7,7 +7,7 @@ USAGE:
    sptool [global options] command [command options]
 
 VERSION:
-   1.27.1
+   1.27.2
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -31,7 +31,7 @@ NAME:
    sptool actor - Manage Filecoin Miner Actor Metadata
 
 USAGE:
-   sptool actor command [command options]
+   sptool actor [command options]
 
 COMMANDS:
    set-addresses, set-addrs    set addresses that your miner can be publicly dialed on
@@ -126,7 +126,7 @@ NAME:
    sptool actor control - Manage control addresses
 
 USAGE:
-   sptool actor control command [command options]
+   sptool actor control [command options]
 
 COMMANDS:
    list     Get currently set control addresses. Note: This excludes most roles as they are not known to the immediate chain state.
@@ -269,7 +269,7 @@ NAME:
    sptool sectors - interact with sector store
 
 USAGE:
-   sptool sectors command [command options]
+   sptool sectors [command options]
 
 COMMANDS:
    status              Get the seal status of a sector by its number
@@ -428,7 +428,7 @@ NAME:
    sptool proving - View proving information
 
 USAGE:
-   sptool proving command [command options]
+   sptool proving [command options]
 
 COMMANDS:
    info       View current state information
@@ -498,7 +498,7 @@ NAME:
    sptool toolbox - some tools to fix some problems
 
 USAGE:
-   sptool toolbox command [command options]
+   sptool toolbox [command options]
 
 COMMANDS:
    spark        Manage Smart Contract PeerID used by Spark
@@ -516,7 +516,7 @@ NAME:
    sptool toolbox spark - Manage Smart Contract PeerID used by Spark
 
 USAGE:
-   sptool toolbox spark command [command options]
+   sptool toolbox spark [command options]
 
 COMMANDS:
    delete-peer  Delete PeerID from Spark Smart Contract
@@ -545,7 +545,7 @@ NAME:
    sptool toolbox mk12-client - mk12 client for Curio
 
 USAGE:
-   sptool toolbox mk12-client command [command options]
+   sptool toolbox mk12-client [command options]
 
 COMMANDS:
    init               Initialise curio mk12 client repo
@@ -760,7 +760,7 @@ NAME:
    sptool toolbox mk12-client wallet - Manage mk12 client wallets
 
 USAGE:
-   sptool toolbox mk12-client wallet command [command options]
+   sptool toolbox mk12-client wallet [command options]
 
 COMMANDS:
    new                   Generate a new key of the given type
@@ -896,7 +896,7 @@ NAME:
    sptool toolbox mk20-client - mk20 client for Curio
 
 USAGE:
-   sptool toolbox mk20-client command [command options]
+   sptool toolbox mk20-client [command options]
 
 COMMANDS:
    init          Initialise curio mk12 client repo

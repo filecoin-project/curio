@@ -37,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
+	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -64,7 +65,7 @@ var log = logging.Logger("curio/deps")
 
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
 	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
-	as *multictladdr.MultiAddressSelector, addresses map[dtypes.MinerAddress]bool, db *harmonydb.DB,
+	as *multictladdr.MultiAddressSelector, addresses *config.Dynamic[map[dtypes.MinerAddress]bool], db *harmonydb.DB,
 	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
@@ -109,7 +110,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	sender, sendTask := message.NewSender(full, full, db, cfg.Fees.MaximizeFeeCap)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
-	activeTasks = append(activeTasks, sendTask, balanceMgrTask)
+	expmgrTask := expmgr.NewExpMgrTask(db, full, chainSched, sender)
+	activeTasks = append(activeTasks, sendTask, balanceMgrTask, expmgrTask)
 	dependencies.Sender = sender
 
 	// paramfetch
@@ -243,18 +245,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 
-	miners := make([]address.Address, 0, len(maddrs))
-	for k := range maddrs {
-		miners = append(miners, address.Address(k))
-	}
-
-	if cfg.Subsystems.EnableBalanceManager {
-		balMgrTask, err := storage_market.NewBalanceManager(full, miners, cfg, sender)
-		if err != nil {
-			return nil, err
-		}
-		activeTasks = append(activeTasks, balMgrTask)
-	}
+	miners := config.Becomes(maddrs, func() []address.Address {
+		return lo.Map(maps.Keys(maddrs.Get()), func(k dtypes.MinerAddress, _ int) address.Address {
+			return address.Address(k)
+		})
+	})
 
 	{
 		var sdeps cuhttp.ServiceDeps
@@ -331,7 +326,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
+		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
 		if cfg.HTTP.Enable {
 			if !cfg.Subsystems.EnableDealMarket {
@@ -536,50 +532,54 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		return item.TypeDetails().Name
 	})
 
-	miners := lo.Map(maps.Keys(deps.Maddrs), func(item dtypes.MinerAddress, _ int) string {
-		return address.Address(item).String()
-	})
-	sort.Strings(miners)
+	doMachineDetails := func() {
+		miners := lo.Map(maps.Keys(deps.Maddrs.Get()), func(item dtypes.MinerAddress, _ int) string {
+			return address.Address(item).String()
+		})
+		sort.Strings(miners)
 
-	_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
+		_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
 		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
-		strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
-		time.Now(), strings.Join(miners, ","), machineID, machineName)
+			strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
+			time.Now(), strings.Join(miners, ","), machineID, machineName)
 
-	if err != nil {
-		log.Errorf("failed to update machine details: %s", err)
-		return
-	}
-
-	// maybePostWarning
-	if !lo.Contains(taskNames, "WdPost") && !lo.Contains(taskNames, "WinPost") {
-		// Maybe we aren't running a PoSt for these miners?
-		var allMachines []struct {
-			MachineID int    `db:"machine_id"`
-			Miners    string `db:"miners"`
-			Tasks     string `db:"tasks"`
-		}
-		err := deps.DB.Select(context.Background(), &allMachines, `SELECT machine_id, miners, tasks FROM harmony_machine_details`)
 		if err != nil {
-			log.Errorf("failed to get machine details: %s", err)
+			log.Errorf("failed to update machine details: %s", err)
 			return
 		}
 
-		for _, miner := range miners {
-			var myPostIsHandled bool
-			for _, m := range allMachines {
-				if !lo.Contains(strings.Split(m.Miners, ","), miner) {
-					continue
-				}
-				if lo.Contains(strings.Split(m.Tasks, ","), "WdPost") && lo.Contains(strings.Split(m.Tasks, ","), "WinPost") {
-					myPostIsHandled = true
-					break
-				}
+		// maybePostWarning
+		if !lo.Contains(taskNames, "WdPost") && !lo.Contains(taskNames, "WinPost") {
+			// Maybe we aren't running a PoSt for these miners?
+			var allMachines []struct {
+				MachineID int    `db:"machine_id"`
+				Miners    string `db:"miners"`
+				Tasks     string `db:"tasks"`
 			}
-			if !myPostIsHandled {
-				log.Errorf("No PoSt tasks are running for miner %s. Start handling PoSts immediately with:\n\tcurio run --layers=\"post\" ", miner)
+			err := deps.DB.Select(context.Background(), &allMachines, `SELECT machine_id, miners, tasks FROM harmony_machine_details`)
+			if err != nil {
+				log.Errorf("failed to get machine details: %s", err)
+				return
+			}
+
+			for _, miner := range miners {
+				var myPostIsHandled bool
+				for _, m := range allMachines {
+					if !lo.Contains(strings.Split(m.Miners, ","), miner) {
+						continue
+					}
+					if lo.Contains(strings.Split(m.Tasks, ","), "WdPost") && lo.Contains(strings.Split(m.Tasks, ","), "WinPost") {
+						myPostIsHandled = true
+						break
+					}
+				}
+				if !myPostIsHandled {
+					log.Errorf("No PoSt tasks are running for miner %s. Start handling PoSts immediately with:\n\tcurio run --layers=\"post\" ", miner)
+				}
 			}
 		}
 	}
+	doMachineDetails()
+	deps.Maddrs.OnChange(doMachineDetails)
 }

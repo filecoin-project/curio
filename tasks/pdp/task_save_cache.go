@@ -10,12 +10,13 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -82,7 +83,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 		if !has {
 			cp := savecache.NewCommPWithSize(pi.RawSize)
-			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid)
+			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid, false)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
 			}
@@ -100,13 +101,13 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("failed to get piece digest: %w", err)
 			}
 
-			com, err := commcidv2.NewSha2CommP(uint64(n), digest)
+			pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
 			if err != nil {
 				return false, xerrors.Errorf("failed to create commP: %w", err)
 			}
 
-			if !com.PCidV2().Equals(pcid) {
-				return false, xerrors.Errorf("commP cid does not match piece cid: %s != %s", com.PCidV2().String(), pcid.String())
+			if pcid2.Equals(pcid) {
+				return false, xerrors.Errorf("commP cid does not match piece cid: %s != %s", pcid2.String(), pcid.String())
 			}
 
 			leafs := make([]indexstore.NodeDigest, len(snap))

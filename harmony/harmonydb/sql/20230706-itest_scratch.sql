@@ -1,4 +1,4 @@
-CREATE TABLE itest_scratch (
+CREATE TABLE IF NOT EXISTS itest_scratch (
     id SERIAL PRIMARY KEY,
 	content TEXT,
     some_int INTEGER,

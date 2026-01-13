@@ -95,7 +95,7 @@ func TestCurioHappyPath(t *testing.T) {
 	sectorSizeInt, err := units.RAMInBytes("2KiB")
 	require.NoError(t, err)
 
-	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
+	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0, 1.0)
 	require.NoError(t, err)
 
 	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, fapi)
@@ -109,13 +109,14 @@ func TestCurioHappyPath(t *testing.T) {
 
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
 	require.NoError(t, err)
+
 	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
 	require.NoError(t, err)
 
 	require.NotNil(t, baseCfg.Addresses)
-	require.GreaterOrEqual(t, len(baseCfg.Addresses), 1)
+	require.GreaterOrEqual(t, len(baseCfg.Addresses.Get()), 1)
 
-	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
+	require.Contains(t, baseCfg.Addresses.Get()[0].MinerAddresses, maddr.String())
 
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
@@ -164,9 +165,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 
@@ -190,9 +188,6 @@ func TestCurioHappyPath(t *testing.T) {
 			}
 		}
 
-		if err != nil {
-			return false, xerrors.Errorf("allocating sector numbers: %w", err)
-		}
 		return true, nil
 	})
 	require.NoError(t, err)

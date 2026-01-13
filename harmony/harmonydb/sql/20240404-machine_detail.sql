@@ -1,4 +1,4 @@
-CREATE TABLE harmony_machine_details (
+CREATE TABLE IF NOT EXISTS harmony_machine_details (
   id SERIAL PRIMARY KEY,
 	tasks TEXT,
   layers TEXT,
@@ -8,5 +8,5 @@ CREATE TABLE harmony_machine_details (
   FOREIGN KEY (machine_id) REFERENCES harmony_machines(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX machine_details_machine_id ON harmony_machine_details(machine_id);
+CREATE UNIQUE INDEX IF NOT EXISTS machine_details_machine_id ON harmony_machine_details(machine_id);
 

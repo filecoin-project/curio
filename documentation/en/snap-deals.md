@@ -10,15 +10,15 @@ Snap-deals allow storage providers to accept deals from users and place that use
 
 Imagine there is a town with a very long shelf. Anyone in this town can store anything they want on this shelf. When a townsperson wants to store something, they give that _thing_ to a storage provider. The storage provider builds a wooden box, puts the townsperson’s stuff into the box, and then puts the box on the shelf.
 
-<figure><img src=".gitbook/assets/shelf.png" alt="A shelf representing the Filecoin network."><figcaption><p>Sector as a shelf</p></figcaption></figure>
+<figure><img src=".gitbook/assets/shelf (1).png" alt="A shelf representing the Filecoin network."><figcaption><p>Sector as a shelf</p></figcaption></figure>
 
 Some of the boxes have useful stuff in them, like photographs, music, or videos. But sometimes, the storage providers don’t have any townspeople lining up to put useful stuff into the boxes. So instead, they put packing peanuts in the box and put that on the shelf. This means that there are a lot of boxes being made to just hold packing peanuts. Making boxes takes a long time and takes a lot of work from the storage provider.
 
-<figure><img src=".gitbook/assets/data-types.png" alt="Types of data in a Filecoin sector."><figcaption><p>Data boxes</p></figcaption></figure>
+<figure><img src=".gitbook/assets/data-types (1).png" alt="Types of data in a Filecoin sector."><figcaption><p>Data boxes</p></figcaption></figure>
 
 Instead of creating a new box every time someone wants to store something, it’d be better if we could just replace the packing peanuts with useful stuff! Since nobody cares about the packing peanuts, nobody is going to be unhappy with throwing them out. And the storage provider gets to put useful stuff on the shelf without having to create a new box! Things are better for the townsperson, too, since they don’t have to wait for the storage provider to create a new box!
 
-<figure><img src=".gitbook/assets/emptying-boxes.png" alt="Emptying sectors of dummy data to fill them with real data."><figcaption><p>Replacing data</p></figcaption></figure>
+<figure><img src=".gitbook/assets/emptying-boxes (1).png" alt="Emptying sectors of dummy data to fill them with real data."><figcaption><p>Replacing data</p></figcaption></figure>
 
 This is a simplified view of how Snap-deals work. Instead of a storage provider creating an entirely new sector to store a client’s data, they can put the client’s data into a committed capacity sector. The data becomes available faster, things are less expensive for the storage provider, and more of the network’s storage capacity gets utilised!
 
@@ -52,8 +52,7 @@ When switching between Snap and PoRep deal pipeline, you must ensure that no sec
 Boost adapter is no longer supported with new Curio releases.
 {% endhint %}
 
-1.  Create or update the market layer ([if one is already created](enabling-market.md#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.\
-
+1.  Create or update the market layer ([if one is already created](/broken/pages/gEZnqnZB0uPfB4TMhdYf#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.<br>
 
     ```shell
     curio config add --title mt01000
@@ -74,16 +73,14 @@ Boost adapter is no longer supported with new Curio releases.
 
     \
     Press `ctrl + D` to save and exit.\
-    Or edit the existing layer.\
-
+    Or edit the existing layer.<br>
 
     ```shell
     curio config edit mt01000
     ```
 
     &#x20;\
-    Enable the snap deals for ingestion: \
-
+    Enable the snap deals for ingestion: <br>
 
     ```
       [Subsystems]
@@ -118,8 +115,7 @@ Boost adapter is no longer supported with new Curio releases.
     FIL_PROOFS_USE_MULTICORE_SDR=1
     ```
 
-    \
-
+    <br>
 2.  Restart the Curio services on the node.\
     &#x20;
 

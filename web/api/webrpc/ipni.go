@@ -3,7 +3,6 @@ package webrpc
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,27 +15,27 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
 type IpniAd struct {
-	AdCid           string         `db:"ad_cid" json:"ad_cid"`
-	ContextID       []byte         `db:"context_id" json:"context_id"`
-	IsRM            bool           `db:"is_rm" json:"is_rm"`
-	IsSkip          bool           `db:"is_skip" json:"is_skip"`
-	PreviousAd      sql.NullString `db:"previous"`
-	Previous        string         `json:"previous"`
-	SpID            int64          `db:"sp_id" json:"sp_id"`
-	Addresses       sql.NullString `db:"addresses"`
-	AddressesString string         `json:"addresses"`
-	Entries         string         `db:"entries" json:"entries"`
-	PieceCid        string         `json:"piece_cid"`
-	PieceSize       int64          `json:"piece_size"`
-	Miner           string         `json:"miner"`
+	AdCid           string     `db:"ad_cid" json:"ad_cid"`
+	ContextID       []byte     `db:"context_id" json:"context_id"`
+	IsRM            bool       `db:"is_rm" json:"is_rm"`
+	IsSkip          bool       `db:"is_skip" json:"is_skip"`
+	PreviousAd      NullString `db:"previous"`
+	Previous        string     `json:"previous"`
+	SpID            int64      `db:"sp_id" json:"sp_id"`
+	Addresses       NullString `db:"addresses"`
+	AddressesString string     `json:"addresses"`
+	Entries         string     `db:"entries" json:"entries"`
+	PieceCid        string     `json:"piece_cid"`
+	PieceSize       int64      `json:"piece_size"`
+	Miner           string     `json:"miner"`
 
 	EntryCount int64 `json:"entry_count"`
 	CIDCount   int64 `json:"cid_count"`
@@ -129,7 +128,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 			return nil, xerrors.Errorf("failed to get raw size: %w", err)
 		}
 
-		pcid2, err = commcidv2.PieceCidV2FromV1(pi.PieceCID, rawSize)
+		pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to get commp: %w", err)
 		}
@@ -343,11 +342,11 @@ type EntryInfo struct {
 	PieceCID string `db:"piece_cid"`
 	FromCar  bool   `db:"from_car"`
 
-	FirstCID    *string `db:"first_cid"`
-	StartOffset *int64  `db:"start_offset"`
-	NumBlocks   int64   `db:"num_blocks"`
+	FirstCID    NullString `db:"first_cid"`
+	StartOffset NullInt64  `db:"start_offset"`
+	NumBlocks   int64      `db:"num_blocks"`
 
-	PrevCID *string `db:"prev_cid"`
+	PrevCID NullString `db:"prev_cid"`
 
 	Err  *string
 	Size int64

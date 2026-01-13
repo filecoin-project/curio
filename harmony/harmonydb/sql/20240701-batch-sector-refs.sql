@@ -1,4 +1,4 @@
-CREATE TABLE batch_sector_refs (
+CREATE TABLE IF NOT EXISTS batch_sector_refs (
     sp_id BIGINT NOT NULL,
     sector_number BIGINT NOT NULL,
 

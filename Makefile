@@ -10,13 +10,31 @@ FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
 
 $(FFI_DEPS): build/.filecoin-install ;
 
+# When enabled, build size-optimized libfilcrypto by default
+CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+
 build/.filecoin-install: $(FFI_PATH)
-	$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%)
+	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
+		$(MAKE) curio-libfilecoin; \
+	else \
+		$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
+	fi
 	@touch $@
 
 MODULES+=$(FFI_PATH)
 BUILD_DEPS+=build/.filecoin-install
 CLEAN+=build/.filecoin-install
+
+## Custom libfilcrypto build for Curio (size-optimized, no FVM)
+.PHONY: curio-libfilecoin
+curio-libfilecoin:
+	FFI_BUILD_FROM_SOURCE=1 \
+	FFI_USE_GPU=1 \
+	FFI_USE_MULTICORE_SDR=1 \
+	FFI_DISABLE_FVM=1 \
+	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
+	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
+	@echo "Rebuilt libfilcrypto for Curio (OpenCL+multicore, no default features)."
 
 ffi-version-check:
 	@[[ "$$(awk '/const Version/{print $$5}' extern/filecoin-ffi/version.go)" -eq 3 ]] || (echo "FFI version mismatch, update submodules"; exit 1)
@@ -82,9 +100,20 @@ CLEAN+=build/.update-modules
 deps: $(BUILD_DEPS)
 .PHONY: deps
 
+## Test targets
+
+test-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
+test-deps: $(BUILD_DEPS)
+	@echo "Built dependencies with FVM support for testing"
+.PHONY: test-deps
+
+test: test-deps
+	go test -v -tags="cgo" -timeout 30m ./itests/...
+.PHONY: test
+
 ## ldflags -s -w strips binary
 
-CURIO_TAGS ?= cunative
+CURIO_TAGS ?= cunative nofvm
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -99,7 +128,7 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
+	$(GOCC) build $(GOFLAGS)  -tags "$(CURIO_TAGS) " -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
@@ -160,6 +189,9 @@ batch-build: curio
 
 calibnet-sptool: CURIO_TAGS+= calibnet
 calibnet-sptool: sptool
+
+calibnet-curio: CURIO_TAGS+= calibnet
+calibnet-curio: curio
 
 install: install-curio install-sptool
 .PHONY: install
@@ -255,7 +287,7 @@ docsgen-cli: curio sptool
 	echo '# Default Curio Configuration' >> documentation/en/configuration/default-curio-configuration.md
 	echo '' >> documentation/en/configuration/default-curio-configuration.md
 	echo '```toml' >> documentation/en/configuration/default-curio-configuration.md
-	./curio config default >> documentation/en/configuration/default-curio-configuration.md
+	LANG=en-US ./curio config default >> documentation/en/configuration/default-curio-configuration.md
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
@@ -270,10 +302,28 @@ marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
-gensimple: api-gen go-generate cfgdoc-gen docsgen marketgen docsgen-cli
+# Run gen steps sequentially in a single shell to avoid Go build cache race conditions.
+# The "unlinkat: directory not empty" error occurs when multiple go processes
+# contend for the same build cache simultaneously.
+# Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
+gensimple:
+ifeq ($(GOCACHE_CLEAN),1)
+	$(GOCC) clean -cache
+endif
+	$(MAKE) deps
+	$(MAKE) api-gen
+	$(MAKE) go-generate
+	$(MAKE) cfgdoc-gen
+	$(MAKE) docsgen
+	$(MAKE) marketgen
+	$(MAKE) docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
-.PHONY: gen
+.PHONY: gensimple
+
+fiximports:
+	$(GOCC) run ./scripts/fiximports
+.PHONY: fiximports
 
 forest-test: GOFLAGS+=-tags=forest
 forest-test: buildall

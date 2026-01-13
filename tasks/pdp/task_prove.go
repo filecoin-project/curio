@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
@@ -22,6 +23,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -30,7 +32,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -422,7 +423,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 	// If piece is less than 100 MiB, let's generate proof directly without using cache
 	if pi.RawSize < MinSizeForCache {
 		// Get original file reader
-		reader, _, err := p.cpr.GetSharedPieceReader(ctx, pcid)
+		reader, _, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
 		}
@@ -435,6 +436,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
+		defer pool.Put(memTree)
 		log.Debugw("provePiece", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf)
 
 		mProof, err := proof.MemtreeProof(memTree, challengedLeaf)
@@ -495,7 +497,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		subrootSize := padreader.PaddedSize(uint64(length)).Padded()
 
 		// Get original file reader
-		reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pcid)
+		reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get reader: %w", err)
 		}
@@ -519,6 +521,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
+		defer pool.Put(memtree)
 
 		// Get challenge leaf in subTree
 		subTreeChallenge := challengedLeaf - startLeaf
@@ -552,6 +555,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
 		}
+		defer pool.Put(mtree)
 
 		// Generate merkle proof from snapShot node to commP
 		proofs, err := proof.MemtreeProof(mtree, snapshotNodeIndex)
@@ -559,14 +563,14 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
 		}
 
-		com, err := commcidv2.CommPFromPCidV2(pcid)
+		com, _, err := commcid.PieceCidV2ToDataCommitment(pcid)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece commitment: %w", err)
 		}
 
 		// Verify proof with original root
-		if [32]byte(com.Digest()) != proofs.Root {
-			return contract.IPDPTypesProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com.Digest(), proofs.Root)
+		if [32]byte(com) != proofs.Root {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com, proofs.Root)
 		}
 
 		out = contract.IPDPTypesProof{

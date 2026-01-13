@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jellydator/ttlcache/v2"
 	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -74,7 +75,8 @@ func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface.ID][]storifa
 		}
 
 		// skip sector info for storage paths with no sectors
-		if !entry.MinerId.Valid {
+		// All sector_location fields must be valid (they come from LEFT JOIN)
+		if !entry.MinerId.Valid || !entry.SectorNum.Valid || !entry.SectorFiletype.Valid {
 			continue
 		}
 
@@ -555,9 +557,40 @@ func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface.I
 	return nil
 }
 
-func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
+func (dbi *DBIndex) StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
+	if ctx.Value(FindSectorCacheKey) == nil || allowFetch {
+		stats.Record(ctx, FindSectorUncached.M(1))
+		return dbi.findSectorUncached(ctx, sector, ft, ssize, allowFetch)
+	}
 
-	var result []storiface.SectorStorageInfo
+	findSectorCache := ctx.Value(FindSectorCacheKey).(*ttlcache.Cache)
+
+	cacheKey := fmt.Sprintf("%d-%d-%d", sector.Miner, sector.Number, ft)
+
+	info, err := findSectorCache.Get(cacheKey)
+	if err == nil {
+		// Cache hit - return the cached result
+		if cachedInfo, ok := info.([]storiface.SectorStorageInfo); ok {
+			stats.Record(ctx, FindSectorCacheHits.M(1))
+			return cachedInfo, nil
+		}
+	}
+
+	// Cache miss - fetch from index and cache the result
+	stats.Record(ctx, FindSectorCacheMisses.M(1))
+
+	si, err := dbi.findSectorUncached(ctx, sector, ft, ssize, allowFetch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the result for future use
+	_ = findSectorCache.Set(cacheKey, si)
+
+	return si, nil
+}
+
+func (dbi *DBIndex) findSectorUncached(ctx context.Context, s abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
 
 	allowList := make(map[string]struct{})
 	storageWithSector := map[string]bool{}
@@ -604,11 +637,15 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 		return nil, xerrors.Errorf("Finding sector storage from DB fails with err: %w", err)
 	}
 
+	result := make([]storiface.SectorStorageInfo, 0, len(rows))
+
 	for _, row := range rows {
 
 		// Parse all urls
-		var urls, burls []string
-		for _, u := range splitString(row.Urls) {
+		splitUrls := splitString(row.Urls)
+		urls := make([]string, 0, len(splitUrls))
+		burls := make([]string, 0, len(splitUrls))
+		for _, u := range splitUrls {
 			rl, err := url.Parse(u)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse url: %w", err)
@@ -728,8 +765,10 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 				}
 			}
 
-			var urls, burls []string
-			for _, u := range splitString(row.Urls) {
+			splitUrls := splitString(row.Urls)
+			urls := make([]string, 0, len(splitUrls))
+			burls := make([]string, 0, len(splitUrls))
+			for _, u := range splitUrls {
 				rl, err := url.Parse(u)
 				if err != nil {
 					return nil, xerrors.Errorf("failed to parse url: %w", err)
@@ -859,7 +898,7 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface.Sec
 		return nil, xerrors.Errorf("Querying for best storage sectors fails with err %w: ", err)
 	}
 
-	var result []storiface.StorageInfo
+	result := make([]storiface.StorageInfo, 0, len(rows))
 
 	for _, row := range rows {
 		// Matching with 0 as a workaround to avoid having minerID
@@ -1056,6 +1095,9 @@ func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read s
 	lockUuid := uuid.New()
 
 	// retry with exponential backoff and block until lock is acquired
+	timer := time.NewTimer(time.Duration(waitTime) * time.Second)
+	defer timer.Stop()
+
 	for {
 		locked, err := dbi.lock(ctx, sector, read, write, lockUuid)
 		// if err is not nil and is not because we cannot acquire lock, retry
@@ -1071,10 +1113,11 @@ func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read s
 		}
 
 		select {
-		case <-time.After(time.Duration(waitTime) * time.Second):
+		case <-timer.C:
 			if waitTime < maxWaitTime {
 				waitTime *= 2
 			}
+			timer.Reset(time.Duration(waitTime) * time.Second)
 		case <-ctx.Done():
 			return ctx.Err()
 		}

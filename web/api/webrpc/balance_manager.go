@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -48,9 +47,9 @@ func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) 
 		var (
 			id                                                                int64
 			subjectAddr, secondAddr, actionType, subjectType, lowStr, highStr string
-			lastMsgCID                                                        sql.NullString
-			lastMsgSentAt, lastMsgLandedAt                                    sql.NullTime
-			taskID                                                            sql.NullInt64
+			lastMsgCID                                                        NullString
+			lastMsgSentAt, lastMsgLandedAt                                    NullTime
+			taskID                                                            NullInt64
 		)
 		if err := rows.Scan(&id, &subjectAddr, &secondAddr, &actionType, &subjectType, &lowStr, &highStr, &lastMsgCID, &lastMsgSentAt, &lastMsgLandedAt, &taskID); err != nil {
 			return nil, err
@@ -128,6 +127,7 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 	switch actionType {
 	case "requester":
 	case "active-provider":
+	case "f05":
 	default:
 		return xerrors.Errorf("invalid action type: %s", actionType)
 	}
@@ -141,6 +141,8 @@ func (a *WebRPC) BalanceMgrRuleAdd(ctx context.Context, subject, second, actionT
 		// For proofshare, subject == second and action is always requester
 		actionType = "requester"
 		second = subject
+	case "f05":
+		actionType = "requester"
 	default:
 		return xerrors.Errorf("invalid subject type: %s", subjectType)
 	}

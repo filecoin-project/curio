@@ -357,16 +357,17 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			return nil, nil, err
 		}
 
-		_, err = toml.Decode(text, cfg)
+		_, err = config.TransparentDecode(text, cfg)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
-		for i := range cfg.Addresses {
-			prec := cfg.Addresses[i].PreCommitControl
-			com := cfg.Addresses[i].CommitControl
-			term := cfg.Addresses[i].TerminateControl
-			miners := cfg.Addresses[i].MinerAddresses
+		addrs := cfg.Addresses.Get()
+		for i := range addrs {
+			prec := addrs[i].PreCommitControl
+			com := addrs[i].CommitControl
+			term := addrs[i].TerminateControl
+			miners := addrs[i].MinerAddresses
 			for j := range prec {
 				if prec[j] != "" {
 					addrMap[prec[j]] = struct{}{}
@@ -443,7 +444,12 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	h := head
+	// Start from the newest finalized tipset.
+	h, err := al.api.ChainGetTipSet(al.ctx, head.Parents())
+	if err != nil {
+		al.alertMap[Name].err = err
+		return
+	}
 
 	// Map[Miner Address]Map[DeadlineIdx][]Partitions
 	msgCheck := make(map[address.Address]map[uint64][]bool)

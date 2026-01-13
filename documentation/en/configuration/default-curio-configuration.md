@@ -275,11 +275,6 @@ description: The default curio configuration
   # type: int
   #IndexingMaxTasks = 8
 
-  # EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)
-  #
-  # type: bool
-  #EnableBalanceManager = false
-
   # BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
   # for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
   # enabling this option. (Default: false)
@@ -399,6 +394,7 @@ description: The default curio configuration
 
 
 # Addresses specifies the list of miner addresses and their related wallet addresses.
+# Updates will affect running instances.
 #
 # type: []CurioAddresses
 [[Addresses]]
@@ -558,10 +554,13 @@ description: The default curio configuration
   # type: time.Duration
   #ReadHeaderTimeout = "5s"
 
-  # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+  # CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
+  # If not empty, only the specified origins will be allowed for CORS requests.
+  # This is required for third-party UI servers.
+  # "*" allows everyone, it's best to specify the UI servers' hostname.
   #
-  # type: bool
-  #EnableCORS = true
+  # type: []string
+  #CORSOrigins = []
 
   # CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
   # Valid values: "off", "self", "inline" (Default: "inline")
@@ -802,6 +801,7 @@ description: The default curio configuration
   # A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
   # If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
   # 0 means unlimited. (Default: 64)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxMarketRunningPipelines = 64
@@ -810,6 +810,7 @@ description: The default curio configuration
   # waiting for a machine to pick up their task (owner_id is null).
   # If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
   # 0 means unlimited. (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueDownload = 8
@@ -818,6 +819,7 @@ description: The default curio configuration
   # waiting for a machine to pick up their verification task (owner_id is null).
   # If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
   # 0 means unlimited. (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueCommP = 8
@@ -827,6 +829,7 @@ description: The default curio configuration
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
   # The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
   # DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueDealSector = 8
@@ -838,6 +841,7 @@ description: The default curio configuration
   # possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
   # entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 8)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSDR = 8
@@ -848,6 +852,7 @@ description: The default curio configuration
   # In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueTrees = 0
@@ -858,6 +863,7 @@ description: The default curio configuration
   # Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
   # Only applies to PoRep pipeline (DoSnap = false) (Default: 0)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueuePoRep = 0
@@ -866,6 +872,7 @@ description: The default curio configuration
   # 0 means unlimited.
   # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
   # Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSnapEncode = 16
@@ -873,6 +880,7 @@ description: The default curio configuration
   # MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
   # 0 means unlimited.
   # This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)
+  # Updates will affect running instances.
   #
   # type: int
   #MaxQueueSnapProve = 0
@@ -880,6 +888,7 @@ description: The default curio configuration
   # Maximum time an open deal sector should wait for more deals before it starts sealing.
   # This ensures that sectors don't remain open indefinitely, consuming resources.
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+  # Updates will affect running instances.
   #
   # type: time.Duration
   #MaxDealWaitTime = "1h0m0s"
