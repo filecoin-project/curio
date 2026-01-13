@@ -11,7 +11,9 @@ FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
 $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
-CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+#CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+# Unfortunately, this breaks GPU detection, so disabling for now.
+CURIO_OPTIMAL_LIBFILCRYPTO = 0
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
