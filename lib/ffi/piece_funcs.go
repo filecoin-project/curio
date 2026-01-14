@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/detailyang/go-fallocate"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -34,6 +35,12 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 	destFile, err := os.OpenFile(tempDest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return xerrors.Errorf("creating temp piece file '%s': %w", tempDest, err)
+	}
+
+	// Preallocate the piece file to the expected size
+	if err := fallocate.Fallocate(destFile, 0, size); err != nil {
+		_ = destFile.Close()
+		return xerrors.Errorf("allocating space for piece file: %w", err)
 	}
 
 	removeTemp := true

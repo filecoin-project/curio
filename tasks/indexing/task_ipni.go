@@ -104,9 +104,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	if len(tasks) == 0 {
+		// orphans are normal actually
 		return true, nil
 	}
-
 	if len(tasks) != 1 {
 		return false, xerrors.Errorf("expected 1 ipni task params, got %d", len(tasks))
 	}
@@ -515,10 +515,12 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	type task struct {
-		TaskID    harmonytask.TaskID `db:"task_id"`
-		ID        string             `db:"id"`
-		StorageID sql.NullString     `db:"storage_id"`
-		IsRm      bool               `db:"is_rm"`
+		TaskID       harmonytask.TaskID `db:"task_id"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector"`
+		StorageID    sql.NullString     `db:"storage_id"`
+		IsRm         bool               `db:"is_rm"`
+		ID           string             `db:"id"`
 	}
 
 	if storiface.FTUnsealed != 1 {
@@ -537,9 +539,11 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 	}
 
 	var tasks []task
-
 	err := I.db.Select(ctx, &tasks, `
-		SELECT task_id, id, is_rm FROM ipni_task WHERE task_id = ANY($1)`, indIDs)
+		SELECT dp.task_id, dp.sp_id, dp.sector, l.storage_id, dp.is_rm, dp.id FROM ipni_task dp
+			LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
+			WHERE dp.task_id = ANY ($1) AND (l.sector_filetype IS NULL OR l.sector_filetype = 1)
+`, indIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting task details: %w", err)
 	}

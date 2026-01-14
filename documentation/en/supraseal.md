@@ -25,7 +25,7 @@ SupraSeal is an optimized batch sealing implementation for Filecoin that allows 
 * NVMe drives with high IOPS (10-20M total IOPS recommended)
 * GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
 * 1GB hugepages configured (minimum 36 pages)
-* Ubuntu 22.04 or compatible Linux distribution (gcc-11 required, doesn't need to be system-wide)
+* Ubuntu or compatible Linux distribution (**gcc-13 required**, doesn't need to be system-wide)
 * At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
   * Without **all** memory channels populated sealing **performance will suffer drastically**
 * NUMA-Per-Socket (NPS) set to 1
@@ -123,25 +123,32 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 
 ### Dependencies
 
-CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
+CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x system-wide or `gcc-13`/`g++-13` installed locally.
 
-* On Arch install https://aur.archlinux.org/packages/gcc11
-* Ubuntu 22.04 has GCC 11.x by default
-* On newer Ubuntu install `gcc-11` and `g++-11` packages
+* On Arch install GCC 13 via your distro/AUR as appropriate
+* On Ubuntu/Debian install `gcc-13` and `g++-13` packages
     ```shell
-    sudo apt install gcc-11 g++-11
+    sudo apt install gcc-13 g++-13
     ```
 * In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
 
+{% hint style="info" %}
+For SnapDeals “fastsnap” troubleshooting (fast TreeR path), you can check CPU/CUDA prerequisites with:
+
+```bash
+curio test supra system-info
+```
+{% endhint %}
+
 ### Building
 
 Build and install the batch-capable Curio binary:
 
 ```bash
-make batch
+make curio
 make sptool
 ```
 
@@ -152,8 +159,8 @@ make install
 For calibnet
 
 ```bash
-make batch-calibnet
-make batch-sptool
+make calibnet
+make calibnet-sptool
 ```
 
 ```shell
@@ -166,13 +173,33 @@ The build should be run on the target machine. Binaries won't be portable betwee
 
 ### Setup NVMe devices for SPDK:
 
-{% hint style="info" %}
-This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
+{% hint style="success" %}
+SPDK setup can be done automatically using the Curio CLI command:
 {% endhint %}
 
 ```bash
+sudo curio batch setup
+```
+
+This command will:
+- Download SPDK if not already available
+- Configure 1GB hugepages (36 pages by default)
+- Bind NVMe devices for use with SupraSeal
+
+You can customize the number of hugepages:
+
+```bash
+sudo curio batch setup --hugepages 36 --min-pages 36
+```
+
+Alternatively, if you need to manually check SPDK status or unbind devices, you can use:
+
+```bash
 cd extern/supraseal/deps/spdk-v24.05/
-env NRHUGE=36 ./scripts/setup.sh
+# Check status
+sudo ./scripts/setup.sh status
+# Manually run setup (not normally needed)
+sudo env NRHUGE=36 ./scripts/setup.sh
 ```
 
 ### Benchmark NVME IOPS
@@ -364,6 +391,12 @@ BatchSealPipelines = 2
 # Set to true for Zen2 or older CPUs for compatibility
 SingleHasherPerThread = false
 ```
+
+### Environment Variables
+
+| Variable | Description |
+| -------- | ----------- |
+| `DISABLE_SPDK_SETUP=1` | When set, disables automatic SPDK setup (hugepage configuration and NVMe device binding) during supraseal initialization. Useful for advanced users who want to manually manage SPDK configuration, map drives, or control hugepage-numa assignment. |
 
 ## Optimization
 

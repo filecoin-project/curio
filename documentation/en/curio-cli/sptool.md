@@ -272,7 +272,7 @@ USAGE:
    sptool sectors [command options]
 
 COMMANDS:
-   status              Get the seal status of a sector by its number
+   status              Get the on-chain status of a sector by its number
    list                List sectors
    precommits          Print on-chain precommit info
    check-expire        Inspect expiring sectors
@@ -289,17 +289,13 @@ OPTIONS:
 ### sptool sectors status
 ```
 NAME:
-   sptool sectors status - Get the seal status of a sector by its number
+   sptool sectors status - Get the on-chain status of a sector by its number
 
 USAGE:
    sptool sectors status [command options] <sectorNum>
 
 OPTIONS:
-   --log, -l             display event log (default: false)
-   --on-chain-info, -c   show sector on chain info (default: false)
-   --partition-info, -p  show partition related info (default: false)
-   --proof               print snark proof bytes as hex (default: false)
-   --help, -h            show help
+   --help, -h  show help
 ```
 
 ### sptool sectors list

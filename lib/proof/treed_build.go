@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/detailyang/go-fallocate"
 	"github.com/hashicorp/go-multierror"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
@@ -76,6 +77,12 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 
 	// allocate space for the tree
 	err = out.Truncate(int64(outSize))
+	if err != nil {
+		return cid.Undef, err
+	}
+
+	// Fallocate the file
+	err = fallocate.Fallocate(out, 0, int64(outSize))
 	if err != nil {
 		return cid.Undef, err
 	}

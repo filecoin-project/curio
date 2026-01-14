@@ -271,3 +271,11 @@ func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 	}
 	c.latest[ptr] = newValue
 }
+
+func Becomes[U any, T any](rootType *Dynamic[U], f func() T) *Dynamic[T] {
+	d := NewDynamic(f())
+	rootType.OnChange(func() {
+		d.Set(f())
+	})
+	return d
+}

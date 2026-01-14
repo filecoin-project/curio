@@ -165,6 +165,11 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return true, xerrors.Errorf("updating wdpost_proofs: %w", err)
 	}
 
+	_, err = w.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, smsg)
+	if err != nil {
+		return true, xerrors.Errorf("inserting into message_waits: %w", err)
+	}
+
 	return true, nil
 }
 

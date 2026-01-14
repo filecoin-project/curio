@@ -154,7 +154,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	if len(tasks) == 0 {
-		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
+		log.Errorw("expected at least 1 sector params, got 0 in submit task")
+		return true, nil
 	}
 
 	maddr, err := address.NewIDAddress(uint64(tasks[0].SpID))
@@ -360,6 +361,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			Pieces:       pams,
 		})
 		params.SectorProofs = append(params.SectorProofs, update.Proof)
+	}
+
+	if len(params.SectorUpdates) == 0 {
+		return false, xerrors.Errorf("no sector updates")
 	}
 
 	enc := new(bytes.Buffer)
@@ -666,8 +671,9 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 					//----------------------------------
 					// 6) Actually schedule: set task_id_submit=taskID for chosen rows
 					//----------------------------------
+					var scheduled int
 					for _, row := range toSchedule {
-						_, err = tx.Exec(`
+						n, err := tx.Exec(`
 							UPDATE sectors_snap_pipeline
 							SET task_id_submit = $1,
 							    submit_after = NULL
@@ -678,10 +684,11 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 						if err != nil {
 							return false, xerrors.Errorf("failed to set task_id_submit: %w", err)
 						}
+						scheduled += n
 					}
 
 					// We scheduled this group => commit & exit the transaction callback
-					return true, nil
+					return scheduled > 0, nil
 				}
 			}
 
@@ -752,12 +759,14 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 			// good, noop
 		case exitcode.SysErrInsufficientFunds, exitcode.ErrInsufficientFunds:
 			fallthrough
-		case exitcode.SysErrOutOfGas:
+		case exitcode.SysErrOutOfGas, exitcode.ErrIllegalArgument:
 			// just retry
+
+			// illegal argument typically stems from immutable deadline
+			// err message like 'message failed with backtrace: 00: f0123 (method 35) -- invalid update 0 while requiring activation success: cannot upgrade sectors in immutable deadline 27, skipping sector 6123 (16) (RetCode=16)'
 			n, err := tx.Exec(`UPDATE sectors_snap_pipeline SET
 						after_prove_msg_success = FALSE, after_submit = FALSE
-						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE AND after_submit = TRUE`,
-				execResult[0].ExecutedTskCID, spId, sectorNum)
+						WHERE sp_id = $1 AND sector_number = $2 AND after_prove_msg_success = FALSE AND after_submit = TRUE`, spId, sectorNum)
 			if err != nil {
 				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: %w", err)
 			}

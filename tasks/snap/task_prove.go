@@ -106,7 +106,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	if !p.enableRemoteProofs {
+	if p.enableRemoteProofs {
 		// remote proofs enabled but not local prove - we still need the task for poller
 		return []harmonytask.TaskID{}, nil
 	}

@@ -73,6 +73,8 @@ var CacheFileConstraints = map[string]int64{
 	"sc-02-data-tree-c-15.dat": 5 << 30,
 
 	"sc-02-data-tree-d.dat": 130 << 30, // 2x sector size, ~130G accunting for small buffer on 64G sectors
+
+	"snap-vproof.json": 20_000_000,
 }
 
 var FinCacheFileConstraints = map[string]int64{
@@ -98,6 +100,8 @@ var FinCacheFileConstraints = map[string]int64{
 	"sc-02-data-tree-r-last-13.dat": 10_000_000,
 	"sc-02-data-tree-r-last-14.dat": 10_000_000,
 	"sc-02-data-tree-r-last-15.dat": 10_000_000,
+
+	"snap-vproof.json": 20_000_000,
 }
 
 func ExtractTar(constraints map[string]int64, body io.Reader, dir string, buf []byte) (int64, error) {
