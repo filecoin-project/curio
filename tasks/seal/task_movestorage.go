@@ -3,6 +3,7 @@ package seal
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -181,7 +182,10 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram:     128 << 20,
 			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
-		MaxFailures: 10,
+		MaxFailures: 6,
+		RetryWait: func(retries int) time.Duration {
+			return time.Duration(2<<retries) * time.Second
+		},
 	}
 }
 
