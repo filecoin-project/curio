@@ -579,3 +579,7 @@ func Reg(t TaskInterface) bool {
 
 	return true
 }
+
+func (e *TaskEngine) RunningCount(name string) int {
+	return int(e.taskMap[name].Max.Active())
+}
