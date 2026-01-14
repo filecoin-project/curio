@@ -309,19 +309,11 @@ func ensureSchemaExists(connString, schema string) error {
 		return xerrors.New("schema must be of the form " + schemaREString + "\n Got: " + schema)
 	}
 
-	retryWait := InitialSerializationErrorRetryWait
+	_, err = backoffForSerializationError(func() (pgconn.CommandTag, error) {
+		return p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
+	})
 
-retry:
-	_, err = p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
-	if err != nil && IsErrSerialization(err) {
-		time.Sleep(retryWait)
-		retryWait *= 2
-		goto retry
-	}
-	if err != nil {
-		return xerrors.Errorf("cannot create schema: %w", err)
-	}
-	return nil
+	return err
 }
 
 //go:embed sql

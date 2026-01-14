@@ -94,12 +94,11 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return true, nil
 }
 
-func (t *PDPNotifyTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *PDPNotifyTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
-		return nil, xerrors.Errorf("no task IDs provided")
+		return []harmonytask.TaskID{}, nil
 	}
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {

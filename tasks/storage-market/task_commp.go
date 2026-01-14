@@ -268,7 +268,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 }
 
-func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// CommP task can be of 2 types
 	// 1. Using ParkPiece pieceRef
 	// 2. Using remote HTTP reader
@@ -276,8 +276,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	// Remote HTTP ones can be scheduled on any node
 
 	if !c.bindToData { //
-		id := ids[0]
-		return &id, nil
+		return ids, nil
 	}
 
 	ctx := context.Background()
@@ -363,11 +362,11 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		return nil, err
+		return []harmonytask.TaskID{}, err
 	}
 
 	if !comm {
-		return nil, xerrors.Errorf("failed to commit the transaction")
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to commit the transaction")
 	}
 
 	ls, err := c.sc.LocalStorage(ctx)
@@ -381,6 +380,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		acceptables[t] = true
 	}
 
+	result := []harmonytask.TaskID{}
 	// debug log
 	log.Infow("commp task can accept", "tasks", tasks, "acceptables", acceptables, "ls", ls, "bindToData", c.bindToData, "ids", ids)
 
@@ -391,14 +391,14 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
+				result = append(result, t.TaskID)
 				log.Infow("commp task can accept did accept", "t", t, "l", l)
-				return &t.TaskID, nil
 			}
 		}
 	}
 
 	// If no local pieceRef was found then just return first TaskID
-	return nil, nil
+	return result, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {

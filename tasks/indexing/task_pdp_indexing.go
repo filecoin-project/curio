@@ -244,7 +244,7 @@ func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonyta
 	return nil
 }
 
-func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	ctx := context.Background()
 
 	type task struct {
@@ -302,16 +302,17 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		localStorageMap[string(l.ID)] = true
 	}
 
+	acceptables := []harmonytask.TaskID{}
 	for idx := range tasks {
 		if !tasks[idx].Indexing {
-			return &tasks[idx].TaskID, nil
+			acceptables = append(acceptables, tasks[idx].TaskID)
 		}
 		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
-			return &tasks[idx].TaskID, nil
+			acceptables = append(acceptables, tasks[idx].TaskID)
 		}
 	}
 
-	return nil, nil
+	return acceptables, nil
 }
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {

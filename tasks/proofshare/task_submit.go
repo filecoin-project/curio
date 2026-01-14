@@ -89,8 +89,8 @@ func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 	}
 }
 
-func (t *TaskSubmit) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (t *TaskSubmit) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {

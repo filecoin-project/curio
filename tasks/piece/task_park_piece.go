@@ -211,14 +211,14 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return false, xerrors.Errorf("no suitable data URL found for piece_id %d: %w", pieceData.PieceID, merr)
 }
 
-func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+
 	if p.p2Active != nil && p.p2Active() {
 		return nil, nil
 	}
 
 	if p.maxInPark <= 0 {
-		id := ids[0]
-		return &id, nil
+		return ids, nil
 	}
 
 	ctx := context.Background()
@@ -238,7 +238,7 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 	// Count pieces in storage
 	// select count(1), storage_id from sector_location where sector_filetype = 32 and storage_id = ANY ($1) group by storage_id
 
-	var count int64
+	var count int
 	err = p.db.QueryRow(ctx, `
 		SELECT count(1) FROM sector_location WHERE sector_filetype = $1 AND storage_id = ANY ($2)
 	`, storiface.FTPiece, storageIDs).Scan(&count)
@@ -247,34 +247,21 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 	}
 
 	log.Infow("park piece task can accept", "ids", ids, "maxInPark", p.maxInPark, "count", count)
-	if count >= int64(p.maxInPark) {
+	if count >= p.maxInPark {
 		log.Infow("park piece task can accept", "skip", "yes-in-storage", "ids", ids, "maxInPark", p.maxInPark, "count", count, "maxInPark", p.maxInPark)
 		return nil, nil
 	}
 
 	// count tasks running on this node
-	hostAndPort := engine.Host()
+	var running = engine.RunningCount(p.TypeDetails().Name)
 
-	var running int64
-	err = p.db.QueryRow(ctx, `
-		SELECT count(1)
-		FROM harmony_task
-		WHERE name = $1
-		  AND owner_id = (
-		    SELECT id FROM harmony_machines WHERE host_and_port = $2
-		  )
-	`, p.TypeDetails().Name, hostAndPort).Scan(&running)
-	if err != nil {
-		return nil, xerrors.Errorf("counting running piece tasks: %w", err)
-	}
-
-	if count+running >= int64(p.maxInPark) {
+	if count+running >= p.maxInPark {
 		log.Infow("park piece task can accept", "skip", "yes-in-running", "ids", ids, "running", running, "count+running", count+running, "maxInPark", p.maxInPark)
 		return nil, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	capacity := p.maxInPark - count - running
+	return ids[:capacity], nil
 }
 
 func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {

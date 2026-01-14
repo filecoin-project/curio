@@ -25,14 +25,14 @@ type TreeDTask struct {
 	max int
 }
 
-func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if IsDevnet {
-		return &ids[0], nil
+		return ids, nil
 	}
 
 	if engine.Resources().Gpu > 0 {
 		if !t.bound {
-			return &ids[0], nil
+			return ids, nil
 		}
 
 		var tasks []struct {
@@ -58,12 +58,12 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
 			WHERE task_id_tree_d = ANY ($1) AND l.sector_filetype = 4`, indIDs)
 		if err != nil {
-			return nil, xerrors.Errorf("getting tasks: %w", err)
+			return []harmonytask.TaskID{}, xerrors.Errorf("getting tasks: %w", err)
 		}
 
 		ls, err := t.sc.LocalStorage(ctx)
 		if err != nil {
-			return nil, xerrors.Errorf("getting local storage: %w", err)
+			return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 		}
 
 		acceptables := map[harmonytask.TaskID]bool{}
@@ -72,6 +72,7 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 			acceptables[t] = true
 		}
 
+		result := []harmonytask.TaskID{}
 		for _, t := range tasks {
 			if _, ok := acceptables[t.TaskID]; !ok {
 				continue
@@ -79,12 +80,13 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 			for _, l := range ls {
 				if string(l.ID) == t.StorageID {
-					return &t.TaskID, nil
+					result = append(result, t.TaskID)
 				}
 			}
 		}
+		return result, nil
 	}
-	return nil, nil
+	return ids, nil
 }
 
 func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {

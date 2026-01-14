@@ -513,7 +513,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	return true, nil
 }
 
-func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	type task struct {
 		TaskID       harmonytask.TaskID `db:"task_id"`
 		SpID         int64              `db:"sp_id"`
@@ -551,9 +551,11 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 	var mk12TaskIds []harmonytask.TaskID
 	var mk20TaskIds []harmonytask.TaskID
 
+	var result []harmonytask.TaskID
 	for _, t := range tasks {
 		if t.IsRm {
-			return &ids[0], nil // If this is rm task then storage is not needed
+			result = append(result, t.TaskID)
+			continue
 		}
 		_, err := ulid.Parse(t.ID)
 		if err == nil {
@@ -622,12 +624,12 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 		if !t.StorageID.Valid {
 			// no unsealed copy
-			return &t.TaskID, nil
+			result = append(result, t.TaskID)
 		}
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID.String {
-				return &t.TaskID, nil
+				result = append(result, t.TaskID)
 			}
 		}
 	}
@@ -638,10 +640,10 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 			continue
 		}
 
-		return &taskID, nil
+		result = append(result, taskID)
 	}
 
-	return nil, nil
+	return result, nil
 }
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
