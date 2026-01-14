@@ -23,9 +23,7 @@ import (
 )
 
 var log = logging.Logger("cu-piece")
-var PieceParkPollInterval = time.Second
-
-const ParkMinFreeStoragePercent = 20
+var PieceParkPollInterval = time.Second * 5
 
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
@@ -36,26 +34,36 @@ type ParkPieceTask struct {
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
-	max int
+	max                   int
+	minFreeStoragePercent float64
+
+	// maxInPark is the maximum number of pieces that should be in storage + active tasks writing to storage on this node
+	maxInPark int
 
 	longTerm bool // Indicates if the task is for long-term pieces
+
+	// supraseal special interaction - during phase 2, we don't want to park pieces - gpu not available for hours
+	p2Active func() bool
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, remote, max, false)
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, maxInPark, false, p2Active, minFreeStoragePercent)
 }
 
 func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, remote, max, true)
+	return newPieceTask(db, sc, remote, max, 0, true, nil, 10)
 }
 
-func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, longTerm bool) (*ParkPieceTask, error) {
+func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
 	pt := &ParkPieceTask{
-		db:       db,
-		sc:       sc,
-		remote:   remote,
-		max:      max,
-		longTerm: longTerm,
+		db:                    db,
+		sc:                    sc,
+		remote:                remote,
+		max:                   max,
+		maxInPark:             maxInPark,
+		longTerm:              longTerm,
+		p2Active:              p2Active,
+		minFreeStoragePercent: minFreeStoragePercent,
 	}
 
 	ctx := context.Background()
@@ -171,7 +179,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			if err != nil {
 				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)
 			}
-			upr := dealdata.NewUrlReader(p.remote, refData[i].DataURL, hdrs, pieceData.PieceRawSize)
+			upr := dealdata.NewUrlReader(p.remote, refData[i].DataURL, hdrs, pieceData.PieceRawSize, "parkpiece")
 
 			defer func() {
 				_ = upr.Close()
@@ -185,7 +193,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			}
 
 			if err := p.sc.WritePiece(ctx, &taskID, pnum, pieceData.PieceRawSize, upr, storageType); err != nil {
-				merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
+				merr = multierror.Append(merr, xerrors.Errorf("write piece (read so far: %d): %w", upr.ReadSoFar(), err))
 				continue
 			}
 
@@ -204,6 +212,67 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if p.p2Active != nil && p.p2Active() {
+		return nil, nil
+	}
+
+	if p.maxInPark <= 0 {
+		id := ids[0]
+		return &id, nil
+	}
+
+	ctx := context.Background()
+
+	// Load local storage IDs
+	ls, err := p.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+	local := map[string]struct{}{}
+	storageIDs := []string{}
+	for _, l := range ls {
+		local[string(l.ID)] = struct{}{}
+		storageIDs = append(storageIDs, string(l.ID))
+	}
+
+	// Count pieces in storage
+	// select count(1), storage_id from sector_location where sector_filetype = 32 and storage_id = ANY ($1) group by storage_id
+
+	var count int64
+	err = p.db.QueryRow(ctx, `
+		SELECT count(1) FROM sector_location WHERE sector_filetype = $1 AND storage_id = ANY ($2)
+	`, storiface.FTPiece, storageIDs).Scan(&count)
+	if err != nil {
+		return nil, xerrors.Errorf("counting pieces in storage: %w", err)
+	}
+
+	log.Infow("park piece task can accept", "ids", ids, "maxInPark", p.maxInPark, "count", count)
+	if count >= int64(p.maxInPark) {
+		log.Infow("park piece task can accept", "skip", "yes-in-storage", "ids", ids, "maxInPark", p.maxInPark, "count", count, "maxInPark", p.maxInPark)
+		return nil, nil
+	}
+
+	// count tasks running on this node
+	hostAndPort := engine.Host()
+
+	var running int64
+	err = p.db.QueryRow(ctx, `
+		SELECT count(1)
+		FROM harmony_task
+		WHERE name = $1
+		  AND owner_id = (
+		    SELECT id FROM harmony_machines WHERE host_and_port = $2
+		  )
+	`, p.TypeDetails().Name, hostAndPort).Scan(&running)
+	if err != nil {
+		return nil, xerrors.Errorf("counting running piece tasks: %w", err)
+	}
+
+	if count+running >= int64(p.maxInPark) {
+		log.Infow("park piece task can accept", "skip", "yes-in-running", "ids", ids, "running", running, "count+running", count+running, "maxInPark", p.maxInPark)
+		return nil, nil
+	}
+
 	id := ids[0]
 	return &id, nil
 }
@@ -228,7 +297,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     64 << 20,
-			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, ParkMinFreeStoragePercent),
+			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, p.minFreeStoragePercent),
 		},
 		MaxFailures: 10,
 		RetryWait: func(retries int) time.Duration {
