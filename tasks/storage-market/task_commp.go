@@ -24,26 +24,29 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type CommpTask struct {
-	sm  *CurioStorageDealMarket
-	db  *harmonydb.DB
-	sc  *ffi.SealCalls
-	api headAPI
-	max int
+	sm         *CurioStorageDealMarket
+	db         *harmonydb.DB
+	sc         *ffi.SealCalls
+	api        headAPI
+	max        int
+	bindToData bool
 }
 
-func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int) *CommpTask {
+func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int, bindToData bool) *CommpTask {
 	return &CommpTask{
-		sm:  sm,
-		db:  db,
-		sc:  sc,
-		api: api,
-		max: max,
+		sm:         sm,
+		db:         db,
+		sc:         sc,
+		api:        api,
+		max:        max,
+		bindToData: bindToData,
 	}
 }
 
@@ -191,7 +194,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			_ = closer.Close()
 		}()
 
-		w := &writer.Writer{}
+		w := new(proof.DataCidWriter)
 		written, err := io.CopyBuffer(w, pReader, make([]byte, writer.CommPBuf))
 		if err != nil {
 			return false, xerrors.Errorf("copy into commp writer: %w", err)
@@ -272,6 +275,11 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	// ParkPiece should be scheduled on same node which has the piece
 	// Remote HTTP ones can be scheduled on any node
 
+	if !c.bindToData { //
+		id := ids[0]
+		return &id, nil
+	}
+
 	ctx := context.Background()
 
 	var tasks []struct {
@@ -312,7 +320,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 			panic("storiface.FTPiece != 32")
 		}
 
-		for _, task := range tasks {
+		for i, task := range tasks {
 			if task.Url.Valid {
 				goUrl, err := url.Parse(task.Url.String)
 				if err != nil {
@@ -332,6 +340,9 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 					if err != nil {
 						return false, xerrors.Errorf("getting pieceID: %w", err)
 					}
+					if len(pieceID) == 0 {
+						return false, xerrors.Errorf("no pieceID found for ref %d", refNum)
+					}
 
 					var sLocation string
 
@@ -343,7 +354,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 						return false, xerrors.Errorf("failed to get storage location from DB: %w", err)
 					}
 
-					task.StorageID = sLocation
+					tasks[i].StorageID = sLocation
 				}
 			}
 		}
@@ -370,6 +381,9 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		acceptables[t] = true
 	}
 
+	// debug log
+	log.Infow("commp task can accept", "tasks", tasks, "acceptables", acceptables, "ls", ls, "bindToData", c.bindToData, "ids", ids)
+
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
@@ -377,13 +391,14 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
+				log.Infow("commp task can accept did accept", "t", t, "l", l)
 				return &t.TaskID, nil
 			}
 		}
 	}
 
 	// If no local pieceRef was found then just return first TaskID
-	return &ids[0], nil
+	return nil, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {

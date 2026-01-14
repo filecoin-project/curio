@@ -93,7 +93,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	}
 
 	if len(fullNodes) == 0 {
-		return nil, nil, xerrors.Errorf("failed to establish connection with all nodes")
+		return nil, nil, xerrors.Errorf("failed to establish connection with all chain nodes")
 	}
 
 	finalCloser := func() {
@@ -380,7 +380,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, erro
 	}
 
 	if len(clients) == 0 {
-		return nil, xerrors.Errorf("failed to establish connection with all nodes")
+		return nil, xerrors.Errorf("failed to establish connection with all chain nodes")
 	}
 
 	return clients[0], nil

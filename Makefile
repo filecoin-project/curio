@@ -12,6 +12,20 @@ $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
 CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+CGO_LDFLAGS_ALLOW_PATTERN := (-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)
+CGO_LDFLAGS_ALLOW ?= "$(CGO_LDFLAGS_ALLOW_PATTERN)"
+export CGO_LDFLAGS_ALLOW
+
+TEST_ENV_VARS := CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW)
+BUILD_DEPS := setup-cgo-env
+
+.PHONY: setup-cgo-env
+setup-cgo-env:
+	@current=$$(go env CGO_LDFLAGS_ALLOW); \
+	if [ "$$current" != "$(CGO_LDFLAGS_ALLOW_PATTERN)" ]; then \
+		echo "Configuring go to allow $(CGO_LDFLAGS_ALLOW_PATTERN)"; \
+		go env -w CGO_LDFLAGS_ALLOW='$(CGO_LDFLAGS_ALLOW_PATTERN)'; \
+	fi
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
@@ -70,6 +84,7 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
+BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
 endif
 
@@ -108,12 +123,16 @@ test-deps: $(BUILD_DEPS)
 .PHONY: test-deps
 
 test: test-deps
-	go test -v -tags="cgo" -timeout 30m ./itests/...
+	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
 .PHONY: test
 
 ## ldflags -s -w strips binary
 
 CURIO_TAGS ?= cunative nofvm
+
+ifeq ($(shell uname),Linux)
+curio: CGO_LDFLAGS_ALLOW='.*'
+endif
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -126,45 +145,62 @@ curio: $(BUILD_DEPS)
 .PHONY: curio
 BINS+=curio
 
+## Native-curio binary (host-optimized ISA; may not run on older CPUs)
+#
+# For amd64, automatically selects the highest GOAMD64 level supported by the
+# build host CPU:
+# - v4: AVX-512 (avx512f)
+# - v3: AVX2 (avx2)
+# - v2: SSE4.2 (sse4_2)
+# - v1: baseline amd64
+#
+# Override manually if desired:
+#   make curio-native GOAMD64_NATIVE=v3
+GOAMD64_NATIVE ?= $(shell \
+	if [ "$$(go env GOARCH)" = "amd64" ] && [ -r /proc/cpuinfo ]; then \
+		if grep -qm1 'avx512f' /proc/cpuinfo; then echo v4; \
+		elif grep -qm1 'avx2' /proc/cpuinfo; then echo v3; \
+		elif grep -qm1 'sse4_2' /proc/cpuinfo; then echo v2; \
+		else echo v1; fi; \
+	fi)
+
+ifeq ($(shell uname),Linux)
+curio-native: CGO_LDFLAGS_ALLOW='.*'
+endif
+
+curio-native: $(BUILD_DEPS)
+	rm -f curio
+	if [ -n "$(GOAMD64_NATIVE)" ]; then \
+		echo "Building curio-native with GOAMD64=$(GOAMD64_NATIVE)"; \
+		GOAMD64="$(GOAMD64_NATIVE)" CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+			-tags "$(CURIO_TAGS)" \
+			-o curio -ldflags " -s -w \
+			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			./cmd/curio ; \
+	else \
+		echo "Building curio-native (non-amd64; GOAMD64 not applicable)"; \
+		CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+			-tags "$(CURIO_TAGS)" \
+			-o curio -ldflags " -s -w \
+			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			./cmd/curio ; \
+	fi
+.PHONY: curio-native
+
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS)  -tags "$(CURIO_TAGS) " -o sptool ./cmd/sptool
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
 pdptool: $(BUILD_DEPS)
 	rm -f pdptool
-	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
 .PHONY: pdptool
 BINS+=pdptool
 
-ifeq ($(shell uname),Linux)
-
-batchdep: build/.supraseal-install
-batchdep: $(BUILD_DEPS)
-.PHONY: batchdep
-
-batch: CURIO_TAGS+= supraseal
-batch: CGO_LDFLAGS_ALLOW='.*'
-batch: batchdep batch-build
-.PHONY: batch
-
-
-batch-calibnet: CURIO_TAGS+= supraseal
-batch-calibnet: CURIO_TAGS+= calibnet
-batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
-batch-calibnet: batchdep batch-build
-.PHONY: batch-calibnet
-
-else
-batch:
-	@echo "Batch target is only available on Linux systems"
-	@exit 1
-
-batch-calibnet:
-	@echo "Batch-calibnet target is only available on Linux systems"
-	@exit 1
-endif
 
 calibnet: CURIO_TAGS+= calibnet
 calibnet: build
@@ -184,8 +220,6 @@ an existing curio binary in your PATH. This may cause problems if you don't run 
 
 .PHONY: build
 
-batch-build: curio
-.PHONY: batch-build
 
 calibnet-sptool: CURIO_TAGS+= calibnet
 calibnet-sptool: sptool
@@ -292,7 +326,7 @@ docsgen-cli: curio sptool
 .PHONY: docsgen-cli
 
 go-generate:
-	$(GOCC) generate ./...
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) generate ./...
 .PHONY: go-generate
 
 gen: gensimple

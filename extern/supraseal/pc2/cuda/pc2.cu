@@ -17,10 +17,12 @@
 #include "pc2.cuh"
 #include "cuda_lambda_t.hpp"
 #include "../../util/util.hpp"
+#include "../pc2_internal.hpp"
 
-template<class C>
-pc2_t<C>::pc2_t(topology_t& _topology,
-                   bool _tree_r_only, streaming_node_reader_t<C>& _reader,
+// Template class that works with either reader type
+template<class C, class Reader>
+pc2_t<C, Reader>::pc2_t(topology_t& _topology,
+                   bool _tree_r_only, Reader& _reader,
                    size_t _nodes_to_read, size_t _batch_size,
                    size_t _stream_count,
                    const char** _data_filenames, const char* _output_dir) :
@@ -127,8 +129,8 @@ pc2_t<C>::pc2_t(topology_t& _topology,
   }
 }
 
-template<class C>
-pc2_t<C>::~pc2_t() {
+template<class C, class Reader>
+pc2_t<C, Reader>::~pc2_t() {
   while (resources.size() > 0) {
     gpu_resource_t<C>* r = resources.back();
     select_gpu(r->gpu);
@@ -160,8 +162,8 @@ pc2_t<C>::~pc2_t() {
   cudaHostUnregister(page_buffer);
 }
 /*
-template<class C>
-void pc2_t<C>::get_filenames(const char* output_dir,
+template<class C, class Reader>
+void pc2_t<C, Reader>::get_filenames(const char* output_dir,
                                 std::vector<std::string>& directories,
                                 std::vector<std::string>& p_aux_filenames,
                                 std::vector<std::vector<std::string>>& tree_c_filenames,
@@ -283,8 +285,8 @@ void pc2_t<C>::get_filenames(const char* output_dir,
 }
  */
 
-template<class C>
-void pc2_t<C>::get_filenames(const char* output_dir,
+template<class C, class Reader>
+void pc2_t<C, Reader>::get_filenames(const char* output_dir,
                              std::vector<std::string>& directories,
                              std::vector<std::string>& p_aux_filenames,
                              std::vector<std::vector<std::string>>& tree_c_filenames,
@@ -304,8 +306,8 @@ void pc2_t<C>::get_filenames(const char* output_dir,
     }
 }
 
-template<class C>
-void pc2_t<C>::parse_custom_paths(const char* custom_paths,
+template<class C, class Reader>
+void pc2_t<C, Reader>::parse_custom_paths(const char* custom_paths,
                                   std::vector<std::string>& directories,
                                   std::vector<std::string>& p_aux_filenames,
                                   std::vector<std::vector<std::string>>& tree_c_filenames,
@@ -347,8 +349,8 @@ void pc2_t<C>::parse_custom_paths(const char* custom_paths,
     }
 }
 
-template<class C>
-void pc2_t<C>::generate_default_paths(const char* output_dir,
+template<class C, class Reader>
+void pc2_t<C, Reader>::generate_default_paths(const char* output_dir,
                                       const std::string& pc2_replica_output_dir,
                                       std::vector<std::string>& directories,
                                       std::vector<std::string>& p_aux_filenames,
@@ -365,8 +367,8 @@ void pc2_t<C>::generate_default_paths(const char* output_dir,
     }
 }
 
-template<class C>
-void pc2_t<C>::add_paths_for_sector(const char* output_dir,
+template<class C, class Reader>
+void pc2_t<C, Reader>::add_paths_for_sector(const char* output_dir,
                                     size_t sector,
                                     const std::string& pc2_replica_output_dir,
                                     std::vector<std::string>& directories,
@@ -431,8 +433,8 @@ void pc2_t<C>::add_paths_for_sector(const char* output_dir,
     sealed_filenames.push_back(fname);
 }
 
-template<class C>
-void pc2_t<C>::open_files() {
+template<class C, class Reader>
+void pc2_t<C, Reader>::open_files() {
   std::vector<std::string> directories;
   std::vector<std::vector<std::string>> tree_c_filenames;
   std::vector<std::vector<std::string>> tree_r_filenames;
@@ -493,8 +495,8 @@ void pc2_t<C>::open_files() {
   }
 }
 
-template<class C>
-void pc2_t<C>::hash() {
+template<class C, class Reader>
+void pc2_t<C, Reader>::hash() {
   thread_pool_t pool(1);
   pool.spawn([&]() {
     // Affinitize the thread in the pool
@@ -553,8 +555,8 @@ void pc2_t<C>::hash() {
          secs, (double)total_page_reads / (double)secs);
 }
 
-template<class C>
-void pc2_t<C>::process_writes(int core, size_t max_write_size,
+template<class C, class Reader>
+void pc2_t<C, Reader>::process_writes(int core, size_t max_write_size,
                                  mtx_fifo_t<buf_to_disk_batch_t>& to_disk_fifo,
                                  mtx_fifo_t<buf_to_disk_batch_t>& pool,
                                  std::atomic<bool>& terminate,
@@ -615,7 +617,7 @@ void pc2_t<C>::process_writes(int core, size_t max_write_size,
 
 template<class C>
 struct pc2_batcher_t {
-  typedef typename pc2_t<C>::buf_to_disk_batch_t buf_to_disk_batch_t;
+  typedef typename pc2_t<C, streaming_node_reader_t<C>>::buf_to_disk_batch_t buf_to_disk_batch_t;
 
   buf_to_disk_batch_t* unbundle;
   buf_to_disk_batch_t* bundle;
@@ -720,8 +722,8 @@ struct pc2_batcher_t {
 };
 
 
-template<class C>
-void pc2_t<C>::hash_gpu(size_t partition) {
+template<class C, class Reader>
+void pc2_t<C, Reader>::hash_gpu(size_t partition) {
   assert (stream_count % ngpus() == 0);
 
   nodes_per_stream = nodes_to_read / stream_count;
@@ -1183,8 +1185,8 @@ void pc2_t<C>::hash_gpu(size_t partition) {
   //printf("num_writes %ld\n", num_writes);
 }
 
-template<class C>
-void pc2_t<C>::hash_cpu(fr_t* roots, size_t partition, fr_t* input,
+template<class C, class Reader>
+void pc2_t<C, Reader>::hash_cpu(fr_t* roots, size_t partition, fr_t* input,
                            std::vector<file_writer_t<fr_t>*>* tree_files,
                            size_t file_offset) {
   // This count is one layer above the leaves
@@ -1239,8 +1241,8 @@ void pc2_t<C>::hash_cpu(fr_t* roots, size_t partition, fr_t* input,
   assert (scheduler.is_done());
 }
 
-template<class C>
-void pc2_t<C>::write_roots(fr_t* roots_c, fr_t* roots_r) {
+template<class C, class Reader>
+void pc2_t<C, Reader>::write_roots(fr_t* roots_c, fr_t* roots_r) {
   if (C::GetNumTreeRCFiles() > 1) {
     Poseidon hasher = C::GetNumTreeRCFiles() == 16 ?
                       Poseidon(2) : Poseidon(C::GetNumTreeRCFiles());
@@ -1303,15 +1305,16 @@ void pc2_t<C>::write_roots(fr_t* roots_c, fr_t* roots_r) {
   }
 }
 
-template<class C>
-void pc2_hash(topology_t& topology,
-              bool tree_r_only,
-              streaming_node_reader_t<C>& reader,
-              size_t nodes_to_read, size_t batch_size,
-              size_t stream_count,
-              const char** data_filenames, const char* output_dir) {
-  pc2_t<C> pc2(topology, tree_r_only, reader, nodes_to_read, batch_size, stream_count,
-                  data_filenames, output_dir);
+// Implementation that works with any reader type satisfying the interface
+template<class C, class Reader>
+void pc2_hash_impl(topology_t& topology,
+                   bool tree_r_only,
+                   Reader& reader,
+                   size_t nodes_to_read, size_t batch_size,
+                   size_t stream_count,
+                   const char** data_filenames, const char* output_dir) {
+  pc2_t<C, Reader> pc2(topology, tree_r_only, reader, nodes_to_read, batch_size, stream_count,
+                        data_filenames, output_dir);
   pc2.hash();
 }
 
@@ -1323,7 +1326,7 @@ void do_pc2_cleanup(const char* output_dir) {
   std::vector<std::vector<std::string>> tree_r_filenames;
   std::vector<std::string> sealed_filenames;
 
-  pc2_t<C>::get_filenames(output_dir,
+  pc2_t<C, streaming_node_reader_t<C>>::get_filenames(output_dir,
                              directories,
                              p_aux_filenames,
                              tree_c_filenames,
@@ -1348,6 +1351,7 @@ void do_pc2_cleanup(const char* output_dir) {
   }
 }
 
+// Explicit template instantiations for NVMe-based reader (library build)
 #ifdef RUNTIME_SECTOR_SIZE
 template void pc2_hash<sealing_config_128_2KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
 template void pc2_hash<sealing_config_128_4KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
@@ -1430,7 +1434,6 @@ template void pc2_hash<sealing_config_2_512MB_t>(topology_t&, bool, streaming_no
 template void pc2_hash<sealing_config_2_32GB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_2_32GB_t>&, size_t, size_t, size_t, const char**, const char*);
 template void pc2_hash<sealing_config_1_512MB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_1_512MB_t>&, size_t, size_t, size_t, const char**, const char*);
 template void pc2_hash<sealing_config_1_32GB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_1_32GB_t>&, size_t, size_t, size_t, const char**, const char*);
-
 
 #ifdef RUNTIME_SECTOR_SIZE
 template void do_pc2_cleanup<sealing_config_128_2KB_t>(const char* output_dir);
@@ -1515,4 +1518,30 @@ template void do_pc2_cleanup<sealing_config_2_32GB_t>(const char* output_dir);
 template void do_pc2_cleanup<sealing_config_1_512MB_t>(const char* output_dir);
 template void do_pc2_cleanup<sealing_config_1_32GB_t>(const char* output_dir);
 
+#ifndef SUPRA_PC2_NO_EXPLICIT_INSTANTIATIONS
+#ifdef RUNTIME_SECTOR_SIZE
+ template void pc2_hash<sealing_config_128_2KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_4KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_16KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_16KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_32KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_32KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_8MB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_8MB_t>&, size_t, size_t, size_t, const char**, const char*);
+
 #endif
+#endif
+
+// Explicit template instantiations for file-based reader (tree_r_file support)
+// These are needed for single-sector tree-r generation from layer files
+template void pc2_hash_files<sealing_config_1_32GB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_32GB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_512MB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_512MB_t>&, size_t, size_t, size_t, const char**, const char*);
+#ifdef RUNTIME_SECTOR_SIZE
+template void pc2_hash_files<sealing_config_1_2KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_4KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_16KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_16KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_32KB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_32KB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_8MB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_8MB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_16MB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_16MB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_1GB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_1GB_t>&, size_t, size_t, size_t, const char**, const char*);
+template void pc2_hash_files<sealing_config_1_64GB_t>(topology_t&, bool, streaming_node_reader_files_t<sealing_config_1_64GB_t>&, size_t, size_t, size_t, const char**, const char*);
+#endif
+
+#endif // __CUDA_ARCH__
