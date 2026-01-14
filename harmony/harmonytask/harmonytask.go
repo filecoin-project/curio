@@ -139,6 +139,10 @@ type TaskEngine struct {
 	follows     map[string][]followStruct
 	hostAndPort string
 
+	peering          *peering
+	schedulerChannel chan schedulerEvent
+	pollDuration     atomic.Value
+
 	// runtime flags
 	yieldBackground atomic.Bool
 
@@ -161,7 +165,8 @@ type TaskID int
 func New(
 	db *harmonydb.DB,
 	impls []TaskInterface,
-	hostnameAndPort string) (*TaskEngine, error) {
+	hostnameAndPort string,
+	peerConnector PeerConnectorInterface) (*TaskEngine, error) {
 
 	reg, err := resources.Register(db, hostnameAndPort)
 	if err != nil {
@@ -169,16 +174,20 @@ func New(
 	}
 	ctx, grace := context.WithCancel(context.Background())
 	e := &TaskEngine{
-		ctx:         ctx,
-		grace:       grace,
-		db:          db,
-		reg:         reg,
-		ownerID:     reg.MachineID, // The current number representing "hostAndPort"
-		taskMap:     make(map[string]*taskTypeHandler, len(impls)),
-		follows:     make(map[string][]followStruct),
-		hostAndPort: hostnameAndPort,
+		ctx:              ctx,
+		grace:            grace,
+		db:               db,
+		reg:              reg,
+		ownerID:          reg.MachineID, // The current number representing "hostAndPort"
+		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
+		follows:          make(map[string][]followStruct),
+		hostAndPort:      hostnameAndPort,
+		schedulerChannel: make(chan schedulerEvent, 100),
 	}
+	e.pollDuration.Store(POLL_DURATION)
+	e.peering = startPeering(e, peerConnector)
 	e.lastCleanup.Store(time.Now())
+
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
@@ -228,7 +237,7 @@ func New(
 	for _, h := range e.handlers {
 		go h.Adder(h.AddTask)
 	}
-	go e.poller()
+	go e.poller() // TODO replace with startScheduler()
 
 	return e, nil
 }
@@ -472,22 +481,9 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			continue
 		}
 		if v.IAmBored != nil {
-			var added []TaskID
-			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
-				v.AddTask(func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-					b, err := extraInfo(tID, tx)
-					if err == nil && shouldCommit {
-						added = append(added, tID)
-					}
-					return b, err
-				})
-			})
-			if err != nil {
+			if err := v.IAmBored(v.AddTask); err != nil {
 				log.Error("IAmBored failed: ", err)
 				continue
-			}
-			if added != nil { // tiny chance a fail could make these bogus, but considerWork should then fail.
-				v.considerWork(WorkSourceIAmBored, added)
 			}
 		}
 	}
