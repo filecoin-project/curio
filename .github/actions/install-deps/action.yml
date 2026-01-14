@@ -57,8 +57,27 @@ runs:
         fi
       shell: bash
 
-    - name: Fetch all tags
-      run: git fetch --all
+    # NOTE: CI sometimes flakes on large/full fetches (HTTP/2 early EOF).
+    # We only need tags (and only from origin) for versioning/metadata, so keep
+    # this fetch minimal and retry with HTTP/1.1.
+    - name: Fetch tags (resilient)
+      run: |
+        set -euo pipefail
+        git config --global http.version HTTP/1.1
+        git config --global http.postBuffer 524288000 || true
+
+        # Fetch only from origin (if present) and only tags; retry on transient network errors.
+        tries=0
+        until [ "$tries" -ge 4 ]; do
+          tries=$((tries+1))
+          if git fetch origin --tags --force --prune --no-recurse-submodules; then
+            exit 0
+          fi
+          echo "git fetch failed (attempt $tries/4), retrying in $((tries*5))s..." >&2
+          sleep $((tries*5))
+        done
+        echo "git fetch failed after 4 attempts" >&2
+        exit 1
       shell: bash
 
     - name: Sync submodules

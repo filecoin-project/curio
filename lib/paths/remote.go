@@ -29,6 +29,8 @@ import (
 
 var FetchTempSubdir = "fetching"
 
+// CopyBuf is the size of the buffer used in large file transfers.
+// 2MiB means that at 100Gbps we only need to handle ~6.4k ops per second.
 var CopyBuf = 2 << 20
 
 // LocalReaderTimeout is the timeout for keeping local reader files open without
