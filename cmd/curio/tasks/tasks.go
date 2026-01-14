@@ -247,16 +247,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 
-	miners := config.NewDynamic(make([]address.Address, 0, len(maddrs.Get())))
-	forMiners := func() {
-		minersTmp := make([]address.Address, 0, len(maddrs.Get()))
-		for k := range maddrs.Get() {
-			minersTmp = append(minersTmp, address.Address(k))
-		}
-		miners.Set(minersTmp)
-	}
-	forMiners()
-	maddrs.OnChange(forMiners)
+	miners := config.Becomes(maddrs, func() []address.Address {
+		return lo.Map(maps.Keys(maddrs.Get()), func(k dtypes.MinerAddress, _ int) address.Address {
+			return address.Address(k)
+		})
+	})
 
 	{
 		var sdeps cuhttp.ServiceDeps
@@ -331,7 +326,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
+		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
 		if cfg.HTTP.Enable {
 			if !cfg.Subsystems.EnableDealMarket {
