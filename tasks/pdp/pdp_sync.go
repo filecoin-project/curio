@@ -159,8 +159,8 @@ func (P *PDPSyncTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	return true, nil
 }
 
-func (P *PDPSyncTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (P *PDPSyncTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (P *PDPSyncTask) TypeDetails() harmonytask.TaskTypeDetails {
