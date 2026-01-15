@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strconv"
 	"time"
@@ -115,7 +116,6 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		return false
 	}
 
-	/// TODO FROM HERE handle multiple task IDs
 	headroomUntilMax := h.Max.Headroom()
 	if maxAcceptable > headroomUntilMax {
 		maxAcceptable = headroomUntilMax
@@ -138,11 +138,11 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 				}
 				break // lets process what we can
 			}
-			releaseStorage = append(releaseStorage, func() {
+			releaseStorage[i] = func() {
 				if err := markComplete(); err != nil {
 					log.Errorw("Could not release storage", "error", err)
 				}
-			})
+			}
 		}
 	}
 
@@ -150,6 +150,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	if from != WorkSourceRecover {
 		// 4. Can we claim the work for our hostname?
 		var tasksAccepted []TaskID
+		// Limit at the last possible moment in SQL AFTER we know it's unclaimed: this opens us to get work anywhere in the list.
 		err := h.TaskEngine.db.Select(h.TaskEngine.ctx, &tasksAccepted, `
 		WITH candidates AS (
 			SELECT t.id
@@ -362,9 +363,21 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	}
 }
 
+var MaxHeadroom = 100
+
+func init() {
+	m := os.Getenv("HARMONY_MAX_TASKS_PER_TYPE")
+	v, err := strconv.Atoi(m)
+	if err != nil {
+		log.Error("Could not parse HARMONY_MAX_TASKS_PER_TYPE: ", err)
+	}
+	if v > 0 {
+		MaxHeadroom = v
+	}
+}
 func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 	r := h.TaskEngine.ResourcesAvailable()
-	headroom := 100
+	headroom := MaxHeadroom
 	if h.Max.AtMax() {
 		return 0, errors.New("Did not accept " + h.Name + " task: at max already")
 	}
