@@ -217,10 +217,13 @@ func (P *PDPIndexingTask) schedule(_ context.Context, taskFunc harmonytask.AddTa
 			}
 
 			pending := pendings[0]
-			_, err = tx.Exec(`UPDATE pdp_piecerefs SET indexing_task_id = $1 
+			n, err := tx.Exec(`UPDATE pdp_piecerefs SET indexing_task_id = $1
                              WHERE indexing_task_id IS NULL AND id = $2`, id, pending.ID)
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP indexing task id: %w", err)
+			}
+			if n == 0 {
+				return false, nil // Another task already claimed this piece
 			}
 			log.Debugf("PDP indexing task scheduled for pending indexing task %d", pending.ID)
 
