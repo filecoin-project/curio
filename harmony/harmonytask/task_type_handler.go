@@ -65,12 +65,22 @@ retryAddTask:
 	if err != nil {
 		log.Errorw("Could not record added task", "error", err)
 	}
+
+	// Can this node do this task?
+	if tID > 0 && nil != h.TaskEngine.taskMap[h.Name] {
+		h.TaskEngine.schedulerChannel <- schedulerEvent{
+			TaskID:   tID,
+			TaskType: h.Name,
+			Source:   schedulerSourceAdded,
+		}
+	}
 }
 
 const (
 	WorkSourcePoller   = "poller"
 	WorkSourceRecover  = "recovered"
 	WorkSourceIAmBored = "bored"
+	WorkSourceAdded    = "added"
 )
 
 // considerWork is called to attempt to start work on a task-id of this task type.
