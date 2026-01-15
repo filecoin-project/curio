@@ -22,10 +22,33 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 const verifiedPowerGainMul = 9
+
+// SectorPartitionState contains the sector's state within its assigned deadline/partition
+type SectorPartitionState struct {
+	Deadline  uint64 `json:"deadline"`
+	Partition uint64 `json:"partition"`
+
+	// Bitfield states within the partition
+	InAllSectors        bool `json:"in_all_sectors"`
+	InLiveSectors       bool `json:"in_live_sectors"`
+	InActiveSectors     bool `json:"in_active_sectors"`
+	InFaultySectors     bool `json:"in_faulty_sectors"`
+	InRecoveringSectors bool `json:"in_recovering_sectors"`
+	InUnprovenSectors   bool `json:"in_unproven_sectors"`
+
+	// PoSt status
+	PartitionPoStSubmitted bool `json:"partition_post_submitted"`
+
+	// Proving window timing
+	IsCurrentDeadline bool    `json:"is_current_deadline"`
+	EpochsUntilProof  *int64  `json:"epochs_until_proof,omitempty"`
+	HoursUntilProof   *string `json:"hours_until_proof,omitempty"`
+}
 
 type SectorInfo struct {
 	SectorNumber       int64
@@ -49,6 +72,9 @@ type SectorInfo struct {
 
 	PipelinePoRep *sectorListEntry
 	PipelineSnap  *sectorSnapListEntry
+
+	// On-chain partition state (detailed)
+	PartitionState *SectorPartitionState
 
 	Pieces      []SectorPieceMeta
 	Locations   []LocationTable
@@ -770,7 +796,156 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	si.Resumable = hasAnyStuckTask
 	si.Restart = hasAnyStuckTask && (sle == nil || !sle.AfterSynthetic)
 
+	// Fetch partition state if we have deadline/partition info
+	if si.Deadline != nil && si.Partition != nil {
+		partState, err := a.getSectorPartitionState(ctx, maddr, abi.SectorNumber(intid), uint64(*si.Deadline), uint64(*si.Partition))
+		if err != nil {
+			// Log warning but don't fail the whole request
+			log.Warnw("failed to get sector partition state", "miner", maddr, "sector", intid, "error", err)
+		} else {
+			si.PartitionState = partState
+		}
+	}
+
 	return si, nil
+}
+
+// getSectorPartitionState retrieves detailed partition state for a sector
+func (a *WebRPC) getSectorPartitionState(ctx context.Context, maddr address.Address, sectorNum abi.SectorNumber, dlIdx, partIdx uint64) (*SectorPartitionState, error) {
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	// Get miner actor state
+	act, err := a.deps.Chain.StateGetActor(ctx, maddr, head.Key())
+	if err != nil {
+		return nil, xerrors.Errorf("getting miner actor: %w", err)
+	}
+
+	mas, err := miner.Load(a.stor, act)
+	if err != nil {
+		return nil, xerrors.Errorf("loading miner state: %w", err)
+	}
+
+	// Get deadline info
+	dinfo, err := mas.DeadlineInfo(head.Height())
+	if err != nil {
+		return nil, xerrors.Errorf("getting deadline info: %w", err)
+	}
+
+	// Get the specific deadline
+	var dlState miner.Deadline
+	err = mas.ForEachDeadline(func(idx uint64, dl miner.Deadline) error {
+		if idx == dlIdx {
+			dlState = dl
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("iterating deadlines: %w", err)
+	}
+	if dlState == nil {
+		return nil, xerrors.Errorf("deadline %d not found", dlIdx)
+	}
+
+	// Get the specific partition
+	var partState miner.Partition
+	err = dlState.ForEachPartition(func(idx uint64, part miner.Partition) error {
+		if idx == partIdx {
+			partState = part
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("iterating partitions: %w", err)
+	}
+	if partState == nil {
+		return nil, xerrors.Errorf("partition %d not found in deadline %d", partIdx, dlIdx)
+	}
+
+	// Check sector in each bitfield
+	sectorID := uint64(sectorNum)
+
+	allSectors, err := partState.AllSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting all sectors: %w", err)
+	}
+	inAll, _ := allSectors.IsSet(sectorID)
+
+	liveSectors, err := partState.LiveSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting live sectors: %w", err)
+	}
+	inLive, _ := liveSectors.IsSet(sectorID)
+
+	activeSectors, err := partState.ActiveSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting active sectors: %w", err)
+	}
+	inActive, _ := activeSectors.IsSet(sectorID)
+
+	faultySectors, err := partState.FaultySectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting faulty sectors: %w", err)
+	}
+	inFaulty, _ := faultySectors.IsSet(sectorID)
+
+	recoveringSectors, err := partState.RecoveringSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting recovering sectors: %w", err)
+	}
+	inRecovering, _ := recoveringSectors.IsSet(sectorID)
+
+	unprovenSectors, err := partState.UnprovenSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting unproven sectors: %w", err)
+	}
+	inUnproven, _ := unprovenSectors.IsSet(sectorID)
+
+	// Check PoSt submission status for this partition
+	postsPosted, err := dlState.PartitionsPoSted()
+	if err != nil {
+		return nil, xerrors.Errorf("getting posted partitions: %w", err)
+	}
+	postSubmitted, _ := postsPosted.IsSet(partIdx)
+
+	// Build result
+	state := &SectorPartitionState{
+		Deadline:               dlIdx,
+		Partition:              partIdx,
+		InAllSectors:           inAll,
+		InLiveSectors:          inLive,
+		InActiveSectors:        inActive,
+		InFaultySectors:        inFaulty,
+		InRecoveringSectors:    inRecovering,
+		InUnprovenSectors:      inUnproven,
+		PartitionPoStSubmitted: postSubmitted,
+		IsCurrentDeadline:      dlIdx == dinfo.Index,
+	}
+
+	// Calculate time until proving window
+	if dlIdx != dinfo.Index {
+		deadlinesPerPeriod := uint64(48)
+		epochsPerDeadline := dinfo.WPoStChallengeWindow
+
+		var epochsUntilOpen abi.ChainEpoch
+		if dlIdx > dinfo.Index {
+			epochsUntilOpen = abi.ChainEpoch(dlIdx-dinfo.Index) * epochsPerDeadline
+		} else {
+			epochsUntilOpen = abi.ChainEpoch(deadlinesPerPeriod-dinfo.Index+dlIdx) * epochsPerDeadline
+		}
+		epochsUntilOpen -= (head.Height() - dinfo.Open)
+
+		epochs := int64(epochsUntilOpen)
+		state.EpochsUntilProof = &epochs
+
+		hoursUntil := float64(epochsUntilOpen) * 30.0 / 3600.0
+		hoursStr := fmt.Sprintf("%.1f hours", hoursUntil)
+		state.HoursUntilProof = &hoursStr
+	}
+
+	return state, nil
 }
 
 func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {

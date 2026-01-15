@@ -228,9 +228,46 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         </tr>
                 </table>
             </div>
-            ${this.data.PipelinePoRep ? html`
+            ${this.data.PartitionState ? html`
                 <div>
-                    <h3>On-Chain Sector State</h3>
+                    <h3>On-Chain Partition State</h3>
+                    <p style="margin-bottom: 10px; font-size: 0.9em; color: #aaa;">
+                        Sector state in Deadline ${this.data.PartitionState.deadline}, Partition ${this.data.PartitionState.partition}
+                    </p>
+                    <div class="state-overview">
+                        <span class="state-badge ${this.data.PartitionState.in_all_sectors ? 'active' : 'inactive'}">
+                            ${this.data.PartitionState.in_all_sectors ? '✓' : '✗'} All Sectors
+                        </span>
+                        <span class="state-badge ${this.data.PartitionState.in_live_sectors ? 'active' : 'inactive'}">
+                            ${this.data.PartitionState.in_live_sectors ? '✓' : '✗'} Live
+                        </span>
+                        <span class="state-badge ${this.data.PartitionState.in_active_sectors ? 'active' : 'inactive'}">
+                            ${this.data.PartitionState.in_active_sectors ? '✓' : '✗'} Active
+                        </span>
+                        <span class="state-badge ${this.data.PartitionState.in_faulty_sectors ? 'faulty' : 'active'}">
+                            ${this.data.PartitionState.in_faulty_sectors ? '⚠' : '✓'} ${this.data.PartitionState.in_faulty_sectors ? 'Faulty' : 'Not Faulty'}
+                        </span>
+                        <span class="state-badge ${this.data.PartitionState.in_recovering_sectors ? 'unproven' : 'active'}">
+                            ${this.data.PartitionState.in_recovering_sectors ? '⚠' : '✓'} ${this.data.PartitionState.in_recovering_sectors ? 'Recovering' : 'Not Recovering'}
+                        </span>
+                        <span class="state-badge ${this.data.PartitionState.in_unproven_sectors ? 'unproven' : 'active'}">
+                            ${this.data.PartitionState.in_unproven_sectors ? '⚠' : '✓'} ${this.data.PartitionState.in_unproven_sectors ? 'Unproven' : 'Proven'}
+                        </span>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        ${this.data.PartitionState.is_current_deadline ? html`
+                            <span class="state-badge ${this.data.PartitionState.partition_post_submitted ? 'active' : 'unproven'}">
+                                ${this.data.PartitionState.partition_post_submitted ? '✓' : '⏳'} PoSt ${this.data.PartitionState.partition_post_submitted ? 'Submitted' : 'Pending'}
+                            </span>
+                            <span class="state-badge unproven">⚡ IN CURRENT DEADLINE - proving now!</span>
+                        ` : this.data.PartitionState.hours_until_proof ? html`
+                            <span class="state-badge inactive">⏰ Next proving in ${this.data.PartitionState.hours_until_proof}</span>
+                        ` : ''}
+                    </div>
+                </div>
+            ` : this.data.PipelinePoRep ? html`
+                <div>
+                    <h3>On-Chain Sector State (Pipeline)</h3>
                     <div class="state-overview">
                         <span class="state-badge ${this.data.PipelinePoRep.ChainAlloc ? 'active' : 'inactive'}">
                             ${this.data.PipelinePoRep.ChainAlloc ? '✓' : '✗'} Allocated
@@ -249,7 +286,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         </span>
                     </div>
                     <p style="margin-top: 10px; font-size: 0.9em; color: #aaa;">
-                        These states reflect the sector's membership in on-chain bitfields from the miner actor.
+                        Sector is still in pipeline. Full partition state will be available once committed.
                     </p>
                 </div>
             ` : ''}

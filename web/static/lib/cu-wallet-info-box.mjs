@@ -116,8 +116,8 @@ class CuWalletInfoBox extends LitElement {
           border: 1px solid #555;
           padding: 10px;
           z-index: 10000; 
-          min-width: 400px;
-          max-width: 550px;
+          min-width: 500px;
+          max-width: 700px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.5);
           font-size: 0.9em;
         }
