@@ -11,7 +11,10 @@ FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
 $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
-CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+#CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+# Unfortunately, this breaks GPU detection, so disabling for now.
+CURIO_OPTIMAL_LIBFILCRYPTO = 0
+
 CGO_LDFLAGS_ALLOW_PATTERN := (-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)
 CGO_LDFLAGS_ALLOW ?= "$(CGO_LDFLAGS_ALLOW_PATTERN)"
 export CGO_LDFLAGS_ALLOW
