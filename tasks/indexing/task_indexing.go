@@ -318,9 +318,8 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
-	// RAM: 4 MiB (bufio reader) + ~4 MiB (gocql worker batches) + headroom for
-	// channel buffers, connection pools, and runtime overhead.
-	const indexingTaskRAM = 16 << 20 // 16 MiB
+	// RAM: bufio reader, gocql batches, fr32/read path buffers, connection pools.
+	const indexingTaskRAM = 128 << 20 // 128 MiB
 
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
