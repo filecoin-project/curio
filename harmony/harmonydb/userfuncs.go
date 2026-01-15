@@ -25,7 +25,7 @@ func backoffForSerializationError[T any](f func() (T, error)) (whatever T, err e
 	for _, backoff := range backoffs {
 		res, err := f()
 		if !IsErrSerialization(err) {
-			return res, nil
+			return res, err
 		}
 		time.Sleep(backoff)
 	}
