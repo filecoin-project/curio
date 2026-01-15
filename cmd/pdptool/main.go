@@ -637,6 +637,7 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("failed to upload piece: %v", err)
 		}
 
+		fmt.Printf("Piece CID: %s\n", pieceCIDComputed.String())
 		fmt.Println("Piece uploaded successfully.")
 		return nil
 	},
@@ -1752,6 +1753,7 @@ var streamingPieceUploadCmd = &cli.Command{
 			return fmt.Errorf("failed to finalize, status code %d: %s", resp.StatusCode, string(ret))
 		}
 
+		fmt.Printf("Piece CID: %s\n", pcid2.String())
 		fmt.Println("Piece uploaded successfully.")
 		if localNotifWait {
 			fmt.Println("Waiting for server notification...")

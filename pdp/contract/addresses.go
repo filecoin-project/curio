@@ -2,6 +2,8 @@ package contract
 
 import (
 	"math/big"
+	"os"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/snadrus/must"
@@ -21,6 +23,27 @@ type RecordKeeperAddresses struct {
 	FWSService common.Address
 	Simple     common.Address
 }
+
+// lazyValue holds a value that is loaded exactly once on first access.
+type lazyValue[T any] struct {
+	once  sync.Once
+	value T
+	err   error
+}
+
+// get loads the value on first call, then returns the cached result.
+func (l *lazyValue[T]) get(loader func() (T, error)) (T, error) {
+	l.once.Do(func() {
+		l.value, l.err = loader()
+	})
+	return l.value, l.err
+}
+
+var (
+	pdpContracts    lazyValue[PDPContracts]
+	serviceRegistry lazyValue[common.Address]
+	usdfc           lazyValue[common.Address]
+)
 
 func (a RecordKeeperAddresses) List() []common.Address {
 	return []common.Address{a.FWSService, a.Simple}
@@ -42,6 +65,35 @@ func ContractAddresses() PDPContracts {
 				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
+	case build.Build2k:
+		result, err := pdpContracts.get(func() (PDPContracts, error) {
+			pdpVerifier := os.Getenv("CURIO_DEVNET_PDP_VERIFIER_ADDRESS")
+			if pdpVerifier == "" {
+				return PDPContracts{}, xerrors.Errorf("PDP verifier address not configured for devnet - set CURIO_DEVNET_PDP_VERIFIER_ADDRESS env var")
+			}
+			fwsService := os.Getenv("CURIO_DEVNET_FWSS_ADDRESS")
+			if fwsService == "" {
+				return PDPContracts{}, xerrors.Errorf("FWSS address not configured for devnet - set CURIO_DEVNET_FWSS_ADDRESS env var")
+			}
+
+			contracts := PDPContracts{
+				PDPVerifier: common.HexToAddress(pdpVerifier),
+				AllowedPublicRecordKeepers: RecordKeeperAddresses{
+					FWSService: common.HexToAddress(fwsService),
+				},
+			}
+
+			// Simple record keeper is optional
+			if simple := os.Getenv("CURIO_DEVNET_RECORD_KEEPER_SIMPLE_ADDRESS"); simple != "" {
+				contracts.AllowedPublicRecordKeepers.Simple = common.HexToAddress(simple)
+			}
+
+			return contracts, nil
+		})
+		if err != nil {
+			panic(err)
+		}
+		return result
 	default:
 		panic("PDP contract unknown for this network")
 	}
@@ -79,6 +131,13 @@ func ServiceRegistryAddress() (common.Address, error) {
 		return common.HexToAddress(ServiceRegistryCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(ServiceRegistryMainnet), nil
+	case build.Build2k:
+		return serviceRegistry.get(func() (common.Address, error) {
+			if addr := os.Getenv("CURIO_DEVNET_SERVICE_REGISTRY_ADDRESS"); addr != "" {
+				return common.HexToAddress(addr), nil
+			}
+			return common.Address{}, xerrors.Errorf("service registry address not configured for devnet - set CURIO_DEVNET_SERVICE_REGISTRY_ADDRESS env var")
+		})
 	default:
 		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
 	}
@@ -93,6 +152,13 @@ func USDFCAddress() (common.Address, error) {
 		return common.HexToAddress(USDFCAddressCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
+	case build.Build2k:
+		return usdfc.get(func() (common.Address, error) {
+			if addr := os.Getenv("CURIO_DEVNET_USDFC_ADDRESS"); addr != "" {
+				return common.HexToAddress(addr), nil
+			}
+			return common.Address{}, xerrors.Errorf("USDFC address not configured for devnet - set CURIO_DEVNET_USDFC_ADDRESS env var")
+		})
 	default:
 		return common.Address{}, xerrors.Errorf("USDFC address not set for this network %s", build.BuildTypeString()[1:])
 	}

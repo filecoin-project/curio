@@ -1,6 +1,8 @@
 package filecoinpayment
 
 import (
+	"os"
+
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/xerrors"
 
@@ -16,6 +18,11 @@ func PaymentContractAddress() (common.Address, error) {
 		return common.HexToAddress(PaymentContractCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(PaymentContractMainnet), nil
+	case build.Build2k:
+		if addr := os.Getenv("CURIO_DEVNET_PAYMENTS_ADDRESS"); addr != "" {
+			return common.HexToAddress(addr), nil
+		}
+		return common.Address{}, xerrors.Errorf("payment contract address not configured for devnet - set CURIO_DEVNET_PAYMENTS_ADDRESS env var")
 	default:
 		return common.Address{}, xerrors.Errorf("payment contract address not set for this network %s", build.BuildTypeString()[1:])
 	}
