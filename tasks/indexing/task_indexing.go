@@ -318,14 +318,15 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
-	//dealCfg := i.cfg.Market.StorageMarketConfig
-	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
+	// RAM: 4 MiB (bufio reader) + ~4 MiB (gocql worker batches) + headroom for
+	// channel buffers, connection pools, and runtime overhead.
+	const indexingTaskRAM = 16 << 20 // 16 MiB
 
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
 		Cost: resources.Resources{
 			Cpu: 1,
-			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
+			Ram: indexingTaskRAM,
 		},
 		Max:         i.max,
 		MaxFailures: 3,
