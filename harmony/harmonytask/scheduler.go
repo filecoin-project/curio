@@ -32,12 +32,12 @@ func (e *TaskEngine) startScheduler() {
 				case schedulerSourceAdded:
 					if _, ok := availableTasks[event.TaskType]; ok { // we maybe not run this task.
 						availableTasks[event.TaskType][event.TaskID] = true
-						// Try to schedule this task or reserve it.
+						// Try to schedule this task or reserve it 1ms after the last one of this type arrives.
 					}
 					e.peering.TellOthers(event.TaskType, event.TaskID)
 				case schedulerSourcePeer:
 					availableTasks[event.TaskType][event.TaskID] = true
-					// TODO determine if we should run. (later PR: or reserve.)
+					// TODO determine if we should run after this task arrives in 5ms (later PR: or reserve.)
 
 				case schedulerSourcePeerStarted: // TODO Emit this somewhere
 					delete(availableTasks[event.TaskType], event.TaskID)
@@ -51,4 +51,4 @@ func (e *TaskEngine) startScheduler() {
 			}
 		}
 	}()
-}
+} // TODO Move all harmony_task writers to taskEngine.AddTask()
