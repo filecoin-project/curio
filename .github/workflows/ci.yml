@@ -659,10 +659,9 @@ jobs:
           echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          COVERAGE_URL="${{ steps.upload-coverage.outputs.url || '' }}"
-          #region agent log
-          echo '{"sessionId":"debug-session","runId":"run1","hypothesisId":"H2","location":"ci.yml:SUMMARY","message":"env coverage url","data":{"url":"'"$COVERAGE_URL"'"},"timestamp":'$(date +%s%3N)'}' 
-          #endregion
+          # Optional: if we later add a dedicated publish step that outputs a URL,
+          # wire it in here. For now we only upload an Actions artifact.
+          COVERAGE_URL=""
           if [ -n "$COVERAGE_URL" ] && [ "$COVERAGE_URL" != "null" ]; then
             echo "### 🌐 View Coverage Report" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
