@@ -83,9 +83,9 @@ const (
 //
 // Logic for multiple task IDs:
 // Runs CanAccept as few times as possible and respects list order.
-// The headroom (maxes, resources, disk space) becomes a SQL LIMIT so we can get work anywhere in the list.
+// The headroom (maxes, resources) becomes a SQL LIMIT so we can get work anywhere in the list.
 // Avoids caching CanAccept() results as priority may change
-// Disk resources are freed down to what got claimed.
+// Disk resources are claimed AFTER taking the tasks because they may have different storage paths so they can't update.
 func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
 	if len(ids) == 0 {
 		return true // stop looking for takers
