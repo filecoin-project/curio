@@ -98,7 +98,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	return true, nil
 }
 
-func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 
 	ctx := context.Background()
 	/*
@@ -119,12 +119,12 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 				    inner join sector_location l on p.sp_id=l.miner_id and p.sector_number=l.sector_num
 				    where task_id_move_storage in ($1) and l.sector_filetype=4`, indIDs)
 			if err != nil {
-				return nil, xerrors.Errorf("getting tasks: %w", err)
+				return []harmonytask.TaskID{}, xerrors.Errorf("getting tasks: %w", err)
 			}
 
 			ls, err := m.sc.LocalStorage(ctx)
 			if err != nil {
-				return nil, xerrors.Errorf("getting local storage: %w", err)
+				return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 			}
 
 			acceptables := map[harmonytask.TaskID]bool{}
@@ -144,7 +144,7 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 	////
 	ls, err := m.sc.LocalStorage(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 	}
 	var haveStorage bool
 	for _, l := range ls {
@@ -155,11 +155,10 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 	}
 
 	if !haveStorage {
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {

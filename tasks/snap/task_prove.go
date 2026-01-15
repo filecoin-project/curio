@@ -105,23 +105,22 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if p.enableRemoteProofs {
 		// remote proofs enabled but not local prove - we still need the task for poller
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	rdy, err := p.paramsReady()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to setup params: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
 		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {

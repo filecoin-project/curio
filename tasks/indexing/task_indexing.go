@@ -675,7 +675,7 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 	return nil
 }
 
-func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	ctx := context.Background()
 
 	type task struct {
@@ -773,23 +773,25 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		localStorageMap[string(l.ID)] = true
 	}
 
+	var acceptables []harmonytask.TaskID
 	for idx := range tasks {
 		// Tasks with Indexing = false don't need to read the sector, accept them
 		if !tasks[idx].Indexing {
-			return &tasks[idx].TaskID, nil
+
+			acceptables = append(acceptables, tasks[idx].TaskID)
 		}
 		// Tasks with no unsealed copy (empty StorageID) can be accepted to handle
 		// gracefully in Do() - we'll complete them without actual indexing
 		if tasks[idx].StorageID == "" {
-			return &tasks[idx].TaskID, nil
+			acceptables = append(acceptables, tasks[idx].TaskID)
 		}
 		// Tasks with unsealed copy on this node's storage can be accepted
 		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
-			return &tasks[idx].TaskID, nil
+			acceptables = append(acceptables, tasks[idx].TaskID)
 		}
 	}
 
-	return nil, nil
+	return acceptables, nil
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
