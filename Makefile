@@ -11,10 +11,7 @@ FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
 $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
-#CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
-# Unfortunately, this breaks GPU detection, so disabling for now.
-CURIO_OPTIMAL_LIBFILCRYPTO = 0
-
+CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
 CGO_LDFLAGS_ALLOW_PATTERN := (-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)
 CGO_LDFLAGS_ALLOW ?= "$(CGO_LDFLAGS_ALLOW_PATTERN)"
 export CGO_LDFLAGS_ALLOW
@@ -132,6 +129,9 @@ test: test-deps
 ## ldflags -s -w strips binary
 
 CURIO_TAGS ?= cunative nofvm
+
+# Convert space-separated tags to comma-separated for GOFLAGS (which is whitespace-split)
+CURIO_TAGS_CSV := $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
 
 ifeq ($(shell uname),Linux)
 curio: CGO_LDFLAGS_ALLOW='.*'
@@ -271,10 +271,10 @@ cu2k: CURIO_TAGS+= 2k
 cu2k: curio
 
 cfgdoc-gen:
-	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
 
 fix-imports:
-	$(GOCC) run ./scripts/fiximports
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 
 docsgen: docsgen-md docsgen-openrpc
 	@echo "FixImports will run only from the 'make gen' target"
@@ -285,7 +285,7 @@ docsgen-md: docsgen-md-curio
 .PHONY: docsgen-md
 
 api-gen:
-	$(GOCC) run ./api/gen/api/proxygen.go
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./api/gen/api/proxygen.go
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: api-gen
 
@@ -301,7 +301,7 @@ docsgen-md-curio: docsgen-md-bin
 .PHONY: api-gen
 
 docsgen-md-bin: api-gen
-	$(GOCC) build $(GOFLAGS) -o docgen-md ./scripts/docgen/cmd
+	$(GOCC) build $(GOFLAGS) -tags="$(CURIO_TAGS)" -o docgen-md ./scripts/docgen/cmd
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-md-bin
 
@@ -310,7 +310,7 @@ docsgen-openrpc: docsgen-openrpc-curio
 .PHONY: docsgen-openrpc
 
 docsgen-openrpc-bin: api-gen 
-	$(GOCC) build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
+	$(GOCC) build $(GOFLAGS) -tags="$(CURIO_TAGS)" -o docgen-openrpc ./api/docgen-openrpc/cmd
 
 docsgen-openrpc-curio: docsgen-openrpc-bin
 	./docgen-openrpc "api/api_curio.go" "Curio" "api" "./api" > build/openrpc/curio.json
@@ -329,7 +329,7 @@ docsgen-cli: curio sptool
 .PHONY: docsgen-cli
 
 go-generate:
-	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) generate ./...
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
 .PHONY: go-generate
 
 gen: gensimple
@@ -354,12 +354,12 @@ endif
 	$(MAKE) docsgen
 	$(MAKE) marketgen
 	$(MAKE) docsgen-cli
-	$(GOCC) run ./scripts/fiximports
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 	go mod tidy
 .PHONY: gensimple
 
 fiximports:
-	$(GOCC) run ./scripts/fiximports
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 .PHONY: fiximports
 
 forest-test: GOFLAGS+=-tags=forest
