@@ -18,6 +18,11 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         this.unsealedCheckId = null;
         this.unsealedCheckResult = null;
         this.unsealedCheckPolling = null;
+        // Sealed (CommR) check state
+        this.commRCheckRunning = false;
+        this.commRCheckId = null;
+        this.commRCheckResult = null;
+        this.commRCheckPolling = null;
         this.loadData();
         this.loadGCMarks();
     }
@@ -177,6 +182,66 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             clearInterval(this.unsealedCheckPolling);
             this.unsealedCheckPolling = null;
         }
+        if (this.commRCheckPolling) {
+            clearInterval(this.commRCheckPolling);
+            this.commRCheckPolling = null;
+        }
+    }
+
+    async startCommRCheck(fileType) {
+        if (this.commRCheckRunning) return;
+        this.commRCheckRunning = true;
+        this.commRCheckId = null;
+        this.commRCheckResult = null;
+        this.requestUpdate();
+
+        try {
+            const result = await RPCCall('SectorCommRCheckStart', [this.data.Miner, this.data.SectorNumber, fileType]);
+            if (result.error) {
+                this.commRCheckResult = { error: result.error };
+                this.commRCheckRunning = false;
+                this.requestUpdate();
+                return;
+            }
+            this.commRCheckId = result.check_id;
+            this.commRCheckResult = result;
+            this.commRCheckRunning = false;
+            this.requestUpdate();
+
+            // Start polling for completion
+            this.pollCommRCheck();
+        } catch (err) {
+            this.commRCheckResult = { error: err.message };
+            this.commRCheckRunning = false;
+            this.requestUpdate();
+        }
+    }
+
+    async pollCommRCheck() {
+        if (this.commRCheckPolling) {
+            clearInterval(this.commRCheckPolling);
+        }
+
+        const checkStatus = async () => {
+            try {
+                const result = await RPCCall('SectorCommRCheckStatus', [this.commRCheckId]);
+                this.commRCheckResult = result;
+                if (result.complete) {
+                    // Task completed
+                    if (this.commRCheckPolling) {
+                        clearInterval(this.commRCheckPolling);
+                        this.commRCheckPolling = null;
+                    }
+                }
+                this.requestUpdate();
+            } catch (err) {
+                console.error('Failed to check CommR status:', err);
+            }
+        };
+
+        // Check immediately, then every 2 seconds
+        await checkStatus();
+        this.commRCheckPolling = setInterval(checkStatus, 2000);
     }
 
     static styles = [pipelineStyles, snapPipelineStyles, css`
@@ -652,6 +717,80 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                                         <span>
                                             ${this.unsealedCheckResult.task_id ? html`
                                                 <task-status .taskId="${this.unsealedCheckResult.task_id}"></task-status>
+                                            ` : html`
+                                                <span style="color: #FFD600;">Waiting for task pickup...</span>
+                                            `}
+                                        </span>
+                                    `}
+                                </div>
+                            `}
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
+            ${this.data.HasSealed || this.data.HasUpdate ? html`
+                <div>
+                    <h3>Check Sealed Data (CommR)</h3>
+                    <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
+                        Verify sealed sector data by recomputing CommR from the sealed file and comparing it to the expected value.
+                        This creates a background task that regenerates tree-r and computes CommR.
+                        <strong>Requires a node with AVX512 CPU and CUDA GPU.</strong>
+                    </p>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        ${this.data.HasSealed ? html`
+                            <button 
+                                class="btn btn-primary btn-sm" 
+                                @click="${() => this.startCommRCheck('sealed')}"
+                                ?disabled="${this.commRCheckRunning || (this.commRCheckResult && !this.commRCheckResult.complete && !this.commRCheckResult.error)}"
+                            >
+                                ${this.commRCheckRunning ? 'Starting...' : 
+                                  (this.commRCheckResult && !this.commRCheckResult.complete && !this.commRCheckResult.error) ? 'Check in progress...' :
+                                  'Check Sealed File'}
+                            </button>
+                        ` : ''}
+                        ${this.data.HasUpdate ? html`
+                            <button 
+                                class="btn btn-secondary btn-sm" 
+                                @click="${() => this.startCommRCheck('update')}"
+                                ?disabled="${this.commRCheckRunning || (this.commRCheckResult && !this.commRCheckResult.complete && !this.commRCheckResult.error)}"
+                            >
+                                ${this.commRCheckRunning ? 'Starting...' : 
+                                  (this.commRCheckResult && !this.commRCheckResult.complete && !this.commRCheckResult.error) ? 'Check in progress...' :
+                                  'Check Update File'}
+                            </button>
+                        ` : ''}
+                    </div>
+                    ${this.commRCheckResult ? html`
+                        <div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                            ${this.commRCheckResult.error ? html`
+                                <div style="color: #B63333;">
+                                    <strong>Error:</strong> ${this.commRCheckResult.error}
+                                </div>
+                            ` : html`
+                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; font-size: 0.9em;">
+                                    <span style="color: #aaa;">Check ID:</span>
+                                    <span>${this.commRCheckResult.check_id}</span>
+                                    
+                                    <span style="color: #aaa;">File Type:</span>
+                                    <span>${this.commRCheckResult.file_type}</span>
+                                    
+                                    <span style="color: #aaa;">Expected CommR:</span>
+                                    <span style="word-break: break-all; font-family: monospace; font-size: 0.85em;">${this.commRCheckResult.expected_comm_r}</span>
+                                    
+                                    ${this.commRCheckResult.complete ? html`
+                                        <span style="color: #aaa;">Actual CommR:</span>
+                                        <span style="word-break: break-all; font-family: monospace; font-size: 0.85em;">${this.commRCheckResult.actual_comm_r || 'N/A'}</span>
+                                        
+                                        <span style="color: #aaa;">Result:</span>
+                                        <span style="color: ${this.commRCheckResult.ok ? '#4BB543' : '#B63333'}; font-weight: 500;">
+                                            ${this.commRCheckResult.ok ? 'PASSED - Data matches expected CommR' : 'FAILED'}
+                                            ${this.commRCheckResult.message ? ` - ${this.commRCheckResult.message}` : ''}
+                                        </span>
+                                    ` : html`
+                                        <span style="color: #aaa;">Task:</span>
+                                        <span>
+                                            ${this.commRCheckResult.task_id ? html`
+                                                <task-status .taskId="${this.commRCheckResult.task_id}"></task-status>
                                             ` : html`
                                                 <span style="color: #FFD600;">Waiting for task pickup...</span>
                                             `}

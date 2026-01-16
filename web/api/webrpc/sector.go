@@ -69,6 +69,8 @@ type SectorInfo struct {
 	UpdateMsg          string
 	UnsealedState      *bool
 	HasUnsealed        bool
+	HasSealed          bool
+	HasUpdate          bool
 
 	PipelinePoRep *sectorListEntry
 	PipelineSnap  *sectorSnapListEntry
@@ -371,6 +373,12 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		loc := loc
 		if loc.FileType == storiface.FTUnsealed {
 			si.HasUnsealed = true
+		}
+		if loc.FileType == storiface.FTSealed {
+			si.HasSealed = true
+		}
+		if loc.FileType == storiface.FTUpdate {
+			si.HasUpdate = true
 		}
 
 		urlList := strings.Split(loc.Urls, paths.URLSeparator)

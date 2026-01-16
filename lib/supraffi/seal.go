@@ -46,3 +46,27 @@ func TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uin
 	defer C.free(unsafe.Pointer(cOutputDir))
 	return int(C.tree_r_file(cLastLayerFilename, cDataFilename, cOutputDir, C.size_t(sectorSize)))
 }
+
+// GetCommRLastFromTree returns comm_r_last after calculating from tree file(s).
+// Returns true on success.
+func GetCommRLastFromTree(commRLast []byte, cachePath string, sectorSize uint64) bool {
+	if len(commRLast) < 32 {
+		return false
+	}
+	cCommRLast := (*C.uint8_t)(unsafe.Pointer(&commRLast[0]))
+	cCachePath := C.CString(cachePath)
+	defer C.free(unsafe.Pointer(cCachePath))
+	return bool(C.get_comm_r_last_from_tree(cCommRLast, cCachePath, C.size_t(sectorSize)))
+}
+
+// GetCommRLast returns comm_r_last from p_aux file.
+// Returns true on success.
+func GetCommRLast(commRLast []byte, cachePath string) bool {
+	if len(commRLast) < 32 {
+		return false
+	}
+	cCommRLast := (*C.uint8_t)(unsafe.Pointer(&commRLast[0]))
+	cCachePath := C.CString(cachePath)
+	defer C.free(unsafe.Pointer(cCachePath))
+	return bool(C.get_comm_r_last(cCommRLast, cCachePath))
+}
