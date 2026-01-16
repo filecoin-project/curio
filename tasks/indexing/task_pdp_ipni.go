@@ -355,10 +355,13 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 
 			pending := pendings[0]
-			_, err = tx.Exec(`UPDATE pdp_piecerefs SET ipni_task_id = $1
+			n, err := tx.Exec(`UPDATE pdp_piecerefs SET ipni_task_id = $1
 						 WHERE ipni_task_id IS NULL AND id = $2`, id, pending.ID)
 			if err != nil {
 				return false, xerrors.Errorf("updating PDP ipni task id: %w", err)
+			}
+			if n == 0 {
+				return false, nil // Another task already claimed this piece
 			}
 
 			log.Debugf("PDP IPNI task scheduled for pending IPNI task %d", pending.ID)
