@@ -183,7 +183,10 @@ func isDynamicType(t reflect.Type) bool {
 func (r *cfgRoot[T]) changeMonitor() {
 	lastTimestamp := time.Time{} // lets do a read at startup
 
+	sleepTime := time.Millisecond // read early so we didn't miss something on start-up.
 	for {
+		time.Sleep(sleepTime)
+		sleepTime = 30 * time.Second
 		configCount := 0
 		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
 		if err != nil {
@@ -214,7 +217,6 @@ func (r *cfgRoot[T]) changeMonitor() {
 				return
 			}
 		}()
-		time.Sleep(30 * time.Second)
 	}
 }
 
