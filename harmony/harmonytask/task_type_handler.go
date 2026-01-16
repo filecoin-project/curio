@@ -397,7 +397,7 @@ func init() {
 	}
 	v, err := strconv.Atoi(m)
 	if err != nil {
-		log.Error("Could not parse HARMONY_MAX_TASKS_PER_TYPE: ", err)
+		log.Errorw("Could not parse HARMONY_MAX_TASKS_PER_TYPE", "value", m, "error", err)
 	}
 	if v > 0 {
 		MaxHeadroom = v
