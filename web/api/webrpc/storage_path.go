@@ -541,10 +541,13 @@ func (a *WebRPC) HostToMachineID(ctx context.Context, hosts []string) (map[strin
 	}
 
 	result := make(map[string]int64)
-	for _, m := range machines {
-		// Extract just the host:port part for matching
-		for _, h := range hosts {
-			// Match if the machine's host_and_port contains the host or equals it
+	for _, h := range hosts {
+		// Skip if already matched
+		if _, ok := result[h]; ok {
+			continue
+		}
+		for _, m := range machines {
+			// Match if the machine's host_and_port contains the host or equals it (exact match preferred)
 			if m.HostAndPort == h || strings.Contains(m.HostAndPort, h) || strings.Contains(h, m.HostAndPort) {
 				result[h] = m.ID
 				break
@@ -554,6 +557,7 @@ func (a *WebRPC) HostToMachineID(ctx context.Context, hosts []string) (map[strin
 			machineHost := strings.Split(m.HostAndPort, ":")[0]
 			if hostOnly == machineHost {
 				result[h] = m.ID
+				break
 			}
 		}
 	}

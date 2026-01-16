@@ -50,14 +50,25 @@ func (a *WebRPC) SectorCommRCheckStart(ctx context.Context, spStr string, sector
 	}
 
 	// Get expected CommR from sectors_meta
-	var curSealedCID string
-	err = a.deps.DB.QueryRow(ctx, `
-		SELECT cur_sealed_cid FROM sectors_meta WHERE sp_id = $1 AND sector_num = $2
-	`, spID, sectorNum).Scan(&curSealedCID)
+	// For "sealed" file type: use orig_sealed_cid (original sealed file CommR)
+	// For "update" file type: use cur_sealed_cid (snap-upgrade update CommR)
+	var expectedCID string
+	if fileType == "sealed" {
+		// For sealed files, we need the original CommR (before any snap upgrades)
+		// orig_sealed_cid is set for snap-upgraded sectors, cur_sealed_cid for non-upgraded
+		err = a.deps.DB.QueryRow(ctx, `
+			SELECT COALESCE(orig_sealed_cid, cur_sealed_cid) FROM sectors_meta WHERE sp_id = $1 AND sector_num = $2
+		`, spID, sectorNum).Scan(&expectedCID)
+	} else {
+		// For update files, we need the current CommR (the snap-upgrade CommR)
+		err = a.deps.DB.QueryRow(ctx, `
+			SELECT cur_sealed_cid FROM sectors_meta WHERE sp_id = $1 AND sector_num = $2
+		`, spID, sectorNum).Scan(&expectedCID)
+	}
 	if err != nil {
 		return nil, xerrors.Errorf("getting expected CommR from sectors_meta: %w", err)
 	}
-	result.ExpectedCID = curSealedCID
+	result.ExpectedCID = expectedCID
 
 	// Create the check task
 	var checkID int64
@@ -65,7 +76,7 @@ func (a *WebRPC) SectorCommRCheckStart(ctx context.Context, spStr string, sector
 		INSERT INTO scrub_commr_check (sp_id, sector_number, file_type, expected_comm_r)
 		VALUES ($1, $2, $3, $4)
 		RETURNING check_id
-	`, spID, sectorNum, fileType, curSealedCID).Scan(&checkID)
+	`, spID, sectorNum, fileType, expectedCID).Scan(&checkID)
 	if err != nil {
 		return nil, xerrors.Errorf("creating check task: %w", err)
 	}

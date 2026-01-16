@@ -10,7 +10,6 @@ import (
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/proof"
@@ -302,13 +301,6 @@ func (a *WebRPC) PartitionVanillaTest(ctx context.Context, spStr string, deadlin
 		return report, nil
 	}
 
-	maxPartitionSize, err := builtin.PoStProofWindowPoStPartitionSectors(ppt)
-	if err != nil {
-		report.Error = xerrors.Errorf("getting partition size: %w", err).Error()
-		return report, nil
-	}
-	_ = maxPartitionSize
-
 	// Build sector challenges
 	type sectorChallenge struct {
 		challenge storiface.PostSectorChallenge
@@ -464,7 +456,7 @@ func (a *WebRPC) WdPostTaskStart(ctx context.Context, spStr string, deadlineIdx 
 	var taskID int64
 
 	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		err = tx.QueryRow(`INSERT INTO harmony_task (name, posted_time, added_by) VALUES ('WdPost', CURRENT_TIMESTAMP, 123) RETURNING id`).Scan(&taskID)
+		err = tx.QueryRow(`INSERT INTO harmony_task (name, posted_time, added_by) VALUES ('WdPost', CURRENT_TIMESTAMP, $1) RETURNING id`, a.deps.MachineID).Scan(&taskID)
 		if err != nil {
 			return false, xerrors.Errorf("inserting harmony_task: %w", err)
 		}

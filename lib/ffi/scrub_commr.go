@@ -71,7 +71,7 @@ func (sb *SealCalls) checkCommR(ctx context.Context, s storiface.SectorRef, seal
 
 	// Run TreeR on the sealed file
 	// For sealed sectors, we pass empty string for data_filename (CC semantics - zeros)
-	res := supraffi.TreeRFile(sealedPath, "", tmpDir, uint64(ssize))
+	res := supraffi.TreeRFile(sealedPath /* data_filename: empty => CC semantics (zeros) */, "", tmpDir, uint64(ssize))
 	if res != 0 {
 		if res == -1 {
 			return cid.Undef, xerrors.Errorf("supraseal not available (missing CPU/GPU features)")
