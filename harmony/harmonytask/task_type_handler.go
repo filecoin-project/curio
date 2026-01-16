@@ -138,7 +138,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		if !ok {
 			return true
 		}
-		if time.Since(v) > STORAGE_FAILURE_TIMEOUT {
+		if time.Since(v) > STORAGE_FAILURE_TIMEOUT { // Retry in an hour or next reboot.
 			delete(h.storageFailures, tID)
 			return true
 		}
@@ -184,7 +184,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	releaseStorage := make([]func(), len(tIDs))
 
 	if h.Cost.Storage != nil {
-		// Risk of this late-store: A "full machne" will claim tasks, then back out of them.
+		// Risk of this late-store: A "full macihne" will claim tasks, then back out of them.
 		failedTIDs := []TaskID{}
 		goodTIDs := []TaskID{}
 		releaseStorage = []func(){}
@@ -204,12 +204,14 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		}
 		if len(failedTIDs) > 0 {
 			tIDs = goodTIDs // releaseStorage will match this now.
-			log.Infow("did not accept task", "task_ids", failedTIDs, "reason", "storage claim failed", "name", h.Name)
-			tIDs = lo.Without(tIDs, failedTIDs...)
+			log.Errorw("did not accept task", "task_ids", failedTIDs, "reason", "storage claim failed", "name", h.Name)
 			// This is not a task failure, so just reset the owner_id.
 			_, err := h.TaskEngine.db.Exec(h.TaskEngine.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, failedTIDs)
 			if err != nil {
 				log.Errorw("Could not reset failed tasks", "error", err)
+			}
+			if len(goodTIDs) == 0 {
+				return false
 			}
 		}
 	} else {
