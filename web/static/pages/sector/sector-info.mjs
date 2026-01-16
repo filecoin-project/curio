@@ -11,6 +11,8 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         super();
         this.expandedPieces = new Set();
         this.gcMarks = [];
+        this.vanillaTestResult = null;
+        this.vanillaTestRunning = false;
         this.loadData();
         this.loadGCMarks();
     }
@@ -91,6 +93,21 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             console.error('Failed to unapprove GC mark:', err);
             alert('Failed to unapprove GC mark: ' + err.message);
         }
+    }
+
+    async runVanillaTest() {
+        if (this.vanillaTestRunning) return;
+        this.vanillaTestRunning = true;
+        this.vanillaTestResult = null;
+        this.requestUpdate();
+        
+        try {
+            this.vanillaTestResult = await RPCCall('SectorVanillaTest', [this.data.Miner, this.data.SectorNumber]);
+        } catch (err) {
+            this.vanillaTestResult = { Error: err.message };
+        }
+        this.vanillaTestRunning = false;
+        this.requestUpdate();
     }
 
     static styles = [pipelineStyles, snapPipelineStyles, css`
@@ -290,8 +307,58 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                     </p>
                 </div>
             ` : ''}
-            <div>
-                ${this.data.PipelinePoRep ? html`
+            ${this.data.PartitionState ? html`
+                <div style="margin-top: 20px;">
+                    <h3>WindowPoSt Vanilla Test</h3>
+                    <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
+                        Test vanilla proof generation and verification for this sector.
+                    </p>
+                    <button 
+                        class="btn btn-primary btn-sm" 
+                        @click="${() => this.runVanillaTest()}"
+                        ?disabled="${this.vanillaTestRunning}"
+                    >
+                        ${this.vanillaTestRunning ? 'Running...' : 'Run Vanilla Test'}
+                    </button>
+                    ${this.vanillaTestResult ? html`
+                        <div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                            ${this.vanillaTestResult.error ? html`
+                                <div style="color: #B63333;">
+                                    <strong>Error:</strong> ${this.vanillaTestResult.error}
+                                </div>
+                            ` : html`
+                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; font-size: 0.9em;">
+                                    <span style="color: #aaa;">Total Time:</span>
+                                    <span>${this.vanillaTestResult.total_time}</span>
+                                    
+                                    <span style="color: #aaa;">Generate:</span>
+                                    <span style="color: ${this.vanillaTestResult.results?.[0]?.generate_ok ? '#4BB543' : '#B63333'};">
+                                        ${this.vanillaTestResult.results?.[0]?.generate_ok ? 'OK' : 'FAILED'}
+                                        ${this.vanillaTestResult.results?.[0]?.generate_error ? ` - ${this.vanillaTestResult.results[0].generate_error}` : ''}
+                                        (${this.vanillaTestResult.results?.[0]?.generate_time})
+                                    </span>
+                                    
+                                    ${this.vanillaTestResult.results?.[0]?.generate_ok ? html`
+                                        <span style="color: #aaa;">Verify:</span>
+                                        <span style="color: ${this.vanillaTestResult.results?.[0]?.verify_ok ? '#4BB543' : '#B63333'};">
+                                            ${this.vanillaTestResult.results?.[0]?.verify_ok ? 'OK' : 'FAILED'}
+                                            ${this.vanillaTestResult.results?.[0]?.verify_error ? ` - ${this.vanillaTestResult.results[0].verify_error}` : ''}
+                                            (${this.vanillaTestResult.results?.[0]?.verify_time})
+                                        </span>
+                                    ` : ''}
+                                    
+                                    ${this.vanillaTestResult.results?.[0]?.slow ? html`
+                                        <span style="color: #aaa;">Warning:</span>
+                                        <span style="color: #FFD600;">Slow proof generation (> 2s)</span>
+                                    ` : ''}
+                                </div>
+                            `}
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
+            ${this.data.PipelinePoRep ? html`
+                <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <h3 style="margin: 0;">PoRep Pipeline</h3>
                         <div style="display: flex; gap: 10px;">
@@ -311,12 +378,10 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         </div>
                     </div>
                     ${renderSectorPipeline(this.data.PipelinePoRep)}
-                ` : html`
-                    <p>No data available for the PoRep pipeline.</p>
-                `}
-            </div>
-            <div>
-                ${this.data.PipelineSnap ? html`
+                </div>
+            ` : ''}
+            ${this.data.PipelineSnap ? html`
+                <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <h3 style="margin: 0;">SnapDeals Pipeline</h3>
                         <div style="display: flex; gap: 10px;">
@@ -336,10 +401,8 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         </div>
                     </div>
                     ${renderSectorSnapPipeline(this.data.PipelineSnap)}
-                ` : html`
-                    <p>No data available for the SnapDeals pipeline.</p>
-                `}
-            </div>
+                </div>
+            ` : ''}
             <div>
                 <h3>Pieces</h3>
                 ${(this.data.Pieces||[]).length === 0 ? html`<p>No pieces in this sector</p>` : html`
