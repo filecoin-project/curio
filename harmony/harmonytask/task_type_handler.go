@@ -30,8 +30,12 @@ type PipelineTask interface {
 type taskTypeHandler struct {
 	TaskInterface
 	TaskTypeDetails
-	TaskEngine *TaskEngine
+	TaskEngine      *TaskEngine
+	storageFailures map[TaskID]time.Time
 }
+
+// Anti-hammering of storage claims.
+const STORAGE_FAILURE_TIMEOUT = time.Hour
 
 func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
 	var tID TaskID
@@ -127,10 +131,19 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	if maxAcceptable > headroomUntilMax {
 		maxAcceptable = headroomUntilMax
 	}
-	releaseStorage := make([]func(), maxAcceptable)
-	for i := 0; i < maxAcceptable; i++ {
-		releaseStorage[i] = func() {}
-	}
+
+	// filter storage failures here
+	tIDs = lo.Filter(tIDs, func(tID TaskID, _ int) bool {
+		v, ok := h.storageFailures[tID]
+		if !ok {
+			return true
+		}
+		if time.Since(v) > STORAGE_FAILURE_TIMEOUT {
+			delete(h.storageFailures, tID)
+			return true
+		}
+		return false // Lets not hammer Tasks we know are failing.
+	})
 
 	// if recovering we don't need to try to claim anything because those tasks are already claimed by us
 	if from != WorkSourceRecover {
@@ -168,26 +181,40 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		}
 	}
 
+	releaseStorage := make([]func(), len(tIDs))
+
 	if h.Cost.Storage != nil {
+		// Risk of this late-store: A "full machne" will claim tasks, then back out of them.
 		failedTIDs := []TaskID{}
-		for i, tID := range tIDs {
+		goodTIDs := []TaskID{}
+		releaseStorage = []func(){}
+		for _, tID := range tIDs {
 			markComplete, err := h.Cost.Claim(int(tID)) // Accepted tasks IDs are known now.
 			if err != nil {
 				failedTIDs = append(failedTIDs, tID)
+				h.storageFailures[tID] = time.Now()
+				continue
 			}
-			releaseStorage[i] = func() {
+			goodTIDs = append(goodTIDs, tID)
+			releaseStorage = append(releaseStorage, func() {
 				if err := markComplete(); err != nil {
 					log.Errorw("Could not release storage", "error", err)
 				}
-			}
+			})
 		}
 		if len(failedTIDs) > 0 {
+			tIDs = goodTIDs // releaseStorage will match this now.
 			log.Infow("did not accept task", "task_ids", failedTIDs, "reason", "storage claim failed", "name", h.Name)
 			tIDs = lo.Without(tIDs, failedTIDs...)
+			// This is not a task failure, so just reset the owner_id.
 			_, err := h.TaskEngine.db.Exec(h.TaskEngine.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, failedTIDs)
 			if err != nil {
 				log.Errorw("Could not reset failed tasks", "error", err)
 			}
+		}
+	} else {
+		for i := range tIDs {
+			releaseStorage[i] = func() {}
 		}
 	}
 
