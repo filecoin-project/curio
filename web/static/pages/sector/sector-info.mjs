@@ -13,6 +13,11 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         this.gcMarks = [];
         this.vanillaTestResult = null;
         this.vanillaTestRunning = false;
+        // Unsealed check state
+        this.unsealedCheckRunning = false;
+        this.unsealedCheckId = null;
+        this.unsealedCheckResult = null;
+        this.unsealedCheckPolling = null;
         this.loadData();
         this.loadGCMarks();
     }
@@ -108,6 +113,70 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         }
         this.vanillaTestRunning = false;
         this.requestUpdate();
+    }
+
+    async startUnsealedCheck() {
+        if (this.unsealedCheckRunning) return;
+        this.unsealedCheckRunning = true;
+        this.unsealedCheckId = null;
+        this.unsealedCheckResult = null;
+        this.requestUpdate();
+
+        try {
+            const result = await RPCCall('SectorUnsealedCheckStart', [this.data.Miner, this.data.SectorNumber]);
+            if (result.error) {
+                this.unsealedCheckResult = { error: result.error };
+                this.unsealedCheckRunning = false;
+                this.requestUpdate();
+                return;
+            }
+            this.unsealedCheckId = result.check_id;
+            this.unsealedCheckResult = result;
+            this.unsealedCheckRunning = false;
+            this.requestUpdate();
+
+            // Start polling for completion
+            this.pollUnsealedCheck();
+        } catch (err) {
+            this.unsealedCheckResult = { error: err.message };
+            this.unsealedCheckRunning = false;
+            this.requestUpdate();
+        }
+    }
+
+    async pollUnsealedCheck() {
+        if (this.unsealedCheckPolling) {
+            clearInterval(this.unsealedCheckPolling);
+        }
+
+        const checkStatus = async () => {
+            try {
+                const result = await RPCCall('SectorUnsealedCheckStatus', [this.unsealedCheckId]);
+                this.unsealedCheckResult = result;
+                if (result.complete) {
+                    // Task completed
+                    if (this.unsealedCheckPolling) {
+                        clearInterval(this.unsealedCheckPolling);
+                        this.unsealedCheckPolling = null;
+                    }
+                }
+                this.requestUpdate();
+            } catch (err) {
+                console.error('Failed to check unsealed status:', err);
+            }
+        };
+
+        // Check immediately, then every 2 seconds
+        await checkStatus();
+        this.unsealedCheckPolling = setInterval(checkStatus, 2000);
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this.unsealedCheckPolling) {
+            clearInterval(this.unsealedCheckPolling);
+            this.unsealedCheckPolling = null;
+        }
     }
 
     static styles = [pipelineStyles, snapPipelineStyles, css`
@@ -539,6 +608,61 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                     </table>
                 `}
             </div>
+            ${this.data.HasUnsealed ? html`
+                <div>
+                    <h3>Check Unsealed Data</h3>
+                    <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
+                        Verify the unsealed sector data by computing CommD and comparing it to the expected value.
+                        This creates a background task that reads and hashes the unsealed file.
+                    </p>
+                    <button 
+                        class="btn btn-primary btn-sm" 
+                        @click="${() => this.startUnsealedCheck()}"
+                        ?disabled="${this.unsealedCheckRunning || (this.unsealedCheckResult && !this.unsealedCheckResult.complete && !this.unsealedCheckResult.error)}"
+                    >
+                        ${this.unsealedCheckRunning ? 'Starting...' : 
+                          (this.unsealedCheckResult && !this.unsealedCheckResult.complete && !this.unsealedCheckResult.error) ? 'Check in progress...' :
+                          'Check Unsealed Data'}
+                    </button>
+                    ${this.unsealedCheckResult ? html`
+                        <div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                            ${this.unsealedCheckResult.error ? html`
+                                <div style="color: #B63333;">
+                                    <strong>Error:</strong> ${this.unsealedCheckResult.error}
+                                </div>
+                            ` : html`
+                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; font-size: 0.9em;">
+                                    <span style="color: #aaa;">Check ID:</span>
+                                    <span>${this.unsealedCheckResult.check_id}</span>
+                                    
+                                    <span style="color: #aaa;">Expected CommD:</span>
+                                    <span style="word-break: break-all; font-family: monospace; font-size: 0.85em;">${this.unsealedCheckResult.expected_commd}</span>
+                                    
+                                    ${this.unsealedCheckResult.complete ? html`
+                                        <span style="color: #aaa;">Actual CommD:</span>
+                                        <span style="word-break: break-all; font-family: monospace; font-size: 0.85em;">${this.unsealedCheckResult.actual_commd || 'N/A'}</span>
+                                        
+                                        <span style="color: #aaa;">Result:</span>
+                                        <span style="color: ${this.unsealedCheckResult.ok ? '#4BB543' : '#B63333'}; font-weight: 500;">
+                                            ${this.unsealedCheckResult.ok ? 'PASSED - Data matches expected CommD' : 'FAILED'}
+                                            ${this.unsealedCheckResult.message ? ` - ${this.unsealedCheckResult.message}` : ''}
+                                        </span>
+                                    ` : html`
+                                        <span style="color: #aaa;">Task:</span>
+                                        <span>
+                                            ${this.unsealedCheckResult.task_id ? html`
+                                                <task-status .taskId="${this.unsealedCheckResult.task_id}"></task-status>
+                                            ` : html`
+                                                <span style="color: #FFD600;">Waiting for task pickup...</span>
+                                            `}
+                                        </span>
+                                    `}
+                                </div>
+                            `}
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
             <div>
                 <h3>Garbage Collection Marks</h3>
                 ${this.gcMarks.length === 0 ? html`
