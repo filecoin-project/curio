@@ -30,6 +30,27 @@ To enable the snap deals pipeline in a Curio cluster, user needs to enable the s
 Data can be ingested using either the Snap Deals pipeline or the PoRep pipeline at any given time, but not both simultaneously.
 {% endhint %}
 
+## FastSnap (SnapDeals UpdateEncode acceleration)
+
+Curio’s SnapDeals `UpdateEncode` path has a **fast mode** (“fastsnap”) that uses Supraseal to accelerate TreeR generation and uses Curio-native snap encoding.
+
+- **Capability check**: run
+
+```bash
+curio test supra system-info
+```
+
+Look for **“Can run fast TreeR: yes”**.
+
+- **Fallback mode**: if the host lacks AVX-512 (AMD64v4) or a usable CUDA GPU, Curio automatically falls back to a CPU path for TreeR generation.
+- **Troubleshooting / force fallback**: set:
+
+```bash
+export DISABLE_SUPRA_TREE_R=1
+```
+
+This forces the CPU fallback TreeR path (useful to isolate Supraseal/toolchain issues).
+
 ### Configuration
 
 {% hint style="warning" %}

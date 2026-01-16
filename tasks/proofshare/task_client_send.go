@@ -84,8 +84,8 @@ func (t *TaskClientSend) Adder(atf harmonytask.AddTaskFunc) {
 }
 
 // CanAccept implements harmonytask.TaskInterface.
-func (t *TaskClientSend) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (t *TaskClientSend) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 type Payment struct {
@@ -564,6 +564,11 @@ func (t *TaskClientSend) pickCandidateRequest(ctx context.Context, requests []Ca
 	// create a map of requests by sectorID
 	sectorIDMap := make(map[abi.SectorID]CandidateRequest)
 	for _, request := range requests {
+		if request.RequestType == "snap" {
+			// snap has priority
+			return request, nil
+		}
+
 		sectorIDMap[abi.SectorID{
 			Miner:  abi.ActorID(request.SpID),
 			Number: abi.SectorNumber(request.SectorNumber),

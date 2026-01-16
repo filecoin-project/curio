@@ -17,7 +17,7 @@ import (
 var HeartbeatInterval = 10 * time.Second
 var SkippedHeartbeatThresh = HeartbeatInterval * 5
 
-//go:generate go run github.com/golang/mock/mockgen -destination=mocks/index.go -package=mocks . SectorIndex
+//go:generate go run github.com/golang/mock/mockgen -source=index.go -destination=mocks/index.go -package=mocks SectorIndex
 
 type SpaceUseFunc func(ft storiface.SectorFileType, ssize abi.SectorSize) (uint64, error)
 

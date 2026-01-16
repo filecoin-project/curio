@@ -425,8 +425,8 @@ func (p *PieceCleanupTask) ipniRemoval(ctx context.Context, id string, rmPiece, 
 	return nil
 }
 
-func (p *PieceCleanupTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (p *PieceCleanupTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (p *PieceCleanupTask) TypeDetails() harmonytask.TaskTypeDetails {

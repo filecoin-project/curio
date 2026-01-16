@@ -187,6 +187,9 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 					if err != nil {
 						return nil, xerrors.Errorf("parsing data headers: %w", err)
 					}
+					if hdrs == nil {
+						hdrs = http.Header{}
+					}
 
 					if goUrl.Scheme == "pieceref" {
 						// url is to a piece reference
@@ -219,7 +222,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 						reader, _ := padreader.New(pr, uint64(p.DataRawSize.Int64))
 						pieceReaders = append(pieceReaders, reader)
 					} else {
-						reader, _ := padreader.New(NewUrlReader(nil, dataUrl, hdrs, p.DataRawSize.Int64), uint64(p.DataRawSize.Int64))
+						reader, _ := padreader.New(NewUrlReader(nil, dataUrl, hdrs, p.DataRawSize.Int64, "directdealdata"), uint64(p.DataRawSize.Int64))
 						pieceReaders = append(pieceReaders, reader)
 					}
 

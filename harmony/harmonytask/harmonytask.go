@@ -86,7 +86,7 @@ type TaskInterface interface {
 	// return null if the task type is not allowed on this machine.
 	// It should select the task it most wants to accomplish.
 	// It is also responsible for determining & reserving disk space (including scratch).
-	CanAccept([]TaskID, *TaskEngine) (*TaskID, error)
+	CanAccept([]TaskID, *TaskEngine) ([]TaskID, error)
 
 	// TypeDetails() returns static details about how this task behaves and
 	// how this machine will run it. Read once at the beginning.
@@ -217,7 +217,7 @@ func New(
 			// edge-case: if old assignments are not available tasks, unlock them.
 			h := e.taskMap[w.Name]
 			if h == nil || !h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}) {
-				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, w.ID)
+				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.ownerID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
 					continue // not really fatal, but not great
@@ -420,7 +420,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			}
 		}
 
-		if err := v.AssertMachineHasCapacity(); err != nil {
+		if _, err := v.AssertMachineHasCapacity(); err != nil {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
 		}
@@ -468,7 +468,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
 		v := v
-		if v.AssertMachineHasCapacity() != nil {
+		if _, err := v.AssertMachineHasCapacity(); err != nil {
 			continue
 		}
 		if v.IAmBored != nil {
@@ -476,7 +476,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
 				v.AddTask(func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 					b, err := extraInfo(tID, tx)
-					if err == nil && shouldCommit {
+					if err == nil && b {
 						added = append(added, tID)
 					}
 					return b, err
@@ -578,4 +578,8 @@ func Reg(t TaskInterface) bool {
 	}, TaskMeasures.ActiveTasks.M(0))
 
 	return true
+}
+
+func (e *TaskEngine) RunningCount(name string) int {
+	return int(e.taskMap[name].Max.Active())
 }

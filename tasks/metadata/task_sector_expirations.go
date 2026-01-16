@@ -10,6 +10,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
 
@@ -132,6 +133,14 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return err
 	}
 
+	// Cache for loaded partitions: map[spID][deadline][partition] -> AllSectors bitfield
+	type partitionKey struct {
+		SpID      uint64
+		Deadline  uint64
+		Partition uint64
+	}
+	partitionCache := make(map[partitionKey]*bitfield.BitField)
+
 	for _, sector := range sectors {
 		maddr, err := address.NewIDAddress(sector.SpID)
 		if err != nil {
@@ -168,7 +177,64 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			}
 		}
 
+		needsPartitionUpdate := false
+
 		if sector.Partition == nil || sector.Deadline == nil {
+			needsPartitionUpdate = true
+		} else {
+			// Verify that the sector is actually in the partition's AllSectors bitfield
+			pkey := partitionKey{
+				SpID:      sector.SpID,
+				Deadline:  *sector.Deadline,
+				Partition: *sector.Partition,
+			}
+
+			allSectors, cached := partitionCache[pkey]
+			if !cached {
+				dl, err := mstate.LoadDeadline(*sector.Deadline)
+				if err != nil {
+					log.Warnw("failed to load deadline for partition verification",
+						"sp_id", sector.SpID, "sector", sector.SectorNum,
+						"deadline", *sector.Deadline, "error", err)
+					needsPartitionUpdate = true
+				} else {
+					part, err := dl.LoadPartition(*sector.Partition)
+					if err != nil {
+						log.Warnw("failed to load partition for verification",
+							"sp_id", sector.SpID, "sector", sector.SectorNum,
+							"deadline", *sector.Deadline, "partition", *sector.Partition, "error", err)
+						needsPartitionUpdate = true
+					} else {
+						bf, err := part.AllSectors()
+						if err != nil {
+							log.Warnw("failed to get AllSectors for partition verification",
+								"sp_id", sector.SpID, "sector", sector.SectorNum,
+								"deadline", *sector.Deadline, "partition", *sector.Partition, "error", err)
+							needsPartitionUpdate = true
+						} else {
+							allSectors = &bf
+							partitionCache[pkey] = allSectors
+						}
+					}
+				}
+			}
+
+			if allSectors != nil {
+				isSet, err := allSectors.IsSet(sector.SectorNum)
+				if err != nil {
+					log.Warnw("failed to check sector in AllSectors bitfield",
+						"sp_id", sector.SpID, "sector", sector.SectorNum, "error", err)
+					needsPartitionUpdate = true
+				} else if !isSet {
+					log.Warnw("sector not found in partition AllSectors, refreshing partition info",
+						"sp_id", sector.SpID, "sector", sector.SectorNum,
+						"db_deadline", *sector.Deadline, "db_partition", *sector.Partition)
+					needsPartitionUpdate = true
+				}
+			}
+		}
+
+		if needsPartitionUpdate {
 			loc, err := s.api.StateSectorPartition(ctx, maddr, abi.SectorNumber(sector.SectorNum), head.Key())
 			if err != nil {
 				return false, xerrors.Errorf("getting sector partition: %w", err)
@@ -440,9 +506,8 @@ func (s *SectorMetadata) updateVerifregClaims(ctx context.Context, astor adt.Sto
 	return nil
 }
 
-func (s *SectorMetadata) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (s *SectorMetadata) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (s *SectorMetadata) TypeDetails() harmonytask.TaskTypeDetails {

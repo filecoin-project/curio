@@ -160,9 +160,13 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 	}()
 
 	for _, sectorRef := range sectorRefs {
-		if err := t.sc.Sectors.sindex.StorageLock(lkctx, sectorRef.ID(), storiface.FTNone, requestedTypes); err != nil {
+		ok, err := t.sc.Sectors.sindex.StorageTryLock(lkctx, sectorRef.ID(), storiface.FTNone, requestedTypes)
+		if err != nil {
 			// timer will expire
 			return nil, xerrors.Errorf("claim StorageLock: %w", err)
+		}
+		if !ok {
+			return nil, xerrors.Errorf("failed to claim storage lock (sector %v)", sectorRef.ID())
 		}
 	}
 

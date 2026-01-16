@@ -225,7 +225,7 @@ During the build process it will clone and build SPDK, sppark, and blst.
 ./build.sh
 ```
 
-SPDK must be setup after every reboot:
+SPDK setup is automatic when using Curio's batch sealer. 
 ```
 cd deps/spdk-v24.05
 sudo env NRHUGE=36 ./scripts/setup.sh

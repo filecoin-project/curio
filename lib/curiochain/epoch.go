@@ -10,7 +10,7 @@ import (
 )
 
 func EpochTime(curr *types.TipSet, e abi.ChainEpoch) time.Time {
-	diff := int64(buildconstants.BlockDelaySecs) * int64(curr.Height()-e)
+	diff := int64(buildconstants.BlockDelaySecs) * int64(e-curr.Height())
 	curTs := curr.MinTimestamp() // unix seconds
 
 	return time.Unix(int64(curTs)+diff, 0)

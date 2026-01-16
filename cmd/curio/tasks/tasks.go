@@ -225,18 +225,20 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableProofShare ||
 		cfg.Subsystems.EnableRemoteProofs
 
+	var p2Active sealsupra.P2Active
 	if hasAnySealingTask {
-		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
 		if err != nil {
 			return nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
+		p2Active = p2a
 	}
 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
 			if err != nil {
 				return nil, err
 			}
@@ -246,15 +248,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 
-	miners := config.NewDynamic(make([]address.Address, 0, len(maddrs.Get())))
-	forMiners := func() {
-		minersTmp := make([]address.Address, 0, len(maddrs.Get()))
-		for k := range maddrs.Get() {
-			minersTmp = append(minersTmp, address.Address(k))
-		}
-		miners.Set(minersTmp)
-	}
-	maddrs.OnChange(forMiners)
+	miners := config.Becomes(maddrs, func() []address.Address {
+		return lo.Map(maps.Keys(maddrs.Get()), func(k dtypes.MinerAddress, _ int) address.Address {
+			return address.Address(k)
+		})
+	})
 
 	{
 		var sdeps cuhttp.ServiceDeps
@@ -271,7 +269,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			sdeps.DealMarket = dm
 
 			if cfg.Subsystems.EnableCommP {
-				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
+				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
 
@@ -320,7 +318,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
 			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
 
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
+			pdpSync := pdp.NewPDPSyncTask(db, ethClient)
+
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask, pdpSync)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
@@ -329,7 +329,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
+		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
 		if cfg.HTTP.Enable {
 			if !cfg.Subsystems.EnableDealMarket {
@@ -388,7 +389,7 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
 	var activeTasks []harmonytask.TaskInterface
 	// Sealing / Snap
 
@@ -410,8 +411,9 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, scrubUnsealedTask)
 	}
 
+	var p2Active sealsupra.P2Active
 	if cfg.Subsystems.EnableBatchSeal {
-		batchSealTask, sm, err := sealsupra.NewSupraSeal(
+		batchSealTask, sm, p2a, err := sealsupra.NewSupraSeal(
 			cfg.Seal.BatchSealSectorSize,
 			cfg.Seal.BatchSealBatchSize,
 			cfg.Seal.BatchSealPipelines,
@@ -419,9 +421,10 @@ func addSealingTasks(
 			cfg.Seal.LayerNVMEDevices,
 			machineHostPort, db, full, stor, si, slr)
 		if err != nil {
-			return nil, xerrors.Errorf("setting up batch sealer: %w", err)
+			return nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
 		slotMgr = sm
+		p2Active = p2a
 		activeTasks = append(activeTasks, batchSealTask)
 		addFinalize = true
 	}
@@ -460,7 +463,7 @@ func addSealingTasks(
 
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
@@ -481,7 +484,7 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableUpdateEncode {
-		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks)
+		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks, cfg.Subsystems.BindEncodeToData, cfg.Subsystems.AllowEncodeGPUOverprovision)
 		activeTasks = append(activeTasks, encodeTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
@@ -526,7 +529,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
-	return activeTasks, nil
+	return activeTasks, p2Active, nil
 }
 
 func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {

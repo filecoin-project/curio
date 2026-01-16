@@ -626,9 +626,8 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
 	return nil
 }
 
-func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
