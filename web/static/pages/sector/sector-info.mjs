@@ -659,12 +659,12 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                                 <tr>
                                     ${location.PathType ? html`<td rowspan="${location.PathTypeRowSpan}">${location.PathType}</td>` : ''}
                                     ${location.FileType ? html`<td rowspan="${location.FileTypeRowSpan}">${location.FileType}</td>` : ''}
-                                    <td>${location.Locations[0].StorageID}</td>
+                                    <td><a href="/pages/storage_path/?id=${location.Locations[0].StorageID}">${location.Locations[0].StorageID.substring(0, 8)}...</a></td>
                                     <td>${location.Locations[0].Urls.map(url => html`<p>${url}</p>`)}</td>
                                 </tr>
                                 ${location.Locations.slice(1).map(loc => html`
                                     <tr>
-                                        <td>${loc.StorageID}</td>
+                                        <td><a href="/pages/storage_path/?id=${loc.StorageID}">${loc.StorageID.substring(0, 8)}...</a></td>
                                         <td>${loc.Urls.map(url => html`<p>${url}</p>`)}</td>
                                     </tr>
                                 `)}
