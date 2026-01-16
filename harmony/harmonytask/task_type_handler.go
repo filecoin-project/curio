@@ -388,6 +388,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	}
 }
 
+// MaxHeadroom controls the maximum number of tasks per type that can be active on this node.
+// It is exported and mutable so it can be configured via the HARMONY_MAX_TASKS_PER_TYPE
+// environment variable during process initialization.
 var MaxHeadroom = 100
 
 func init() {
