@@ -110,18 +110,20 @@ class CuWalletInfoBox extends LitElement {
       <style>
         .wallet-info-box-details {
           position: absolute;
-          top: 100%; 
+          top: 100%;
           left: 0;
-          background-color: var(--color-form-group-1);
-          border: 1px solid #ccc;
+          background-color: var(--color-form-group-1, #1a2a3a);
+          border: 1px solid #555;
           padding: 10px;
-          z-index: 1000; 
-          min-width: 500px; 
-          box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+          z-index: 10000; 
+          min-width: 500px;
+          max-width: 700px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
           font-size: 0.9em;
         }
         .wallet-info-box-details p {
           margin: 5px 0;
+          word-break: break-all;
         }
         .wallet-info-box-details .label {
           font-weight: bold;

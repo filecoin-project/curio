@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
+import '/ux/task.mjs';
 
 export const snapPipelineStyles = css`
     .porep-pipeline-table,
@@ -247,8 +248,8 @@ export function renderSectorSnapState(name, sector, taskID, after, started) {
                 : 'pipeline-waiting'}"
         >
           <div>${name}</div>
-          <div>
-            T: <a href="/pages/task/id/?id=${taskID}">${taskID}</a>
+          <div style="font-size: 0.9em;">
+            <task-status .taskId=${taskID}></task-status>
           </div>
           ${missing ? html`<div><b>FAILED</b></div>` : ''}
         </td>

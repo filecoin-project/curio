@@ -19,7 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
-const MinSchedInterval = 100 * time.Second
+const MinSchedInterval = 10 * time.Second
 
 type ScrubCommDTask struct {
 	db *harmonydb.DB

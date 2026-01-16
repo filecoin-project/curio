@@ -70,6 +70,18 @@ func GetCommR(commR []byte, cachePath string) bool {
 	panic("GetCommR: supraseal is only available on Linux")
 }
 
+// GetCommRLastFromTree returns comm_r_last after calculating from tree file(s).
+// This is a stub implementation for non-Linux platforms.
+func GetCommRLastFromTree(commRLast []byte, cachePath string, sectorSize uint64) bool {
+	panic("GetCommRLastFromTree: supraseal is only available on Linux")
+}
+
+// GetCommRLast returns comm_r_last from p_aux file.
+// This is a stub implementation for non-Linux platforms.
+func GetCommRLast(commRLast []byte, cachePath string) bool {
+	panic("GetCommRLast: supraseal is only available on Linux")
+}
+
 // CheckAndSetupSPDK prepares SPDK hugepages and environment.
 // This is a stub implementation for non-Linux platforms.
 func CheckAndSetupSPDK(nrHuge int, minPages int) error {
