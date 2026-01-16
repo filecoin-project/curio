@@ -43,10 +43,12 @@ func (m *MaxCounter) AtMax() bool {
 	return m.Max() > 0 && m.Active() >= m.Max()
 }
 
+const UnlimitedHeadroom = 1000000
+
 func (m *MaxCounter) Headroom() int {
 	if m.N <= 0 {
 		// No limit configured, return large number to indicate unlimited headroom
-		return 1000000
+		return UnlimitedHeadroom
 	}
 	return m.Max() - m.Active()
 }
