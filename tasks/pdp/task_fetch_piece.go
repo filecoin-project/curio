@@ -249,12 +249,13 @@ func (t *PDPFetchPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 // downloadAndVerify downloads a piece from sourceURL, computes CommP, and verifies it matches expected.
 // On success, returns the stash ID where the piece is stored.
 func (t *PDPFetchPieceTask) downloadAndVerify(ctx context.Context, sourceURL string, expectedSize int64, expectedCid cid.Cid) (uuid.UUID, error) {
-	// Validate URL - HTTPS only for security
+	// Validate URL - HTTPS required for security (HTTP allowed only with env var for testing)
 	parsedURL, err := url.Parse(sourceURL)
 	if err != nil {
 		return uuid.UUID{}, xerrors.Errorf("invalid source URL: %w", err)
 	}
-	if parsedURL.Scheme != "https" {
+	allowHTTP := os.Getenv("CURIO_FETCH_ALLOW_INSECURE") == "1"
+	if parsedURL.Scheme != "https" && !(allowHTTP && parsedURL.Scheme == "http") {
 		return uuid.UUID{}, xerrors.Errorf("source URL must use HTTPS scheme, got: %s", parsedURL.Scheme)
 	}
 
