@@ -780,12 +780,17 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
+	// RAM: Proving builds a memtree for one piece at a time (sequential, not parallel).
+	// Peak RAM ≈ 3× piece size (unpadBuf + memtreeBuf during fr32.Pad).
+	// 2 GiB covers an average piece size of up to ~680 MiB; max 1 GiB pieces may exceed this.
+	const proveTaskRAM = 2 << 30 // 2 GiB
+
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPv0_Prove",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 1 << 30, // 256 MB
+			Ram: proveTaskRAM,
 		},
 		MaxFailures: 5,
 	}

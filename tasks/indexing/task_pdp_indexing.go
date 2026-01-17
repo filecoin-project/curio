@@ -178,11 +178,14 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 }
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
+	// RAM: bufio reader, gocql batches, fr32/read path buffers, connection pools.
+	const indexingTaskRAM = 128 << 20 // 128 MiB
+
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPv0_Indexing",
 		Cost: resources.Resources{
 			Cpu: 1,
-			Ram: uint64(P.insertBatchSize * P.insertConcurrency * 56 * 2),
+			Ram: indexingTaskRAM,
 		},
 		Max:         P.max,
 		MaxFailures: 3,
