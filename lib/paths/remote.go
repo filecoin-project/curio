@@ -664,7 +664,10 @@ func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size
 			cleanupIdle := func() {
 				lastRefs := 1
 
-				for range time.After(LocalReaderTimeout) {
+				ticker := time.NewTicker(LocalReaderTimeout)
+				defer ticker.Stop()
+
+				for range ticker.C {
 					refsLk.Lock()
 					if refs == 0 && lastRefs == 0 && pf != nil { // pf can't really be nil here, but better be safe
 						log.Infow("closing idle partial file", "path", path)
@@ -818,7 +821,10 @@ func (r *Remote) ReaderPiece(ctx context.Context, s storiface.SectorRef, ft stor
 		cleanupIdle := func() {
 			lastRefs := 1
 
-			for range time.After(LocalReaderTimeout) {
+			ticker := time.NewTicker(LocalReaderTimeout)
+			defer ticker.Stop()
+
+			for range ticker.C {
 				refsLk.Lock()
 				if refs == 0 && lastRefs == 0 && f != nil {
 					log.Infow("closing idle partial file", "path", path)
