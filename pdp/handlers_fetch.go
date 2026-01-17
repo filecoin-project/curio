@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 
@@ -18,6 +19,23 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
+
+// getPDPSenderAddress retrieves the PDP key address from the database
+func getPDPSenderAddress(ctx context.Context, db *harmonydb.DB) (common.Address, error) {
+	var privateKeyData []byte
+	err := db.QueryRow(ctx,
+		`SELECT private_key FROM eth_keys WHERE role = 'pdp'`).Scan(&privateKeyData)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("fetching pdp private key from db: %w", err)
+	}
+
+	privateKey, err := crypto.ToECDSA(privateKeyData)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("converting private key: %w", err)
+	}
+
+	return crypto.PubkeyToAddress(privateKey.PublicKey), nil
+}
 
 // FetchRecord represents a fetch request record from the database
 type FetchRecord struct {
@@ -92,6 +110,7 @@ type FetchStore interface {
 
 // AddPiecesValidatorParams contains parameters for eth_call validation
 type AddPiecesValidatorParams struct {
+	From         common.Address // sender address for eth_call simulation
 	DataSetId    *big.Int       // 0 for create-new
 	RecordKeeper common.Address // only used when DataSetId is 0
 	PieceData    []contract.CidsCid
@@ -143,6 +162,7 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 		value = contract.SybilFee()
 	}
 	msg := ethereum.CallMsg{
+		From:  params.From,
 		To:    &contractAddr,
 		Data:  data,
 		Value: value,
@@ -158,17 +178,19 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 
 // FetchHandler handles piece fetch requests
 type FetchHandler struct {
-	auth      Auth
-	store     FetchStore
-	validator AddPiecesValidator
+	auth       Auth
+	store      FetchStore
+	validator  AddPiecesValidator
+	senderAddr common.Address // cached PDP sender address for eth_call simulation
 }
 
 // NewFetchHandler creates a new FetchHandler
-func NewFetchHandler(auth Auth, store FetchStore, validator AddPiecesValidator) *FetchHandler {
+func NewFetchHandler(auth Auth, store FetchStore, validator AddPiecesValidator, senderAddr common.Address) *FetchHandler {
 	return &FetchHandler{
-		auth:      auth,
-		store:     store,
-		validator: validator,
+		auth:       auth,
+		store:      store,
+		validator:  validator,
+		senderAddr: senderAddr,
 	}
 }
 
@@ -372,8 +394,9 @@ func (h *FetchHandler) HandleFetch(w http.ResponseWriter, r *http.Request) {
 		pieceData[i] = contract.CidsCid{Data: info.CidV2.Bytes()}
 	}
 
-	// Validate extraData via eth_call
+	// Validate extraData via eth_call (use cached sender address for simulation)
 	validatorParams := &AddPiecesValidatorParams{
+		From:         h.senderAddr,
 		DataSetId:    big.NewInt(int64(dataSetId)),
 		RecordKeeper: recordKeeperAddr,
 		PieceData:    pieceData,

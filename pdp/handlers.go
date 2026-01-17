@@ -66,6 +66,12 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 	fetchStore := NewDBFetchStore(db)
 	fetchValidator := NewEthCallValidator(ec)
 
+	// Get the PDP sender address for eth_call simulation in fetch handler
+	senderAddr, err := getPDPSenderAddress(ctx, db)
+	if err != nil {
+		log.Warnw("failed to get PDP sender address for fetch handler, fetch validation may fail", "error", err)
+	}
+
 	p := &PDPService{
 		Auth:    auth,
 		db:      db,
@@ -75,7 +81,7 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 		ethClient: ec,
 		filClient: fc,
 
-		fetchHandler: NewFetchHandler(auth, fetchStore, fetchValidator),
+		fetchHandler: NewFetchHandler(auth, fetchStore, fetchValidator, senderAddr),
 	}
 
 	go p.cleanup(ctx)

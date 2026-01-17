@@ -13,6 +13,7 @@ import (
 // Set CURIO_FETCH_ALLOW_INSECURE=1 to:
 //   - Allow HTTP (not just HTTPS) for fetch source URLs
 //   - Allow localhost and private IP addresses
+//
 // WARNING: Never enable this in production!
 var fetchAllowInsecure = os.Getenv("CURIO_FETCH_ALLOW_INSECURE") == "1"
 

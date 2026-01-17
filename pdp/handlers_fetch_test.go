@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"github.com/stretchr/testify/require"
@@ -129,7 +130,7 @@ func testParsePieceCidV2(t *testing.T, cidV2Str string) FetchPiece {
 }
 
 func TestHandleFetch_MethodNotAllowed(t *testing.T) {
-	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true})
+	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true}, common.Address{})
 
 	req := httptest.NewRequest(http.MethodGet, "/pdp/piece/fetch", nil)
 	rec := httptest.NewRecorder()
@@ -140,7 +141,7 @@ func TestHandleFetch_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleFetch_InvalidJSON(t *testing.T) {
-	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true})
+	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true}, common.Address{})
 
 	req := httptest.NewRequest(http.MethodPost, "/pdp/piece/fetch", bytes.NewBufferString("not json"))
 	rec := httptest.NewRecorder()
@@ -152,7 +153,7 @@ func TestHandleFetch_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleFetch_MissingExtraData(t *testing.T) {
-	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true})
+	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true}, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "",
@@ -171,7 +172,7 @@ func TestHandleFetch_MissingExtraData(t *testing.T) {
 }
 
 func TestHandleFetch_NoPieces(t *testing.T) {
-	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true})
+	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true}, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -189,7 +190,7 @@ func TestHandleFetch_NoPieces(t *testing.T) {
 }
 
 func TestHandleFetch_InvalidSourceURL(t *testing.T) {
-	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true})
+	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true}, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -211,7 +212,7 @@ func TestHandleFetch_InvalidSourceURL(t *testing.T) {
 func TestHandleFetch_ValidatorFails(t *testing.T) {
 	store := &mockFetchStore{}
 	validator := &mockValidator{shouldPass: false, err: errors.New("contract validation failed")}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -235,7 +236,7 @@ func TestHandleFetch_ValidatorFails(t *testing.T) {
 func TestHandleFetch_NewRequest_Success(t *testing.T) {
 	store := &mockFetchStore{}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -279,7 +280,7 @@ func TestHandleFetch_NewRequest_Success(t *testing.T) {
 }
 
 func TestHandleFetch_CreateNew_MissingRecordKeeper(t *testing.T) {
-	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true})
+	handler := NewFetchHandler(&NullAuth{}, &mockFetchStore{}, &mockValidator{shouldPass: true}, common.Address{})
 
 	// dataSetId omitted (nil) requires recordKeeper
 	body := FetchRequest{
@@ -314,7 +315,7 @@ func TestHandleFetch_CreateNew_Success(t *testing.T) {
 	store := &mockFetchStore{}
 	validator := &mockValidator{shouldPass: true}
 	// Use non-public service auth to test create-new flow without AllowedRecordKeepers restriction
-	handler := NewFetchHandler(&privateServiceAuth{}, store, validator)
+	handler := NewFetchHandler(&privateServiceAuth{}, store, validator, common.Address{})
 
 	// dataSetId omitted (nil) with recordKeeper = create new dataset
 	body := FetchRequest{
@@ -356,7 +357,7 @@ func TestHandleFetch_Idempotent(t *testing.T) {
 		},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -404,7 +405,7 @@ func TestHandleFetch_MixedStatuses(t *testing.T) {
 		},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -444,7 +445,7 @@ func TestHandleFetch_CreateError(t *testing.T) {
 		createError: errors.New("database error"),
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -523,7 +524,7 @@ func TestHandleFetch_RetryingStatus(t *testing.T) {
 		},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -570,7 +571,7 @@ func TestHandleFetch_FailedFromFetchItems(t *testing.T) {
 		pieceStatuses: map[string]*PieceStatus{},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -623,7 +624,7 @@ func TestHandleFetch_OrphanedTaskExhausted(t *testing.T) {
 		},
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
@@ -678,7 +679,7 @@ func TestHandleFetch_OrphanedTaskNotExhausted(t *testing.T) {
 		// exhaustedTasks is nil - no history found (purged or never ran)
 	}
 	validator := &mockValidator{shouldPass: true}
-	handler := NewFetchHandler(&NullAuth{}, store, validator)
+	handler := NewFetchHandler(&NullAuth{}, store, validator, common.Address{})
 
 	body := FetchRequest{
 		ExtraData: "0x1234",
