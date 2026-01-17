@@ -255,7 +255,7 @@ func (t *PDPFetchPieceTask) downloadAndVerify(ctx context.Context, sourceURL str
 		return uuid.UUID{}, xerrors.Errorf("invalid source URL: %w", err)
 	}
 	allowHTTP := os.Getenv("CURIO_FETCH_ALLOW_INSECURE") == "1"
-	if parsedURL.Scheme != "https" && !(allowHTTP && parsedURL.Scheme == "http") {
+	if parsedURL.Scheme != "https" && (!allowHTTP || parsedURL.Scheme != "http") {
 		return uuid.UUID{}, xerrors.Errorf("source URL must use HTTPS scheme, got: %s", parsedURL.Scheme)
 	}
 
