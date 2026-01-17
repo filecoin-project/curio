@@ -64,13 +64,7 @@ type PDPServiceNodeApi interface {
 func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
 	auth := &NullAuth{}
 	fetchStore := NewDBFetchStore(db)
-	fetchValidator := NewEthCallValidator(ec)
-
-	// Get the PDP sender address for eth_call simulation in fetch handler
-	senderAddr, err := getPDPSenderAddress(ctx, db)
-	if err != nil {
-		log.Warnw("failed to get PDP sender address for fetch handler, fetch validation may fail", "error", err)
-	}
+	fetchValidator := NewEthCallValidator(ec, db)
 
 	p := &PDPService{
 		Auth:    auth,
@@ -81,7 +75,7 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 		ethClient: ec,
 		filClient: fc,
 
-		fetchHandler: NewFetchHandler(auth, fetchStore, fetchValidator, senderAddr),
+		fetchHandler: NewFetchHandler(auth, fetchStore, fetchValidator),
 	}
 
 	go p.cleanup(ctx)
