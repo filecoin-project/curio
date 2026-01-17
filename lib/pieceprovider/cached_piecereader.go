@@ -28,6 +28,11 @@ var ReadBuf = 128 * (127 * 8)               // unpadded(128k)
 
 var MinRandomReadSize = int64(1 << 20)
 
+// StreamReadAhead - Maximum bytes to request ahead when creating a new sequential reader stream.
+// This prevents requesting entire remaining pieces (potentially 32GB) when only small amounts are needed.
+// 32 MiB provides good read-ahead for streaming while limiting over-fetch on seek/disconnect.
+var StreamReadAhead int64 = 32 << 20 // 32 MiB
+
 type pieceGetter func(offset, size uint64) (io.ReadCloser, error)
 
 type pieceReader struct {
@@ -47,6 +52,7 @@ type pieceReader struct {
 	r     io.ReadCloser
 	br    *bufio.Reader
 	rAt   int64
+	rEnd  int64 // end position of current reader stream (rAt + readAhead)
 
 	// random read cache
 	remReads *lru.Cache[int64, []byte] // data start offset -> data
@@ -67,7 +73,14 @@ func (p *pieceReader) init(ctx context.Context) (_ *pieceReader, err error) {
 	}
 
 	p.rAt = 0
-	p.r, err = p.getReader(uint64(p.rAt), uint64(p.len))
+
+	// Limit initial read-ahead to StreamReadAhead to avoid requesting entire piece upfront
+	readAhead := int64(p.len)
+	if readAhead > StreamReadAhead {
+		readAhead = StreamReadAhead
+	}
+
+	p.r, err = p.getReader(uint64(p.rAt), uint64(readAhead))
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +88,7 @@ func (p *pieceReader) init(ctx context.Context) (_ *pieceReader, err error) {
 		return nil, nil
 	}
 
+	p.rEnd = p.rAt + readAhead
 	p.br = bufio.NewReaderSize(p.r, ReadBuf)
 
 	return p, nil
@@ -176,11 +190,21 @@ func (p *pieceReader) readSeqReader(b []byte) (n int, err error) {
 		}
 
 		p.rAt = off
-		p.r, err = p.getReader(uint64(p.rAt), uint64(p.len))
-		p.br = bufio.NewReaderSize(p.r, ReadBuf)
+
+		// Calculate how much to read ahead - limit to StreamReadAhead to avoid
+		// requesting entire remaining piece (which could be 32GB) on every seek
+		remaining := int64(p.len) - p.rAt
+		readAhead := remaining
+		if readAhead > StreamReadAhead {
+			readAhead = StreamReadAhead
+		}
+
+		p.r, err = p.getReader(uint64(p.rAt), uint64(readAhead))
 		if err != nil {
 			return 0, xerrors.Errorf("getting backing reader: %w", err)
 		}
+		p.rEnd = p.rAt + readAhead
+		p.br = bufio.NewReaderSize(p.r, ReadBuf)
 	}
 
 	// 2. Check if we need to burn some bytes
@@ -201,14 +225,54 @@ func (p *pieceReader) readSeqReader(b []byte) (n int, err error) {
 
 	// 4. Read!
 	n, err = io.ReadFull(p.br, b)
-	if n < len(b) {
-		log.Debugw("pieceReader short read", "piece", p.pieceCid, "at", p.rAt, "toEnd", int64(p.len)-p.rAt, "n", len(b), "read", n, "err", err)
-	}
-	if err == io.ErrUnexpectedEOF {
+	p.rAt += int64(n)
+
+	// 5. Handle EOF: check if we exhausted the read-ahead buffer but piece has more data
+	if err != nil && (err == io.EOF || err == io.ErrUnexpectedEOF) {
+		if p.rAt < int64(p.len) {
+			// We hit EOF on current stream but piece has more data - fetch next chunk
+			log.Debugw("pieceReader stream exhausted, fetching next chunk", "piece", p.pieceCid, "at", p.rAt, "pieceLen", p.len)
+
+			if p.r != nil {
+				_ = p.r.Close()
+				p.r = nil
+				p.br = nil
+			}
+
+			remaining := int64(p.len) - p.rAt
+			readAhead := remaining
+			if readAhead > StreamReadAhead {
+				readAhead = StreamReadAhead
+			}
+
+			p.r, err = p.getReader(uint64(p.rAt), uint64(readAhead))
+			if err != nil {
+				return n, xerrors.Errorf("getting next chunk reader: %w", err)
+			}
+			p.rEnd = p.rAt + readAhead
+			p.br = bufio.NewReaderSize(p.r, ReadBuf)
+
+			// Continue reading remaining bytes into the buffer
+			if n < len(b) {
+				var n2 int
+				n2, err = io.ReadFull(p.br, b[n:])
+				p.rAt += int64(n2)
+				n += n2
+				if err == io.ErrUnexpectedEOF && p.rAt >= int64(p.len) {
+					err = io.EOF
+				}
+			} else {
+				err = nil // We filled the buffer, clear the EOF
+			}
+		}
+	} else if err == io.ErrUnexpectedEOF {
 		err = io.EOF
 	}
 
-	p.rAt += int64(n)
+	if n < len(b) && err != nil {
+		log.Debugw("pieceReader short read", "piece", p.pieceCid, "at", p.rAt-int64(n), "toEnd", int64(p.len)-p.rAt, "n", len(b), "read", n, "err", err)
+	}
+
 	return n, err
 }
 
