@@ -9,9 +9,12 @@ import (
 	"strings"
 )
 
-// allowHTTPFetch allows HTTP (not just HTTPS) for fetch source URLs.
-// Set CURIO_ALLOW_HTTP_FETCH=1 for development/testing environments.
-var allowHTTPFetch = os.Getenv("CURIO_ALLOW_HTTP_FETCH") == "1"
+// fetchAllowInsecure relaxes security validations for development/testing environments.
+// Set CURIO_FETCH_ALLOW_INSECURE=1 to:
+//   - Allow HTTP (not just HTTPS) for fetch source URLs
+//   - Allow localhost and private IP addresses
+// WARNING: Never enable this in production!
+var fetchAllowInsecure = os.Getenv("CURIO_FETCH_ALLOW_INSECURE") == "1"
 
 // FetchStatus represents the status of a fetch operation or piece
 type FetchStatus string
@@ -42,7 +45,7 @@ func ValidateFetchSourceURL(sourceURL string, expectedPieceCid string) error {
 	}
 
 	// Must be HTTPS (or HTTP if explicitly allowed for development)
-	if parsed.Scheme != "https" && (!allowHTTPFetch || parsed.Scheme != "http") {
+	if parsed.Scheme != "https" && (!fetchAllowInsecure || parsed.Scheme != "http") {
 		return fmt.Errorf("URL must use HTTPS scheme, got %q", parsed.Scheme)
 	}
 
@@ -58,9 +61,11 @@ func ValidateFetchSourceURL(sourceURL string, expectedPieceCid string) error {
 		return fmt.Errorf("pieceCid in URL %q does not match expected %q", urlPieceCid, expectedPieceCid)
 	}
 
-	// Validate host is not a private/local address
-	if err := validatePublicHost(parsed.Host); err != nil {
-		return err
+	// Validate host is not a private/local address (skip in devnet mode)
+	if !fetchAllowInsecure {
+		if err := validatePublicHost(parsed.Host); err != nil {
+			return err
+		}
 	}
 
 	return nil
