@@ -465,16 +465,50 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 
 	vproofs := make([][]byte, len(sectors))
 
+	// Track timing for diagnosing stacking issues
+	advStartTime := build.Clock.Now()
+	var pendingCount int32 // Track how many goroutines are waiting for the parallel slot
+
+	log.Infow("GenerateWindowPoStAdv starting",
+		"miner", mid,
+		"partition", partitionIdx,
+		"sectors", len(sectors),
+		"parallelLimit", cap(t.parallel),
+		"challengeReadTimeout", t.challengeReadTimeout)
+
 	for i, s := range sectors {
+		queueStartTime := build.Clock.Now()
+
 		if t.parallel != nil {
+			slk.Lock()
+			pendingCount++
+			currentPending := pendingCount
+			slk.Unlock()
+
 			select {
 			case t.parallel <- struct{}{}:
+				queueWaitTime := time.Since(queueStartTime)
+				if queueWaitTime > 5*time.Second {
+					log.Warnw("vanilla proof slot acquisition was slow",
+						"sector", s.SectorNumber,
+						"sectorIdx", i,
+						"totalSectors", len(sectors),
+						"queueWaitTime", queueWaitTime,
+						"pendingWhenQueued", currentPending,
+						"miner", mid,
+						"partition", partitionIdx)
+				}
 			case <-ctx.Done():
-				return storiface.WindowPoStResult{}, xerrors.Errorf("context error waiting on challengeThrottle: %w", ctx.Err())
+				return storiface.WindowPoStResult{}, xerrors.Errorf("context error waiting on challengeThrottle (sector %d, idx %d/%d, pending %d): %w",
+					s.SectorNumber, i, len(sectors), currentPending, ctx.Err())
 			}
+
+			slk.Lock()
+			pendingCount--
+			slk.Unlock()
 		}
 
-		go func(i int, s storiface.PostSectorChallenge) {
+		go func(i int, s storiface.PostSectorChallenge, dispatchTime time.Time) {
 			defer wg.Done()
 			ctx := ctx
 
@@ -490,7 +524,11 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 				defer cancel()
 			}
 
+			proofStartTime := build.Clock.Now()
 			vanilla, err := t.storage.GenerateSingleVanillaProof(ctx, mid, s, ppt)
+			proofDuration := time.Since(proofStartTime)
+			totalDuration := time.Since(dispatchTime)
+
 			slk.Lock()
 			defer slk.Unlock()
 
@@ -499,14 +537,45 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 					Miner:  mid,
 					Number: s.SectorNumber,
 				})
-				log.Errorf("reading PoSt challenge for sector %d, vlen:%d, err: %s", s.SectorNumber, len(vanilla), err)
+				log.Errorw("reading PoSt challenge for sector failed",
+					"sector", s.SectorNumber,
+					"sectorIdx", i,
+					"totalSectors", len(sectors),
+					"vlen", len(vanilla),
+					"error", err,
+					"proofDuration", proofDuration,
+					"totalDuration", totalDuration,
+					"timeSinceAdvStart", time.Since(advStartTime),
+					"miner", mid,
+					"partition", partitionIdx,
+					"update", s.Update)
 				return
 			}
 
+			if proofDuration > 30*time.Second {
+				log.Warnw("slow vanilla proof generation",
+					"sector", s.SectorNumber,
+					"sectorIdx", i,
+					"totalSectors", len(sectors),
+					"proofDuration", proofDuration,
+					"totalDuration", totalDuration,
+					"miner", mid,
+					"partition", partitionIdx,
+					"update", s.Update)
+			}
+
 			vproofs[i] = vanilla
-		}(i, s)
+		}(i, s, build.Clock.Now())
 	}
 	wg.Wait()
+
+	advDuration := time.Since(advStartTime)
+	log.Infow("GenerateWindowPoStAdv vanilla proofs complete",
+		"miner", mid,
+		"partition", partitionIdx,
+		"sectors", len(sectors),
+		"skipped", len(skipped),
+		"duration", advDuration)
 
 	if len(skipped) > 0 && !allowSkip {
 		// This should happen rarely because before entering GenerateWindowPoSt we check all sectors by reading challenges.

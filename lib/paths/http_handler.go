@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,6 +53,9 @@ type FetchHandler struct {
 		StashStore
 	}
 	PfHandler PartialFileHandler
+
+	// vanillaProofConcurrent tracks concurrent vanilla proof requests for diagnostics
+	vanillaProofConcurrent int32
 }
 
 func (handler *FetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) { // /remote/
@@ -341,17 +345,62 @@ type SingleVanillaParams struct {
 }
 
 func (handler *FetchHandler) generateSingleVanillaProof(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+
+	// Track concurrent requests to diagnose stacking issues
+	concurrent := atomic.AddInt32(&handler.vanillaProofConcurrent, 1)
+	defer atomic.AddInt32(&handler.vanillaProofConcurrent, -1)
+
 	var params SingleVanillaParams
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
+	log.Debugw("generateSingleVanillaProof request received",
+		"sector", params.Sector.SectorNumber,
+		"miner", params.Miner,
+		"update", params.Sector.Update,
+		"remoteAddr", r.RemoteAddr,
+		"concurrentRequests", concurrent)
+
+	if concurrent > 16 {
+		log.Warnw("high concurrent vanilla proof requests",
+			"sector", params.Sector.SectorNumber,
+			"miner", params.Miner,
+			"concurrentRequests", concurrent,
+			"remoteAddr", r.RemoteAddr)
+	}
+
 	vanilla, err := handler.Local.GenerateSingleVanillaProof(r.Context(), params.Miner, params.Sector, params.ProofType)
+	duration := time.Since(startTime)
+	concurrentAfter := atomic.LoadInt32(&handler.vanillaProofConcurrent)
+
 	if err != nil {
-		log.Errorw("failed to generate single vanilla proof:", "miner", params.Miner, "sector", params.Sector, "proofType", params.ProofType, "err", err)
+		log.Errorw("failed to generate single vanilla proof",
+			"miner", params.Miner,
+			"sector", params.Sector.SectorNumber,
+			"proofType", params.ProofType,
+			"update", params.Sector.Update,
+			"duration", duration,
+			"remoteAddr", r.RemoteAddr,
+			"concurrentAtStart", concurrent,
+			"concurrentNow", concurrentAfter,
+			"err", err)
 		http.Error(w, err.Error(), 500)
 		return
+	}
+
+	if duration > 30*time.Second {
+		log.Warnw("slow generateSingleVanillaProof request",
+			"sector", params.Sector.SectorNumber,
+			"miner", params.Miner,
+			"update", params.Sector.Update,
+			"duration", duration,
+			"proofSize", len(vanilla),
+			"remoteAddr", r.RemoteAddr,
+			"concurrentAtStart", concurrent,
+			"concurrentNow", concurrentAfter)
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")

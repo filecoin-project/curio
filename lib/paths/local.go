@@ -1131,6 +1131,8 @@ func (st *Local) FsStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, er
 }
 
 func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.ActorID, si storiface.PostSectorChallenge, ppt abi.RegisteredPoStProof) ([]byte, error) {
+	totalStart := time.Now()
+
 	sr := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  minerID,
@@ -1140,9 +1142,13 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	}
 
 	var cache, sealed, cacheID, sealedID string
+	var acquireDuration time.Duration
 
 	if si.Update {
+		acquireStart := time.Now()
 		src, si, err := st.AcquireSector(ctx, sr, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+		acquireDuration = time.Since(acquireStart)
+
 		if err != nil {
 			// Record the error with tags
 			ctx, _ = tag.New(ctx,
@@ -1151,12 +1157,21 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 				tag.Upsert(sealedIDTagKey, ""),
 			)
 			stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
-			return nil, xerrors.Errorf("acquire sector: %w", err)
+			log.Errorw("local GenerateSingleVanillaProof AcquireSector failed",
+				"sector", sr.ID.Number,
+				"miner", minerID,
+				"update", true,
+				"acquireDuration", acquireDuration,
+				"error", err)
+			return nil, xerrors.Errorf("acquire sector (took %s): %w", acquireDuration, err)
 		}
 		cache, sealed = src.UpdateCache, src.Update
 		cacheID, sealedID = si.UpdateCache, si.Update
 	} else {
+		acquireStart := time.Now()
 		src, si, err := st.AcquireSector(ctx, sr, storiface.FTSealed|storiface.FTCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+		acquireDuration = time.Since(acquireStart)
+
 		if err != nil {
 			// Record the error with tags
 			ctx, _ = tag.New(ctx,
@@ -1165,10 +1180,26 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 				tag.Upsert(sealedIDTagKey, ""),
 			)
 			stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
-			return nil, xerrors.Errorf("acquire sector: %w", err)
+			log.Errorw("local GenerateSingleVanillaProof AcquireSector failed",
+				"sector", sr.ID.Number,
+				"miner", minerID,
+				"update", false,
+				"acquireDuration", acquireDuration,
+				"error", err)
+			return nil, xerrors.Errorf("acquire sector (took %s): %w", acquireDuration, err)
 		}
 		cache, sealed = src.Cache, src.Sealed
 		cacheID, sealedID = si.Cache, si.Sealed
+	}
+
+	if acquireDuration > 5*time.Second {
+		log.Warnw("slow AcquireSector for vanilla proof",
+			"sector", sr.ID.Number,
+			"miner", minerID,
+			"acquireDuration", acquireDuration,
+			"update", si.Update,
+			"cacheID", cacheID,
+			"sealedID", sealedID)
 	}
 
 	if sealed == "" || cache == "" {
@@ -1206,7 +1237,7 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 		SealedSectorPath: sealed,
 	}
 
-	start := time.Now()
+	ffiStart := time.Now()
 
 	resCh := make(chan result.Result[[]byte], 1)
 	go func() {
@@ -1216,23 +1247,47 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	select {
 	case r := <-resCh:
 		// Record the duration upon successful completion
-		duration := time.Since(start).Milliseconds()
-		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(duration))
+		ffiDuration := time.Since(ffiStart)
+		totalDuration := time.Since(totalStart)
+		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(ffiDuration.Milliseconds()))
 
-		if duration > SlowPoStCheckThreshold.Milliseconds() {
-			log.Warnw("slow GenerateSingleVanillaProof", "duration", duration, "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed, "sector", si)
+		if ffiDuration > SlowPoStCheckThreshold {
+			log.Warnw("slow GenerateSingleVanillaProof FFI call",
+				"sector", si.SectorNumber,
+				"miner", minerID,
+				"ffiDuration", ffiDuration,
+				"acquireDuration", acquireDuration,
+				"totalDuration", totalDuration,
+				"cache-id", cacheID,
+				"sealed-id", sealedID,
+				"cache", cache,
+				"sealed", sealed,
+				"update", si.Update)
 		}
 
 		return r.Unwrap()
 	case <-ctx.Done():
 		// Record the duration and error if the context is canceled
-		duration := time.Since(start).Milliseconds()
-		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(duration))
+		ffiDuration := time.Since(ffiStart)
+		totalDuration := time.Since(totalStart)
+		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(ffiDuration.Milliseconds()))
 		stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
-		log.Errorw("failed to generate vanilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", duration, "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
+		log.Errorw("failed to generate vanilla PoSt proof before context cancellation",
+			"sector", si.SectorNumber,
+			"miner", minerID,
+			"err", ctx.Err(),
+			"ffiDuration", ffiDuration,
+			"acquireDuration", acquireDuration,
+			"totalDuration", totalDuration,
+			"cache-id", cacheID,
+			"sealed-id", sealedID,
+			"cache", cache,
+			"sealed", sealed,
+			"update", si.Update)
 
 		// This will leave the GenerateSingleVanillaProof goroutine hanging, but that's still less bad than failing PoSt
-		return nil, xerrors.Errorf("failed to generate vanilla proof before context cancellation: %w", ctx.Err())
+		return nil, xerrors.Errorf("failed to generate vanilla proof before context cancellation (ffi took %s, acquire took %s, total %s): %w",
+			ffiDuration, acquireDuration, totalDuration, ctx.Err())
 	}
 }
 

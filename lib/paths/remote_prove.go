@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/ipfs/go-cid"
@@ -88,8 +89,21 @@ func readMinCache(dir string, writer io.Writer) error {
 }
 
 func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.ActorID, sinfo storiface.PostSectorChallenge, ppt abi.RegisteredPoStProof) ([]byte, error) {
+	startTime := time.Now()
+
+	localStart := time.Now()
 	p, err := r.local.GenerateSingleVanillaProof(ctx, minerID, sinfo, ppt)
+	localDuration := time.Since(localStart)
+
 	if err != errPathNotFound {
+		if localDuration > 30*time.Second {
+			log.Warnw("slow local GenerateSingleVanillaProof",
+				"sector", sinfo.SectorNumber,
+				"miner", minerID,
+				"duration", localDuration,
+				"update", sinfo.Update,
+				"error", err)
+		}
 		return p, err
 	}
 
@@ -103,9 +117,20 @@ func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 		ft = storiface.FTUpdate | storiface.FTUpdateCache
 	}
 
+	findStart := time.Now()
 	si, err := r.index.StorageFindSector(ctx, sid, ft, 0, false)
+	findDuration := time.Since(findStart)
+
+	if findDuration > 5*time.Second {
+		log.Warnw("slow StorageFindSector for vanilla proof",
+			"sector", sinfo.SectorNumber,
+			"miner", minerID,
+			"duration", findDuration,
+			"update", sinfo.Update)
+	}
+
 	if err != nil {
-		return nil, xerrors.Errorf("finding sector %d failed: %w", sid, err)
+		return nil, xerrors.Errorf("finding sector %d failed (took %s): %w", sid, findDuration, err)
 	}
 
 	requestParams := SingleVanillaParams{
@@ -120,8 +145,16 @@ func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 
 	merr := xerrors.Errorf("sector not found")
 
-	for _, info := range si {
-		for _, u := range info.BaseURLs {
+	log.Debugw("GenerateSingleVanillaProof trying remote",
+		"sector", sinfo.SectorNumber,
+		"miner", minerID,
+		"remoteCount", len(si),
+		"localLookupDuration", localDuration,
+		"findDuration", findDuration,
+		"update", sinfo.Update)
+
+	for urlIdx, info := range si {
+		for baseIdx, u := range info.BaseURLs {
 			url := fmt.Sprintf("%s/vanilla/single", u)
 
 			req, err := http.NewRequest("POST", url, strings.NewReader(string(jreq)))
@@ -136,16 +169,33 @@ func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 			}
 			req = req.WithContext(ctx)
 
+			reqStart := time.Now()
 			resp, err := http.DefaultClient.Do(req)
+			reqDuration := time.Since(reqStart)
+
 			if err != nil {
 				merr = multierror.Append(merr, xerrors.Errorf("do request: %w", err))
-				log.Warnw("GenerateSingleVanillaProof do request failed", "url", url, "error", err)
+				log.Warnw("GenerateSingleVanillaProof do request failed",
+					"url", url,
+					"error", err,
+					"sector", sinfo.SectorNumber,
+					"miner", minerID,
+					"requestDuration", reqDuration,
+					"totalDuration", time.Since(startTime),
+					"urlIdx", urlIdx,
+					"baseIdx", baseIdx,
+					"storageID", info.ID,
+					"update", sinfo.Update)
 				continue
 			}
 
 			if resp.StatusCode != http.StatusOK {
 				if resp.StatusCode == http.StatusNotFound {
-					log.Debugw("reading vanilla proof from remote not-found response", "url", url, "store", info.ID)
+					log.Debugw("reading vanilla proof from remote not-found response",
+						"url", url,
+						"store", info.ID,
+						"sector", sinfo.SectorNumber,
+						"requestDuration", reqDuration)
 					continue
 				}
 				body, err := io.ReadAll(resp.Body)
@@ -160,26 +210,66 @@ func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 				}
 
 				merr = multierror.Append(merr, xerrors.Errorf("non-200 code from %s: '%s'", url, strings.TrimSpace(string(body))))
-				log.Warnw("GenerateSingleVanillaProof non-200 code from remote", "code", resp.StatusCode, "url", url, "body", string(body))
+				log.Warnw("GenerateSingleVanillaProof non-200 code from remote",
+					"code", resp.StatusCode,
+					"url", url,
+					"body", string(body),
+					"sector", sinfo.SectorNumber,
+					"miner", minerID,
+					"requestDuration", reqDuration)
 				continue
 			}
 
+			readStart := time.Now()
 			body, err := io.ReadAll(resp.Body)
+			readDuration := time.Since(readStart)
+
 			if err != nil {
 				if err := resp.Body.Close(); err != nil {
 					log.Error("response close: ", err)
 				}
 
 				merr = multierror.Append(merr, xerrors.Errorf("resp.Body ReadAll: %w", err))
-				log.Warnw("GenerateSingleVanillaProof read response body failed", "url", url, "error", err)
+				log.Warnw("GenerateSingleVanillaProof read response body failed",
+					"url", url,
+					"error", err,
+					"sector", sinfo.SectorNumber,
+					"readDuration", readDuration)
 				continue
 			}
 
 			_ = resp.Body.Close()
 
+			totalDuration := time.Since(startTime)
+			if totalDuration > 30*time.Second {
+				log.Warnw("slow remote GenerateSingleVanillaProof success",
+					"sector", sinfo.SectorNumber,
+					"miner", minerID,
+					"url", url,
+					"storageID", info.ID,
+					"totalDuration", totalDuration,
+					"requestDuration", reqDuration,
+					"readDuration", readDuration,
+					"localLookupDuration", localDuration,
+					"findDuration", findDuration,
+					"bodySize", len(body),
+					"update", sinfo.Update)
+			}
+
 			return body, nil
 		}
 	}
+
+	totalDuration := time.Since(startTime)
+	log.Errorw("GenerateSingleVanillaProof all remotes failed",
+		"sector", sinfo.SectorNumber,
+		"miner", minerID,
+		"totalDuration", totalDuration,
+		"remoteCount", len(si),
+		"localLookupDuration", localDuration,
+		"findDuration", findDuration,
+		"update", sinfo.Update,
+		"error", merr)
 
 	return nil, merr
 }
