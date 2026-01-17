@@ -841,6 +841,9 @@ type HTTPConfig struct {
 	// HTTP and the reverse proxy will handle TLS termination.
 	DelegateTLS bool
 
+	// ExternalUrl is the final URL that external users can access directly.
+	ExternalUrl string
+
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
 	ReadTimeout time.Duration
