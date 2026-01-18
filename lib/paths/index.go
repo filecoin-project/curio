@@ -49,7 +49,7 @@ type SectorIndex interface { // part of storage-miner api
 	StorageTryLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error)
 	StorageGetLocks(ctx context.Context) (storiface.SectorLocks, error)
 
-	StorageList(ctx context.Context) (map[storiface.ID][]storiface.Decl, error)
+	StorageList(ctx context.Context, id storiface.ID) ([]storiface.Decl, error)
 }
 
 func MinerFilter(allowMiners, denyMiners []string, miner abi.ActorID) (bool, string, error) {
