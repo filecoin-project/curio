@@ -534,12 +534,12 @@ func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMiss
 func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, primary, dropMissing bool) error {
 	indexed := map[storiface.Decl]struct{}{}
 	if dropMissing {
-		decls, err := st.index.StorageList(ctx)
+		decls, err := st.index.StorageList(ctx, id)
 		if err != nil {
 			return xerrors.Errorf("getting declaration list: %w", err)
 		}
 
-		for _, decl := range decls[id] {
+		for _, decl := range decls {
 			for _, fileType := range decl.AllSet() {
 				indexed[storiface.Decl{
 					SectorID:       decl.SectorID,

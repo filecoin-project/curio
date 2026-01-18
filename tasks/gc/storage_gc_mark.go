@@ -81,9 +81,22 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	*/
 
 	// First get a list of all the sectors in all the paths
-	storageSectors, err := s.si.StorageList(ctx)
+	var storageIDs []struct {
+		StorageID string `db:"storage_id"`
+	}
+	err = s.db.Select(ctx, &storageIDs, "SELECT storage_id FROM storage_path")
 	if err != nil {
-		return false, xerrors.Errorf("StorageList: %w", err)
+		return false, xerrors.Errorf("get storage IDs: %w", err)
+	}
+
+	storageSectors := map[storiface.ID][]storiface.Decl{}
+	for _, sid := range storageIDs {
+		id := storiface.ID(sid.StorageID)
+		decls, err := s.si.StorageList(ctx, id)
+		if err != nil {
+			return false, xerrors.Errorf("StorageList(%s): %w", id, err)
+		}
+		storageSectors[id] = decls
 	}
 
 	// ToRemove += InStorage - Precommits - Live - Unproven - Pinned - InPorepPipeline
