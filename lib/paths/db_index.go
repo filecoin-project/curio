@@ -50,53 +50,34 @@ func NewDBIndex(al alertinginterface.AlertingInterface, db *harmonydb.DB) *DBInd
 	}
 }
 
-func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface.ID][]storiface.Decl, error) {
-
+func (dbi *DBIndex) StorageList(ctx context.Context, id storiface.ID) ([]storiface.Decl, error) {
 	var sectorEntries []struct {
-		StorageId      string
-		MinerId        sql.NullInt64
-		SectorNum      sql.NullInt64
-		SectorFiletype sql.NullInt32 `db:"sector_filetype"`
-		IsPrimary      sql.NullBool
+		MinerId        int64 `db:"miner_id"`
+		SectorNum      int64 `db:"sector_num"`
+		SectorFiletype int32 `db:"sector_filetype"`
 	}
 
 	err := dbi.harmonyDB.Select(ctx, &sectorEntries,
-		"SELECT stor.storage_id, miner_id, sector_num, sector_filetype, is_primary FROM storage_path stor LEFT JOIN sector_location sec on stor.storage_id=sec.storage_id")
+		"SELECT miner_id, sector_num, sector_filetype FROM sector_location WHERE storage_id = $1", string(id))
 	if err != nil {
 		return nil, xerrors.Errorf("StorageList DB query fails: %w", err)
 	}
 
-	byID := map[storiface.ID]map[abi.SectorID]storiface.SectorFileType{}
+	bySector := map[abi.SectorID]storiface.SectorFileType{}
 	for _, entry := range sectorEntries {
-		id := storiface.ID(entry.StorageId)
-		_, ok := byID[id]
-		if !ok {
-			byID[id] = map[abi.SectorID]storiface.SectorFileType{}
-		}
-
-		// skip sector info for storage paths with no sectors
-		// All sector_location fields must be valid (they come from LEFT JOIN)
-		if !entry.MinerId.Valid || !entry.SectorNum.Valid || !entry.SectorFiletype.Valid {
-			continue
-		}
-
 		sectorId := abi.SectorID{
-			Miner:  abi.ActorID(entry.MinerId.Int64),
-			Number: abi.SectorNumber(entry.SectorNum.Int64),
+			Miner:  abi.ActorID(entry.MinerId),
+			Number: abi.SectorNumber(entry.SectorNum),
 		}
-
-		byID[id][sectorId] |= storiface.SectorFileType(entry.SectorFiletype.Int32)
+		bySector[sectorId] |= storiface.SectorFileType(entry.SectorFiletype)
 	}
 
-	out := map[storiface.ID][]storiface.Decl{}
-	for id, m := range byID {
-		out[id] = []storiface.Decl{}
-		for sectorID, fileType := range m {
-			out[id] = append(out[id], storiface.Decl{
-				SectorID:       sectorID,
-				SectorFileType: fileType,
-			})
-		}
+	out := make([]storiface.Decl, 0, len(bySector))
+	for sectorID, fileType := range bySector {
+		out = append(out, storiface.Decl{
+			SectorID:       sectorID,
+			SectorFileType: fileType,
+		})
 	}
 
 	return out, nil
