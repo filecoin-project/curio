@@ -478,35 +478,53 @@ func (st *Local) startPeriodicRedeclare(ctx context.Context) {
 }
 
 func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMissingDecls bool) error {
-	st.localLk.Lock()
-	defer st.localLk.Unlock()
+	// Collect path info under RLock to avoid holding the lock during expensive I/O
+	type pathInfo struct {
+		id    storiface.ID
+		local string
+		stat  fsutil.FsStat
+	}
 
+	st.localLk.RLock()
+	var toProcess []pathInfo
 	for id, p := range st.paths {
-		mb, err := os.ReadFile(filepath.Join(p.Local, MetaFile))
-		if err != nil {
-			return xerrors.Errorf("reading storage metadata for %s: %w", p.Local, err)
-		}
-
-		var meta storiface.LocalStorageMeta
-		if err := json.Unmarshal(mb, &meta); err != nil {
-			return xerrors.Errorf("unmarshalling storage metadata for %s: %w", p.Local, err)
-		}
-
-		fst, _, err := p.stat(st.localStorage)
-		if err != nil {
-			return err
-		}
-
-		if id != meta.ID {
-			log.Errorf("storage path ID changed: %s; %s -> %s", p.Local, id, meta.ID)
-			continue
-		}
 		if filterId != nil && *filterId != id {
 			continue
 		}
 
+		fst, _, err := p.stat(st.localStorage)
+		if err != nil {
+			st.localLk.RUnlock()
+			return err
+		}
+
+		toProcess = append(toProcess, pathInfo{
+			id:    id,
+			local: p.Local,
+			stat:  fst,
+		})
+	}
+	st.localLk.RUnlock()
+
+	// Process each path without holding the lock
+	for _, pi := range toProcess {
+		mb, err := os.ReadFile(filepath.Join(pi.local, MetaFile))
+		if err != nil {
+			return xerrors.Errorf("reading storage metadata for %s: %w", pi.local, err)
+		}
+
+		var meta storiface.LocalStorageMeta
+		if err := json.Unmarshal(mb, &meta); err != nil {
+			return xerrors.Errorf("unmarshalling storage metadata for %s: %w", pi.local, err)
+		}
+
+		if pi.id != meta.ID {
+			log.Errorf("storage path ID changed: %s; %s -> %s", pi.local, pi.id, meta.ID)
+			continue
+		}
+
 		err = st.index.StorageAttach(ctx, storiface.StorageInfo{
-			ID:          id,
+			ID:          pi.id,
 			URLs:        []string{st.url},
 			Weight:      meta.Weight,
 			MaxStorage:  meta.MaxStorage,
@@ -518,12 +536,12 @@ func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMiss
 			DenyTypes:   meta.DenyTypes,
 			AllowMiners: meta.AllowMiners,
 			DenyMiners:  meta.DenyMiners,
-		}, fst)
+		}, pi.stat)
 		if err != nil {
 			return xerrors.Errorf("redeclaring storage in index: %w", err)
 		}
 
-		if err := st.declareSectors(ctx, p.Local, meta.ID, meta.CanStore, dropMissingDecls); err != nil {
+		if err := st.declareSectors(ctx, pi.local, meta.ID, meta.CanStore, dropMissingDecls); err != nil {
 			return xerrors.Errorf("redeclaring sectors: %w", err)
 		}
 	}
