@@ -184,6 +184,7 @@ func New(
 			TaskInterface:   c,
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
+			storageFailures: make(map[TaskID]time.Time),
 		}
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)
