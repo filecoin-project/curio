@@ -184,7 +184,7 @@ func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPv0_Indexing",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0, // I/O bound (storage read, CQL write), not CPU bound
 			Ram: indexingTaskRAM,
 		},
 		Max:         P.max,

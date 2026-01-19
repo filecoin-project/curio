@@ -324,7 +324,7 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0, // I/O bound (storage read, CQL write), not CPU bound
 			Ram: indexingTaskRAM,
 		},
 		Max:         i.max,
