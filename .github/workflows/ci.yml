@@ -658,26 +658,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Optional: if we later add a dedicated publish step that outputs a URL,
-          # wire it in here. For now we only upload an Actions artifact.
-          COVERAGE_URL=""
-          if [ -n "$COVERAGE_URL" ] && [ "$COVERAGE_URL" != "null" ]; then
-            echo "### 🌐 View Coverage Report" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**[📊 Open Interactive Coverage HTML in Browser](${COVERAGE_URL})**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- 🟢 Green: Covered by tests" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔴 Red: Not covered" >> $GITHUB_STEP_SUMMARY
-            echo "- ⚪ Gray: Non-executable code" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "_Link expires in 14 days_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "---" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "### 📥 View Coverage Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. [Download coverage-merged artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)" >> $GITHUB_STEP_SUMMARY
-          echo "2. [Open Coverage Viewer](https://filecoin-project.github.io/curio/coverage-viewer.html) and drop the ZIP" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY

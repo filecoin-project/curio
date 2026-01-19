@@ -151,11 +151,10 @@ runs:
           }
           
           // Create a summary that fits within GitHub's 65k character limit
-          const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const coverageHtmlUrl = '${{ inputs.coverage-html-url }}';
+          // Use artifact.ci to view the coverage HTML directly
+          const artifactCiUrl = `https://artifact.ci/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/coverage-merged/coverage.html`;
           
-          const viewerUrl = 'https://filecoin-project.github.io/curio/coverage-viewer/';
-          let htmlLink = `\n\n### View Coverage Report\n\n**Option 1:** 📥 [Download coverage-merged.zip](${artifactUrl}) and extract to open \`coverage.html\`\n\n**Option 2:** 🔗 [Open Coverage Viewer](${viewerUrl}) in a new window, then drag the downloaded zip file onto the page\n\n`;
+          let htmlLink = `\n\n### 📊 [View Coverage Report](${artifactCiUrl})\n\n`;
           
           const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}${htmlLink}**Summary:** ${totalLine}\n\n*Coverage includes ${functionLines.length} functions*`;
           
@@ -169,6 +168,6 @@ runs:
             output: {
               title: `Total Coverage: ${coverage}${hasBaseline ? ` (${parseFloat(diff) > 0 ? '+' : ''}${diff})` : ''}`,
               summary: summary.substring(0, 65000), // Ensure it fits
-              text:  `📥 Download coverage-merged.zip from the artifacts, then either:\n• Extract and open coverage.html directly\n• Open ${viewerUrl} and drag the zip onto it\n\nTotal functions: ${functionLines.length}`
+              text:  `View the interactive coverage report:\n${artifactCiUrl}\n\nTotal functions: ${functionLines.length}`
             }
           });
