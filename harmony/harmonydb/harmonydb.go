@@ -22,20 +22,24 @@ func init() {
 }
 
 func NewFromConfig(cfg Config) (*DB, error) {
-	cfg.SqlEmbedFS = &upgadeFS
+	cfg.SqlEmbedFS = &upgradeFS
 	cfg.DowngradeEmbedFS = &downgradeFS
 	return harmonydb.NewFromConfig(cfg)
 }
 
 func New(hosts []string, username, password, database, port string, loadBalance bool, itestID ITestID) (*DB, error) {
+	if len(hosts) == 0 {
+		hosts = []string{envElse(harmonydb.DefaultHostEnv, "127.0.0.1")}
+	}
 	return NewFromConfig(Config{
-		Hosts:            []string{envElse(harmonydb.DefaultHostEnv, "127.0.0.1")},
+		Hosts:            hosts,
 		Database:         database,
 		Username:         username,
 		Password:         password,
 		Port:             port,
 		LoadBalance:      loadBalance,
-		SqlEmbedFS:       &upgadeFS,
+		ITestID:          harmonydb.ITestID(itestID),
+		SqlEmbedFS:       &upgradeFS,
 		DowngradeEmbedFS: &downgradeFS,
 	})
 }
@@ -56,7 +60,7 @@ func NewFromConfigWithITestID(t *testing.T, id harmonydb.ITestID) (*DB, error) {
 		Port:             "5433",
 		LoadBalance:      false,
 		ITestID:          id,
-		SqlEmbedFS:       &upgadeFS,
+		SqlEmbedFS:       &upgradeFS,
 		DowngradeEmbedFS: &downgradeFS,
 	})
 	if err != nil {
@@ -69,7 +73,7 @@ func NewFromConfigWithITestID(t *testing.T, id harmonydb.ITestID) (*DB, error) {
 }
 
 //go:embed sql
-var upgadeFS embed.FS
+var upgradeFS embed.FS
 
 //go:embed downgrade
 var downgradeFS embed.FS
