@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strconv"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
@@ -28,8 +30,12 @@ type PipelineTask interface {
 type taskTypeHandler struct {
 	TaskInterface
 	TaskTypeDetails
-	TaskEngine *TaskEngine
+	TaskEngine      *TaskEngine
+	storageFailures map[TaskID]time.Time
 }
+
+// Anti-hammering of storage claims.
+const STORAGE_FAILURE_TIMEOUT = time.Hour
 
 func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
 	var tID TaskID
@@ -88,6 +94,12 @@ const (
 // The only caller should be the one work poller thread. This does spin off other threads,
 // but those should not considerWork. Work completing may lower the resource numbers
 // unexpectedly, but that will not invalidate work being already able to fit.
+//
+// Logic for multiple task IDs:
+// Runs CanAccept as few times as possible and respects list order.
+// The headroom (maxes, resources) becomes a SQL LIMIT so we can get work anywhere in the list.
+// Avoids caching CanAccept() results as priority may change
+// Disk resources are claimed AFTER taking the tasks because they may have different storage paths so they can't update.
 func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
 	if len(ids) == 0 {
 		return true // stop looking for takers
@@ -125,41 +137,29 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 		return false
 	}
 
-	/// TODO FROM HERE handle multiple task IDs
 	headroomUntilMax := h.Max.Headroom()
 	if maxAcceptable > headroomUntilMax {
 		maxAcceptable = headroomUntilMax
 	}
-	releaseStorage := make([]func(), len(tIDs))
-	for i := range tIDs {
-		releaseStorage[i] = func() {}
-	}
 
-	if h.Cost.Storage != nil {
-		for i, tID := range tIDs {
-			markComplete, err := h.Cost.Claim(int(tID))
-			if err != nil {
-				if i == 0 {
-					log.Infow("did not accept task", "task_id", strconv.Itoa(int(tID)), "reason", "storage claim failed", "name", h.Name, "error", err)
-					return false
-				}
-				if i < maxAcceptable {
-					maxAcceptable = i
-				}
-				break // lets process what we can
-			}
-			releaseStorage = append(releaseStorage, func() {
-				if err := markComplete(); err != nil {
-					log.Errorw("Could not release storage", "error", err)
-				}
-			})
+	// filter storage failures here
+	tIDs = lo.Filter(tIDs, func(tID TaskID, _ int) bool {
+		v, ok := h.storageFailures[tID]
+		if !ok {
+			return true
 		}
-	}
+		if time.Since(v) > STORAGE_FAILURE_TIMEOUT { // Retry in an hour or next reboot.
+			delete(h.storageFailures, tID)
+			return true
+		}
+		return false // Lets not hammer Tasks we know are failing.
+	})
 
 	// if recovering we don't need to try to claim anything because those tasks are already claimed by us
 	if from != WorkSourceRecover {
 		// 4. Can we claim the work for our hostname?
 		var tasksAccepted []TaskID
+		// Limit at the last possible moment in SQL AFTER we know it's unclaimed: this opens us to get work anywhere in the list.
 		err := h.TaskEngine.db.Select(h.TaskEngine.ctx, &tasksAccepted, `
 		WITH candidates AS (
 			SELECT t.id
@@ -178,27 +178,54 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 
 		if err != nil {
 			log.Error(err)
-			for _, rs := range releaseStorage {
-				rs()
-			}
 			return false
 		}
 		if len(tasksAccepted) == 0 {
 			log.Infow("did not accept task", "task_id", tIDs, "reason", "already Taken", "name", h.Name)
-			for _, rs := range releaseStorage {
-				if rs != nil {
-					rs()
-				}
-			}
+
 			return false
 		}
 		if len(tasksAccepted) != len(tIDs) {
-			tIDs = tasksAccepted                            // update tIDs to the accepted tasks
-			for _, rs := range releaseStorage[len(tIDs):] { // release the storage for the rejected tasks
-				if rs != nil {
-					rs()
-				}
+			tIDs = tasksAccepted // update tIDs to the accepted tasks
+		}
+	}
+
+	releaseStorage := make([]func(), len(tIDs))
+
+	if h.Cost.Storage != nil {
+		// Risk of this late-store: A "full macihne" will claim tasks, then back out of them.
+		failedTIDs := []TaskID{}
+		goodTIDs := []TaskID{}
+		releaseStorage = []func(){}
+		for _, tID := range tIDs {
+			markComplete, err := h.Cost.Claim(int(tID)) // Accepted tasks IDs are known now.
+			if err != nil {
+				failedTIDs = append(failedTIDs, tID)
+				h.storageFailures[tID] = time.Now()
+				continue
 			}
+			goodTIDs = append(goodTIDs, tID)
+			releaseStorage = append(releaseStorage, func() {
+				if err := markComplete(); err != nil {
+					log.Errorw("Could not release storage", "error", err)
+				}
+			})
+		}
+		if len(failedTIDs) > 0 {
+			tIDs = goodTIDs // releaseStorage will match this now.
+			log.Errorw("did not accept task", "task_ids", failedTIDs, "reason", "storage claim failed", "name", h.Name)
+			// This is not a task failure, so just reset the owner_id.
+			_, err := h.TaskEngine.db.Exec(h.TaskEngine.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, failedTIDs)
+			if err != nil {
+				log.Errorw("Could not reset failed tasks", "error", err)
+			}
+			if len(goodTIDs) == 0 {
+				return false
+			}
+		}
+	} else {
+		for i := range tIDs {
+			releaseStorage[i] = func() {}
 		}
 	}
 
@@ -372,9 +399,27 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	}
 }
 
+// MaxHeadroom controls the maximum number of tasks per type that can be active on this node.
+// It is exported and mutable so it can be configured via the HARMONY_MAX_TASKS_PER_TYPE
+// environment variable during process initialization.
+var MaxHeadroom = 100
+
+func init() {
+	m := os.Getenv("HARMONY_MAX_TASKS_PER_TYPE")
+	if m == "" {
+		return
+	}
+	v, err := strconv.Atoi(m)
+	if err != nil {
+		log.Errorw("Could not parse HARMONY_MAX_TASKS_PER_TYPE", "value", m, "error", err)
+	}
+	if v > 0 {
+		MaxHeadroom = v
+	}
+}
 func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 	r := h.TaskEngine.ResourcesAvailable()
-	headroom := 100
+	headroom := MaxHeadroom
 	if h.Max.AtMax() {
 		return 0, errors.New("Did not accept " + h.Name + " task: at max already")
 	}

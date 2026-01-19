@@ -783,7 +783,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		// Tasks with no unsealed copy (empty StorageID) can be accepted to handle
 		// gracefully in Do() - we'll complete them without actual indexing
 		if tasks[idx].StorageID == "" {
-			return &tasks[idx].TaskID, nil
+			acceptables = append(acceptables, tasks[idx].TaskID)
 		}
 		// Tasks with unsealed copy on this node's storage can be accepted
 		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {

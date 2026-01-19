@@ -193,6 +193,7 @@ func New(
 			TaskInterface:   c,
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
+			storageFailures: make(map[TaskID]time.Time),
 		}
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)
@@ -481,7 +482,17 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			continue
 		}
 		if v.IAmBored != nil {
-			if err := v.IAmBored(v.AddTask); err != nil {
+			var added []TaskID
+			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
+				v.AddTask(func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+					b, err := extraInfo(tID, tx)
+					if err == nil && b {
+						added = append(added, tID)
+					}
+					return b, err
+				})
+			})
+			if err != nil {
 				log.Error("IAmBored failed: ", err)
 				continue
 			}

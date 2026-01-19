@@ -114,7 +114,7 @@ func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	return true, nil
 }
 
-func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if storiface.FTUnsealed != 1 {
 		panic("storiface.FTUnsealed != 1")
 	}
@@ -136,13 +136,13 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		indIDs[i] = int64(id)
 	}
 
-	var acceptedID harmonytask.TaskID
+	var acceptedIDs []harmonytask.TaskID
 
-	err = f.db.QueryRow(ctx, `
+	err = f.db.Select(ctx, &acceptedIDs, `
 		SELECT f.fix_raw_size FROM fix_raw_size f
 			INNER JOIN market_piece_deal mpd ON f.id = mpd.id
 		    INNER JOIN sector_location l ON mpd.sp_id = mpd.miner_id AND mpd.sector_number = l.sector_num
-			WHERE f.task_id = ANY ($1) AND l.sector_filetype = 1 AND l.storage_id = ANY ($2) LIMIT 1`, indIDs, storageIDs).Scan(&acceptedID)
+			WHERE f.task_id = ANY ($1) AND l.sector_filetype = 1 AND l.storage_id = ANY ($2)`, indIDs, storageIDs)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -150,7 +150,7 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
 
-	return &acceptedID, nil
+	return acceptedIDs, nil
 }
 
 func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
