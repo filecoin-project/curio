@@ -19,8 +19,9 @@ const (
 
 func (e *TaskEngine) startScheduler() {
 	type taskSchedule struct {
-		hasID        map[TaskID]bool
-		choked       bool   // FUTURE PR: we choked the adding of TaskIDs for mem savings.
+		hasID  map[TaskID]bool
+		choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
+		// In this state, we try what we have, and go to DB if we need more.
 		reserved     bool   // Are we soft-holding a
 		reservedTask TaskID // This will be ran when resources are available.
 	}
