@@ -22,6 +22,7 @@ COMMANDS:
    fetch-params  Fetch proving parameters
    calc          Math Utils
    toolbox       Tool Box for Curio
+   batch         Manage batch sealing operations
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -493,6 +494,7 @@ USAGE:
 COMMANDS:
    window-post, wd, windowpost, wdpost  Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
    debug                                Collection of debugging utilities
+   supra                                Supra consensus testing utilities
    help, h                              Shows a list of commands or help for one command
 
 OPTIONS:
@@ -964,6 +966,71 @@ OPTIONS:
    --help, -h  show help
 ```
 
+### curio test supra
+```
+NAME:
+   curio test supra - Supra consensus testing utilities
+
+USAGE:
+   curio test supra [command options]
+
+COMMANDS:
+   system-info  Display CPU and CUDA information relevant for supraseal
+   tree-r-file  Test tree-r-file
+   snap-encode  Test snap-encode
+   help, h      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test supra system-info
+```
+NAME:
+   curio test supra system-info - Display CPU and CUDA information relevant for supraseal
+
+USAGE:
+   curio test supra system-info [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test supra tree-r-file
+```
+NAME:
+   curio test supra tree-r-file - Test tree-r-file
+
+USAGE:
+   curio test supra tree-r-file [command options]
+
+OPTIONS:
+   --last-layer-filename value  Last layer filename
+   --data-filename value        Data filename
+   --output-dir value           Output directory
+   --sector-size value          Sector size (default: 0)
+   --help, -h                   show help
+```
+
+#### curio test supra snap-encode
+```
+NAME:
+   curio test supra snap-encode - Test snap-encode
+
+USAGE:
+   curio test supra snap-encode [command options]
+
+OPTIONS:
+   --sealed-filename value    Sealed filename
+   --unsealed-filename value  Unsealed filename
+   --update-filename value    Update filename
+   --sector-size value        Sector size (bytes). Supported: 2048, 8388608, 549755813888, 34359738368, 68719476736 (default: 0)
+   --commd value              Unsealed CommD CID (v1)
+   --commk value              SectorKey CommR (commK) CID (v1)
+   --membuffer                Use memory buffer instead of disk (load and store) (default: false)
+   --help, -h                 show help
+```
+
 ## curio web
 ```
 NAME:
@@ -1296,6 +1363,8 @@ USAGE:
 COMMANDS:
    fix-msg                        Updated DB with message data missing from chain node
    register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
+   downgrade                      Downgrade a cluster's daatabase to a previous software version.
+   fix-boost-migration            Fix Boost migration
    help, h                        Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1336,4 +1405,77 @@ OPTIONS:
    --location value        Location of the service provider
    --token-address value   Token contract for payment (IERC20(address(0)) for FIL)
    --help, -h              show help
+```
+
+### curio toolbox downgrade
+```
+NAME:
+   curio toolbox downgrade - Downgrade a cluster's daatabase to a previous software version.
+
+USAGE:
+   curio toolbox downgrade [command options]
+
+DESCRIPTION:
+   If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.
+
+OPTIONS:
+   --last_good_date value  YYYYMMDD when your cluster had the preferred schema. Ex: 20251128 (default: 0)
+   --help, -h              show help
+```
+
+### curio toolbox fix-boost-migration
+```
+NAME:
+   curio toolbox fix-boost-migration - Fix Boost migration
+
+USAGE:
+   curio toolbox fix-boost-migration [command options]
+
+OPTIONS:
+   --check                                                  check how many entries need to be fixed (default: false)
+   --db-file value                                          location of boost.db file
+   --boostd-data-hosts value [ --boostd-data-hosts value ]  yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'
+   --boostd-data-username value                             yugabyte username to connect to over cassandra interface eg 'cassandra'
+   --boostd-data-password value                             yugabyte password to connect to over cassandra interface eg 'cassandra'
+   --help, -h                                               show help
+```
+
+## curio batch
+```
+NAME:
+   curio batch - Manage batch sealing operations
+
+USAGE:
+   curio batch [command options]
+
+COMMANDS:
+   setup    Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio batch setup
+```
+NAME:
+   curio batch setup - Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)
+
+USAGE:
+   curio batch setup [command options]
+
+DESCRIPTION:
+   Setup SPDK for batch sealing operations.
+
+   This command automatically:
+   - Downloads SPDK if not already available
+   - Configures 1GB hugepages (36 pages minimum)
+   - Binds NVMe devices for use with SupraSeal
+
+   Requires root/sudo access for SPDK setup operations.
+
+OPTIONS:
+   --hugepages value  Number of 1GB hugepages to configure (default: 36)
+   --min-pages value  Minimum number of hugepages required (default: 36)
+   --help, -h         show help
 ```

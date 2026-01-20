@@ -88,16 +88,12 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 
 */
 
-const (
-	bufSz    = 4 << 20
-	nWorkers = 24
-)
+const bufSz = 4 << 20
+
+var nWorkers int = runtime.NumCPU() / 2
 
 func Decode(replica, key io.Reader, out io.Writer) error {
 	workers := nWorkers
-	if runtime.NumCPU() < workers {
-		workers = runtime.NumCPU()
-	}
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)
@@ -121,6 +117,8 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 			// Read replica
 			rn, err := io.ReadFull(replica, rbuf)
 			if err != nil && err != io.ErrUnexpectedEOF {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				if err == io.EOF {
 					return
 				}
@@ -131,11 +129,15 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 			// Read key
 			kn, err := io.ReadFull(key, kbuf[:rn])
 			if err != nil && err != io.ErrUnexpectedEOF {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				errChan <- err
 				return
 			}
 
 			if kn != rn {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				errChan <- io.ErrUnexpectedEOF
 				return
 			}

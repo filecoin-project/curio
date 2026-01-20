@@ -8,7 +8,7 @@ description: This page explains how the sealing pipeline functions in Curio
 
 Curio’s sealing process is powered by HarmonyTasks. Each stage involved in sealing a sector is divided into smaller, independent tasks. These individual tasks are then picked up by different machines within the Curio cluster. This ensures tasks are distributed effectively and resources are used efficiently across the entire system.
 
-<figure><img src="../.gitbook/assets/curio-sealing.png" alt="Overview of Curio sealing pipeline"><figcaption><p>Curio sealing pipeline</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-sealing (1).png" alt="Overview of Curio sealing pipeline"><figcaption><p>Curio sealing pipeline</p></figcaption></figure>
 
 ## SealPoller&#x20;
 
@@ -59,7 +59,7 @@ type pollTask struct {
 
 The SealPoller retrieves all the `pollTasks` from the database, for which `after_commit_msg_success` or `after_move_storage` is not true, and tries to advance their state if possible. A `pollTask` is advanced when its dependencies, indicated by the “after\_” fields, are completed and the task itself is not yet queued (its task id is nil) or completed (its “After” field is false). Each pollTask’s advancement will trigger a database transaction attempting to update the task id with the new task id received from the HarmonyDB. The transaction makes sure that the task hasn’t been queued by others between reading the state and updating the task id. This polling process happens sequentially with different conditions for each stage, ensuring that all previous conditions are fulfilled before proceeding. If a task cannot proceed due to its previous dependencies not being completed, the poller will come back in the next round. Mostly, errors occurring during the poller operation are logged and don’t cause the poller to stop. But if something serious happens during a database transaction, it will be rolled back, with an error message giving details. By organizing work in this way, SealPoller ensures that each step in the sealing procedure occurs in the correct order, and that progress is made whenever it is possible to do so. It allows sectors to be sealed as efficiently as possible given the constraints of other tasks in progress.
 
-<figure><img src="../.gitbook/assets/sealing-tasks.png" alt="Sealing task execution"><figcaption><p>Curio harmony task execution</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/sealing-tasks (1).png" alt="Sealing task execution"><figcaption><p>Curio harmony task execution</p></figcaption></figure>
 
 ## Piece Park&#x20;
 
@@ -88,4 +88,4 @@ AuthNew: This function creates a new authorization token (JWT) for the given per
 
 The Piece Ingestor allocates a piece to a sector for a given miner address. It checks if the piece size matches the sector size, determines the preferred seal proof type, retrieves the miner ID, allocates a sector number, inserts the piece and sector pipeline entries into the database, and returns the sector and offset of the allocated piece.
 
-\
+<br>

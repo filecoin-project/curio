@@ -12,11 +12,25 @@ import (
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"github.com/yugabyte/pgx/v5/pgconn"
+	"golang.org/x/xerrors"
 )
 
 var errTx = errors.New("cannot use a non-transaction func in a transaction")
 
-const InitialSerializationErrorRetryWait = 5 * time.Second
+var backoffs = lo.Map([]int{200, 400, 800, 1600, 2400, 5000, 8000}, func(item int, _ int) time.Duration {
+	return time.Duration(item) * time.Millisecond
+})
+
+func backoffForSerializationError[T any](f func() (T, error)) (whatever T, err error) {
+	for _, backoff := range backoffs {
+		res, err := f()
+		if !IsErrSerialization(err) {
+			return res, err
+		}
+		time.Sleep(backoff)
+	}
+	return whatever, xerrors.Errorf("failed to execute function: %w", err)
+}
 
 // rawStringOnly is _intentionally_private_ to force only basic strings in SQL queries.
 // In any package, raw strings will satisfy compilation.  Ex:
@@ -34,17 +48,14 @@ func (db *DB) Exec(ctx context.Context, sql rawStringOnly, arguments ...any) (co
 		return 0, errTx
 	}
 
-	retryWait := InitialSerializationErrorRetryWait
-
-retry:
-	res, err := db.pgx.Exec(ctx, string(sql), arguments...)
-	if err != nil && IsErrSerialization(err) {
-		time.Sleep(retryWait)
-		retryWait *= 2
-		goto retry
+	res, err := backoffForSerializationError(func() (pgconn.CommandTag, error) {
+		return db.pgx.Exec(ctx, string(sql), arguments...)
+	})
+	if err != nil {
+		return 0, err
 	}
 
-	return int(res.RowsAffected()), err
+	return int(res.RowsAffected()), nil
 }
 
 type Qry interface {
@@ -79,7 +90,9 @@ func (db *DB) Query(ctx context.Context, sql rawStringOnly, arguments ...any) (*
 	if db.usedInTransaction() {
 		return &Query{}, errTx
 	}
-	q, err := db.pgx.Query(ctx, string(sql), arguments...)
+	q, err := backoffForSerializationError(func() (pgx.Rows, error) {
+		return db.pgx.Query(ctx, string(sql), arguments...)
+	})
 	return &Query{q}, err
 }
 
@@ -148,7 +161,9 @@ func (db *DB) Select(ctx context.Context, sliceOfStructPtr any, sql rawStringOnl
 	if db.usedInTransaction() {
 		return errTx
 	}
-	rows, err := db.pgx.Query(ctx, string(sql), arguments...)
+	rows, err := backoffForSerializationError(func() (pgx.Rows, error) {
+		return db.pgx.Query(ctx, string(sql), arguments...)
+	})
 	if err != nil {
 		return err
 	}
@@ -171,8 +186,7 @@ func (db *DB) usedInTransaction() bool {
 }
 
 type TransactionOptions struct {
-	RetrySerializationError            bool
-	InitialSerializationErrorRetryWait time.Duration
+	RetrySerializationError bool
 }
 
 type TransactionOption func(*TransactionOptions)
@@ -180,12 +194,6 @@ type TransactionOption func(*TransactionOptions)
 func OptionRetry() TransactionOption {
 	return func(o *TransactionOptions) {
 		o.RetrySerializationError = true
-	}
-}
-
-func OptionSerialRetryTime(d time.Duration) TransactionOption {
-	return func(o *TransactionOptions) {
-		o.InitialSerializationErrorRetryWait = d
 	}
 }
 
@@ -208,23 +216,19 @@ func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, er
 	}
 
 	opts := TransactionOptions{
-		RetrySerializationError:            false,
-		InitialSerializationErrorRetryWait: InitialSerializationErrorRetryWait,
+		RetrySerializationError: false,
 	}
 
 	for _, o := range opt {
 		o(&opts)
 	}
 
-retry:
-	comm, err := db.transactionInner(ctx, f)
-	if err != nil && opts.RetrySerializationError && IsErrSerialization(err) {
-		time.Sleep(opts.InitialSerializationErrorRetryWait)
-		opts.InitialSerializationErrorRetryWait *= 2
-		goto retry
+	if opts.RetrySerializationError {
+		return backoffForSerializationError(func() (bool, error) {
+			return db.transactionInner(ctx, f)
+		})
 	}
-
-	return comm, err
+	return db.transactionInner(ctx, f)
 }
 
 func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, err error)) (didCommit bool, retErr error) {
@@ -256,8 +260,13 @@ func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, er
 
 // Exec in a transaction.
 func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
-	res, err := t.Tx.Exec(t.ctx, string(sql), arguments...)
-	return int(res.RowsAffected()), err
+	res, err := backoffForSerializationError(func() (pgconn.CommandTag, error) {
+		return t.Tx.Exec(t.ctx, string(sql), arguments...)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return int(res.RowsAffected()), nil
 }
 
 // Query in a transaction.

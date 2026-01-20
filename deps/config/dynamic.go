@@ -198,8 +198,10 @@ func isDynamicType(t reflect.Type) bool {
 func (r *cfgRoot[T]) changeMonitor() {
 	lastTimestamp := time.Time{} // lets do a read at startup
 
+	sleepTime := time.Millisecond // read early so we didn't miss something on start-up.
 	for {
-		time.Sleep(30 * time.Second)
+		time.Sleep(sleepTime)
+		sleepTime = 30 * time.Second
 		configCount := 0
 		// Note: We need to prepend "base" layer like GetConfigs does
 		layers := append([]string{"base"}, r.layers...)
@@ -328,4 +330,12 @@ func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 		c.originally[ptr] = oldValue
 	}
 	c.latest[ptr] = newValue
+}
+
+func Becomes[U any, T any](rootType *Dynamic[U], f func() T) *Dynamic[T] {
+	d := NewDynamic(f())
+	rootType.OnChange(func() {
+		d.Set(f())
+	})
+	return d
 }

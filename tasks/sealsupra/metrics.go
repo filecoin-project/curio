@@ -14,9 +14,10 @@ var (
 
 // SupraSealMeasures groups all SupraSeal metrics.
 var SupraSealMeasures = struct {
-	PhaseLockCount    *stats.Int64Measure
-	PhaseWaitingCount *stats.Int64Measure
-	PhaseAvgDuration  *stats.Float64Measure
+	PhaseLockCount     *stats.Int64Measure
+	PhaseWaitingCount  *stats.Int64Measure
+	PhaseAvgDuration   *stats.Float64Measure
+	PhaseDurationSoFar *stats.Float64Measure
 
 	// NVMe Health measures
 	NVMeTemperature     *stats.Float64Measure
@@ -34,9 +35,10 @@ var SupraSealMeasures = struct {
 	NVMeReadIO       *stats.Int64Measure
 	NVMeWriteIO      *stats.Int64Measure
 }{
-	PhaseLockCount:    stats.Int64(pre+"phase_lock_count", "Number of active locks in each phase", stats.UnitDimensionless),
-	PhaseWaitingCount: stats.Int64(pre+"phase_waiting_count", "Number of goroutines waiting for a phase lock", stats.UnitDimensionless),
-	PhaseAvgDuration:  stats.Float64(pre+"phase_avg_duration", "Average duration of each phase in seconds", stats.UnitSeconds),
+	PhaseLockCount:     stats.Int64(pre+"phase_lock_count", "Number of active locks in each phase", stats.UnitDimensionless),
+	PhaseWaitingCount:  stats.Int64(pre+"phase_waiting_count", "Number of goroutines waiting for a phase lock", stats.UnitDimensionless),
+	PhaseAvgDuration:   stats.Float64(pre+"phase_avg_duration", "Average duration of each phase in seconds", stats.UnitSeconds),
+	PhaseDurationSoFar: stats.Float64(pre+"phase_duration_so_far", "Duration of the phase so far in seconds", stats.UnitSeconds),
 
 	// NVMe Health measures
 	NVMeTemperature:     stats.Float64(pre+"nvme_temperature_celsius", "NVMe Temperature in Celsius", stats.UnitDimensionless),
@@ -70,6 +72,11 @@ func init() {
 		},
 		&view.View{
 			Measure:     SupraSealMeasures.PhaseAvgDuration,
+			Aggregation: view.LastValue(),
+			TagKeys:     []tag.Key{phaseKey},
+		},
+		&view.View{
+			Measure:     SupraSealMeasures.PhaseDurationSoFar,
 			Aggregation: view.LastValue(),
 			TagKeys:     []tag.Key{phaseKey},
 		},

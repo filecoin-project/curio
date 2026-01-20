@@ -103,18 +103,18 @@ func (t *TaskProvideSnark) Adder(add harmonytask.AddTaskFunc) {
 }
 
 // CanAccept implements harmonytask.TaskInterface.
-func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
 		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	if len(ids) == 0 {
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	// Convert task IDs to int64 slice for SQL query
@@ -124,26 +124,23 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 	}
 
 	// Query to find the task with the oldest obtained_at
-	var oldestTaskID int64
-	err = t.db.QueryRow(context.Background(), `
+	var oldestTaskIDs []harmonytask.TaskID
+	err = t.db.Select(context.Background(), &oldestTaskIDs, `
 		SELECT compute_task_id 
 		FROM proofshare_queue 
 		WHERE compute_task_id = ANY($1) 
 		ORDER BY obtained_at ASC 
-		LIMIT 1
-	`, taskIDs).Scan(&oldestTaskID)
+	`, taskIDs)
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			// No matching tasks found, fallback to first ID
-			id := ids[0]
-			return &id, nil
+			return ids, nil
 		}
 		return nil, xerrors.Errorf("failed to query oldest task: %w", err)
 	}
 
-	taskID := harmonytask.TaskID(oldestTaskID)
-	return &taskID, nil
+	return oldestTaskIDs, nil
 }
 
 // Do implements harmonytask.TaskInterface.

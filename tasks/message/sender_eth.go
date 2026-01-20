@@ -220,13 +220,13 @@ func (s *SendTaskETH) signTransaction(ctx context.Context, fromAddress common.Ad
 	return signedTx, nil
 }
 
-func (s *SendTaskETH) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SendTaskETH) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// Should not happen
 		return nil, nil
 	}
 
-	return &ids[0], nil
+	return ids, nil
 }
 
 func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {

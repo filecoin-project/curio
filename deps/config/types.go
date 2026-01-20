@@ -13,11 +13,12 @@ import (
 func DefaultCurioConfig() *CurioConfig {
 	return &CurioConfig{
 		Subsystems: CurioSubsystemsConfig{
-			GuiAddress:                 "0.0.0.0:4701",
-			RequireActivationSuccess:   true,
-			RequireNotificationSuccess: true,
-			IndexingMaxTasks:           8,
-			RemoteProofMaxUploads:      15,
+			GuiAddress:                     "0.0.0.0:4701",
+			RequireActivationSuccess:       true,
+			RequireNotificationSuccess:     true,
+			IndexingMaxTasks:               8,
+			RemoteProofMaxUploads:          15,
+			ParkPieceMinFreeStoragePercent: 20,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -240,6 +241,12 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine (Default: 0 - unlimited)
 	ParkPieceMaxTasks int
 
+	// The maximum number of pieces that should be in storage + active tasks writing to storage on this node (Default: 0 - unlimited)
+	ParkPieceMaxInPark int
+
+	// The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+	ParkPieceMinFreeStoragePercent float64
+
 	// EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
 	// creating 11 layer files in sector cache directory.
 	//
@@ -354,6 +361,15 @@ type CurioSubsystemsConfig struct {
 	// UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance. (Default: 0 - unlimited)
 	UpdateEncodeMaxTasks int
 
+	// BindEncodeToData forces the Encode task to be executed on the same node where the data was parked.
+	// Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+	// (Default: false)
+	BindEncodeToData bool
+
+	// AllowEncodeGPUOverprovision allows the Encode task to run on regardress of declared GPU usage. (Default: false)
+	// NOTE: This definitely is not safe on PoSt nodes.
+	AllowEncodeGPUOverprovision bool
+
 	// UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)
 	UpdateProveMaxTasks int
 
@@ -390,6 +406,11 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. (Default: 0 - unlimited)
 	CommPMaxTasks int
+
+	// BindCommPToData forces the CommP task to be executed on the same node where the data was parked.
+	// Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+	// (Default: false)
+	BindCommPToData bool
 
 	// The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. (Default: 8)

@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
@@ -435,6 +436,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
+		defer pool.Put(memTree)
 		log.Debugw("provePiece", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf)
 
 		mProof, err := proof.MemtreeProof(memTree, challengedLeaf)
@@ -519,6 +521,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
+		defer pool.Put(memtree)
 
 		// Get challenge leaf in subTree
 		subTreeChallenge := challengedLeaf - startLeaf
@@ -552,6 +555,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
 		}
+		defer pool.Put(mtree)
 
 		// Generate merkle proof from snapShot node to commP
 		proofs, err := proof.MemtreeProof(mtree, snapshotNodeIndex)
@@ -598,12 +602,11 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 	return address, nil
 }
 
-func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {

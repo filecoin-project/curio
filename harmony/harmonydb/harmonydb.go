@@ -331,26 +331,78 @@ func ensureSchemaExists(connString, schema string) error {
 		return xerrors.New("schema must be of the form " + schemaREString + "\n Got: " + schema)
 	}
 
-	retryWait := InitialSerializationErrorRetryWait
+	_, err = backoffForSerializationError(func() (pgconn.CommandTag, error) {
+		return p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
+	})
 
-retry:
-	_, err = p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
-	if err != nil && IsErrSerialization(err) {
-		time.Sleep(retryWait)
-		retryWait *= 2
-		goto retry
-	}
-	if err != nil {
-		return xerrors.Errorf("cannot create schema: %w", err)
-	}
-	return nil
+	return err
 }
 
 //go:embed sql
-var fs embed.FS
+var upgadeFS embed.FS
+
+//go:embed downgrade
+var downgradeFS embed.FS
 
 var ITestUpgradeFunc func(*pgxpool.Pool, string, string)
 
+// DowngradeTo downgrades the database schema to a previous date (when an upgrade was applied).
+// Note: these dates (YYYYMMDD) are not the SQL date but the date the user did an upgrade.
+func (db *DB) DowngradeTo(ctx context.Context, dateNum int) error {
+	// Is the date good?
+	if dateNum < 2000_01_01 || dateNum > 2099_12_31 {
+		return xerrors.Errorf("invalid date: %d", dateNum)
+	}
+	// Ensure all SQL files after that date have a corresponding downgrade file
+	var toDowngrade []string
+	err := db.Select(ctx, &toDowngrade, "SELECT entry FROM base WHERE applied >= TO_DATE($1, 'YYYYMMDD') ORDER by entry DESC", strconv.Itoa(dateNum))
+	if err != nil {
+		return xerrors.Errorf("cannot select to downgrade: %w", err)
+	}
+	// Ensure all SQL files after that date have a corresponding downgrade file
+	m := map[string]string{}
+	downgrades, err := downgradeFS.ReadDir("downgrade")
+	if err != nil {
+		return xerrors.Errorf("cannot read downgrade directory: %w", err)
+	}
+	for _, downgrade := range downgrades {
+		m[downgrade.Name()[:8]] = "downgrade/" + downgrade.Name()
+	}
+
+	allGood := true
+	for _, file := range toDowngrade {
+		file = strings.TrimSpace(file)
+		downgradeFile, ok := m[file[:8]]
+		if !ok {
+			allGood = false
+			logger.Errorf("cannot find downgrade file for %s", file)
+			f, err := findFileStartingWith(upgadeFS, file[:8])
+			if err != nil {
+				logger.Errorf("cannot find file starting with %s that relates to downgrade-needed value: %w", file[:8], err)
+				continue
+			}
+			logger.Errorf("Original file needing downgrade: %s", file[:8], f)
+			continue
+		}
+		if _, err := downgradeFS.ReadFile(downgradeFile); err != nil {
+			allGood = false
+			logger.Errorf("cannot find/read downgrade file for %s. Err: %w", file, err)
+		}
+	}
+	if !allGood {
+		return xerrors.New("cannot downgrade to date: some downgrade files are missing")
+	}
+	for _, file := range toDowngrade {
+		if err := applySqlFile(db, downgradeFS, m[file[:8]]); err != nil {
+			return xerrors.Errorf("cannot apply downgrade file for %s. Err: %w", file, err)
+		}
+		_, err := db.Exec(context.Background(), "DELETE FROM base WHERE entry = $1", file[:8])
+		if err != nil {
+			return xerrors.Errorf("cannot delete from base for downgrade: %w", err)
+		}
+	}
+	return nil
+}
 func (db *DB) upgrade() error {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
@@ -378,7 +430,7 @@ func (db *DB) upgrade() error {
 			landed[l.Entry[:8]] = true
 		}
 	}
-	dir, err := fs.ReadDir("sql")
+	dir, err := upgadeFS.ReadDir("sql")
 	if err != nil {
 		logger.Error("Cannot read fs entries: " + err.Error())
 		return err
@@ -398,36 +450,16 @@ func (db *DB) upgrade() error {
 			logger.Debug("DB Schema " + name + " already applied.")
 			continue
 		}
-		file, err := fs.ReadFile("sql/" + name)
+		file, err := upgadeFS.ReadFile("sql/" + name)
 		if err != nil {
 			logger.Error("weird embed file read err")
 			return err
 		}
 
 		logger.Infow("Upgrading", "file", name, "size", len(file))
-
-		megaSql := ""
-		for _, s := range parseSQLStatements(string(file)) { // Implement the changes.
-			if len(strings.TrimSpace(s)) == 0 {
-				continue
-			}
-			trimmed := strings.TrimSpace(s)
-			// Only add semicolon if the statement doesn't already end with one
-			if !strings.HasSuffix(trimmed, ";") {
-				megaSql += s + ";"
-			} else {
-				megaSql += s
-			}
-		}
-		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
-		if err != nil {
-			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
-			logger.Error(msg)
-			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
-		}
-
-		if ITestUpgradeFunc != nil {
-			ITestUpgradeFunc(db.pgx, name, megaSql)
+		if err := applySqlFile(db, upgadeFS, "sql/"+name); err != nil {
+			logger.Error("Cannot apply sql file: " + err.Error())
+			return err
 		}
 
 		// Mark Completed.
@@ -449,7 +481,7 @@ func parseSQLStatements(sqlContent string) []string {
 
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "--") {
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "--") || strings.HasPrefix(trimmedLine, "#") {
 			// Skip empty lines and comments.
 			continue
 		}
@@ -475,4 +507,53 @@ func parseSQLStatements(sqlContent string) []string {
 	}
 
 	return statements
+}
+
+func applySqlFile(db *DB, fs embed.FS, path string) error {
+	file, err := fs.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var megaSQL strings.Builder
+	for _, statement := range parseSQLStatements(string(file)) {
+		trimmed := strings.TrimSpace(statement)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasSuffix(trimmed, ";") {
+			megaSQL.WriteString(statement)
+			megaSQL.WriteString(";")
+		} else {
+			megaSQL.WriteString(statement)
+		}
+	}
+
+	if megaSQL.Len() == 0 {
+		return nil
+	}
+
+	_, err = db.Exec(context.Background(), rawStringOnly(megaSQL.String()))
+	if err != nil {
+		return xerrors.Errorf("cannot apply sql file: %w", err)
+	}
+
+	if ITestUpgradeFunc != nil {
+		ITestUpgradeFunc(db.pgx, path[:8], megaSQL.String())
+	}
+
+	return err
+}
+
+func findFileStartingWith(fs embed.FS, prefix string) (string, error) {
+	entries, err := fs.ReadDir("sql")
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), prefix) {
+			return entry.Name(), nil
+		}
+	}
+	return "", xerrors.New("file not found")
 }

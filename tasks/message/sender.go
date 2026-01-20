@@ -3,6 +3,8 @@ package message
 import (
 	"bytes"
 	"context"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,9 +31,25 @@ var log = logging.Logger("curio/message")
 
 var SendLockedWait = 100 * time.Millisecond
 
+var NBI uint64 = 10
+
+func init() {
+	if nval := os.Getenv("CURIO_NBI"); nval != "" {
+		var err error
+		NBI, err = strconv.ParseUint(nval, 10, 64)
+		if err != nil {
+			panic(xerrors.Errorf("parsing CURIO_NBI: %w", err))
+		}
+		if NBI < 1 {
+			panic("CURIO_NBI must be at least 1")
+		}
+	}
+}
+
 type SenderAPI interface {
 	StateAccountKey(ctx context.Context, addr address.Address, tsk types.TipSetKey) (address.Address, error)
 	GasEstimateMessageGas(ctx context.Context, msg *types.Message, spec *api.MessageSendSpec, tsk types.TipSetKey) (*types.Message, error)
+	GasEstimateGasPremium(ctx context.Context, nblocksincl uint64, sender address.Address, gaslimit int64, tsk types.TipSetKey) (types.BigInt, error)
 	WalletBalance(ctx context.Context, addr address.Address) (big.Int, error)
 	MpoolGetNonce(context.Context, address.Address) (uint64, error)
 	MpoolPush(context.Context, *types.SignedMessage) (cid.Cid, error)
@@ -224,18 +242,18 @@ func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	return true, nil
 }
 
-func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	if s.signer == nil {
 		// can't sign messages here
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	return &ids[0], nil
+	return ids, nil
 }
 
 func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
@@ -314,9 +332,19 @@ func (s *Sender) Send(ctx context.Context, msg *types.Message, mss *api.MessageS
 		return cid.Undef, xerrors.Errorf("Send expects message nonce to be 0, was %d", msg.Nonce)
 	}
 
+	premiumWasNull := msg.GasPremium == types.EmptyInt || types.BigCmp(msg.GasPremium, types.NewInt(0)) == 0
+
 	msg, err = s.api.GasEstimateMessageGas(ctx, msg, mss, types.EmptyTSK)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("GasEstimateMessageGas error: %w", err)
+	}
+
+	if premiumWasNull {
+		gasPremium, err := s.api.GasEstimateGasPremium(ctx, NBI, msg.From, msg.GasLimit, types.EmptyTSK)
+		if err != nil {
+			return cid.Undef, xerrors.Errorf("estimating gas price: %w", err)
+		}
+		msg.GasPremium = gasPremium
 	}
 
 	b, err := s.api.WalletBalance(ctx, msg.From)

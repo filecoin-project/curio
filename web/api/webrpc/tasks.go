@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
@@ -98,7 +97,7 @@ func (a *WebRPC) GetTaskStatus(ctx context.Context, taskID int64) (*TaskStatus, 
 	status := &TaskStatus{TaskID: taskID}
 
 	// Check if task is present in harmony_task
-	var ownerID sql.NullInt64
+	var ownerID NullInt64
 	var name string
 	var postedTime time.Time
 	err := a.deps.DB.QueryRow(ctx, `

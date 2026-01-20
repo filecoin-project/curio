@@ -2931,6 +2931,96 @@
       "translation": "PDP 지갑이 가져와졌습니다",
       "message": "PDP wallet imported",
       "placeholder": null
+    },
+    {
+      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "translation": "클러스터의 데이터베이스를 이전 소프트웨어 버전으로 다운그레이드합니다.",
+      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "placeholder": null
+    },
+    {
+      "id": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "translation": "그러나 업그레이드에 심각한 버그가 있어 다운그레이드해야 한다면, 먼저 클러스터의 모든 노드를 종료한 뒤 이 명령을 실행하십시오. 마지막으로 다운그레이드된 노드만 다시 시작하십시오.",
+      "message": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "placeholder": null
+    },
+    {
+      "id": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "translation": "클러스터에 원하는 스키마가 적용되어 있던 YYYYMMDD 날짜입니다. 예: 20251128",
+      "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "placeholder": null
+    },
+    {
+      "id": "Fix Boost migration",
+      "translation": "Boost 마이그레이션 수정",
+      "message": "Fix Boost migration",
+      "placeholder": null
+    },
+    {
+      "id": "check how many entries need to be fixed",
+      "translation": "얼마나 많은 항목을 수정해야 하는지 확인하십시오",
+      "message": "check how many entries need to be fixed",
+      "placeholder": null
+    },
+    {
+      "id": "location of boost.db file",
+      "translation": "boost.db 파일 위치",
+      "message": "location of boost.db file",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+      "translation": "Cassandra 인터페이스를 통해 연결할 Yugabyte 호스트 예: '127.0.0.1'",
+      "message": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+      "translation": "Cassandra 인터페이스를 통해 연결할 Yugabyte 사용자 이름 예: 'cassandra'",
+      "message": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+      "translation": "Cassandra 인터페이스를 통해 연결할 Yugabyte 비밀번호 예: 'cassandra'",
+      "message": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+      "placeholder": null
+    },
+    {
+      "id": "Manage batch sealing operations",
+      "translation": "배치 시일링 작업 관리",
+      "message": "Manage batch sealing operations",
+      "placeholder": null
+    },
+    {
+      "id": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+      "translation": "배치 시일링을 위한 SPDK 설정(hugepage 구성 및 NVMe 장치 바인딩)",
+      "message": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+      "placeholder": null
+    },
+    {
+      "id": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+      "translation": "배치 시일링 작업을 위해 SPDK를 설정합니다.\n\n이 명령은 자동으로 다음을 수행합니다:\n- SPDK가 아직 없으면 다운로드\n- 1GB hugepage 구성(최소 36페이지)\n- SupraSeal에서 사용할 수 있도록 NVMe 장치를 바인딩\n\nSPDK 설정 작업을 위해 root/sudo 권한이 필요합니다.",
+      "message": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+      "placeholder": null
+    },
+    {
+      "id": "Number of 1GB hugepages to configure",
+      "translation": "구성할 1GB hugepage 수",
+      "message": "Number of 1GB hugepages to configure",
+      "placeholder": null
+    },
+    {
+      "id": "Minimum number of hugepages required",
+      "translation": "필요한 hugepage 최소 개수",
+      "message": "Minimum number of hugepages required",
+      "placeholder": null
+    },
+    {
+      "id": "Supra consensus testing utilities",
+      "translation": "Supra 컨센서스 테스트 유틸리티",
+      "message": "Supra consensus testing utilities",
+      "placeholder": null
     }
   ]
 }

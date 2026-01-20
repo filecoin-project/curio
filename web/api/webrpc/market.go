@@ -102,21 +102,21 @@ type MK12Pipeline struct {
 	PieceSize int64  `db:"piece_size" json:"piece_size"` // 8 bytes (40-48)
 	Offline   bool   `db:"offline" json:"offline"`       // 1 byte (48-49) - checked early for download decisions
 	Started   bool   `db:"started" json:"started"`       // 1 byte (49-50) - checked early
-	// Cache line 2 (bytes 64-128): Task IDs and stage tracking (sql.NullInt64 = 16 bytes)
+	// Cache line 2 (bytes 64-128): Task IDs and stage tracking (NullInt64 = 16 bytes)
 	CommTaskID     sql.NullInt64 `db:"commp_task_id" json:"commp_task_id"`         // 16 bytes
 	PSDTaskID      sql.NullInt64 `db:"psd_task_id" json:"psd_task_id"`             // 16 bytes
 	FindDealTaskID sql.NullInt64 `db:"find_deal_task_id" json:"find_deal_task_id"` // 16 bytes
 	AfterCommp     bool          `db:"after_commp" json:"after_commp"`             // 1 byte
 	AfterPSD       bool          `db:"after_psd" json:"after_psd"`                 // 1 byte
 	AfterFindDeal  bool          `db:"after_find_deal" json:"after_find_deal"`     // 1 byte
-	// Cache line 3 (bytes 128-192): Sector placement and sizing (sql.NullInt64 = 16 bytes)
+	// Cache line 3 (bytes 128-192): Sector placement and sizing (NullInt64 = 16 bytes)
 	RawSize sql.NullInt64 `db:"raw_size" json:"raw_size"`           // 16 bytes
 	Sector  sql.NullInt64 `db:"sector" json:"sector"`               // 16 bytes
 	Offset  sql.NullInt64 `db:"sector_offset" json:"sector_offset"` // 16 bytes
 	// Cache line 4 (bytes 192-256): Timing information
-	PSDWaitTime sql.NullTime `db:"psd_wait_time" json:"psd_wait_time"` // 32 bytes (sql.NullTime)
+	PSDWaitTime sql.NullTime `db:"psd_wait_time" json:"psd_wait_time"` // 32 bytes (NullTime)
 	CreatedAt   time.Time    `db:"created_at" json:"created_at"`       // 24 bytes
-	// Cache line 5+ (bytes 256+): Data URL and larger fields (sql.NullString = 24 bytes)
+	// Cache line 5+ (bytes 256+): Data URL and larger fields (NullString = 24 bytes)
 	URL        sql.NullString `db:"url" json:"url"`         // 24 bytes - only for online deals
 	PieceCidV2 string         `db:"-" json:"piece_cid_v2"`  // 16 bytes - computed field
 	Miner      string         `json:"miner"`                // 16 bytes - display field
@@ -196,7 +196,7 @@ func (a *WebRPC) GetMK12DealPipelines(ctx context.Context, limit int, offset int
 type StorageDealSummary struct {
 	ID                string         `db:"uuid" json:"id"`
 	MinerID           int64          `db:"sp_id" json:"sp_id"`
-	Sector            sql.NullInt64  `db:"sector_num" json:"sector"`
+	Sector            NullInt64      `db:"sector_num" json:"sector"`
 	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
 	SignedProposalCid string         `db:"signed_proposal_cid" json:"signed_proposal_cid"`
 	Offline           bool           `db:"offline" json:"offline"`
@@ -204,8 +204,8 @@ type StorageDealSummary struct {
 	StartEpoch        int64          `db:"start_epoch" json:"start_epoch"`
 	EndEpoch          int64          `db:"end_epoch" json:"end_epoch"`
 	ClientPeerId      string         `db:"client_peer_id" json:"client_peer_id"`
-	ChainDealId       sql.NullInt64  `db:"chain_deal_id" json:"chain_deal_id"`
-	PublishCid        sql.NullString `db:"publish_cid" json:"publish_cid"`
+	ChainDealId       NullInt64      `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        NullString     `db:"publish_cid" json:"publish_cid"`
 	PieceCid          string         `db:"piece_cid" json:"piece_cid"`
 	PieceSize         int64          `db:"piece_size" json:"piece_size"`
 	RawSize           sql.NullInt64  `db:"raw_size"`
@@ -366,16 +366,16 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 }
 
 type StorageDealList struct {
-	ID         string         `db:"uuid" json:"id"`
-	MinerID    int64          `db:"sp_id" json:"sp_id"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
-	PieceCidV1 string         `db:"piece_cid" json:"piece_cid"`
-	PieceSize  int64          `db:"piece_size" json:"piece_size"`
-	RawSize    sql.NullInt64  `db:"raw_size"`
-	PieceCidV2 string         `json:"piece_cid_v2"`
-	Processed  bool           `db:"processed" json:"processed"`
-	Error      sql.NullString `db:"error" json:"error"`
-	Miner      string         `json:"miner"`
+	ID         string     `db:"uuid" json:"id"`
+	MinerID    int64      `db:"sp_id" json:"sp_id"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	PieceCidV1 string     `db:"piece_cid" json:"piece_cid"`
+	PieceSize  int64      `db:"piece_size" json:"piece_size"`
+	RawSize    NullInt64  `db:"raw_size"`
+	PieceCidV2 string     `json:"piece_cid_v2"`
+	Processed  bool       `db:"processed" json:"processed"`
+	Error      NullString `db:"error" json:"error"`
+	Miner      string     `json:"miner"`
 }
 
 func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
@@ -553,8 +553,8 @@ type PieceDeal struct {
 	Sector      int64 `db:"sector_num" json:"sector"`           // 8 bytes
 	Length      int64 `db:"piece_length" json:"length"`         // 8 bytes
 	RawSize     int64 `db:"raw_size" json:"raw_size"`           // 8 bytes
-	// sql.NullInt64 (16 bytes)
-	Offset sql.NullInt64 `db:"piece_offset" json:"offset"` // 16 bytes
+	// NullInt64 (16 bytes)
+	Offset NullInt64 `db:"piece_offset" json:"offset"` // 16 bytes
 	// Cache line 3 (64+ bytes): Bools grouped together at the end to minimize padding
 	MK20       bool `db:"-" json:"mk20"`                  // Used with ID check (line 621-623) - hot path
 	BoostDeal  bool `db:"boost_deal" json:"boost_deal"`   // Less frequently accessed
@@ -973,18 +973,18 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 											start_epoch,
 											end_epoch,
 											'' AS client_peer_id,            -- Empty string for missing client_peer_id
-											NULL AS chain_deal_id,           -- NULL handled by Go (sql.NullInt64)
-											NULL AS publish_cid,             -- NULL handled by Go (sql.NullString)
+											NULL AS chain_deal_id,           -- NULL handled by Go (NullInt64)
+											NULL AS publish_cid,             -- NULL handled by Go (NullString)
 											piece_cid,
 											piece_size,
 											fast_retrieval,
 											announce_to_ipni,
-											NULL AS url,                     -- NULL handled by Go (sql.NullString)
+											NULL AS url,                     -- NULL handled by Go (NullString)
 											'{}'::JSONB AS url_headers,      -- Empty JSON object for url_headers
-											NULL AS error,                    -- NULL handled by Go (sql.NullString)
+											NULL AS error,                    -- NULL handled by Go (NullString)
 										    TRUE AS is_ddo
 										FROM market_direct_deals
-										WHERE piece_cid = $1 AND piece_size = $2`, pcid.String(), size)
+										WHERE piece_cid = $1 AND piece_size = $2`, pcid1.String(), size)
 	if err != nil {
 		return nil, err
 	}
@@ -1065,7 +1065,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		}
 		ids[i] = deal.Identifier.String()
 
-		var Err sql.NullString
+		var Err NullString
 
 		if len(dbdeal.DDOv1) > 0 && string(dbdeal.DDOv1) != "null" {
 			var dddov1 mk20.DBDDOV1
@@ -1227,12 +1227,12 @@ func (a *WebRPC) DealPipelineRemove(ctx context.Context, id string) error {
 func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var pipelines []struct {
-			Url    sql.NullString `db:"url"`
-			Sector sql.NullInt64  `db:"sector"`
+			Url    NullString `db:"url"`
+			Sector NullInt64  `db:"sector"`
 
-			CommpTaskID    sql.NullInt64 `db:"commp_task_id"`
-			AggrTaskID     sql.NullInt64 `db:"agg_task_id"`
-			IndexingTaskID sql.NullInt64 `db:"indexing_task_id"`
+			CommpTaskID    NullInt64 `db:"commp_task_id"`
+			AggrTaskID     NullInt64 `db:"agg_task_id"`
+			IndexingTaskID NullInt64 `db:"indexing_task_id"`
 		}
 
 		err = tx.Select(&pipelines, `SELECT url, sector, commp_task_id, agg_task_id, indexing_task_id
@@ -1313,13 +1313,13 @@ func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error 
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// First, get deal_pipeline.url, task_ids, and sector values
 		var (
-			url    sql.NullString
-			sector sql.NullInt64
+			url    NullString
+			sector NullInt64
 
-			commpTaskID    sql.NullInt64
-			psdTaskID      sql.NullInt64
-			findDealTaskID sql.NullInt64
-			indexingTaskID sql.NullInt64
+			commpTaskID    NullInt64
+			psdTaskID      NullInt64
+			findDealTaskID NullInt64
+			indexingTaskID NullInt64
 		)
 
 		err = tx.QueryRow(`SELECT url, sector, commp_task_id, psd_task_id, find_deal_task_id, indexing_task_id
@@ -1720,11 +1720,11 @@ func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 		type pipelineInfo struct {
 			uuid           string
 			url            string
-			sector         sql.NullInt64
-			commpTaskID    sql.NullInt64
-			psdTaskID      sql.NullInt64
-			findDealTaskID sql.NullInt64
-			indexingTaskID sql.NullInt64
+			sector         NullInt64
+			commpTaskID    NullInt64
+			psdTaskID      NullInt64
+			findDealTaskID NullInt64
+			indexingTaskID NullInt64
 		}
 
 		var pipelines []pipelineInfo

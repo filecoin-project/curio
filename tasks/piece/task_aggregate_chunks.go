@@ -360,8 +360,8 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	return true, nil
 }
 
-func (a *AggregateChunksTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (a *AggregateChunksTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {

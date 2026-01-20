@@ -2,7 +2,7 @@ package webrpc
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -71,23 +72,23 @@ type SnapPipelineTask struct {
 	Failed       bool      `db:"failed"`        // 1 byte (48-49) - checked early
 	DataAssigned bool      `db:"data_assigned"` // 1 byte (49-50) - checked with sector number
 	// Cache line 2 (bytes 64-128): Encode and Prove stages (accessed together)
-	TaskEncode        sql.NullInt64  `db:"task_id_encode"`      // 16 bytes
-	AfterEncode       bool           `db:"after_encode"`        // 1 byte
-	UpdateUnsealedCID sql.NullString `db:"update_unsealed_cid"` // 24 bytes
-	TaskProve         sql.NullInt64  `db:"task_id_prove"`       // 16 bytes
-	AfterProve        bool           `db:"after_prove"`         // 1 byte
+	TaskEncode        NullInt64  `db:"task_id_encode"`      // 16 bytes
+	AfterEncode       bool       `db:"after_encode"`        // 1 byte
+	UpdateUnsealedCID NullString `db:"update_unsealed_cid"` // 24 bytes
+	TaskProve         NullInt64  `db:"task_id_prove"`       // 16 bytes
+	AfterProve        bool       `db:"after_prove"`         // 1 byte
 	// Cache line 3 (bytes 128-192): Submit and message stages
-	UpdateSealedCID      sql.NullString `db:"update_sealed_cid"`       // 24 bytes
-	TaskSubmit           sql.NullInt64  `db:"task_id_submit"`          // 16 bytes
-	AfterSubmit          bool           `db:"after_submit"`            // 1 byte
-	AfterProveMsgSuccess bool           `db:"after_prove_msg_success"` // 1 byte
-	UpdateMsgCid         sql.NullString `db:"prove_msg_cid"`           // 24 bytes (crosses into cache line 4)
+	UpdateSealedCID      NullString `db:"update_sealed_cid"`       // 24 bytes
+	TaskSubmit           NullInt64  `db:"task_id_submit"`          // 16 bytes
+	AfterSubmit          bool       `db:"after_submit"`            // 1 byte
+	AfterProveMsgSuccess bool       `db:"after_prove_msg_success"` // 1 byte
+	UpdateMsgCid         NullString `db:"prove_msg_cid"`           // 24 bytes (crosses into cache line 4)
 	// Cache line 4 (bytes 192-256): Storage and timing
-	TaskMoveStorage  sql.NullInt64 `db:"task_id_move_storage"` // 16 bytes
-	AfterMoveStorage bool          `db:"after_move_storage"`   // 1 byte
-	SubmitAfter      sql.NullTime  `db:"submit_after"`         // 32 bytes
+	TaskMoveStorage  NullInt64 `db:"task_id_move_storage"` // 16 bytes
+	AfterMoveStorage bool      `db:"after_move_storage"`   // 1 byte
+	SubmitAfter      NullTime  `db:"submit_after"`         // 32 bytes
 	// Failure info (only accessed when Failed=true)
-	FailedAt sql.NullTime `db:"failed_at"` // 32 bytes (crosses into cache line 5)
+	FailedAt NullTime `db:"failed_at"` // 32 bytes (crosses into cache line 5)
 	// Rarely accessed fields at end
 	FailedReason    string `db:"failed_reason"`     // 16 bytes - only when Failed=true
 	FailedReasonMsg string `db:"failed_reason_msg"` // 16 bytes - only when Failed=true
@@ -102,50 +103,50 @@ type SectorInfoTaskSummary struct {
 
 type TaskHistory struct {
 	// Cache line 1 (bytes 0-64): Identification and key timing
-	PipelineTaskID int64        `db:"pipeline_task_id"` // 8 bytes (0-8)
-	WorkStart      sql.NullTime `db:"work_start"`       // 32 bytes (8-40)
-	WorkEnd        sql.NullTime `db:"work_end"`         // 32 bytes (40-72, crosses to cache line 2)
+	PipelineTaskID int64    `db:"pipeline_task_id"` // 8 bytes (0-8)
+	WorkStart      NullTime `db:"work_start"`       // 32 bytes (8-40)
+	WorkEnd        NullTime `db:"work_end"`         // 32 bytes (40-72, crosses to cache line 2)
 	// Cache line 2 (bytes 64-128): Task details
-	Name        sql.NullString `db:"name"`                       // 24 bytes
-	CompletedBy sql.NullString `db:"completed_by_host_and_port"` // 24 bytes
-	Result      sql.NullBool   `db:"result"`                     // 2 bytes
+	Name        NullString `db:"name"`                       // 24 bytes
+	CompletedBy NullString `db:"completed_by_host_and_port"` // 24 bytes
+	Result      NullBool   `db:"result"`                     // 2 bytes
 	// Cache line 3 (bytes 128+): Error info and display fields (only accessed when needed)
-	Err  sql.NullString `db:"err"` // 24 bytes - only accessed when Result is false
-	Took string         `db:"-"`   // 16 bytes - display only, computed field
+	Err  NullString `db:"err"` // 24 bytes - only accessed when Result is false
+	Took string     `db:"-"`   // 16 bytes - display only, computed field
 }
 
 // Pieces
 type SectorPieceMeta struct {
 	// Cache line 1 (bytes 0-64): Hot path - piece identification and size
-	PieceIndex  int64         `db:"piece_index"`   // 8 bytes (0-8)
-	PieceSize   int64         `db:"piece_size"`    // 8 bytes (8-16)
-	PieceCid    string        `db:"piece_cid"`     // 16 bytes (16-32)
-	PieceCidV2  string        `db:"-"`             // 16 bytes (32-48) - computed field
-	DataRawSize sql.NullInt64 `db:"data_raw_size"` // 16 bytes (48-64)
+	PieceIndex  int64     `db:"piece_index"`   // 8 bytes (0-8)
+	PieceSize   int64     `db:"piece_size"`    // 8 bytes (8-16)
+	PieceCid    string    `db:"piece_cid"`     // 16 bytes (16-32)
+	PieceCidV2  string    `db:"-"`             // 16 bytes (32-48) - computed field
+	DataRawSize NullInt64 `db:"data_raw_size"` // 16 bytes (48-64)
 	// Cache line 2 (bytes 64-128): Deal identification
-	F05DealID   sql.NullInt64  `db:"f05_deal_id"` // 16 bytes
-	DealID      sql.NullString `db:"deal_id"`     // 24 bytes
-	IsSnapPiece bool           `db:"is_snap"`     // 1 byte - frequently checked with PieceIndex
+	F05DealID   NullInt64  `db:"f05_deal_id"` // 16 bytes
+	DealID      NullString `db:"deal_id"`     // 24 bytes
+	IsSnapPiece bool       `db:"is_snap"`     // 1 byte - frequently checked with PieceIndex
 	// Cache line 3 (bytes 128-192): Data access and F05 info
-	DataUrl       sql.NullString `db:"data_url"`        // 24 bytes
-	F05PublishCid sql.NullString `db:"f05_publish_cid"` // 24 bytes
+	DataUrl       NullString `db:"data_url"`        // 24 bytes
+	F05PublishCid NullString `db:"f05_publish_cid"` // 24 bytes
 	// Cache line 4 (bytes 192-256): DDO and display fields
-	DDOPam         sql.NullString `db:"direct_piece_activation_manifest"` // 24 bytes
-	StrPieceSize   string         `db:"-"`                                // 16 bytes - display only
-	StrDataRawSize string         `db:"-"`                                // 16 bytes - display only
+	DDOPam         NullString `db:"direct_piece_activation_manifest"` // 24 bytes
+	StrPieceSize   string     `db:"-"`                                // 16 bytes - display only
+	StrDataRawSize string     `db:"-"`                                // 16 bytes - display only
 	// Piece park fields (rarely accessed, only for parked pieces)
 	PieceParkDataUrl       string    `db:"-"` // 16 bytes
 	PieceParkCreatedAt     time.Time `db:"-"` // 24 bytes
 	PieceParkID            int64     `db:"-"` // 8 bytes
 	PieceParkTaskID        *int64    `db:"-"` // 8 bytes - still pointer (not from DB)
 	PieceParkCleanupTaskID *int64    `db:"-"` // 8 bytes - still pointer (not from DB)
-	// Bools: frequently checked first, rare ones at end (sql.NullBool = 2 bytes each)
-	MK12Deal           sql.NullBool `db:"boost_deal"`              // 2 bytes - checked often
-	LegacyDeal         sql.NullBool `db:"legacy_deal"`             // 2 bytes - checked often
-	DeleteOnFinalize   sql.NullBool `db:"data_delete_on_finalize"` // 2 bytes - checked during finalize
-	IsParkedPiece      bool         `db:"-"`                       // rare - only for UI display
-	IsParkedPieceFound bool         `db:"-"`                       // rare - only for UI display
-	PieceParkComplete  bool         `db:"-"`                       // rare - only for parked pieces
+	// Bools: frequently checked first, rare ones at end (NullBool = 2 bytes each)
+	MK12Deal           NullBool `db:"boost_deal"`              // 2 bytes - checked often
+	LegacyDeal         NullBool `db:"legacy_deal"`             // 2 bytes - checked often
+	DeleteOnFinalize   NullBool `db:"data_delete_on_finalize"` // 2 bytes - checked during finalize
+	IsParkedPiece      bool     `db:"-"`                       // rare - only for UI display
+	IsParkedPieceFound bool     `db:"-"`                       // rare - only for UI display
+	PieceParkComplete  bool     `db:"-"`                       // rare - only for parked pieces
 }
 
 type FileLocations struct {
@@ -170,16 +171,16 @@ type SectorMeta struct {
 	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`  // 16 bytes (32-48)
 	UpdatedSealedCid   string `db:"cur_sealed_cid"`    // 16 bytes (48-64)
 	// Cache line 2 (bytes 64-128): Message CIDs (accessed for on-chain tracking)
-	PreCommitCid string         `db:"msg_cid_precommit"` // 16 bytes (64-80)
-	CommitCid    string         `db:"msg_cid_commit"`    // 16 bytes (80-96)
-	UpdateCid    sql.NullString `db:"msg_cid_update"`    // 24 bytes (96-120) - null for non-snap sectors
-	// Cache line 3 (bytes 128-192): On-chain metadata (sql.NullInt64 = 16 bytes each)
-	ExpirationEpoch sql.NullInt64 `db:"expiration_epoch"` // 16 bytes
-	Deadline        sql.NullInt64 `db:"deadline"`         // 16 bytes
-	Partition       sql.NullInt64 `db:"partition"`        // 16 bytes
-	// Bools (sql.NullBool = 2 bytes each)
-	IsCC          sql.NullBool `db:"is_cc"`               // 2 bytes
-	UnsealedState sql.NullBool `db:"target_unseal_state"` // 2 bytes
+	PreCommitCid string     `db:"msg_cid_precommit"` // 16 bytes (64-80)
+	CommitCid    string     `db:"msg_cid_commit"`    // 16 bytes (80-96)
+	UpdateCid    NullString `db:"msg_cid_update"`    // 24 bytes (96-120) - null for non-snap sectors
+	// Cache line 3 (bytes 128-192): On-chain metadata (NullInt64 = 16 bytes each)
+	ExpirationEpoch NullInt64 `db:"expiration_epoch"` // 16 bytes
+	Deadline        NullInt64 `db:"deadline"`         // 16 bytes
+	Partition       NullInt64 `db:"partition"`        // 16 bytes
+	// Bools (NullBool = 2 bytes each)
+	IsCC          NullBool `db:"is_cc"`               // 2 bytes
+	UnsealedState NullBool `db:"target_unseal_state"` // 2 bytes
 }
 
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
@@ -289,7 +290,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 		sle = &sectorListEntry{
 			PipelineTask: tasks[0],
-			AfterSeed:    task.SeedEpoch.Valid && task.SeedEpoch.Int64 <= int64(epoch),
+			AfterSeed:    task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch),
 
 			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(task.SectorNumber))),
 			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(task.SectorNumber))),
@@ -558,10 +559,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			DataUrl string `db:"data_url"`
 
 			// parked_pieces
-			CreatedAt     time.Time     `db:"created_at"`
-			Complete      bool          `db:"complete"`
-			ParkTaskID    sql.NullInt64 `db:"task_id"`
-			CleanupTaskID sql.NullInt64 `db:"cleanup_task_id"`
+			CreatedAt     time.Time `db:"created_at"`
+			Complete      bool      `db:"complete"`
+			ParkTaskID    NullInt64 `db:"task_id"`
+			CleanupTaskID NullInt64 `db:"cleanup_task_id"`
 		}
 
 		err = a.deps.DB.Select(ctx, &parkedPiece, `SELECT ppr.piece_id, ppr.data_url, pp.created_at, pp.complete, pp.task_id, pp.cleanup_task_id FROM parked_piece_refs ppr
@@ -597,7 +598,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var htasks []SectorInfoTaskSummary
 	taskIDs := map[int64]struct{}{}
 
-	appendNullInt64 := func(n sql.NullInt64) {
+	appendNullInt64 := func(n NullInt64) {
 		if n.Valid {
 			taskIDs[n.Int64] = struct{}{}
 		}
@@ -694,8 +695,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}
 
 	var taskState []struct {
-		PipelineID    int64         `db:"pipeline_id"`
-		HarmonyTaskID sql.NullInt64 `db:"harmony_task_id"`
+		PipelineID    int64     `db:"pipeline_id"`
+		HarmonyTaskID NullInt64 `db:"harmony_task_id"`
 	}
 	err = a.deps.DB.Select(ctx, &taskState, `WITH task_ids AS (
         SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
@@ -941,4 +942,970 @@ func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 		return xerrors.Errorf("failed to delete cc scheduler entry: %w", err)
 	}
 	return nil
+}
+
+// Sector Dashboard API
+
+type SPSectorStats struct {
+	SpID       int64  `json:"sp_id"`
+	SPAddress  string `json:"sp_address"`
+	TotalCount int64  `json:"total_count"`
+	CCCount    int64  `json:"cc_count"`
+	NonCCCount int64  `json:"non_cc_count"`
+}
+
+func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
+	var stats []struct {
+		SpID       int64 `db:"sp_id"`
+		TotalCount int64 `db:"total_count"`
+		CCCount    int64 `db:"cc_count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &stats, `
+		SELECT 
+			sm.sp_id,
+			COUNT(*) as total_count,
+			COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
+		FROM sectors_meta sm
+		GROUP BY sm.sp_id
+		ORDER BY sm.sp_id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query SP sector stats: %w", err)
+	}
+
+	result := make([]SPSectorStats, 0, len(stats))
+	for _, s := range stats {
+		addr := must.One(address.NewIDAddress(uint64(s.SpID)))
+		result = append(result, SPSectorStats{
+			SpID:       s.SpID,
+			SPAddress:  addr.String(),
+			TotalCount: s.TotalCount,
+			CCCount:    s.CCCount,
+			NonCCCount: s.TotalCount - s.CCCount,
+		})
+	}
+
+	return result, nil
+}
+
+type SectorPipelineStats struct {
+	PipelineType string `json:"pipeline_type"`
+	Stage        string `json:"stage"`
+	Count        int64  `json:"count"`
+}
+
+func (a *WebRPC) SectorPipelineStats(ctx context.Context) ([]SectorPipelineStats, error) {
+	var result []SectorPipelineStats
+
+	// PoRep pipeline stats
+	var porepStats []struct {
+		Stage string `db:"stage"`
+		Count int64  `db:"count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &porepStats, `
+		SELECT stage, COUNT(*) as count
+		FROM (
+			SELECT 
+				CASE 
+					WHEN NOT after_sdr THEN 'SDR'
+					WHEN NOT after_tree_d THEN 'TreeD'
+					WHEN NOT after_tree_c THEN 'TreeC'
+					WHEN NOT after_tree_r THEN 'TreeR'
+					WHEN after_synth IS NOT NULL AND NOT after_synth THEN 'Synthetic'
+					WHEN NOT after_precommit_msg THEN 'PreCommit Msg'
+					WHEN NOT after_precommit_msg_success THEN 'Wait Seed'
+					WHEN NOT after_porep THEN 'PoRep'
+					WHEN NOT after_finalize THEN 'Finalize'
+					WHEN NOT after_move_storage THEN 'Move Storage'
+					WHEN NOT after_commit_msg THEN 'Commit Msg'
+					WHEN NOT after_commit_msg_success THEN 'Wait Commit'
+					ELSE 'Complete'
+				END as stage,
+				CASE 
+					WHEN NOT after_sdr THEN 1
+					WHEN NOT after_tree_d THEN 2
+					WHEN NOT after_tree_c THEN 3
+					WHEN NOT after_tree_r THEN 4
+					WHEN after_synth IS NOT NULL AND NOT after_synth THEN 5
+					WHEN NOT after_precommit_msg THEN 6
+					WHEN NOT after_precommit_msg_success THEN 7
+					WHEN NOT after_porep THEN 8
+					WHEN NOT after_finalize THEN 9
+					WHEN NOT after_move_storage THEN 10
+					WHEN NOT after_commit_msg THEN 11
+					WHEN NOT after_commit_msg_success THEN 12
+					ELSE 13
+				END as sort_order
+			FROM sectors_sdr_pipeline
+			WHERE NOT failed
+		) sub
+		GROUP BY stage, sort_order
+		ORDER BY sort_order`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query PoRep pipeline stats: %w", err)
+	}
+
+	for _, s := range porepStats {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "PoRep",
+			Stage:        s.Stage,
+			Count:        s.Count,
+		})
+	}
+
+	// Snap pipeline stats
+	var snapStats []struct {
+		Stage string `db:"stage"`
+		Count int64  `db:"count"`
+	}
+
+	err = a.deps.DB.Select(ctx, &snapStats, `
+		SELECT stage, COUNT(*) as count
+		FROM (
+			SELECT 
+				CASE 
+					WHEN NOT data_assigned THEN 'Data Assignment'
+					WHEN NOT after_encode THEN 'Encode'
+					WHEN NOT after_prove THEN 'Prove'
+					WHEN NOT after_submit THEN 'Submit'
+					WHEN NOT after_prove_msg_success THEN 'Wait Prove Msg'
+					WHEN NOT after_move_storage THEN 'Move Storage'
+					ELSE 'Complete'
+				END as stage,
+				CASE 
+					WHEN NOT data_assigned THEN 1
+					WHEN NOT after_encode THEN 2
+					WHEN NOT after_prove THEN 3
+					WHEN NOT after_submit THEN 4
+					WHEN NOT after_prove_msg_success THEN 5
+					WHEN NOT after_move_storage THEN 6
+					ELSE 7
+				END as sort_order
+			FROM sectors_snap_pipeline
+			WHERE NOT failed
+		) sub
+		GROUP BY stage, sort_order
+		ORDER BY sort_order`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query Snap pipeline stats: %w", err)
+	}
+
+	for _, s := range snapStats {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "Snap",
+			Stage:        s.Stage,
+			Count:        s.Count,
+		})
+	}
+
+	// Failed sectors
+	var failedCount struct {
+		PoRepFailed int64 `db:"porep_failed"`
+		SnapFailed  int64 `db:"snap_failed"`
+	}
+
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT 
+			(SELECT COUNT(*) FROM sectors_sdr_pipeline WHERE failed) as porep_failed,
+			(SELECT COUNT(*) FROM sectors_snap_pipeline WHERE failed) as snap_failed`).Scan(&failedCount.PoRepFailed, &failedCount.SnapFailed)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query failed sectors: %w", err)
+	}
+
+	if failedCount.PoRepFailed > 0 {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "PoRep",
+			Stage:        "Failed",
+			Count:        failedCount.PoRepFailed,
+		})
+	}
+
+	if failedCount.SnapFailed > 0 {
+		result = append(result, SectorPipelineStats{
+			PipelineType: "Snap",
+			Stage:        "Failed",
+			Count:        failedCount.SnapFailed,
+		})
+	}
+
+	return result, nil
+}
+
+type DeadlineStats struct {
+	SpID              int64  `json:"sp_id"`
+	SPAddress         string `json:"sp_address"`
+	Deadline          int64  `json:"deadline"`
+	Count             int64  `json:"count"`
+	AllSectors        int64  `json:"all_sectors"`
+	FaultySectors     int64  `json:"faulty_sectors"`
+	RecoveringSectors int64  `json:"recovering_sectors"`
+	LiveSectors       int64  `json:"live_sectors"`
+	ActiveSectors     int64  `json:"active_sectors"`
+	PostSubmissions   string `json:"post_submissions"`
+}
+
+func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, error) {
+	var stats []struct {
+		SpID     int64 `db:"sp_id"`
+		Deadline int64 `db:"deadline"`
+		Count    int64 `db:"count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &stats, `
+		SELECT sp_id, deadline, COUNT(*) as count
+		FROM sectors_meta
+		WHERE deadline IS NOT NULL
+		GROUP BY sp_id, deadline
+		ORDER BY sp_id, deadline`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query deadline stats: %w", err)
+	}
+
+	// Group by SP for parallel fetching
+	type spDeadlines struct {
+		spID      int64
+		spAddr    address.Address
+		deadlines []int64
+	}
+	spMap := make(map[int64]*spDeadlines)
+	for _, s := range stats {
+		if _, ok := spMap[s.SpID]; !ok {
+			addr := must.One(address.NewIDAddress(uint64(s.SpID)))
+			spMap[s.SpID] = &spDeadlines{
+				spID:      s.SpID,
+				spAddr:    addr,
+				deadlines: []int64{},
+			}
+		}
+		spMap[s.SpID].deadlines = append(spMap[s.SpID].deadlines, s.Deadline)
+	}
+
+	// Fetch deadline info from chain in parallel
+	type deadlineInfo struct {
+		spID              int64
+		deadline          int64
+		allSectors        int64
+		faultySectors     int64
+		recoveringSectors int64
+		liveSectors       int64
+		activeSectors     int64
+		postSubmissions   string
+	}
+
+	var eg errgroup.Group
+	eg.SetLimit(10) // Limit concurrent requests
+
+	deadlineInfoChan := make(chan deadlineInfo, len(stats))
+
+	for _, sp := range spMap {
+		sp := sp
+		eg.Go(func() error {
+			// Get deadlines for this miner
+			deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)
+			if err != nil {
+				// If we can't get deadline info, continue without it
+				log.Warnw("failed to get deadlines", "miner", sp.spAddr, "error", err)
+				return nil
+			}
+
+			// For each deadline we're interested in
+			for _, dlIdx := range sp.deadlines {
+				if dlIdx >= int64(len(deadlines)) {
+					continue
+				}
+
+				dl := deadlines[dlIdx]
+
+				// Get partitions for this deadline
+				parts, err := a.deps.Chain.StateMinerPartitions(ctx, sp.spAddr, uint64(dlIdx), types.EmptyTSK)
+				if err != nil {
+					log.Warnw("failed to get partitions", "miner", sp.spAddr, "deadline", dlIdx, "error", err)
+					continue
+				}
+
+				info := deadlineInfo{
+					spID:     sp.spID,
+					deadline: dlIdx,
+				}
+
+				// Aggregate partition stats
+				for _, part := range parts {
+					allCount := must.One(part.AllSectors.Count())
+					faultyCount := must.One(part.FaultySectors.Count())
+					recoveringCount := must.One(part.RecoveringSectors.Count())
+					liveCount := must.One(part.LiveSectors.Count())
+					activeCount := must.One(part.ActiveSectors.Count())
+
+					info.allSectors += int64(allCount)
+					info.faultySectors += int64(faultyCount)
+					info.recoveringSectors += int64(recoveringCount)
+					info.liveSectors += int64(liveCount)
+					info.activeSectors += int64(activeCount)
+				}
+
+				// Get post submissions bitfield representation
+				postCount := must.One(dl.PostSubmissions.Count())
+				info.postSubmissions = fmt.Sprintf("%d/%d", postCount, len(parts))
+
+				deadlineInfoChan <- info
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, xerrors.Errorf("failed to fetch deadline info: %w", err)
+	}
+	close(deadlineInfoChan)
+
+	// Merge chain info with DB stats
+	chainInfoMap := make(map[string]deadlineInfo)
+	for info := range deadlineInfoChan {
+		key := fmt.Sprintf("%d-%d", info.spID, info.deadline)
+		chainInfoMap[key] = info
+	}
+
+	result := make([]DeadlineStats, 0, len(stats))
+	for _, s := range stats {
+		addr := must.One(address.NewIDAddress(uint64(s.SpID)))
+		ds := DeadlineStats{
+			SpID:      s.SpID,
+			SPAddress: addr.String(),
+			Deadline:  s.Deadline,
+			Count:     s.Count,
+		}
+
+		// Add chain info if available
+		key := fmt.Sprintf("%d-%d", s.SpID, s.Deadline)
+		if info, ok := chainInfoMap[key]; ok {
+			ds.AllSectors = info.allSectors
+			ds.FaultySectors = info.faultySectors
+			ds.RecoveringSectors = info.recoveringSectors
+			ds.LiveSectors = info.liveSectors
+			ds.ActiveSectors = info.activeSectors
+			ds.PostSubmissions = info.postSubmissions
+		}
+
+		result = append(result, ds)
+	}
+
+	return result, nil
+}
+
+type SectorFileTypeStats struct {
+	FileType string `json:"file_type"`
+	Count    int64  `json:"count"`
+}
+
+func (a *WebRPC) SectorFileTypeStats(ctx context.Context) ([]SectorFileTypeStats, error) {
+	var stats []struct {
+		FileType int   `db:"sector_filetype"`
+		Count    int64 `db:"count"`
+	}
+
+	err := a.deps.DB.Select(ctx, &stats, `
+		SELECT sector_filetype, COUNT(DISTINCT (miner_id, sector_num)) as count
+		FROM sector_location
+		GROUP BY sector_filetype
+		ORDER BY sector_filetype`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query file type stats: %w", err)
+	}
+
+	result := make([]SectorFileTypeStats, 0, len(stats))
+	for _, s := range stats {
+		result = append(result, SectorFileTypeStats{
+			FileType: storiface.SectorFileType(s.FileType).String(),
+			Count:    s.Count,
+		})
+	}
+
+	return result, nil
+}
+
+// Deadline Detail Page
+
+type DeadlinePartitionInfo struct {
+	Partition         uint64 `json:"partition"`
+	AllSectors        uint64 `json:"all_sectors"`
+	FaultySectors     uint64 `json:"faulty_sectors"`
+	RecoveringSectors uint64 `json:"recovering_sectors"`
+	LiveSectors       uint64 `json:"live_sectors"`
+	ActiveSectors     uint64 `json:"active_sectors"`
+}
+
+type DeadlineDetail struct {
+	SpID                 int64                   `json:"sp_id"`
+	SPAddress            string                  `json:"sp_address"`
+	Deadline             uint64                  `json:"deadline"`
+	PostSubmissions      string                  `json:"post_submissions"`
+	DisputableProofCount uint64                  `json:"disputable_proof_count"`
+	Partitions           []DeadlinePartitionInfo `json:"partitions"`
+}
+
+func (a *WebRPC) DeadlineDetail(ctx context.Context, sp string, deadlineIdx uint64) (*DeadlineDetail, error) {
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return nil, xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	// Get deadline info from chain
+	deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get deadlines: %w", err)
+	}
+
+	if deadlineIdx >= uint64(len(deadlines)) {
+		return nil, xerrors.Errorf("deadline %d does not exist", deadlineIdx)
+	}
+
+	dl := deadlines[deadlineIdx]
+
+	// Get partitions for this deadline
+	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get partitions: %w", err)
+	}
+
+	partitions := make([]DeadlinePartitionInfo, 0, len(parts))
+	for i, part := range parts {
+		partitions = append(partitions, DeadlinePartitionInfo{
+			Partition:         uint64(i),
+			AllSectors:        must.One(part.AllSectors.Count()),
+			FaultySectors:     must.One(part.FaultySectors.Count()),
+			RecoveringSectors: must.One(part.RecoveringSectors.Count()),
+			LiveSectors:       must.One(part.LiveSectors.Count()),
+			ActiveSectors:     must.One(part.ActiveSectors.Count()),
+		})
+	}
+
+	postCount := must.One(dl.PostSubmissions.Count())
+	return &DeadlineDetail{
+		SpID:                 int64(spid),
+		SPAddress:            maddr.String(),
+		Deadline:             deadlineIdx,
+		PostSubmissions:      fmt.Sprintf("%d/%d", postCount, len(parts)),
+		DisputableProofCount: dl.DisputableProofCount,
+		Partitions:           partitions,
+	}, nil
+}
+
+// Partition Detail Page
+
+type PartitionSectorInfo struct {
+	SectorNumber uint64 `json:"sector_number"`
+	IsFaulty     bool   `json:"is_faulty"`
+	IsRecovering bool   `json:"is_recovering"`
+	IsActive     bool   `json:"is_active"`
+	IsLive       bool   `json:"is_live"`
+}
+
+type StoragePathStat struct {
+	StorageID string   `json:"storage_id"`
+	PathType  string   `json:"path_type"`
+	Urls      []string `json:"urls"`
+	Count     int      `json:"count"`
+}
+
+type PartitionDetail struct {
+	SpID                   int64                 `json:"sp_id"`
+	SPAddress              string                `json:"sp_address"`
+	Deadline               uint64                `json:"deadline"`
+	Partition              uint64                `json:"partition"`
+	AllSectorsCount        uint64                `json:"all_sectors_count"`
+	FaultySectorsCount     uint64                `json:"faulty_sectors_count"`
+	RecoveringSectorsCount uint64                `json:"recovering_sectors_count"`
+	LiveSectorsCount       uint64                `json:"live_sectors_count"`
+	ActiveSectorsCount     uint64                `json:"active_sectors_count"`
+	Sectors                []PartitionSectorInfo `json:"sectors"`
+	FaultyStoragePaths     []StoragePathStat     `json:"faulty_storage_paths"`
+}
+
+// Sector Expiration Buckets API
+
+type SectorExpBucket struct {
+	LessThanDays int `json:"less_than_days" db:"less_than_days"`
+}
+
+func (a *WebRPC) SectorExpBuckets(ctx context.Context) ([]SectorExpBucket, error) {
+	var buckets []SectorExpBucket
+	err := a.deps.DB.Select(ctx, &buckets, `SELECT less_than_days FROM sectors_exp_buckets ORDER BY less_than_days`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration buckets: %w", err)
+	}
+	return buckets, nil
+}
+
+func (a *WebRPC) SectorExpBucketAdd(ctx context.Context, lessThanDays int) error {
+	if lessThanDays <= 0 {
+		return xerrors.Errorf("lessThanDays must be positive")
+	}
+	_, err := a.deps.DB.Exec(ctx, `INSERT INTO sectors_exp_buckets (less_than_days) VALUES ($1) ON CONFLICT DO NOTHING`, lessThanDays)
+	if err != nil {
+		return xerrors.Errorf("failed to add sector expiration bucket: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpBucketDelete(ctx context.Context, lessThanDays int) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_exp_buckets WHERE less_than_days = $1`, lessThanDays)
+	if err != nil {
+		return xerrors.Errorf("failed to delete sector expiration bucket: %w", err)
+	}
+	return nil
+}
+
+// Sector Expiration Manager Presets API
+
+type SectorExpManagerPreset struct {
+	Name                    string `json:"name" db:"name"`
+	ActionType              string `json:"action_type" db:"action_type"`
+	InfoBucketAboveDays     int    `json:"info_bucket_above_days" db:"info_bucket_above_days"`
+	InfoBucketBelowDays     int    `json:"info_bucket_below_days" db:"info_bucket_below_days"`
+	TargetExpirationDays    *int64 `json:"target_expiration_days" db:"target_expiration_days"`
+	MaxCandidateDays        *int64 `json:"max_candidate_days" db:"max_candidate_days"`
+	TopUpCountLowWaterMark  *int64 `json:"top_up_count_low_water_mark" db:"top_up_count_low_water_mark"`
+	TopUpCountHighWaterMark *int64 `json:"top_up_count_high_water_mark" db:"top_up_count_high_water_mark"`
+	CC                      *bool  `json:"cc" db:"cc"`
+	DropClaims              bool   `json:"drop_claims" db:"drop_claims"`
+}
+
+func (a *WebRPC) SectorExpManagerPresets(ctx context.Context) ([]SectorExpManagerPreset, error) {
+	var presets []SectorExpManagerPreset
+	err := a.deps.DB.Select(ctx, &presets, `SELECT * FROM sectors_exp_manager_presets ORDER BY name`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration manager presets: %w", err)
+	}
+	return presets, nil
+}
+
+func (a *WebRPC) SectorExpManagerPresetAdd(ctx context.Context, preset SectorExpManagerPreset) error {
+	_, err := a.deps.DB.Exec(ctx, `
+		INSERT INTO sectors_exp_manager_presets 
+		(name, action_type, info_bucket_above_days, info_bucket_below_days, 
+		 target_expiration_days, max_candidate_days, 
+		 top_up_count_low_water_mark, top_up_count_high_water_mark, cc, drop_claims)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		preset.Name, preset.ActionType, preset.InfoBucketAboveDays, preset.InfoBucketBelowDays,
+		preset.TargetExpirationDays, preset.MaxCandidateDays,
+		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC, preset.DropClaims)
+	if err != nil {
+		return xerrors.Errorf("failed to add sector expiration manager preset: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerPresetUpdate(ctx context.Context, preset SectorExpManagerPreset) error {
+	_, err := a.deps.DB.Exec(ctx, `
+		UPDATE sectors_exp_manager_presets 
+		SET action_type = $2, info_bucket_above_days = $3, info_bucket_below_days = $4,
+		    target_expiration_days = $5, max_candidate_days = $6,
+		    top_up_count_low_water_mark = $7, top_up_count_high_water_mark = $8, 
+		    cc = $9, drop_claims = $10
+		WHERE name = $1`,
+		preset.Name, preset.ActionType, preset.InfoBucketAboveDays, preset.InfoBucketBelowDays,
+		preset.TargetExpirationDays, preset.MaxCandidateDays,
+		preset.TopUpCountLowWaterMark, preset.TopUpCountHighWaterMark, preset.CC, preset.DropClaims)
+	if err != nil {
+		return xerrors.Errorf("failed to update sector expiration manager preset: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerPresetDelete(ctx context.Context, name string) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_exp_manager_presets WHERE name = $1`, name)
+	if err != nil {
+		return xerrors.Errorf("failed to delete sector expiration manager preset: %w", err)
+	}
+	return nil
+}
+
+// Sector Expiration Manager SP Assignments API
+
+type SectorExpManagerSP struct {
+	SpID                int64   `json:"sp_id" db:"sp_id"`
+	SPAddress           string  `json:"sp_address"`
+	PresetName          string  `json:"preset_name" db:"preset_name"`
+	Enabled             bool    `json:"enabled" db:"enabled"`
+	LastRunAt           *string `json:"last_run_at" db:"last_run_at"`
+	LastMessageCID      *string `json:"last_message_cid" db:"last_message_cid"`
+	LastMessageLandedAt *string `json:"last_message_landed_at" db:"last_message_landed_at"`
+}
+
+func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP, error) {
+	var rows []struct {
+		SpID                int64      `db:"sp_id"`
+		PresetName          string     `db:"preset_name"`
+		Enabled             bool       `db:"enabled"`
+		LastRunAt           NullTime   `db:"last_run_at"`
+		LastMessageCID      NullString `db:"last_message_cid"`
+		LastMessageLandedAt NullTime   `db:"last_message_landed_at"`
+	}
+	err := a.deps.DB.Select(ctx, &rows, `SELECT * FROM sectors_exp_manager_sp ORDER BY sp_id, preset_name`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration manager SP assignments: %w", err)
+	}
+
+	result := make([]SectorExpManagerSP, 0, len(rows))
+	for _, r := range rows {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		item := SectorExpManagerSP{
+			SpID:       r.SpID,
+			SPAddress:  addr.String(),
+			PresetName: r.PresetName,
+			Enabled:    r.Enabled,
+		}
+		if r.LastRunAt.Valid {
+			t := r.LastRunAt.Time.Format("2006-01-02 15:04:05")
+			item.LastRunAt = &t
+		}
+		if r.LastMessageCID.Valid {
+			item.LastMessageCID = &r.LastMessageCID.String
+		}
+		if r.LastMessageLandedAt.Valid {
+			t := r.LastMessageLandedAt.Time.Format("2006-01-02 15:04:05")
+			item.LastMessageLandedAt = &t
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (a *WebRPC) SectorExpManagerSPAdd(ctx context.Context, spAddress string, presetName string) error {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		INSERT INTO sectors_exp_manager_sp (sp_id, preset_name, enabled)
+		VALUES ($1, $2, false)
+		ON CONFLICT (sp_id, preset_name) DO NOTHING`,
+		spid, presetName)
+	if err != nil {
+		return xerrors.Errorf("failed to add sector expiration manager SP assignment: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerSPToggle(ctx context.Context, spAddress string, presetName string, enabled bool) error {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		UPDATE sectors_exp_manager_sp SET enabled = $3
+		WHERE sp_id = $1 AND preset_name = $2`,
+		spid, presetName, enabled)
+	if err != nil {
+		return xerrors.Errorf("failed to toggle sector expiration manager SP assignment: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerSPDelete(ctx context.Context, spAddress string, presetName string) error {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		DELETE FROM sectors_exp_manager_sp 
+		WHERE sp_id = $1 AND preset_name = $2`,
+		spid, presetName)
+	if err != nil {
+		return xerrors.Errorf("failed to delete sector expiration manager SP assignment: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorExpManagerSPEvalCondition(ctx context.Context, spAddress string, presetName string) (bool, error) {
+	maddr, err := address.NewFromString(spAddress)
+	if err != nil {
+		return false, xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return false, xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	currentEpoch := head.Height()
+
+	var needsAction bool
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT eval_ext_mgr_sp_condition($1, $2, $3, 2880)`,
+		spid, presetName, currentEpoch).Scan(&needsAction)
+	if err != nil {
+		return false, xerrors.Errorf("failed to evaluate condition: %w", err)
+	}
+
+	return needsAction, nil
+}
+
+type SectorExpBucketCount struct {
+	SpID         int64  `json:"sp_id" db:"sp_id"`
+	SPAddress    string `json:"sp_address"`
+	LessThanDays int    `json:"less_than_days" db:"less_than_days"`
+	TotalCount   int64  `json:"total_count" db:"total_count"`
+	CCCount      int64  `json:"cc_count" db:"cc_count"`
+	DealCount    int64  `json:"deal_count" db:"deal_count"`
+}
+
+func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCount, error) {
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	currentEpoch := head.Height()
+
+	var results []struct {
+		SpID         int64 `db:"sp_id"`
+		LessThanDays int   `db:"less_than_days"`
+		TotalCount   int64 `db:"total_count"`
+		CCCount      int64 `db:"cc_count"`
+	}
+
+	// Calculate counts per SP and bucket
+	// Bucket logic: sectors expiring in ranges between buckets
+	// The query returns cumulative counts (< N days), UI will calculate ranges
+	err = a.deps.DB.Select(ctx, &results, `
+		WITH buckets AS (
+			SELECT less_than_days FROM sectors_exp_buckets
+		),
+		sector_buckets AS (
+			SELECT 
+				sm.sp_id,
+				b.less_than_days,
+				COUNT(*) as total_count,
+				COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
+			FROM sectors_meta sm
+			CROSS JOIN buckets b
+			WHERE sm.expiration_epoch IS NOT NULL
+				AND sm.expiration_epoch > $1
+				AND sm.expiration_epoch < $1 + (b.less_than_days * 2880)
+			GROUP BY sm.sp_id, b.less_than_days
+		)
+		SELECT * FROM sector_buckets
+		ORDER BY sp_id, less_than_days`, currentEpoch)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query sector expiration bucket counts: %w", err)
+	}
+
+	// Add open-ended bucket for sectors beyond the last bucket
+	var openEndedResults []struct {
+		SpID       int64 `db:"sp_id"`
+		TotalCount int64 `db:"total_count"`
+		CCCount    int64 `db:"cc_count"`
+	}
+
+	err = a.deps.DB.Select(ctx, &openEndedResults, `
+		SELECT 
+			sm.sp_id,
+			COUNT(*) as total_count,
+			COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
+		FROM sectors_meta sm
+		WHERE sm.expiration_epoch IS NOT NULL
+			AND sm.expiration_epoch > $1 + (
+				SELECT COALESCE(MAX(less_than_days), 0) * 2880 FROM sectors_exp_buckets
+			)
+		GROUP BY sm.sp_id
+		ORDER BY sp_id`, currentEpoch)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query open-ended bucket counts: %w", err)
+	}
+
+	// Convert to output format with address
+	output := make([]SectorExpBucketCount, 0, len(results)+len(openEndedResults))
+	for _, r := range results {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		output = append(output, SectorExpBucketCount{
+			SpID:         r.SpID,
+			SPAddress:    addr.String(),
+			LessThanDays: r.LessThanDays,
+			TotalCount:   r.TotalCount,
+			CCCount:      r.CCCount,
+			DealCount:    r.TotalCount - r.CCCount,
+		})
+	}
+
+	// Add open-ended results with special marker (-1)
+	for _, r := range openEndedResults {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		output = append(output, SectorExpBucketCount{
+			SpID:         r.SpID,
+			SPAddress:    addr.String(),
+			LessThanDays: -1, // Special marker for open-ended bucket
+			TotalCount:   r.TotalCount,
+			CCCount:      r.CCCount,
+			DealCount:    r.TotalCount - r.CCCount,
+		})
+	}
+
+	return output, nil
+}
+
+func (a *WebRPC) PartitionDetail(ctx context.Context, sp string, deadlineIdx uint64, partitionIdx uint64) (*PartitionDetail, error) {
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return nil, xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	// Get partitions for this deadline
+	parts, err := a.deps.Chain.StateMinerPartitions(ctx, maddr, deadlineIdx, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get partitions: %w", err)
+	}
+
+	if partitionIdx >= uint64(len(parts)) {
+		return nil, xerrors.Errorf("partition %d does not exist in deadline %d", partitionIdx, deadlineIdx)
+	}
+
+	part := parts[partitionIdx]
+
+	// Convert bitfields to maps for quick lookup
+	faultyMap := make(map[uint64]bool)
+	recoveringMap := make(map[uint64]bool)
+	activeMap := make(map[uint64]bool)
+	liveMap := make(map[uint64]bool)
+
+	if err := part.FaultySectors.ForEach(func(i uint64) error {
+		faultyMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate faulty sectors: %w", err)
+	}
+
+	if err := part.RecoveringSectors.ForEach(func(i uint64) error {
+		recoveringMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate recovering sectors: %w", err)
+	}
+
+	if err := part.ActiveSectors.ForEach(func(i uint64) error {
+		activeMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate active sectors: %w", err)
+	}
+
+	if err := part.LiveSectors.ForEach(func(i uint64) error {
+		liveMap[i] = true
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate live sectors: %w", err)
+	}
+
+	// Get all sectors in partition
+	sectors := make([]PartitionSectorInfo, 0)
+	faultySectorNums := make([]uint64, 0)
+
+	if err := part.AllSectors.ForEach(func(sectorNum uint64) error {
+		isFaulty := faultyMap[sectorNum]
+		if isFaulty {
+			faultySectorNums = append(faultySectorNums, sectorNum)
+		}
+
+		sectors = append(sectors, PartitionSectorInfo{
+			SectorNumber: sectorNum,
+			IsFaulty:     isFaulty,
+			IsRecovering: recoveringMap[sectorNum],
+			IsActive:     activeMap[sectorNum],
+			IsLive:       liveMap[sectorNum],
+		})
+		return nil
+	}); err != nil {
+		return nil, xerrors.Errorf("failed to iterate all sectors: %w", err)
+	}
+
+	// Get storage path stats for faulty sectors
+	var pathStats []StoragePathStat
+	if len(faultySectorNums) > 0 {
+		type pathRow struct {
+			StorageID string `db:"storage_id"`
+			CanSeal   bool   `db:"can_seal"`
+			CanStore  bool   `db:"can_store"`
+			Urls      string `db:"urls"`
+			Count     int    `db:"count"`
+		}
+		var pathRows []pathRow
+
+		err = a.deps.DB.Select(ctx, &pathRows, `
+			SELECT 
+				sl.storage_id,
+				sp.can_seal,
+				sp.can_store,
+				sp.urls,
+				COUNT(DISTINCT sl.sector_num) as count
+			FROM sector_location sl
+			JOIN storage_path sp ON sl.storage_id = sp.storage_id
+			WHERE sl.miner_id = $1 
+				AND sl.sector_num = ANY($2)
+			GROUP BY sl.storage_id, sp.can_seal, sp.can_store, sp.urls
+			ORDER BY count DESC`, spid, faultySectorNums)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to query storage paths: %w", err)
+		}
+
+		pathStats = make([]StoragePathStat, 0, len(pathRows))
+		for _, p := range pathRows {
+			pathType := "None"
+			if p.CanSeal && p.CanStore {
+				pathType = "Seal/Store"
+			} else if p.CanSeal {
+				pathType = "Seal"
+			} else if p.CanStore {
+				pathType = "Store"
+			}
+
+			urls := strings.Split(p.Urls, paths.URLSeparator)
+			pathStats = append(pathStats, StoragePathStat{
+				StorageID: p.StorageID,
+				PathType:  pathType,
+				Urls:      urls,
+				Count:     p.Count,
+			})
+		}
+	}
+
+	return &PartitionDetail{
+		SpID:                   int64(spid),
+		SPAddress:              maddr.String(),
+		Deadline:               deadlineIdx,
+		Partition:              partitionIdx,
+		AllSectorsCount:        must.One(part.AllSectors.Count()),
+		FaultySectorsCount:     must.One(part.FaultySectors.Count()),
+		RecoveringSectorsCount: must.One(part.RecoveringSectors.Count()),
+		LiveSectorsCount:       must.One(part.LiveSectors.Count()),
+		ActiveSectorsCount:     must.One(part.ActiveSectors.Count()),
+		Sectors:                sectors,
+		FaultyStoragePaths:     pathStats,
+	}, nil
 }

@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
@@ -135,4 +137,37 @@ func TestPartialWalk(t *testing.T) {
 		}
 	}
 	require.True(t, done)
+}
+
+func TestDowngradeTo(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testID := harmonydb.ITestNewID()
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	require.NoError(t, err)
+
+	// The setup: lets make revert files going forward in time, but ignore the past.
+	rowCt, err := cdb.Exec(ctx, "UPDATE base SET applied = applied - INTERVAL '10 DAY' WHERE TO_DATE(entry, 'YYYYMMDD') < DATE '2025-08-15'")
+	require.NoError(t, err)
+
+	if rowCt == 0 {
+		t.Fatal("no rows in save set")
+	}
+	n, _ := strconv.Atoi(time.Now().AddDate(0, 0, -1).Format("20060102"))
+	err = cdb.DowngradeTo(ctx, n)
+	require.NoError(t, err, "error reverting. All sql entries need a revert file.")
+
+	var shouldBeReverted []string
+	err = cdb.Select(ctx, &shouldBeReverted, "SELECT entry FROM base WHERE entry > '20250815'")
+	require.NoError(t, err)
+	require.Len(t, shouldBeReverted, 0, "expected no entries to be reverted. Got ", len(shouldBeReverted))
+
+	var rowCt2 int
+	err = cdb.QueryRow(ctx, "SELECT COUNT(*) FROM base WHERE entry < '20250815'").Scan(&rowCt2)
+	require.NoError(t, err)
+	require.Equal(t, rowCt2, rowCt, "expected no older entries to be reverted. Got ", rowCt2-rowCt)
+
+	_, err = cdb.Exec(ctx, "UPDATE base SET applied = applied + INTERVAL '2 DAY' WHERE entry < '20250815'")
+	require.NoError(t, err)
 }

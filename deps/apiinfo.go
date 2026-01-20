@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -109,14 +111,10 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg *config.Dynamic[[]string])
 			connections[identifier] = v1api
 			closers = append(closers, closer)
 		}
-
-		if len(connections) == 0 {
-			return xerrors.Errorf("failed to establish connection with all nodes")
-		}
-
-		fullNodes.Set(lo.Map(ainfoCfg.Get(), func(i string, _ int) api.Chain { return connections[i] }))
+		fullNodes.Set(lo.Map(slices.Collect(maps.Keys(connections)), func(k string, _ int) api.Chain { return connections[k] }))
 		return nil
 	}
+
 	err := updateDynamic()
 	if err != nil {
 		return nil, nil, err

@@ -2901,6 +2901,96 @@
       "translation": "1. 使用以下命令测试您的 PDP 服务：pdptool ping --service-url https://your-domain.com --service-name public",
       "message": "1. Test your PDP service with: pdptool ping --service-url https://your-domain.com --service-name public",
       "placeholder": null
+    },
+    {
+      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "translation": "将集群的数据库降级到之前的软件版本。",
+      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "placeholder": null
+    },
+    {
+      "id": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "translation": "但是，如果升级存在严重缺陷需要降级，请先关闭集群中的所有节点，然后运行此命令。最后，仅启动已降级的节点。",
+      "message": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+      "placeholder": null
+    },
+    {
+      "id": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "translation": "集群拥有首选架构的 YYYYMMDD 日期。例如：20251128",
+      "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+      "placeholder": null
+    },
+    {
+      "id": "Fix Boost migration",
+      "translation": "修复 Boost 迁移",
+      "message": "Fix Boost migration",
+      "placeholder": null
+    },
+    {
+      "id": "check how many entries need to be fixed",
+      "translation": "检查需要修复的条目数量",
+      "message": "check how many entries need to be fixed",
+      "placeholder": null
+    },
+    {
+      "id": "location of boost.db file",
+      "translation": "boost.db 文件位置",
+      "message": "location of boost.db file",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+      "translation": "通过 Cassandra 接口连接的 Yugabyte 主机，例如 '127.0.0.1'",
+      "message": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+      "translation": "通过 Cassandra 接口连接的 Yugabyte 用户名，例如 'cassandra'",
+      "message": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+      "placeholder": null
+    },
+    {
+      "id": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+      "translation": "通过 Cassandra 接口连接的 Yugabyte 密码，例如 'cassandra'",
+      "message": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+      "placeholder": null
+    },
+    {
+      "id": "Manage batch sealing operations",
+      "translation": "管理批量封装操作",
+      "message": "Manage batch sealing operations",
+      "placeholder": null
+    },
+    {
+      "id": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+      "translation": "为批量封装设置 SPDK（配置 hugepage 并绑定 NVMe 设备）",
+      "message": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+      "placeholder": null
+    },
+    {
+      "id": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+      "translation": "为批量封装操作设置 SPDK。\n\n此命令会自动：\n- 如果尚未提供，则下载 SPDK\n- 配置 1GB hugepage（至少 36 页）\n- 绑定 NVMe 设备以供 SupraSeal 使用\n\nSPDK 设置操作需要 root/sudo 权限。",
+      "message": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+      "placeholder": null
+    },
+    {
+      "id": "Number of 1GB hugepages to configure",
+      "translation": "要配置的 1GB hugepage 数量",
+      "message": "Number of 1GB hugepages to configure",
+      "placeholder": null
+    },
+    {
+      "id": "Minimum number of hugepages required",
+      "translation": "所需 hugepage 的最小数量",
+      "message": "Minimum number of hugepages required",
+      "placeholder": null
+    },
+    {
+      "id": "Supra consensus testing utilities",
+      "translation": "Supra 共识测试工具",
+      "message": "Supra consensus testing utilities",
+      "placeholder": null
     }
   ]
 }

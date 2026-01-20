@@ -170,7 +170,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	return true, nil
 }
 
-func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id_finalize"`
 		SpID         int64              `db:"sp_id"`
@@ -195,12 +195,12 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 			WHERE task_id_finalize = ANY ($1) AND l.sector_filetype = 4
 `, indIDs)
 	if err != nil {
-		return nil, xerrors.Errorf("getting tasks: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting tasks: %w", err)
 	}
 
 	ls, err := f.sc.LocalStorage(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 	}
 
 	acceptables := map[harmonytask.TaskID]bool{}
@@ -209,6 +209,7 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		acceptables[t] = true
 	}
 
+	result := []harmonytask.TaskID{}
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
@@ -216,12 +217,12 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
+				result = append(result, t.TaskID)
 			}
 		}
 	}
 
-	return nil, nil
+	return result, nil
 }
 
 func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {

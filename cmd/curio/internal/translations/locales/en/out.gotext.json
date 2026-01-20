@@ -2,6 +2,41 @@
     "language": "en",
     "messages": [
         {
+            "id": "Manage batch sealing operations",
+            "message": "Manage batch sealing operations",
+            "translation": "Manage batch sealing operations",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+            "message": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+            "translation": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+            "message": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+            "translation": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Number of 1GB hugepages to configure",
+            "message": "Number of 1GB hugepages to configure",
+            "translation": "Number of 1GB hugepages to configure",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Minimum number of hugepages required",
+            "message": "Minimum number of hugepages required",
+            "translation": "Minimum number of hugepages required",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Math Utils",
             "message": "Math Utils",
             "translation": "Math Utils",
@@ -1171,6 +1206,13 @@
             "fuzzy": true
         },
         {
+            "id": "Supra consensus testing utilities",
+            "message": "Supra consensus testing utilities",
+            "translation": "Supra consensus testing utilities",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Tool Box for Curio",
             "message": "Tool Box for Curio",
             "translation": "Tool Box for Curio",
@@ -1272,6 +1314,69 @@
             "id": "Token contract for payment (IERC20(address(0)) for FIL)",
             "message": "Token contract for payment (IERC20(address(0)) for FIL)",
             "translation": "Token contract for payment (IERC20(address(0)) for FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Downgrade a cluster's daatabase to a previous software version.",
+            "message": "Downgrade a cluster's daatabase to a previous software version.",
+            "translation": "Downgrade a cluster's daatabase to a previous software version.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+            "message": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+            "translation": "If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+            "message": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+            "translation": "YYYYMMDD when your cluster had the preferred schema. Ex: 20251128",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Fix Boost migration",
+            "message": "Fix Boost migration",
+            "translation": "Fix Boost migration",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "check how many entries need to be fixed",
+            "message": "check how many entries need to be fixed",
+            "translation": "check how many entries need to be fixed",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "location of boost.db file",
+            "message": "location of boost.db file",
+            "translation": "location of boost.db file",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+            "message": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+            "translation": "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+            "message": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+            "translation": "yugabyte username to connect to over cassandra interface eg 'cassandra'",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+            "message": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
+            "translation": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

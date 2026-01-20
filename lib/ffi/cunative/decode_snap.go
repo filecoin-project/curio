@@ -57,6 +57,8 @@ import (
 type B32le = [32]byte
 type BytesLE = []byte
 
+var ResultBufDepth = 16
+
 func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica io.Reader, out io.Writer) error {
 	ssize, err := spt.SectorSize()
 	if err != nil {
@@ -103,7 +105,7 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)
 	jobChan := make(chan jobSnap, workers)
-	resultChan := make(chan resultSnap, workers)
+	resultChan := make(chan resultSnap, workers*ResultBufDepth)
 
 	// Start worker goroutines
 	for i := 0; i < workers; i++ {
@@ -122,6 +124,8 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 			// Read replica
 			rn, err := io.ReadFull(replica, rbuf)
 			if err != nil && err != io.ErrUnexpectedEOF {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				if err == io.EOF {
 					return
 				}
@@ -132,11 +136,15 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 			// Read key
 			kn, err := io.ReadFull(key, kbuf[:rn])
 			if err != nil && err != io.ErrUnexpectedEOF {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				errChan <- err
 				return
 			}
 
 			if kn != rn {
+				pool.Put(rbuf)
+				pool.Put(kbuf)
 				errChan <- io.ErrUnexpectedEOF
 				return
 			}
