@@ -84,6 +84,9 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 
 		if r.refs <= 0 {
 			r.cancel()
+			if r.reader != nil {
+				_ = r.reader.Close()
+			}
 			return
 		}
 
@@ -140,6 +143,9 @@ func (r *cachedSectionReader) Close() error {
 		log.Debugw("canceling underlying section reader context as cache entry doesn't exist", "piececid", r.pieceCid)
 
 		r.cancel()
+		if r.reader != nil {
+			_ = r.reader.Close()
+		}
 	}
 
 	return nil

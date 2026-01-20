@@ -121,7 +121,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
-
+	defer func() {
+		_ = reader.Close()
+	}()
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
 	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
 	if err != nil {
