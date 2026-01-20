@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"golang.org/x/xerrors"
 )
@@ -32,7 +31,6 @@ type peer struct {
 // Capital functions are for taskEngine to call.
 type peering struct {
 	h             *TaskEngine
-	mustPollFast  atomic.Bool
 	peerConnector PeerConnectorInterface
 
 	peersLock sync.RWMutex // protects peers and m
@@ -47,16 +45,16 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 		m:             make(map[string][]int),
 	}
 	p.peerConnector.SetOnConnect(p.handlePeer)
+	h.pollDuration.Store(constPollRarely)
 	go func() {
 		var knownPeers []string
-		bPollRequired := atomic.Bool{}
 		p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`)
 		for _, peer := range knownPeers {
 			go func(peer string) {
 				conn, err := p.peerConnector.ConnectToPeer(peer)
 				if err != nil {
 					log.Warnw("failed to connect to peer", "peer", peer, "error", err)
-					bPollRequired.Store(true)
+					h.pollDuration.Store(constPollFrequently)
 				}
 				p.handlePeer(peer, conn)
 			}(peer)

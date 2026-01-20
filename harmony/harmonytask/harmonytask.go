@@ -19,6 +19,9 @@ import (
 )
 
 // Consts (except for unit test)
+const constPollRarely = time.Second * 30
+const constPollFrequently = time.Second * 3
+
 var POLL_DURATION = time.Second * 3             // Poll for Work this frequently
 var POLL_NEXT_DURATION = 100 * time.Millisecond // After scheduling a task, wait this long before scheduling another
 var CLEANUP_FREQUENCY = 5 * time.Minute         // Check for dead workers this often * everyone
