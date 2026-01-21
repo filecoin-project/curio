@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -52,31 +50,10 @@ func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	opAddr := common.HexToAddress(sender)
 
-	registryAddr, err := contract.ServiceRegistryAddress()
+	payee, err := getProviderPayee(ctx, s.db, s.ethClient)
 	if err != nil {
-		return false, fmt.Errorf("failed to get service registry address: %w", err)
+		return false, fmt.Errorf("failed to get provider payee: %w", err)
 	}
-
-	registry, err := contract.NewServiceProviderRegistry(registryAddr, s.ethClient)
-	if err != nil {
-		return false, fmt.Errorf("failed to create service registry: %w", err)
-	}
-
-	registered, err := registry.IsRegisteredProvider(&bind.CallOpts{Context: ctx}, opAddr)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if provider is registered: %w", err)
-	}
-
-	if !registered {
-		return false, xerrors.Errorf("provider is not registered")
-	}
-
-	provider, err := registry.GetProviderByAddress(&bind.CallOpts{Context: ctx}, opAddr)
-	if err != nil {
-		return false, fmt.Errorf("failed to get provider: %w", err)
-	}
-
-	payee := provider.Info.Payee
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
 
