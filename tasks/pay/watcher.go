@@ -37,13 +37,11 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 }
 
 func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
-	// Get payee from chain
 	payee, err := getProviderPayee(ctx, db, ethClient)
 	if err != nil {
 		return xerrors.Errorf("failed to get payee from chain: %w", err)
 	}
 
-	// Get all rails from chain state (source of truth)
 	paymentContractAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
 		return xerrors.Errorf("failed to get payment contract address: %w", err)
@@ -64,7 +62,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to get rails for payee: %w", err)
 	}
 
-	// Build a map of rail ID -> tx_hash from DB for matching
+	// track any tx_hashes associated with rail_ids to clean up 
 	var settles []settled
 	err = db.Select(ctx, &settles, `SELECT tx_hash, rail_ids FROM filecoin_payment_transactions`)
 	if err != nil {

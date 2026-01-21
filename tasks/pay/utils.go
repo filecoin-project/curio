@@ -14,7 +14,8 @@ import (
 )
 
 // getProviderPayee retrieves the payee address from the on-chain service registry
-// for the PDP operator configured in the database.
+// for the first PDP operator configured in the database.  This should be safe
+// as all PDP operators in a single curio db should be configured for a single provider.
 func getProviderPayee(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) (common.Address, error) {
 	var sender string
 	err := db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' ORDER BY address ASC`).Scan(&sender)
