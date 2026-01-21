@@ -170,7 +170,6 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 5,
-		Follows:     nil,
 	}
 
 	return res

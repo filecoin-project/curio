@@ -182,7 +182,6 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		RetryWait: func(retries int) time.Duration {
 			return min(time.Second<<retries, 2*time.Minute)
 		},
-		Follows: nil,
 	}
 
 	if IsDevnet {

@@ -22,6 +22,7 @@ type PeerConnection interface {
 }
 
 type peer struct {
+	id    int64
 	addr  string
 	conn  PeerConnection
 	tasks map[string]bool
@@ -93,12 +94,20 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 		conn:  conn,
 		tasks: make(map[string]bool),
 	}
-	var tasks string
-	p.h.db.Select(p.h.ctx, &tasks, `SELECT tasks FROM harmony_machine_details WHERE machine_id = $1`, them.addr)
+	var sql struct {
+		ID    int64  `db:"id"`
+		Tasks string `db:"tasks"`
+	}
+	err = p.h.db.QueryRow(p.h.ctx, `SELECT id, tasks FROM harmony_machine_details WHERE machine_id = $1`, them.addr).Scan(&sql.ID, &sql.Tasks)
+	if err != nil {
+		log.Warnw("failed to get machine details from peer", "peer", peerAddr, "error", err)
+		return
+	}
+	them.id = sql.ID
 	p.peersLock.Lock()
 	p.peers = append(p.peers, them)
 	themIndex := len(p.peers) - 1
-	for _, task := range strings.Split(tasks, ",") {
+	for _, task := range strings.Split(sql.Tasks, ",") {
 		them.tasks[task] = true
 		p.m[task] = append(p.m[task], themIndex)
 	}
@@ -112,14 +121,14 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 		}
 
 		// Process incoming message from peer
-		p.handlePeerMessage(peerAddr, msg)
+		p.handlePeerMessage(peerAddr, them, msg)
 	}
 }
 
 // handlePeerMessage processes a message received from a peer.
 // Override this method or extend it to handle specific message types.
-func (p *peering) handlePeerMessage(peerAddr string, msg []byte) error {
-	if !bytes.HasPrefix(msg, []byte("t:")) {
+func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) error {
+	if bytes.HasPrefix(msg, []byte{byte(messageTypeNewTask), ':'}) {
 		parts := bytes.SplitN(msg, []byte(":"), 2)
 		if len(parts) != 2 {
 			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
@@ -128,16 +137,53 @@ func (p *peering) handlePeerMessage(peerAddr string, msg []byte) error {
 		p.h.schedulerChannel <- schedulerEvent{
 			TaskID:   TaskID(binary.BigEndian.Uint64(parts[1])),
 			TaskType: string(parts[0]),
-			Source:   schedulerSourcePeer,
+			Source:   schedulerSourcePeerNewTask,
+			PeerID:   them.id,
+		}
+		return nil
+	}
+	if bytes.HasPrefix(msg, []byte{byte(messageTypeReserve), ':'}) {
+		parts := bytes.SplitN(msg, []byte(":"), 2)
+		if len(parts) != 2 {
+			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
+			return xerrors.Errorf("invalid message from peer")
+		}
+		p.h.schedulerChannel <- schedulerEvent{
+			TaskID:   TaskID(binary.BigEndian.Uint64(parts[1])),
+			TaskType: string(parts[0]),
+			Source:   schedulerSourcePeerReserved,
+			PeerID:   them.id,
+		}
+		return nil
+	}
+	if bytes.HasPrefix(msg, []byte{byte(messageTypeStarted), ':'}) {
+		parts := bytes.SplitN(msg, []byte(":"), 2)
+		if len(parts) != 2 {
+			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
+			return xerrors.Errorf("invalid message from peer")
+		}
+		p.h.schedulerChannel <- schedulerEvent{
+			TaskID:   TaskID(binary.BigEndian.Uint64(parts[1])),
+			TaskType: string(parts[0]),
+			Source:   schedulerSourcePeerStarted,
+			PeerID:   them.id,
 		}
 		return nil
 	}
 	return xerrors.Errorf("invalid message from peer")
 }
 
-func (p *peering) TellOthers(task string, tID TaskID) {
+type messageType byte
+
+const (
+	messageTypeReserve messageType = 'r'
+	messageTypeNewTask messageType = 't'
+	messageTypeStarted messageType = 's'
+)
+
+func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {
+	msg := binary.BigEndian.AppendUint64([]byte(fmt.Sprintf("%c:%s:", messagetype, task)), uint64(tID))
 	p.peersLock.RLock()
-	msg := binary.BigEndian.AppendUint64([]byte(fmt.Sprintf("t:%s:", task)), uint64(tID))
 	for _, peerIndex := range p.m[task] {
 		conn := p.peers[peerIndex].conn
 		go func() {

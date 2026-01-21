@@ -25,7 +25,6 @@ const constPollFrequently = time.Second * 3
 var POLL_DURATION = time.Second * 3             // Poll for Work this frequently
 var POLL_NEXT_DURATION = 100 * time.Millisecond // After scheduling a task, wait this long before scheduling another
 var CLEANUP_FREQUENCY = 5 * time.Minute         // Check for dead workers this often * everyone
-var FOLLOW_FREQUENCY = 1 * time.Minute          // Check for work to follow this often
 
 var ExitStatusRestartRequest = 100
 
@@ -50,18 +49,11 @@ type TaskTypeDetails struct {
 	// If nil, it will retry immediately.
 	RetryWait func(retries int) time.Duration
 
-	// Follow another task's completion via this task's creation.
-	// The function should populate extraInfo from data
-	// available from the previous task's tables, using the given TaskID.
-	// It should also return success if the trigger succeeded.
-	// NOTE: if refatoring tasks, see if your task is
-	// necessary. Ex: Is the sector state correct for your stage to run?
-	Follows map[string]func(TaskID, AddTaskFunc) (bool, error)
-
 	// IAmBored is called (when populated) when there's capacity but no work.
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
+	// This is starved on busy machines, so use it togather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
 	// CanYield is true if the task should yield when the node is not schedulable.
@@ -335,10 +327,6 @@ func (e *TaskEngine) poller() {
 			continue
 		}
 
-		if time.Since(e.lastFollowTime) > FOLLOW_FREQUENCY {
-			e.followWorkInDB()
-		}
-
 		// update resource usage
 		availableResources := e.ResourcesAvailable()
 		totalResources := e.Resources()
@@ -354,47 +342,6 @@ func (e *TaskEngine) poller() {
 		ramUsage := 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
 		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
 
-	}
-}
-
-// followWorkInDB implements "Follows"
-func (e *TaskEngine) followWorkInDB() {
-	// Step 1: What are we following?
-	var lastFollowTime time.Time
-	lastFollowTime, e.lastFollowTime = e.lastFollowTime, time.Now()
-
-	for fromName, srcs := range e.follows {
-		var cList []int // Which work is done (that we follow) since we last checked?
-		err := e.db.Select(e.ctx, &cList, `SELECT h.task_id FROM harmony_task_history
-   		WHERE h.work_end>$1 AND h.name=$2`, lastFollowTime.UTC(), fromName)
-		if err != nil {
-			log.Error("Could not query DB: ", err)
-			return
-		}
-		for _, src := range srcs {
-			for _, workAlreadyDone := range cList { // Were any tasks made to follow these tasks?
-				var ct int
-				err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task
-					WHERE name=$1 AND previous_task=$2`, src.h.Name, workAlreadyDone).Scan(&ct)
-				if err != nil {
-					log.Error("Could not query harmony_task: ", err)
-					return // not recoverable here
-				}
-				if ct > 0 {
-					continue
-				}
-				// we need to create this task
-				b, err := src.h.Follows[fromName](TaskID(workAlreadyDone), src.h.AddTask)
-				if err != nil {
-					log.Errorw("Could not follow: ", "error", err)
-					continue
-				}
-				if !b {
-					// But someone may have beaten us to it.
-					log.Debugf("Unable to add task %s following Task(%d, %s)", src.h.Name, workAlreadyDone, fromName)
-				}
-			}
-		}
 	}
 }
 
