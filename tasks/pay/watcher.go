@@ -87,31 +87,15 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to get current block number: %w", err)
 	}
 
-	// Track which tx hashes we've processed to delete them at the end
-	processedTxHashes := make(map[string]bool)
-
 	// Verify each rail from chain state
 	for _, railInfo := range rails.Results {
 		railId := railInfo.RailId.Int64()
 		txHash := railToTxHash[railId] // May be empty if rail not in DB
 
-		err := verifyRail(ctx, db, ethClient, payment, fwssv, railId, current, txHash)
+		err := verifyRail(ctx, db, payment, fwssv, railId, current, txHash)
 		if err != nil {
 			log.Warnw("failed to verify rail", "railId", railId, "error", err)
 			continue
-		}
-
-		// Mark this tx hash as processed (if it exists)
-		if txHash != "" {
-			processedTxHashes[txHash] = true
-		}
-	}
-
-	// Delete processed transactions from DB
-	for txHash := range processedTxHashes {
-		_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, txHash)
-		if err != nil {
-			log.Warnw("failed to delete transaction from DB", "txHash", txHash, "error", err)
 		}
 	}
 
@@ -120,7 +104,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 
 // verifyRail checks a single rail from chain state and schedules dataset deletion if needed.
 // The txHash parameter is optional - if empty, the rail was not found in the DB transactions table.
-func verifyRail(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, payment *filecoinpayment.Payments, fwssv *FWSS.FilecoinWarmStorageServiceStateView, railId int64, current uint64, txHash string) error {
+func verifyRail(ctx context.Context, db *harmonydb.DB, payment *filecoinpayment.Payments, fwssv *FWSS.FilecoinWarmStorageServiceStateView, railId int64, current uint64, txHash string) error {
 	view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
 	if err != nil {
 		return xerrors.Errorf("failed to get rail: %w", err)
@@ -166,6 +150,14 @@ func verifyRail(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Clie
 
 	if n == 1 {
 		log.Infow("Rail was not settled completely, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", txHash)
+	}
+
+	// Delete the settle message from the DB
+	if txHash != "" {
+		_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, txHash)
+		if err != nil {
+			return xerrors.Errorf("failed to delete transaction from DB: %w", err)
+		}
 	}
 
 	return nil
