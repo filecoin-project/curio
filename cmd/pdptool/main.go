@@ -297,6 +297,7 @@ func loadPrivateKey() (*ecdsa.PrivateKey, error) {
 func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	// Create commp calculator
 	cp := &commp.Calc{}
+	defer cp.Reset()
 
 	// Copy data into commp calculator
 	rawSize, err := io.Copy(cp, r)
@@ -1634,6 +1635,7 @@ var streamingPieceUploadCmd = &cli.Command{
 		}
 
 		cp := commp.Calc{}
+		defer cp.Reset()
 
 		pipeReader, pipeWriter := io.Pipe()
 
