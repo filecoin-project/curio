@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -128,18 +129,42 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	}
 
 	for txToSend, railIDs := range transactionsToSend {
-		tx, err := sender.Send(ctx, from, txToSend, "settleRail")
+		txHash, err := sender.Send(ctx, from, txToSend, "settleRail")
 		if err != nil {
 			log.Errorw("failed to send settle transaction", "error", err)
 			continue
 		}
-		log.Infow("sent the settle transaction with hash %s", tx.Hex())
-		n, err := db.Exec(ctx, `INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, tx.Hex(), railIDs)
+
+		txHashHex := strings.ToLower(txHash.Hex())
+		log.Infow("sent settle transaction", "txHash", txHashHex, "railIDs", railIDs)
+
+		// Insert into message_waits_eth and filecoin_payment_transactions atomically
+		committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			// Insert into message_waits_eth for confirmation tracking
+			n, err := tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, 'pending')`, txHashHex)
+			if err != nil {
+				return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected to insert 1 row into message_waits_eth, inserted %d", n)
+			}
+
+			// Insert into filecoin_payment_transactions
+			n, err = tx.Exec(`INSERT INTO filecoin_payment_transactions (tx_hash, rail_ids) VALUES ($1, $2)`, txHashHex, railIDs)
+			if err != nil {
+				return false, xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected to insert 1 row into filecoin_payment_transactions, inserted %d", n)
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
 		if err != nil {
-			return xerrors.Errorf("failed to insert into filecoin_payment_transactions: %w", err)
+			return xerrors.Errorf("failed to record settlement transaction: %w", err)
 		}
-		if n != 1 {
-			return xerrors.Errorf("expected to insert 1 row, inserted %d", n)
+		if !committed {
+			return xerrors.Errorf("failed to commit settlement transaction record")
 		}
 	}
 

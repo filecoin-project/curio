@@ -38,11 +38,38 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 }
 
 func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
-	var settles []settled
-
-	err := db.Select(ctx, &settles, `SELECT tx_hash, rail_ids FROM filecoin_payment_transactions`)
+	// Handle failed settlements first - log error and clean up
+	var failedSettles []settled
+	err := db.Select(ctx, &failedSettles, `
+		SELECT fpt.tx_hash, fpt.rail_ids
+		FROM filecoin_payment_transactions fpt
+		JOIN message_waits_eth mwe ON fpt.tx_hash = mwe.signed_tx_hash
+		WHERE mwe.tx_status = 'confirmed' AND mwe.tx_success = FALSE`)
 	if err != nil {
-		return xerrors.Errorf("failed to get settled message hash from DB: %w", err)
+		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
+	}
+
+	for _, settle := range failedSettles {
+		log.Errorw("settlement transaction failed on chain", "txHash", settle.Hash, "railIDs", settle.Rails)
+		_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
+		if err != nil {
+			return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
+		}
+	}
+
+	// Process confirmed successful settlements
+	var settles []settled
+	err = db.Select(ctx, &settles, `
+		SELECT fpt.tx_hash, fpt.rail_ids
+		FROM filecoin_payment_transactions fpt
+		JOIN message_waits_eth mwe ON fpt.tx_hash = mwe.signed_tx_hash
+		WHERE mwe.tx_status = 'confirmed' AND mwe.tx_success = TRUE`)
+	if err != nil {
+		return xerrors.Errorf("failed to get confirmed settlements from DB: %w", err)
+	}
+
+	if len(settles) == 0 {
+		return nil
 	}
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
