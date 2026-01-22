@@ -49,7 +49,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
 	}
 
-	// Note that settlement errors are not expected in any circumstances. Any 
+	// Note that settlement errors are not expected in any circumstances. Any
 	// settlement failure logs should be investigated and prioritize proper
 	// settlement handling: https://github.com/filecoin-project/curio/issues/897
 	for _, settle := range failedSettles {
@@ -162,7 +162,7 @@ func ensureServiceTermination(ctx context.Context, db *harmonydb.DB, dataSetID i
 	if err != nil {
 		return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
 	}
-	if !(n == 1 || n == 0) {
+	if n != 1 & n != 0) {
 		return xerrors.Errorf("expected to insert 0 or 1 rows, inserted %d", n)
 	}
 	return nil
