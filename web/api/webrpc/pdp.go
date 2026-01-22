@@ -281,7 +281,7 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			offering.IpniPiece = true
 		case contract.CapIpniIpfs:
 			offering.IpniIpfs = true
-		case contract.CapIpniPeerID:
+		case contract.CapIpniPeerID, contract.CapIpniPeerIDDeprecated:
 			offering.IpniPeerID = peer.ID(value).String() // we skip peer.IDFromBytes as it returns an error if bytes are not multihash
 		case contract.CapStoragePrice:
 			offering.StoragePricePerTibPerDay = new(big.Int).SetBytes(value).Int64()
