@@ -204,8 +204,6 @@ func OptionRetry() TransactionOption {
 // Be sure to test the error for IsErrSerialization() if you want to retry
 //
 //	when there is a DB serialization error.
-//
-//go:noinline
 func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, err error), opt ...TransactionOption) (didCommit bool, retErr error) {
 	if db.usedInTransaction() {
 		return false, errTx
@@ -231,6 +229,8 @@ func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, er
 func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, err error)) (didCommit bool, retErr error) {
 	var tx = &Tx{ctx: ctx}
 	var started bool
+
+	// BEGIN as late as possible. This reduces serialization errors and enables testing the BTFP mechanism.
 	tx.tx = func() (pgx.Tx, error) {
 		ptx, err := db.pgx.BeginTx(ctx, pgx.TxOptions{})
 		started = true

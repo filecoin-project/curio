@@ -34,7 +34,7 @@ type DB struct {
 	cfg       *pgxpool.Config
 	schema    string
 	hostnames []string
-	BTFP      uintptr // BeginTransactionFramePointer
+	BTFP      uintptr // A PC only in your stack when you call BeginTransaction()
 }
 
 var logger = logging.Logger("harmonydb")
@@ -196,7 +196,7 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	}
 
 	db.setBTFP()
-	return &db, db.upgrade()
+	return &db, nil
 }
 
 // called by New(). Not thread-safe. Exposed for testing.
