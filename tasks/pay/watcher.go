@@ -119,17 +119,19 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		}
 
 		if dataSet.Int64() == int64(0) {
-			return xerrors.Error("invalid dataSetID 0 returned from RailToDataSet")					
+			return xerrors.New("invalid dataSetID 0 returned from RailToDataSet")
 		}
 
 		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
 		if view.EndEpoch.Int64() > 0 {
-			if err := ensureServiceTermination(ctx, db); err != nil {
+			if err := ensureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
 				return err
 			}
-			// When finalized schedule dataset deletion 
+			// When finalized schedule dataset deletion
 			if view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
-				//TODO update deletion pipeline to unblock dataset deletion 
+				if err := ensureDataSetDeletion(ctx, db, dataSet.Int64()); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -140,7 +142,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 
 		if thresholdWithGrace.Uint64() < current {
 			log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
-			if err := ensureServiceTermination(ctx, db); err != nil {
+			if err := ensureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
 				return err
 			}
 		}
@@ -155,21 +157,24 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 	return nil
 }
 
-func ensureServiceTermination(ctx context.Contect, db *harmony.DB) error {
-		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSet.Int64())
-		if err != nil {
-			return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
-		}
-		if n != 1 {
-			return xerrors.Errorf("expected to insert 1 row, inserted %d", n)
-		}
-
+func ensureServiceTermination(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
+	n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSetID)
+	if err != nil {
+		return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
 	}
-
-
+	if !(n == 1 || n == 0) {
+		return xerrors.Errorf("expected to insert 0 or 1 rows, inserted %d", n)
+	}
+	return nil
 }
 
-func ensureDataSetDeletion(ctx context.Context, db *harmony.DB) error {
-	n, err := db.Exec
-
+func ensureDataSetDeletion(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
+	n, err := db.Exec(ctx, `UPDATE pdp_delete_data_set SET deletion_allowed = TRUE WHERE id = $1`, dataSetID)
+	if err != nil {
+		return xerrors.Errorf("failed to set deletion_allowed for data set %d: %w", dataSetID, err)
+	}
+	if n != 1 {
+		return xerrors.Errorf("expected to update 1 row, updated %d", n)
+	}
+	return nil
 }
