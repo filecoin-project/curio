@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
@@ -49,6 +50,9 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
 	}
 
+	// Note that settlement errors are not expected in any circumstances. Any
+	// settlement failure logs should be investigated and prioritize proper
+	// settlement handling: https://github.com/filecoin-project/curio/issues/897
 	for _, settle := range failedSettles {
 		log.Errorw("settlement transaction failed on chain", "txHash", settle.Hash, "railIDs", settle.Rails)
 		_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
@@ -79,7 +83,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	for _, settle := range settles {
-		err := verifySettle(ctx, db, ethClient, fwssv, settle)
+		err := verifySettle(ctx, db, ethClient, fwssv, serviceAddr, settle)
 		if err != nil {
 			return xerrors.Errorf("failed to verify settle: %w", err)
 		}
@@ -88,7 +92,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	return nil
 }
 
-func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, fwssv *FWSS.FilecoinWarmStorageServiceStateView, settle settled) error {
+func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
 	paymentContractAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)
@@ -110,44 +114,43 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 			return xerrors.Errorf("failed to get rail: %w", err)
 		}
 
-		var requiresDeletion bool
-
-		// If the rail is already terminated either by us or the payer, schedule deletion if required
-		if view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
-			requiresDeletion = true
-		}
-
-		// If the rail is not terminated, check if we are 1 day before the lockup period ends. If so, schedule deletion
-		threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-		thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
-
-		if thresholdWithGrace.Uint64() < current {
-			requiresDeletion = true
-		}
-
-		if !requiresDeletion {
-			continue
-		}
-
-		// Rail was not settled completely, terminate dataSet
 		dataSet, err := fwssv.RailToDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
 		if err != nil {
 			return xerrors.Errorf("failed to get rail to data set: %w", err)
 		}
 
 		if dataSet.Int64() == int64(0) {
-			continue
+			// FWSS rails have FWSS as both operator and validator - skip rails that don't match
+			if view.Operator != fwssAddr || view.Validator != fwssAddr {
+				continue
+			}
+			return xerrors.Errorf("FWSS rail %d has no associated dataset", railId)
 		}
 
-		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSet.Int64())
-		if err != nil {
-			return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
-		}
-		if n != 1 {
-			return xerrors.Errorf("expected to insert 1 row, inserted %d", n)
+		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
+		if view.EndEpoch.Int64() > 0 {
+			if err := ensureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
+				return err
+			}
+			// When finalized schedule dataset deletion
+			if view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
+				if err := ensureDataSetDeletion(ctx, db, dataSet.Int64()); err != nil {
+					return err
+				}
+			}
 		}
 
-		log.Infow("Rail was not settled completely, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
+		// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
+		// If so assume payer is in default and schedule deletion
+		threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
+		thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
+
+		if thresholdWithGrace.Uint64() < current {
+			log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
+			if err := ensureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Delete the settle message from the DB
@@ -156,5 +159,27 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		return xerrors.Errorf("failed to delete settle message from DB: %w", err)
 	}
 
+	return nil
+}
+
+func ensureServiceTermination(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
+	n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSetID)
+	if err != nil {
+		return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
+	}
+	if n != 1 && n != 0 {
+		return xerrors.Errorf("expected to insert 0 or 1 rows, inserted %d", n)
+	}
+	return nil
+}
+
+func ensureDataSetDeletion(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
+	n, err := db.Exec(ctx, `UPDATE pdp_delete_data_set SET deletion_allowed = TRUE WHERE id = $1`, dataSetID)
+	if err != nil {
+		return xerrors.Errorf("failed to set deletion_allowed for data set %d: %w", dataSetID, err)
+	}
+	if n != 1 {
+		return xerrors.Errorf("expected to update 1 row, updated %d", n)
+	}
 	return nil
 }
