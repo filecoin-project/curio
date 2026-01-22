@@ -8,11 +8,10 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,8 +34,7 @@ type DB struct {
 	cfg       *pgxpool.Config
 	schema    string
 	hostnames []string
-	BTFPOnce  sync.Once
-	BTFP      atomic.Uintptr // BeginTransactionFramePointer
+	BTFP      uintptr // BeginTransactionFramePointer
 }
 
 var logger = logging.Logger("harmonydb")
@@ -193,7 +191,22 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 		return nil, err
 	}
 
+	if err = db.upgrade(); err != nil {
+		return nil, err
+	}
+
+	db.setBTFP()
 	return &db, db.upgrade()
+}
+
+// called by New(). Not thread-safe. Exposed for testing.
+func (db *DB) setBTFP() {
+	db.BeginTransaction(context.Background(), func(tx *Tx) (bool, error) {
+		fp := make([]uintptr, 20)
+		runtime.Callers(2, fp)
+		db.BTFP = fp[0]
+		return false, nil
+	})
 }
 
 type tracer struct {

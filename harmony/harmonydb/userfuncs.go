@@ -172,8 +172,9 @@ func (db *DB) Select(ctx context.Context, sliceOfStructPtr any, sql rawStringOnl
 }
 
 type Tx struct {
-	pgx.Tx
-	ctx context.Context
+	tx       func() (pgx.Tx, error)
+	ctx      context.Context
+	didBegin bool
 }
 
 // usedInTransaction is a helper to prevent nesting transactions
@@ -181,8 +182,8 @@ type Tx struct {
 // Fast: This memory should all be in CPU Caches.
 func (db *DB) usedInTransaction() bool {
 	var framePtrs = (&[20]uintptr{})[:]                   // 20 can be stack-local (no alloc)
-	framePtrs = framePtrs[:runtime.Callers(3, framePtrs)] // skip past our caller.
-	return lo.Contains(framePtrs, db.BTFP.Load())         // Unsafe read @ beginTx overlap, but 'return false' is correct there.
+	framePtrs = framePtrs[:runtime.Callers(2, framePtrs)] // skip past our caller.
+	return lo.Contains(framePtrs, db.BTFP)                // Unsafe read @ beginTx overlap, but 'return false' is correct there.
 }
 
 type TransactionOptions struct {
@@ -206,11 +207,6 @@ func OptionRetry() TransactionOption {
 //
 //go:noinline
 func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, err error), opt ...TransactionOption) (didCommit bool, retErr error) {
-	db.BTFPOnce.Do(func() {
-		fp := make([]uintptr, 20)
-		runtime.Callers(1, fp)
-		db.BTFP.Store(fp[0])
-	})
 	if db.usedInTransaction() {
 		return false, errTx
 	}
@@ -231,24 +227,39 @@ func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, er
 	return db.transactionInner(ctx, f)
 }
 
+//go:noinline
 func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, err error)) (didCommit bool, retErr error) {
-	tx, err := db.pgx.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return false, err
+	var tx = &Tx{ctx: ctx}
+	var started bool
+	tx.tx = func() (pgx.Tx, error) {
+		ptx, err := db.pgx.BeginTx(ctx, pgx.TxOptions{})
+		started = true
+		tx.tx = func() (pgx.Tx, error) {
+			return ptx, err
+		}
+		return ptx, err
 	}
 	var commit bool
 	defer func() { // Panic clean-up.
-		if !commit {
+		if !commit && started {
+			tx, err := tx.tx()
+			if err != nil {
+				return
+			}
 			if tmp := tx.Rollback(ctx); tmp != nil {
 				retErr = tmp
 			}
 		}
 	}()
-	commit, err = f(&Tx{tx, ctx})
+	commit, err := f(tx)
 	if err != nil {
 		return false, err
 	}
-	if commit {
+	if commit && started {
+		tx, err := tx.tx()
+		if err != nil {
+			return false, err
+		}
 		err = tx.Commit(ctx)
 		if err != nil {
 			return false, err
@@ -261,7 +272,11 @@ func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, er
 // Exec in a transaction.
 func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
 	res, err := backoffForSerializationError(func() (pgconn.CommandTag, error) {
-		return t.Tx.Exec(t.ctx, string(sql), arguments...)
+		tx, err := t.tx()
+		if err != nil {
+			return pgconn.CommandTag{}, err
+		}
+		return tx.Exec(t.ctx, string(sql), arguments...)
 	})
 	if err != nil {
 		return 0, err
@@ -271,13 +286,21 @@ func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
 
 // Query in a transaction.
 func (t *Tx) Query(sql rawStringOnly, arguments ...any) (*Query, error) {
-	q, err := t.Tx.Query(t.ctx, string(sql), arguments...)
+	tx, err := t.tx()
+	if err != nil {
+		return nil, err
+	}
+	q, err := tx.Query(t.ctx, string(sql), arguments...)
 	return &Query{q}, err
 }
 
 // QueryRow in a transaction.
 func (t *Tx) QueryRow(sql rawStringOnly, arguments ...any) Row {
-	return t.Tx.QueryRow(t.ctx, string(sql), arguments...)
+	tx, err := t.tx()
+	if err != nil {
+		return rowErr{}
+	}
+	return tx.QueryRow(t.ctx, string(sql), arguments...)
 }
 
 // Select in a transaction.

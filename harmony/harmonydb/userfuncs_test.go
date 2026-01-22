@@ -13,6 +13,7 @@ import (
 
 func TestBTFP_NestedTransaction(t *testing.T) {
 	db := &DB{}
+	db.setBTFP()
 	ctx := context.Background()
 
 	var innerErr error
@@ -39,6 +40,7 @@ func TestBTFP_NestedTransaction(t *testing.T) {
 
 func TestBTFP_ExecInsideTransaction(t *testing.T) {
 	db := &DB{}
+	db.setBTFP()
 	ctx := context.Background()
 
 	var execErr error
@@ -63,14 +65,9 @@ func TestBTFP_ExecInsideTransaction(t *testing.T) {
 
 func TestBTFP_StoredValue(t *testing.T) {
 	db := &DB{}
-	ctx := context.Background()
+	db.setBTFP() // New() calls setBTFP()
 
-	func() {
-		defer func() { recover() }()
-		db.BeginTransaction(ctx, func(tx *Tx) (bool, error) { return false, nil })
-	}()
-
-	btfp := db.BTFP.Load()
+	btfp := db.BTFP
 	if btfp == 0 {
 		t.Fatal("BTFP not set")
 	}
@@ -78,21 +75,17 @@ func TestBTFP_StoredValue(t *testing.T) {
 	fn := runtime.FuncForPC(uintptr(btfp))
 	name := fn.Name()
 
-	if !strings.Contains(name, "BeginTransaction") || strings.Contains(name, ".func") {
-		t.Errorf("BTFP points to %q, want BeginTransaction", name)
+	if !strings.Contains(name, "transactionInner") || strings.Contains(name, ".func") {
+		t.Errorf("BTFP points to %q, want transactionInner", name)
 	}
 }
 
 func TestBTFP_FoundInCallStack(t *testing.T) {
 	db := &DB{}
+	db.setBTFP()
 	ctx := context.Background()
 
-	func() {
-		defer func() { recover() }()
-		db.BeginTransaction(ctx, func(tx *Tx) (bool, error) { return false, nil })
-	}()
-
-	btfp := db.BTFP.Load()
+	btfp := db.BTFP
 	if btfp == 0 {
 		t.Fatal("BTFP not set")
 	}
