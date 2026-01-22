@@ -217,6 +217,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Create a commp.Calc instance for calculating commP
 	cp := &commp.Calc{}
+	defer cp.Reset()
 	readSize := int64(0)
 
 	// Function to write data into StashStore and calculate commP
@@ -472,6 +473,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 
 	reader := NewTimeoutLimitReader(r.Body, 5*time.Second)
 	cp := &commp.Calc{}
+	defer cp.Reset()
 	readSize := int64(0)
 
 	// Function to write data into StashStore and calculate commP
