@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestIsTerminationError(t *testing.T) {
+func TestIsUnrecoverableError(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      error
@@ -40,9 +40,9 @@ func TestIsTerminationError(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := IsTerminationError(tc.err)
+			result := IsUnrecoverableError(tc.err)
 			if result != tc.expected {
-				t.Errorf("IsTerminationError(%v) = %v, want %v", tc.err, result, tc.expected)
+				t.Errorf("IsUnrecoverableError(%v) = %v, want %v", tc.err, result, tc.expected)
 			}
 		})
 	}

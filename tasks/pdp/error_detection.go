@@ -22,10 +22,10 @@ const (
 	ErrSelectorDataSetPaymentAlreadyTerminated = "e3f8fa35"
 )
 
-// IsTerminationError returns true if the error contains a known termination
-// selector. These errors indicate the dataset is permanently terminated
-// on-chain and proving should stop immediately.
-func IsTerminationError(err error) bool {
+// IsUnrecoverableError returns true if the error contains a known unrecoverable
+// error selector. These errors indicate the dataset should be permanently terminated
+// and proving should stop immediately.
+func IsUnrecoverableError(err error) bool {
 	if err == nil {
 		return false
 	}
