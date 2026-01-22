@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
@@ -82,7 +83,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	for _, settle := range settles {
-		err := verifySettle(ctx, db, ethClient, fwssv, settle)
+		err := verifySettle(ctx, db, ethClient, fwssv, serviceAddr, settle)
 		if err != nil {
 			return xerrors.Errorf("failed to verify settle: %w", err)
 		}
@@ -91,7 +92,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	return nil
 }
 
-func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, fwssv *FWSS.FilecoinWarmStorageServiceStateView, settle settled) error {
+func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
 	paymentContractAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)
@@ -119,7 +120,11 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		}
 
 		if dataSet.Int64() == int64(0) {
-			return xerrors.New("invalid dataSetID 0 returned from RailToDataSet")
+			// FWSS rails have FWSS as both operator and validator - skip rails that don't match
+			if view.Operator != fwssAddr || view.Validator != fwssAddr {
+				continue
+			}
+			return xerrors.Errorf("FWSS rail %d has no associated dataset", railId)
 		}
 
 		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
