@@ -49,6 +49,9 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
 	}
 
+	// Note that settlement errors are not expected in any circumstances. Any 
+	// settlement failure logs should be investigated and prioritize proper
+	// settlement handling: https://github.com/filecoin-project/curio/issues/897
 	for _, settle := range failedSettles {
 		log.Errorw("settlement transaction failed on chain", "txHash", settle.Hash, "railIDs", settle.Rails)
 		_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
@@ -110,44 +113,37 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 			return xerrors.Errorf("failed to get rail: %w", err)
 		}
 
-		var requiresDeletion bool
-
-		// If the rail is already terminated either by us or the payer, schedule deletion if required
-		if view.EndEpoch.Int64() > 0 && view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
-			requiresDeletion = true
-		}
-
-		// If the rail is not terminated, check if we are 1 day before the lockup period ends. If so, schedule deletion
-		threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-		thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
-
-		if thresholdWithGrace.Uint64() < current {
-			requiresDeletion = true
-		}
-
-		if !requiresDeletion {
-			continue
-		}
-
-		// Rail was not settled completely, terminate dataSet
 		dataSet, err := fwssv.RailToDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
 		if err != nil {
 			return xerrors.Errorf("failed to get rail to data set: %w", err)
 		}
 
 		if dataSet.Int64() == int64(0) {
-			continue
+			return xerrors.Error("invalid dataSetID 0 returned from RailToDataSet")					
 		}
 
-		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSet.Int64())
-		if err != nil {
-			return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
-		}
-		if n != 1 {
-			return xerrors.Errorf("expected to insert 1 row, inserted %d", n)
+		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
+		if view.EndEpoch.Int64() > 0 {
+			if err := ensureServiceTermination(ctx, db); err != nil {
+				return err
+			}
+			// When finalized schedule dataset deletion 
+			if view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
+				//TODO update deletion pipeline to unblock dataset deletion 
+			}
 		}
 
-		log.Infow("Rail was not settled completely, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
+		// For live rails, check if we are fully unsettled 1 day before the lockup period ends.
+		// If so assume payer is in default and schedule deletion
+		threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
+		thresholdWithGrace := big.NewInt(0).Sub(threshold, big.NewInt(builtin.EpochsInDay))
+
+		if thresholdWithGrace.Uint64() < current {
+			log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
+			if err := ensureServiceTermination(ctx, db); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Delete the settle message from the DB
@@ -157,4 +153,23 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 	}
 
 	return nil
+}
+
+func ensureServiceTermination(ctx context.Contect, db *harmony.DB) error {
+		n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSet.Int64())
+		if err != nil {
+			return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
+		}
+		if n != 1 {
+			return xerrors.Errorf("expected to insert 1 row, inserted %d", n)
+		}
+
+	}
+
+
+}
+
+func ensureDataSetDeletion(ctx context.Context, db *harmony.DB) error {
+	n, err := db.Exec
+
 }
