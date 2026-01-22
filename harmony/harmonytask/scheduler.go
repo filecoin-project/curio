@@ -2,10 +2,13 @@ package harmonytask
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/samber/lo"
+	"go.opencensus.io/stats"
 )
 
 type schedulerEvent struct {
@@ -35,6 +38,17 @@ type taskSchedule struct {
 }
 
 func (e *TaskEngine) startScheduler() {
+	go func() {
+		for {
+			select {
+			case <-e.ctx.Done():
+				log.Infof("scheduler stopped")
+				return
+			case <-time.After(CLEANUP_FREQUENCY):
+				resources.CleanupMachines(e.ctx, e.db)
+			}
+		}
+	}()
 
 	go func() {
 		bundleCollector, bundleSleep := bundler()
@@ -113,6 +127,48 @@ type taskSource interface {
 // It will start tasks from the taskSource and reserve tasks as we go.
 // It must be called only by the scheduler.
 func (e *TaskEngine) waterfall(taskSource taskSource) error {
+
+	// Check if the machine is schedulable
+	schedulable, err := e.checkNodeFlags()
+	if err != nil {
+		return fmt.Errorf("Unable to check schedulable status: %w", err)
+
+	}
+
+	e.yieldBackground.Store(!schedulable)
+
+	// TODO Implement this here
+	/* THis should:
+	1. Get all the tasks from the taskSource
+	2. Reserve only if "must_reserve" is true, using the taskSourceLocal.ReserveTask() method
+	3. emit started & ended events
+	4. bring decreasing resources down (respecting reservations).
+
+	elsewhere: switch peering to HTTP POST for "free" reconnects. Tight timeout and no headers except mID: ###.
+
+	*/
+	accepted := e.pollerTryAllWork(schedulable)
+
+	if !schedulable {
+		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
+		return nil
+	}
+
+	// update resource usage
+	availableResources := e.ResourcesAvailable()
+	totalResources := e.Resources()
+
+	cpuUsage := 1 - float64(availableResources.Cpu)/float64(totalResources.Cpu)
+	stats.Record(context.Background(), TaskMeasures.CpuUsage.M(cpuUsage*100))
+
+	if totalResources.Gpu > 0 {
+		gpuUsage := 1 - availableResources.Gpu/totalResources.Gpu
+		stats.Record(context.Background(), TaskMeasures.GpuUsage.M(gpuUsage*100))
+	}
+
+	ramUsage := 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
+	stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
+
 	// TODO Implement this. It should do whatever poller did too.
 	return nil
 }
