@@ -63,7 +63,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
                 FROM pdp_data_sets
                 WHERE challenge_request_task_id IS NULL
                   AND (prove_at_epoch + challenge_window) <= $1
-                  AND terminated_at_epoch IS NULL
+                  AND unrecoverable_proving_failure_epoch IS NULL
                   AND (next_prove_attempt_at IS NULL OR next_prove_attempt_at <= $1)
             `, currentHeight)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {

@@ -42,13 +42,13 @@ func CalculateBackoffBlocks(failures int) int {
 func MarkDatasetTerminated(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) error {
 	_, err := db.Exec(ctx, `
 		UPDATE pdp_data_sets
-		SET terminated_at_epoch = $2,
+		SET unrecoverable_proving_failure_epoch = $2,
 			consecutive_prove_failures = consecutive_prove_failures + 1,
 			next_prove_attempt_at = NULL,
 			init_ready = FALSE,
 			prove_at_epoch = NULL,
 			challenge_request_msg_hash = NULL
-		WHERE id = $1 AND terminated_at_epoch IS NULL
+		WHERE id = $1 AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight)
 	return err
 }
@@ -72,13 +72,13 @@ func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64,
 		// Too many failures, mark as terminated
 		_, err = db.Exec(ctx, `
 			UPDATE pdp_data_sets
-			SET terminated_at_epoch = $2,
+			SET unrecoverable_proving_failure_epoch = $2,
 				consecutive_prove_failures = $3,
 				next_prove_attempt_at = NULL,
 				init_ready = FALSE,
 				prove_at_epoch = NULL,
 				challenge_request_msg_hash = NULL
-			WHERE id = $1 AND terminated_at_epoch IS NULL
+			WHERE id = $1 AND unrecoverable_proving_failure_epoch IS NULL
 		`, dataSetId, currentHeight, newFailures)
 		if err != nil {
 			return false, xerrors.Errorf("failed to mark as terminated: %w", err)

@@ -97,7 +97,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
                     WHERE p.challenge_request_msg_hash IS NOT NULL
                       AND mw.tx_success = TRUE
                       AND p.prove_at_epoch < $1
-                      AND p.terminated_at_epoch IS NULL
+                      AND p.unrecoverable_proving_failure_epoch IS NULL
                       AND (p.next_prove_attempt_at IS NULL OR p.next_prove_attempt_at <= $1)
                     LIMIT 2
                 `, currentHeight)
