@@ -1,0 +1,173 @@
+name: 'Generate Coverage Report'
+description: 'Merge and report Go test coverage from multiple test runs'
+author: 'Curio Team'
+
+inputs:
+  artifacts-dir:
+    description: 'Directory containing coverage artifacts'
+    required: false
+    default: 'coverage-artifacts'
+  output-dir:
+    description: 'Directory for output coverage files'
+    required: false
+    default: 'coverage'
+  github-token:
+    description: 'GitHub token for creating checks and comments'
+    required: true
+  create-check:
+    description: 'Create a GitHub Check for coverage'
+    required: false
+    default: 'true'
+  create-comment:
+    description: 'Create/update PR comment with coverage'
+    required: false
+    default: 'true'
+  minimum-coverage:
+    description: 'Minimum acceptable coverage percentage'
+    required: false
+    default: '0'
+  coverage-html-url:
+    description: 'Direct URL to view coverage HTML (if uploaded to external host)'
+    required: false
+    default: ''
+
+outputs:
+  total-coverage:
+    description: 'Total coverage percentage'
+    value: ${{ steps.coverage.outputs.coverage }}
+  badge-color:
+    description: 'Badge color based on coverage'
+    value: ${{ steps.coverage.outputs.badge-color }}
+  coverage-file:
+    description: 'Path to merged coverage file'
+    value: ${{ steps.coverage.outputs.coverage-file }}
+  has-baseline:
+    description: 'Whether baseline comparison is available'
+    value: ${{ steps.coverage.outputs.has-baseline }}
+  baseline-coverage:
+    description: 'Baseline coverage percentage from main'
+    value: ${{ steps.coverage.outputs.baseline-coverage }}
+  coverage-diff:
+    description: 'Coverage difference from baseline (+/- percentage)'
+    value: ${{ steps.coverage.outputs.coverage-diff }}
+  baseline-commit:
+    description: 'Git commit SHA of baseline'
+    value: ${{ steps.coverage.outputs.baseline-commit }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download baseline coverage
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: coverage-baseline.yml
+        branch: main
+        name: coverage-baseline-main
+        path: baseline-coverage
+        github_token: ${{ inputs.github-token }}
+
+    - name: Generate coverage report
+      id: coverage
+      shell: bash
+      run: |
+        export COVERAGE_DIR="${{ inputs.output-dir }}"
+        export ARTIFACTS_DIR="${{ inputs.artifacts-dir }}"
+        chmod +x "$GITHUB_ACTION_PATH/../../utils/coverage-report.sh"
+        "$GITHUB_ACTION_PATH/../../utils/coverage-report.sh"
+        
+        # Set outputs
+        COVERAGE_TOTAL=$(cat ${COVERAGE_DIR}/coverage.json | grep -o '"total_coverage": "[^"]*"' | cut -d'"' -f4)
+        BADGE_COLOR=$(cat ${COVERAGE_DIR}/coverage.json | grep -o '"badge_color": "[^"]*"' | cut -d'"' -f4)
+        
+        echo "coverage=${COVERAGE_TOTAL}" >> $GITHUB_OUTPUT
+        echo "badge-color=${BADGE_COLOR}" >> $GITHUB_OUTPUT
+        echo "coverage-file=${COVERAGE_DIR}/merged.out" >> $GITHUB_OUTPUT
+        
+        # Calculate diff if baseline exists
+        if [ -f "baseline-coverage/baseline.json" ]; then
+          BASELINE_COV=$(cat baseline-coverage/baseline.json | grep -o '"coverage_percentage": [0-9.]*' | cut -d' ' -f2)
+          CURRENT_COV=$(cat ${COVERAGE_DIR}/coverage.json | grep -o '"coverage_percentage": [0-9.]*' | cut -d' ' -f2)
+          BASELINE_COMMIT=$(cat baseline-coverage/baseline.json | grep -o '"commit": "[^"]*"' | cut -d'"' -f4 | cut -c1-7)
+          
+          DIFF=$(echo "$CURRENT_COV - $BASELINE_COV" | bc)
+          
+          echo "baseline-coverage=${BASELINE_COV}%" >> $GITHUB_OUTPUT
+          echo "coverage-diff=${DIFF}%" >> $GITHUB_OUTPUT
+          echo "baseline-commit=${BASELINE_COMMIT}" >> $GITHUB_OUTPUT
+          echo "has-baseline=true" >> $GITHUB_OUTPUT
+          
+          # Add diff info to coverage JSON
+          cat ${COVERAGE_DIR}/coverage.json | jq \
+            --arg diff "$DIFF" \
+            --arg baseline "$BASELINE_COV" \
+            --arg commit "$BASELINE_COMMIT" \
+            '. + {comparison: {baseline_coverage: ($baseline + "%"), diff: ($diff + "%"), baseline_commit: $commit}}' \
+            > ${COVERAGE_DIR}/coverage-with-diff.json
+          mv ${COVERAGE_DIR}/coverage-with-diff.json ${COVERAGE_DIR}/coverage.json
+        else
+          echo "has-baseline=false" >> $GITHUB_OUTPUT
+          echo "No baseline coverage found - this is expected for first run or on main branch" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Check minimum coverage
+      shell: bash
+      run: |
+        COVERAGE_NUM=$(echo "${{ steps.coverage.outputs.coverage }}" | sed 's/%//')
+        MIN_COV="${{ inputs.minimum-coverage }}"
+        
+        if (( $(echo "$COVERAGE_NUM < $MIN_COV" | bc -l) )); then
+          echo "::error::Coverage ${COVERAGE_NUM}% is below minimum required ${MIN_COV}%"
+          exit 1
+        fi
+    
+    - name: Create GitHub Check
+      if: inputs.create-check == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const coverageText = fs.readFileSync('${{ inputs.output-dir }}/coverage.txt', 'utf8');
+          const coverage = '${{ steps.coverage.outputs.coverage }}';
+          const hasBaseline = '${{ steps.coverage.outputs.has-baseline }}' === 'true';
+          const baselineCov = '${{ steps.coverage.outputs.baseline-coverage }}';
+          const diff = '${{ steps.coverage.outputs.coverage-diff }}';
+          const baselineCommit = '${{ steps.coverage.outputs.baseline-commit }}';
+          
+          // Extract summary data
+          const lines = coverageText.split('\n').filter(line => line.trim());
+          const totalLine = lines[lines.length - 1];
+          const functionLines = lines.slice(0, -1);
+          
+          // Build comparison section if baseline exists
+          let comparisonSection = '';
+          if (hasBaseline) {
+            const diffNum = parseFloat(diff);
+            const diffEmoji = diffNum > 0 ? '📈' : diffNum < 0 ? '📉' : '➡️';
+            const diffSign = diffNum > 0 ? '+' : '';
+            comparisonSection = `\n\n### ${diffEmoji} Coverage Change\n\n**Baseline (main):** ${baselineCov} (commit \`${baselineCommit}\`)\n**This PR:** ${coverage}\n**Difference:** ${diffSign}${diff}\n`;
+          }
+          
+          // Create a summary that fits within GitHub's 65k character limit
+          // Use artifact.ci to view the coverage HTML directly
+          const artifactCiUrl = `https://artifact.ci/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/coverage-merged/coverage.html`;
+          
+          let htmlLink = `\n\n### 📊 [View Coverage Report](${artifactCiUrl})\n\n`;
+          
+          const summary = `## 📊 Test Coverage Report\n\n**Total Coverage:** ${coverage}${comparisonSection}${htmlLink}**Summary:** ${totalLine}\n\n*Coverage includes ${functionLines.length} functions*`;
+          
+          await github.rest.checks.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            name: 'Code Coverage Report',
+            head_sha: context.payload.pull_request.head.sha,
+            status: 'completed',
+            conclusion: 'success',
+            output: {
+              title: `Total Coverage: ${coverage}${hasBaseline ? ` (${parseFloat(diff) > 0 ? '+' : ''}${diff})` : ''}`,
+              summary: summary.substring(0, 65000), // Ensure it fits
+              text:  `View the interactive coverage report:\n${artifactCiUrl}\n\nTotal functions: ${functionLines.length}`
+            }
+          });

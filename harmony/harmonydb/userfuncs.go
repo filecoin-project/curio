@@ -21,15 +21,15 @@ var backoffs = lo.Map([]int{200, 400, 800, 1600, 2400, 5000, 8000}, func(item in
 	return time.Duration(item) * time.Millisecond
 })
 
-func backoffForSerializationError[T any](f func() (T, error)) (whatever T, err error) {
+func backoffForSerializationError[T any](f func() (T, error)) (res T, err error) {
 	for _, backoff := range backoffs {
-		res, err := f()
+		res, err = f()
 		if !IsErrSerialization(err) {
 			return res, err
 		}
 		time.Sleep(backoff)
 	}
-	return whatever, xerrors.Errorf("failed to execute function: %w", err)
+	return res, xerrors.Errorf("failed to execute function: %w", err)
 }
 
 // rawStringOnly is _intentionally_private_ to force only basic strings in SQL queries.
@@ -271,13 +271,11 @@ func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, er
 
 // Exec in a transaction.
 func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
-	res, err := backoffForSerializationError(func() (pgconn.CommandTag, error) {
-		tx, err := t.tx()
-		if err != nil {
-			return pgconn.CommandTag{}, err
-		}
-		return tx.Exec(t.ctx, string(sql), arguments...)
-	})
+	tx, err := t.tx()
+	if err != nil {
+		return 0, err
+	}
+	res, err := tx.Exec(t.ctx, string(sql), arguments...)
 	if err != nil {
 		return 0, err
 	}
