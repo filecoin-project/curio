@@ -755,6 +755,20 @@ jobs:
         run: git --no-pager diff --quiet
         shell: bash
 
+  test-harmonydb-bugs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run harmonydb bug tests
+        run: go test -v -run 'TestTxExec|TestTxMethods' ./harmony/harmonydb/...
+
   mod-tidy-check:
     runs-on: [self-hosted, docker]
     needs: [ci-lint]
