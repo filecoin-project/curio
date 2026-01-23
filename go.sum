@@ -222,6 +222,8 @@ github.com/curiostorage/harmonydb v0.0.0-20260122233451-97bdee1adf15 h1:chFsvJeM
 github.com/curiostorage/harmonydb v0.0.0-20260122233451-97bdee1adf15/go.mod h1:bFnQ2AwGl3X+ff2kEU+G3uMPchPvJq8qNRuzSlmUORM=
 github.com/curiostorage/harmonydb v0.0.0-20260123152631-a517ad8a539d h1:NHwrhOsF5CRyka7V7FuPoRICyCFT3UP5zlqzJ5fUAC4=
 github.com/curiostorage/harmonydb v0.0.0-20260123152631-a517ad8a539d/go.mod h1:bFnQ2AwGl3X+ff2kEU+G3uMPchPvJq8qNRuzSlmUORM=
+github.com/curiostorage/harmonydb v0.0.0-20260123225945-779a7a058119 h1:i875pFy1rQAL/aqaLPMvmNRy20snmkJbiw8f6Y7LVHI=
+github.com/curiostorage/harmonydb v0.0.0-20260123225945-779a7a058119/go.mod h1:bFnQ2AwGl3X+ff2kEU+G3uMPchPvJq8qNRuzSlmUORM=
 github.com/daaku/go.zipexe v1.0.2 h1:Zg55YLYTr7M9wjKn8SY/WcpuuEi+kR2u4E8RhvpyXmk=
 github.com/daaku/go.zipexe v1.0.2/go.mod h1:5xWogtqlYnfBXkSB1o9xysukNP9GTvaNkqzUZbt3Bw8=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
