@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -18,10 +18,10 @@ import (
 
 type PDPSyncTask struct {
 	db        *harmonydb.DB
-	ethClient *ethclient.Client
+	ethClient api.EthClientInterface
 }
 
-func NewPDPSyncTask(db *harmonydb.DB, ethClient *ethclient.Client) *PDPSyncTask {
+func NewPDPSyncTask(db *harmonydb.DB, ethClient api.EthClientInterface) *PDPSyncTask {
 	return &PDPSyncTask{
 		db:        db,
 		ethClient: ethClient,
