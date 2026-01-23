@@ -129,6 +129,9 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 			},
 		})
 	}
+	if len(deals) == 0 {
+		return false, xerrors.Errorf("no deals found")
+	}
 
 	// Validate each deal and skip(fail) the ones which fail validation
 	var validDeals []deal

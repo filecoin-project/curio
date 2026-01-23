@@ -300,7 +300,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 	if n != 1 {
-		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %s", spID, dlIdx, partIdx, err.Error())
+		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %v", spID, dlIdx, partIdx, err)
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 
