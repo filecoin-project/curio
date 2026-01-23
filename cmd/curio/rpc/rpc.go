@@ -82,8 +82,8 @@ func CurioHandler(
 
 	mux.Handle("/rpc/v0", rpcServer)
 	mux.Handle("/rpc/streams/v0/push/{uuid}", readerHandler)
-	if dependencies.PeerRPC != nil {
-		mux.Handle("/peer/v0", dependencies.PeerRPC) // Peer-to-peer WebSocket communication
+	if dependencies.PeerHTTP != nil {
+		mux.Handle("/peer/v1", dependencies.PeerHTTP) // Peer-to-peer HTTP POST communication
 	}
 	mux.PathPrefix("/remote").HandlerFunc(remote)
 	mux.Handle("/debug/metrics", metrics.Exporter())

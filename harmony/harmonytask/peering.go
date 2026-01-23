@@ -134,11 +134,14 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
 			return xerrors.Errorf("invalid message from peer")
 		}
+		taskID := TaskID(binary.BigEndian.Uint64(parts[1]))
+		reties := binary.BigEndian.Uint16(parts[1][8:])
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   TaskID(binary.BigEndian.Uint64(parts[1])),
+			TaskID:   taskID,
 			TaskType: string(parts[0]),
 			Source:   schedulerSourcePeerNewTask,
 			PeerID:   them.id,
+			Retries:  int(reties),
 		}
 		return nil
 	}
@@ -182,16 +185,45 @@ const (
 )
 
 func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {
-	msg := binary.BigEndian.AppendUint64([]byte(fmt.Sprintf("%c:%s:", messagetype, task)), uint64(tID))
+	p.TellOthersMessage(task, messageRenderTaskSend{TaskType: task, TaskID: tID})
+}
+
+func (p *peering) TellOthersMessage(taskType string, r messageRenderer) {
 	p.peersLock.RLock()
-	for _, peerIndex := range p.m[task] {
+	for _, peerIndex := range p.m[taskType] {
 		conn := p.peers[peerIndex].conn
 		go func() {
-			err := conn.SendMessage(msg)
+			err := conn.SendMessage(r.Render())
 			if err != nil {
 				log.Warnw("failed to send message to peer", "peer", p.peers[peerIndex].addr, "error", err)
 			}
 		}()
 	}
 	p.peersLock.RUnlock()
+}
+
+type messageRenderer interface {
+	Render() []byte
+}
+
+type messageRenderNewTask struct {
+	TaskType string
+	TaskID   TaskID
+	Retries  int
+}
+
+func (m messageRenderNewTask) Render() []byte {
+	return binary.BigEndian.AppendUint16(
+		binary.BigEndian.AppendUint64(
+			[]byte(fmt.Sprintf("%c:%s:", messageTypeNewTask, m.TaskType)), uint64(m.TaskID)), uint16(m.Retries))
+}
+
+type messageRenderTaskSend struct {
+	MessageType messageType
+	TaskType    string
+	TaskID      TaskID
+}
+
+func (m messageRenderTaskSend) Render() []byte {
+	return binary.BigEndian.AppendUint64([]byte(fmt.Sprintf("%c:%s:", m.MessageType, m.TaskType)), uint64(m.TaskID))
 }

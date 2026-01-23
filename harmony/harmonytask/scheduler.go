@@ -16,6 +16,7 @@ type schedulerEvent struct {
 	TaskType string
 	Source   schedulerSource
 	PeerID   int64
+	Retries  int
 }
 
 type schedulerSource byte
@@ -26,12 +27,13 @@ const (
 	schedulerSourcePeerStarted
 	schedulerSourcePeerReserved // FUTURE PR: schedulerSourcePeerReserved
 	schedulerSourceTaskCompleted
+	schedulerSourceRetryTask
 )
 
 const chokePoint = 1000
 
 type taskSchedule struct {
-	hasID  map[TaskID]bool
+	hasID  map[TaskID]task
 	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
 	// In this state, we try what we have, and go to DB if we need more.
 	reservedTask TaskID // This will be ran when resources are available. 0 for none.
@@ -54,7 +56,7 @@ func (e *TaskEngine) startScheduler() {
 		bundleCollector, bundleSleep := bundler()
 		availableTasks := map[string]*taskSchedule{} // TaskType -> TaskID -> bool FUTURE PR: mem savings.
 		for _, h := range e.handlers {
-			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]bool)}
+			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
 		for {
 			select {
@@ -65,7 +67,7 @@ func (e *TaskEngine) startScheduler() {
 				switch event.Source {
 				case schedulerSourceAdded:
 					if _, ok := availableTasks[event.TaskType]; ok { // we maybe not run this task.
-						availableTasks[event.TaskType].hasID[event.TaskID] = true
+						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: 0}
 						bundleCollector(event.TaskType)
 					}
 					e.peering.TellOthers(messageTypeNewTask, event.TaskType, event.TaskID)
@@ -75,29 +77,42 @@ func (e *TaskEngine) startScheduler() {
 						t.choked = true
 						continue
 					}
-					availableTasks[event.TaskType].hasID[event.TaskID] = true
+					availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 					bundleCollector(event.TaskType)
-				case schedulerSourcePeerStarted: // TODO Emit this from waterfall
+				case schedulerSourcePeerStarted:
 					t := availableTasks[event.TaskType]
 					delete(t.hasID, event.TaskID)
 					if t.reservedTask == event.TaskID {
 						t.reservedTask = 0
 					}
 				case schedulerSourceTaskCompleted:
-					err := e.waterfall(taskSourceLocal{availableTasks, e.peering})
+					err := e.waterfall(taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
 					if err != nil {
 						log.Errorw("failed to full waterfall", "error", err)
 						continue
 					}
 				case schedulerSourcePeerReserved:
-					if event.PeerID > int64(e.ownerID) && availableTasks[event.TaskType].reservedTask == event.TaskID {
-						availableTasks[event.TaskType].reservedTask = 0
+					avail := availableTasks[event.TaskType]
+					if event.PeerID > int64(e.ownerID) && avail.reservedTask == event.TaskID {
+						avail.reservedTask = 0
+						t := avail.hasID[event.TaskID]
+						t.ReservedElsewhere = true
+						avail.hasID[event.TaskID] = t
+						if len(avail.hasID) > 0 {
+							for _, t := range avail.hasID {
+								if !t.ReservedElsewhere {
+									avail.reservedTask = t.ID
+									e.peering.TellOthers(messageTypeReserve, event.TaskType, t.ID)
+									break
+								}
+							}
+						}
 					}
 				default:
 					log.Warnw("unknown scheduler source", "source", event.Source)
 				}
 			case taskName := <-bundleSleep:
-				shouldReserve, err := tryStart(taskName)
+				shouldReserve, err := e.tryStartTask(taskName, eventEmitter{e.schedulerChannel})
 				if err != nil {
 					log.Errorw("failed to try waterfall", "error", err)
 					continue
@@ -107,7 +122,7 @@ func (e *TaskEngine) startScheduler() {
 					e.peering.TellOthers(messageTypeReserve, taskName, shouldReserve)
 				}
 			case <-time.After(e.pollDuration.Load().(time.Duration)): // fast life & early-gather at Go_1.26
-				err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}) // TODO Reserve tasks as we go.
+				err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
 				if err != nil {
 					log.Errorw("failed to full waterfall", "error", err)
 					continue
@@ -118,15 +133,19 @@ func (e *TaskEngine) startScheduler() {
 } // TODO Move all harmony_task writers to taskEngine.AddTask()
 
 type taskSource interface {
-	GetTasks(taskName string) []TaskID
+	GetTasks(taskName string) []task
 	ReserveTask(taskName string, taskID TaskID)
-	EventTaskStarted(taskName string, taskID TaskID)
+}
+
+func (e *TaskEngine) tryStartTask(taskName string) (TaskID, error) {
+	// TODO can this just be consider work?
+	return 0, nil
 }
 
 // Waterfall is the main function that will start tasks.
 // It will start tasks from the taskSource and reserve tasks as we go.
 // It must be called only by the scheduler.
-func (e *TaskEngine) waterfall(taskSource taskSource) error {
+func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter) error {
 
 	// Check if the machine is schedulable
 	schedulable, err := e.checkNodeFlags()
@@ -139,15 +158,13 @@ func (e *TaskEngine) waterfall(taskSource taskSource) error {
 
 	// TODO Implement this here
 	/* THis should:
-	1. Get all the tasks from the taskSource
-	2. Reserve only if "must_reserve" is true, using the taskSourceLocal.ReserveTask() method
-	3. emit started & ended events
 	4. bring decreasing resources down (respecting reservations).
-
-	elsewhere: switch peering to HTTP POST for "free" reconnects. Tight timeout and no headers except mID: ###.
+	5. Rethink "retryWait" from poller-only to include schedule-able.
+	6. double-check where we receive events that source =0 works as us.
+	7. tryStartTask should be thin wrapper around considerWork, but that requires moving most of the pollerTryAllWork logic into considerWork, and maybe the rest can go into waterfall.
 
 	*/
-	accepted := e.pollerTryAllWork(schedulable)
+	e.pollerTryAllWork(schedulable, taskSource, eventEmitter)
 
 	if !schedulable {
 		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
@@ -169,7 +186,6 @@ func (e *TaskEngine) waterfall(taskSource taskSource) error {
 	ramUsage := 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
 	stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
 
-	// TODO Implement this. It should do whatever poller did too.
 	return nil
 }
 
@@ -178,17 +194,17 @@ type taskSourceLocal struct {
 	peering        *peering
 }
 
-func (t taskSourceLocal) GetTasks(taskName string) []TaskID {
+func (t taskSourceLocal) GetTasks(taskName string) []task {
 	taskObject := t.availableTasks[taskName]
-	tasks := []TaskID{}
+	tasks := []task{}
 	if taskObject.reservedTask != 0 {
-		tasks = append(tasks, taskObject.reservedTask)
+		tasks = append(tasks, taskObject.hasID[taskObject.reservedTask])
 	}
-	for taskID, _ := range taskObject.hasID {
+	for taskID, task := range taskObject.hasID {
 		if taskObject.reservedTask == taskID {
 			continue
 		}
-		tasks = append(tasks, taskID)
+		tasks = append(tasks, task)
 	}
 	return tasks
 }
@@ -198,12 +214,33 @@ func (t taskSourceLocal) ReserveTask(taskName string, taskID TaskID) {
 	t.peering.TellOthers(messageTypeReserve, taskName, taskID)
 }
 
-func (t taskSourceLocal) EventTaskStarted(taskName string, taskID TaskID) {
-	t.availableTasks[taskName].hasID[taskID] = false
-	if t.availableTasks[taskName].reservedTask == taskID {
-		t.availableTasks[taskName].reservedTask = 0
+// Emits are called from other threads, so we cannot change t.availableTasks.
+type eventEmitter struct {
+	schedulerChannel chan schedulerEvent
+}
+
+func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID) {
+	ee.schedulerChannel <- schedulerEvent{
+		TaskID:   taskID,
+		TaskType: taskName,
+		Source:   0,
 	}
-	t.peering.TellOthers(messageTypeStarted, taskName, taskID)
+}
+
+func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
+	ee.schedulerChannel <- schedulerEvent{
+		TaskID:   task.ID,
+		TaskType: taskName,
+		Source:   schedulerSourceRetryTask,
+		Retries:  task.Retries,
+	}
+}
+
+func (ee eventEmitter) EmitTaskCompleted(taskName string) {
+	ee.schedulerChannel <- schedulerEvent{
+		TaskType: taskName,
+		Source:   schedulerSourceTaskCompleted,
+	}
 }
 
 type taskSourceDb struct {
@@ -213,16 +250,16 @@ type taskSourceDb struct {
 	taskSourceLocal
 }
 
-func (t taskSourceDb) GetTasks(taskName string) []TaskID {
-	tasks := []TaskID{}
-	err := t.db.Select(context.Background(), &tasks, `SELECT id FROM harmony_task WHERE task_type = $1 LIMIT $2`, taskName, chokePoint+1)
+func (t taskSourceDb) GetTasks(taskName string) []task {
+	tasks := []task{}
+	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, retries FROM harmony_task WHERE task_type = $1 LIMIT $2`, taskName, chokePoint+1)
 	if err != nil {
 		log.Errorw("failed to get tasks from db", "error", err)
 		return nil
 	}
 	previousReservedTask := t.availableTasks[taskName].reservedTask
-	newHas := lo.Associate(tasks, func(t TaskID) (TaskID, bool) {
-		return t, true
+	newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
+		return t.ID, t
 	})
 	if _, ok := newHas[previousReservedTask]; !ok {
 		previousReservedTask = 0

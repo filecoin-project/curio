@@ -197,6 +197,7 @@ func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 10 << 20,
 		},
 		MaxFailures: 10,
+		MustReserve: true,
 	}
 }
 

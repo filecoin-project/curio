@@ -39,7 +39,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
-	harmonypeerrpc "github.com/filecoin-project/curio/lib/harmony_peer_rpc"
+	harmonypeerhttp "github.com/filecoin-project/curio/lib/harmony_peer_http"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -178,7 +178,7 @@ type Deps struct {
 	ServeChunker      *chunker.ServeChunker
 	EthClient         *lazy.Lazy[*ethclient.Client]
 	Sender            *message.Sender
-	PeerRPC           *harmonypeerrpc.PeerRPC
+	PeerHTTP          *harmonypeerhttp.PeerHTTP
 }
 
 const (
@@ -298,8 +298,8 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}
 	}
 
-	if deps.PeerRPC == nil {
-		deps.PeerRPC = harmonypeerrpc.New()
+	if deps.PeerHTTP == nil {
+		deps.PeerHTTP = harmonypeerhttp.New(deps.ListenAddr)
 	}
 
 	if deps.Alert == nil {

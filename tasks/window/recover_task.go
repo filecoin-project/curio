@@ -227,6 +227,7 @@ func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 128 << 20,
 		},
 		MaxFailures: 10,
+		MustReserve: true,
 	}
 }
 

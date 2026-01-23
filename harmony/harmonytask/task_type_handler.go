@@ -100,8 +100,8 @@ const (
 // The headroom (maxes, resources) becomes a SQL LIMIT so we can get work anywhere in the list.
 // Avoids caching CanAccept() results as priority may change
 // Disk resources are claimed AFTER taking the tasks because they may have different storage paths so they can't update.
-func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
-	if len(ids) == 0 {
+func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter eventEmitter) (workAccepted bool) {
+	if len(tasks) == 0 {
 		return true // stop looking for takers
 	}
 
@@ -123,6 +123,9 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 
 	h.TaskEngine.WorkOrigin = from
 
+	ids := lo.Map(tasks, func(t task, _ int) TaskID {
+		return t.ID
+	})
 	// 3. What does the impl say?
 	tIDs, err := h.CanAccept(ids, h.TaskEngine)
 
@@ -242,6 +245,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	i := 0
 	for _, tID := range tIDs {
 		go func(tID TaskID, releaseStorage func()) {
+			eventEmitter.EmitTaskStarted(h.Name, tID)
 			var done bool
 			var doErr error
 			workStart := time.Now()
@@ -270,10 +274,11 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 					releaseStorage()
 				}
 				h.recordCompletion(tID, sectorID, workStart, done, doErr)
-				if done {
-					for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
-						if _, err := fs.f(tID, fs.h.AddTask); err != nil {
-							log.Error("Could not follow", "error", err, "from", h.Name, "to", fs.name)
+				eventEmitter.EmitTaskCompleted(h.Name)
+				if !done { // it was a failure, so we need to retry
+					for _, t := range tasks {
+						if t.ID == tID {
+							eventEmitter.EmitTaskNew(h.Name, t)
 						}
 					}
 				}
