@@ -282,6 +282,15 @@ func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
 	return int(res.RowsAffected()), nil
 }
 
+// SendBatch in a transaction.
+func (t *Tx) SendBatch(ctx context.Context, b *pgx.Batch) (pgx.BatchResults, error) {
+	tx, err := t.tx()
+	if err != nil {
+		return nil, err
+	}
+	return tx.SendBatch(ctx, b), nil
+}
+
 // Query in a transaction.
 func (t *Tx) Query(sql rawStringOnly, arguments ...any) (*Query, error) {
 	tx, err := t.tx()
