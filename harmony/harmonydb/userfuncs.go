@@ -172,9 +172,8 @@ func (db *DB) Select(ctx context.Context, sliceOfStructPtr any, sql rawStringOnl
 }
 
 type Tx struct {
-	tx       func() (pgx.Tx, error)
-	ctx      context.Context
-	didBegin bool
+	tx  func() (pgx.Tx, error)
+	ctx context.Context
 }
 
 // usedInTransaction is a helper to prevent nesting transactions

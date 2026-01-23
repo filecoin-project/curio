@@ -195,18 +195,18 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 		return nil, err
 	}
 
-	db.setBTFP()
-	return &db, nil
+	return &db, db.setBTFP()
 }
 
 // called by New(). Not thread-safe. Exposed for testing.
-func (db *DB) setBTFP() {
-	db.BeginTransaction(context.Background(), func(tx *Tx) (bool, error) {
+func (db *DB) setBTFP() error {
+	_, err := db.BeginTransaction(context.Background(), func(tx *Tx) (bool, error) {
 		fp := make([]uintptr, 20)
 		runtime.Callers(2, fp)
 		db.BTFP = fp[0]
 		return false, nil
 	})
+	return err
 }
 
 type tracer struct {

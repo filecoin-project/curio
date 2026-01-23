@@ -20,14 +20,17 @@ func TestBTFP_NestedTransaction(t *testing.T) {
 	var reached bool
 
 	func() {
-		defer func() { recover() }()
-		db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+		defer func() { _ = recover() }()
+		_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
 			reached = true
 			_, innerErr = db.BeginTransaction(ctx, func(tx2 *Tx) (bool, error) {
 				return false, nil
 			})
 			return false, innerErr
 		})
+		if err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
 	}()
 
 	if !reached {
@@ -47,12 +50,15 @@ func TestBTFP_ExecInsideTransaction(t *testing.T) {
 	var reached bool
 
 	func() {
-		defer func() { recover() }()
-		db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+		defer func() { _ = recover() }()
+		_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
 			reached = true
 			_, execErr = db.Exec(ctx, "SELECT 1")
 			return false, execErr
 		})
+		if err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
 	}()
 
 	if !reached {
@@ -92,13 +98,16 @@ func TestBTFP_FoundInCallStack(t *testing.T) {
 
 	var found bool
 	func() {
-		defer func() { recover() }()
-		db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
+		defer func() { _ = recover() }()
+		_, err := db.BeginTransaction(ctx, func(tx *Tx) (bool, error) {
 			var pcs [20]uintptr
 			n := runtime.Callers(1, pcs[:])
 			found = lo.Contains(pcs[:n], uintptr(btfp))
 			return false, nil
 		})
+		if err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
 	}()
 
 	if !found {
