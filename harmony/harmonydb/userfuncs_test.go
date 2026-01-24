@@ -29,15 +29,13 @@ func TestBTFP_NestedTransaction(t *testing.T) {
 			})
 			return false, innerErr
 		})
-		if err != nil {
-			t.Errorf("got %v, want nil", err)
-		}
+		require.NotNil(t, err)
+		require.ErrorIs(t, innerErr, errTx)
 	}()
 
 	if !reached {
 		t.Skip("need real DB")
 	}
-	require.ErrorIs(t, innerErr, errTx)
 }
 
 func TestBTFP_ExecInsideTransaction(t *testing.T) {
@@ -55,15 +53,13 @@ func TestBTFP_ExecInsideTransaction(t *testing.T) {
 			_, execErr = db.Exec(ctx, "SELECT 1")
 			return false, execErr
 		})
-		if err != nil {
-			t.Errorf("got %v, want nil", err)
-		}
+		require.NotNil(t, err)
+		require.ErrorIs(t, execErr, errTx)
 	}()
 
 	if !reached {
 		t.Skip("need real DB")
 	}
-	require.ErrorIs(t, execErr, errTx)
 }
 
 func TestBTFP_StoredValue(t *testing.T) {
