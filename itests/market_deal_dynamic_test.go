@@ -118,8 +118,8 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 
 	// Enable market subsystems
 	baseCfg.Subsystems.EnableDealMarket = true
-	baseCfg.Batching.PreCommit.Timeout = time.Second
-	baseCfg.Batching.Commit.Timeout = time.Second
+	baseCfg.Batching.PreCommit.Timeout.Set(time.Second)
+	baseCfg.Batching.Commit.Timeout.Set(time.Second)
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
@@ -473,8 +473,8 @@ func TestMarketDealSystemBasic(t *testing.T) {
 
 	// Enable market subsystems
 	baseCfg.Subsystems.EnableDealMarket = true
-	baseCfg.Batching.PreCommit.Timeout = time.Second
-	baseCfg.Batching.Commit.Timeout = time.Second
+	baseCfg.Batching.PreCommit.Timeout.Set(time.Second)
+	baseCfg.Batching.Commit.Timeout.Set(time.Second)
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
