@@ -25,11 +25,11 @@ func backoffForSerializationError[T any](f func() (T, error)) (whatever T, err e
 	for _, backoff := range backoffs {
 		res, err := f()
 		if !IsErrSerialization(err) {
-			return res, err
+			return res, errFilter(err)
 		}
 		time.Sleep(backoff)
 	}
-	return whatever, xerrors.Errorf("failed to execute function: %w", err)
+	return whatever, xerrors.Errorf("failed to execute function: %w", errFilter(err))
 }
 
 // rawStringOnly is _intentionally_private_ to force only basic strings in SQL queries.
@@ -52,7 +52,7 @@ func (db *DB) Exec(ctx context.Context, sql rawStringOnly, arguments ...any) (co
 		return db.pgx.Exec(ctx, string(sql), arguments...)
 	})
 	if err != nil {
-		return 0, err
+		return 0, errFilter(err)
 	}
 
 	return int(res.RowsAffected()), nil
@@ -165,7 +165,7 @@ func (db *DB) Select(ctx context.Context, sliceOfStructPtr any, sql rawStringOnl
 		return db.pgx.Query(ctx, string(sql), arguments...)
 	})
 	if err != nil {
-		return err
+		return errFilter(err)
 	}
 	defer rows.Close()
 	return dbscan.ScanAll(sliceOfStructPtr, dbscanRows{rows})
@@ -234,24 +234,24 @@ func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, er
 func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, err error)) (didCommit bool, retErr error) {
 	tx, err := db.pgx.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return false, err
+		return false, errFilter(err)
 	}
 	var commit bool
 	defer func() { // Panic clean-up.
 		if !commit {
 			if tmp := tx.Rollback(ctx); tmp != nil {
-				retErr = tmp
+				retErr = errFilter(tmp)
 			}
 		}
 	}()
 	commit, err = f(&Tx{tx, ctx})
 	if err != nil {
-		return false, err
+		return false, errFilter(err)
 	}
 	if commit {
 		err = tx.Commit(ctx)
 		if err != nil {
-			return false, err
+			return false, errFilter(err)
 		}
 		return true, nil
 	}
@@ -264,7 +264,7 @@ func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
 		return t.Tx.Exec(t.ctx, string(sql), arguments...)
 	})
 	if err != nil {
-		return 0, err
+		return 0, errFilter(err)
 	}
 	return int(res.RowsAffected()), nil
 }
@@ -272,7 +272,7 @@ func (t *Tx) Exec(sql rawStringOnly, arguments ...any) (count int, err error) {
 // Query in a transaction.
 func (t *Tx) Query(sql rawStringOnly, arguments ...any) (*Query, error) {
 	q, err := t.Tx.Query(t.ctx, string(sql), arguments...)
-	return &Query{q}, err
+	return &Query{q}, errFilter(err)
 }
 
 // QueryRow in a transaction.
@@ -284,10 +284,10 @@ func (t *Tx) QueryRow(sql rawStringOnly, arguments ...any) Row {
 func (t *Tx) Select(sliceOfStructPtr any, sql rawStringOnly, arguments ...any) error {
 	rows, err := t.Query(sql, arguments...)
 	if err != nil {
-		return fmt.Errorf("scany: query multiple result rows: %w", err)
+		return fmt.Errorf("scany: query multiple result rows: %w", errFilter(err))
 	}
 	defer rows.Close()
-	return dbscan.ScanAll(sliceOfStructPtr, dbscanRows{rows.Qry.(pgx.Rows)})
+	return errFilter(dbscan.ScanAll(sliceOfStructPtr, dbscanRows{rows.Qry.(pgx.Rows)}))
 }
 
 func IsErrUniqueContraint(err error) bool {
