@@ -64,6 +64,7 @@ func TestTransaction(t *testing.T) {
 		var sum1 int
 		if sideError = cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); err != nil {
 			close(result)
+			return
 		}
 		result <- sum1
 	}()
