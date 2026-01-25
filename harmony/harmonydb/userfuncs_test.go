@@ -14,7 +14,7 @@ import (
 
 func TestBTFP_NestedTransaction(t *testing.T) {
 	db := &DB{}
-	db.setBTFP()
+	_ = db.setBTFP()
 	ctx := context.Background()
 
 	var innerErr error
@@ -40,7 +40,7 @@ func TestBTFP_NestedTransaction(t *testing.T) {
 
 func TestBTFP_ExecInsideTransaction(t *testing.T) {
 	db := &DB{}
-	db.setBTFP()
+	_ = db.setBTFP()
 	ctx := context.Background()
 
 	var execErr error
@@ -64,7 +64,7 @@ func TestBTFP_ExecInsideTransaction(t *testing.T) {
 
 func TestBTFP_StoredValue(t *testing.T) {
 	db := &DB{}
-	db.setBTFP() // New() calls setBTFP()
+	_ = db.setBTFP() // New() calls setBTFP()
 
 	btfp := db.BTFP
 	if btfp == 0 {
@@ -81,7 +81,7 @@ func TestBTFP_StoredValue(t *testing.T) {
 
 func TestBTFP_FoundInCallStack(t *testing.T) {
 	db := &DB{}
-	db.setBTFP()
+	_ = db.setBTFP()
 	ctx := context.Background()
 
 	btfp := db.BTFP
