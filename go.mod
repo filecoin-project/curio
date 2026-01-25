@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/codeskyblue/go-sh v0.0.0-20200712050446-30169cf553fe
 	github.com/consensys/gnark-crypto v0.19.0
-	github.com/curiostorage/harmonydb v0.0.0-20260124155851-4b2a4a74fe0f
+	github.com/curiostorage/harmonydb v0.0.0-20260125025731-ef22b2ed646b
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
@@ -108,7 +108,7 @@ require (
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/gocql v1.6.0-yb-1
-	github.com/yugabyte/pgx/v5 v5.5.3-yb-5
+	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
 	go.opencensus.io v0.24.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
