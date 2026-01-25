@@ -58,11 +58,13 @@ func TestTransaction(t *testing.T) {
 	require.NoError(t, err)
 	wait := make(chan struct{})
 	result := make(chan int)
+	var sideError error
 	go func() {
 		<-wait
 		var sum1 int
-		if err := cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); err != nil {
-			t.Fatal("E2", err)
+		if sideError = cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); sideError != nil {
+			close(result)
+			return
 		}
 		result <- sum1
 	}()
@@ -73,7 +75,10 @@ func TestTransaction(t *testing.T) {
 
 		// sum1 is read from OUTSIDE the transaction so it's the old value
 		wait <- struct{}{}
-		sum1 := <-result
+		sum1, ok := <-result
+		if !ok {
+			return false, sideError
+		}
 		if sum1 != 4+5+6 {
 			return false, xerrors.Errorf("Expected 15, got %d", sum1)
 		}
