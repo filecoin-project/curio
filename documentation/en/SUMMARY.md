@@ -13,6 +13,8 @@
 * [Storage Configuration](storage-configuration.md)
 * [Configuration](configuration/README.md)
   * [Listen Address](configuration/listen-address.md)
+  * [Prometheus Metrics](configuration/prometheus-metrics.md)
+  * [Metrics Reference](configuration/metrics-reference.md)
   * [Alert Manager](configuration/alert-manager.md)
   * [Balance Manager](configuration/balance-manager.md)
   * [Default Curio Configuration](configuration/default-curio-configuration.md)
