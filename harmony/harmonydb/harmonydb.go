@@ -4,44 +4,25 @@ import (
 	"embed"
 	"os"
 	"testing"
+	"time"
 
-	"github.com/curiostorage/harmonydb"
+	"github.com/curiostorage/harmonyquery"
 )
 
-type ITestID string
-
 // ITestNewID see ITestWithID doc
-var ITestNewID = harmonydb.ITestNewID
+var ITestNewID = harmonyquery.ITestNewID
 
-type DB = harmonydb.DB
-
-type Config = harmonydb.Config
+type DB = harmonyquery.DB
+type Config = harmonyquery.Config
 
 func init() {
-	harmonydb.DefaultHostEnv = "CURIO_HARMONYDB_HOSTS"
+	harmonyquery.DefaultHostEnv = "CURIO_HARMONYDB_HOSTS"
 }
 
 func NewFromConfig(cfg Config) (*DB, error) {
 	cfg.SqlEmbedFS = &upgradeFS
 	cfg.DowngradeEmbedFS = &downgradeFS
-	return harmonydb.NewFromConfig(cfg)
-}
-
-func New(hosts []string, username, password, database, port string, loadBalance bool, itestID ITestID) (*DB, error) {
-	if len(hosts) == 0 {
-		hosts = []string{envElse(harmonydb.DefaultHostEnv, "127.0.0.1")}
-	}
-	return NewFromConfig(Config{
-		Hosts:            hosts,
-		Database:         database,
-		Username:         username,
-		Password:         password,
-		Port:             port,
-		LoadBalance:      loadBalance,
-		ITestID:          harmonydb.ITestID(itestID),
-		SqlEmbedFS:       &upgradeFS,
-		DowngradeEmbedFS: &downgradeFS,
-	})
+	return harmonyquery.NewFromConfig(cfg)
 }
 
 func envElse(env, els string) string {
@@ -51,9 +32,9 @@ func envElse(env, els string) string {
 	return els
 }
 
-func NewFromConfigWithITestID(t *testing.T, id harmonydb.ITestID) (*DB, error) {
+func NewFromConfigWithITestID(t *testing.T, id harmonyquery.ITestID) (*DB, error) {
 	db, err := NewFromConfig(Config{
-		Hosts:            []string{envElse(harmonydb.DefaultHostEnv, "127.0.0.1")},
+		Hosts:            []string{envElse(harmonyquery.DefaultHostEnv, "127.0.0.1")},
 		Database:         "yugabyte",
 		Username:         "yugabyte",
 		Password:         "yugabyte",
@@ -78,4 +59,18 @@ var upgradeFS embed.FS
 //go:embed downgrade
 var downgradeFS embed.FS
 
-var ITestUpgradeFunc = harmonydb.ITestUpgradeFunc
+// A function for clean, idempotent SQL upgrade testing.
+var ITestUpgradeFunc = harmonyquery.ITestUpgradeFunc
+
+const InitialSerializationErrorRetryWait = 5 * time.Second
+
+// Query offers Next/Err/Close/Scan/Values
+type Query = harmonyquery.Query
+
+type Tx = harmonyquery.Tx
+type TransactionOptions = harmonyquery.TransactionOptions
+
+var IsErrUniqueContraint = harmonyquery.IsErrUniqueContraint
+var IsErrSerialization = harmonyquery.IsErrSerialization
+
+var OptionRetry = harmonyquery.OptionRetry
