@@ -291,6 +291,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Create a commp.Calc instance for calculating commP
 	cp := &commp.Calc{}
+	defer cp.Reset()
 	readSize := int64(0)
 
 	var vhash hash.Hash

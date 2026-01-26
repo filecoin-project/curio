@@ -80,6 +80,7 @@ func (w *DataCidWriter) Write(p []byte) (int, error) {
 				}()
 
 				cc := new(commp.Calc)
+				defer cc.Reset()
 				_, _ = cc.Write(w.tbufs[bufIdx][:])
 				p, _, _ := cc.Digest()
 				l, _ := commcid.PieceCommitmentV1ToCID(p)
@@ -117,6 +118,7 @@ func (w *DataCidWriter) Sum() (DataCIDSize, error) {
 		}
 
 		cc := new(commp.Calc)
+		defer cc.Reset()
 		_, _ = cc.Write(w.buf[:lastLen])
 		pb, pps, _ := cc.Digest()
 		p, _ := commcid.PieceCommitmentV1ToCID(pb)
