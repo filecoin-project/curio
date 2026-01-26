@@ -11,6 +11,8 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -435,6 +437,11 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			log.Warnw("WinPostTask task already mined?", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid())
 			return true, xerrors.Errorf("block already mined?")
 		}
+
+		// Record win metric
+		stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, MiningMeasures.WinsTotal.M(1))
 	}
 
 	// wait until block timestamp
@@ -455,6 +462,11 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		if err := t.api.SyncSubmitBlock(ctx, blockMsg); err != nil {
 			return false, xerrors.Errorf("failed to submit block: %w", err)
 		}
+
+		// Record submission metric
+		stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, MiningMeasures.BlocksSubmittedTotal.M(1))
 	}
 
 	log.Infow("mined a block", "tipset", types.LogCids(blockMsg.Header.Parents), "height", blockMsg.Header.Height, "miner", maddr, "cid", blockMsg.Header.Cid())

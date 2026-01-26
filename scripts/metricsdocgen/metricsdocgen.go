@@ -34,11 +34,14 @@ var categoryConfig = map[string][]string{
 	"04_Proof Share Metrics":                {"tasks/proofshare"},
 	"05_Proof Service Metrics":              {"lib/proofsvc"},
 	"06_Sealing Metrics":                    {"tasks/seal", "tasks/sealsupra"},
-	"07_Storage Metrics":                    {"lib/paths", "lib/slotmgr"},
-	"08_Cache Metrics":                      {"lib/cachedreader"},
-	"09_Network Metrics":                    {"lib/robusthttp", "lib/dealdata"},
-	"10_FFI Metrics":                        {"lib/ffi"},
-	"11_HTTP/Retrieval Metrics":             {"market/"},
+	"07_Snap Pipeline Metrics":              {"tasks/snap"},
+	"08_Mining Metrics":                     {"tasks/winning"},
+	"09_Storage Metrics":                    {"lib/paths", "lib/slotmgr"},
+	"10_Cache Metrics":                      {"lib/cachedreader"},
+	"11_Network Metrics":                    {"lib/robusthttp", "lib/dealdata"},
+	"12_FFI Metrics":                        {"lib/ffi"},
+	"13_HTTP/Retrieval Metrics":             {"market/"},
+	"14_GC Metrics":                         {"tasks/gc"},
 }
 
 // ============================================================================

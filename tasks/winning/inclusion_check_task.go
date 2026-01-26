@@ -4,8 +4,11 @@ import (
 	"context"
 	"time"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -37,11 +40,12 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	ctx := context.Background()
 
 	var toCheck []struct {
+		SpID     uint64 `db:"sp_id"`
 		Epoch    int64  `db:"epoch"`
 		MinedCID string `db:"mined_cid"`
 	}
 
-	err = i.db.Select(ctx, &toCheck, `SELECT epoch, mined_cid FROM mining_tasks WHERE won = true AND included IS NULL`)
+	err = i.db.Select(ctx, &toCheck, `SELECT sp_id, epoch, mined_cid FROM mining_tasks WHERE won = true AND included IS NULL`)
 	if err != nil {
 		return false, err
 	}
@@ -76,6 +80,15 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		_, err = i.db.Exec(ctx, `UPDATE mining_tasks SET included = $1 WHERE epoch = $2`, included, check.Epoch)
 		if err != nil {
 			return false, xerrors.Errorf("updating included column: %w", err)
+		}
+
+		// Record metric for included blocks
+		if included {
+			if maddr, err := address.NewIDAddress(check.SpID); err == nil {
+				stats.RecordWithTags(ctx, []tag.Mutator{
+					tag.Upsert(MinerTag, maddr.String()),
+				}, MiningMeasures.BlocksIncludedTotal.M(1))
+			}
 		}
 	}
 

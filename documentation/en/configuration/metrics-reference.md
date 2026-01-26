@@ -75,6 +75,16 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| `curio_seal_commit_submitted_total` | gauge/counter | Commit messages submitted. |
+| `curio_seal_failed_total` | gauge/counter | Failed sectors by stage. |
+| `curio_seal_finalize_completed_total` | gauge/counter | Finalizations completed. |
+| `curio_seal_movestorage_completed_total` | gauge/counter | Move storage operations completed. |
+| `curio_seal_porep_completed_total` | gauge/counter | PoRep computations completed. |
+| `curio_seal_precommit_submitted_total` | gauge/counter | Precommit messages submitted. |
+| `curio_seal_sdr_completed_total` | gauge/counter | SDR computations completed. |
+| `curio_seal_synth_completed_total` | gauge/counter | Synthetic proofs completed. |
+| `curio_seal_treed_completed_total` | gauge/counter | Tree D computations completed. |
+| `curio_seal_treerc_completed_total` | gauge/counter | Tree R/C computations completed. |
 | `curio_sealsupra_nvme_available_spare` | gauge/counter | NVMe Available Spare |
 | `curio_sealsupra_nvme_bytes_read` | gauge/counter | NVMe Bytes Read |
 | `curio_sealsupra_nvme_bytes_written` | gauge/counter | NVMe Bytes Written |
@@ -93,6 +103,24 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 | `curio_sealsupra_phase_lock_count` | gauge/counter | Number of active locks in each phase |
 | `curio_sealsupra_phase_waiting_count` | gauge/counter | Number of goroutines waiting for a phase lock |
 
+## Snap Pipeline Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `curio_snap_encode_completed_total` | gauge/counter | Snap encodes completed. |
+| `curio_snap_movestorage_completed_total` | gauge/counter | Snap move storage operations completed. |
+| `curio_snap_prove_completed_total` | gauge/counter | Snap proves completed. |
+| `curio_snap_submit_completed_total` | gauge/counter | Snap submissions completed. |
+
+## Mining Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `curio_mining_blocks_included_total` | gauge/counter | Blocks included in the chain. |
+| `curio_mining_blocks_submitted_total` | gauge/counter | Blocks submitted to the network. |
+| `curio_mining_compute_time_seconds` | histogram | Histogram of winning post compute times in seconds. |
+| `curio_mining_wins_total` | gauge/counter | Blocks won (election success). |
+
 ## Storage Metrics
 
 | Metric | Type | Description |
@@ -103,12 +131,15 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 | `curio_slotmgr_slots_acquired` | gauge/counter | Total number of slots acquired. |
 | `curio_slotmgr_slots_available` | gauge/counter | Number of available slots. |
 | `curio_slotmgr_slots_released` | gauge/counter | Total number of slots released. |
+| `curio_stor_available_bytes` | gauge/counter | Available storage capacity in bytes |
+| `curio_stor_capacity_bytes` | gauge/counter | Total storage capacity in bytes |
 | `curio_stor_find_sector_cache_hits` | gauge/counter | Number of findSectorCache hits |
 | `curio_stor_find_sector_cache_misses` | gauge/counter | Number of findSectorCache misses |
 | `curio_stor_find_sector_uncached` | gauge/counter | Number of findSector uncached calls |
 | `curio_stor_generate_single_vanilla_proof_calls` | gauge/counter | Number of calls to GenerateSingleVanillaProof |
 | `curio_stor_generate_single_vanilla_proof_duration_seconds` | gauge/counter | Duration of GenerateSingleVanillaProof in seconds |
 | `curio_stor_generate_single_vanilla_proof_errors` | gauge/counter | Number of errors in GenerateSingleVanillaProof |
+| `curio_stor_used_bytes` | gauge/counter | Used storage capacity in bytes |
 
 ## Cache Metrics
 
@@ -171,6 +202,12 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 | `curio_pdp/piece_by_cid_request_duration_ms` | gauge | Time spent retrieving a piece by cid for PDP |
 | `curio_pdp/piece_bytes_served_count` | gauge/counter | Counter of the number of bytes served by PDP since startup |
 | `curio_retrieval_info` | gauge/counter | Arbitrary counter to tag node info to |
+
+## GC Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `curio_gc_sectors_marked_total` | gauge/counter | Sectors marked for GC. |
 
 ---
 
