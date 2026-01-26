@@ -49,7 +49,7 @@ func (p *PagerDuty) SendAlert(data *AlertPayload) error {
 	}
 
 	payload := &pdData{
-		RoutingKey:  p.cfg.PageDutyIntegrationKey,
+		RoutingKey:  p.cfg.PageDutyIntegrationKey.Get(),
 		EventAction: "trigger",
 		Payload: &pdPayload{
 			Summary:       data.Summary,
@@ -64,7 +64,7 @@ func (p *PagerDuty) SendAlert(data *AlertPayload) error {
 		return fmt.Errorf("error marshaling JSON: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", p.cfg.PagerDutyEventURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", p.cfg.PagerDutyEventURL.Get(), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}

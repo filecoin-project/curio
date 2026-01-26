@@ -52,11 +52,22 @@ func (d *Dynamic[T]) OnChange(fn func()) {
 	}
 }
 
+// It locks dynamicLocker, unless we're already in an updating context.
 func (d *Dynamic[T]) Set(value T) {
-	dynamicLocker.Lock()
-	defer dynamicLocker.Unlock()
-	dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
-	d.value = value
+	// Check if we're already in an updating context (changeMonitor)
+	updating := atomic.LoadInt32(&dynamicLocker.updating)
+
+	if updating != 0 {
+		// We're in changeMonitor context, don't acquire the lock to avoid deadlock
+		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+		d.value = value
+	} else {
+		// Normal case - acquire the lock
+		dynamicLocker.Lock()
+		defer dynamicLocker.Unlock()
+		dynamicLocker.inform(reflect.ValueOf(d).Pointer(), d.value, value)
+		d.value = value
+	}
 }
 
 // SetWithoutLock sets the value without acquiring a lock.
@@ -69,19 +80,23 @@ func (d *Dynamic[T]) SetWithoutLock(value T) {
 func (d *Dynamic[T]) Get() T {
 	dynamicLocker.RLock()
 	defer dynamicLocker.RUnlock()
-	return d.value
+	return d.GetWithoutLock()
 }
 
 // GetWithoutLock gets the value without acquiring a lock.
 // Only use this when you're already holding the top-level write lock (e.g., during FixTOML).
 func (d *Dynamic[T]) GetWithoutLock() T {
+	if d == nil {
+		var zero T
+		return zero
+	}
 	return d.value
 }
 
 // Equal is used by cmp.Equal for custom comparison.
-// If used from deps, requires a lock.
+// It doesn't lock dynamicLocker as this typically is used for an update test.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
+	return cmp.Equal(d.GetWithoutLock(), other.GetWithoutLock(), BigIntComparer, cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
@@ -188,7 +203,9 @@ func (r *cfgRoot[T]) changeMonitor() {
 		time.Sleep(sleepTime)
 		sleepTime = 30 * time.Second
 		configCount := 0
-		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
+		// Note: We need to prepend "base" layer like GetConfigs does
+		layers := append([]string{"base"}, r.layers...)
+		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title = ANY($2)`, lastTimestamp, layers).Scan(&configCount)
 		if err != nil {
 			logger.Errorf("error selecting configs: %s", err)
 			continue
@@ -209,13 +226,30 @@ func (r *cfgRoot[T]) changeMonitor() {
 		//    inconsistent state. FixTOML uses GetWithoutLock() and TransparentDecode uses
 		//    SetWithoutLock() to avoid deadlocks.
 		func() {
+			// Set a flag to indicate we're in change monitor context
 			dynamicLocker.Lock()
 			defer dynamicLocker.Unlock()
 			err = ApplyLayers(context.Background(), r.treeCopy, configs, r.fixupFn)
 			if err != nil {
 				logger.Errorf("dynamic config failed to ApplyLayers: %s", err)
+				// Reset updating flag on error
+				atomic.StoreInt32(&dynamicLocker.updating, 0)
 				return
 			}
+
+			// Process change notifications (we already hold the lock)
+			atomic.StoreInt32(&dynamicLocker.updating, 0)
+			dynamicLocker.cdmx.Lock()
+			for k, v := range dynamicLocker.latest {
+				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
+					if notifier := dynamicLocker.notifier[k]; notifier != nil {
+						go notifier()
+					}
+				}
+			}
+			dynamicLocker.originally = make(map[uintptr]any)
+			dynamicLocker.latest = make(map[uintptr]any)
+			dynamicLocker.cdmx.Unlock()
 		}()
 	}
 }
@@ -228,8 +262,14 @@ var dynamicLocker = changeNotifier{diff: diff{
 }
 
 type changeNotifier struct {
-	sync.RWMutex       // this protects the dynamic[T] reads from getting a race with the updating
-	updating     int32 // atomic: 1 if updating, 0 if not. determines which mode we are in: updating or querying
+	sync.RWMutex // Protects Dynamic[T] reads/writes during config updates
+
+	// updating is an atomic flag (1=updating, 0=idle) that indicates whether
+	// changeMonitor is currently applying new config layers. When set, Dynamic.Set()
+	// skips locking to avoid deadlock, since changeMonitor already holds the write lock.
+	// This allows config reload (via TransparentDecode) to update Dynamic values without
+	// re-acquiring locks. Always access via atomic.LoadInt32/StoreInt32.
+	updating int32
 
 	diff
 
@@ -246,13 +286,13 @@ func (c *changeNotifier) Lock() {
 	atomic.StoreInt32(&c.updating, 1)
 }
 func (c *changeNotifier) Unlock() {
-	c.cdmx.Lock()
 	c.RWMutex.Unlock()
+	c.cdmx.Lock()
 	defer c.cdmx.Unlock()
 
 	atomic.StoreInt32(&c.updating, 0)
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
+		if !cmp.Equal(v, c.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
@@ -262,6 +302,24 @@ func (c *changeNotifier) Unlock() {
 	c.latest = make(map[uintptr]any)
 }
 
+type reportHandler struct {
+	changes  []string
+	newValue any
+	oldValue any
+}
+
+func (r *reportHandler) PushStep(path cmp.PathStep) {
+	r.changes = append(r.changes, path.String())
+	r.newValue, r.oldValue = path.Values()
+}
+func (r *reportHandler) Report(result cmp.Result) {
+	if !result.Equal() {
+		logger.Infof("Dynamic configuration %s updated from %v to %v", strings.Join(r.changes, "."), r.oldValue, r.newValue)
+	}
+}
+func (r *reportHandler) PopStep() {
+	r.changes = r.changes[:len(r.changes)-1]
+}
 func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 	if atomic.LoadInt32(&c.updating) == 0 {
 		return
