@@ -4,6 +4,7 @@ package tasks
 import (
 	"context"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -514,7 +515,7 @@ func addSealingTasks(
 	// harmony treats the first task as highest priority, so reverse the order
 	// (we could have just appended to this list in the reverse order, but defining
 	//  tasks in pipeline order is more intuitive)
-	activeTasks = lo.Reverse(activeTasks)
+	slices.Reverse(activeTasks)
 
 	if hasAnySealingTask {
 		// Sealing nodes maintain storage index when bored

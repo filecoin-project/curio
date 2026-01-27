@@ -56,15 +56,28 @@ func TestTransaction(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
 	require.NoError(t, err)
+	wait := make(chan struct{})
+	result := make(chan int)
+	var sideError error
+	go func() {
+		<-wait
+		var sum1 int
+		if sideError = cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); sideError != nil {
+			close(result)
+			return
+		}
+		result <- sum1
+	}()
 	_, err = cdb.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		if _, err = tx.Exec("INSERT INTO itest_scratch (some_int) VALUES (7), (8), (9)"); err != nil {
 			return false, err
 		}
 
 		// sum1 is read from OUTSIDE the transaction so it's the old value
-		var sum1 int
-		if err := cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); err != nil {
-			t.Fatal("E2", err)
+		wait <- struct{}{}
+		sum1, ok := <-result
+		if !ok {
+			return false, sideError
 		}
 		if sum1 != 4+5+6 {
 			return false, xerrors.Errorf("Expected 15, got %d", sum1)
