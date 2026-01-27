@@ -157,6 +157,16 @@ func TestRouterSetup(t *testing.T) {
 	require.Contains(t, w.Body.String(), "Version")
 }
 
+// TestInfoEndpointVersion verifies that /info returns actual build version, not hardcoded "0.0.0"
+func TestInfoEndpointVersion(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/info", nil)
+	w := httptest.NewRecorder()
+	handleInfo(w, req)
+
+	body := w.Body.String()
+	require.NotContains(t, body, "0.0.0", "version should not be hardcoded 0.0.0")
+}
+
 // TestTrustlessGatewaySentinel tests the special sentinel CID (bafkqaaa - identity empty CID)
 // which is used as a probe for trustless gateway conformance
 func TestTrustlessGatewaySentinel(t *testing.T) {
