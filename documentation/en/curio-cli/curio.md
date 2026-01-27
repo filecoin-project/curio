@@ -1363,7 +1363,7 @@ USAGE:
 COMMANDS:
    fix-msg                        Updated DB with message data missing from chain node
    register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
-   downgrade                      Downgrade a cluster's daatabase to a previous software version.
+   downgrade                      Downgrade a cluster's database to a previous software version.
    fix-boost-migration            Fix Boost migration
    id                             print libp2p identity and compare with on-chain state
    help, h                        Shows a list of commands or help for one command
@@ -1411,7 +1411,7 @@ OPTIONS:
 ### curio toolbox downgrade
 ```
 NAME:
-   curio toolbox downgrade - Downgrade a cluster's daatabase to a previous software version.
+   curio toolbox downgrade - Downgrade a cluster's database to a previous software version.
 
 USAGE:
    curio toolbox downgrade [command options]

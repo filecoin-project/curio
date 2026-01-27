@@ -62,7 +62,7 @@ func TestTransaction(t *testing.T) {
 	go func() {
 		<-wait
 		var sum1 int
-		if sideError = cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); err != nil {
+		if sideError = cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); sideError != nil {
 			close(result)
 			return
 		}

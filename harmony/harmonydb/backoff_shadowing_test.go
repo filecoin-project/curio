@@ -11,7 +11,6 @@ import (
 )
 
 // after exhausting retries, returned error should wrap the original.
-// currently broken: err := inside loop shadows return param, so we wrap nil.
 func TestBackoffSerializationError_PreservesOriginal(t *testing.T) {
 	// save and restore original backoffs
 	orig := backoffs

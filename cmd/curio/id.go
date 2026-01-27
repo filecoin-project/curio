@@ -99,8 +99,13 @@ var idCmd = &cli.Command{
 
 		if cctx.Bool("check") {
 			for _, m := range out.Miners {
-				if !m.Synced {
-					return cli.Exit("peer ID mismatch detected", 1)
+				if m.Error != "" || !m.Synced {
+					return cli.Exit("peer ID mismatch detected for "+m.Address, 1)
+				}
+			}
+			for _, m := range out.Miners {
+				if m.Error != "" {
+					return cli.Exit("miner error detected: "+m.Error+" for "+m.Address, 1)
 				}
 			}
 		}
