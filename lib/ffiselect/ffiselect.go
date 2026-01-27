@@ -3,11 +3,13 @@ package ffiselect
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
@@ -35,24 +37,40 @@ var IsTest = false
 var IsCuda = build.IsOpencl != "1"
 
 // Get all devices from ffi
-var ch chan string
+var gpuSlots []byte
+var gpuSlotsMx sync.Mutex
 
 func init() {
 	devices, err := ffi.GetGPUDevices()
 	if err != nil {
 		panic(err)
 	}
-	if len(devices) == 0 {
-		ch = make(chan string, 1)
-		ch <- "0"
-	} else {
-		nSlots := len(devices) * resources.GpuOverprovisionFactor
 
-		ch = make(chan string, nSlots)
-		for i := 0; i < nSlots; i++ {
-			ch <- strconv.Itoa(i / resources.GpuOverprovisionFactor)
+	if len(devices) == 0 {
+		gpuSlots = []byte{1}
+	} else {
+		gpuSlots = make([]byte, len(devices))
+		if resources.GpuOverprovisionFactor > 255 {
+			panic(fmt.Errorf("GpuOverprovisionFactor is too high: %d", resources.GpuOverprovisionFactor))
+		}
+		for i := range gpuSlots {
+			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
 		}
 	}
+}
+
+// getDeviceOrdinal returns the ordinal of the GPU with the least workload.
+func getDeviceOrdinal() int {
+	gpuSlotsMx.Lock()
+	defer gpuSlotsMx.Unlock()
+	max, maxIdx := byte(0), 0
+	for i, w := range gpuSlots {
+		if w > max {
+			max, maxIdx = w, i
+		}
+	}
+	gpuSlots[maxIdx]--
+	return maxIdx
 }
 
 type ValErr struct {
@@ -75,10 +93,11 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 		return callTest(ctx, body)
 	}
 
-	// get dOrdinal
-	dOrdinal := <-ch
+	dOrdinal := getDeviceOrdinal()
 	defer func() {
-		ch <- dOrdinal
+		gpuSlotsMx.Lock()
+		gpuSlots[dOrdinal]++
+		gpuSlotsMx.Unlock()
 	}()
 
 	p, err := os.Executable()
@@ -92,16 +111,19 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	// Set Visible Devices for CUDA and OpenCL
 	cmd.Env = append(os.Environ(),
 		func(isCuda bool) string {
+			dOrdinalStr := strconv.Itoa(dOrdinal)
 			if isCuda {
-				return "CUDA_VISIBLE_DEVICES=" + dOrdinal
+				return "CUDA_VISIBLE_DEVICES=" + dOrdinalStr
 			}
-			return "GPU_DEVICE_ORDINAL=" + dOrdinal
+			return "GPU_DEVICE_ORDINAL=" + dOrdinalStr
 		}(IsCuda))
+
 	tmpDir, err := os.MkdirTemp("", "rust-fil-proofs")
 	if err != nil {
 		return nil, err
 	}
 	cmd.Env = append(cmd.Env, "TMPDIR="+tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	if !subStrInSet(cmd.Env, "RUST_LOG") {
 		cmd.Env = append(cmd.Env, "RUST_LOG=debug")
@@ -112,8 +134,6 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	if !subStrInSet(cmd.Env, "FIL_PROOFS_USE_GPU_TREE_BUILDER") {
 		cmd.Env = append(cmd.Env, "FIL_PROOFS_USE_GPU_TREE_BUILDER=1")
 	}
-
-	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	lw := NewLogWriter(ctx.Value(logCtxKey).([]any), os.Stderr)
 
