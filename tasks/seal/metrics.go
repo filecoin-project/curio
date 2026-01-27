@@ -9,7 +9,6 @@ import (
 var (
 	// Tags for seal metrics
 	MinerTag, _ = tag.NewKey("miner")
-	StageTag, _ = tag.NewKey("stage")
 
 	pre = "curio_seal_"
 )
@@ -25,7 +24,6 @@ var SealMeasures = struct {
 	MoveStorageCompleted *stats.Int64Measure
 	PrecommitSubmitted   *stats.Int64Measure
 	CommitSubmitted      *stats.Int64Measure
-	Failed               *stats.Int64Measure
 }{
 	SDRCompleted:         stats.Int64(pre+"sdr_completed_total", "SDR computations completed.", stats.UnitDimensionless),
 	TreeDCompleted:       stats.Int64(pre+"treed_completed_total", "Tree D computations completed.", stats.UnitDimensionless),
@@ -36,7 +34,6 @@ var SealMeasures = struct {
 	MoveStorageCompleted: stats.Int64(pre+"movestorage_completed_total", "Move storage operations completed.", stats.UnitDimensionless),
 	PrecommitSubmitted:   stats.Int64(pre+"precommit_submitted_total", "Precommit messages submitted.", stats.UnitDimensionless),
 	CommitSubmitted:      stats.Int64(pre+"commit_submitted_total", "Commit messages submitted.", stats.UnitDimensionless),
-	Failed:               stats.Int64(pre+"failed_total", "Failed sectors by stage.", stats.UnitDimensionless),
 }
 
 func init() {
@@ -85,11 +82,6 @@ func init() {
 			Measure:     SealMeasures.CommitSubmitted,
 			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{MinerTag},
-		},
-		&view.View{
-			Measure:     SealMeasures.Failed,
-			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{MinerTag, StageTag},
 		},
 	)
 	if err != nil {

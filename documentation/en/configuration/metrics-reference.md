@@ -76,7 +76,6 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 | Metric | Type | Description |
 |--------|------|-------------|
 | `curio_seal_commit_submitted_total` | gauge/counter | Commit messages submitted. |
-| `curio_seal_failed_total` | gauge/counter | Failed sectors by stage. |
 | `curio_seal_finalize_completed_total` | gauge/counter | Finalizations completed. |
 | `curio_seal_movestorage_completed_total` | gauge/counter | Move storage operations completed. |
 | `curio_seal_porep_completed_total` | gauge/counter | PoRep computations completed. |

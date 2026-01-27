@@ -260,6 +260,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	// winning PoSt
 	var wpostProof []proof.PoStProof
+	var computeDuration time.Duration
 	{
 		buf := new(bytes.Buffer)
 		if err := maddr.MarshalCBOR(buf); err != nil {
@@ -302,14 +303,18 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			}
 		}
 
+		computeStart := time.Now()
 		wpostProof, err = t.generateWinningPost(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
+		computeDuration = time.Since(computeStart)
 		if err != nil {
 			err = xerrors.Errorf("failed to compute winning post proof: %w", err)
 			return false, err
 		}
+
+		MiningMeasures.ComputeTime.Observe(computeDuration.Seconds())
 	}
 
-	log.Infow("WinPostTask winning PoSt computed", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "proofs", wpostProof)
+	log.Infow("WinPostTask winning PoSt computed", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "proofs", wpostProof, "compute_time", computeDuration)
 
 	ticket, err := t.computeTicket(ctx, maddr, &rbase, round, base.TipSet.MinTicket(), mbi)
 	if err != nil {

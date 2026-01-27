@@ -77,7 +77,9 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 				break
 			}
 		}
-		_, err = i.db.Exec(ctx, `UPDATE mining_tasks SET included = $1 WHERE epoch = $2`, included, check.Epoch)
+
+		// Update the included column in the database for this miner's win.
+		_, err = i.db.Exec(ctx, `UPDATE mining_tasks SET included = $1 WHERE epoch = $2 AND sp_id = $3`, included, check.Epoch, check.SpID)
 		if err != nil {
 			return false, xerrors.Errorf("updating included column: %w", err)
 		}
