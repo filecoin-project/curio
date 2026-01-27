@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/codeskyblue/go-sh v0.0.0-20200712050446-30169cf553fe
 	github.com/consensys/gnark-crypto v0.19.0
-	github.com/curiostorage/harmonyquery v0.0.0-20260126183025-f41d86b1f112
+	github.com/curiostorage/harmonyquery v0.0.0-20260127224413-4c39280f279e
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1

@@ -214,8 +214,8 @@ github.com/crate-crypto/go-kzg-4844 v1.1.0/go.mod h1:JolLjpSff1tCCJKaJx4psrlEdlX
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/cskr/pubsub v1.0.2 h1:vlOzMhl6PFn60gRlTQQsIfVwaPB/B/8MziK8FhEPt/0=
 github.com/cskr/pubsub v1.0.2/go.mod h1:/8MzYXk/NJAz782G8RPkFzXTZVu63VotefPnR9TIRis=
-github.com/curiostorage/harmonyquery v0.0.0-20260126183025-f41d86b1f112 h1:xKZ5/yjb7rJLEFDtWXGmrUyg5hnbRcIEvx1Aa+u3Hh0=
-github.com/curiostorage/harmonyquery v0.0.0-20260126183025-f41d86b1f112/go.mod h1:ih3N/QVNhPcps+cIWBk/s+hYRz5QEJ+9Lkc841K7xXY=
+github.com/curiostorage/harmonyquery v0.0.0-20260127224413-4c39280f279e h1:BtaxzAJUFWa51tUC+dTkKAWv6ViF6Q9lvV/oZ5fRjOQ=
+github.com/curiostorage/harmonyquery v0.0.0-20260127224413-4c39280f279e/go.mod h1:ih3N/QVNhPcps+cIWBk/s+hYRz5QEJ+9Lkc841K7xXY=
 github.com/daaku/go.zipexe v1.0.2 h1:Zg55YLYTr7M9wjKn8SY/WcpuuEi+kR2u4E8RhvpyXmk=
 github.com/daaku/go.zipexe v1.0.2/go.mod h1:5xWogtqlYnfBXkSB1o9xysukNP9GTvaNkqzUZbt3Bw8=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
