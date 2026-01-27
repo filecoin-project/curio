@@ -184,11 +184,6 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 			return min(time.Second<<retries, 2*time.Minute)
 		},
 	}
-
-	if IsDevnet {
-		res.Cost.Ram = 1 << 30
-	}
-
 	return res
 }
 
