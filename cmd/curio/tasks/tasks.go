@@ -352,7 +352,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
-	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
+	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr, dependencies.PeerHTTP)
 	if err != nil {
 		return nil, err
 	}

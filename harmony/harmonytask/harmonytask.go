@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -19,10 +20,12 @@ import (
 )
 
 // Consts (except for unit test)
+const constPollRarely = time.Second * 30
+const constPollFrequently = time.Second * 3
+
 var POLL_DURATION = time.Second * 3             // Poll for Work this frequently
 var POLL_NEXT_DURATION = 100 * time.Millisecond // After scheduling a task, wait this long before scheduling another
 var CLEANUP_FREQUENCY = 5 * time.Minute         // Check for dead workers this often * everyone
-var FOLLOW_FREQUENCY = 1 * time.Minute          // Check for work to follow this often
 
 var ExitStatusRestartRequest = 100
 
@@ -47,18 +50,11 @@ type TaskTypeDetails struct {
 	// If nil, it will retry immediately.
 	RetryWait func(retries int) time.Duration
 
-	// Follow another task's completion via this task's creation.
-	// The function should populate extraInfo from data
-	// available from the previous task's tables, using the given TaskID.
-	// It should also return success if the trigger succeeded.
-	// NOTE: if refatoring tasks, see if your task is
-	// necessary. Ex: Is the sector state correct for your stage to run?
-	Follows map[string]func(TaskID, AddTaskFunc) (bool, error)
-
 	// IAmBored is called (when populated) when there's capacity but no work.
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
+	// This is starved on busy machines, so use it togather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
 	// CanYield is true if the task should yield when the node is not schedulable.
@@ -70,6 +66,9 @@ type TaskTypeDetails struct {
 	// task would block a short-running task from being scheduled, blocking other related pipelines on
 	// other machines.
 	SchedulingOverrides map[string]bool
+
+	// MustReserve is true if the task must reserve capacity of a machine so that it can run as soon as possible.
+	MustReserve bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -139,6 +138,10 @@ type TaskEngine struct {
 	follows     map[string][]followStruct
 	hostAndPort string
 
+	peering          *peering
+	schedulerChannel chan schedulerEvent
+	pollDuration     atomic.Value
+
 	// runtime flags
 	yieldBackground atomic.Bool
 
@@ -161,7 +164,8 @@ type TaskID int
 func New(
 	db *harmonydb.DB,
 	impls []TaskInterface,
-	hostnameAndPort string) (*TaskEngine, error) {
+	hostnameAndPort string,
+	peerConnector PeerConnectorInterface) (*TaskEngine, error) {
 
 	reg, err := resources.Register(db, hostnameAndPort)
 	if err != nil {
@@ -169,16 +173,20 @@ func New(
 	}
 	ctx, grace := context.WithCancel(context.Background())
 	e := &TaskEngine{
-		ctx:         ctx,
-		grace:       grace,
-		db:          db,
-		reg:         reg,
-		ownerID:     reg.MachineID, // The current number representing "hostAndPort"
-		taskMap:     make(map[string]*taskTypeHandler, len(impls)),
-		follows:     make(map[string][]followStruct),
-		hostAndPort: hostnameAndPort,
+		ctx:              ctx,
+		grace:            grace,
+		db:               db,
+		reg:              reg,
+		ownerID:          reg.MachineID, // The current number representing "hostAndPort"
+		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
+		follows:          make(map[string][]followStruct),
+		hostAndPort:      hostnameAndPort,
+		schedulerChannel: make(chan schedulerEvent, 100),
 	}
+	e.pollDuration.Store(POLL_DURATION)
+	e.peering = startPeering(e, peerConnector)
 	e.lastCleanup.Store(time.Now())
+
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
@@ -206,18 +214,26 @@ func New(
 	// resurrect old work
 	{
 		var taskRet []struct {
-			ID   int
-			Name string
+			ID         int
+			Name       string
+			UpdateTime time.Time
+			Retries    int
 		}
 
-		err := db.Select(e.ctx, &taskRet, `SELECT id, name from harmony_task WHERE owner_id=$1`, e.ownerID)
+		err := db.Select(e.ctx, &taskRet, `SELECT id, name, update_time, retries from harmony_task WHERE owner_id=$1`, e.ownerID)
 		if err != nil {
 			return nil, err
+		}
+
+		// Considerwork tasks will fire events we can't handle yet, so we need to buffer them.
+		emitTypes := reflect.TypeOf(eventEmitter{}).NumMethod()
+		if len(taskRet)*emitTypes > cap(e.schedulerChannel) {
+			e.schedulerChannel = make(chan schedulerEvent, len(taskRet)*3)
 		}
 		for _, w := range taskRet {
 			// edge-case: if old assignments are not available tasks, unlock them.
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}) {
+			if h == nil || !h.considerWork(WorkSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
 				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.ownerID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
@@ -229,7 +245,7 @@ func New(
 	for _, h := range e.handlers {
 		go h.Adder(h.AddTask)
 	}
-	go e.poller()
+	e.startScheduler()
 
 	return e, nil
 }
@@ -287,111 +303,15 @@ func (e *TaskEngine) GracefullyTerminate() {
 	}
 }
 
-func (e *TaskEngine) poller() {
-	nextWait := POLL_NEXT_DURATION
-	timer := time.NewTimer(nextWait)
-	defer timer.Stop()
-
-	for {
-		stats.Record(context.Background(), TaskMeasures.PollerIterations.M(1))
-
-		select {
-		case <-timer.C: // Find work periodically
-			nextWait = POLL_DURATION
-			timer.Reset(nextWait)
-		case <-e.ctx.Done(): ///////////////////// Graceful exit
-			return
-		}
-
-		// Check if the machine is schedulable
-		schedulable, err := e.checkNodeFlags()
-		if err != nil {
-			log.Error("Unable to check schedulable status: ", err)
-			continue
-		}
-
-		e.yieldBackground.Store(!schedulable)
-
-		accepted := e.pollerTryAllWork(schedulable)
-		if accepted {
-			nextWait = POLL_NEXT_DURATION
-			timer.Reset(nextWait)
-		}
-
-		if !schedulable {
-			log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
-			continue
-		}
-
-		if time.Since(e.lastFollowTime) > FOLLOW_FREQUENCY {
-			e.followWorkInDB()
-		}
-
-		// update resource usage
-		availableResources := e.ResourcesAvailable()
-		totalResources := e.Resources()
-
-		cpuUsage := 1 - float64(availableResources.Cpu)/float64(totalResources.Cpu)
-		stats.Record(context.Background(), TaskMeasures.CpuUsage.M(cpuUsage*100))
-
-		if totalResources.Gpu > 0 {
-			gpuUsage := 1 - availableResources.Gpu/totalResources.Gpu
-			stats.Record(context.Background(), TaskMeasures.GpuUsage.M(gpuUsage*100))
-		}
-
-		ramUsage := 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
-		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
-
-	}
+type task struct {
+	ID                TaskID    `db:"id"`
+	UpdateTime        time.Time `db:"update_time"`
+	Retries           int       `db:"retries"`
+	ReservedElsewhere bool
 }
 
-// followWorkInDB implements "Follows"
-func (e *TaskEngine) followWorkInDB() {
-	// Step 1: What are we following?
-	var lastFollowTime time.Time
-	lastFollowTime, e.lastFollowTime = e.lastFollowTime, time.Now()
-
-	for fromName, srcs := range e.follows {
-		var cList []int // Which work is done (that we follow) since we last checked?
-		err := e.db.Select(e.ctx, &cList, `SELECT h.task_id FROM harmony_task_history
-   		WHERE h.work_end>$1 AND h.name=$2`, lastFollowTime.UTC(), fromName)
-		if err != nil {
-			log.Error("Could not query DB: ", err)
-			return
-		}
-		for _, src := range srcs {
-			for _, workAlreadyDone := range cList { // Were any tasks made to follow these tasks?
-				var ct int
-				err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task
-					WHERE name=$1 AND previous_task=$2`, src.h.Name, workAlreadyDone).Scan(&ct)
-				if err != nil {
-					log.Error("Could not query harmony_task: ", err)
-					return // not recoverable here
-				}
-				if ct > 0 {
-					continue
-				}
-				// we need to create this task
-				b, err := src.h.Follows[fromName](TaskID(workAlreadyDone), src.h.AddTask)
-				if err != nil {
-					log.Errorw("Could not follow: ", "error", err)
-					continue
-				}
-				if !b {
-					// But someone may have beaten us to it.
-					log.Debugf("Unable to add task %s following Task(%d, %s)", src.h.Name, workAlreadyDone, fromName)
-				}
-			}
-		}
-	}
-}
-
-// pollerTryAllWork starts the next 1 task
-func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
-	if time.Since(e.lastCleanup.Load().(time.Time)) > CLEANUP_FREQUENCY {
-		e.lastCleanup.Store(time.Now())
-		resources.CleanupMachines(e.ctx, e.db)
-	}
+// pollerTryAllWork2 starts the next 1 task
+func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, eventEmitter eventEmitter) bool {
 	for _, v := range e.handlers {
 		if !schedulable {
 			if v.SchedulingOverrides == nil {
@@ -401,17 +321,8 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			// Override the schedulable flag if the task has any assigned overrides
 			var foundOverride bool
 			for relatedTaskName := range v.SchedulingOverrides {
-				var assignedOverrideTasks []int
-				err := e.db.Select(e.ctx, &assignedOverrideTasks, `SELECT id
-					FROM harmony_task
-					WHERE owner_id = $1 AND name=$2
-					ORDER BY update_time LIMIT 1`, e.ownerID, relatedTaskName)
-				if err != nil {
-					log.Error("Unable to read assigned overrides ", err)
-					break
-				}
-				if len(assignedOverrideTasks) > 0 {
-					log.Infow("found override, scheduling despite schedulable=false flag", "ownerID", e.ownerID, "relatedTaskName", relatedTaskName, "assignedOverrideTasks", assignedOverrideTasks)
+				assignedTasks := taskSource.GetTasks(relatedTaskName)
+				if len(assignedTasks) > 0 {
 					foundOverride = true
 					break
 				}
@@ -421,42 +332,33 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			}
 		}
 
-		if _, err := v.AssertMachineHasCapacity(); err != nil {
+		if capacity, err := v.AssertMachineHasCapacity(); err != nil || capacity == 0 {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
 		}
-		type task struct {
-			ID         TaskID    `db:"id"`
-			UpdateTime time.Time `db:"update_time"`
-			Retries    int       `db:"retries"`
-		}
 
-		var allUnownedTasks []task
-		err := e.db.Select(e.ctx, &allUnownedTasks, `SELECT id, update_time, retries
-			FROM harmony_task
-			WHERE owner_id IS NULL AND name=$1
-			ORDER BY update_time`, v.Name)
-		if err != nil {
-			log.Error("Unable to read work ", err)
-			continue
-		}
-
-		unownedTasks := lo.FlatMap(allUnownedTasks, func(t task, _ int) []TaskID {
+		unownedTasks := lo.Filter(taskSource.GetTasks(v.Name), func(t task, _ int) bool {
 			if v.RetryWait == nil || t.Retries == 0 {
-				return []TaskID{t.ID}
+				return true
 			}
 			if time.Since(t.UpdateTime) > v.RetryWait(t.Retries) {
-				return []TaskID{t.ID}
+				return true
 			} else {
 				log.Debugf("Task %d is not ready to retry yet, retries %d, wait: %s", t.ID, t.Retries, v.RetryWait(t.Retries))
-				return nil
+				return false
 			}
 		})
 
 		if len(unownedTasks) > 0 {
-			accepted := v.considerWork(WorkSourcePoller, unownedTasks)
-			if accepted {
-				return true // accept new work slowly and in priority order
+			accepted := v.considerWork(WorkSourcePoller, unownedTasks, eventEmitter)
+			if !accepted && v.MustReserve {
+				for _, task := range unownedTasks {
+					if task.ReservedElsewhere == false {
+						taskSource.ReserveTask(v.Name, task.ID)
+						// TODO reduce 'available' resources down
+						break
+					}
+				}
 			}
 			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 		}
@@ -469,7 +371,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
 		v := v
-		if _, err := v.AssertMachineHasCapacity(); err != nil {
+		if v, err := v.AssertMachineHasCapacity(); err != nil || v == 0 {
 			continue
 		}
 		if v.IAmBored != nil {
@@ -486,9 +388,6 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 			if err != nil {
 				log.Error("IAmBored failed: ", err)
 				continue
-			}
-			if added != nil { // tiny chance a fail could make these bogus, but considerWork should then fail.
-				v.considerWork(WorkSourceIAmBored, added)
 			}
 		}
 	}

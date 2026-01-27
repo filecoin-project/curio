@@ -105,7 +105,6 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTNone, storiface.FTCache, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
-		Follows:     nil,
 	}
 }
 
