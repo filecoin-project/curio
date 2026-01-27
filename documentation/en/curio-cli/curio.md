@@ -1363,8 +1363,9 @@ USAGE:
 COMMANDS:
    fix-msg                        Updated DB with message data missing from chain node
    register-pdp-service-provider  Register a PDP service provider with Filecoin Service Registry Contract
-   downgrade                      Downgrade a cluster's daatabase to a previous software version.
+   downgrade                      Downgrade a cluster's database to a previous software version.
    fix-boost-migration            Fix Boost migration
+   id                             print libp2p identity and compare with on-chain state
    help, h                        Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1410,7 +1411,7 @@ OPTIONS:
 ### curio toolbox downgrade
 ```
 NAME:
-   curio toolbox downgrade - Downgrade a cluster's daatabase to a previous software version.
+   curio toolbox downgrade - Downgrade a cluster's database to a previous software version.
 
 USAGE:
    curio toolbox downgrade [command options]
@@ -1438,6 +1439,20 @@ OPTIONS:
    --boostd-data-username value                             yugabyte username to connect to over cassandra interface eg 'cassandra'
    --boostd-data-password value                             yugabyte password to connect to over cassandra interface eg 'cassandra'
    --help, -h                                               show help
+```
+
+### curio toolbox id
+```
+NAME:
+   curio toolbox id - print libp2p identity and compare with on-chain state
+
+USAGE:
+   curio toolbox id [command options]
+
+OPTIONS:
+   --json      output in json format (default: false)
+   --check     exit with code 1 if local and on-chain peer IDs mismatch (default: false)
+   --help, -h  show help
 ```
 
 ## curio batch
