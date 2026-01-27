@@ -40,11 +40,17 @@ const (
 	CapMaxPieceSize     = "maxPieceSizeInBytes"
 	CapIpniPiece        = "ipniPiece"  // Optional
 	CapIpniIpfs         = "ipniIpfs"   // Optional
-	CapIpniPeerID       = "IPNIPeerID" // Requred if either CapIpniIpfs or CapIpniPiece is true
+	CapIpniPeerID       = "ipniPeerId" // Optional, IPNI peer ID for discovery
 	CapStoragePrice     = "storagePricePerTibPerDay"
 	CapMinProvingPeriod = "minProvingPeriodInEpochs"
 	CapLocation         = "location"
 	CapPaymentToken     = "paymentTokenAddress"
+
+	// CapIpniPeerIDDeprecated is the old key for the IPNI peer ID. It was incorrectly cased
+	// and does not match the suggested key in the ServiceProviderRegistry contract. New
+	// registrations and updates write both keys for compatibility. This key will be removed
+	// in a future release.
+	CapIpniPeerIDDeprecated = "IPNIPeerID"
 )
 
 // PDPOfferingData converts a PDPOffering-like struct to capability key-value pairs
@@ -106,7 +112,11 @@ func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]
 		if len(offering.IpniPeerID) == 0 {
 			return nil, nil, xerrors.Errorf("IpniPeerID is required if either IpniIpfs or IpniPiece is true")
 		}
+		// Write the correct key
 		keys = append(keys, CapIpniPeerID)
+		values = append(values, []byte(offering.IpniPeerID))
+		// Also write the deprecated key for compatibility with older SDK versions
+		keys = append(keys, CapIpniPeerIDDeprecated)
 		values = append(values, []byte(offering.IpniPeerID))
 	}
 
