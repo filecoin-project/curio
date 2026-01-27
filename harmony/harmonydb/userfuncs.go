@@ -239,8 +239,8 @@ func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, er
 	var commit bool
 	defer func() { // Panic clean-up.
 		if !commit {
-			if tmp := tx.Rollback(ctx); tmp != nil {
-				retErr = tmp
+			if tmpErr := tx.Rollback(ctx); tmpErr != nil && retErr == nil {
+				retErr = tmpErr
 			}
 		}
 	}()

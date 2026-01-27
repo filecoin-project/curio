@@ -136,7 +136,7 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 
 	// Construct the connection string
 	connString := fmt.Sprintf(
-		"postgresql://%s:%s@%s/%s?sslmode=disable",
+		"postgresql://%s:%s@%s/%s?sslmode=prefer",
 		username,
 		password,
 		connectionHost,

@@ -841,6 +841,9 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		}
 
 		var sp *abi.RegisteredSealProof
+		if d.pin == nil {
+			return false, xerrors.Errorf("piece ingester is not initialized")
+		}
 		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pdi, deal.RawSize.Int64, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
