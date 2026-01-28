@@ -166,29 +166,24 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 
 func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
+	mem := uint64(128 << 30) // for GPU sealing. 160 for CPU sealing, which we pretend nobody uses.
 	if IsDevnet {
 		gpu = 0
+		mem = 1 << 30
 	}
 	res := harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(p.max),
 		Name: "PoRep",
 		Cost: resources.Resources{
-			Cpu:       1,
-			Gpu:       gpu,
-			Ram:       50 << 30, // todo correct value
-			MachineID: 0,
+			Cpu: 1,
+			Gpu: gpu,
+			Ram: mem,
 		},
 		MaxFailures: 10,
 		RetryWait: func(retries int) time.Duration {
 			return min(time.Second<<retries, 2*time.Minute)
 		},
-		Follows: nil,
 	}
-
-	if IsDevnet {
-		res.Cost.Ram = 1 << 30
-	}
-
 	return res
 }
 
