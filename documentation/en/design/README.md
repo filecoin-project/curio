@@ -132,5 +132,5 @@ Safe to share with untrusted parties: (will not receive private information)
 - alerts can be sent to untrusted receivers
 - CuView (at your own risk) has modes for light investigation. 
 
-Curio team recommend a network (VPN) containing all the pieces to have limited access. 
+Curio team recommends a network (VPN) containing all the pieces to have limited access. 
 Logs are mostly clean except for errors which try to be as specific as possible, so partial redaction may be best here if sharing with untrusted parties. 

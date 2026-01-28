@@ -21,7 +21,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
-	"github.com/zondax/golem/pkg/logger"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -490,7 +489,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		logger.Errorf("Failed to retrieve proof set: %v", err)
+		log.Errorf("Failed to retrieve proof set: %v", err)
 		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
@@ -516,7 +515,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
         ORDER BY root_id, subroot_offset
     `, proofSetId)
 	if err != nil {
-		logger.Errorf("Failed to retrieve proof set roots: %v", err)
+		log.Errorf("Failed to retrieve proof set roots: %v", err)
 		http.Error(w, "Failed to retrieve proof set roots", http.StatusInternalServerError)
 		return
 	}
@@ -529,7 +528,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
         WHERE id = $1
     `, proofSetId).Scan(&nextChallengeEpoch)
 	if err != nil {
-		logger.Errorf("Failed to retrieve next challenge epoch: %v", err)
+		log.Errorf("Failed to retrieve next challenge epoch: %v", err)
 		http.Error(w, "Failed to retrieve next challenge epoch", http.StatusInternalServerError)
 		return
 	}
@@ -623,7 +622,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		logger.Errorf("Failed to retrieve proof set: %v", err)
+		log.Errorf("Failed to retrieve proof set: %v", err)
 		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
@@ -734,7 +733,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
             WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
         `, serviceLabel, subrootCIDsList)
 		if err != nil {
-			logger.Errorf("Failed to retrieve pdp_piecerefs: %v", err)
+			log.Errorf("Failed to retrieve pdp_piecerefs: %v", err)
 			return false, fmt.Errorf("failed to retrieve pdp_piecerefs")
 		}
 		defer rows.Close()
@@ -940,7 +939,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
 			`, proofSetIDUint64)
 		if err != nil {
-			logger.Errorf("Failed to update proof set for initialization upon first add: %v", err)
+			log.Errorf("Failed to update proof set for initialization upon first add: %v", err)
 			return false, errors.New("failed to update proof set for initialization upon first add")
 		}
 
@@ -974,7 +973,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 					subrootInfo.PDPPieceRefID,
 				)
 				if err != nil {
-					logger.Errorf("Failed to insert into pdp_proofset_roots: %v", err)
+					log.Errorf("Failed to insert into pdp_proofset_roots: %v", err)
 					return false, errors.New("failed to insert into pdp_proofset_roots")
 				}
 			}
@@ -1053,7 +1052,7 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		logger.Errorf("Failed to retrieve proof set: %v", err)
+		log.Errorf("Failed to retrieve proof set: %v", err)
 		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
@@ -1084,7 +1083,7 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		ORDER BY add_message_index, subroot_offset
 	`, proofSetID, txHash)
 	if err != nil {
-		logger.Errorf("Failed to query root additions: %v", err)
+		log.Errorf("Failed to query root additions: %v", err)
 		http.Error(w, "Failed to query root additions", http.StatusInternalServerError)
 		return
 	}
@@ -1104,7 +1103,7 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 			http.Error(w, "Transaction status not found", http.StatusNotFound)
 			return
 		}
-		logger.Errorf("Failed to query transaction status: %v", err)
+		log.Errorf("Failed to query transaction status: %v", err)
 		http.Error(w, "Failed to query transaction status", http.StatusInternalServerError)
 		return
 	}
@@ -1233,7 +1232,7 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		logger.Errorf("Failed to retrieve proof set: %v", err)
+		log.Errorf("Failed to retrieve proof set: %v", err)
 		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
@@ -1304,7 +1303,7 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		logger.Errorf("Failed to schedule delete root: %v", err)
+		log.Errorf("Failed to schedule delete root: %v", err)
 		http.Error(w, "Failed to schedule delete root", http.StatusInternalServerError)
 		return
 	}
@@ -1361,7 +1360,7 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Root not found", http.StatusNotFound)
 			return
 		}
-		logger.Errorf("Failed to retrieve root: %v", err)
+		log.Errorf("Failed to retrieve root: %v", err)
 		http.Error(w, "Failed to retrieve root", http.StatusInternalServerError)
 		return
 	}
@@ -1380,7 +1379,7 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 		ORDER BY subroot_offset
 	`, proofSetID, rootID)
 	if err != nil {
-		logger.Errorf("Failed to retrieve subroots: %v", err)
+		log.Errorf("Failed to retrieve subroots: %v", err)
 		http.Error(w, "Failed to retrieve subroots", http.StatusInternalServerError)
 		return
 	}

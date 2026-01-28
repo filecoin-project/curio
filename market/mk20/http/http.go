@@ -72,7 +72,6 @@ func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler
 			allowed, client, err := mk20.Auth(authHeader, db, cfg)
 			if err != nil {
 				log.Errorw("failed to authenticate request", "err", err)
-				log.Errorf("Error during authentication: %v", err)
 				http.Error(w, "Error during authentication", http.StatusInternalServerError)
 				return
 			}
