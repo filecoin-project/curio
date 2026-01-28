@@ -3,7 +3,6 @@ package ffiselect
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -41,21 +40,10 @@ var gpuSlots []byte
 var gpuSlotsMx sync.Mutex
 
 func init() {
-	devices, err := ffi.GetGPUDevices()
+	var err error
+	gpuSlots, err = resources.GetGpuProvisioning()
 	if err != nil {
 		panic(err)
-	}
-
-	if len(devices) == 0 {
-		gpuSlots = []byte{1}
-	} else {
-		gpuSlots = make([]byte, len(devices))
-		if resources.GpuOverprovisionFactor > 255 {
-			panic(fmt.Errorf("GpuOverprovisionFactor is too high: %d", resources.GpuOverprovisionFactor))
-		}
-		for i := range gpuSlots {
-			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
-		}
 	}
 }
 
