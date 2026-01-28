@@ -245,10 +245,12 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 								// Record GC metric
 								if maddr, err := address.NewIDAddress(uint64(decl.Miner)); err == nil {
-									stats.RecordWithTags(ctx, []tag.Mutator{
+									if err = stats.RecordWithTags(ctx, []tag.Mutator{
 										tag.Upsert(MinerTag, maddr.String()),
 										tag.Upsert(FileTypeTag, fmt.Sprint(filetype)),
-									}, GCMeasures.SectorsMarkedTotal.M(1))
+									}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
+										log.Errorf("Error saving stat: %v", err)
+									}
 								}
 							}
 						}
@@ -299,10 +301,12 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 				// Record GC metric
 				if maddr, err := address.NewIDAddress(uint64(sector.SpID)); err == nil {
-					stats.RecordWithTags(ctx, []tag.Mutator{
+					if err = stats.RecordWithTags(ctx, []tag.Mutator{
 						tag.Upsert(MinerTag, maddr.String()),
 						tag.Upsert(FileTypeTag, "1"), // FTUnsealed
-					}, GCMeasures.SectorsMarkedTotal.M(1))
+					}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
+						log.Errorf("Error logging stat: %v", err)
+					}
 				}
 			}
 		}
@@ -442,10 +446,12 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 					// Record GC metric
 					if maddr, err := address.NewIDAddress(uint64(decl.Miner)); err == nil {
-						stats.RecordWithTags(ctx, []tag.Mutator{
+						if err = stats.RecordWithTags(ctx, []tag.Mutator{
 							tag.Upsert(MinerTag, maddr.String()),
 							tag.Upsert(FileTypeTag, fmt.Sprint(storiface.FTSealed)),
-						}, GCMeasures.SectorsMarkedTotal.M(1))
+						}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
+							log.Errorf("Error logging stat: %v", err)
+						}
 					}
 				}
 			}

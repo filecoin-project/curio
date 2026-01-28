@@ -187,7 +187,7 @@ func processFile(path string) []Metric {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Read first 4KB to check imports
 	buf := make([]byte, 4096)
@@ -302,8 +302,7 @@ func printHeader() {
 
 This document lists all Prometheus metrics exported by Curio. All metrics use the ` + "`curio_`" + ` namespace prefix.
 
-> **Note**: This file is auto-generated from source code. Run ` + "`make docsgen-metrics`" + ` to update.
-`)
+> **Note**: This file is auto-generated from source code. Run ` + "`make docsgen-metrics`" + ` to update.`)
 }
 
 func printCategory(cat *Category) {
@@ -546,6 +545,8 @@ func init() {
 	// Change to workspace root if needed
 	root := findWorkspaceRoot()
 	if root != "" {
-		os.Chdir(root)
+		if err := os.Chdir(root); err != nil {
+			panic(err)
+		}
 	}
 }
