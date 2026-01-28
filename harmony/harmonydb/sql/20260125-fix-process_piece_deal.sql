@@ -7,8 +7,7 @@ BEGIN
             p.oid::regprocedure AS sig
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'curio'
-          AND p.proname = 'process_piece_deal'
+        WHERE p.proname = 'process_piece_deal'
     LOOP
         EXECUTE format('DROP FUNCTION %s;', r.sig);
     END LOOP;
