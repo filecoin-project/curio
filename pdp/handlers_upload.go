@@ -52,20 +52,18 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	pieceCidV2, size, err := asPieceCIDv2(req.PieceCID, 0)
+	pieceInfo, err := ParsePieceCidV2(req.PieceCID)
 	if err != nil {
 		http.Error(w, "Invalid request body: invalid pieceCid: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if size > uint64(PieceSizeLimit) {
+	if pieceInfo.RawSize > uint64(PieceSizeLimit) {
 		http.Error(w, "Piece size exceeds the maximum allowed size", http.StatusBadRequest)
 		return
 	}
-	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
-		return
-	}
+	pieceCidV1 := pieceInfo.CidV1
+	pieceCidV2 := pieceInfo.CidV2
+	size := pieceInfo.RawSize
 	log.Debugw("[handlePiecePost] -- piece stuff done", "pieceCidV2", pieceCidV2)
 
 	ctx := r.Context()
@@ -365,16 +363,12 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 
 	cidStr := r.URL.Query().Get("pieceCid")
-	pieceCidV2, _, err := asPieceCIDv2(cidStr, 0)
+	pieceInfo, err := ParsePieceCidV2(cidStr)
 	if err != nil {
 		http.Error(w, "Failed to parse CID: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		http.Error(w, "Failed to get piece CID v1: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	pieceCidV1 := pieceInfo.CidV1
 
 	ctx := r.Context()
 
@@ -393,7 +387,7 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	response := struct {
 		PieceCID string `json:"pieceCid"`
 	}{
-		PieceCID: pieceCidV2.String(),
+		PieceCID: pieceInfo.CidV2.String(),
 	}
 
 	// encode response
@@ -628,19 +622,13 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Accept PieceCID v2 in the API
-	pieceCidV2, size, err := asPieceCIDv2(req.PieceCID, 0)
+	// Parse PieceCID v2 from API (strictly requires v2 format)
+	pieceInfo, err := ParsePieceCidV2(req.PieceCID)
 	if err != nil {
 		http.Error(w, "Invalid request body: invalid pieceCid: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Convert to v1 for database comparison (database stores v1)
-	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		http.Error(w, "Invalid request body: invalid pieceCid", http.StatusBadRequest)
-		return
-	}
+	pieceCidV1 := pieceInfo.CidV1
 
 	// Get digest for insertion
 	digest, err := commcid.CIDToDataCommitmentV1(pieceCidV1)
@@ -662,7 +650,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 	}
 
 	// Validate size matches (prevents attack with smaller tree)
-	if size != rawSize {
+	if pieceInfo.RawSize != rawSize {
 		http.Error(w, "Invalid request body: pieceCid size does not match uploaded piece size", http.StatusBadRequest)
 		return
 	}
@@ -685,7 +673,7 @@ func (p *PDPService) handleFinalizeStreamingUpload(w http.ResponseWriter, r *htt
 		n, err := tx.Exec(`
        INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size, piece_ref)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, size, pref)
+   `, uploadUUID.String(), serviceID, pieceCidV1.String(), req.Notify, multicodec.Sha2_256Trunc254Padded.String(), digest, pieceInfo.RawSize, pref)
 		if err != nil {
 			return false, fmt.Errorf("failed to store upload request in database: %w", err)
 		}
