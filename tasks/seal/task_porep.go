@@ -166,7 +166,7 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 
 func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
-	mem := uint64(96 << 30)
+	mem := uint64(90 << 30)
 	if IsDevnet {
 		gpu = 0
 		mem = 1 << 30
