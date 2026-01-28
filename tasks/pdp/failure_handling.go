@@ -6,6 +6,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/pdp"
 )
 
 const (
@@ -119,18 +120,6 @@ func ResetProvingFailures(ctx context.Context, db *harmonydb.DB, dataSetId int64
 	return err
 }
 
-// ensureServiceTermination inserts a dataset into the deletion pipeline.
-func ensureServiceTermination(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
-	n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSetID)
-	if err != nil {
-		return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
-	}
-	if n != 1 && n != 0 {
-		return xerrors.Errorf("expected to insert 0 or 1 rows, inserted %d", n)
-	}
-	return nil
-}
-
 // HandleProvingSendError processes errors from sender.Send() calls in proving tasks.
 // It implements three-tier error handling:
 //   - Tier 1: Known termination errors, mark terminated immediately
@@ -147,7 +136,7 @@ func HandleProvingSendError(ctx context.Context, db *harmonydb.DB, dataSetId int
 		}
 		log.Warnw("Dataset unrecoverable, stopping proving attempts",
 			"dataSetId", dataSetId, "error", sendErr)
-		if termErr := ensureServiceTermination(ctx, db, dataSetId); termErr != nil {
+		if termErr := pdp.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
 			log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
 		}
 		return true, nil
@@ -162,7 +151,7 @@ func HandleProvingSendError(ctx context.Context, db *harmonydb.DB, dataSetId int
 		if unrecoverable {
 			log.Warnw("Dataset unrecoverable after repeated contract reverts",
 				"dataSetId", dataSetId, "error", sendErr)
-			if termErr := ensureServiceTermination(ctx, db, dataSetId); termErr != nil {
+			if termErr := pdp.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
 				log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
 			}
 		}
