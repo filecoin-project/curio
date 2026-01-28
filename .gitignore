@@ -12,6 +12,7 @@ extern/filecoin-ffi/rust/target
 .DS_STORE
 build/.*
 /vendor
+/metricsdocgen
 
 .idea
 .vscode

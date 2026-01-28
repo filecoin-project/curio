@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -135,6 +137,11 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	if n != 1 {
 		return false, xerrors.Errorf("store sdr success: updated %d rows", n)
 	}
+
+	// Record metric
+	stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SealMeasures.SDRCompleted.M(1))
 
 	return true, nil
 }

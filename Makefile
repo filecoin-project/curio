@@ -350,6 +350,10 @@ docsgen-cli: curio sptool
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
+docsgen-metrics:
+	$(GOCC) run $(GOFLAGS) ./scripts/metricsdocgen > documentation/en/configuration/metrics-reference.md
+.PHONY: docsgen-metrics
+
 go-generate:
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
 .PHONY: go-generate
@@ -376,6 +380,7 @@ endif
 	$(MAKE) docsgen
 	$(MAKE) marketgen
 	$(MAKE) docsgen-cli
+	$(MAKE) docsgen-metrics
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 	go mod tidy
 .PHONY: gensimple

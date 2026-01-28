@@ -10,6 +10,9 @@ var (
 	updateTagKey, _   = tag.NewKey("update")
 	cacheIDTagKey, _  = tag.NewKey("cache_id")
 	sealedIDTagKey, _ = tag.NewKey("sealed_id")
+	StorageIDTag, _   = tag.NewKey("id")
+	CanSealTag, _     = tag.NewKey("can_seal")
+	CanStoreTag, _    = tag.NewKey("can_store")
 
 	pre = "curio_stor_"
 
@@ -25,6 +28,11 @@ var (
 	FindSectorUncached                 = stats.Int64(pre+"find_sector_uncached", "Number of findSector uncached calls", stats.UnitDimensionless)
 	FindSectorCacheHits                = stats.Int64(pre+"find_sector_cache_hits", "Number of findSectorCache hits", stats.UnitDimensionless)
 	FindSectorCacheMisses              = stats.Int64(pre+"find_sector_cache_misses", "Number of findSectorCache misses", stats.UnitDimensionless)
+
+	// Storage capacity gauges
+	StorageCapacityBytes  = stats.Int64(pre+"capacity_bytes", "Total storage capacity in bytes", stats.UnitBytes)
+	StorageAvailableBytes = stats.Int64(pre+"available_bytes", "Available storage capacity in bytes", stats.UnitBytes)
+	StorageUsedBytes      = stats.Int64(pre+"used_bytes", "Used storage capacity in bytes", stats.UnitBytes)
 )
 
 func init() {
@@ -55,6 +63,21 @@ func init() {
 		&view.View{
 			Measure:     FindSectorCacheMisses,
 			Aggregation: view.Sum(),
+		},
+		&view.View{
+			Measure:     StorageCapacityBytes,
+			Aggregation: view.LastValue(),
+			TagKeys:     []tag.Key{StorageIDTag, CanSealTag, CanStoreTag},
+		},
+		&view.View{
+			Measure:     StorageAvailableBytes,
+			Aggregation: view.LastValue(),
+			TagKeys:     []tag.Key{StorageIDTag, CanSealTag, CanStoreTag},
+		},
+		&view.View{
+			Measure:     StorageUsedBytes,
+			Aggregation: view.LastValue(),
+			TagKeys:     []tag.Key{StorageIDTag, CanSealTag, CanStoreTag},
 		},
 	)
 	if err != nil {
