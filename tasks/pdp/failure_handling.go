@@ -119,6 +119,25 @@ func ResetProvingFailures(ctx context.Context, db *harmonydb.DB, dataSetId int64
 	return err
 }
 
+// ResetDatasetToInit resets a dataset to init state, triggering re-initialization of proving.
+// This is used when the proving period needs to be restarted, such as when:
+// - The challenge epoch is in the future (database out of sync with chain)
+// - The proving period was not properly initialized
+// Sets init_ready = TRUE so that InitProvingPeriodTask will pick it up.
+func ResetDatasetToInit(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
+	log.Infow("moving proving for dataset to init state", "dataSetId", dataSetId)
+	_, err := db.Exec(ctx, `
+		UPDATE pdp_data_sets
+		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = TRUE,
+			prev_challenge_request_epoch = NULL
+		WHERE id = $1
+		`, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed set values to trigger proving re-init: %w", err)
+	}
+	return nil
+}
+
 // HandleProvingSendError processes errors from sender.Send() calls in proving tasks.
 // It implements three-tier error handling:
 //   - Tier 1: Known termination errors, mark terminated immediately

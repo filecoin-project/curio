@@ -96,20 +96,6 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 	return n
 }
 
-func (n *NextProvingPeriodTask) kickToInit(ctx context.Context, dataSetId int64) error {
-	log.Infow("moving proving for dataset to init state", "dataSetId", dataSetId)
-	_, err := n.db.Exec(ctx, `
-		UPDATE pdp_data_sets
-		SET challenge_request_msg_hash = NULL, prove_at_epoch = NULL, init_ready = TRUE,
-			prev_challenge_request_epoch = NULL
-		WHERE id = $1
-		`, dataSetId)
-	if err != nil {
-		return xerrors.Errorf("failed set values to trigger proving re-init: %w", err)
-	}
-	return nil
-}
-
 func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	// Select the data set where challenge_request_task_id = taskID
@@ -156,8 +142,8 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		// not my favourite way to handle this but pragmatic
 		// for some reason we are in a proving loop running but it is not initialized
 		if strings.Contains(err.Error(), "0x999010d5") { // Error.ProvingPeriodNotInitialized
-			if err := n.kickToInit(ctx, dataSetId); err != nil {
-				return false, xerrors.Errorf("failed to kick back to init: %w", err)
+			if err := ResetDatasetToInit(ctx, n.db, dataSetId); err != nil {
+				return false, xerrors.Errorf("failed to reset to init: %w", err)
 			}
 			return true, nil // true as this task is done
 		}
