@@ -166,7 +166,7 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 
 func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
-	mem := uint64(160 << 30)
+	mem := uint64(128 << 30) // for GPU sealing. 160 for CPU sealing, which we pretend nobody uses.
 	if IsDevnet {
 		gpu = 0
 		mem = 1 << 30
