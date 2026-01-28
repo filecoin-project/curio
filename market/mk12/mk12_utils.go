@@ -262,7 +262,8 @@ func GetDealStatus(ctx context.Context, db *harmonydb.DB, req DealStatusRequest,
 									uuid = $1;`, req.DealUUID)
 
 	if err != nil {
-		return errResp(fmt.Sprintf("failed to query the db for deal status: %s", err))
+		reqLog.Errorw("failed to query deal status", "err", err)
+		return errResp("failed to query the db for deal status")
 	}
 
 	if len(pdeals) > 1 {

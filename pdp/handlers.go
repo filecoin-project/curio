@@ -191,7 +191,8 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to get sender address: %v", err)
+		http.Error(w, "Failed to get sender address", http.StatusInternalServerError)
 		return
 	}
 
@@ -364,7 +365,8 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 			http.Error(w, "Proof set creation not found for given txHash", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to query proof set creation: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to query proof set creation: %v", err)
+		http.Error(w, "Failed to query proof set creation", http.StatusInternalServerError)
 		return
 	}
 
@@ -402,7 +404,8 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 			http.Error(w, "Message status not found for given txHash", http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, "Failed to query message status: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to query message status: %v", err)
+		http.Error(w, "Failed to query message status", http.StatusInternalServerError)
 		return
 	}
 
@@ -422,7 +425,8 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 				http.Error(w, "Proof set not found despite proofset_created = true", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "Failed to query proof set: "+err.Error(), http.StatusInternalServerError)
+			log.Errorf("Failed to query proof set: %v", err)
+			http.Error(w, "Failed to query proof set", http.StatusInternalServerError)
 			return
 		}
 		response.ProofSetId = &proofSetId
@@ -485,7 +489,8 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve proof set: %v", err)
+		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
 
@@ -510,7 +515,8 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
         ORDER BY root_id, subroot_offset
     `, proofSetId)
 	if err != nil {
-		http.Error(w, "Failed to retrieve proof set roots: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve proof set roots: %v", err)
+		http.Error(w, "Failed to retrieve proof set roots", http.StatusInternalServerError)
 		return
 	}
 
@@ -522,7 +528,8 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
         WHERE id = $1
     `, proofSetId).Scan(&nextChallengeEpoch)
 	if err != nil {
-		http.Error(w, "Failed to retrieve next challenge epoch: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve next challenge epoch: %v", err)
+		http.Error(w, "Failed to retrieve next challenge epoch", http.StatusInternalServerError)
 		return
 	}
 
@@ -615,7 +622,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve proof set: %v", err)
+		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
 
@@ -725,7 +733,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
             WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
         `, serviceLabel, subrootCIDsList)
 		if err != nil {
-			return false, err
+			log.Errorf("Failed to retrieve pdp_piecerefs: %v", err)
+			return false, fmt.Errorf("failed to retrieve pdp_piecerefs")
 		}
 		defer rows.Close()
 
@@ -811,7 +820,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		http.Error(w, "Failed to validate subroots: "+err.Error(), http.StatusBadRequest)
+		log.Errorf("Failed to validate subroots: %v", err)
+		http.Error(w, "Failed to validate subroots", http.StatusBadRequest)
 		return
 	}
 
@@ -876,7 +886,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	// Step 7: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to get sender address: %v", err)
+		http.Error(w, "Failed to get sender address", http.StatusInternalServerError)
 		return
 	}
 
@@ -919,7 +930,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			log.Errorw("Failed to insert AddRoots into message_waits_eth",
 				"txHash", txHashLower,
 				"error", err)
-			return false, err // Return false to rollback the transaction
+			return false, errors.New("failed to insert AddRoots into message_waits_eth") // Return false to rollback the transaction
 		}
 
 		// Update proof set for initialization upon first add
@@ -928,7 +939,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
 			`, proofSetIDUint64)
 		if err != nil {
-			return false, err
+			log.Errorf("Failed to update proof set for initialization upon first add: %v", err)
+			return false, errors.New("failed to update proof set for initialization upon first add")
 		}
 
 		// Insert into pdp_proofset_roots
@@ -961,7 +973,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 					subrootInfo.PDPPieceRefID,
 				)
 				if err != nil {
-					return false, err
+					log.Errorf("Failed to insert into pdp_proofset_roots: %v", err)
+					return false, errors.New("failed to insert into pdp_proofset_roots")
 				}
 			}
 		}
@@ -1039,7 +1052,8 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve proof set: %v", err)
+		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
 
@@ -1069,7 +1083,8 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		ORDER BY add_message_index, subroot_offset
 	`, proofSetID, txHash)
 	if err != nil {
-		http.Error(w, "Failed to query root additions: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to query root additions: %v", err)
+		http.Error(w, "Failed to query root additions", http.StatusInternalServerError)
 		return
 	}
 
@@ -1088,7 +1103,8 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 			http.Error(w, "Transaction status not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to query transaction status: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to query transaction status: %v", err)
+		http.Error(w, "Failed to query transaction status", http.StatusInternalServerError)
 		return
 	}
 
@@ -1216,7 +1232,8 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 			http.Error(w, "Proof set not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve proof set: %v", err)
+		http.Error(w, "Failed to retrieve proof set", http.StatusInternalServerError)
 		return
 	}
 
@@ -1247,7 +1264,8 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 	// Get the sender address
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to get sender address: %v", err)
+		http.Error(w, "Failed to get sender address", http.StatusInternalServerError)
 		return
 	}
 
@@ -1285,7 +1303,8 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		http.Error(w, "Failed to schedule delete root: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to schedule delete root: %v", err)
+		http.Error(w, "Failed to schedule delete root", http.StatusInternalServerError)
 		return
 	}
 
@@ -1341,7 +1360,8 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Root not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to retrieve root: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve root: %v", err)
+		http.Error(w, "Failed to retrieve root", http.StatusInternalServerError)
 		return
 	}
 
@@ -1359,7 +1379,8 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 		ORDER BY subroot_offset
 	`, proofSetID, rootID)
 	if err != nil {
-		http.Error(w, "Failed to retrieve subroots: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to retrieve subroots: %v", err)
+		http.Error(w, "Failed to retrieve subroots", http.StatusInternalServerError)
 		return
 	}
 

@@ -138,7 +138,7 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	connString := fmt.Sprintf(
 		"postgresql://%s:%s@%s/%s?sslmode=disable",
 		username,
-		password,
+		"********",
 		connectionHost,
 		database,
 	)
@@ -164,6 +164,7 @@ func New(hosts []string, username, password, database, port string, loadBalance 
 	if err != nil {
 		return nil, err
 	}
+	cfg.ConnConfig.Password = password
 
 	// When load balancing is disabled, restrict the pool to only use the specified host
 	// This prevents Yugabyte client from discovering and connecting to internal Docker IPs
@@ -534,4 +535,15 @@ func findFileStartingWith(fs embed.FS, prefix string) (string, error) {
 		}
 	}
 	return "", xerrors.New("file not found")
+}
+
+func errFilter(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "password") || strings.Contains(err.Error(), "host=") || strings.Contains(err.Error(), "://") {
+		logger.Error("redacted db error: " + err.Error())
+		return xerrors.New("redacted db error")
+	}
+	return err
 }
