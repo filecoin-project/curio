@@ -11,6 +11,7 @@ import (
 	"math/bits"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -70,6 +71,13 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 		fil:       fil,
 	}
 
+	log.Infof("NewProveTask FOR ANTITHESIS. pt address = %p", pt)
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			log.Infof("CHECKING pt FOR ANTHITESIS. pt address = %p", pt)
+		}
+	}()
 	// ProveTasks are created on pdp_data_sets entries where
 	// challenge_request_msg_hash is not null (=not yet landed)
 
