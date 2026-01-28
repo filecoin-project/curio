@@ -40,15 +40,26 @@ BUILD_DEPS+=build/.filecoin-install
 CLEAN+=build/.filecoin-install
 
 ## Custom libfilcrypto build for Curio (size-optimized, no FVM)
+## By default, requires CUDA on Linux. Set FFI_USE_OPENCL=1 to build with OpenCL instead.
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
+	@if [ "$$(uname)" = "Linux" ] && [ -z "$(FFI_USE_OPENCL)" ] && ! command -v nvcc >/dev/null 2>&1; then \
+		echo ""; \
+		echo "ERROR: nvcc not found but CUDA build is required for Curio on Linux."; \
+		echo ""; \
+		echo "Please either:"; \
+		echo "  1. Install the CUDA toolkit (nvcc must be in PATH), or"; \
+		echo "  2. Build with OpenCL instead: make FFI_USE_OPENCL=1 build"; \
+		echo ""; \
+		exit 1; \
+	fi
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
+	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
 	FFI_USE_MULTICORE_SDR=1 \
 	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
-	@echo "Rebuilt libfilcrypto for Curio (OpenCL+multicore, no default features)."
 
 ffi-version-check:
 	@[[ "$$(awk '/const Version/{print $$5}' extern/filecoin-ffi/version.go)" -eq 3 ]] || (echo "FFI version mismatch, update submodules"; exit 1)
