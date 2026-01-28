@@ -6,6 +6,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/pdp"
 )
 
 const (
@@ -37,26 +38,26 @@ func CalculateBackoffBlocks(failures int) int {
 	return backoff
 }
 
-// MarkDatasetTerminated marks a dataset as terminated, stopping all future proving attempts.
-// This is called when a termination error (like DataSetPaymentBeyondEndEpoch) is detected.
-func MarkDatasetTerminated(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) error {
+// MarkDatasetProvingUnrecoverable marks a dataset as having an unrecoverable proving failure.
+// This is called when an unrecoverable error (like DataSetPaymentBeyondEndEpoch) is detected.
+func MarkDatasetProvingUnrecoverable(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) error {
 	_, err := db.Exec(ctx, `
 		UPDATE pdp_data_sets
-		SET terminated_at_epoch = $2,
+		SET unrecoverable_proving_failure_epoch = $2,
 			consecutive_prove_failures = consecutive_prove_failures + 1,
 			next_prove_attempt_at = NULL,
 			init_ready = FALSE,
 			prove_at_epoch = NULL,
 			challenge_request_msg_hash = NULL
-		WHERE id = $1 AND terminated_at_epoch IS NULL
+		WHERE id = $1 AND unrecoverable_proving_failure_epoch IS NULL
 	`, dataSetId, currentHeight)
 	return err
 }
 
 // ApplyProvingBackoff increments the failure count and sets a backoff period.
-// If too many failures occur, marks the dataset as terminated.
-// Returns true if the dataset was marked as terminated.
-func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) (terminated bool, err error) {
+// If too many failures occur, marks the dataset as unrecoverable.
+// Returns true if the dataset was marked as unrecoverable.
+func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) (unrecoverable bool, err error) {
 	// Get current failure count
 	var currentFailures int
 	err = db.QueryRow(ctx, `
@@ -72,13 +73,13 @@ func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64,
 		// Too many failures, mark as terminated
 		_, err = db.Exec(ctx, `
 			UPDATE pdp_data_sets
-			SET terminated_at_epoch = $2,
+			SET unrecoverable_proving_failure_epoch = $2,
 				consecutive_prove_failures = $3,
 				next_prove_attempt_at = NULL,
 				init_ready = FALSE,
 				prove_at_epoch = NULL,
 				challenge_request_msg_hash = NULL
-			WHERE id = $1 AND terminated_at_epoch IS NULL
+			WHERE id = $1 AND unrecoverable_proving_failure_epoch IS NULL
 		`, dataSetId, currentHeight, newFailures)
 		if err != nil {
 			return false, xerrors.Errorf("failed to mark as terminated: %w", err)
@@ -128,25 +129,31 @@ func ResetProvingFailures(ctx context.Context, db *harmonydb.DB, dataSetId int64
 // Returns (done, err) where done=true means the task should complete (not retry),
 // and err!=nil means harmony should retry the task.
 func HandleProvingSendError(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64, sendErr error) (done bool, err error) {
-	// Tier 1: Known termination errors, mark terminated immediately
-	if IsTerminationError(sendErr) {
-		if markErr := MarkDatasetTerminated(ctx, db, dataSetId, currentHeight); markErr != nil {
-			log.Errorw("Failed to mark dataset as terminated", "error", markErr, "dataSetId", dataSetId)
+	// Tier 1: Known unrecoverable errors, mark as unrecoverable immediately
+	if IsUnrecoverableError(sendErr) {
+		if markErr := MarkDatasetProvingUnrecoverable(ctx, db, dataSetId, currentHeight); markErr != nil {
+			log.Errorw("Failed to mark dataset as unrecoverable", "error", markErr, "dataSetId", dataSetId)
 		}
-		log.Warnw("Dataset terminated, stopping proving attempts",
+		log.Warnw("Dataset unrecoverable, stopping proving attempts",
 			"dataSetId", dataSetId, "error", sendErr)
+		if termErr := pdp.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
+			log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
+		}
 		return true, nil
 	}
 
-	// Tier 2: Other contract reverts, apply backoff, may terminate after repeated failures
+	// Tier 2: Other contract reverts, apply backoff, may become unrecoverable after repeated failures
 	if IsContractRevert(sendErr) {
-		terminated, backoffErr := ApplyProvingBackoff(ctx, db, dataSetId, currentHeight)
+		unrecoverable, backoffErr := ApplyProvingBackoff(ctx, db, dataSetId, currentHeight)
 		if backoffErr != nil {
 			log.Errorw("Failed to apply backoff", "error", backoffErr, "dataSetId", dataSetId)
 		}
-		if terminated {
-			log.Warnw("Dataset terminated after repeated contract reverts",
+		if unrecoverable {
+			log.Warnw("Dataset unrecoverable after repeated contract reverts",
 				"dataSetId", dataSetId, "error", sendErr)
+			if termErr := pdp.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
+				log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
+			}
 		}
 		return true, nil // Backoff applied; scheduler query prevents immediate re-scheduling
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
+	"github.com/filecoin-project/curio/lib/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
@@ -129,7 +130,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 
 		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
 		if view.EndEpoch.Int64() > 0 {
-			if err := ensureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
+			if err := pdp.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
 				return err
 			}
 			// When finalized schedule dataset deletion
@@ -147,7 +148,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 
 		if thresholdWithGrace.Uint64() < current {
 			log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
-			if err := ensureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
+			if err := pdp.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
 				return err
 			}
 		}
@@ -159,17 +160,6 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		return xerrors.Errorf("failed to delete settle message from DB: %w", err)
 	}
 
-	return nil
-}
-
-func ensureServiceTermination(ctx context.Context, db *harmonydb.DB, dataSetID int64) error {
-	n, err := db.Exec(ctx, `INSERT INTO pdp_delete_data_set (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, dataSetID)
-	if err != nil {
-		return xerrors.Errorf("failed to insert into pdp_delete_data_set: %w", err)
-	}
-	if n != 1 && n != 0 {
-		return xerrors.Errorf("expected to insert 0 or 1 rows, inserted %d", n)
-	}
 	return nil
 }
 
