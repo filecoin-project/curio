@@ -235,6 +235,28 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return true, nil
 	}
 
+	// Check if challengeEpoch is in the future
+	// This can happen when Curio has been down and the local database state is out of sync with the chain.
+	// The database may have an old prove_at_epoch, but GetNextChallengeEpoch returns the next proving window
+	// which has rolled forward past the missed window.
+	ts := p.head.Load()
+	if ts == nil {
+		// Try to get current head
+		ts, err = p.fil.ChainHead(ctx)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get chain head: %w", err)
+		}
+	}
+
+	if challengeEpoch.Int64() > int64(ts.Height()) {
+		log.Infow("challenge epoch is in the future, resetting to init",
+			"dataSetId", dataSetId, "challengeEpoch", challengeEpoch, "currentHeight", ts.Height())
+		if err := ResetDatasetToInit(ctx, p.db, dataSetId); err != nil {
+			return false, xerrors.Errorf("failed to reset to init: %w", err)
+		}
+		return true, nil
+	}
+
 	totalLeafCount, err := pdpVerifier.GetChallengeRange(callOpts, big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get data set leaf count: %w", err)
