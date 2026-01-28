@@ -25,10 +25,19 @@ func GetGpuProvisioning() ([]byte, error) {
 		}
 	}
 
-	devices, err := miniopencl.GetAllDevices()
+	platforms, err := miniopencl.GetPlatforms()
 	if err != nil {
-		logger.Errorf("getting gpu devices failed: %+v", err)
 		return nil, err
+	}
+
+	var devices []*miniopencl.Device
+	for _, p := range platforms {
+		devicesTmp, err := p.GetAllDevices()
+		if err != nil {
+			logger.Errorf("getting gpu devices failed for platform %v: %+v", p, err)
+			continue
+		}
+		devices = append(devices, devicesTmp...)
 	}
 
 	slotsCalc := func(item byte, index int) byte { // auto-provision based on device memory
@@ -44,6 +53,13 @@ func GetGpuProvisioning() ([]byte, error) {
 			return byte(GpuOverprovisionFactor)
 		}
 	}
-
 	return lo.Map(make([]byte, len(devices)), slotsCalc), nil
+}
+
+func GetGpuSlotsCount() (int, error) {
+	p, err := GetGpuProvisioning()
+	if err != nil {
+		return 0, err
+	}
+	return int(lo.Sum(p)), nil
 }
