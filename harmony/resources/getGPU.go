@@ -1,46 +1,65 @@
-//go:build !darwin
-
 package resources
 
 import (
+	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
-	ffi "github.com/filecoin-project/filecoin-ffi"
+	"github.com/samber/lo"
+
+	"github.com/filecoin-project/curio/harmony/resources/miniopencl"
 )
 
-var GpuOverprovisionFactor = 1
+// GPURamTaskSize is the amount of RAM required for a GPU task in bytes.
+// It is used to assure that each task has this much RAM available.
+// NOTE: This transitional value will be replaced by returning []GpuRam once tasks report their GpuRAM needs.
+var GPURamTaskSize = 10 << 40
 
-func init() {
-	if nstr := os.Getenv("HARMONY_GPU_OVERPROVISION_FACTOR"); nstr != "" {
-		n, err := strconv.Atoi(nstr)
-		if err != nil {
-			logger.Errorf("parsing HARMONY_GPU_OVERPROVISION_FACTOR failed: %+v", err)
-		} else {
-			GpuOverprovisionFactor = n
-		}
-	}
-}
-
-func getGPUDevices() float64 { // GPU boolean
-	if nstr := os.Getenv("HARMONY_OVERRIDE_GPUS"); nstr != "" {
-		n, err := strconv.ParseFloat(nstr, 64)
+func GetGpuProvisioning() ([]byte, error) {
+	if nstr := os.Getenv("HARMONY_OVERRIDE_GPUS"); nstr != "" { // Dev path.
+		n, err := strconv.ParseInt(nstr, 10, 8)
 		if err != nil {
 			logger.Errorf("parsing HARMONY_OVERRIDE_GPUS failed: %+v", err)
 		} else {
-			return n
+			return []byte{byte(n)}, nil
 		}
 	}
 
-	gpus, err := ffi.GetGPUDevices()
-	logger.Infow("GPUs", "list", gpus, "overprovision_factor", GpuOverprovisionFactor)
+	platforms, err := miniopencl.GetPlatforms()
 	if err != nil {
-		logger.Errorf("getting gpu devices failed: %+v", err)
+		return nil, err
 	}
-	all := strings.ToLower(strings.Join(gpus, ","))
-	if len(gpus) > 1 || strings.Contains(all, "ati") || strings.Contains(all, "nvidia") {
-		return float64(len(gpus) * GpuOverprovisionFactor)
+
+	var devices []*miniopencl.Device
+	for _, p := range platforms {
+		devicesTmp, err := p.GetAllDevices()
+		if err != nil {
+			logger.Errorf("getting gpu devices failed for platform %v: %+v", p, err)
+			continue
+		}
+		devices = append(devices, devicesTmp...)
 	}
-	return 0
+
+	slotsCalc := func(item byte, index int) byte { // auto-provision based on device memory
+		return byte(devices[index].GlobalMemSize() >> GPURamTaskSize)
+	}
+
+	if nstr := os.Getenv("HARMONY_GPU_OVERPROVISION_FACTOR"); nstr != "" { // Legacy / Bugfix path.
+		GpuOverprovisionFactor, err := strconv.ParseInt(nstr, 10, 8)
+		if err != nil {
+			return nil, fmt.Errorf("parsing HARMONY_GPU_OVERPROVISION_FACTOR failed: %+v", err)
+		}
+		slotsCalc = func(item byte, index int) byte {
+			return byte(GpuOverprovisionFactor)
+		}
+	}
+	return lo.Map(make([]byte, len(devices)), slotsCalc), nil
+}
+
+func GetGpuSlotsCount() (int, error) {
+	p, err := GetGpuProvisioning()
+	if err != nil {
+		return 0, err
+	}
+	return int(lo.Sum(p)), nil
 }
