@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
@@ -35,22 +36,33 @@ var IsTest = false
 var IsCuda = build.IsOpencl != "1"
 
 // Get all devices from ffi
-var ch chan string
+var gpuSlots []byte
+var gpuSlotsMx sync.Mutex
 
+// getDeviceOrdinal returns the ordinal of the GPU with the least workload.
+func getDeviceOrdinal() int {
+	gpuSlotsMx.Lock()
+	defer gpuSlotsMx.Unlock()
+	max, maxIdx := byte(0), 0
+	for i, w := range gpuSlots {
+		if w > max {
+			max, maxIdx = w, i
+		}
+	}
+	gpuSlots[maxIdx]--
+	return maxIdx
+}
 func init() {
 	devices, err := ffi.GetGPUDevices()
 	if err != nil {
 		panic(err)
 	}
 	if len(devices) == 0 {
-		ch = make(chan string, 1)
-		ch <- "0"
+		gpuSlots = []byte{1}
 	} else {
-		nSlots := len(devices) * resources.GpuOverprovisionFactor
-
-		ch = make(chan string, nSlots)
-		for i := 0; i < nSlots; i++ {
-			ch <- strconv.Itoa(i / resources.GpuOverprovisionFactor)
+		gpuSlots = make([]byte, len(devices))
+		for i := range gpuSlots {
+			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
 		}
 	}
 }
@@ -76,9 +88,11 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	}
 
 	// get dOrdinal
-	dOrdinal := <-ch
+	dOrdinal := getDeviceOrdinal()
 	defer func() {
-		ch <- dOrdinal
+		gpuSlotsMx.Lock()
+		gpuSlots[dOrdinal]++
+		gpuSlotsMx.Unlock()
 	}()
 
 	p, err := os.Executable()
@@ -92,10 +106,11 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	// Set Visible Devices for CUDA and OpenCL
 	cmd.Env = append(os.Environ(),
 		func(isCuda bool) string {
+			ordinal := strconv.Itoa(dOrdinal)
 			if isCuda {
-				return "CUDA_VISIBLE_DEVICES=" + dOrdinal
+				return "CUDA_VISIBLE_DEVICES=" + ordinal
 			}
-			return "GPU_DEVICE_ORDINAL=" + dOrdinal
+			return "GPU_DEVICE_ORDINAL=" + ordinal
 		}(IsCuda))
 	tmpDir, err := os.MkdirTemp("", "rust-fil-proofs")
 	if err != nil {
