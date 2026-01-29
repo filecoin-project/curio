@@ -351,7 +351,7 @@ docsgen-cli: curio sptool
 .PHONY: docsgen-cli
 
 go-generate:
-	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate $$($(GOCC) list ./... | grep -v '/extern/')
 .PHONY: go-generate
 
 gen: gensimple
@@ -361,24 +361,32 @@ marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
-# Run gen steps sequentially in a single shell to avoid Go build cache race conditions.
-# The "unlinkat: directory not empty" error occurs when multiple go processes
-# contend for the same build cache simultaneously.
+# Run gen steps with limited parallelization.
+# Go steps run sequentially (share build cache), non-Go steps run in parallel.
 # Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
+# Set GEN_CLI=1 to include docsgen-cli (slow, requires building binaries).
 gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache
 endif
 	$(MAKE) deps
+	$(MAKE) marketgen &
 	$(MAKE) api-gen
-	$(MAKE) go-generate
 	$(MAKE) cfgdoc-gen
-	$(MAKE) docsgen
-	$(MAKE) marketgen
-	$(MAKE) docsgen-cli
+	$(MAKE) docsgen &
+	$(MAKE) go-generate
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
+	@wait
+ifeq ($(GEN_CLI),1)
+	$(MAKE) docsgen-cli
+endif
 	go mod tidy
 .PHONY: gensimple
+
+# Full gen including CLI docs (slower)
+genfull: GEN_CLI=1
+genfull: gensimple
+.PHONY: genfull
 
 fiximports:
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports

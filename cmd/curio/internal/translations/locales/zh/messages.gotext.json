@@ -2991,6 +2991,54 @@
       "translation": "Supra 共识测试工具",
       "message": "Supra consensus testing utilities",
       "placeholder": null
+    },
+    {
+      "id": "Enter {Stringworkersenderi1} address",
+      "translation": "输入 {Stringworkersenderi1} 地址",
+      "message": "Enter {Stringworkersenderi1} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "translation": "输入 Yugabyte 数据库 {Stringportusernamepassworddatabasei1}",
+      "message": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the path to the configuration directory used by {Lotusminer}",
+      "translation": "输入 {Lotusminer} 使用的配置目录路径",
+      "message": "Enter the path to the configuration directory used by {Lotusminer}",
+      "placeholder": null
+    },
+    {
+      "id": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "translation": "Filecoin {Slack} 频道：{Filcuriohelp} 和 {Filcuriodev}",
+      "message": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Hosts}",
+      "translation": "主机：{Hosts}",
+      "message": "Host: {Hosts}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "translation": "存储路径 {ExpandedPath} 已添加为 {StorageTypeStr}。您需要使用以下命令初始化它：curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "placeholder": null
+    },
+    {
+      "id": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "translation": "'{Base}' 层存储通用配置。所有 curio 实例都可以在其 {Layers} 参数中包含它。",
+      "message": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "placeholder": null
+    },
+    {
+      "id": "Try the web interface with {Render}",
+      "translation": "使用 {Render} 尝试 Web 界面",
+      "message": "Try the web interface with {Render}",
+      "placeholder": null
     }
   ]
 }
