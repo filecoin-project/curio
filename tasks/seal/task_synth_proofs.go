@@ -118,9 +118,11 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 
 	// Record metric
 	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(MinerTag, maddr.String()),
-		}, SealMeasures.SynthCompleted.M(1))
+		}, SealMeasures.SynthCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	return true, nil

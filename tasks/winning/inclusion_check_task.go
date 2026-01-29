@@ -87,9 +87,11 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		// Record metric for included blocks
 		if included {
 			if maddr, err := address.NewIDAddress(check.SpID); err == nil {
-				stats.RecordWithTags(ctx, []tag.Mutator{
+				if err := stats.RecordWithTags(ctx, []tag.Mutator{
 					tag.Upsert(MinerTag, maddr.String()),
-				}, MiningMeasures.BlocksIncludedTotal.M(1))
+				}, MiningMeasures.BlocksIncludedTotal.M(1)); err != nil {
+					log.Errorf("recording metric: %s", err)
+				}
 			}
 		}
 	}

@@ -121,9 +121,11 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	// Record metric
 	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(MinerTag, maddr.String()),
-		}, SnapMeasures.EncodeCompleted.M(1))
+		}, SnapMeasures.EncodeCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	return true, nil

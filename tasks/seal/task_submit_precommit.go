@@ -336,9 +336,11 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	}
 
 	// Record metric
-	stats.RecordWithTags(ctx, []tag.Mutator{
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
 		tag.Upsert(MinerTag, maddr.String()),
-	}, SealMeasures.PrecommitSubmitted.M(1))
+	}, SealMeasures.PrecommitSubmitted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
+	}
 
 	return true, nil
 }

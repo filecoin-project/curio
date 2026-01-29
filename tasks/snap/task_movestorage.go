@@ -103,9 +103,11 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	// Record metric
 	if maddr, err := address.NewIDAddress(uint64(task.SpID)); err == nil {
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(MinerTag, maddr.String()),
-		}, SnapMeasures.MoveStorageCompleted.M(1))
+		}, SnapMeasures.MoveStorageCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	return true, nil

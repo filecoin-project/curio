@@ -231,9 +231,11 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// Record metric
 	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(MinerTag, maddr.String()),
-		}, SealMeasures.TreeDCompleted.M(1))
+		}, SealMeasures.TreeDCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	return true, nil

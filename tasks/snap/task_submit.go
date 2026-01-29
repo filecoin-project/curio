@@ -429,9 +429,11 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	// Record metric
-	stats.RecordWithTags(ctx, []tag.Mutator{
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
 		tag.Upsert(MinerTag, maddr.String()),
-	}, SnapMeasures.SubmitCompleted.M(1))
+	}, SnapMeasures.SubmitCompleted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
+	}
 
 	return true, nil
 }

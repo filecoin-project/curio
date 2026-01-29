@@ -444,9 +444,11 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		// Record win metric
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(MinerTag, maddr.String()),
-		}, MiningMeasures.WinsTotal.M(1))
+		}, MiningMeasures.WinsTotal.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	// wait until block timestamp
@@ -469,9 +471,11 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		// Record submission metric
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(MinerTag, maddr.String()),
-		}, MiningMeasures.BlocksSubmittedTotal.M(1))
+		}, MiningMeasures.BlocksSubmittedTotal.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	log.Infow("mined a block", "tipset", types.LogCids(blockMsg.Header.Parents), "height", blockMsg.Header.Height, "miner", maddr, "cid", blockMsg.Header.Cid())
