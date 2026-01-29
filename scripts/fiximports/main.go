@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,7 +103,7 @@ func getChangedFilesSinceMergeBase() []string {
 // getAllGoFiles returns all Go files in the repo (fallback when merge-base fails)
 func getAllGoFiles() []string {
 	var files []string
-	filepath.Walk(".", func(path string, info fs.FileInfo, err error) error {
+	err := filepath.Walk(".", func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -121,6 +122,9 @@ func getAllGoFiles() []string {
 		files = append(files, path)
 		return nil
 	})
+	if err != nil {
+		log.Fatalf("Failed to walk directory: %v", err)
+	}
 	return files
 }
 
