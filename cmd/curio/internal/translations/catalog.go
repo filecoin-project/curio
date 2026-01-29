@@ -100,22 +100,22 @@ var messageKeyToIndex = map[string]int{
 	"Could not create repo from directory: %s. Aborting migration":                                                                                           250,
 	"Could not lock miner repo. Your miner must be stopped: %s\n Aborting migration":                                                                         251,
 	"Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number": 205,
-	"Create a client voucher":                                         71,
-	"Create a new miner":                                              216,
-	"Create a new offline verified DDO deal for Curio":                110,
-	"Create a provider voucher":                                       73,
-	"Create new configuration for a new cluster":                      39,
-	"Creating PDP configuration layer...":                             342,
-	"Ctrl+C pressed in Terminal":                                      213,
-	"Cumulative amount (FIL)":                                         55,
-	"Custom `HEADER` to include in the HTTP request":                  105,
-	"Database config error occurred, abandoning migration: %s ":       303,
-	"Database: %s":                                                    301,
-	"Delete %s":                                                       318,
-	"Deposit FIL into the Router contract (client)":                   44,
-	"Deposit funds into the service pool (service role)":              64,
-	"Documentation: ":                                                 236,
-	"Downgrade a cluster's daatabase to a previous software version.": 188,
+	"Create a client voucher":                                        71,
+	"Create a new miner":                                             216,
+	"Create a new offline verified DDO deal for Curio":               110,
+	"Create a provider voucher":                                      73,
+	"Create new configuration for a new cluster":                     39,
+	"Creating PDP configuration layer...":                            342,
+	"Ctrl+C pressed in Terminal":                                     213,
+	"Cumulative amount (FIL)":                                        55,
+	"Custom `HEADER` to include in the HTTP request":                 105,
+	"Database config error occurred, abandoning migration: %s ":      303,
+	"Database: %s":                                                   301,
+	"Delete %s":                                                      318,
+	"Deposit FIL into the Router contract (client)":                  44,
+	"Deposit funds into the service pool (service role)":             64,
+	"Documentation: ":                                                236,
+	"Downgrade a cluster's database to a previous software version.": 188,
 	"Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.": 212,
 	"Enable load balancing for connecting to the Postgres database in Yugabyte cluster":        95,
 	"Enter %s address":                    265,
@@ -694,7 +694,7 @@ const enData string = "" + // Size: 19614 bytes
 	"Shortest frequency interval in epochs at which the SP is willing to prov" +
 	"e access to the stored dataset\x02Location of the service provider\x02To" +
 	"ken contract for payment (IERC20(address(0)) for FIL)\x02Downgrade a clu" +
-	"ster's daatabase to a previous software version.\x02If, however, the upg" +
+	"ster's database to a previous software version.\x02If, however, the upg" +
 	"rade has a serious bug and you need to downgrade, first shutdown all nod" +
 	"es in your cluster and then run this command. Finally, only start downgr" +
 	"aded nodes.\x02YYYYMMDD when your cluster had the preferred schema. Ex: " +
