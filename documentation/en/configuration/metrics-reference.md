@@ -7,7 +7,6 @@
 This document lists all Prometheus metrics exported by Curio. All metrics use the `curio_` namespace prefix.
 
 > **Note**: This file is auto-generated from source code. Run `make docsgen-metrics` to update.
-
 ## Database Metrics (HarmonyDB)
 
 | Metric | Type | Description |

@@ -14,6 +14,7 @@ import (
 	"go/token"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -120,7 +121,7 @@ var skipDirs = map[string]bool{
 func discoverAndParseMetrics(root string) []fileResult {
 	// Collect candidate paths (just strings, no file handles yet)
 	var candidates []string
-	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -141,6 +142,9 @@ func discoverAndParseMetrics(root string) []fileResult {
 		candidates = append(candidates, path)
 		return nil
 	})
+	if err != nil {
+		log.Fatalf("Failed to walk directory: %v", err)
+	}
 
 	// Process in parallel: open, check, parse, close - all in one worker call
 	numWorkers := runtime.NumCPU()

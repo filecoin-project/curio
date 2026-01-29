@@ -145,10 +145,12 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Record metric
-	stats.RecordWithTags(ctx, []tag.Mutator{
+	err = stats.RecordWithTags(ctx, []tag.Mutator{
 		tag.Upsert(MinerTag, maddr.String()),
 	}, SealMeasures.PoRepCompleted.M(1))
-
+	if err != nil {
+		log.Errorf("recording metric: %s", err)
+	}
 	return true, nil
 }
 
