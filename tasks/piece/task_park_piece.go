@@ -25,7 +25,7 @@ import (
 var log = logging.Logger("cu-piece")
 var PieceParkPollInterval = time.Second
 
-const ParkMinFreeStoragePercent = 20
+const ParkMinFreeStoragePercent = 0
 
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
