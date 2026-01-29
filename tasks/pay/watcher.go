@@ -43,10 +43,16 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	// Handle failed settlements first - log error and clean up
 	var failedSettles []settled
 	err := db.Select(ctx, &failedSettles, `
+	-- This query pattern using EXISTS for correlation instead of a JOIN was introduced 
+	-- to deal with the query optimizer using the much bigger mwe table as the driving table
+	-- This factoring is intended to force fpt as the driving table.
 		SELECT fpt.tx_hash, fpt.rail_ids
 		FROM filecoin_payment_transactions fpt
-		JOIN message_waits_eth mwe ON fpt.tx_hash = mwe.signed_tx_hash
-		WHERE mwe.tx_status = 'confirmed' AND mwe.tx_success = FALSE`)
+		WHERE EXISTS (
+			SELECT 1 FROM message_waits_eth mwe
+			WHERE mwe.signed_tx_hash = fpt.tx_hash
+			AND mwe.tx_status = 'confirmed'
+			AND mwe.tx_success = FALSE)`)
 	if err != nil {
 		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
 	}
@@ -65,10 +71,16 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	// Process confirmed successful settlements
 	var settles []settled
 	err = db.Select(ctx, &settles, `
+	-- This query pattern using EXISTS for correlation instead of a JOIN was introduced 
+	-- to deal with the query optimizer using the much bigger mwe table as the driving table
+	-- This factoring is intended to force fpt as the driving table.
 		SELECT fpt.tx_hash, fpt.rail_ids
 		FROM filecoin_payment_transactions fpt
-		JOIN message_waits_eth mwe ON fpt.tx_hash = mwe.signed_tx_hash
-		WHERE mwe.tx_status = 'confirmed' AND mwe.tx_success = TRUE`)
+		WHERE EXISTS (
+			SELECT 1 FROM message_waits_eth mwe
+			WHERE mwe.signed_tx_hash = fpt.tx_hash
+			AND mwe.tx_status = 'confirmed'
+			AND mwe.tx_success = TRUE)`)
 	if err != nil {
 		return xerrors.Errorf("failed to get confirmed settlements from DB: %w", err)
 	}
