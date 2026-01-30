@@ -55,7 +55,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	SELECT fpt.tx_hash, fpt.rail_ids
 	FROM filecoin_payment_transactions fpt`)
 	if err != nil {
-		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
+		return xerrors.Errorf("failed to get settlements from DB: %w", err)
 	}
 	if len(settles) == 0 {
 		return nil
@@ -93,6 +93,8 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 				return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
 			}
 		}
+
+		// since mwe updated atomically with fpt iterating all mwe should iterate all settles
 	}
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
