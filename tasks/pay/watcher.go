@@ -27,6 +27,12 @@ type settled struct {
 	Rails []int64 `db:"rail_ids"`
 }
 
+type mwe struct {
+	Hash    string `db:"signed_tx_hash"`
+	Status  string `db:"tx_status"`
+	Success bool   `db:"tx_success"`
+}
+
 func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingTransactions(ctx, db, ethClient)
@@ -41,52 +47,52 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 
 func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Handle failed settlements first - log error and clean up
-	var failedSettles []settled
-	err := db.Select(ctx, &failedSettles, `
-	-- This query pattern using EXISTS for correlation instead of a JOIN was introduced 
-	-- to deal with the query optimizer using the much bigger mwe table as the driving table
-	-- This factoring is intended to force fpt as the driving table.
-		SELECT fpt.tx_hash, fpt.rail_ids
-		FROM filecoin_payment_transactions fpt
-		WHERE EXISTS (
-			SELECT 1 FROM message_waits_eth mwe
-			WHERE mwe.signed_tx_hash = fpt.tx_hash
-			AND mwe.tx_status = 'confirmed'
-			AND mwe.tx_success = FALSE)`)
+	// This JOINLESS query structure is a critical optimization to prevent the query planner from iterating the entire
+	// massive mwe table on each filecoin head change.  We've observed that mwe gets selected as driving table if we
+	// use JOIN or WHERE EXIST clauses.
+	var settles []settled
+	err := db.Select(ctx, &settles, `
+	SELECT fpt.tx_hash, fpt.rail_ids
+	FROM filecoin_payment_transactions fpt`)
 	if err != nil {
 		return xerrors.Errorf("failed to get failed settlements from DB: %w", err)
 	}
-
-	// Note that settlement errors are not expected in any circumstances. Any
-	// settlement failure logs should be investigated and prioritize proper
-	// settlement handling: https://github.com/filecoin-project/curio/issues/897
-	for _, settle := range failedSettles {
-		log.Errorw("settlement transaction failed on chain", "txHash", settle.Hash, "railIDs", settle.Rails)
-		_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, settle.Hash)
-		if err != nil {
-			return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
-		}
-	}
-
-	// Process confirmed successful settlements
-	var settles []settled
-	err = db.Select(ctx, &settles, `
-	-- This query pattern using EXISTS for correlation instead of a JOIN was introduced 
-	-- to deal with the query optimizer using the much bigger mwe table as the driving table
-	-- This factoring is intended to force fpt as the driving table.
-		SELECT fpt.tx_hash, fpt.rail_ids
-		FROM filecoin_payment_transactions fpt
-		WHERE EXISTS (
-			SELECT 1 FROM message_waits_eth mwe
-			WHERE mwe.signed_tx_hash = fpt.tx_hash
-			AND mwe.tx_status = 'confirmed'
-			AND mwe.tx_success = TRUE)`)
-	if err != nil {
-		return xerrors.Errorf("failed to get confirmed settlements from DB: %w", err)
-	}
-
 	if len(settles) == 0 {
 		return nil
+	}
+	var hashes []string
+	goodSettles := make(map[string]settled)
+	for _, settle := range settles {
+		hashes = append(hashes, settle.Hash)
+		goodSettles[settle.Hash] = settle
+	}
+	var mwes []mwe
+	err = db.Select(ctx, &mwes, `
+	SELECT signed_tx_hash, tx_status, tx_success
+	FROM message_waits_eth
+	WHERE signed_tx_hash = ANY($1)
+	`, hashes)
+	if err != nil {
+		return xerrors.Errorf("failed to get message waits from DB: %w", err)
+	}
+
+	for _, mwe := range mwes {
+		// wait for message to land
+		if mwe.Status != "confirmed" {
+			delete(goodSettles, mwe.Hash)
+			continue
+		}
+		// Note that settlement errors are not expected in any circumstances. Any
+		// settlement failure logs should be investigated and prioritize proper
+		// settlement handling: https://github.com/filecoin-project/curio/issues/897
+		if !mwe.Success {
+			delete(goodSettles, mwe.Hash)
+			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
+			_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, mwe.Hash)
+			if err != nil {
+				return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
+			}
+		}
 	}
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
@@ -95,7 +101,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		return xerrors.Errorf("failed to create fwssv: %w", err)
 	}
 
-	for _, settle := range settles {
+	for _, settle := range goodSettles {
 		err := verifySettle(ctx, db, ethClient, fwssv, serviceAddr, settle)
 		if err != nil {
 			return xerrors.Errorf("failed to verify settle: %w", err)
