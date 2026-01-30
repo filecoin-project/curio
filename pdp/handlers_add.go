@@ -69,11 +69,11 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			if subPieceEntry.SubPieceCID == "" {
 				return nil, nil, nil, errors.New("subPieceCid is required for each subPiece")
 			}
-			pieceCid, err := asPieceCIDv1(subPieceEntry.SubPieceCID)
+			info, err := ParsePieceCid(subPieceEntry.SubPieceCID)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("invalid SubPiece: %w", err)
 			}
-			pieceCidString := pieceCid.String()
+			pieceCidString := info.CidV1.String()
 
 			addPieceReq.SubPieces[i].subPieceCIDv1 = pieceCidString // save it for to query subPieceInfoMap later
 
@@ -177,14 +177,14 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 			}
 
 			// Compare generated PieceCid with provided PieceCid
-			providedPieceCidv1, err := asPieceCIDv1(addPieceReq.PieceCID)
+			providedInfo, err := ParsePieceCid(addPieceReq.PieceCID)
 			if err != nil {
 				return false, fmt.Errorf("invalid provided PieceCid: %v", err)
 			}
-			pieces[i].pieceCIDv1 = providedPieceCidv1.String()
+			pieces[i].pieceCIDv1 = providedInfo.CidV1.String()
 
-			if !providedPieceCidv1.Equals(generatedPieceCid) {
-				return false, fmt.Errorf("provided PieceCid does not match generated PieceCid: %s != %s", providedPieceCidv1, generatedPieceCid)
+			if !providedInfo.CidV1.Equals(generatedPieceCid) {
+				return false, fmt.Errorf("provided PieceCid does not match generated PieceCid: %s != %s", providedInfo.CidV1, generatedPieceCid)
 			}
 		}
 
