@@ -239,8 +239,11 @@ func (db *DB) transactionInner(ctx context.Context, f func(*Tx) (commit bool, er
 	var commit bool
 	defer func() { // Panic clean-up.
 		if !commit {
-			if tmpErr := tx.Rollback(ctx); tmpErr != nil && retErr == nil {
+			if tmpErr := tx.Rollback(ctx); tmpErr != nil  {
+				if retErr == nil {
 				retErr = tmpErr
+			} else {
+				logger.Errorw("failed to rollback transaction", "error", tmpErr)
 			}
 		}
 	}()

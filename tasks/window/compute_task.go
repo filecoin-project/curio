@@ -296,12 +296,12 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	)
 
 	if err != nil {
-		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %s", spID, dlIdx, partIdx, err.Error())
+		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to insert into wdpost_proofs: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 	if n != 1 {
-		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %v", spID, dlIdx, partIdx, err)
-		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
+		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to insert into wdpost_proofs: expected 1 row affected, got %d", spID, dlIdx, partIdx, n)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: expected 1 row affected, got %d", spID, dlIdx, partIdx, n)
 	}
 
 	return true, nil
