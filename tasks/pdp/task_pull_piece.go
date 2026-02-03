@@ -204,9 +204,21 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	// Create parked_pieces entry in a transaction
 	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Get the service from pdp_piece_pulls (via fetch_id)
+		var service string
+		err := tx.QueryRow(`
+			SELECT pp.service
+			FROM pdp_piece_pulls pp
+			JOIN pdp_piece_pull_items ppi ON ppi.fetch_id = pp.id
+			WHERE ppi.fetch_id = $1 AND ppi.piece_cid = $2
+		`, item.FetchID, item.PieceCid).Scan(&service)
+		if err != nil {
+			return false, xerrors.Errorf("get service from pull: %w", err)
+		}
+
 		// Create parked_pieces entry
 		var parkedPieceID int64
-		err := tx.QueryRow(`
+		err = tx.QueryRow(`
 			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
 			VALUES ($1, $2, $3, TRUE)
 			RETURNING id
@@ -216,12 +228,23 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		// Create parked_piece_refs entry with custore:// URL
-		_, err = tx.Exec(`
+		var pieceRef int64
+		err = tx.QueryRow(`
 			INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
 			VALUES ($1, $2, TRUE)
-		`, parkedPieceID, custoreURL)
+			RETURNING ref_id
+		`, parkedPieceID, custoreURL).Scan(&pieceRef)
 		if err != nil {
 			return false, xerrors.Errorf("insert parked_piece_refs: %w", err)
+		}
+
+		// Register piece with service (parallels notify_task.go for uploads)
+		_, err = tx.Exec(`
+			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at)
+			VALUES ($1, $2, $3, NOW())
+		`, service, item.PieceCid, pieceRef)
+		if err != nil {
+			return false, xerrors.Errorf("insert pdp_piecerefs: %w", err)
 		}
 
 		// Clear task_id from pull item (task is done)
