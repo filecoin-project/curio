@@ -6,10 +6,12 @@
      (without timezone). When compared to TIMESTAMPTZ, PostgreSQL assumes session timezone,
      causing incorrect comparisons if the session is not UTC. Fixed by using `NOW()` directly.
   
-  2. NULL timestamp handling: If any sector has NULL precommit_ready_at or commit_ready_at,
-     MIN(timestamp) returns NULL, and `NULL < NOW()` evaluates to NULL (not TRUE), so the
-     timeout condition never triggers. Fixed by using COALESCE to treat NULL as epoch (1970),
-     which will always trigger timeout immediately.
+  2. NULL timestamp handling: In PostgreSQL, `MIN(timestamp)` ignores NULLs and only returns  
+     NULL if *all* inputs are NULL. In that all-NULL case, the computed earliest_ready is NULL,  
+     and `NULL < NOW()` evaluates to NULL (not TRUE), so the timeout condition never triggers  
+     for batches where every precommit_ready_at or commit_ready_at is NULL. Fixed by using  
+     COALESCE to treat NULL as the epoch (1970-01-01 00:00:00+00), which makes such batches  
+     appear immediately timed out and eligible for selection.  
   
   3. Removed unused cond_fee variable from both functions.
 */

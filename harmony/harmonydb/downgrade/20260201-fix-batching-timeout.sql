@@ -1,12 +1,16 @@
--- Downgrade: Restore previous batching functions (from 20250423-remove-fee-aggregation.sql)
+-- Downgrade: Restore previous batching functions
+-- commit function from 20250811-fix-commit-batching.sql
+-- precommit function from 20250423-remove-fee-aggregation.sql
 
 CREATE OR REPLACE FUNCTION poll_start_batch_commit_msgs(
-    p_slack_epoch    BIGINT,
-    p_current_height BIGINT,
-    p_max_batch      INT,
-    p_new_task_id    BIGINT,
-    p_timeout_secs   INT
+    p_slack_epoch    BIGINT,  -- "Slack" epoch offset
+    p_current_height BIGINT,  -- Current on-chain height
+    p_max_batch      INT,     -- Max sectors per batch
+    p_new_task_id    BIGINT,  -- Task ID to set for a chosen batch
+    p_timeout_secs   INT      -- If earliest_ready + this > now(), condition is met
 )
+-- We return a TABLE of (updated_count BIGINT, reason TEXT),
+-- but in practice it will yield exactly one row.
 RETURNS TABLE (
     updated_count BIGINT,
     reason        TEXT
@@ -19,10 +23,22 @@ batch_rec RECORD;
     cond_timeout BOOLEAN;
     cond_fee     BOOLEAN;
 BEGIN
+    -- Default outputs if we never find a batch
     updated_count := 0;
     reason        := 'NONE';
-
-    FOR batch_rec IN
+    /*
+      Single query logic:
+        (1) Select the rows that need commit assignment.
+        (2) Partition them by (sp_id, reg_seal_proof), using ROW_NUMBER() to break
+            them into sub-batches of size p_max_batch.
+        (3) GROUP those sub-batches to get:
+            - batch_start_epoch = min(start_epoch)
+            - earliest_ready_at = min(commit_ready_at)
+            - sector_nums = array of sector_number
+        (4) Loop over results, check conditions, update if found, return count.
+        (5) If we finish the loop, return 0.
+    */
+FOR batch_rec IN
         WITH initial AS (
             SELECT
                 sp_id,
@@ -76,33 +92,37 @@ BEGIN
             batch_start_epoch,
             earliest_ready_at
         FROM grouped
-    LOOP
+        LOOP
+             -- Evaluate conditions separately so we can pick a 'reason' if triggered.
             cond_slack   := ((batch_rec.batch_start_epoch - p_slack_epoch) <= p_current_height);
-            cond_timeout := (NOW() >= (batch_rec.earliest_ready_at + MAKE_INTERVAL(secs => p_timeout_secs)));
+            cond_timeout := ((batch_rec.earliest_ready_at + MAKE_INTERVAL(secs => p_timeout_secs)) < NOW() AT TIME ZONE 'UTC');
 
-        IF (cond_slack OR cond_timeout OR cond_fee) THEN
-            IF cond_slack THEN
-                reason := 'SLACK (min start epoch: ' || batch_rec.batch_start_epoch || ')';
-            ELSIF cond_timeout THEN
-                reason := 'TIMEOUT (earliest_ready_at: ' || batch_rec.earliest_ready_at || ')';
+            IF (cond_slack OR cond_timeout OR cond_fee) THEN
+                -- If multiple conditions are true, pick an order of precedence.
+                IF cond_slack THEN
+                    reason := 'SLACK (min start epoch: ' || batch_rec.batch_start_epoch || ')';
+                ELSIF cond_timeout THEN
+                    reason := 'TIMEOUT (earliest_ready_at: ' || batch_rec.earliest_ready_at || ')';
+                END IF;
+
+                    -- Perform the update
+                UPDATE sectors_sdr_pipeline t
+                SET task_id_commit_msg = p_new_task_id
+                WHERE t.sp_id         = batch_rec.sp_id
+                  AND t.reg_seal_proof = batch_rec.reg_seal_proof
+                  AND t.sector_number = ANY(batch_rec.sector_nums)
+                  AND t.after_porep = TRUE
+                  AND t.task_id_commit_msg IS NULL
+                  AND t.after_commit_msg = FALSE;
+
+                GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+                RETURN NEXT;
+                RETURN;  -- Return immediately with updated_count and reason
             END IF;
+        END LOOP;
 
-            UPDATE sectors_sdr_pipeline t
-            SET task_id_commit_msg = p_new_task_id
-            WHERE t.sp_id         = batch_rec.sp_id
-              AND t.reg_seal_proof = batch_rec.reg_seal_proof
-              AND t.sector_number = ANY(batch_rec.sector_nums)
-              AND t.after_porep = TRUE
-              AND t.task_id_commit_msg IS NULL
-              AND t.after_commit_msg = FALSE;
-
-            GET DIAGNOSTICS updated_count = ROW_COUNT;
-
-            RETURN NEXT;
-            RETURN;
-        END IF;
-    END LOOP;
-
+    -- If we finish the loop with no triggered condition, we return updated_count=0, reason='NONE'
     RETURN NEXT;
     RETURN;
 END;
