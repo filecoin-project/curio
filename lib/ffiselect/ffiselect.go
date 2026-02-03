@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -32,6 +33,8 @@ func WithLogCtx(ctx context.Context, kvs ...any) context.Context {
 	return context.WithValue(ctx, logCtxKey, kvs)
 }
 
+var logger = logging.Logger("ffiselect")
+
 var IsTest = false
 var IsCuda = build.IsOpencl != "1"
 
@@ -48,6 +51,10 @@ func getDeviceOrdinal() int {
 		if w > max {
 			max, maxIdx = w, i
 		}
+	}
+	if max == 0 {
+		logger.Errorf("no GPUs available. Something went wrong in the scheduler.")
+		return -1
 	}
 	gpuSlots[maxIdx]--
 	return maxIdx
@@ -94,6 +101,10 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 		gpuSlots[dOrdinal]++
 		gpuSlotsMx.Unlock()
 	}()
+
+	if dOrdinal == -1 {
+		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
+	}
 
 	p, err := os.Executable()
 	if err != nil {
