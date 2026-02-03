@@ -8,6 +8,7 @@ BEGIN
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE p.proname = 'process_piece_deal'
+        AND n.nspname = current_schema()
     LOOP
         EXECUTE format('DROP FUNCTION %s;', r.sig);
     END LOOP;
