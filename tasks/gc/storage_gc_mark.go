@@ -249,7 +249,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 										tag.Upsert(MinerTag, maddr.String()),
 										tag.Upsert(FileTypeTag, fmt.Sprint(filetype)),
 									}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
-										log.Errorf("Error saving stat: %v", err)
+										log.Errorf("recording metric: %v", err)
 									}
 								}
 							}
@@ -305,7 +305,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 						tag.Upsert(MinerTag, maddr.String()),
 						tag.Upsert(FileTypeTag, "1"), // FTUnsealed
 					}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
-						log.Errorf("Error logging stat: %v", err)
+						log.Errorf("recording metric: %v", err)
 					}
 				}
 			}
@@ -450,7 +450,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 							tag.Upsert(MinerTag, maddr.String()),
 							tag.Upsert(FileTypeTag, fmt.Sprint(storiface.FTSealed)),
 						}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
-							log.Errorf("Error logging stat: %v", err)
+							log.Errorf("recording metric: %v", err)
 						}
 					}
 				}
