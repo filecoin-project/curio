@@ -249,10 +249,10 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	if challengeEpoch.Int64() > int64(ts.Height()) {
-		log.Infow("challenge epoch is in the future, resetting to init",
+		log.Infow("challenge epoch is in the future, resetting to next proving period",
 			"dataSetId", dataSetId, "challengeEpoch", challengeEpoch, "currentHeight", ts.Height())
-		if err := ResetDatasetToInit(ctx, p.db, dataSetId); err != nil {
-			return false, xerrors.Errorf("failed to reset to init: %w", err)
+		if err := ResetDatasetToNextPP(ctx, p.db, dataSetId); err != nil {
+			return false, xerrors.Errorf("failed to reset to next proving period: %w", err)
 		}
 		return true, nil
 	}
