@@ -201,7 +201,7 @@ Once all the dependencies are installed, you can build and install Curio.
 
     If you want to use OpenCL instead of CUDA (e.g., for AMD GPUs or systems without CUDA), build with:
     ```bash
-    make FFI_USE_OPENCL=1 build
+    FFI_USE_OPENCL=1 make clean build
     ```
     {% endhint %}
 

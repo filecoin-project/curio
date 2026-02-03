@@ -43,7 +43,7 @@ CLEAN+=build/.filecoin-install
 ## By default, requires CUDA on Linux. Set FFI_USE_OPENCL=1 to build with OpenCL instead.
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
-	@if [ "$$(uname)" = "Linux" ] && [ -z "$(FFI_USE_OPENCL)" ] && ! command -v nvcc >/dev/null 2>&1; then \
+	@if [ "$$(uname)" = "Linux" ] && [ "$(FFI_USE_OPENCL)" != "1" ] && ! command -v nvcc >/dev/null 2>&1; then \
 		echo ""; \
 		echo "ERROR: nvcc not found but CUDA build is required for Curio on Linux."; \
 		echo ""; \
