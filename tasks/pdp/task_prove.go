@@ -235,22 +235,34 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return true, nil
 	}
 
-	// Check if challengeEpoch is in the future
-	// This can happen when Curio has been down and the local database state is out of sync with the chain.
-	// The database may have an old prove_at_epoch, but GetNextChallengeEpoch returns the next proving window
-	// which has rolled forward past the missed window.
+	// Check if the proving deadline has passed
+	// This can happen when Curio has been down and missed the proving window.
 	ts := p.head.Load()
 	if ts == nil {
-		// Try to get current head
 		ts, err = p.fil.ChainHead(ctx)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get chain head: %w", err)
 		}
 	}
 
-	if challengeEpoch.Int64() > int64(ts.Height()) {
-		log.Infow("challenge epoch is in the future, resetting to next proving period",
-			"dataSetId", dataSetId, "challengeEpoch", challengeEpoch, "currentHeight", ts.Height())
+	listenerAddr, err := pdpVerifier.GetDataSetListener(callOpts, big.NewInt(dataSetId))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get listener address: %w", err)
+	}
+
+	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, p.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get proving schedule: %w", err)
+	}
+
+	deadline, err := provingSchedule.ProvingDeadline(callOpts, big.NewInt(dataSetId))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get proving deadline: %w", err)
+	}
+
+	if deadline.Int64() <= int64(ts.Height()) {
+		log.Infow("proving deadline has passed, resetting to next proving period",
+			"dataSetId", dataSetId, "deadline", deadline, "currentHeight", ts.Height())
 		if err := ResetDatasetToNextPP(ctx, p.db, dataSetId); err != nil {
 			return false, xerrors.Errorf("failed to reset to next proving period: %w", err)
 		}
