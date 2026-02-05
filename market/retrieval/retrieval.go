@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"path"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -256,7 +258,7 @@ func Router(mux *chi.Mux, rp *Provider) {
 }
 
 func handleInfo(rw http.ResponseWriter, r *http.Request) {
-	const infoOut = `{"Version":"0.4.0", "Server": "Curio/0.0.0"}`
+	infoOut := fmt.Sprintf(`{"Version":"0.4.0", "Server": "Curio/%s"}`, build.BuildVersion)
 
 	_, _ = rw.Write([]byte(infoOut))
 }
