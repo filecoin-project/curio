@@ -141,29 +141,6 @@ func ResetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64
      return nil
 }
 
-// ResetDatasetToNextPP clears the current task lock so that NextProvingPeriodTask
-// picks up the dataset on its next chain handler pass. This is the appropriate
-// recovery path for datasets that have an established proving cadence but missed
-// their proving window (e.g. challengeEpoch is in the future after downtime).
-// NextPP calls NextPDPChallengeWindowStart on the contract, which advances the
-// deadline in whole-period increments from the original cadence rather than
-// re-initializing.
-// If NextPP discovers the on-chain state is actually uninitialized, it will call
-// ResetDatasetToInitPP itself.
-func ResetDatasetToNextPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
-     log.Infow("resetting dataset to next proving period state", "dataSetId", dataSetId)
-     _, err := db.Exec(ctx, `
-             UPDATE pdp_data_sets
-             SET challenge_request_task_id = NULL,
-                     challenge_request_msg_hash = NULL
-             WHERE id = $1
-     `, dataSetId)
-     if err != nil {
-             return xerrors.Errorf("failed to reset dataset to next-pp state: %w", err)
-     }
-     return nil
-}
-
 // HandleProvingSendError processes errors from sender.Send() calls in proving tasks.
 // It implements three-tier error handling:
 //   - Tier 1: Known termination errors, mark terminated immediately

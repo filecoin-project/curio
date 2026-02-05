@@ -31,7 +31,7 @@ var (
 
 // IPDPProvingScheduleMetaData contains all meta data concerning the IPDPProvingSchedule contract.
 var IPDPProvingScheduleMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"function\",\"name\":\"getPDPConfig\",\"inputs\":[],\"outputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"challengeWindow\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengesPerProof\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"initChallengeWindowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextPDPChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"provingDeadline\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
+	ABI: "[{\"type\":\"function\",\"name\":\"getPDPConfig\",\"inputs\":[],\"outputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"challengeWindow\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengesPerProof\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"initChallengeWindowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextPDPChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
 }
 
 // IPDPProvingScheduleABI is the input ABI used to generate the binding from.
@@ -264,35 +264,4 @@ func (_IPDPProvingSchedule *IPDPProvingScheduleSession) NextPDPChallengeWindowSt
 // Solidity: function nextPDPChallengeWindowStart(uint256 setId) view returns(uint256)
 func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) NextPDPChallengeWindowStart(setId *big.Int) (*big.Int, error) {
 	return _IPDPProvingSchedule.Contract.NextPDPChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
-}
-
-// ProvingDeadline is a free data retrieval call binding the contract method 0x149ac5cc.
-//
-// Solidity: function provingDeadline(uint256 setId) view returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) ProvingDeadline(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
-	var out []interface{}
-	err := _IPDPProvingSchedule.contract.Call(opts, &out, "provingDeadline", setId)
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// ProvingDeadline is a free data retrieval call binding the contract method 0x149ac5cc.
-//
-// Solidity: function provingDeadline(uint256 setId) view returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleSession) ProvingDeadline(setId *big.Int) (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.ProvingDeadline(&_IPDPProvingSchedule.CallOpts, setId)
-}
-
-// ProvingDeadline is a free data retrieval call binding the contract method 0x149ac5cc.
-//
-// Solidity: function provingDeadline(uint256 setId) view returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) ProvingDeadline(setId *big.Int) (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.ProvingDeadline(&_IPDPProvingSchedule.CallOpts, setId)
 }
