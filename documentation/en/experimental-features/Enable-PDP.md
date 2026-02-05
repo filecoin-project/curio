@@ -18,6 +18,8 @@ It’s important to note that while PDP is a supporting element of efficient ret
 
 You can read more about PDP [here](https://medium.com/@filoz/the-pdp-journey-an-in-depth-look-at-how-pdp-works-4b6079f4baad).
 
+For a detailed design document describing Curio's PDP subsystems, see the [PDP in Curio Spec](PDPCURIOSPEC.md).
+
 ## PDP Provider Setup
 
 ### Existing Curio cluster (Filecoin PoRep)
