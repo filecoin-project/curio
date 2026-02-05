@@ -128,7 +128,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 					return false, nil
 				}
 
-				// Update pdp_data_sets to set next_challenge_possible = FALSE
+				// Update pdp_data_sets to prevent scheduling more prove tasks for this data set. 
 				affected, err = tx.Exec(`
                     UPDATE pdp_data_sets
                     SET challenge_request_msg_hash = NULL
