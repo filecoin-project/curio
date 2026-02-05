@@ -126,8 +126,8 @@ func ResetProvingFailures(ctx context.Context, db *harmonydb.DB, dataSetId int64
 // only valid for first-time initialization. For datasets that have an established
 // proving cadence but missed a window, use ResetDatasetToNextPP instead.
 func ResetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
-     log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
-     _, err := db.Exec(ctx, `
+	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
+	_, err := db.Exec(ctx, `
              UPDATE pdp_data_sets
              SET challenge_request_msg_hash = NULL,
                      prove_at_epoch = NULL,
@@ -135,10 +135,10 @@ func ResetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64
                      prev_challenge_request_epoch = NULL
              WHERE id = $1
      `, dataSetId)
-     if err != nil {
-             return xerrors.Errorf("failed to reset dataset to init state: %w", err)
-     }
-     return nil
+	if err != nil {
+		return xerrors.Errorf("failed to reset dataset to init state: %w", err)
+	}
+	return nil
 }
 
 // HandleProvingSendError processes errors from sender.Send() calls in proving tasks.

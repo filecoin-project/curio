@@ -128,7 +128,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 					return false, nil
 				}
 
-				// Update pdp_data_sets to prevent scheduling more prove tasks for this data set. 
+				// Update pdp_data_sets to prevent scheduling more prove tasks for this data set.
 				affected, err = tx.Exec(`
                     UPDATE pdp_data_sets
                     SET challenge_request_msg_hash = NULL
@@ -209,7 +209,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}()
 
 	// Handle late task
-	// Prove task can wake up and execute Do() outside of its proving window 
+	// Prove task can wake up and execute Do() outside of its proving window
 	// Quickly finish these tasks with no proof submission and no error
 	ts := p.head.Load()
 	if ts == nil {
@@ -231,7 +231,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 	// Missed challenge window but next_proving_period not yet run.
 	// Noop and wait for next_proving_period task scheduling.
-	if prove_at_epoch + challenge_window < int64(ts.Height()) {
+	if prove_at_epoch+challenge_window < int64(ts.Height()) {
 		log.Errorf("Prove task awoke too late, proving period skipped")
 		return true, nil
 	}
