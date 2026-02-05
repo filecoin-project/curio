@@ -208,6 +208,40 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 	}()
 
+	// Handle late task
+	// Prove task can wake up and execute Do() outside of its proving window 
+	// Quickly finish these tasks with no proof submission and no error
+	ts := p.head.Load()
+	if ts == nil {
+		ts, err = p.fil.ChainHead(ctx)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get chain head: %w", err)
+		}
+	}
+
+	var prove_at_epoch int64
+	var challenge_window int64
+	err = p.db.QueryRow(ctx, `
+	SELECT prove_at_epoch, challenge_window
+	FROM pdp_data_sets
+	WHERE id = $1
+	`, dataSetId).Scan(&prove_at_epoch, &challenge_window)
+	if err != nil {
+		return false, xerrors.Errorf("failed to check task timeliness: %w", err)
+	}
+	// Missed challenge window but next_proving_period not yet run.
+	// Noop and wait for next_proving_period task scheduling.
+	if prove_at_epoch + challenge_window < int64(ts.Height()) {
+		log.Errorf("Prove task awoke too late, proving period skipped")
+		return true, nil
+	}
+	// Missed challenge window and next_proving_period already reset.
+	// Noop and wait for prove task scheduling.
+	if prove_at_epoch > int64(ts.Height()) {
+		log.Errorf("Prove task awoke too late, proving period skipped")
+		return true, nil
+	}
+
 	pdpContracts := contract.ContractAddresses()
 	pdpVerifierAddress := pdpContracts.PDPVerifier
 
@@ -231,40 +265,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		err = p.disableProving(ctx, dataSetId)
 		if err != nil {
 			return false, xerrors.Errorf("failed to disable proving (caused by no challenge epoch): %w", err)
-		}
-		return true, nil
-	}
-
-	// Check if the proving deadline has passed
-	// This can happen when Curio has been down and missed the proving window.
-	ts := p.head.Load()
-	if ts == nil {
-		ts, err = p.fil.ChainHead(ctx)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get chain head: %w", err)
-		}
-	}
-
-	listenerAddr, err := pdpVerifier.GetDataSetListener(callOpts, big.NewInt(dataSetId))
-	if err != nil {
-		return false, xerrors.Errorf("failed to get listener address: %w", err)
-	}
-
-	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, p.ethClient)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get proving schedule: %w", err)
-	}
-
-	deadline, err := provingSchedule.ProvingDeadline(callOpts, big.NewInt(dataSetId))
-	if err != nil {
-		return false, xerrors.Errorf("failed to get proving deadline: %w", err)
-	}
-
-	if deadline.Int64() <= int64(ts.Height()) {
-		log.Infow("proving deadline has passed, resetting to next proving period",
-			"dataSetId", dataSetId, "deadline", deadline, "currentHeight", ts.Height())
-		if err := ResetDatasetToNextPP(ctx, p.db, dataSetId); err != nil {
-			return false, xerrors.Errorf("failed to reset to next proving period: %w", err)
 		}
 		return true, nil
 	}
