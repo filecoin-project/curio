@@ -106,8 +106,14 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 
 		contains := lo.Contains(removals, big.NewInt(piece.PieceID))
 		if !contains {
-			// Huston! we have a serious problem
-			return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
+			// Check for the case where next proving period has run and piece deletions fully processed
+			live, err := verifier.PieceLive(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
+			if err != nil {
+				return xerrors.Errorf("failed to check if piece is live: %w", err)
+			}
+			if live {
+				return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
+			}
 		}
 		log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 
