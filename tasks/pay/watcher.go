@@ -28,9 +28,13 @@ type settled struct {
 }
 
 type mwe struct {
-	Hash    string `db:"signed_tx_hash"`
-	Status  string `db:"tx_status"`
-	Success bool   `db:"tx_success"`
+	Hash   string `db:"signed_tx_hash"`
+	Status string `db:"tx_status"`
+	// tx_success is NULL for pending rows, set to true/false only on
+	// confirmed/failed. Pointer type is required so the scanner can handle
+	// NULL; by the time we check this field we've already filtered to
+	// confirmed rows where it will be non-nil.
+	Success *bool `db:"tx_success"`
 }
 
 func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
@@ -82,10 +86,12 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 			delete(goodSettles, mwe.Hash)
 			continue
 		}
-		// Note that settlement errors are not expected in any circumstances. Any
-		// settlement failure logs should be investigated and prioritize proper
-		// settlement handling: https://github.com/filecoin-project/curio/issues/897
-		if !mwe.Success {
+		// Confirmed rows should always have tx_success set, so the nil check
+		// is defensive. Settlement errors are not expected in any circumstances;
+		// any settlement failure logs should be investigated and prioritize
+		// proper settlement handling:
+		// https://github.com/filecoin-project/curio/issues/897
+		if mwe.Success == nil || !*mwe.Success {
 			delete(goodSettles, mwe.Hash)
 			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
 			_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, mwe.Hash)
