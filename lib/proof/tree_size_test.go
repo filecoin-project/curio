@@ -21,14 +21,14 @@ func TestComputeTotalNodes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		treeInfo := computeTreeSize(tt.leaves, tt.arity)
-		if treeInfo.NodeCount != tt.wantTotal {
-			t.Errorf("computeTotalNodes(%d, %d): total=%d, want %d", tt.leaves, tt.arity, treeInfo.NodeCount, tt.wantTotal)
+		treeSize := computeTreeSize(tt.leaves, tt.arity)
+		if treeSize.NodeCount != tt.wantTotal {
+			t.Errorf("computeTotalNodes(%d, %d): total=%d, want %d", tt.leaves, tt.arity, treeSize.NodeCount, tt.wantTotal)
 		}
-		if len(treeInfo.LevelSizes) != tt.wantLevels {
-			t.Errorf("computeTotalNodes(%d, %d): levels=%d, want %d", tt.leaves, tt.arity, len(treeInfo.LevelSizes), tt.wantLevels)
+		if len(treeSize.LevelSizes) != tt.wantLevels {
+			t.Errorf("computeTotalNodes(%d, %d): levels=%d, want %d", tt.leaves, tt.arity, len(treeSize.LevelSizes), tt.wantLevels)
 		}
-		if treeInfo.LevelSizes[len(treeInfo.LevelSizes)-1] != 1 {
+		if treeSize.LevelSizes[len(treeSize.LevelSizes)-1] != 1 {
 			t.Errorf("computeTotalNodes(%d, %d): root != 1", tt.leaves, tt.arity)
 		}
 	}
