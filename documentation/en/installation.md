@@ -53,9 +53,9 @@ You will need the following software installed to install and run Curio.
 Building Curio requires some system dependencies, usually provided by your distribution.
 
 {% hint style="warning" %}
-**Note (Supraseal now builds by default on Linux):** Curio’s Linux build chain now always builds `extern/supraseal` as part of the normal `make deps/build` flow. This means **building Curio on Linux requires Supraseal build dependencies**, including:
+**Note (batch sealing now builds by default on Linux):** Curio’s Linux build chain now always builds `extern/supraseal` as part of the normal `make deps/build` flow. This means **building Curio on Linux requires batch sealing build dependencies**, including:
 
-- CUDA Toolkit **13.x or newer** (needs `nvcc`, even if you won’t run Supraseal at runtime)
+- CUDA Toolkit **13.x or newer** (needs `nvcc`, even if you won’t run batch sealing at runtime)
 - GCC **13** toolchain (`gcc-13` / `g++-13`)
 - Python venv tooling (`python3-venv`) and common build tools (`autoconf`, `automake`, `libtool`, `nasm`, `xxd`, etc.)
 
@@ -70,7 +70,7 @@ Arch:
 
 ```shell
 sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
-# For Supraseal builds (SnapDeals fast TreeR / batch sealing toolchain):
+# For batch sealing builds (SnapDeals fast TreeR / batch sealing toolchain):
 sudo pacman -Syu cuda
 # GCC 13 may be required depending on your supraseal version; install via your distro/AUR as appropriate.
 ```
@@ -90,7 +90,7 @@ sudo apt install -y \
   libgmp-dev libconfig++-dev \
   && sudo apt upgrade -y
 
-# CUDA Toolkit (Supraseal build requirement; needs nvcc)
+# CUDA Toolkit (batch sealing build requirement; needs nvcc)
 # Install via NVIDIA’s CUDA repository packages for your distro, or use `cuda-toolkit` packages if available.
 ```
 

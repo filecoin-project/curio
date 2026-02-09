@@ -32,7 +32,7 @@ Data can be ingested using either the Snap Deals pipeline or the PoRep pipeline 
 
 ## FastSnap (SnapDeals UpdateEncode acceleration)
 
-Curio’s SnapDeals `UpdateEncode` path has a **fast mode** (“fastsnap”) that uses Supraseal to accelerate TreeR generation and uses Curio-native snap encoding.
+Curio’s SnapDeals `UpdateEncode` path has a **fast mode** (“fastsnap”) that uses the batch sealing CUDA toolchain (`extern/supraseal`) to accelerate TreeR generation and uses Curio-native snap encoding.
 
 - **Capability check**: run
 
@@ -49,7 +49,7 @@ Look for **“Can run fast TreeR: yes”**.
 export DISABLE_SUPRA_TREE_R=1
 ```
 
-This forces the CPU fallback TreeR path (useful to isolate Supraseal/toolchain issues).
+This forces the CPU fallback TreeR path (useful to isolate batch sealing/toolchain issues).
 
 ### Configuration
 

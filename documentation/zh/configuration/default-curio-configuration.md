@@ -394,7 +394,7 @@ description: The default curio configuration
   # type: string
   #BatchSealSectorSize = "32GiB"
 
-  # 密封批次中的扇区数量。取决于硬件和 supraseal 配置。
+  # 密封批次中的扇区数量。取决于硬件和批量封装（batch sealing）配置。
   #
   # type: int
   #BatchSealBatchSize = 32
