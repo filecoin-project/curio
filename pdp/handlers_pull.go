@@ -67,7 +67,7 @@ type ParkedPieceEntry struct {
 type PullPiece struct {
 	CidV1      cid.Cid
 	RawSize    uint64
-	SourceURL  string // external SP URL to fetch from
+	SourceURL  string // external SP URL to pull from
 	Failed     bool   // true if piece permanently failed
 	FailReason string // error message when failed
 }
@@ -80,21 +80,21 @@ type PullItemStatus struct {
 	Failed     bool   // true if piece permanently failed
 }
 
-// PullStore abstracts database operations for the fetch handler
+// PullStore abstracts database operations for the pull handler
 type PullStore interface {
 	// GetPullByKey retrieves a pull record by its idempotency key
 	GetPullByKey(ctx context.Context, service string, hash []byte, dataSetId uint64, recordKeeper string) (*PullRecord, error)
 
 	// CreatePullWithPieces creates a pull record and its associated piece items in a transaction
-	// Returns the created fetch ID
-	CreatePullWithPieces(ctx context.Context, fetch *PullRecord, pieces []PullPiece) (int64, error)
+	// Returns the created pull ID
+	CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, error)
 
 	// GetPieceStatuses retrieves the status of multiple pieces from parked_pieces (keyed by v1 CID string)
 	// This checks if pieces have been successfully stored (complete=true)
 	GetPieceStatuses(ctx context.Context, pieceCids []cid.Cid) (map[string]*PieceStatus, error)
 
 	// GetPullItemStatuses retrieves the status of pull items (keyed by v1 CID string)
-	// This checks the fetch task state (task_id, failed)
+	// This checks the pull task state (task_id, failed)
 	GetPullItemStatuses(ctx context.Context, pullID int64, pieceCids []cid.Cid) (map[string]*PullItemStatus, error)
 
 	// GetPullPieces retrieves all pieces associated with a pull record (includes failure info)
@@ -206,7 +206,7 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //
 // # Overview
 //
-// This endpoint allows a client to request that pieces be fetched from other storage
+// This endpoint allows a client to request that pieces be pulled from other storage
 // providers and stored locally. It is designed for scenarios where data already exists
 // on one SP and needs to be replicated to another, without requiring the client to
 // re-upload the data.
@@ -226,7 +226,7 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //     will receive callbacks from PDPVerifier (typically FilecoinWarmStorageService).
 //     Must be in the allowed list for public services.
 //
-//   - pieces (required): Array of pieces to fetch, each containing:
+//   - pieces (required): Array of pieces to pull, each containing:
 //
 //   - pieceCid: PieceCIDv2 format (encodes both CommP and raw size)
 //
@@ -244,7 +244,7 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 //
 //  2. Idempotency key: Combined with service, dataSetId, and recordKeeper, a hash of
 //     extraData forms the idempotency key. Repeated requests with the same key return
-//     the status of the existing fetch rather than creating duplicates.
+//     the status of the existing pull rather than creating duplicates.
 //
 // The extraData used here does NOT need to match the extraData used in the subsequent
 // addPieces call to the contract. This allows for a two-phase flow where:
@@ -374,7 +374,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	// If we've seen this request before, return current status
 	existingPull, err := h.store.GetPullByKey(ctx, service, extraDataHash[:], dataSetId, recordKeeperStr)
 	if err != nil {
-		log.Errorw("failed to check fetch idempotency", "error", err)
+		log.Errorw("failed to check pull idempotency", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
@@ -448,7 +448,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 
 // respondWithStatus queries piece statuses and returns a JSON response
 func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWriter, pullID int64) {
-	// Get pieces for this fetch
+	// Get pieces for this pull
 	pieces, err := h.store.GetPullPieces(ctx, pullID)
 	if err != nil {
 		log.Errorw("failed to get pull pieces", "error", err)
@@ -471,7 +471,7 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 	}
 
 	// Get pull item statuses (keyed by v1 CID string)
-	fetchItemStatuses, err := h.store.GetPullItemStatuses(ctx, pullID, cidV1s)
+	pullItemStatuses, err := h.store.GetPullItemStatuses(ctx, pullID, cidV1s)
 	if err != nil {
 		log.Errorw("failed to get pull item statuses", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -486,7 +486,7 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 	for i, piece := range pieces {
 		// Determine status based on pull item and parked piece state
 		cidV1Str := piece.CidV1.String()
-		status := h.determinePieceStatus(ctx, pullID, piece, fetchItemStatuses[cidV1Str], pieceStatuses[cidV1Str])
+		status := h.determinePieceStatus(ctx, pullID, piece, pullItemStatuses[cidV1Str], pieceStatuses[cidV1Str])
 
 		// Reconstruct v2 CID for API response
 		cidV2, err := commcid.PieceCidV2FromV1(piece.CidV1, piece.RawSize)
@@ -514,14 +514,14 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 //
 // Status priority:
 // 1. Check pull item failed flag: if true, return failed
-// 2. Check pull item task_id: if not null, the fetch task is running
+// 2. Check pull item task_id: if not null, the pull task is running
 // 3. Check parked_pieces complete: if true, return complete
 // 4. Check parked_pieces task_id: if not null, StorePiece is running
-// 5. Otherwise return pending (waiting for fetch task to pick up)
+// 5. Otherwise return pending (waiting for pull task to pick up)
 func (h *PullHandler) determinePieceStatus(ctx context.Context, pullID int64, piece PullPiece, fis *PullItemStatus, ps *PieceStatus) PullStatus {
 	cidV1Str := piece.CidV1.String()
 
-	// Already marked failed in fetch_items (from PullPiece struct)
+	// Already marked failed in pull_items (from PullPiece struct)
 	if piece.Failed {
 		return PullStatusFailed
 	}
@@ -558,7 +558,7 @@ func (h *PullHandler) determinePieceStatus(ctx context.Context, pullID int64, pi
 			}
 
 			// Task deleted but not due to exhausted retries, mark as failed
-			if err := h.store.MarkPieceFailed(ctx, pullID, cidV1Str, "fetch task orphaned without failure record"); err != nil {
+			if err := h.store.MarkPieceFailed(ctx, pullID, cidV1Str, "pull task orphaned without failure record"); err != nil {
 				log.Errorw("failed to mark piece as failed", "error", err, "pieceCid", cidV1Str)
 			}
 			return PullStatusFailed
@@ -608,7 +608,7 @@ func (h *PullHandler) determinePieceStatus(ctx context.Context, pullID int64, pi
 		return PullStatusInProgress
 	}
 
-	// No parked_pieces yet, waiting for fetch task to pick up
+	// No parked_pieces yet, waiting for pull task to pick up
 	return PullStatusPending
 }
 
@@ -637,7 +637,7 @@ func (s *dbPullStore) GetPullByKey(ctx context.Context, service string, hash []b
 		WHERE service = $1 AND extra_data_hash = $2 AND data_set_id = $3 AND record_keeper = $4
 	`, service, hash, dataSetId, recordKeeper)
 	if err != nil {
-		return nil, fmt.Errorf("query fetch by key: %w", err)
+		return nil, fmt.Errorf("query pull by key: %w", err)
 	}
 
 	if len(records) == 0 {
@@ -653,7 +653,7 @@ func (s *dbPullStore) GetPullByKey(ctx context.Context, service string, hash []b
 	}, nil
 }
 
-func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, fetch *PullRecord, pieces []PullPiece) (int64, error) {
+func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, error) {
 	var pullID int64
 
 	_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -662,9 +662,9 @@ func (s *dbPullStore) CreatePullWithPieces(ctx context.Context, fetch *PullRecor
 			INSERT INTO pdp_piece_pulls (service, extra_data_hash, data_set_id, record_keeper)
 			VALUES ($1, $2, $3, $4)
 			RETURNING id
-		`, fetch.Service, fetch.ExtraDataHash, fetch.DataSetId, fetch.RecordKeeper).Scan(&pullID)
+		`, pull.Service, pull.ExtraDataHash, pull.DataSetId, pull.RecordKeeper).Scan(&pullID)
 		if err != nil {
-			return false, fmt.Errorf("insert fetch: %w", err)
+			return false, fmt.Errorf("insert pull: %w", err)
 		}
 
 		// Insert piece items with raw size and source_url for task to pick up

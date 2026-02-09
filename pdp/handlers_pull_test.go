@@ -27,12 +27,12 @@ type mockPullStore struct {
 	exhaustedTasks map[int64]string // taskID -> error reason (for CheckTaskExhaustedRetries)
 
 	// Tracking calls
-	createFetchCalled         bool
-	createdFetch              *PullRecord
+	createPullCalled          bool
+	createdPull               *PullRecord
 	createdPieces             []PullPiece // v1 CID + raw size + source_url
 	getStatusesCalled         bool
 	getPullItemStatusesCalled bool
-	getFetchPiecesCalled      bool
+	getPullPiecesCalled       bool
 	lastCreatedID             int64
 	markedFailed              map[string]string // v1 CID -> reason
 }
@@ -41,9 +41,9 @@ func (m *mockPullStore) GetPullByKey(ctx context.Context, service string, hash [
 	return m.existingPull, nil
 }
 
-func (m *mockPullStore) CreatePullWithPieces(ctx context.Context, fetch *PullRecord, pieces []PullPiece) (int64, error) {
-	m.createFetchCalled = true
-	m.createdFetch = fetch
+func (m *mockPullStore) CreatePullWithPieces(ctx context.Context, pull *PullRecord, pieces []PullPiece) (int64, error) {
+	m.createPullCalled = true
+	m.createdPull = pull
 	m.createdPieces = pieces
 	if m.createError != nil {
 		return 0, m.createError
@@ -60,7 +60,7 @@ func (m *mockPullStore) GetPieceStatuses(ctx context.Context, pieceCids []cid.Ci
 	return m.pieceStatuses, nil
 }
 
-func (m *mockPullStore) GetPullItemStatuses(ctx context.Context, fetchID int64, pieceCids []cid.Cid) (map[string]*PullItemStatus, error) {
+func (m *mockPullStore) GetPullItemStatuses(ctx context.Context, pullID int64, pieceCids []cid.Cid) (map[string]*PullItemStatus, error) {
 	m.getPullItemStatusesCalled = true
 	if m.pullItemStatuses == nil {
 		return make(map[string]*PullItemStatus), nil
@@ -68,8 +68,8 @@ func (m *mockPullStore) GetPullItemStatuses(ctx context.Context, fetchID int64, 
 	return m.pullItemStatuses, nil
 }
 
-func (m *mockPullStore) GetPullPieces(ctx context.Context, fetchID int64) ([]PullPiece, error) {
-	m.getFetchPiecesCalled = true
+func (m *mockPullStore) GetPullPieces(ctx context.Context, pullID int64) ([]PullPiece, error) {
+	m.getPullPiecesCalled = true
 	if m.pullPieces != nil {
 		return m.pullPieces, nil
 	}
@@ -77,7 +77,7 @@ func (m *mockPullStore) GetPullPieces(ctx context.Context, fetchID int64) ([]Pul
 	return m.createdPieces, nil
 }
 
-func (m *mockPullStore) MarkPieceFailed(ctx context.Context, fetchID int64, pieceCid string, reason string) error {
+func (m *mockPullStore) MarkPieceFailed(ctx context.Context, pullID int64, pieceCid string, reason string) error {
 	if m.markedFailed == nil {
 		m.markedFailed = make(map[string]string)
 	}
@@ -228,8 +228,8 @@ func TestHandlePull_ValidatorFails(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "extraData validation failed")
-	// Store should not be called when validation fails
-	require.False(t, store.createFetchCalled)
+	// Pull should not be created when validation fails
+	require.False(t, store.createPullCalled)
 }
 
 func TestHandlePull_NewRequest_Success(t *testing.T) {
@@ -254,9 +254,9 @@ func TestHandlePull_NewRequest_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify store was called
-	require.True(t, store.createFetchCalled)
-	require.NotNil(t, store.createdFetch)
-	require.Equal(t, "public", store.createdFetch.Service) // NullAuth returns "public"
+	require.True(t, store.createPullCalled)
+	require.NotNil(t, store.createdPull)
+	require.Equal(t, "public", store.createdPull.Service) // NullAuth returns "public"
 	require.Len(t, store.createdPieces, 2)
 
 	// Verify pieces include source URLs
@@ -333,10 +333,10 @@ func TestHandlePull_CreateNew_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify store was called with correct values
-	require.True(t, store.createFetchCalled)
-	require.NotNil(t, store.createdFetch)
-	require.Equal(t, uint64(0), store.createdFetch.DataSetId) // create-new uses 0
-	require.Equal(t, testRecordKeeper, store.createdFetch.RecordKeeper)
+	require.True(t, store.createPullCalled)
+	require.NotNil(t, store.createdPull)
+	require.Equal(t, uint64(0), store.createdPull.DataSetId) // create-new uses 0
+	require.Equal(t, testRecordKeeper, store.createdPull.RecordKeeper)
 }
 
 func TestHandlePull_Idempotent(t *testing.T) {
@@ -373,10 +373,10 @@ func TestHandlePull_Idempotent(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Should NOT create new fetch (idempotent - already exists)
-	require.False(t, store.createFetchCalled)
+	// Should NOT create new pull (idempotent - already exists)
+	require.False(t, store.createPullCalled)
 
-	// Should return status of existing fetch with v2 CID in response
+	// Should return status of existing pull with v2 CID in response
 	var resp PullResponse
 	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
@@ -548,8 +548,8 @@ func TestHandlePull_RetryingStatus(t *testing.T) {
 	require.Equal(t, PullStatusRetrying, resp.Pieces[0].Status)
 }
 
-func TestHandlePull_FailedFromFetchItems(t *testing.T) {
-	// Piece already marked as failed in fetch_items should show "failed" status
+func TestHandlePull_FailedFromPullItems(t *testing.T) {
+	// Piece already marked as failed in pull_items should show "failed" status
 	piece1 := testParsePieceCidV2(t, testCid1)
 
 	store := &mockPullStore{
