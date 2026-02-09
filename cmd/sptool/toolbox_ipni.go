@@ -94,7 +94,7 @@ var deletePeer = &cli.Command{
 		}
 
 		// Encode the function call
-		callData, err := parsedABI.Pack("getPeerData", int64(actorId))
+		callData, err := parsedABI.Pack("getPeerData", uint64(actorId))
 		if err != nil {
 			log.Fatalf("Failed to pack function call data: %v", err)
 		}
@@ -170,7 +170,7 @@ var deletePeer = &cli.Command{
 		}
 
 		//Encode the method call to the contract (using the pay method with UUID)
-		data, err := parsedABI.Pack("deletePeerData", int64(actorId))
+		data, err := parsedABI.Pack("deletePeerData", uint64(actorId))
 		if err != nil {
 			return xerrors.Errorf("Failed to pack the `deletePeerData()` function call: %v", err)
 		}

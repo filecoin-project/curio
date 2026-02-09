@@ -75,6 +75,7 @@ func TestTransaction(t *testing.T) {
 
 		wait <- struct{}{}
 		// sum1 is read from OUTSIDE the transaction so it's the old value
+
 		sum1, ok := <-result
 		if !ok {
 			return false, sideError

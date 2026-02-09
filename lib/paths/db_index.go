@@ -365,6 +365,16 @@ retryReportHealth:
 			stats.Record(ctx, metrics.StorageLimitUsedBytes.M(report.Stat.Used))
 			stats.Record(ctx, metrics.StorageLimitMaxBytes.M(report.Stat.Max))
 		}
+
+		// Record Curio-specific storage metrics
+		curioCtx, _ := tag.New(ctx,
+			tag.Upsert(StorageIDTag, string(id)),
+			tag.Upsert(CanSealTag, fmt.Sprint(canSeal)),
+			tag.Upsert(CanStoreTag, fmt.Sprint(canStore)),
+		)
+		stats.Record(curioCtx, StorageCapacityBytes.M(report.Stat.Capacity))
+		stats.Record(curioCtx, StorageAvailableBytes.M(report.Stat.Available))
+		stats.Record(curioCtx, StorageUsedBytes.M(report.Stat.Used))
 	}
 
 	return nil

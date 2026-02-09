@@ -75,7 +75,7 @@ sudo pacman -Syu cuda
 # GCC 13 may be required depending on your supraseal version; install via your distro/AUR as appropriate.
 ```
 
-Ubuntu/Debian:
+Ubuntu 24.04 / Debian:
 
 ```shell
 sudo apt install -y \
@@ -195,6 +195,16 @@ Once all the dependencies are installed, you can build and install Curio.
     echo 'export FFI_USE_CUDA_SUPRASEAL=1' >> ~/.bashrc
     source ~/.bashrc
     ```
+
+    {% hint style="warning" %}
+    On Linux, the Curio build **requires CUDA by default** and will fail if `nvcc` is not found in your PATH. This ensures you don't accidentally build without proper GPU support.
+
+    If you want to use OpenCL instead of CUDA (e.g., for AMD GPUs or systems without CUDA), build with:
+    ```bash
+    FFI_USE_OPENCL=1 make clean build
+    ```
+    {% endhint %}
+
 5.  Curio is compiled to operate on a single network. Choose the network you want to join, then run the corresponding command to build the Curio node:\
 
 
