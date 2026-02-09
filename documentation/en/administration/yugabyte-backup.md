@@ -25,8 +25,18 @@ Before running backups, confirm what Curio is configured to use:
 # If you run Curio with env vars
 echo "$CURIO_DB_NAME"
 
-# Or check the defaults/flags in your deployment
-curio --help | grep -E "db-name|db-host|db-port"
+# If Curio is installed on PATH, you can inspect flags/defaults
+curio --help | grep -E "db-(name|host|port)"
+```
+
+If you’re running Curio via systemd or containers, check the env/flags there:
+
+```bash
+# systemd (example)
+systemctl cat curio | sed -n '1,200p'
+
+# docker compose (example)
+docker compose config | sed -n '1,200p'
 ```
 
 ## Prerequisites
@@ -61,12 +71,18 @@ ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c -f curio_b
 ysql_dump -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -F c -f curio_backup_$(date +%Y%m%d_%H%M%S).dump
 ```
 
-#### Schema-only backup (Curio schema)
+#### Curio schema backup
 
-If you want to back up only the Curio schema (not other schemas in the DB):
+If you want to back up only Curio’s schema (and its data), not other schemas in the DB:
 
 ```bash
 ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> --schema=curio -F c -f curio_schema_$(date +%Y%m%d_%H%M%S).dump
+```
+
+If you want **schema-only (DDL only)** for Curio (no data):
+
+```bash
+ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> --schema=curio --schema-only -f curio_schema_$(date +%Y%m%d_%H%M%S).sql
 ```
 
 ### Method 2: Using ysqlsh with COPY
@@ -98,10 +114,16 @@ pg_restore -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c curio_bac
 
 #### Restore only the Curio schema
 
-If you created a schema-only dump (`--schema=curio`), restore into the existing DB:
+If you created a Curio-schema dump (`--schema=curio`), restore into the existing DB:
 
 ```bash
 pg_restore -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c curio_schema_YYYYMMDD_HHMMSS.dump
+```
+
+If you created a Curio schema-only SQL file (`--schema-only`), apply it with ysqlsh:
+
+```bash
+ysqlsh -h <yugabyte-host> -p 5433 -U <username> -d <database> -f curio_schema_YYYYMMDD_HHMMSS.sql
 ```
 
 ## Automated Backup Script (example)
@@ -158,6 +180,8 @@ Ensure your database user has sufficient privileges:
 ```sql
 GRANT ALL PRIVILEGES ON DATABASE <database> TO <username>;
 ```
+
+You may also need privileges on the `curio` schema and its objects depending on how your cluster is secured.
 
 ## Additional Resources
 
