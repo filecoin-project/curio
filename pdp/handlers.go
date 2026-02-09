@@ -1121,11 +1121,11 @@ func (p *PDPService) cleanup(ctx context.Context) {
 			}
 		}
 
-		// Clean up old piece fetch records (older than 5 days)
-		// CASCADE deletes pdp_piece_fetch_items automatically
-		_, err = db.Exec(ctx, `DELETE FROM pdp_piece_fetches WHERE created_at < NOW() - INTERVAL '5 days'`)
+		// Clean up old piece pull records (older than 5 days)
+		// CASCADE deletes pdp_piece_pull_items automatically
+		_, err = db.Exec(ctx, `DELETE FROM pdp_piece_pulls WHERE created_at < NOW() - INTERVAL '5 days'`)
 		if err != nil {
-			log.Errorw("failed to delete old piece fetch records", "error", err)
+			log.Errorw("failed to delete old piece pull records", "error", err)
 		}
 	}
 

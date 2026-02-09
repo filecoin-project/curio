@@ -17,7 +17,7 @@ import (
 // WARNING: Never enable this in production!
 var pullAllowInsecure = os.Getenv("CURIO_PULL_ALLOW_INSECURE") == "1"
 
-// PullStatus represents the status of a fetch operation or piece
+// PullStatus represents the status of a pull operation or piece
 type PullStatus string
 
 const (
@@ -32,7 +32,7 @@ const (
 var piecePathPattern = regexp.MustCompile(`/piece/([^/]+)$`)
 
 // ValidatePullSourceURL validates that a source URL is safe and properly formatted
-// for fetching a piece from another SP.
+// for pulling a piece from another SP.
 //
 // Validation rules:
 //   - Must be HTTPS
@@ -125,13 +125,13 @@ func validatePublicIP(ip net.IP) error {
 	return nil
 }
 
-// PullPieceRequest represents a single piece in a fetch request
+// PullPieceRequest represents a single piece in a pull request
 type PullPieceRequest struct {
 	PieceCid  string `json:"pieceCid"`
 	SourceURL string `json:"sourceUrl"`
 }
 
-// PullRequest represents the incoming fetch request body
+// PullRequest represents the incoming pull request body
 type PullRequest struct {
 	ExtraData    string             `json:"extraData"`
 	DataSetId    *uint64            `json:"dataSetId,omitempty"`    // nil or 0 = create new dataset
@@ -139,12 +139,12 @@ type PullRequest struct {
 	Pieces       []PullPieceRequest `json:"pieces"`
 }
 
-// IsCreateNew returns true if this fetch will create a new dataset (dataSetId is nil or 0)
+// IsCreateNew returns true if this pull will create a new dataset (dataSetId is nil or 0)
 func (r *PullRequest) IsCreateNew() bool {
 	return r.DataSetId == nil || *r.DataSetId == 0
 }
 
-// Validate performs validation on the entire fetch request
+// Validate performs validation on the entire pull request
 func (r *PullRequest) Validate() error {
 	if r.ExtraData == "" {
 		return fmt.Errorf("extraData is required")
@@ -183,7 +183,7 @@ type PullPieceStatus struct {
 	Status   PullStatus `json:"status"`
 }
 
-// PullResponse represents the response from a fetch request
+// PullResponse represents the response from a pull request
 type PullResponse struct {
 	Status PullStatus        `json:"status"`
 	Pieces []PullPieceStatus `json:"pieces"`
