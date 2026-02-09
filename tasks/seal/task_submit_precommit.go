@@ -298,7 +298,11 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		}
 	}
 
-	goodFunds := big.Add(maxFee, needFunds)
+	// For address selection, require needFunds (collateral shortfall) plus a reasonable gas buffer.
+	// We use 10% of maxFee as the buffer - this is much more realistic than requiring
+	// the full maxFee (which is a cap, not typical usage). Actual gas is verified at send time.
+	gasBuffer := big.Div(maxFee, big.NewInt(10))
+	goodFunds := big.Add(needFunds, gasBuffer)
 
 	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.PreCommitAddr, goodFunds, collateral)
 	if err != nil {

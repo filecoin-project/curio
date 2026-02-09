@@ -410,7 +410,11 @@ func (s *SubmitCommitTask) simuateCommitPerSector(ctx context.Context, maddr add
 	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(1)
 
 	collateral = s.calculateCollateral(balance, collateral)
-	goodFunds := big.Add(maxFee, collateral)
+	// For address selection, require collateral plus a reasonable gas buffer.
+	// We use 10% of maxFee as the buffer - this is much more realistic than requiring
+	// the full maxFee (which is a cap, not typical usage). Actual gas is verified at send time.
+	gasBuffer := big.Div(maxFee, big.NewInt(10))
+	goodFunds := big.Add(collateral, gasBuffer)
 	enc := new(bytes.Buffer)
 	if err := param.MarshalCBOR(enc); err != nil {
 		return xerrors.Errorf("could not serialize commit params: %w", err)
@@ -456,7 +460,11 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		aggParams.SectorProofs = nil // can't be set when aggregating
 
 		aggCollateral := s.calculateCollateral(balance, collateral)
-		goodFunds := big.Add(maxFee, aggCollateral)
+		// For address selection, require collateral plus a reasonable gas buffer.
+		// We use 10% of maxFee as the buffer - this is much more realistic than requiring
+		// the full maxFee (which is a cap, not typical usage). Actual gas is verified at send time.
+		gasBuffer := big.Div(maxFee, big.NewInt(10))
+		goodFunds := big.Add(aggCollateral, gasBuffer)
 		aggEnc := new(bytes.Buffer)
 		if err := aggParams.MarshalCBOR(aggEnc); err != nil {
 			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
@@ -471,7 +479,11 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 
 	{
 		collateral = s.calculateCollateral(balance, collateral)
-		goodFunds := big.Add(maxFee, collateral)
+		// For address selection, require collateral plus a reasonable gas buffer.
+		// We use 10% of maxFee as the buffer - this is much more realistic than requiring
+		// the full maxFee (which is a cap, not typical usage). Actual gas is verified at send time.
+		gasBuffer := big.Div(maxFee, big.NewInt(10))
+		goodFunds := big.Add(collateral, gasBuffer)
 		enc := new(bytes.Buffer)
 		if err := params.MarshalCBOR(enc); err != nil {
 			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
