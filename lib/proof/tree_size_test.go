@@ -2,35 +2,34 @@ package proof
 
 import "testing"
 
-func TestNodeLevel(t *testing.T) {
+func TestComputeTotalNodes(t *testing.T) {
 	tests := []struct {
-		leaves   int64
-		arity    int64
-		expected int
+		leaves     int64
+		arity      int64
+		wantTotal  int64
+		wantLevels int
 	}{
-		{0, 2, 0},
-		{1, 2, 1},
-		{2, 2, 2},
-		{3, 2, 3},
-		{4, 2, 3},
-		{5, 2, 4},
-		{8, 2, 4},
-		{16, 2, 5},
-		{1, 3, 1},
-		{3, 3, 2},
-		{4, 3, 3},
-		{9, 3, 3},
-		{10, 3, 4},
-		{27, 3, 4},
-		{28, 3, 5},
-		{100, 10, 3},
-		{1000, 10, 4},
+		{1, 2, 1, 1},   // Single leaf: no parents needed, 1 level
+		{2, 2, 3, 2},   // Two leaves: 1 parent, 2 levels (2+1=3)
+		{3, 2, 6, 3},   // Three leaves: rounds up to 2 parents, then 1 root (3+2+1=6)
+		{4, 2, 7, 3},   // Power of 2: perfect binary tree depth 3 (4+2+1=7)
+		{7, 2, 14, 4},  // Seven leaves: 4, 2, 1 parents at each level (7+4+2+1=14)
+		{8, 2, 15, 4},  // Power of 2: perfect binary tree depth 4 (8+4+2+1=15)
+		{3, 3, 4, 2},   // Ternary: 3 leaves fit in 1 parent (3+1=4)
+		{9, 3, 13, 3},  // Power of 3: perfect ternary tree depth 3 (9+3+1=13)
+		{27, 3, 40, 4}, // Power of 3: perfect ternary tree depth 4 (27+9+3+1=40)
 	}
 
-	for _, test := range tests {
-		result := NodeLevel(test.leaves, test.arity)
-		if result != test.expected {
-			t.Errorf("NodeLevel(%d, %d) = %d; expected %d", test.leaves, test.arity, result, test.expected)
+	for _, tt := range tests {
+		treeInfo := computeTreeSize(tt.leaves, tt.arity)
+		if treeInfo.NodeCount != tt.wantTotal {
+			t.Errorf("computeTotalNodes(%d, %d): total=%d, want %d", tt.leaves, tt.arity, treeInfo.NodeCount, tt.wantTotal)
+		}
+		if len(treeInfo.LevelSizes) != tt.wantLevels {
+			t.Errorf("computeTotalNodes(%d, %d): levels=%d, want %d", tt.leaves, tt.arity, len(treeInfo.LevelSizes), tt.wantLevels)
+		}
+		if treeInfo.LevelSizes[len(treeInfo.LevelSizes)-1] != 1 {
+			t.Errorf("computeTotalNodes(%d, %d): root != 1", tt.leaves, tt.arity)
 		}
 	}
 }

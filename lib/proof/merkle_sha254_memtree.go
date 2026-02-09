@@ -30,22 +30,22 @@ func BuildSha254Memtree(rawIn io.Reader, size abi.UnpaddedPieceSize) ([]byte, er
 	}
 
 	nLeaves := int64(size.Padded()) / NODE_SIZE
-	totalNodes, levelSizes := computeTotalNodes(nLeaves, 2)
-	memtreeBuf := pool.Get(int(totalNodes * NODE_SIZE))
+	tree := computeTreeSize(nLeaves, 2)
+	memtreeBuf := pool.Get(int(tree.NodeCount * NODE_SIZE))
 
 	fr32.Pad(unpadBuf, memtreeBuf[:size.Padded()])
 	pool.Put(unpadBuf)
 
 	d := sha256.New()
 
-	levelStarts := make([]int64, len(levelSizes))
+	levelStarts := make([]int64, len(tree.LevelSizes))
 	levelStarts[0] = 0
-	for i := 1; i < len(levelSizes); i++ {
-		levelStarts[i] = levelStarts[i-1] + levelSizes[i-1]*NODE_SIZE
+	for i := 1; i < len(tree.LevelSizes); i++ {
+		levelStarts[i] = levelStarts[i-1] + tree.LevelSizes[i-1]*NODE_SIZE
 	}
 
-	for level := 1; level < len(levelSizes); level++ {
-		levelNodes := levelSizes[level]
+	for level := 1; level < len(tree.LevelSizes); level++ {
+		levelNodes := tree.LevelSizes[level]
 		prevLevelStart := levelStarts[level-1]
 		currLevelStart := levelStarts[level]
 
@@ -80,21 +80,21 @@ func BuildSha254MemtreeFromSnapshot(data []byte) ([]byte, error) {
 	}
 
 	nLeaves := int64(size) / NODE_SIZE
-	totalNodes, levelSizes := computeTotalNodes(nLeaves, 2)
-	memtreeBuf := pool.Get(int(totalNodes * NODE_SIZE))
+	tree := computeTreeSize(nLeaves, 2)
+	memtreeBuf := pool.Get(int(tree.NodeCount * NODE_SIZE))
 
 	copy(memtreeBuf[:len(data)], data)
 
 	d := sha256.New()
 
-	levelStarts := make([]int64, len(levelSizes))
+	levelStarts := make([]int64, len(tree.LevelSizes))
 	levelStarts[0] = 0
-	for i := 1; i < len(levelSizes); i++ {
-		levelStarts[i] = levelStarts[i-1] + levelSizes[i-1]*NODE_SIZE
+	for i := 1; i < len(tree.LevelSizes); i++ {
+		levelStarts[i] = levelStarts[i-1] + tree.LevelSizes[i-1]*NODE_SIZE
 	}
 
-	for level := 1; level < len(levelSizes); level++ {
-		levelNodes := levelSizes[level]
+	for level := 1; level < len(tree.LevelSizes); level++ {
+		levelNodes := tree.LevelSizes[level]
 		prevLevelStart := levelStarts[level-1]
 		currLevelStart := levelStarts[level]
 
