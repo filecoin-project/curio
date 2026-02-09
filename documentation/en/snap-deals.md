@@ -73,7 +73,7 @@ When switching between Snap and PoRep deal pipeline, you must ensure that no sec
 Boost adapter is no longer supported with new Curio releases.
 {% endhint %}
 
-1.  Create or update the market layer ([if one is already created](/broken/pages/gEZnqnZB0uPfB4TMhdYf#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.<br>
+1.  Create or update the market layer ([if one is already created](enabling-market.md#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.<br>
 
     ```shell
     curio config add --title mt01000

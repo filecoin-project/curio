@@ -9,7 +9,7 @@ description: This guide will show how to build, install and update Curio binarie
 Curio packages are available to be installed directly on Ubuntu / Debian systems.
 
 {% hint style="danger" %}
-Debain packages are only available for mainnet right now. For any other network like calibration network or devnet, binaries must be built from source.
+Debian packages are only available for mainnet right now. For any other network like calibration network or devnet, binaries must be built from source.
 {% endhint %}
 
 1.  Install prerequisites

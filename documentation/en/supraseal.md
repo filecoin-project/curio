@@ -54,7 +54,7 @@ You need 2 sets of NVMe drives:
    * Fast with sufficient capacity (\~70G x batchSize x pipelines)
    * Can be remote storage if fast enough (\~500MiB/s/GPU)
 
-The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem). The iops/drive column shows the minimum iops **per drive** required for the batch size. Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than neccesary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
+The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem). The iops/drive column shows the minimum iops **per drive** required for the batch size. Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than necessary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
 
 | Batch Size   | 3.84TB | 7.68TB | 12.8TB | 15.36TB | 30.72TB |
 | ------------ | ------ | ------ | ------ | ------- | ------- |
