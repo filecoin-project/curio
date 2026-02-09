@@ -276,8 +276,8 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 }
 
 func binTreeSize(data abi.PaddedPieceSize) uint64 {
-	tree := computeTreeSize(int64(data)/NODE_SIZE, 2)
-	return uint64(tree.NodeCount) * NODE_SIZE
+	treeSize := computeTreeSize(int64(data)/NODE_SIZE, 2)
+	return uint64(treeSize.NodeCount) * NODE_SIZE
 }
 
 func layerOffset(size uint64, layer int) uint64 {
