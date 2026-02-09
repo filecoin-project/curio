@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -142,6 +144,13 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("store sdr success: updated %d rows", n)
 	}
 
+	// Record metric
+	err = stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SealMeasures.PoRepCompleted.M(1))
+	if err != nil {
+		log.Errorf("recording metric: %s", err)
+	}
 	return true, nil
 }
 

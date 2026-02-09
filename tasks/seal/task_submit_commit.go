@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
@@ -392,6 +394,13 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	if err := s.transferFinalizedSectorData(ctx, sectorParamsArr[0].SpID, sectors); err != nil {
 		return false, xerrors.Errorf("transferring finalized sector data: %w", err)
+	}
+
+	// Record metric
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SealMeasures.CommitSubmitted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
 	}
 
 	return true, nil

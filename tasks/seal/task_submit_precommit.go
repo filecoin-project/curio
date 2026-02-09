@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -331,6 +333,13 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	_, err = s.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, mcid)
 	if err != nil {
 		return false, xerrors.Errorf("inserting into message_waits: %w", err)
+	}
+
+	// Record metric
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SealMeasures.PrecommitSubmitted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
 	}
 
 	return true, nil

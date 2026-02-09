@@ -25,7 +25,7 @@ HarmonyDB is a simple SQL database abstraction layer used by HarmonyTask and oth
 * **Resilience:** Automatically fails over to secondary databases if the primary connection fails.
 * **Security:** Protects against SQL injection vulnerabilities.
 * **Convenience:** Offers helper functions for common Go + SQL operations.
-* **Monitoring:** Provides insights into database behavior through Prometheus stats and error logging.
+* **Monitoring:** Provides insights into database behavior through Prometheus stats and error logging. See [Prometheus Metrics](../configuration/prometheus-metrics.md) for setup and available metrics.
 
 ### Basic Database Details&#x20;
 
