@@ -11,6 +11,8 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -258,6 +260,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	// winning PoSt
 	var wpostProof []proof.PoStProof
+	var computeDuration time.Duration
 	{
 		buf := new(bytes.Buffer)
 		if err := maddr.MarshalCBOR(buf); err != nil {
@@ -300,14 +303,18 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			}
 		}
 
+		computeStart := time.Now()
 		wpostProof, err = t.generateWinningPost(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
+		computeDuration = time.Since(computeStart)
 		if err != nil {
 			err = xerrors.Errorf("failed to compute winning post proof: %w", err)
 			return false, err
 		}
+
+		MiningMeasures.ComputeTime.Observe(computeDuration.Seconds())
 	}
 
-	log.Infow("WinPostTask winning PoSt computed", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "proofs", wpostProof)
+	log.Infow("WinPostTask winning PoSt computed", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "proofs", wpostProof, "compute_time", computeDuration)
 
 	ticket, err := t.computeTicket(ctx, maddr, &rbase, round, base.TipSet.MinTicket(), mbi)
 	if err != nil {
@@ -435,6 +442,13 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			log.Warnw("WinPostTask task already mined?", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid())
 			return true, xerrors.Errorf("block already mined?")
 		}
+
+		// Record win metric
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, MiningMeasures.WinsTotal.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	// wait until block timestamp
@@ -454,6 +468,13 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		log.Infow("WinPostTask submitting block", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid())
 		if err := t.api.SyncSubmitBlock(ctx, blockMsg); err != nil {
 			return false, xerrors.Errorf("failed to submit block: %w", err)
+		}
+
+		// Record submission metric
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, MiningMeasures.BlocksSubmittedTotal.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
 		}
 	}
 

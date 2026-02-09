@@ -98,6 +98,7 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}()
 
 	wr := new(commp.Calc)
+	defer wr.Reset()
 	written, err := io.CopyBuffer(wr, pReader, make([]byte, writer.CommPBuf))
 	if err != nil {
 		return false, xerrors.Errorf("copy into commp writer: %w", err)
