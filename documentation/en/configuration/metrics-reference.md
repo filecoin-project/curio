@@ -7,17 +7,6 @@
 This document lists all Prometheus metrics exported by Curio. All metrics use the `curio_` namespace prefix.
 
 > **Note**: This file is auto-generated from source code. Run `make docsgen-metrics` to update.
-## Database Metrics (HarmonyDB)
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `curio_db_errors` | gauge/counter | Total error count. |
-| `curio_db_hits` | gauge/counter | Total number of uses. |
-| `curio_db_open_connections` | gauge/counter | Total connection count. |
-| `curio_db_total_wait` | gauge/counter | Total delay. A numerator over hits to get average wait. |
-| `curio_db_waits` | histogram | The histogram of waits for query completions. |
-| `curio_db_which_host` | histogram | The index of the hostname being used |
-
 ## Task Metrics (HarmonyTask)
 
 | Metric | Type | Description |
