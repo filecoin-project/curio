@@ -49,8 +49,10 @@ Ensure that you have the following available before we install and set up Yugaby
     Once these dependencies have been installed, we can run the install script:<br>
 
     ```shell
-    wget https://downloads.yugabyte.com/releases/2.21.0.1/yugabyte-2.21.0.1-b1-linux-x86_64.tar.gz
-    tar xvfz yugabyte-2.21.0.1-b1-linux-x86_64.tar.gz && cd yugabyte-2.21.0.1/
+    # YugabyteDB (single-node dev/test example)
+    # NOTE: For production/HA, follow YugabyteDB’s official deployment docs.
+    wget https://software.yugabyte.com/releases/2.25.1.0/yugabyte-2.25.1.0-b381-linux-x86_64.tar.gz
+    tar xvfz yugabyte-2.25.1.0-b381-linux-x86_64.tar.gz && cd yugabyte-2.25.1.0/
     ./bin/post_install.sh
     ./bin/yugabyted start --advertise_address 127.0.0.1  --master_flags rpc_bind_addresses=127.0.0.1 --tserver_flags rpc_bind_addresses=127.0.0.1
     ```

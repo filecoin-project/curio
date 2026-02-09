@@ -4,11 +4,30 @@ description: How to backup and restore your YugabyteDB database for Curio
 
 # YugabyteDB Backup
 
-Maintaining regular backups of your YugabyteDB database is critical for disaster recovery and before performing operations like software downgrades. This guide covers the essential backup and restore procedures for your Curio cluster's database.
+Maintaining regular backups of your YugabyteDB database is critical for disaster recovery and before performing operations like software downgrades. This guide covers essential backup and restore procedures for your Curio cluster's database.
 
 {% hint style="danger" %}
 **Always create a backup before running `curio toolbox downgrade`** or performing any major cluster operations. Database schema changes during upgrades may not be reversible without a backup.
 {% endhint %}
+
+## Important: Curio uses a DB *and* a schema
+
+Curio connects to YugabyteDB over **YSQL** (Postgres protocol). Two configuration values matter:
+
+- **Database name** (`CURIO_DB_NAME` / `--db-name`) – default is `yugabyte`
+- **Schema** inside that database – Curio uses schema **`curio`** by default
+
+So, on a default setup, you typically want to back up the **`yugabyte`** database (and it will include the `curio` schema).
+
+Before running backups, confirm what Curio is configured to use:
+
+```bash
+# If you run Curio with env vars
+echo "$CURIO_DB_NAME"
+
+# Or check the defaults/flags in your deployment
+curio --help | grep -E "db-name|db-host|db-port"
+```
 
 ## Prerequisites
 
@@ -22,7 +41,7 @@ Maintaining regular backups of your YugabyteDB database is critical for disaster
 
 The `ysql_dump` utility creates a logical backup of your database that can be restored to any YugabyteDB cluster.
 
-#### Full Database Backup
+#### Full database backup
 
 ```bash
 ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c -f curio_backup_$(date +%Y%m%d_%H%M%S).dump
@@ -32,27 +51,27 @@ ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c -f curio_b
 - `-h`: YugabyteDB host address
 - `-p`: YSQL port (default: 5433)
 - `-U`: Database username
-- `-d`: Database name (typically `curio` or your configured database name)
+- `-d`: Database name (often `yugabyte` for Curio defaults)
 - `-F c`: Custom format (compressed, supports parallel restore)
 - `-f`: Output filename
 
-#### Example with typical Curio configuration
+#### Example with typical Curio defaults
 
 ```bash
-ysql_dump -h 127.0.0.1 -p 5433 -U yugabyte -d curio -F c -f curio_backup_$(date +%Y%m%d_%H%M%S).dump
+ysql_dump -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -F c -f curio_backup_$(date +%Y%m%d_%H%M%S).dump
 ```
 
-#### Schema-Only Backup
+#### Schema-only backup (Curio schema)
 
-To backup only the database schema without data:
+If you want to back up only the Curio schema (not other schemas in the DB):
 
 ```bash
-ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> --schema-only -f curio_schema_$(date +%Y%m%d_%H%M%S).sql
+ysql_dump -h <yugabyte-host> -p 5433 -U <username> -d <database> --schema=curio -F c -f curio_schema_$(date +%Y%m%d_%H%M%S).dump
 ```
 
 ### Method 2: Using ysqlsh with COPY
 
-For smaller databases or specific tables:
+For smaller exports or specific tables:
 
 ```bash
 ysqlsh -h <yugabyte-host> -p 5433 -U <username> -d <database> -c "\COPY <table_name> TO 'table_backup.csv' WITH CSV HEADER"
@@ -62,30 +81,30 @@ ysqlsh -h <yugabyte-host> -p 5433 -U <username> -d <database> -c "\COPY <table_n
 
 ### Restore from ysql_dump backup
 
-#### Full Restore
-
 {% hint style="warning" %}
 Ensure all Curio nodes are **stopped** before restoring a backup.
 {% endhint %}
 
+#### Full restore (entire database)
+
 ```bash
-# First, drop and recreate the database if needed
-ysqlsh -h <yugabyte-host> -p 5433 -U <username> -c "DROP DATABASE IF EXISTS curio;"
-ysqlsh -h <yugabyte-host> -p 5433 -U <username> -c "CREATE DATABASE curio;"
+# Drop and recreate the database (ONLY if you intend to restore the full DB)
+ysqlsh -h <yugabyte-host> -p 5433 -U <username> -c "DROP DATABASE IF EXISTS <database>;"
+ysqlsh -h <yugabyte-host> -p 5433 -U <username> -c "CREATE DATABASE <database>;"
 
 # Restore from backup
-pg_restore -h <yugabyte-host> -p 5433 -U <username> -d curio -F c curio_backup_YYYYMMDD_HHMMSS.dump
+pg_restore -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c curio_backup_YYYYMMDD_HHMMSS.dump
 ```
 
-#### Restore from SQL dump
+#### Restore only the Curio schema
+
+If you created a schema-only dump (`--schema=curio`), restore into the existing DB:
 
 ```bash
-ysqlsh -h <yugabyte-host> -p 5433 -U <username> -d curio -f curio_backup.sql
+pg_restore -h <yugabyte-host> -p 5433 -U <username> -d <database> -F c curio_schema_YYYYMMDD_HHMMSS.dump
 ```
 
-## Automated Backup Script
-
-Create a backup script for regular automated backups:
+## Automated Backup Script (example)
 
 ```bash
 #!/bin/bash
@@ -95,51 +114,34 @@ BACKUP_DIR="/path/to/backups"
 YB_HOST="127.0.0.1"
 YB_PORT="5433"
 YB_USER="yugabyte"
-YB_DB="curio"
+YB_DB="yugabyte"     # Curio default DB name
 RETENTION_DAYS=7
 
-# Create backup directory if it doesn't exist
 mkdir -p "$BACKUP_DIR"
 
-# Create backup
 BACKUP_FILE="$BACKUP_DIR/curio_backup_$(date +%Y%m%d_%H%M%S).dump"
 ysql_dump -h "$YB_HOST" -p "$YB_PORT" -U "$YB_USER" -d "$YB_DB" -F c -f "$BACKUP_FILE"
 
 if [ $? -eq 0 ]; then
-    echo "Backup created successfully: $BACKUP_FILE"
-    
-    # Remove backups older than retention period
-    find "$BACKUP_DIR" -name "curio_backup_*.dump" -mtime +$RETENTION_DAYS -delete
-    echo "Cleaned up backups older than $RETENTION_DAYS days"
+  echo "Backup created successfully: $BACKUP_FILE"
+  find "$BACKUP_DIR" -name "curio_backup_*.dump" -mtime +$RETENTION_DAYS -delete
 else
-    echo "Backup failed!"
-    exit 1
+  echo "Backup failed!"
+  exit 1
 fi
-```
-
-Make the script executable and add it to cron:
-
-```bash
-chmod +x curio-db-backup.sh
-
-# Add to crontab for daily backups at 2 AM
-crontab -e
-# Add: 0 2 * * * /path/to/curio-db-backup.sh >> /var/log/curio-backup.log 2>&1
 ```
 
 ## Best Practices
 
-1. **Regular Backups**: Schedule automated daily backups, especially for production clusters
-2. **Test Restores**: Periodically verify your backups by performing test restores
-3. **Off-site Storage**: Store backup copies in a different location or cloud storage
-4. **Pre-upgrade Backups**: Always create a fresh backup before upgrading or downgrading Curio
-5. **Monitor Backup Size**: Track backup sizes to ensure adequate storage capacity
+1. **Regular backups**: schedule automated daily backups for production clusters
+2. **Test restores**: periodically verify backups by performing test restores
+3. **Off-site storage**: store backup copies in a different location or cloud storage
+4. **Pre-upgrade backups**: always create a fresh backup before upgrading or downgrading Curio
+5. **Monitor backup size**: ensure adequate storage capacity
 
 ## Troubleshooting
 
-### Connection Issues
-
-If you encounter connection errors:
+### Connection issues
 
 ```bash
 # Verify YugabyteDB is running
@@ -149,12 +151,12 @@ yugabyted status
 ysqlsh -h <host> -p 5433 -U yugabyte -c "SELECT version();"
 ```
 
-### Permission Errors
+### Permission errors
 
 Ensure your database user has sufficient privileges:
 
 ```sql
-GRANT ALL PRIVILEGES ON DATABASE curio TO <username>;
+GRANT ALL PRIVILEGES ON DATABASE <database> TO <username>;
 ```
 
 ## Additional Resources

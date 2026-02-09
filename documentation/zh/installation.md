@@ -62,7 +62,7 @@ sudo apt install curio-opencl
 {% hint style="warning" %}
 **注意（Linux 上默认会构建 Supraseal）：** Curio 的 Linux 构建流程现在会在常规的 `make deps/build` 中默认构建 `extern/supraseal`。因此在 Linux 上从源代码构建 Curio 需要 Supraseal 的额外依赖，包括：
 
-- CUDA Toolkit **12.x 或更高版本**（需要 `nvcc`，即使你不打算在运行时使用 Supraseal）
+- CUDA Toolkit **13.x 或更高版本**（需要 `nvcc`，即使你不打算在运行时使用 Supraseal）
 - GCC **13** 工具链（`gcc-13` / `g++-13`）
 - Python venv 工具（`python3-venv`）以及常见构建工具（`autoconf`、`automake`、`libtool`、`nasm`、`xxd` 等）
 
@@ -128,10 +128,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### Go
 
-要构建Curio，您需要安装[Go 1.21.7或更高版本](https://golang.org/dl/)：
+构建 Curio 需要安装 Go（最低版本以仓库根目录的 `GO_VERSION_MIN` 为准）。
+
+示例（当前仓库最小版本为 **1.24.7**）：
 
 ```bash
-wget -c https://golang.org/dl/go1.21.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+wget -c https://go.dev/dl/go1.24.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 ```
 
 {% hint style="info" %}
