@@ -753,7 +753,7 @@ jobs:
       - name: Generate Code
         env:
           LANG: en-US
-        run: make gen
+        run: make genfull
         shell: bash
 
       - name: Git diff check
