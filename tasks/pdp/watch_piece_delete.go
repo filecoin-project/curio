@@ -104,18 +104,23 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 			return xerrors.Errorf("failed to get scheduled removals: %w", err)
 		}
 
-		contains := lo.Contains(removals, big.NewInt(piece.PieceID))
+		pieceID := big.NewInt(piece.PieceID)
+		contains := lo.ContainsBy(removals, func(r *big.Int) bool {
+			return r.Cmp(pieceID) == 0
+		})
 		if !contains {
 			// Check for the case where next proving period has run and piece deletions fully processed
-			live, err := verifier.PieceLive(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
+			live, err := verifier.PieceLive(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID), pieceID)
 			if err != nil {
 				return xerrors.Errorf("failed to check if piece is live: %w", err)
 			}
 			if live {
 				return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
 			}
+			log.Infow("piece already removed on-chain, marking as removed in DB", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
+		} else {
+			log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 		}
-		log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 
 		n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces
 								SET removed = TRUE
