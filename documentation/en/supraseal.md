@@ -126,11 +126,13 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x system-wide or `gcc-13`/`g++-13` installed locally.
 
 * On Arch install GCC 13 via your distro/AUR as appropriate
-* On Ubuntu/Debian install `gcc-13` and `g++-13` packages
+*   On Ubuntu/Debian install `gcc-13` and `g++-13` packages
+
     ```shell
     sudo apt install gcc-13 g++-13
     ```
-* In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+*   In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
@@ -182,9 +184,10 @@ sudo curio batch setup
 ```
 
 This command will:
-- Download SPDK if not already available
-- Configure 1GB hugepages (36 pages by default)
-- Bind NVMe devices for use with SupraSeal
+
+* Download SPDK if not already available
+* Configure 1GB hugepages (36 pages by default)
+* Bind NVMe devices for use with SupraSeal
 
 You can customize the number of hugepages:
 
@@ -394,8 +397,8 @@ SingleHasherPerThread = false
 
 ### Environment Variables
 
-| Variable | Description |
-| -------- | ----------- |
+| Variable               | Description                                                                                                                                                                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DISABLE_SPDK_SETUP=1` | When set, disables automatic SPDK setup (hugepage configuration and NVMe device binding) during supraseal initialization. Useful for advanced users who want to manually manage SPDK configuration, map drives, or control hugepage-numa assignment. |
 
 ## Optimization
@@ -469,7 +472,7 @@ To troubleshoot:
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
 
-### Slower than expeted NVMe speed
+### Slower than expected NVMe speed
 
 If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
 

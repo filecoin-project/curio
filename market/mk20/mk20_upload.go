@@ -204,7 +204,10 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 				batch.Queue(`INSERT INTO market_mk20_deal_chunk (id, chunk, chunk_size, complete) VALUES ($1, $2, $3, FALSE);`, id.String(), i, s)
 			}
 			if batch.Len() >= batchSize {
-				res := tx.SendBatch(ctx, batch)
+				res, err := tx.SendBatch(ctx, batch)
+				if err != nil {
+					return false, xerrors.Errorf("failed to send batch: %w", err)
+				}
 				if err := res.Close(); err != nil {
 					return false, xerrors.Errorf("closing insert chunk batch: %w", err)
 				}
@@ -212,7 +215,10 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 			}
 		}
 		if batch.Len() > 0 {
-			res := tx.SendBatch(ctx, batch)
+			res, err := tx.SendBatch(ctx, batch)
+			if err != nil {
+				return false, xerrors.Errorf("failed to send batch: %w", err)
+			}
 			if err := res.Close(); err != nil {
 				return false, xerrors.Errorf("closing insert chunk batch: %w", err)
 			}
@@ -310,6 +316,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
 	wr := new(commp.Calc)
+	defer wr.Reset()
 	n, err := fmt.Fprintf(wr, "%s, %d, %d, %s", id.String(), chunk, chunkSize, time.Now().String())
 	if err != nil {
 		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "chunk", chunk, "error", err)
@@ -686,6 +693,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
 	wr := new(commp.Calc)
+	defer wr.Reset()
 	trs, err := fmt.Fprintf(wr, "%s, %s", id.String(), time.Now().String())
 	if err != nil {
 		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "error", err)
