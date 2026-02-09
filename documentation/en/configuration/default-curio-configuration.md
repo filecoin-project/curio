@@ -263,7 +263,7 @@ description: The default curio configuration
   # type: int
   #SyntheticPoRepMaxTasks = 0
 
-  # EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)
+  # EnableBatchSeal enables batch sealing on the node. (Default: false)
   #
   # type: bool
   #EnableBatchSeal = false
