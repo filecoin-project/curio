@@ -533,7 +533,10 @@ func (dbi *DBIndex) batchStorageDeclareSectors(ctx context.Context, declarations
 			)
 		}
 
-		br := tx.SendBatch(ctx, batch)
+		br, err := tx.SendBatch(ctx, batch)
+		if err != nil {
+			return false, xerrors.Errorf("failed to send batch: %w", err)
+		}
 		defer func() {
 			_ = br.Close()
 		}()
