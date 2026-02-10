@@ -369,12 +369,18 @@ go-generate:
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
 .PHONY: go-generate
 
+gen: CURIO_OPTIMAL_LIBFILCRYPTO=0
 gen: gensimple
 .PHONY: gen
 
 marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
+
+gen-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
+gen-deps: $(BUILD_DEPS)
+	@echo "Built dependencies with FVM support for testing"
+.PHONY: gen-deps
 
 # Run gen steps sequentially in a single shell to avoid Go build cache race conditions.
 # The "unlinkat: directory not empty" error occurs when multiple go processes
@@ -384,7 +390,7 @@ gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache
 endif
-	$(MAKE) deps
+	$(MAKE) gen-deps
 	$(MAKE) api-gen
 	$(MAKE) go-generate
 	$(MAKE) cfgdoc-gen
