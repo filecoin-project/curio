@@ -85,6 +85,8 @@ CLEAN+=build/.blst-install
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
+ifneq ($(FFI_USE_OPENCL),1)
+
 SUPRA_FFI_PATH:=extern/supraseal/
 SUPRA_FFI_DEPS:=.install-supraseal
 SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
@@ -97,6 +99,8 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 
 BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
+
+endif
 endif
 
 $(MODULES): build/.update-modules ;
