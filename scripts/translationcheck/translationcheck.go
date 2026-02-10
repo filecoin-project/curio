@@ -49,7 +49,7 @@ func main() {
 
 		// Skip English if you want, or keep it.
 		if f.Language == "" {
-			// Some files may not have the field; still scan.
+			fmt.Println("skipping empty language field in", path)
 		}
 
 		scanned++
