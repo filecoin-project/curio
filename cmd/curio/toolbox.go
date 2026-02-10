@@ -46,7 +46,6 @@ var toolboxCmd = &cli.Command{
 		registerPDPServiceProviderCmd,
 		downgradeCmd,
 		fixBoostMigrationCmd,
-		idCmd,
 	},
 }
 
