@@ -381,8 +381,6 @@ go-generate:
 	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
 	  for p in $$(go list ./...); do \
 	    tf="$$(mktemp -t go-gen-time.XXXXXX)"; \
-	    echo ""; \
-	    echo "===== go generate: $$p ====="; \
 	    cmd=(env CGO_LDFLAGS_ALLOW="$$CGO_ALLOW" GOFLAGS="$$GO_FLAGS" $(GOCC) generate "$$p"); \
 	    printf "CMD: "; printf "%q " "$${cmd[@]}"; echo ""; \
 	    if /usr/bin/time -p -o "$$tf" "$${cmd[@]}"; then \
@@ -390,13 +388,12 @@ go-generate:
 	    else \
 	      rc="$$?"; \
 	      echo "FAILED: $$p (exit $$rc)"; \
-	      echo "--- timing for $$p ---"; \
-	      cat "$$tf" || true; \
+	      grep "^real " "$$tf" || true; \
 	      rm -f "$$tf" || true; \
 	      exit "$$rc"; \
 	    fi; \
-	    echo "--- timing for $$p ---"; \
-	    cat "$$tf"; \
+	    echo "### timing for $$p ###"; \
+	    grep "^real " "$$tf"; \
 	    rm -f "$$tf"; \
 	  done'
 .PHONY: go-generate
@@ -435,18 +432,13 @@ endif
 		t go-generate $(MAKE) go-generate; \
 		t translation-gen $(MAKE) translation-gen; \
 		t cfgdoc-gen  $(MAKE) cfgdoc-gen; \
-		t docsgen     $(MAKE) docsgen; \
+		t docsgen $(MAKE) docsgen; \
 		t marketgen   $(MAKE) marketgen; \
 		t docsgen-cli $(MAKE) docsgen-cli; \
 		t docsgen-metrics $(MAKE) docsgen-metrics; \
 	'
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 .PHONY: gensimple
-
-# Full gen including CLI docs (slower)
-genfull: GEN_CLI=1
-genfull: gensimple
-.PHONY: genfull
 
 fiximports:
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
