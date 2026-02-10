@@ -163,7 +163,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		// not my favourite way to handle this but pragmatic
 		// for some reason we are in a proving loop running but it is not initialized
 		if strings.Contains(err.Error(), "0x999010d5") { // Error.ProvingPeriodNotInitialized
-			if err := ResetDatasetToInitPP(ctx, n.db, dataSetId); err != nil {
+			if err := resetDatasetToInitPP(ctx, n.db, dataSetId); err != nil {
 				return false, xerrors.Errorf("failed to reset to init: %w", err)
 			}
 			return true, nil // true as this task is done
