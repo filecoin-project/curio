@@ -1,5 +1,5 @@
 name: 'Install Dependencies'
-description: 'Install common dependencies including CUDA for supraseal linking'
+description: 'Install common dependencies'
 
 runs:
   using: 'composite'
@@ -30,32 +30,6 @@ runs:
         echo "CC=gcc-13" >> $GITHUB_ENV
         echo "CXX=g++-13" >> $GITHUB_ENV
       shell: bash
-
-#    - name: Install CUDA Toolkit
-#      run: |
-#        if [ -f "/usr/local/cuda/bin/nvcc" ]; then
-#          echo "CUDA already installed"
-#          exit 0
-#        fi
-#        wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-#        sudo dpkg -i cuda-keyring_1.1-1_all.deb
-#        rm cuda-keyring_1.1-1_all.deb
-#        sudo apt-get update
-#        sudo apt-get -y install cuda-toolkit
-#      shell: bash
-#
-#    - name: Set up CUDA environment
-#      run: |
-#        echo "/usr/local/cuda/bin" >> $GITHUB_PATH
-#        echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
-#        # Set up CUDA stubs for linking without GPU
-#        STUBS="/usr/local/cuda/lib64/stubs"
-#        if [ -d "$STUBS" ]; then
-#          sudo ln -sf "$STUBS/libcuda.so" "$STUBS/libcuda.so.1" 2>/dev/null || true
-#          echo "LD_LIBRARY_PATH=$STUBS:/usr/local/cuda/lib64" >> $GITHUB_ENV
-#          echo "LIBRARY_PATH=$STUBS:/usr/local/cuda/lib64" >> $GITHUB_ENV
-#        fi
-#      shell: bash
 
     # NOTE: CI sometimes flakes on large/full fetches (HTTP/2 early EOF).
     # We only need tags (and only from origin) for versioning/metadata, so keep
