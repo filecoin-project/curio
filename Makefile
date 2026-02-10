@@ -85,6 +85,8 @@ CLEAN+=build/.blst-install
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
+ifneq ($(FFI_USE_OPENCL),1)
+
 SUPRA_FFI_PATH:=extern/supraseal/
 SUPRA_FFI_DEPS:=.install-supraseal
 SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
@@ -97,6 +99,8 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 
 BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
+
+endif
 endif
 
 $(MODULES): build/.update-modules ;
@@ -161,10 +165,12 @@ cov:
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS ?= cunative nofvm
+CURIO_TAGS_BASE ?= cunative nofvm
+CURIO_TAGS_EXTRA = $(if $(filter 1,$(FFI_USE_OPENCL)),nosupraseal,)
+CURIO_TAGS = $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
 
 # Convert space-separated tags to comma-separated for GOFLAGS (which is whitespace-split)
-CURIO_TAGS_CSV := $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
+CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
 
 ifeq ($(shell uname),Linux)
 curio: CGO_LDFLAGS_ALLOW='.*'
@@ -365,8 +371,34 @@ docsgen-metrics:
 	$(GOCC) run $(GOFLAGS) ./scripts/metricsdocgen > documentation/en/configuration/metrics-reference.md
 .PHONY: docsgen-metrics
 
+translation-gen:
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/translationcheck
+.PHONY: translation-gen
+
 go-generate:
-	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
+	@bash -lc 'set -euo pipefail; \
+	  CGO_ALLOW="$(subst ",,$(CGO_LDFLAGS_ALLOW))"; \
+	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
+	  for p in $$(go list ./...); do \
+	    tf="$$(mktemp -t go-gen-time.XXXXXX)"; \
+	    echo ""; \
+	    echo "===== go generate: $$p ====="; \
+	    cmd=(env CGO_LDFLAGS_ALLOW="$$CGO_ALLOW" GOFLAGS="$$GO_FLAGS" $(GOCC) generate "$$p"); \
+	    printf "CMD: "; printf "%q " "$${cmd[@]}"; echo ""; \
+	    if /usr/bin/time -p -o "$$tf" "$${cmd[@]}"; then \
+	      : ; \
+	    else \
+	      rc="$$?"; \
+	      echo "FAILED: $$p (exit $$rc)"; \
+	      echo "--- timing for $$p ---"; \
+	      cat "$$tf" || true; \
+	      rm -f "$$tf" || true; \
+	      exit "$$rc"; \
+	    fi; \
+	    echo "--- timing for $$p ---"; \
+	    cat "$$tf"; \
+	    rm -f "$$tf"; \
+	  done'
 .PHONY: go-generate
 
 gen: gensimple
@@ -376,24 +408,39 @@ marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
+gen-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
+gen-deps: $(BUILD_DEPS)
+	@echo "Built dependencies with FVM support for testing"
+.PHONY: gen-deps
+
 # Run gen steps sequentially in a single shell to avoid Go build cache race conditions.
 # The "unlinkat: directory not empty" error occurs when multiple go processes
 # contend for the same build cache simultaneously.
 # Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
+gensimple: export FFI_USE_OPENCL=1
 gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache
 endif
-	$(MAKE) deps
-	$(MAKE) api-gen
-	$(MAKE) go-generate
-	$(MAKE) cfgdoc-gen
-	$(MAKE) docsgen
-	$(MAKE) marketgen
-	$(MAKE) docsgen-cli
-	$(MAKE) docsgen-metrics
+	@bash -lc '\
+		set -euo pipefail; \
+		t() { name="$$1"; shift; \
+			start=$$(date +%s); \
+			"$$@"; \
+			end=$$(date +%s); \
+			echo "TIMING $$name: $$((end-start))s"; \
+		}; \
+		t gen-deps    $(MAKE) gen-deps; \
+		t api-gen     $(MAKE) api-gen; \
+		t go-generate $(MAKE) go-generate; \
+		t translation-gen $(MAKE) translation-gen; \
+		t cfgdoc-gen  $(MAKE) cfgdoc-gen; \
+		t docsgen     $(MAKE) docsgen; \
+		t marketgen   $(MAKE) marketgen; \
+		t docsgen-cli $(MAKE) docsgen-cli; \
+		t docsgen-metrics $(MAKE) docsgen-metrics; \
+	'
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
-	go mod tidy
 .PHONY: gensimple
 
 fiximports:

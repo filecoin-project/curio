@@ -34,7 +34,7 @@
   * [Market Contracts](market-2.0/contracts.md)
   * [API](market-2.0/api.md)
 * [Snap Deals](snap-deals.md)
-* [Batch Sealing with SupraSeal](supraseal.md)
+* [Batch Sealing](supraseal.md)
 * [Scaling Curio cluster](scaling-curio-cluster.md)
 * [Curio GUI](curio-gui.md)
 * [Garbage Collection](garbage-collection.md)

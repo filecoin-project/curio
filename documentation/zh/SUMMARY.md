@@ -16,7 +16,7 @@
   * [默认Curio配置 | Default Curio Configuration](configuration/default-curio-configuration.md)
 * [启用市场 | Enabling market](enabling-market.md)
 * [快速交易 | Snap Deals](snap-deals.md)
-* [使用SupraSeal进行批量密封 | Batch Sealing with SupraSeal](supraseal.md)
+* [批量封装 | Batch Sealing](supraseal.md)
 * [扩展Curio集群 | Scaling Curio cluster](scaling-curio-cluster.md)
 * [Curio图形用户界面 | Curio GUI](curio-gui.md)
 * [垃圾回收 | Garbage Collection](garbage-collection.md)

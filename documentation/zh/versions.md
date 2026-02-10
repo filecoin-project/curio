@@ -30,7 +30,7 @@
 ## 为校准网构建
 
 * 参与校准网需要
-* 使用curio/GO_VERSION_MIN中指定的Go版本
+* 使用仓库根目录的 `GO_VERSION_MIN` 中指定的 Go 版本
 * 可用的Curio分支名称格式为release/vVERSION，如：release/v1.23.4
 * 校准网可能比主网领先一个网络版本。
   * DEB包仅用于主网发布，将提前提供，以确保主网升级不会造成中断。
