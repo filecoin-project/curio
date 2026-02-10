@@ -842,3 +842,9 @@ jobs:
           echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY
+
+  required-checks-passed:
+    needs: [ci-lint, setup-supraseal, build-mainnet, build-calibnet, build-debug, build-2k, build-forest, test, lint, gofmt, build-supraseal-ubuntu24, gen-check, mod-tidy-check, coverage-report]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All required checks passed"
