@@ -243,7 +243,7 @@ func (e *TaskEngine) GracefullyTerminate() {
 	e.grace()
 	e.reg.Shutdown()
 
-	// If there are any Post tasks then wait till Timeout and check again
+	// If there are any Post or PDP Proving tasks then wait till Timeout and check again
 	// When no Post tasks are active, break out of loop  and call the shutdown function
 	for {
 		timeout := time.Millisecond
@@ -268,6 +268,19 @@ func (e *TaskEngine) GracefullyTerminate() {
 			if h.Name == "WdPostRecover" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
+				continue
+			}
+
+			// PDP tasks
+			if h.Name == "PDPv0_Prove" && h.Max.Active() > 0 {
+				timeout = time.Second
+				log.Infof("node shutdown deferred for %f seconds due to running PDPv0_Prove task", timeout.Seconds())
+				continue
+			}
+
+			if h.Name == "PDPv0_ProvPeriod" && h.Max.Active() > 0 {
+				timeout = time.Second
+				log.Infof("node shutdown deferred for %f seconds due to running PDPv0_ProvPeriod task", timeout.Seconds())
 				continue
 			}
 
