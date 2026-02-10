@@ -101,7 +101,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 // initialized (e.g. ProvingPeriodNotInitialized error from the contract). InitPP
 // computes a fresh challenge window from config.InitChallengeWindowStart, which is
 // only valid for first-time initialization.
-func ResetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
+func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
 	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
 	_, err := db.Exec(ctx, `
              UPDATE pdp_data_sets
