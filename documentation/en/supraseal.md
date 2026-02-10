@@ -1,16 +1,25 @@
 ---
-description: This page explains how to setup supraseal batch sealer in Curio
+description: This page explains how to set up Curio batch sealing (extern/supraseal)
 ---
 
-# Batch Sealing with SupraSeal
+# Batch Sealing
 
 {% hint style="danger" %}
-**Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.\
-\
-Batch Sealing only supports "CC" sectors as of now. Please make sure that "SnapDeals" are enabled in the cluster if you wish to onboard data with SupraSeal enabled. If SnapDeals are not enabled, deals will be routed to SupraSeal pipeline which will discard the actual data and seal empty sectors.
+**Disclaimer:** Batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Some additional manual system configuration is required.
+
+Batch sealing only supports **CC sectors** at the moment.
+
+If you enable batch sealing on a node but do **not** enable SnapDeals in the cluster, deals may be routed into the CC/batch pipeline which will seal empty sectors (discarding deal data). Make sure SnapDeals are enabled if you intend to onboard real data deals.
 {% endhint %}
 
-SupraSeal is an optimized batch sealing implementation for Filecoin that allows sealing multiple sectors in parallel. It can significantly improve sealing throughput compared to sealing sectors individually.
+## CC Scheduler (batch sealing only)
+
+Curio includes a **CC Scheduler** UI and DB table (`sectors_cc_scheduler`) used to decide how many CC sectors to queue for batch sealing per SP.
+
+- The **CC Scheduler is only used for batch sealing**.
+- Do not enable or rely on it for deals/SnapDeals.
+
+Curio’s web UI exposes this as the **CC Scheduler** page/tab.
 
 ## Key Features
 
@@ -45,7 +54,7 @@ You need 2 sets of NVMe drives:
    * Fast with sufficient capacity (\~70G x batchSize x pipelines)
    * Can be remote storage if fast enough (\~500MiB/s/GPU)
 
-The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem). The iops/drive column shows the minimum iops **per drive** required for the batch size. Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than neccesary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
+The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem). The iops/drive column shows the minimum iops **per drive** required for the batch size. Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than necessary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
 
 | Batch Size   | 3.84TB | 7.68TB | 12.8TB | 15.36TB | 30.72TB |
 | ------------ | ------ | ------ | ------ | ------- | ------- |
@@ -71,7 +80,7 @@ Currently, the community is trying to determine the best hardware configurations
   * Large (many-core) CCX-es are typically better
 
 {% hint style="info" %}
-Please consider contributing to the [SupraSeal hardware examples](https://github.com/filecoin-project/curio/discussions/140).
+Please consider contributing to the [batch sealing hardware examples](https://github.com/filecoin-project/curio/discussions/140).
 {% endhint %}
 
 ## Setup
@@ -126,13 +135,11 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x system-wide or `gcc-13`/`g++-13` installed locally.
 
 * On Arch install GCC 13 via your distro/AUR as appropriate
-*   On Ubuntu/Debian install `gcc-13` and `g++-13` packages
-
+* On Ubuntu/Debian install `gcc-13` and `g++-13` packages
     ```shell
     sudo apt install gcc-13 g++-13
     ```
-*   In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
-
+* In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
@@ -184,10 +191,9 @@ sudo curio batch setup
 ```
 
 This command will:
-
-* Download SPDK if not already available
-* Configure 1GB hugepages (36 pages by default)
-* Bind NVMe devices for use with SupraSeal
+- Download SPDK if not already available
+- Configure 1GB hugepages (36 pages by default)
+- Bind NVMe devices for use with batch sealing
 
 You can customize the number of hugepages:
 
@@ -397,8 +403,8 @@ SingleHasherPerThread = false
 
 ### Environment Variables
 
-| Variable               | Description                                                                                                                                                                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable | Description |
+| -------- | ----------- |
 | `DISABLE_SPDK_SETUP=1` | When set, disables automatic SPDK setup (hugepage configuration and NVMe device binding) during supraseal initialization. Useful for advanced users who want to manually manage SPDK configuration, map drives, or control hugepage-numa assignment. |
 
 ## Optimization
@@ -472,7 +478,7 @@ To troubleshoot:
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
 
-### Slower than expected NVMe speed
+### Slower than expeted NVMe speed
 
 If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
 

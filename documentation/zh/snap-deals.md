@@ -35,7 +35,7 @@ description: 本指南解释了如何在Curio中启用snap-deals。
 
 ## FastSnap（SnapDeals UpdateEncode 加速）
 
-Curio 的 SnapDeals `UpdateEncode` 支持 **快速模式**（“fastsnap”）：使用 Supraseal 加速 TreeR 生成，并使用 Curio 原生的 snap 编码实现。
+Curio 的 SnapDeals `UpdateEncode` 支持 **快速模式**（“fastsnap”）：使用批量封装 CUDA 工具链（`extern/supraseal`）加速 TreeR 生成，并使用 Curio 原生的 snap 编码实现。
 
 - **能力检查**：
 
@@ -52,7 +52,7 @@ curio test supra system-info
 export DISABLE_SUPRA_TREE_R=1
 ```
 
-这会强制使用 CPU 回退的 TreeR 路径（用于隔离 Supraseal/CUDA/工具链问题）。
+这会强制使用 CPU 回退的 TreeR 路径（用于隔离批量封装/CUDA/工具链问题）。
 
 ### Enable snap tasks
 ### 启用快照任务

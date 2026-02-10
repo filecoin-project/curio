@@ -42,7 +42,7 @@ Before enabling the Snark Market on your node:
 
 * Modern **NVIDIA GPU** (recommended 12GB+ VRAM)
 * 70GB base system RAM + ~220 GB Per GPU
-  * Lower amount is acceptable, but you won't be able to use the much faster SupraSeal C2 feature\
+  * Lower amount is acceptable, but you won't be able to use the much faster CUDA C2 feature (batch sealing toolchain)\
     Meaning ~10mins/proof instead of 2.
 * Curio from `main` branch (Snark Market support is not yet part of a release)
 * FIL balance on Mainnet
@@ -55,7 +55,7 @@ Before enabling the Snark Market on your node:
 
 You can skip most of the complex setup and learn how your hardware performs with lotus-bench
 * Follow build instructions from [https://lotus.filecoin.io/storage-providers/operate/benchmarks/](https://lotus.filecoin.io/storage-providers/operate/benchmarks/)
-  * For faster Supraseal C2 lotus-bench do:\
+  * For faster CUDA C2 (batch sealing toolchain) lotus-bench do:\
     `RUSTFLAGS="-C target-cpu=native -g" FFI_BUILD_FROM_SOURCE=1 FFI_USE_CUDA_SUPRASEAL=1 make clean deps lotus-bench`
 * Download example snark inputs from [https://pub-08ae819c828244bdbe5f615fd8c5e144.r2.dev/c1.json](https://pub-08ae819c828244bdbe5f615fd8c5e144.r2.dev/c1.json) (~51MB)
 * Run `./lotus-bench simple commit2 c1.json`, wait a few minutes for results\
