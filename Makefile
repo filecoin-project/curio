@@ -378,7 +378,6 @@ go-generate:
 	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
 .PHONY: go-generate
 
-gen: CURIO_OPTIMAL_LIBFILCRYPTO=0
 gen: gensimple
 .PHONY: gen
 
@@ -387,6 +386,7 @@ marketgen:
 .PHONY: marketgen
 
 gen-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
+gen-deps: FFI_USE_OPENCL=1
 gen-deps: $(BUILD_DEPS)
 	@echo "Built dependencies with FVM support for testing"
 .PHONY: gen-deps
