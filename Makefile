@@ -208,6 +208,11 @@ ifeq ($(shell uname),Linux)
 curio-native: CGO_LDFLAGS_ALLOW='.*'
 endif
 
+# If we build with OpenCL, disable supraseal (which requires CUDA/SPDK artifacts on Linux)
+ifeq ($(FFI_USE_OPENCL),1)
+CURIO_TAGS += nosupraseal
+endif
+
 curio-native: $(BUILD_DEPS)
 	rm -f curio
 	if [ -n "$(GOAMD64_NATIVE)" ]; then \
