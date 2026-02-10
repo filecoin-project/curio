@@ -138,12 +138,14 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 	for _, railId := range settle.Rails {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
 		if err != nil {
-			return xerrors.Errorf("failed to get rail: %w", err)
+			log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", err)
+			continue
 		}
 
 		dataSet, err := fwssv.RailToDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
 		if err != nil {
-			return xerrors.Errorf("failed to get rail to data set: %w", err)
+			log.Errorw("failed to get rail to data set, skipping termination checks", "railId", railId, "error", err)
+			continue
 		}
 
 		if dataSet.Int64() == int64(0) {
@@ -151,7 +153,8 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 			if view.Operator != fwssAddr || view.Validator != fwssAddr {
 				continue
 			}
-			return xerrors.Errorf("FWSS rail %d has no associated dataset", railId)
+			log.Errorw("FWSS rail has no associated dataset, skipping termination checks", "railId", railId)
+			continue
 		}
 
 		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
