@@ -63,6 +63,8 @@ jobs:
         shell: bash
 
       - name: Build Go
+        env:
+          FFI_USE_OPENCL: 1
         run: make build
         shell: bash
 
@@ -260,7 +262,7 @@ jobs:
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           mkdir -p coverage
-          go test -v --tags="debug,fvm" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
+          go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
