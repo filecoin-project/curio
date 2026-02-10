@@ -123,8 +123,7 @@ func ResetProvingFailures(ctx context.Context, db *harmonydb.DB, dataSetId int64
 // This is only appropriate for datasets whose on-chain proving period was never
 // initialized (e.g. ProvingPeriodNotInitialized error from the contract). InitPP
 // computes a fresh challenge window from config.InitChallengeWindowStart, which is
-// only valid for first-time initialization. For datasets that have an established
-// proving cadence but missed a window, use ResetDatasetToNextPP instead.
+// only valid for first-time initialization.
 func ResetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
 	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
 	_, err := db.Exec(ctx, `

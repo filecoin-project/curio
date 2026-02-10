@@ -219,27 +219,37 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 	}
 
-	var prove_at_epoch *int64
-	var challenge_window *int64
+	var proveAtEpoch *int64
+	var challengeWindow *int64
 	err = p.db.QueryRow(ctx, `
 	SELECT prove_at_epoch, challenge_window
 	FROM pdp_data_sets
 	WHERE id = $1
-	`, dataSetId).Scan(&prove_at_epoch, &challenge_window)
+	`, dataSetId).Scan(&proveAtEpoch, &challengeWindow)
 	if err != nil {
 		return false, xerrors.Errorf("failed to check task timeliness: %w", err)
 	}
-	if prove_at_epoch != nil && challenge_window != nil {
+	if proveAtEpoch != nil && challengeWindow != nil {
 		// Missed challenge window but next_proving_period not yet run.
 		// Noop and wait for next_proving_period task scheduling.
-		if *prove_at_epoch+*challenge_window < int64(ts.Height()) {
-			log.Errorf("Prove task awoke too late, proving period skipped")
+		if *proveAtEpoch+*challengeWindow < int64(ts.Height()) {
+			log.Errorw("Prove task awoke too late, proving period deadline missed, fault will be registered",
+				"dataSetId", dataSetId,
+				"proveAtEpoch", *proveAtEpoch,
+				"challengeWindow", *challengeWindow,
+				"currentEpoch", int64(ts.Height()),
+			)
 			return true, nil
 		}
 		// Missed challenge window and next_proving_period already reset.
 		// Noop and wait for prove task scheduling.
-		if *prove_at_epoch > int64(ts.Height()) {
-			log.Errorf("Prove task awoke too late, proving period skipped")
+		if *proveAtEpoch > int64(ts.Height()) {
+			log.Errorw("Prove task awoke too late, fault registered, proving period rescheduled",
+				"dataSetId", dataSetId,
+				"proveAtEpoch", *proveAtEpoch,
+				"challengeWindow", *challengeWindow,
+				"currentEpoch", int64(ts.Height()),
+			)
 			return true, nil
 		}
 	}

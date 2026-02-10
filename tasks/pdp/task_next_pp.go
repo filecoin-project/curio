@@ -96,6 +96,27 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 	return n
 }
 
+// ResetDatasetToInitPP resets a dataset so that InitProvingPeriodTask picks it up.
+// This is only appropriate for datasets whose on-chain proving period was never
+// initialized (e.g. ProvingPeriodNotInitialized error from the contract). InitPP
+// computes a fresh challenge window from config.InitChallengeWindowStart, which is
+// only valid for first-time initialization.
+func ResetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64) error {
+	log.Infow("resetting dataset to init proving period state", "dataSetId", dataSetId)
+	_, err := db.Exec(ctx, `
+             UPDATE pdp_data_sets
+             SET challenge_request_msg_hash = NULL,
+                     prove_at_epoch = NULL,
+                     init_ready = TRUE,
+                     prev_challenge_request_epoch = NULL
+             WHERE id = $1
+     `, dataSetId)
+	if err != nil {
+		return xerrors.Errorf("failed to reset dataset to init state: %w", err)
+	}
+	return nil
+}
+
 func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	// Select the data set where challenge_request_task_id = taskID
