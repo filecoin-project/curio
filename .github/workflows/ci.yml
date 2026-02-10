@@ -63,8 +63,6 @@ jobs:
         shell: bash
 
       - name: Build Go
-        env:
-          FFI_USE_OPENCL: 1
         run: make build
         shell: bash
 
