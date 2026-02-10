@@ -128,7 +128,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 					return false, nil
 				}
 
-				// Update pdp_data_sets to set next_challenge_possible = FALSE
+				// Update pdp_data_sets to prevent scheduling more prove tasks for this data set.
 				affected, err = tx.Exec(`
                     UPDATE pdp_data_sets
                     SET challenge_request_msg_hash = NULL
@@ -207,6 +207,52 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			err = fmt.Errorf("failed to submit possesion proof for dataset %d: %w", dataSetId, err)
 		}
 	}()
+
+	// Handle late task
+	// Prove task can wake up and execute Do() outside of its proving window
+	// Quickly finish these tasks with no proof submission and no error
+	ts := p.head.Load()
+	if ts == nil {
+		ts, err = p.fil.ChainHead(ctx)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get chain head: %w", err)
+		}
+	}
+
+	var proveAtEpoch *int64
+	var challengeWindow *int64
+	err = p.db.QueryRow(ctx, `
+		SELECT prove_at_epoch, challenge_window
+		FROM pdp_data_sets
+		WHERE id = $1
+	`, dataSetId).Scan(&proveAtEpoch, &challengeWindow)
+	if err != nil {
+		return false, xerrors.Errorf("failed to check task timeliness: %w", err)
+	}
+	if proveAtEpoch != nil && challengeWindow != nil {
+		// Missed challenge window but next_proving_period not yet run.
+		// Noop and wait for next_proving_period task scheduling.
+		if *proveAtEpoch+*challengeWindow < int64(ts.Height()) {
+			log.Errorw("Prove task awoke too late, proving period deadline missed, fault will be registered",
+				"dataSetId", dataSetId,
+				"proveAtEpoch", *proveAtEpoch,
+				"challengeWindow", *challengeWindow,
+				"currentEpoch", int64(ts.Height()),
+			)
+			return true, nil
+		}
+		// Missed challenge window and next_proving_period already reset.
+		// Noop and wait for prove task scheduling.
+		if *proveAtEpoch > int64(ts.Height()) {
+			log.Errorw("Prove task awoke too late, fault registered, proving period rescheduled",
+				"dataSetId", dataSetId,
+				"proveAtEpoch", *proveAtEpoch,
+				"challengeWindow", *challengeWindow,
+				"currentEpoch", int64(ts.Height()),
+			)
+			return true, nil
+		}
+	}
 
 	pdpContracts := contract.ContractAddresses()
 	pdpVerifierAddress := pdpContracts.PDPVerifier
