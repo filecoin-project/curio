@@ -310,12 +310,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore proof parameters cache
-        uses: actions/cache@v4
-        with:
-          path: /var/tmp/filecoin-proof-parameters
-          key: proof-params-v28-8388608
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
