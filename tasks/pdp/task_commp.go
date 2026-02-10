@@ -161,32 +161,31 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		indIDs[i] = int64(id)
 	}
 
-	var selected harmonytask.TaskID
+	var selected []harmonytask.TaskID
 
-	err := c.db.QueryRow(ctx, `
-			SELECT p.commp_task_id
-			FROM pdp_pipeline p
-			JOIN parked_piece_refs ppr
-			  ON p.piece_ref IS NOT NULL
-			 AND p.piece_ref = ppr.ref_id
-			JOIN sector_location sl
-			  ON sl.miner_id = 0
-			 AND sl.sector_num = ppr.piece_id
-			 AND sl.sector_filetype = 32
-			JOIN storage_path sp
-			  ON sp.storage_id = sl.storage_id
-			WHERE p.commp_task_id = ANY($1::bigint[])
-			  AND sp.urls IS NOT NULL
-			  AND sp.urls LIKE '%' || $2 || '%'
-			LIMIT 1;`, indIDs).Scan(&selected)
+	err := c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(commp_task_id), '{}')::bigint[] AS commp_task_ids FROM 
+										(
+										    SELECT p.commp_task_id
+											FROM pdp_pipeline p
+											JOIN parked_piece_refs ppr
+											  ON p.piece_ref IS NOT NULL
+											 AND p.piece_ref = ppr.ref_id
+											JOIN sector_location sl
+											  ON sl.miner_id = 0
+											 AND sl.sector_num = ppr.piece_id
+											 AND sl.sector_filetype = 32
+											JOIN storage_path sp
+											  ON sp.storage_id = sl.storage_id
+											WHERE p.commp_task_id = ANY($1::bigint[])
+											  AND sp.urls IS NOT NULL
+											  AND sp.urls LIKE '%' || $2 || '%'
+											LIMIT 100
+										) s;`, indIDs).Scan(&selected)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, xerrors.Errorf("getting tasks with parked piece ref: %w", err)
-		}
 		return nil, nil
 	}
 
-	return &selected, nil
+	return selected, nil
 }
 
 func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {

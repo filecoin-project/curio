@@ -2,11 +2,9 @@ package seal
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
@@ -178,21 +176,23 @@ func (s *SyntheticProofTask) CanAccept(ids []harmonytask.TaskID, engine *harmony
 		indIDs[i] = int64(id)
 	}
 
-	var acceptedID harmonytask.TaskID
+	var acceptedIDs []harmonytask.TaskID
 
-	err := s.db.QueryRow(ctx, `
-		SELECT p.task_id_synth FROM sectors_sdr_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
-		    INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
-			WHERE task_id_synth = ANY ($1) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 1`, indIDs, engine.Host()).Scan(&acceptedID)
+	err := s.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id_synth), '{}')::bigint[] AS task_ids_synth FROM 
+											(
+											    SELECT p.task_id_synth FROM sectors_sdr_pipeline p
+												INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+												INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
+												WHERE task_id_synth = ANY ($1) 
+												  AND sp.urls IS NOT NULL 
+												  AND sp.urls LIKE '%' || $2 || '%' 
+												  LIMIT 100
+											) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
 
-	return &acceptedID, nil
+	return acceptedIDs, nil
 }
 
 func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {

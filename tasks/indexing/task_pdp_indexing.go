@@ -256,38 +256,41 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		panic("storiface.FTPiece != 32")
 	}
 
-	var resultTaskID harmonytask.TaskID
+	var resultTaskID []harmonytask.TaskID
 
 	// Single query to resolve storage locations and filter for acceptable tasks
-	err := P.db.QueryRow(ctx, `
-		SELECT p.indexing_task_id
-		FROM pdp_pipeline p
-		LEFT JOIN parked_piece_refs ppr
-		  ON p.piece_ref = ppr.ref_id
-		LEFT JOIN sector_location sl
-		  ON sl.sector_num = ppr.piece_id
-		 AND sl.miner_id = 0
-		 AND sl.sector_filetype = 32
-		LEFT JOIN storage_path sp
-		  ON sp.storage_id = sl.storage_id
-		WHERE p.indexing_task_id = ANY($1::bigint[])
-		  AND (
-			p.indexing = FALSE
-			OR (
-			  sp.urls IS NOT NULL
-			  AND sp.urls LIKE '%' || $2 || '%'
-			)
-		  )
-		LIMIT 1;`, indIDs, engine.Host()).Scan(&resultTaskID)
+	err := P.db.QueryRow(ctx, `SELECT COALESCE(array_agg(s.indexing_task_id), '{}')::bigint[] AS indexing_task_ids
+									FROM (
+										SELECT p.indexing_task_id
+										FROM pdp_pipeline p
+										LEFT JOIN parked_piece_refs ppr
+										  ON p.piece_ref = ppr.ref_id
+										LEFT JOIN sector_location sl
+										  ON sl.sector_num = ppr.piece_id
+										 AND sl.miner_id = 0
+										 AND sl.sector_filetype = 32
+										LEFT JOIN storage_path sp
+										  ON sp.storage_id = sl.storage_id
+										WHERE p.indexing_task_id = ANY($1::bigint[])
+										  AND (
+											p.indexing = FALSE
+											OR (
+											  sp.urls IS NOT NULL
+											  AND sp.urls LIKE '%' || $2 || '%'
+											)
+											OR (
+												-- no file present at all (we handle this gracefully in DO())
+												sl.storage_id IS NULL
+											)
+										  )
+										LIMIT 100
+									) s`, indIDs, engine.Host()).Scan(&resultTaskID)
 
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, xerrors.Errorf("pdp can accept batch query: %w", err)
 	}
 
-	return &resultTaskID, nil
+	return resultTaskID, nil
 }
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {

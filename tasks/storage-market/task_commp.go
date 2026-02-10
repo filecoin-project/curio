@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 	"strconv"
 
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-commp-utils/writer"
@@ -296,63 +294,67 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		indIDs[i] = int64(id)
 	}
 
-	var selected harmonytask.TaskID
+	var selected []harmonytask.TaskID
 
-	err := c.db.QueryRow(ctx, `
-					SELECT t.commp_task_id
-					FROM (
-					  SELECT commp_task_id, url
-					  FROM market_mk12_deal_pipeline
-					  WHERE commp_task_id = ANY($1::bigint[])
-					
-					  UNION ALL
-					
-					  SELECT commp_task_id, url
-					  FROM market_mk20_pipeline
-					  WHERE commp_task_id = ANY($1::bigint[])
-					) t
-					JOIN parked_piece_refs ppr
-					  ON t.url LIKE 'pieceref:%'
-					 AND substring(t.url FROM 10)::bigint = ppr.ref_id
-					JOIN sector_location sl
-					  ON sl.miner_id = 0
-					 AND sl.sector_num = ppr.piece_id
-					 AND sl.sector_filetype = 32
-					JOIN storage_path sp
-					  ON sp.storage_id = sl.storage_id
-					WHERE sp.urls IS NOT NULL
-					  AND sp.urls LIKE '%' || $2 || '%'
-					LIMIT 1;`, indIDs, engine.Host()).Scan(&selected)
+	err := c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(commp_task_id), '{}')::bigint[] AS commp_task_ids FROM 
+										(
+										    SELECT t.commp_task_id
+											FROM (
+											  SELECT commp_task_id, url
+											  FROM market_mk12_deal_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											
+											  UNION ALL
+											
+											  SELECT commp_task_id, url
+											  FROM market_mk20_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											) t
+											JOIN parked_piece_refs ppr
+											  ON t.url LIKE 'pieceref:%'
+											 AND substring(t.url FROM 10)::bigint = ppr.ref_id
+											JOIN sector_location sl
+											  ON sl.miner_id = 0
+											 AND sl.sector_num = ppr.piece_id
+											 AND sl.sector_filetype = 32
+											JOIN storage_path sp
+											  ON sp.storage_id = sl.storage_id
+											WHERE sp.urls IS NOT NULL
+											  AND sp.urls LIKE '%' || $2 || '%'
+											LIMIT 100
+										) s;`, indIDs, engine.Host()).Scan(&selected)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, xerrors.Errorf("getting tasks with parked piece ref: %w", err)
-		}
-
-		// If we couldn't find a parked piece ref, then we can schedule the tasks with remote HTTP readers
-		err = c.db.QueryRow(ctx, `
-					SELECT t.commp_task_id
-					FROM (
-					  SELECT commp_task_id, url
-					  FROM market_mk12_deal_pipeline
-					  WHERE commp_task_id = ANY($1::bigint[])
-					
-					  UNION ALL
-					
-					  SELECT commp_task_id, url
-					  FROM market_mk20_pipeline
-					  WHERE commp_task_id = ANY($1::bigint[])
-					) t
-					WHERE t.url IS NOT NULL
-					  AND t.url NOT LIKE 'pieceref:%'
-					LIMIT 1;`, indIDs).Scan(&selected)
-		if err != nil {
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return nil, xerrors.Errorf("getting tasks with remote HTTP reader: %w", err)
-			}
-			return nil, nil
-		}
+		return nil, xerrors.Errorf("getting tasks with parked piece ref: %w", err)
 	}
-	return &selected, nil
+
+	if len(selected) > 0 {
+		return selected, nil
+	}
+
+	// If we couldn't find a parked piece ref, then we can schedule the tasks with remote HTTP readers
+	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(commp_task_id), '{}')::bigint[] AS commp_task_ids FROM 
+										(
+										    SELECT t.commp_task_id
+											FROM (
+											  SELECT commp_task_id, url
+											  FROM market_mk12_deal_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											
+											  UNION ALL
+											
+											  SELECT commp_task_id, url
+											  FROM market_mk20_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											) t
+											WHERE t.url IS NOT NULL
+											  AND t.url NOT LIKE 'pieceref:%'
+											LIMIT 100
+										) s`, indIDs).Scan(&selected)
+	if err != nil {
+		return nil, xerrors.Errorf("getting tasks with remote HTTP reader: %w", err)
+	}
+
+	return selected, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
