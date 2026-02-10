@@ -95,6 +95,7 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}()
 
 	wr := new(commp.Calc)
+	defer wr.Reset()
 	written, err := io.CopyBuffer(wr, pReader, make([]byte, writer.CommPBuf))
 	if err != nil {
 		return false, xerrors.Errorf("copy into commp writer: %w", err)
@@ -142,7 +143,7 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 }
 
-func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// CommP task can be of 2 types
 	// 1. Using ParkPiece pieceRef
 	// 2. Using remote HTTP reader

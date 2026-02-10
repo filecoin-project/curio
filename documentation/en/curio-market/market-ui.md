@@ -20,7 +20,7 @@ The "Storage Deals" page list outs all the details in the Curio market. This can
 
 <figure><img src="../.gitbook/assets/deal_list.png" alt=""><figcaption><p>Storage Deals page</p></figcaption></figure>
 
-The "Piece Info" contains all the deals about a piece onboarded by the Curio market. This is a one stop shop for all details about a piece and the deal containing the piece. It provides information about the piece itself, indexing, IPNI announcement status of the piece along with all the deals which contains this piece with their processing status. It also lists out the sectors which contain this piece. This is the single most important page for debugging issues with data onboarding. This page can be opened by clikcing on the "Piece Cid" from multiple pages inclusing the deal detail and deal list pages.
+The "Piece Info" contains all the deals about a piece onboarded by the Curio market. This is a one stop shop for all details about a piece and the deal containing the piece. It provides information about the piece itself, indexing, IPNI announcement status of the piece along with all the deals which contains this piece with their processing status. It also lists out the sectors which contain this piece. This is the single most important page for debugging issues with data onboarding. This page can be opened by clicking on the "Piece Cid" from multiple pages including the deal detail and deal list pages.
 
 <figure><img src="../.gitbook/assets/piece_info_1.png" alt=""><figcaption><p>Piece Info page</p></figcaption></figure>
 

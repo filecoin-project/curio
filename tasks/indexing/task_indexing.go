@@ -268,6 +268,17 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		}
 	}
 
+	// If no reader is available (no unsealed copy), complete the task without actual indexing.
+	// This records the piece metadata but marks it as not indexed.
+	if reader == nil {
+		err = i.recordCompletion(ctx, task, taskID, false)
+		if err != nil {
+			return false, err
+		}
+		log.Infow("No unsealed copy available, skipping indexing", "piece_cid", task.PieceCid, "id", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+		return true, nil
+	}
+
 	defer func() {
 		_ = reader.Close()
 	}()
@@ -602,8 +613,24 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 		}
 	}
 
-	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed
-	if i.cfg.Market.StorageMarketConfig.IPNI.Disable {
+	// Determine if we should skip IPNI and mark complete directly.
+	// This happens when:
+	// 1. IPNI is globally disabled, OR
+	// 2. The piece wasn't actually indexed (indexed=false) AND we wanted to index+announce
+	//    (in this case IPNI would fail since the piece isn't in the index store)
+	//
+	// For deals with !Announce or !ShouldIndex, IPNI scheduler will skip them anyway,
+	// so we can let them proceed to IPNI phase where they'll be marked complete.
+	skipIPNI := i.cfg.Market.StorageMarketConfig.IPNI.Disable
+	if !indexed && task.ShouldIndex && task.Announce {
+		// We wanted to index and announce, but couldn't index (e.g., no unsealed copy).
+		// Skip IPNI since it would fail without indexed data.
+		skipIPNI = true
+		log.Warnw("Skipping IPNI for deal that could not be indexed", "piece_cid", task.PieceCid,
+			"id", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+	}
+
+	if skipIPNI {
 		if task.Mk20 {
 			n, err := i.db.Exec(ctx, `UPDATE market_mk20_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
                                      complete = TRUE WHERE id = $1 AND indexing_task_id = $2`, task.UUID, taskID)
@@ -648,7 +675,7 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 	return nil
 }
 
-func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if storiface.FTPiece != 32 {
 		panic("storiface.FTPiece != 32")
 	}
@@ -706,6 +733,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 				  )
 			LIMIT 1`, indIDs, engine.Host()).Scan(&result.TaskID, &result.StorageID, &result.Indexing)
 
+	// TODO: Handle when no unsealed copy for mk12
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

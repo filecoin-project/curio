@@ -6,8 +6,11 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -104,10 +107,19 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("store sdr-trees success: updated %d rows", n)
 	}
 
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SealMeasures.TreeRCCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
+	}
+
 	return true, nil
 }
 
-func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if storiface.FTCache != 4 {
 		panic("storiface.FTCache != 4")
 	}

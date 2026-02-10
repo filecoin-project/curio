@@ -307,21 +307,21 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	return true, nil
 }
 
-func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to setup params: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
 		log.Infow("WdPostTask.CanAccept() params not ready, not scheduling")
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	// GetEpoch
 	ts, err := t.api.ChainHead(context.Background())
 
 	if err != nil {
-		return nil, err
+		return []harmonytask.TaskID{}, err
 	}
 
 	// GetData for tasks
@@ -349,14 +349,18 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 		return nil, err
 	}
 
+	result := []harmonytask.TaskID{}
 	// Accept those past deadline, then delete them in Do().
 	for i := range tasks {
 		tasks[i].dlInfo = NewDeadlineInfo(tasks[i].ProvingPeriodStart, tasks[i].DeadlineIndex, ts.Height())
 
 		if tasks[i].dlInfo.PeriodElapsed() {
 			// note: Those may be test tasks
-			return &tasks[i].TaskID, nil
+			result = append(result, tasks[i].TaskID)
 		}
+	}
+	if len(result) > 0 {
+		return result, nil
 	}
 
 	// todo fix the block below
@@ -388,7 +392,7 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 	})*/
 	if len(tasks) == 0 {
 		log.Infof("RAM too small for any WDPost task")
-		return nil, nil
+		return result, nil
 	}
 
 	// Ignore those with too many failures unless they are the only ones left.
@@ -408,7 +412,10 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 		return tasks[i].dlInfo.Open < tasks[j].dlInfo.Open
 	})
 
-	return &tasks[0].TaskID, nil
+	result = lo.Map(tasks, func(d wdTaskDef, _ int) harmonytask.TaskID {
+		return d.TaskID
+	})
+	return result, nil
 }
 
 func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {

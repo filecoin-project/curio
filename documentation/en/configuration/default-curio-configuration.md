@@ -59,6 +59,16 @@ description: The default curio configuration
   # type: int
   #ParkPieceMaxTasks = 0
 
+  # The maximum number of pieces that should be in storage + active tasks writing to storage on this node (Default: 0 - unlimited)
+  #
+  # type: int
+  #ParkPieceMaxInPark = 0
+
+  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+  #
+  # type: float64
+  #ParkPieceMinFreeStoragePercent = 20.0
+
   # EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
   # creating 11 layer files in sector cache directory.
   # 
@@ -212,6 +222,19 @@ description: The default curio configuration
   # type: int
   #UpdateEncodeMaxTasks = 0
 
+  # BindEncodeToData forces the Encode task to be executed on the same node where the data was parked.
+  # Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+  # (Default: false)
+  #
+  # type: bool
+  #BindEncodeToData = false
+
+  # AllowEncodeGPUOverprovision allows the Encode task to run on regardress of declared GPU usage. (Default: false)
+  # NOTE: This definitely is not safe on PoSt nodes.
+  #
+  # type: bool
+  #AllowEncodeGPUOverprovision = false
+
   # UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)
   #
   # type: int
@@ -240,7 +263,7 @@ description: The default curio configuration
   # type: int
   #SyntheticPoRepMaxTasks = 0
 
-  # EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)
+  # EnableBatchSeal enables batch sealing on the node. (Default: false)
   #
   # type: bool
   #EnableBatchSeal = false
@@ -268,6 +291,13 @@ description: The default curio configuration
   #
   # type: int
   #CommPMaxTasks = 0
+
+  # BindCommPToData forces the CommP task to be executed on the same node where the data was parked.
+  # Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+  # (Default: false)
+  #
+  # type: bool
+  #BindCommPToData = false
 
   # The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
   # also be bounded by resources available on the machine. (Default: 8)

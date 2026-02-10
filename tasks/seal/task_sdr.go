@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -136,6 +138,13 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		return false, xerrors.Errorf("store sdr success: updated %d rows", n)
 	}
 
+	// Record metric
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SealMeasures.SDRCompleted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
+	}
+
 	return true, nil
 }
 
@@ -164,14 +173,13 @@ func GetTicket(ctx context.Context, api TicketNodeAPI, maddr address.Address) (a
 	return abi.SealRandomness(rand), ticketEpoch, nil
 }
 
-func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if s.min > len(ids) {
 		log.Debugw("did not accept task", "name", "SDR", "reason", "below min", "min", s.min, "count", len(ids))
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {

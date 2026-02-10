@@ -244,7 +244,7 @@ func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonyta
 	return nil
 }
 
-func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	ctx := context.Background()
 
 	indIDs := make([]int64, len(ids))

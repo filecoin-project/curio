@@ -33,8 +33,10 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
-	err := idxStore.Start(ctx, true)
+	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	require.NoError(t, err)
+	err = idxStore.Start(ctx, true)
+
 	require.NoError(t, err)
 
 	// Create a car file and calculate commP

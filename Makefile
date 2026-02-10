@@ -12,6 +12,20 @@ $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
 CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
+CGO_LDFLAGS_ALLOW_PATTERN := (-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)
+CGO_LDFLAGS_ALLOW ?= "$(CGO_LDFLAGS_ALLOW_PATTERN)"
+export CGO_LDFLAGS_ALLOW
+
+TEST_ENV_VARS := CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW)
+BUILD_DEPS := setup-cgo-env
+
+.PHONY: setup-cgo-env
+setup-cgo-env:
+	@current=$$(go env CGO_LDFLAGS_ALLOW); \
+	if [ "$$current" != "$(CGO_LDFLAGS_ALLOW_PATTERN)" ]; then \
+		echo "Configuring go to allow $(CGO_LDFLAGS_ALLOW_PATTERN)"; \
+		go env -w CGO_LDFLAGS_ALLOW='$(CGO_LDFLAGS_ALLOW_PATTERN)'; \
+	fi
 
 build/.filecoin-install: $(FFI_PATH)
 	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
@@ -26,15 +40,26 @@ BUILD_DEPS+=build/.filecoin-install
 CLEAN+=build/.filecoin-install
 
 ## Custom libfilcrypto build for Curio (size-optimized, no FVM)
+## By default, requires CUDA on Linux. Set FFI_USE_OPENCL=1 to build with OpenCL instead.
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
+	@if [ "$$(uname)" = "Linux" ] && [ "$(FFI_USE_OPENCL)" != "1" ] && ! command -v nvcc >/dev/null 2>&1; then \
+		echo ""; \
+		echo "ERROR: nvcc not found but CUDA build is required for Curio on Linux."; \
+		echo ""; \
+		echo "Please either:"; \
+		echo "  1. Install the CUDA toolkit (nvcc must be in PATH), or"; \
+		echo "  2. Build with OpenCL instead: make FFI_USE_OPENCL=1 build"; \
+		echo ""; \
+		exit 1; \
+	fi
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
+	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
 	FFI_USE_MULTICORE_SDR=1 \
 	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
-	@echo "Rebuilt libfilcrypto for Curio (OpenCL+multicore, no default features)."
 
 ffi-version-check:
 	@[[ "$$(awk '/const Version/{print $$5}' extern/filecoin-ffi/version.go)" -eq 3 ]] || (echo "FFI version mismatch, update submodules"; exit 1)
@@ -70,6 +95,7 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
+BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
 endif
 
@@ -108,12 +134,41 @@ test-deps: $(BUILD_DEPS)
 .PHONY: test-deps
 
 test: test-deps
-	go test -v -tags="cgo" -timeout 30m ./itests/...
+	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
 .PHONY: test
+
+## Coverage targets
+
+COVERAGE_DIR ?= coverage
+COVERAGE_PROFILE = $(COVERAGE_DIR)/coverage.out
+COVERAGE_HTML = $(COVERAGE_DIR)/coverage.html
+
+coverage: cov
+.PHONY: coverage
+
+cov:
+	@mkdir -p $(COVERAGE_DIR)
+	go test -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic ./...
+	go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
+	@echo ""
+	@echo "Coverage report generated:"
+	@echo "  Profile: $(COVERAGE_PROFILE)"
+	@echo "  HTML:    $(COVERAGE_HTML)"
+	@echo ""
+	@echo "Opening coverage report..."
+	@which xdg-open > /dev/null 2>&1 && xdg-open $(COVERAGE_HTML) || open $(COVERAGE_HTML) || echo "Open $(COVERAGE_HTML) in your browser"
+.PHONY: cov
 
 ## ldflags -s -w strips binary
 
 CURIO_TAGS ?= cunative nofvm
+
+# Convert space-separated tags to comma-separated for GOFLAGS (which is whitespace-split)
+CURIO_TAGS_CSV := $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
+
+ifeq ($(shell uname),Linux)
+curio: CGO_LDFLAGS_ALLOW='.*'
+endif
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -126,45 +181,62 @@ curio: $(BUILD_DEPS)
 .PHONY: curio
 BINS+=curio
 
+## Native-curio binary (host-optimized ISA; may not run on older CPUs)
+#
+# For amd64, automatically selects the highest GOAMD64 level supported by the
+# build host CPU:
+# - v4: AVX-512 (avx512f)
+# - v3: AVX2 (avx2)
+# - v2: SSE4.2 (sse4_2)
+# - v1: baseline amd64
+#
+# Override manually if desired:
+#   make curio-native GOAMD64_NATIVE=v3
+GOAMD64_NATIVE ?= $(shell \
+	if [ "$$(go env GOARCH)" = "amd64" ] && [ -r /proc/cpuinfo ]; then \
+		if grep -qm1 'avx512f' /proc/cpuinfo; then echo v4; \
+		elif grep -qm1 'avx2' /proc/cpuinfo; then echo v3; \
+		elif grep -qm1 'sse4_2' /proc/cpuinfo; then echo v2; \
+		else echo v1; fi; \
+	fi)
+
+ifeq ($(shell uname),Linux)
+curio-native: CGO_LDFLAGS_ALLOW='.*'
+endif
+
+curio-native: $(BUILD_DEPS)
+	rm -f curio
+	if [ -n "$(GOAMD64_NATIVE)" ]; then \
+		echo "Building curio-native with GOAMD64=$(GOAMD64_NATIVE)"; \
+		GOAMD64="$(GOAMD64_NATIVE)" CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+			-tags "$(CURIO_TAGS)" \
+			-o curio -ldflags " -s -w \
+			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			./cmd/curio ; \
+	else \
+		echo "Building curio-native (non-amd64; GOAMD64 not applicable)"; \
+		CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+			-tags "$(CURIO_TAGS)" \
+			-o curio -ldflags " -s -w \
+			-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
+			-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+			./cmd/curio ; \
+	fi
+.PHONY: curio-native
+
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS)  -tags "$(CURIO_TAGS) " -o sptool ./cmd/sptool
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
 pdptool: $(BUILD_DEPS)
 	rm -f pdptool
-	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
 .PHONY: pdptool
 BINS+=pdptool
 
-ifeq ($(shell uname),Linux)
-
-batchdep: build/.supraseal-install
-batchdep: $(BUILD_DEPS)
-.PHONY: batchdep
-
-batch: CURIO_TAGS+= supraseal
-batch: CGO_LDFLAGS_ALLOW='.*'
-batch: batchdep batch-build
-.PHONY: batch
-
-
-batch-calibnet: CURIO_TAGS+= supraseal
-batch-calibnet: CURIO_TAGS+= calibnet
-batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
-batch-calibnet: batchdep batch-build
-.PHONY: batch-calibnet
-
-else
-batch:
-	@echo "Batch target is only available on Linux systems"
-	@exit 1
-
-batch-calibnet:
-	@echo "Batch-calibnet target is only available on Linux systems"
-	@exit 1
-endif
 
 calibnet: CURIO_TAGS+= calibnet
 calibnet: build
@@ -184,8 +256,6 @@ an existing curio binary in your PATH. This may cause problems if you don't run 
 
 .PHONY: build
 
-batch-build: curio
-.PHONY: batch-build
 
 calibnet-sptool: CURIO_TAGS+= calibnet
 calibnet-sptool: sptool
@@ -216,7 +286,7 @@ uninstall-sptool:
 buildall: $(BINS)
 
 clean:
-	rm -rf $(CLEAN) $(BINS)
+	rm -rf $(CLEAN) $(BINS) $(COVERAGE_DIR)
 	-$(MAKE) -C $(FFI_PATH) clean
 .PHONY: clean
 
@@ -234,10 +304,10 @@ cu2k: CURIO_TAGS+= 2k
 cu2k: curio
 
 cfgdoc-gen:
-	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
 
 fix-imports:
-	$(GOCC) run ./scripts/fiximports
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 
 docsgen: docsgen-md docsgen-openrpc
 	@echo "FixImports will run only from the 'make gen' target"
@@ -248,7 +318,7 @@ docsgen-md: docsgen-md-curio
 .PHONY: docsgen-md
 
 api-gen:
-	$(GOCC) run ./api/gen/api/proxygen.go
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./api/gen/api/proxygen.go
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: api-gen
 
@@ -264,7 +334,7 @@ docsgen-md-curio: docsgen-md-bin
 .PHONY: api-gen
 
 docsgen-md-bin: api-gen
-	$(GOCC) build $(GOFLAGS) -o docgen-md ./scripts/docgen/cmd
+	$(GOCC) build $(GOFLAGS) -tags="$(CURIO_TAGS)" -o docgen-md ./scripts/docgen/cmd
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-md-bin
 
@@ -273,7 +343,7 @@ docsgen-openrpc: docsgen-openrpc-curio
 .PHONY: docsgen-openrpc
 
 docsgen-openrpc-bin: api-gen 
-	$(GOCC) build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
+	$(GOCC) build $(GOFLAGS) -tags="$(CURIO_TAGS)" -o docgen-openrpc ./api/docgen-openrpc/cmd
 
 docsgen-openrpc-curio: docsgen-openrpc-bin
 	./docgen-openrpc "api/api_curio.go" "Curio" "api" "./api" > build/openrpc/curio.json
@@ -291,8 +361,12 @@ docsgen-cli: curio sptool
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
+docsgen-metrics:
+	$(GOCC) run $(GOFLAGS) ./scripts/metricsdocgen > documentation/en/configuration/metrics-reference.md
+.PHONY: docsgen-metrics
+
 go-generate:
-	$(GOCC) generate ./...
+	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
 .PHONY: go-generate
 
 gen: gensimple
@@ -317,12 +391,13 @@ endif
 	$(MAKE) docsgen
 	$(MAKE) marketgen
 	$(MAKE) docsgen-cli
-	$(GOCC) run ./scripts/fiximports
+	$(MAKE) docsgen-metrics
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 	go mod tidy
 .PHONY: gensimple
 
 fiximports:
-	$(GOCC) run ./scripts/fiximports
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
 .PHONY: fiximports
 
 forest-test: GOFLAGS+=-tags=forest

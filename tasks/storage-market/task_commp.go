@@ -26,26 +26,29 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type CommpTask struct {
-	sm  *CurioStorageDealMarket
-	db  *harmonydb.DB
-	sc  *ffi.SealCalls
-	api headAPI
-	max int
+	sm         *CurioStorageDealMarket
+	db         *harmonydb.DB
+	sc         *ffi.SealCalls
+	api        headAPI
+	max        int
+	bindToData bool
 }
 
-func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int) *CommpTask {
+func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int, bindToData bool) *CommpTask {
 	return &CommpTask{
-		sm:  sm,
-		db:  db,
-		sc:  sc,
-		api: api,
-		max: max,
+		sm:         sm,
+		db:         db,
+		sc:         sc,
+		api:        api,
+		max:        max,
+		bindToData: bindToData,
 	}
 }
 
@@ -197,7 +200,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			_ = closer.Close()
 		}()
 
-		w := &writer.Writer{}
+		w := new(proof.DataCidWriter)
 		written, err := io.CopyBuffer(w, pReader, make([]byte, writer.CommPBuf))
 		if err != nil {
 			return false, xerrors.Errorf("copy into commp writer: %w", err)
@@ -271,12 +274,16 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 }
 
-func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// CommP task can be of 2 types
 	// 1. Using ParkPiece pieceRef
 	// 2. Using a remote HTTP reader,
-	// ParkPiece should be scheduled on the same node which has the piece
+	// CommP should be scheduled on the same node which has the piece
 	// Remote HTTP ones can be scheduled on any node
+
+	if !c.bindToData { //
+		return ids, nil
+	}
 
 	if storiface.FTPiece != 32 {
 		panic("storiface.FTPiece != 32")

@@ -130,8 +130,8 @@ func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	return true, nil
 }
 
-func (p *PDPTaskAddDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (p *PDPTaskAddDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (p *PDPTaskAddDataSet) TypeDetails() harmonytask.TaskTypeDetails {

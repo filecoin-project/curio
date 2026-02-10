@@ -5,8 +5,11 @@ import (
 	"errors"
 
 	"github.com/yugabyte/pgx/v5"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -27,9 +30,9 @@ type TreeDTask struct {
 	max int
 }
 
-func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if IsDevnet {
-		return &ids[0], nil
+		return ids, nil
 	}
 
 	if engine.Resources().Gpu <= 0 {
@@ -37,7 +40,7 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}
 
 	if !t.bound {
-		return &ids[0], nil
+		return ids, nil
 	}
 
 	if storiface.FTCache != 4 {
@@ -204,6 +207,15 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 	if n != 1 {
 		return false, xerrors.Errorf("store TreeD success: updated %d rows", n)
+	}
+
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SealMeasures.TreeDCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	return true, nil

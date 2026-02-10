@@ -33,6 +33,27 @@ description: 本指南解释了如何在Curio中启用snap-deals。
 数据可以在任何给定时间使用快照交易管道或PoRep管道进行接收，但不能同时使用两者。
 {% endhint %}
 
+## FastSnap（SnapDeals UpdateEncode 加速）
+
+Curio 的 SnapDeals `UpdateEncode` 支持 **快速模式**（“fastsnap”）：使用批量封装 CUDA 工具链（`extern/supraseal`）加速 TreeR 生成，并使用 Curio 原生的 snap 编码实现。
+
+- **能力检查**：
+
+```bash
+curio test supra system-info
+```
+
+查看 **“Can run fast TreeR: yes”**。
+
+- **回退模式**：如果主机缺少 AVX-512（AMD64v4）或没有可用 CUDA GPU，会自动回退到 CPU 的 TreeR 生成路径。
+- **故障排查 / 强制回退**：
+
+```bash
+export DISABLE_SUPRA_TREE_R=1
+```
+
+这会强制使用 CPU 回退的 TreeR 路径（用于隔离批量封装/CUDA/工具链问题）。
+
 ### Enable snap tasks
 ### 启用快照任务
 

@@ -4,8 +4,11 @@ import (
 	"context"
 	"time"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -37,11 +40,12 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	ctx := context.Background()
 
 	var toCheck []struct {
+		SpID     uint64 `db:"sp_id"`
 		Epoch    int64  `db:"epoch"`
 		MinedCID string `db:"mined_cid"`
 	}
 
-	err = i.db.Select(ctx, &toCheck, `SELECT epoch, mined_cid FROM mining_tasks WHERE won = true AND included IS NULL`)
+	err = i.db.Select(ctx, &toCheck, `SELECT sp_id, epoch, mined_cid FROM mining_tasks WHERE won = true AND included IS NULL`)
 	if err != nil {
 		return false, err
 	}
@@ -73,18 +77,30 @@ func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 				break
 			}
 		}
-		_, err = i.db.Exec(ctx, `UPDATE mining_tasks SET included = $1 WHERE epoch = $2`, included, check.Epoch)
+
+		// Update the included column in the database for this miner's win.
+		_, err = i.db.Exec(ctx, `UPDATE mining_tasks SET included = $1 WHERE epoch = $2 AND sp_id = $3`, included, check.Epoch, check.SpID)
 		if err != nil {
 			return false, xerrors.Errorf("updating included column: %w", err)
+		}
+
+		// Record metric for included blocks
+		if included {
+			if maddr, err := address.NewIDAddress(check.SpID); err == nil {
+				if err := stats.RecordWithTags(ctx, []tag.Mutator{
+					tag.Upsert(MinerTag, maddr.String()),
+				}, MiningMeasures.BlocksIncludedTotal.M(1)); err != nil {
+					log.Errorf("recording metric: %s", err)
+				}
+			}
 		}
 	}
 
 	return true, nil
 }
 
-func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {

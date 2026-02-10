@@ -3,11 +3,16 @@ package snap
 import (
 	"context"
 	"math/rand/v2"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -24,17 +29,21 @@ import (
 const MinSnapSchedInterval = 10 * time.Second
 
 type EncodeTask struct {
-	max int
+	max                         int
+	bindToData                  bool
+	allowEncodeGPUOverprovision bool
 
 	sc *ffi.SealCalls
 	db *harmonydb.DB
 }
 
-func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *EncodeTask {
+func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int, bindToData bool, allowEncodeGPUOverprovision bool) *EncodeTask {
 	return &EncodeTask{
-		max: max,
-		sc:  sc,
-		db:  db,
+		max:                         max,
+		sc:                          sc,
+		db:                          db,
+		bindToData:                  bindToData,
+		allowEncodeGPUOverprovision: allowEncodeGPUOverprovision,
 	}
 }
 
@@ -110,12 +119,150 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return true, xerrors.Errorf("dropping piece refs: %w", err)
 	}
 
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SnapMeasures.EncodeCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
+	}
+
 	return true, nil
 }
 
-func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	if !e.bindToData {
+		return ids, nil
+	}
+
+	// debug log
+	log.Infow("encode task can accept", "ids", ids, "bindToData", e.bindToData)
+
+	ctx := context.Background()
+
+	// Build a list of candidate tasks for the provided ids
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var tasks []struct {
+		TaskID       harmonytask.TaskID `db:"task_id_encode"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector_number"`
+
+		StorageID   string
+		NoPieceRefs bool
+	}
+
+	_, err := e.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		if err := tx.Select(&tasks, `
+			SELECT task_id_encode, sp_id, sector_number
+			FROM sectors_snap_pipeline
+			WHERE task_id_encode = ANY ($1)`, indIDs); err != nil {
+			return false, xerrors.Errorf("selecting snap encode tasks: %w", err)
+		}
+
+		for i := range tasks {
+			var pieceURLs []struct {
+				Url *string `db:"data_url"`
+			}
+			if err := tx.Select(&pieceURLs, `
+				SELECT data_url FROM sectors_snap_initial_pieces
+				WHERE sp_id = $1 AND sector_number = $2`, tasks[i].SpID, tasks[i].SectorNumber); err != nil {
+				return false, xerrors.Errorf("selecting snap piece urls: %w", err)
+			}
+
+			hasPieceRef := false
+			for _, pu := range pieceURLs {
+				if pu.Url == nil || *pu.Url == "" {
+					continue
+				}
+				u, err := url.Parse(*pu.Url)
+				if err != nil {
+					continue
+				}
+				if u.Scheme != "pieceref" {
+					continue
+				}
+				hasPieceRef = true
+
+				refNum, err := strconv.ParseInt(u.Opaque, 10, 64)
+				if err != nil {
+					continue
+				}
+
+				var pieceID []struct {
+					PieceID storiface.PieceNumber `db:"piece_id"`
+				}
+				if err := tx.Select(&pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum); err != nil || len(pieceID) != 1 {
+					continue
+				}
+
+				var sLocation string
+				if err := tx.QueryRow(`
+					SELECT storage_id FROM sector_location
+					WHERE miner_id = $1 AND sector_num = $2 AND sector_filetype = $3
+					LIMIT 1`, 0, pieceID[0].PieceID, storiface.FTPiece).Scan(&sLocation); err != nil {
+					continue
+				}
+
+				if sLocation != "" {
+					tasks[i].StorageID = sLocation
+					break
+				}
+			}
+
+			if !hasPieceRef {
+				tasks[i].NoPieceRefs = true
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return nil, err
+	}
+
+	// Load local storage IDs
+	ls, err := e.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+	local := map[string]struct{}{}
+	for _, l := range ls {
+		local[string(l.ID)] = struct{}{}
+	}
+
+	// debug log
+	log.Infow("encode task can accept", "tasks", tasks, "bindToData", e.bindToData, "local", local)
+
+	preferred := []harmonytask.TaskID{}
+
+	// Prefer tasks where at least one pieceref is present on local storage
+	for _, t := range tasks {
+		if t.StorageID == "" {
+			continue
+		}
+		if _, ok := local[t.StorageID]; ok {
+			id := t.TaskID
+			log.Infow("encode task can accept did accept", "task", t)
+			preferred = append(preferred, id)
+		}
+	}
+
+	// Fallback: if task has no pieceref pieces, it can run anywhere
+	for _, t := range tasks {
+		if t.NoPieceRefs {
+			id := t.TaskID
+			log.Infow("encode task can accept accepting non-pieceref task (anywhere)", "task", t)
+			preferred = append(preferred, id)
+		}
+	}
+
+	// No acceptable tasks for this node
+	return preferred, nil
 }
 
 func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
@@ -124,7 +271,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 	gpu := 1.0
-	if seal.IsDevnet {
+	if seal.IsDevnet || e.allowEncodeGPUOverprovision {
 		gpu = 0
 	}
 
@@ -135,7 +282,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value
 			Gpu:     gpu,
-			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
+			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {

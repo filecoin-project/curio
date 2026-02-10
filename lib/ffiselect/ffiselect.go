@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -31,26 +33,43 @@ func WithLogCtx(ctx context.Context, kvs ...any) context.Context {
 	return context.WithValue(ctx, logCtxKey, kvs)
 }
 
+var logger = logging.Logger("ffiselect")
+
 var IsTest = false
 var IsCuda = build.IsOpencl != "1"
 
 // Get all devices from ffi
-var ch chan string
+var gpuSlots []byte
+var gpuSlotsMx sync.Mutex
 
+// getDeviceOrdinal returns the ordinal of the GPU with the least workload.
+func getDeviceOrdinal() int {
+	gpuSlotsMx.Lock()
+	defer gpuSlotsMx.Unlock()
+	max, maxIdx := byte(0), 0
+	for i, w := range gpuSlots {
+		if w > max {
+			max, maxIdx = w, i
+		}
+	}
+	if max == 0 {
+		logger.Errorf("no GPUs available. Something went wrong in the scheduler.")
+		return -1
+	}
+	gpuSlots[maxIdx]--
+	return maxIdx
+}
 func init() {
 	devices, err := ffi.GetGPUDevices()
 	if err != nil {
 		panic(err)
 	}
 	if len(devices) == 0 {
-		ch = make(chan string, 1)
-		ch <- "0"
+		gpuSlots = []byte{1}
 	} else {
-		nSlots := len(devices) * resources.GpuOverprovisionFactor
-
-		ch = make(chan string, nSlots)
-		for i := 0; i < nSlots; i++ {
-			ch <- strconv.Itoa(i / resources.GpuOverprovisionFactor)
+		gpuSlots = make([]byte, len(devices))
+		for i := range gpuSlots {
+			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
 		}
 	}
 }
@@ -76,10 +95,16 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	}
 
 	// get dOrdinal
-	dOrdinal := <-ch
+	dOrdinal := getDeviceOrdinal()
 	defer func() {
-		ch <- dOrdinal
+		gpuSlotsMx.Lock()
+		gpuSlots[dOrdinal]++
+		gpuSlotsMx.Unlock()
 	}()
+
+	if dOrdinal == -1 {
+		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
+	}
 
 	p, err := os.Executable()
 	if err != nil {
@@ -87,15 +112,16 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	}
 
 	commandAry := []string{"ffi"}
-	cmd := exec.Command(p, commandAry...)
+	cmd := exec.CommandContext(ctx, p, commandAry...)
 
 	// Set Visible Devices for CUDA and OpenCL
 	cmd.Env = append(os.Environ(),
 		func(isCuda bool) string {
+			ordinal := strconv.Itoa(dOrdinal)
 			if isCuda {
-				return "CUDA_VISIBLE_DEVICES=" + dOrdinal
+				return "CUDA_VISIBLE_DEVICES=" + ordinal
 			}
-			return "GPU_DEVICE_ORDINAL=" + dOrdinal
+			return "GPU_DEVICE_ORDINAL=" + ordinal
 		}(IsCuda))
 	tmpDir, err := os.MkdirTemp("", "rust-fil-proofs")
 	if err != nil {
@@ -118,7 +144,7 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	lw := NewLogWriter(ctx.Value(logCtxKey).([]any), os.Stderr)
 
 	cmd.Stderr = lw
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = lw
 	outFile, err := os.CreateTemp("", "out")
 	if err != nil {
 		return nil, err
@@ -191,6 +217,8 @@ var FFISelect struct {
 		key, sealed, unsealed cid.Cid,
 		vproofs [][]byte,
 	) ([]byte, error)
+
+	TreeRFile func(ctx context.Context, lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) error
 
 	SelfTest func(ctx context.Context, val1 int, val2 cid.Cid) (cid.Cid, error)
 }

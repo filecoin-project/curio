@@ -2955,6 +2955,42 @@
       "translation": "通过 Cassandra 接口连接的 Yugabyte 密码，例如 'cassandra'",
       "message": "yugabyte password to connect to over cassandra interface eg 'cassandra'",
       "placeholder": null
+    },
+    {
+      "id": "Manage batch sealing operations",
+      "translation": "管理批量封装操作",
+      "message": "Manage batch sealing operations",
+      "placeholder": null
+    },
+    {
+      "id": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+      "translation": "为批量封装设置 SPDK（配置 hugepage 并绑定 NVMe 设备）",
+      "message": "Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)",
+      "placeholder": null
+    },
+    {
+      "id": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+      "translation": "为批量封装操作设置 SPDK。\n\n此命令会自动：\n- 如果尚未提供，则下载 SPDK\n- 配置 1GB hugepage（至少 36 页）\n- 绑定 NVMe 设备以供 SupraSeal 使用\n\nSPDK 设置操作需要 root/sudo 权限。",
+      "message": "Setup SPDK for batch sealing operations.\n\nThis command automatically:\n- Downloads SPDK if not already available\n- Configures 1GB hugepages (36 pages minimum)\n- Binds NVMe devices for use with SupraSeal\n\nRequires root/sudo access for SPDK setup operations.",
+      "placeholder": null
+    },
+    {
+      "id": "Number of 1GB hugepages to configure",
+      "translation": "要配置的 1GB hugepage 数量",
+      "message": "Number of 1GB hugepages to configure",
+      "placeholder": null
+    },
+    {
+      "id": "Minimum number of hugepages required",
+      "translation": "所需 hugepage 的最小数量",
+      "message": "Minimum number of hugepages required",
+      "placeholder": null
+    },
+    {
+      "id": "Supra consensus testing utilities",
+      "translation": "Supra 共识测试工具",
+      "message": "Supra consensus testing utilities",
+      "placeholder": null
     }
   ]
 }

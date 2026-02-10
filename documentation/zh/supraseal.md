@@ -1,15 +1,23 @@
 ---
-description: 本页面解释了如何在 Curio 中设置 supraseal 批量封装器
+description: 本页面解释了如何在 Curio 中设置批量封装（extern/supraseal）
 ---
 
-# Batch Sealing with SupraSeal
-# 使用 SupraSeal 进行批量封装
+# 批量封装 | Batch Sealing
 
 {% hint style="danger" %}
-**免责声明：** SupraSeal 批量封装目前处于 **测试阶段**。请谨慎使用，并预期在未来版本中可能出现潜在问题或变更。目前需要一些额外的手动系统配置。
+**免责声明：** 批量封装目前处于 **测试阶段**。请谨慎使用，并预期在未来版本中可能出现潜在问题或变更。目前需要一些额外的手动系统配置。
 {% endhint %}
 
-SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封装多个扇区。与单独封装扇区相比，它可以显著提高封装吞吐量。
+批量封装是一种优化的封装方式，允许并行封装多个扇区，与逐个封装相比可显著提高吞吐量。
+
+## CC 调度器（仅用于批量封装）
+
+Curio 提供 **CC Scheduler**（CC 调度器）页面及其对应的数据库表（`sectors_cc_scheduler`），用于按 SP 配置要排队进行批量封装的 CC 扇区数量。
+
+- **CC 调度器仅用于批量封装**
+- 不要将其用于 deals / SnapDeals
+
+如果你在某个节点启用了批量封装，但集群未启用 SnapDeals，deal 可能会被路由到 CC/批量封装管道并最终封装空扇区（丢弃 deal 数据）。如需封装真实 deal，请确保集群启用 SnapDeals。
 
 ## Key Features
 ## 主要特性
@@ -26,7 +34,7 @@ SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封
 * 具有高 IOPS 的 NVMe 驱动器（建议总 IOPS 为 1000-2000 万）
 * 用于 PC2 阶段的 GPU（建议使用 NVIDIA RTX 3090 或更好的）
 * 配置 1GB 大页（最少 36 页）
-* Ubuntu 22.04 或兼容的 Linux 发行版（需要 gcc-11，不需要系统范围内安装）
+* Ubuntu 或兼容的 Linux 发行版（**需要 gcc-13**，不需要系统范围内安装）
 * 至少 256GB RAM，所有内存通道都已填满
   * 如果没有填满**所有**内存通道，封装**性能将大幅下降**
 * NUMA-Per-Socket (NPS) 设置为 1
@@ -61,7 +69,7 @@ SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封
   * 大型（多核心）CCX 通常更好
 
 {% hint style="info" %}
-请考虑为 [SupraSeal 硬件示例](https://github.com/filecoin-project/curio/discussions/140) 做出贡献。
+请考虑为 [批量封装硬件示例](https://github.com/filecoin-project/curio/discussions/140) 做出贡献。
 {% endhint %}
 
 ### Benchmark NVME IOPS
@@ -105,11 +113,10 @@ Total                                  : 8006785.90   31276.51      71.91      1
 ### Dependencies
 ### 依赖项
 
-需要 CUDA 12.x，11.x 不能工作。构建过程依赖于系统范围内的 GCC 11.x 或本地安装的 gcc-11/g++-11。
+需要 CUDA 12.x，11.x 不能工作。构建过程依赖于系统范围内的 GCC 13.x 或本地安装的 `gcc-13`/`g++-13`。
 
-* 在 Arch 上安装 https://aur.archlinux.org/packages/gcc11
-* Ubuntu 22.04 默认有 GCC 11.x
-* 在较新的 Ubuntu 上安装 `gcc-11` 和 `g++-11` 包
+* 在 Arch 上根据发行版/AUR 安装 GCC 13
+* 在 Ubuntu/Debian 上安装 `gcc-13` 和 `g++-13` 包
 
 
 ### Building
@@ -118,13 +125,13 @@ Total                                  : 8006785.90   31276.51      71.91      1
 构建支持批处理的 Curio 二进制文件：
 
 ```bash
-make batch
+make curio
+```
 
+对于 calibnet：
 
+```bash
 make calibnet
-
-
-make batch-calibnet
 ```
 
 {% hint style="warning" %}
@@ -264,6 +271,14 @@ LayerNVMEDevices = [
   # 对于Zen2或更旧的CPU设置为true以确保兼容性
 SingleHasherPerThread = false
 ```
+
+### Environment Variables
+### 环境变量
+
+| 变量 | 描述 |
+| ---- | ---- |
+| `DISABLE_SPDK_SETUP=1` | 设置后，禁用 supraseal 初始化期间的自动 SPDK 设置（大页面配置和 NVMe 设备绑定）。适用于希望手动管理 SPDK 配置、映射驱动器或控制大页面 NUMA 分配的高级用户。 |
+
 ### Configure hugepages
 ### 配置大页面
 
@@ -307,13 +322,33 @@ Hugepagesize:    1048576 kB
 ### Setup NVMe devices for SPDK:
 ### 为SPDK设置NVMe设备：
 
-{% hint style="info" %}
-这只在批量密封处于测试阶段时需要，Curio的未来版本将自动处理这个问题。
+{% hint style="success" %}
+可以使用 Curio CLI 命令自动完成 SPDK 设置：
 {% endhint %}
 
 ```bash
+sudo curio batch setup
+```
+
+此命令将：
+- 如果尚未可用，则下载 SPDK
+- 配置 1GB 大页面（默认 36 页）
+- 绑定 NVMe 设备以供批量封装使用
+
+您可以自定义大页面数量：
+
+```bash
+sudo curio batch setup --hugepages 36 --min-pages 36
+```
+
+或者，如果您需要手动检查 SPDK 状态或解绑设备，可以使用：
+
+```bash
 cd extern/supraseal/deps/spdk-v24.05/
-env NRHUGE=36 ./scripts/setup.sh
+# 检查状态
+sudo ./scripts/setup.sh status
+# 手动运行设置（通常不需要）
+sudo env NRHUGE=36 ./scripts/setup.sh
 ```
 
 

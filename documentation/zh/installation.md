@@ -19,7 +19,7 @@ Curio软件包可直接在Ubuntu / Debian系统上安装。
 1. 安装先决条件
 
 ```bash
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git bzr jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev wget -y && sudo apt upgrade -y
+sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev libgmp-dev libconfig++-dev wget -y && sudo apt upgrade -y
 ```
 
 2. 启用Curio软件包仓库
@@ -59,16 +59,45 @@ sudo apt install curio-opencl
 
 构建Curio需要一些系统依赖，通常由您的发行版提供。
 
+{% hint style="warning" %}
+**注意（Linux 上默认会构建批量封装）：** Curio 的 Linux 构建流程现在会在常规的 `make deps/build` 中默认构建 `extern/supraseal`。因此在 Linux 上从源代码构建 Curio 需要批量封装的额外依赖，包括：
+
+- CUDA Toolkit **13.x 或更高版本**（需要 `nvcc`，即使你不打算在运行时使用批量封装）
+- GCC **13** 工具链（`gcc-13` / `g++-13`）
+- Python venv 工具（`python3-venv`）以及常见构建工具（`autoconf`、`automake`、`libtool`、`nasm`、`xxd` 等）
+
+要检查机器是否支持 SnapDeals 的 **快速 TreeR** 路径，可运行：
+
+```bash
+curio test supra system-info
+```
+{% endhint %}
+
 Arch:
 
 ```bash
-sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-icd-loader opencl-headers opencl-nvidia hwloc libarchive
+sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
+# 批量封装构建依赖（需要 nvcc）
+sudo pacman -Syu cuda
+# GCC 13 可能需要通过发行版/AUR 安装（取决于当前 supraseal 版本）
 ```
 
 Ubuntu/Debian:
 
 ```bash
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git bzr jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev wget -y && sudo apt upgrade -y
+sudo apt install -y \
+  mesa-opencl-icd ocl-icd-opencl-dev \
+  gcc-13 g++-13 \
+  gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev wget \
+  python3 python3-dev python3-pip python3-venv \
+  autoconf automake libtool \
+  xxd nasm \
+  libssl-dev uuid-dev libfuse3-dev \
+  libnuma-dev libaio-dev libkeyutils-dev libncurses-dev \
+  libgmp-dev libconfig++-dev \
+  && sudo apt upgrade -y
+
+# CUDA Toolkit（批量封装构建依赖；需要 nvcc）
 ```
 
 Fedora:
@@ -99,10 +128,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### Go
 
-要构建Curio，您需要安装[Go 1.21.7或更高版本](https://golang.org/dl/)：
+构建 Curio 需要安装 Go（最低版本以仓库根目录的 `GO_VERSION_MIN` 为准）。
+
+示例（当前仓库最小版本为 **1.24.7**）：
 
 ```bash
-wget -c https://golang.org/dl/go1.21.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+wget -c https://go.dev/dl/go1.24.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 ```
 
 {% hint style="info" %}
