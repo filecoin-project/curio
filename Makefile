@@ -371,8 +371,34 @@ docsgen-metrics:
 	$(GOCC) run $(GOFLAGS) ./scripts/metricsdocgen > documentation/en/configuration/metrics-reference.md
 .PHONY: docsgen-metrics
 
+translation-gen:
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/translationcheck
+.PHONY: translation-gen
+
 go-generate:
-	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate ./...
+	@bash -lc 'set -euo pipefail; \
+	  CGO_ALLOW="$(subst ",,$(CGO_LDFLAGS_ALLOW))"; \
+	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
+	  for p in $$(go list ./...); do \
+	    tf="$$(mktemp -t go-gen-time.XXXXXX)"; \
+	    echo ""; \
+	    echo "===== go generate: $$p ====="; \
+	    cmd=(env CGO_LDFLAGS_ALLOW="$$CGO_ALLOW" GOFLAGS="$$GO_FLAGS" $(GOCC) generate "$$p"); \
+	    printf "CMD: "; printf "%q " "$${cmd[@]}"; echo ""; \
+	    if /usr/bin/time -p -o "$$tf" "$${cmd[@]}"; then \
+	      : ; \
+	    else \
+	      rc="$$?"; \
+	      echo "FAILED: $$p (exit $$rc)"; \
+	      echo "--- timing for $$p ---"; \
+	      cat "$$tf" || true; \
+	      rm -f "$$tf" || true; \
+	      exit "$$rc"; \
+	    fi; \
+	    echo "--- timing for $$p ---"; \
+	    cat "$$tf"; \
+	    rm -f "$$tf"; \
+	  done'
 .PHONY: go-generate
 
 gen: gensimple
@@ -396,16 +422,25 @@ gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache
 endif
-	$(MAKE) gen-deps
-	$(MAKE) api-gen
-	$(MAKE) go-generate
-	$(MAKE) cfgdoc-gen
-	$(MAKE) docsgen
-	$(MAKE) marketgen
-	$(MAKE) docsgen-cli
-	$(MAKE) docsgen-metrics
+	@bash -lc '\
+		set -euo pipefail; \
+		t() { name="$$1"; shift; \
+			start=$$(date +%s); \
+			"$$@"; \
+			end=$$(date +%s); \
+			echo "TIMING $$name: $$((end-start))s"; \
+		}; \
+		t gen-deps    $(MAKE) gen-deps; \
+		t api-gen     $(MAKE) api-gen; \
+		t go-generate $(MAKE) go-generate; \
+		t translation-gen $(MAKE) translation-gen; \
+		t cfgdoc-gen  $(MAKE) cfgdoc-gen; \
+		t docsgen     $(MAKE) docsgen; \
+		t marketgen   $(MAKE) marketgen; \
+		t docsgen-cli $(MAKE) docsgen-cli; \
+		t docsgen-metrics $(MAKE) docsgen-metrics; \
+	'
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
-	go mod tidy
 .PHONY: gensimple
 
 fiximports:
