@@ -222,9 +222,9 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	var proveAtEpoch *int64
 	var challengeWindow *int64
 	err = p.db.QueryRow(ctx, `
-	SELECT prove_at_epoch, challenge_window
-	FROM pdp_data_sets
-	WHERE id = $1
+		SELECT prove_at_epoch, challenge_window
+		FROM pdp_data_sets
+		WHERE id = $1
 	`, dataSetId).Scan(&proveAtEpoch, &challengeWindow)
 	if err != nil {
 		return false, xerrors.Errorf("failed to check task timeliness: %w", err)
