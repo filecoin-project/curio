@@ -62,6 +62,8 @@ jobs:
         shell: bash
 
       - name: Build Go
+        env:
+          FFI_USE_OPENCL: 1
         run: make build
         shell: bash
 
@@ -84,12 +86,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CURIO_OPTIMAL_LIBFILCRYPTO: 0
+          FFI_USE_OPENCL: 1
         run: |
           make deps
         shell: bash
 
       - name: Build Go
-        run: make build
+        run: make calibnet
         shell: bash
 
   build-debug:
@@ -116,7 +119,9 @@ jobs:
         shell: bash
 
       - name: Build Go
-        run: make build
+        env:
+          FFI_USE_OPENCL: 1
+        run: make debug
         shell: bash
 
   build-2k:
@@ -143,7 +148,9 @@ jobs:
         shell: bash
 
       - name: Build Go
-        run: make build
+        env:
+          FFI_USE_OPENCL: 1
+        run: make 2k
         shell: bash
 
   build-forest:
@@ -170,6 +177,8 @@ jobs:
         shell: bash
 
       - name: Build Forest
+        env:
+          FFI_USE_OPENCL: 1
         run: make forest-test
         shell: bash
 
@@ -240,6 +249,7 @@ jobs:
           CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
           LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
           CURIO_OPTIMAL_LIBFILCRYPTO: 0
+          FFI_USE_OPENCL: 1
         run: |
           echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
@@ -288,6 +298,8 @@ jobs:
         shell: bash
 
       - name: Lint
+        env:
+          FFI_USE_OPENCL: 1
         run: |
           golangci-lint run -v --timeout 15m --concurrency 4
         shell: bash
