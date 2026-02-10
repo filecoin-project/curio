@@ -3,6 +3,7 @@ package window
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -196,8 +197,9 @@ func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 10 << 20,
 		},
-		MaxFailures: 10,
-		Follows:     nil, // ??
+		MaxFailures:           10,
+		Follows:               nil, // ??
+		ShutdownPollFrequency: 3 * time.Second,
 	}
 }
 

@@ -70,6 +70,10 @@ type TaskTypeDetails struct {
 	// task would block a short-running task from being scheduled, blocking other related pipelines on
 	// other machines.
 	SchedulingOverrides map[string]bool
+
+	// ShutdownPollFrequency when set will prevent the node from shutting down until the task is completed.
+	// Keep it short to respect SPs. Its purpose is to have message sends be verified.
+	ShutdownPollFrequency time.Duration
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -247,43 +251,17 @@ func (e *TaskEngine) GracefullyTerminate() {
 	// If there are any Post tasks then wait till Timeout and check again
 	// When no Post tasks are active, break out of loop  and call the shutdown function
 	for {
-		timeout := time.Millisecond
+		timeout := time.Duration(0)
 		for _, h := range e.handlers {
-			if h.Name == "WinPost" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
-				continue
-			}
-			if h.Name == "WdPost" && h.Max.Active() > 0 {
-				timeout = time.Second * 3
-				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
-				continue
-			}
-
-			if h.Name == "WdPostSubmit" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
-				continue
-			}
-
-			if h.Name == "WdPostRecover" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
-				continue
-			}
-
-			// Test tasks for itest
-			if h.Name == "ThingOne" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
-				continue
+			if h.Max.Active() > 0 && h.ShutdownPollFrequency > timeout {
+				timeout = h.ShutdownPollFrequency
+				log.Infof("node shutdown deferred for %f seconds due to running %s task", timeout.Seconds(), h.Name)
 			}
 		}
-		if timeout > time.Millisecond {
-			time.Sleep(timeout)
-			continue
+		if timeout == 0 {
+			break
 		}
-		break
+		time.Sleep(timeout)
 	}
 }
 

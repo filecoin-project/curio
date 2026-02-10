@@ -2,6 +2,7 @@ package window
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -226,8 +227,9 @@ func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 128 << 20,
 		},
-		MaxFailures: 10,
-		Follows:     nil,
+		MaxFailures:           10,
+		Follows:               nil,
+		ShutdownPollFrequency: time.Second,
 	}
 }
 
