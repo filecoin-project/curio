@@ -96,7 +96,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 	return n
 }
 
-// ResetDatasetToInitPP resets a dataset so that InitProvingPeriodTask picks it up.
+// resetDatasetToInitPP resets a dataset so that InitProvingPeriodTask picks it up.
 // This is only appropriate for datasets whose on-chain proving period was never
 // initialized (e.g. ProvingPeriodNotInitialized error from the contract). InitPP
 // computes a fresh challenge window from config.InitChallengeWindowStart, which is
