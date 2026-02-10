@@ -1,0 +1,38 @@
+name: Label PDPv0 Issues and PRs
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+  pull_request_target:
+    types:
+      - opened
+      - edited
+
+jobs:
+  label-pdpv0:
+    name: Add team/fs-wg label to PDPv0 issues and PRs
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check title and add label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.issue?.title || context.payload.pull_request?.title || '';
+            const number = context.payload.issue?.number || context.payload.pull_request?.number;
+            
+            if (title.toLowerCase().includes('pdpv0')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                labels: ['team/fs-wg']
+              });
+              console.log(`Added team/fs-wg label to #${number}`);
+            } else {
+              console.log(`Title does not contain pdpv0: "${title}"`);
+            }
