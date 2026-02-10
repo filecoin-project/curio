@@ -25,7 +25,7 @@ HarmonyDB is a simple SQL database abstraction layer used by HarmonyTask and oth
 * **Resilience:** Automatically fails over to secondary databases if the primary connection fails.
 * **Security:** Protects against SQL injection vulnerabilities.
 * **Convenience:** Offers helper functions for common Go + SQL operations.
-* **Monitoring:** Provides insights into database behavior through Prometheus stats and error logging.
+* **Monitoring:** Provides insights into database behavior through Prometheus stats and error logging. See [Prometheus Metrics](../configuration/prometheus-metrics.md) for setup and available metrics.
 
 ### Basic Database Details&#x20;
 
@@ -116,3 +116,21 @@ To address these issues in Curio, we have implemented a GPU picker library calle
 <figure><img src="../.gitbook/assets/2024-06-04-040735_1470x522_scrot (1).png" alt=""><figcaption><p>Curio FFISelect in action</p></figcaption></figure>
 
 This approach ensures efficient and conflict-free GPU usage, with each task being handled by a dedicated GPU, thus resolving the historical issues observed with the `lotus-miner` scheduler.
+
+# Security Boundary 
+
+This is what Curio expects an SP to secure in order to have a safe experience. 
+Curio is cluster software which coordinates directly and through the database. It also communicates to the public through chain providers (Lotus) and the market node. To secure this properly, ensure that only trusted people & services have access to:
+- logs: (these include inputs to failing processes)
+- physical machines, 
+- virtual machine access (ssh) for Curio, Lotus, or Yugabyte
+- Curio or Lotus' or Yugabyte's open ports (with exceptions noted by Lotus, and the Curio market node)
+ -- This includes the admin web ui for Curio which exposes numerous capabilities beyond viewing.
+
+Safe to share with untrusted parties: (will not receive private information)
+- Prometheus output 
+- alerts can be sent to untrusted receivers
+- CuView (at your own risk) has modes for light investigation. 
+
+Curio team recommends a network (VPN) containing all the pieces to have limited access. 
+Logs are mostly clean except for errors which try to be as specific as possible, so partial redaction may be best here if sharing with untrusted parties. 

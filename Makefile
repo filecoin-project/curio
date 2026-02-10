@@ -40,15 +40,26 @@ BUILD_DEPS+=build/.filecoin-install
 CLEAN+=build/.filecoin-install
 
 ## Custom libfilcrypto build for Curio (size-optimized, no FVM)
+## By default, requires CUDA on Linux. Set FFI_USE_OPENCL=1 to build with OpenCL instead.
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
+	@if [ "$$(uname)" = "Linux" ] && [ "$(FFI_USE_OPENCL)" != "1" ] && ! command -v nvcc >/dev/null 2>&1; then \
+		echo ""; \
+		echo "ERROR: nvcc not found but CUDA build is required for Curio on Linux."; \
+		echo ""; \
+		echo "Please either:"; \
+		echo "  1. Install the CUDA toolkit (nvcc must be in PATH), or"; \
+		echo "  2. Build with OpenCL instead: make FFI_USE_OPENCL=1 build"; \
+		echo ""; \
+		exit 1; \
+	fi
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
+	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
 	FFI_USE_MULTICORE_SDR=1 \
 	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
-	@echo "Rebuilt libfilcrypto for Curio (OpenCL+multicore, no default features)."
 
 ffi-version-check:
 	@[[ "$$(awk '/const Version/{print $$5}' extern/filecoin-ffi/version.go)" -eq 3 ]] || (echo "FFI version mismatch, update submodules"; exit 1)
@@ -74,6 +85,8 @@ CLEAN+=build/.blst-install
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
+ifneq ($(FFI_USE_OPENCL),1)
+
 SUPRA_FFI_PATH:=extern/supraseal/
 SUPRA_FFI_DEPS:=.install-supraseal
 SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
@@ -86,6 +99,8 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 
 BUILD_DEPS+=build/.supraseal-install
 CLEAN+=build/.supraseal-install
+
+endif
 endif
 
 $(MODULES): build/.update-modules ;
@@ -150,10 +165,12 @@ cov:
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS ?= cunative nofvm
+CURIO_TAGS_BASE ?= cunative nofvm
+CURIO_TAGS_EXTRA = $(if $(filter 1,$(FFI_USE_OPENCL)),nosupraseal,)
+CURIO_TAGS = $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
 
 # Convert space-separated tags to comma-separated for GOFLAGS (which is whitespace-split)
-CURIO_TAGS_CSV := $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
+CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
 
 ifeq ($(shell uname),Linux)
 curio: CGO_LDFLAGS_ALLOW='.*'
@@ -350,8 +367,38 @@ docsgen-cli: curio sptool
 	echo '```' >> documentation/en/configuration/default-curio-configuration.md
 .PHONY: docsgen-cli
 
+docsgen-metrics:
+	$(GOCC) run $(GOFLAGS) ./scripts/metricsdocgen > documentation/en/configuration/metrics-reference.md
+.PHONY: docsgen-metrics
+
+translation-gen:
+	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/translationcheck
+.PHONY: translation-gen
+
 go-generate:
-	CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) GOFLAGS='$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)' $(GOCC) generate $$($(GOCC) list ./... | grep -v '/extern/')
+	@bash -lc 'set -euo pipefail; \
+	  CGO_ALLOW="$(subst ",,$(CGO_LDFLAGS_ALLOW))"; \
+	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
+	  for p in $$(go list ./...); do \
+	    tf="$$(mktemp -t go-gen-time.XXXXXX)"; \
+	    echo ""; \
+	    echo "===== go generate: $$p ====="; \
+	    cmd=(env CGO_LDFLAGS_ALLOW="$$CGO_ALLOW" GOFLAGS="$$GO_FLAGS" $(GOCC) generate "$$p"); \
+	    printf "CMD: "; printf "%q " "$${cmd[@]}"; echo ""; \
+	    if /usr/bin/time -p -o "$$tf" "$${cmd[@]}"; then \
+	      : ; \
+	    else \
+	      rc="$$?"; \
+	      echo "FAILED: $$p (exit $$rc)"; \
+	      echo "--- timing for $$p ---"; \
+	      cat "$$tf" || true; \
+	      rm -f "$$tf" || true; \
+	      exit "$$rc"; \
+	    fi; \
+	    echo "--- timing for $$p ---"; \
+	    cat "$$tf"; \
+	    rm -f "$$tf"; \
+	  done'
 .PHONY: go-generate
 
 gen: gensimple
@@ -361,26 +408,39 @@ marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
-# Run gen steps with limited parallelization.
-# Go steps run sequentially (share build cache), non-Go steps run in parallel.
+gen-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
+gen-deps: $(BUILD_DEPS)
+	@echo "Built dependencies with FVM support for testing"
+.PHONY: gen-deps
+
+# Run gen steps sequentially in a single shell to avoid Go build cache race conditions.
+# The "unlinkat: directory not empty" error occurs when multiple go processes
+# contend for the same build cache simultaneously.
 # Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
-# Set GEN_CLI=1 to include docsgen-cli (slow, requires building binaries).
+gensimple: export FFI_USE_OPENCL=1
 gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache
 endif
-	$(MAKE) deps
-	$(MAKE) marketgen &
-	$(MAKE) api-gen
-	$(MAKE) cfgdoc-gen
-	$(MAKE) docsgen &
-	$(MAKE) go-generate
+	@bash -lc '\
+		set -euo pipefail; \
+		t() { name="$$1"; shift; \
+			start=$$(date +%s); \
+			"$$@"; \
+			end=$$(date +%s); \
+			echo "TIMING $$name: $$((end-start))s"; \
+		}; \
+		t gen-deps    $(MAKE) gen-deps; \
+		t api-gen     $(MAKE) api-gen; \
+		t go-generate $(MAKE) go-generate; \
+		t translation-gen $(MAKE) translation-gen; \
+		t cfgdoc-gen  $(MAKE) cfgdoc-gen; \
+		t docsgen     $(MAKE) docsgen; \
+		t marketgen   $(MAKE) marketgen; \
+		t docsgen-cli $(MAKE) docsgen-cli; \
+		t docsgen-metrics $(MAKE) docsgen-metrics; \
+	'
 	$(GOCC) run $(GOFLAGS) -tags="$(CURIO_TAGS)" ./scripts/fiximports
-	@wait
-ifeq ($(GEN_CLI),1)
-	$(MAKE) docsgen-cli
-endif
-	go mod tidy
 .PHONY: gensimple
 
 # Full gen including CLI docs (slower)
