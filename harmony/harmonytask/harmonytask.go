@@ -274,7 +274,7 @@ func (e *TaskEngine) GracefullyTerminate() {
 			// PDP tasks
 			if h.Name == "PDPv0_Prove" && h.Max.Active() > 0 {
 				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running PDPProve task", timeout.Seconds())
+				log.Infof("node shutdown deferred for %f seconds due to running PDPv0_Prove task", timeout.Seconds())
 				continue
 			}
 
