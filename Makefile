@@ -165,10 +165,12 @@ cov:
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS ?= cunative nofvm
+CURIO_TAGS_BASE ?= cunative nofvm
+CURIO_TAGS_EXTRA = $(if $(filter 1,$(FFI_USE_OPENCL)),nosupraseal,)
+CURIO_TAGS = $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
 
 # Convert space-separated tags to comma-separated for GOFLAGS (which is whitespace-split)
-CURIO_TAGS_CSV := $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
+CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
 
 ifeq ($(shell uname),Linux)
 curio: CGO_LDFLAGS_ALLOW='.*'
@@ -206,11 +208,6 @@ GOAMD64_NATIVE ?= $(shell \
 
 ifeq ($(shell uname),Linux)
 curio-native: CGO_LDFLAGS_ALLOW='.*'
-endif
-
-# If we build with OpenCL, disable supraseal (which requires CUDA/SPDK artifacts on Linux)
-ifeq ($(FFI_USE_OPENCL),1)
-CURIO_TAGS += nosupraseal
 endif
 
 curio-native: $(BUILD_DEPS)
@@ -386,7 +383,6 @@ marketgen:
 .PHONY: marketgen
 
 gen-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
-gen-deps: FFI_USE_OPENCL=1
 gen-deps: $(BUILD_DEPS)
 	@echo "Built dependencies with FVM support for testing"
 .PHONY: gen-deps
@@ -395,6 +391,7 @@ gen-deps: $(BUILD_DEPS)
 # The "unlinkat: directory not empty" error occurs when multiple go processes
 # contend for the same build cache simultaneously.
 # Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
+gensimple: export FFI_USE_OPENCL=1
 gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache
