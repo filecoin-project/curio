@@ -609,7 +609,7 @@ jobs:
         env:
           LANG: en-US
           FFI_USE_OPENCL: 1
-        run: make genfull
+        run: make gen
         shell: bash
 
       - name: Git diff check
