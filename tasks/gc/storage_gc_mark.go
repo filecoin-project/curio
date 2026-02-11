@@ -170,6 +170,25 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 				toRemove[abi.ActorID(sector.SpID)].Unset(uint64(sector.SectorNum))
 			}
+
+			// Also exclude sectors from remote seal provider pipeline
+			var remotePipelineSectors []struct {
+				SpID      int64 `db:"sp_id"`
+				SectorNum int64 `db:"sector_number"`
+			}
+
+			err = tx.Select(&remotePipelineSectors, `SELECT sp_id, sector_number FROM rseal_provider_pipeline WHERE after_cleanup != TRUE`)
+			if err != nil {
+				return false, xerrors.Errorf("select remote provider pipeline: %w", err)
+			}
+
+			for _, sector := range remotePipelineSectors {
+				if toRemove[abi.ActorID(sector.SpID)] == nil {
+					continue
+				}
+
+				toRemove[abi.ActorID(sector.SpID)].Unset(uint64(sector.SectorNum))
+			}
 		}
 
 		if len(toRemove) > 0 { // precommits

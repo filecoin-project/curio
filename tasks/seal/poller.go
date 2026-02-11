@@ -159,6 +159,8 @@ type pollTask struct {
 	AfterMoveStorage      bool          `db:"after_move_storage"`       // 1 byte
 	AfterCommitMsg        bool          `db:"after_commit_msg"`         // 1 byte
 	AfterCommitMsgSuccess bool          `db:"after_commit_msg_success"` // 1 byte
+	// Remote seal flag
+	IsRemote bool `db:"is_remote"` // true when sector has rseal_client_pipeline entry
 	// Larger fields at end
 	PoRepProof   []byte `db:"porep_proof"`   // 24 bytes - only used in specific stages
 	FailedReason string `db:"failed_reason"` // 16 bytes - only used when Failed=true
@@ -167,44 +169,46 @@ type pollTask struct {
 func (s *SealPoller) poll(ctx context.Context) error {
 	var tasks []pollTask
 
-	err := s.db.Select(ctx, &tasks, `SELECT 
-												p.sp_id, 
-												p.sector_number, 
-												p.reg_seal_proof, 
+	err := s.db.Select(ctx, &tasks, `SELECT
+												p.sp_id,
+												p.sector_number,
+												p.reg_seal_proof,
 												p.ticket_epoch,
-												p.task_id_sdr, 
+												p.task_id_sdr,
 												p.after_sdr,
-												p.task_id_tree_d, 
+												p.task_id_tree_d,
 												p.after_tree_d,
-												p.task_id_tree_c, 
+												p.task_id_tree_c,
 												p.after_tree_c,
-												p.task_id_tree_r, 
+												p.task_id_tree_r,
 												p.after_tree_r,
-												p.task_id_synth, 
+												p.task_id_synth,
 												p.after_synth,
 												p.precommit_ready_at,
-												p.task_id_precommit_msg, 
+												p.task_id_precommit_msg,
 												p.after_precommit_msg,
-												p.after_precommit_msg_success, 
+												p.after_precommit_msg_success,
 												p.seed_epoch,
-												p.task_id_porep, 
-												p.porep_proof, 
+												p.task_id_porep,
+												p.porep_proof,
 												p.after_porep,
-												p.task_id_finalize, 
+												p.task_id_finalize,
 												p.after_finalize,
-												p.task_id_move_storage, 
+												p.task_id_move_storage,
 												p.after_move_storage,
 												p.commit_ready_at,
-												p.task_id_commit_msg, 
+												p.task_id_commit_msg,
 												p.after_commit_msg,
 												p.after_commit_msg_success,
-												p.failed, 
+												p.failed,
 												p.failed_reason,
-												p.start_epoch
-											FROM 
+												p.start_epoch,
+												(c.sp_id IS NOT NULL) AS is_remote
+											FROM
 												sectors_sdr_pipeline p
-											WHERE 
-												p.after_commit_msg_success != TRUE 
+											LEFT JOIN rseal_client_pipeline c ON p.sp_id = c.sp_id AND p.sector_number = c.sector_number
+											WHERE
+												p.after_commit_msg_success != TRUE
 												OR p.after_move_storage != TRUE;`)
 	if err != nil {
 		return err
@@ -221,10 +225,16 @@ func (s *SealPoller) poll(ctx context.Context) error {
 	for _, task := range tasks {
 		task := task
 
-		s.pollStartSDR(ctx, task)
-		s.pollStartSDRTreeD(ctx, task)
-		s.pollStartSDRTreeRC(ctx, task)
-		s.pollStartSynth(ctx, task)
+		if !task.IsRemote {
+			// Local sectors: run SDR, TreeD, TreeRC, Synth locally.
+			// Remote sectors skip these - they are handled by the provider
+			// and the client poller (RSealClientPoller) manages the remote pipeline.
+			s.pollStartSDR(ctx, task)
+			s.pollStartSDRTreeD(ctx, task)
+			s.pollStartSDRTreeRC(ctx, task)
+			s.pollStartSynth(ctx, task)
+		}
+		// PreCommit, PoRep, Finalize, MoveStorage, Commit run for both local and remote sectors
 		s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
 		s.pollStartPoRep(ctx, task, ts)
 		s.mustPoll(s.pollerAddStartEpoch(ctx, task))

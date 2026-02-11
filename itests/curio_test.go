@@ -461,10 +461,10 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	finishCh := node.MonitorShutdown(shutdownChan)
 
 	var machines []string
-	err = db.Select(ctx, &machines, `select host_and_port from harmony_machines`)
+	err = db.Select(ctx, &machines, `select host_and_port from harmony_machines order by id desc`)
 	require.NoError(t, err)
 
-	require.Len(t, machines, 1)
+	require.GreaterOrEqual(t, len(machines), 1)
 	laddr, err := net.ResolveTCPAddr("tcp", machines[0])
 	require.NoError(t, err)
 

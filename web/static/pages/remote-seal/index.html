@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Remote Seal</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="rseal-provider.mjs"></script>
+    <script type="module" src="rseal-client.mjs"></script>
+    <script type="module" src="rseal-pipeline.mjs"></script>
+</head>
+<body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
+<curio-ux>
+    <div class="page" style="margin-left: 20px; margin-right: 10px">
+        <section class="section">
+            <div class="row">
+                <h1>Remote Seal</h1>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <rseal-provider></rseal-provider>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <rseal-client></rseal-client>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <rseal-pipeline></rseal-pipeline>
+                </div>
+            </div>
+        </section>
+    </div>
+</curio-ux>
+</body>
+</html>

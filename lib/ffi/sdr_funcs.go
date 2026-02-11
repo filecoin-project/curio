@@ -357,6 +357,13 @@ func (sb *SealCalls) GenerateSynthPoRep() {
 	panic("todo")
 }
 
+// GeneratePoRepVanillaProof generates a vanilla proof for a sector (C1 output).
+// This is the first phase of SealCommit and produces the vanilla proofs that
+// are later used in SealCommitPhase2 (C2) to produce the SNARK proof.
+func (sb *SealCalls) GeneratePoRepVanillaProof(ctx context.Context, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+	return sb.Sectors.storage.GeneratePoRepVanillaProof(ctx, sn, sealed, unsealed, ticket, seed)
+}
+
 func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	vproof, err := sb.Sectors.storage.GeneratePoRepVanillaProof(ctx, sn, sealed, unsealed, ticket, seed)
 	if err != nil {
@@ -365,6 +372,36 @@ func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface.SectorRef, sea
 
 	ctx = ffiselect.WithLogCtx(ctx, "sector", sn.ID, "sealed", sealed, "unsealed", unsealed, "ticket", ticket, "seed", seed)
 	proof, err := ffiselect.FFISelect.SealCommitPhase2(ctx, vproof, sn.ID.Number, sn.ID.Miner)
+	if err != nil {
+		return nil, xerrors.Errorf("computing seal proof failed: %w", err)
+	}
+
+	ok, err := ffi.VerifySeal(proof2.SealVerifyInfo{
+		SealProof:             sn.ProofType,
+		SectorID:              sn.ID,
+		DealIDs:               nil,
+		Randomness:            ticket,
+		InteractiveRandomness: seed,
+		Proof:                 proof,
+		SealedCID:             sealed,
+		UnsealedCID:           unsealed,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to verify proof: %w", err)
+	}
+	if !ok {
+		return nil, xerrors.Errorf("porep failed to validate")
+	}
+
+	return proof, nil
+}
+
+// PoRepSnarkWithVanilla takes a pre-computed vanilla proof (C1 output) and performs only
+// C2 (SealCommitPhase2) + verification. This is used for remote-sealed sectors where C1
+// was already computed on the remote side.
+func (sb *SealCalls) PoRepSnarkWithVanilla(ctx context.Context, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness, vanillaProof []byte) ([]byte, error) {
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sn.ID, "sealed", sealed, "unsealed", unsealed, "ticket", ticket, "seed", seed)
+	proof, err := ffiselect.FFISelect.SealCommitPhase2(ctx, vanillaProof, sn.ID.Number, sn.ID.Miner)
 	if err != nil {
 		return nil, xerrors.Errorf("computing seal proof failed: %w", err)
 	}

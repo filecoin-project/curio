@@ -37,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
+	"github.com/filecoin-project/curio/market/sealmarket"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
@@ -47,6 +48,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/pdp"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
+	"github.com/filecoin-project/curio/tasks/remoteseal"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
@@ -223,7 +225,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableUpdateSubmit ||
 		cfg.Subsystems.EnableCommP ||
 		cfg.Subsystems.EnableProofShare ||
-		cfg.Subsystems.EnableRemoteProofs
+		cfg.Subsystems.EnableRemoteProofs ||
+		cfg.Subsystems.EnableRemoteSealProvider ||
+		cfg.Subsystems.EnableRemoteSealClient
 
 	var p2Active sealsupra.P2Active
 	if hasAnySealingTask {
@@ -332,9 +336,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
 		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
+		// Create SealMarket for remote seal HTTP API
+		if cfg.Subsystems.EnableRemoteSealProvider || cfg.Subsystems.EnableRemoteSealClient {
+			sdeps.SealMarket = sealmarket.NewSealMarket(db, sc, full)
+		}
+
 		if cfg.HTTP.Enable {
-			if !cfg.Subsystems.EnableDealMarket {
-				return nil, xerrors.New("deal market must be enabled on HTTP server")
+			if !cfg.Subsystems.EnableDealMarket && !cfg.Subsystems.EnableRemoteSealProvider && !cfg.Subsystems.EnableRemoteSealClient {
+				return nil, xerrors.New("deal market or remote seal must be enabled on HTTP server")
 			}
 			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
@@ -510,6 +519,38 @@ func addSealingTasks(
 		remotePollTask := proofshare.NewTaskClientPoll(db, full)
 		remoteSendTask := proofshare.NewTaskClientSend(db, full, router)
 		activeTasks = append(activeTasks, remoteUploadTask, remotePollTask, remoteSendTask)
+	}
+
+	// Remote seal provider tasks
+	if cfg.Subsystems.EnableRemoteSealProvider {
+		provPoller := remoteseal.NewProviderPoller(db)
+		go provPoller.RunPoller(ctx)
+
+		ticketTask := remoteseal.NewProviderTicketTask(db, provPoller)
+		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller)
+		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, cfg.Subsystems.FinalizeMaxTasks)
+		provCleanupTask := remoteseal.NewProviderCleanupTask(db, provPoller, stor, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
+
+		activeTasks = append(activeTasks, ticketTask, notifyTask, provFinalizeTask, provCleanupTask)
+
+		// Provider-side SDR/Tree tasks are handled by the existing SDR/TreeD/TreeRC tasks
+		// via UNION ALL queries - they just need to be enabled (EnableSealSDR/EnableSealSDRTrees)
+	}
+
+	// Remote seal client tasks
+	if cfg.Subsystems.EnableRemoteSealClient {
+		clientPoller := remoteseal.NewRSealClientPoller(db)
+		go clientPoller.RunPoller(ctx)
+
+		rsealClient := remoteseal.NewRSealClient()
+
+		delegateTask := remoteseal.NewRSealDelegate(db, rsealClient)
+		pollTask := remoteseal.NewRSealClientPoll(db, rsealClient, clientPoller)
+		fetchTask := remoteseal.NewRSealClientFetch(db, rsealClient, slr, clientPoller)
+		c1Task := remoteseal.NewRSealClientC1Exchange(db, rsealClient, clientPoller)
+		cleanupTask := remoteseal.NewRSealClientCleanup(db, rsealClient, clientPoller)
+
+		activeTasks = append(activeTasks, delegateTask, pollTask, fetchTask, c1Task, cleanupTask)
 	}
 
 	// harmony treats the first task as highest priority, so reverse the order
