@@ -643,7 +643,7 @@ func (d *CurioStorageDealMarket) processMk20Pieces(ctx context.Context, piece MK
 // downloadMk20Deal handles the downloading process of an MK20 pipeline piece by scheduling it in the database and updating its status.
 // If the pieces are part of an aggregation deal then we download for short term otherwise,
 // we download for long term to avoid the need to have unsealed copy
-func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK20PipelinePiece) error {
+func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, _ MK20PipelinePiece) error {
 	n, err := d.db.Exec(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1)
 	if err != nil {
 		log.Errorf("failed to mark PDP downloaded piece: %v", err)
@@ -729,7 +729,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 			}
 
 			// Check if We can find the URL for this piece on remote servers
-			for rUrl, headers := range d.urls {
+			for rUrl, headers := range d.urls.Get() {
 				// Create a new HTTP request
 				urlString := fmt.Sprintf("%s?id=%s", rUrl, piece.PieceCIDV2)
 				req, err := http.NewRequest(http.MethodHead, urlString, nil)

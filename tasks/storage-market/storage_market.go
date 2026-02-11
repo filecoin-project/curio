@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -26,6 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -41,6 +41,7 @@ import (
 
 	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -70,9 +71,9 @@ type CurioStorageDealMarket struct {
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	MK20Handler *mk20.MK20
-	ethClient   *ethclient.Client
+	ethClient   *lazy.Lazy[api.EthClientInterface]
 	si          paths.SectorIndex
-	urls        map[string]http.Header
+	urls        *config.Dynamic[map[string]http.Header]
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
@@ -112,12 +113,19 @@ type MK12Pipeline struct {
 	Offset sql.NullInt64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *lazy.Lazy[api.EthClientInterface], si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
-	urls := make(map[string]http.Header)
-	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
-		urls[curl.URL] = curl.Headers
+	urlsDynamic := config.NewDynamic(make(map[string]http.Header))
+
+	makeUrls := func() {
+		urls := make(map[string]http.Header)
+		for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator.Get() {
+			urls[curl.URL] = curl.Headers
+		}
+		urlsDynamic.Set(urls)
 	}
+	makeUrls()
+	cfg.Market.StorageMarketConfig.PieceLocator.OnChange(makeUrls)
 
 	return &CurioStorageDealMarket{
 		cfg:       cfg,
@@ -125,7 +133,7 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 		api:       mapi,
 		miners:    miners,
 		si:        si,
-		urls:      urls,
+		urls:      urlsDynamic,
 		as:        as,
 		ethClient: ethClient,
 		sc:        sc,
@@ -550,7 +558,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 		}
 
 		// Check if We can find the URL for this piece on remote servers
-		for rUrl, headers := range d.urls {
+		for rUrl, headers := range d.urls.Get() {
 			// Create a new HTTP request
 			urlString := fmt.Sprintf("%s?id=%s", rUrl, pcid)
 			req, err := http.NewRequest(http.MethodHead, urlString, nil)

@@ -129,7 +129,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 	var rpcInfos []string
 	confNameToAddr := make(map[string][]string) // config name -> api addresses
 
-	err := forEachConfig[minimalApiInfo](a, func(name string, info minimalApiInfo) error {
+	err := forEachConfig(a, func(name string, info minimalApiInfo) error {
 		if len(info.Apis.ChainApiInfo) == 0 {
 			return nil
 		}

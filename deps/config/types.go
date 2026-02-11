@@ -22,22 +22,22 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.02"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.02")),
 			},
 			MaxCommitBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"), // enough for 6 agg and 1nFIL base fee
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")), // enough for 6 agg and 1nFIL base fee
 			},
 			MaxUpdateBatchGasFee: BatchFeeConfig{
-				Base:      types.MustParseFIL("0"),
-				PerSector: types.MustParseFIL("0.03"),
+				Base:      NewDynamic(types.MustParseFIL("0")),
+				PerSector: NewDynamic(types.MustParseFIL("0.03")),
 			},
 
-			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
-			CollateralFromMinerBalance: false,
-			DisableCollateralFallback:  false,
-			MaximizeFeeCap:             true,
+			MaxWindowPoStGasFee:        NewDynamic(types.MustParseFIL("5")),
+			CollateralFromMinerBalance: NewDynamic(false),
+			DisableCollateralFallback:  NewDynamic(false),
+			MaximizeFeeCap:             NewDynamic(true),
 		},
 		Addresses: NewDynamic([]CurioAddresses{{
 			PreCommitControl:   []string{},
@@ -57,6 +57,9 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealBatchSize:  32,
 			BatchSealSectorSize: "32GiB",
 		},
+		Apis: ApisConfig{
+			ChainApiInfo: NewDynamic([]string{}),
+		},
 		Ingest: CurioIngestConfig{
 			MaxMarketRunningPipelines: NewDynamic(64),
 			MaxQueueDownload:          NewDynamic(8),
@@ -73,34 +76,32 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxDealWaitTime: NewDynamic(time.Hour),
 		},
 		Alerting: CurioAlertingConfig{
-			MinimumWalletBalance: types.MustParseFIL("5"),
+			MinimumWalletBalance: NewDynamic(types.MustParseFIL("5")),
 			PagerDuty: PagerDutyConfig{
-				PagerDutyEventURL: "https://events.pagerduty.com/v2/enqueue",
+				PagerDutyEventURL: NewDynamic("https://events.pagerduty.com/v2/enqueue"),
 			},
 			PrometheusAlertManager: PrometheusAlertManagerConfig{
-				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
+				AlertManagerURL: NewDynamic("http://localhost:9093/api/v2/alerts"),
 			},
 		},
 		Batching: CurioBatchingConfig{
 			PreCommit: PreCommitBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          4 * time.Hour,
-				Slack:            6 * time.Hour,
+				Timeout: NewDynamic(4 * time.Hour),
+				Slack:   NewDynamic(6 * time.Hour),
 			},
 			Commit: CommitBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          time.Hour,
-				Slack:            time.Hour,
+				Timeout: NewDynamic(time.Hour),
+				Slack:   NewDynamic(time.Hour),
 			},
 			Update: UpdateBatchingConfig{
-				BaseFeeThreshold: types.MustParseFIL("0.005"),
-				Timeout:          time.Hour,
-				Slack:            time.Hour,
+				BaseFeeThreshold: NewDynamic(types.MustParseFIL("0.005")),
+				Timeout:          NewDynamic(time.Hour),
+				Slack:            NewDynamic(time.Hour),
 			},
 		},
 		Market: MarketConfig{
 			StorageMarketConfig: StorageMarketConfig{
-				PieceLocator: []PieceLocatorConfig{},
+				PieceLocator: NewDynamic([]PieceLocatorConfig{}),
 				Indexing: IndexingConfig{
 					InsertConcurrency: 10,
 					InsertBatchSize:   1000,
@@ -192,14 +193,14 @@ type CurioConfig struct {
 
 type BatchFeeConfig struct {
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
-	Base types.FIL
+	Base *Dynamic[types.FIL]
 
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
-	PerSector types.FIL
+	PerSector *Dynamic[types.FIL]
 }
 
 func (b *BatchFeeConfig) FeeForSectors(nSectors int) abi.TokenAmount {
-	return big.Add(big.Int(b.Base), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector)))
+	return big.Add(big.Int(b.Base.Get()), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector.Get())))
 }
 
 type CurioSubsystemsConfig struct {
@@ -458,18 +459,18 @@ type CurioFees struct {
 
 	// WindowPoSt is a high-value operation, so the default fee should be high.
 	// Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
-	MaxWindowPoStGasFee types.FIL
+	MaxWindowPoStGasFee *Dynamic[types.FIL]
 
 	// Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
-	CollateralFromMinerBalance bool
+	CollateralFromMinerBalance *Dynamic[bool]
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
-	DisableCollateralFallback bool
+	DisableCollateralFallback *Dynamic[bool]
 
 	// MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
 	// This generally doesn't increase message cost, but in highly congested network messages
 	// are much less likely to get stuck in mempool. (Default: true)
-	MaximizeFeeCap bool
+	MaximizeFeeCap *Dynamic[bool]
 }
 
 type CurioAddresses struct {
@@ -617,7 +618,7 @@ type CurioAlertingConfig struct {
 	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 	// alerts will be triggered for the wallet
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
-	MinimumWalletBalance types.FIL
+	MinimumWalletBalance *Dynamic[types.FIL]
 
 	// PagerDutyConfig is the configuration for the PagerDuty alerting integration.
 	PagerDuty PagerDutyConfig
@@ -660,38 +661,38 @@ type CurioSealConfig struct {
 
 type PagerDutyConfig struct {
 	// Enable is a flag to enable or disable the PagerDuty integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 	// routed to a PagerDuty.com service and processed.
 	// The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
-	PagerDutyEventURL string
+	PagerDutyEventURL *Dynamic[string]
 
 	// PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 	// identifier in the integration page for the service.
-	PageDutyIntegrationKey string
+	PageDutyIntegrationKey *Dynamic[string]
 }
 
 type PrometheusAlertManagerConfig struct {
 	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
-	AlertManagerURL string
+	AlertManagerURL *Dynamic[string]
 }
 
 type SlackWebhookConfig struct {
 	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
-	Enable bool
+	Enable *Dynamic[bool]
 
 	// WebHookURL is the URL for the URL for slack Webhook.
 	// Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
-	WebHookURL string
+	WebHookURL *Dynamic[string]
 }
 
 type ApisConfig struct {
 	// ChainApiInfo is the API endpoint for the Lotus daemon.
-	ChainApiInfo []string
+	ChainApiInfo *Dynamic[[]string]
 
 	// API auth secret for the Curio nodes to use. This value should only be set on the bade layer.
 	StorageRPCSecret string
@@ -709,45 +710,37 @@ type CurioBatchingConfig struct {
 }
 
 type PreCommitBatchingConfig struct {
-	// Base fee value below which we should try to send Precommit messages immediately
-	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
-
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type CommitBatchingConfig struct {
-	// Base fee value below which we should try to send Commit messages immediately
-	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
-
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type UpdateBatchingConfig struct {
 	// Base fee value below which we should try to send Commit messages immediately
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
-	BaseFeeThreshold types.FIL
+	BaseFeeThreshold *Dynamic[types.FIL]
 
 	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Timeout time.Duration
+	Timeout *Dynamic[time.Duration]
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
-	Slack time.Duration
+	Slack *Dynamic[time.Duration]
 }
 
 type MarketConfig struct {
@@ -773,7 +766,7 @@ type StorageMarketConfig struct {
 	// The server must support "HEAD" request and "GET" request.
 	// 	1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 	//  2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
-	PieceLocator []PieceLocatorConfig
+	PieceLocator *Dynamic[[]PieceLocatorConfig]
 }
 
 type MK12Config struct {

@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -20,9 +19,17 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 
+	curioapi "github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/filecoin-project/lotus/lib/lazy"
 )
+
+// EthClientInterface defines the minimal interface needed for GetDealID
+type EthClientInterface interface {
+	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+}
 
 var ErrUnknowContract = errors.New("provider does not work with this market")
 
@@ -117,7 +124,7 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 	return Ok, nil
 }
 
-func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (int64, DealCode, error) {
+func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *lazy.Lazy[curioapi.EthClientInterface]) (int64, DealCode, error) {
 	if d.ContractAddress == "0xtest" {
 		v, err := rand.Int(rand.Reader, big.NewInt(10000000))
 		if err != nil {
@@ -166,7 +173,11 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	}
 
 	// Call contract
-	output, err := eth.CallContract(ctx, msg, nil)
+	ethClient, err := eth.Val()
+	if err != nil {
+		return -1, ErrServerInternalError, fmt.Errorf("failed to get eth client: %w", err)
+	}
+	output, err := ethClient.CallContract(ctx, msg, nil)
 	if err != nil {
 		return -1, ErrServerInternalError, fmt.Errorf("eth_call failed: %w", err)
 	}

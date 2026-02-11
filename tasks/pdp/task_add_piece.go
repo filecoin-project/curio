@@ -9,11 +9,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -32,10 +32,10 @@ type PDPServiceNodeApi interface {
 type PDPTaskAddPiece struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient api.EthClientInterface
 }
 
-func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client) *PDPTaskAddPiece {
+func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient api.EthClientInterface) *PDPTaskAddPiece {
 	return &PDPTaskAddPiece{
 		db:        db,
 		sender:    sender,

@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/miner"
 	"github.com/filecoin-project/go-state-types/crypto"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -47,13 +48,13 @@ type WdPostSubmitTask struct {
 	db     *harmonydb.DB
 	api    WdPoStSubmitTaskApi
 
-	maxWindowPoStGasFee types.FIL
+	maxWindowPoStGasFee *config.Dynamic[types.FIL]
 	as                  *multictladdr.MultiAddressSelector
 
 	submitPoStTF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewWdPostSubmitTask(pcs *chainsched.CurioChainSched, send *message.Sender, db *harmonydb.DB, api WdPoStSubmitTaskApi, maxWindowPoStGasFee types.FIL, as *multictladdr.MultiAddressSelector) (*WdPostSubmitTask, error) {
+func NewWdPostSubmitTask(pcs *chainsched.CurioChainSched, send *message.Sender, db *harmonydb.DB, api WdPoStSubmitTaskApi, maxWindowPoStGasFee *config.Dynamic[types.FIL], as *multictladdr.MultiAddressSelector) (*WdPostSubmitTask, error) {
 	res := &WdPostSubmitTask{
 		sender: send,
 		db:     db,
@@ -147,7 +148,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		Value:  big.Zero(),
 	}
 
-	msg, mss, err := preparePoStMessage(w.api, w.as, maddr, msg, abi.TokenAmount(w.maxWindowPoStGasFee))
+	msg, mss, err := preparePoStMessage(w.api, w.as, maddr, msg, abi.TokenAmount(w.maxWindowPoStGasFee.Get()))
 	if err != nil {
 		return false, xerrors.Errorf("preparing proof message: %w", err)
 	}

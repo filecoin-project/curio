@@ -282,8 +282,8 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	aggFee := big.Div(big.Mul(aggFeeRaw, big.NewInt(110)), big.NewInt(100))
 	needFunds := big.Add(collateral, aggFee)
 
-	if s.feeCfg.CollateralFromMinerBalance {
-		if s.feeCfg.DisableCollateralFallback {
+	if s.feeCfg.CollateralFromMinerBalance.Get() {
+		if s.feeCfg.DisableCollateralFallback.Get() {
 			needFunds = big.Zero()
 		}
 		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)

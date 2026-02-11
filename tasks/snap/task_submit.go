@@ -68,9 +68,9 @@ type SubmitTaskNodeAPI interface {
 
 type updateBatchingConfig struct {
 	MaxUpdateBatch   int
-	Slack            time.Duration
-	Timeout          time.Duration
-	BaseFeeThreshold abi.TokenAmount
+	Slack            *config.Dynamic[time.Duration]
+	Timeout          *config.Dynamic[time.Duration]
+	BaseFeeThreshold *config.Dynamic[types.FIL]
 }
 
 type submitConfig struct {
@@ -78,8 +78,8 @@ type submitConfig struct {
 	feeCfg                     *config.CurioFees
 	RequireActivationSuccess   bool
 	RequireNotificationSuccess bool
-	CollateralFromMinerBalance bool
-	DisableCollateralFallback  bool
+	CollateralFromMinerBalance *config.Dynamic[bool]
+	DisableCollateralFallback  *config.Dynamic[bool]
 }
 
 type SubmitTask struct {
@@ -111,7 +111,7 @@ func NewSubmitTask(db *harmonydb.DB, api SubmitTaskNodeAPI, bstore curiochain.Cu
 				MaxUpdateBatch:   16,
 				Slack:            cfg.Batching.Update.Slack,
 				Timeout:          cfg.Batching.Update.Timeout,
-				BaseFeeThreshold: abi.TokenAmount(cfg.Batching.Update.BaseFeeThreshold),
+				BaseFeeThreshold: cfg.Batching.Update.BaseFeeThreshold,
 			},
 			feeCfg:                     &cfg.Fees,
 			RequireActivationSuccess:   cfg.Subsystems.RequireActivationSuccess,
@@ -374,8 +374,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("could not serialize commit params: %w", err)
 	}
 
-	if s.cfg.CollateralFromMinerBalance {
-		if s.cfg.DisableCollateralFallback {
+	if s.cfg.CollateralFromMinerBalance.Get() {
+		if s.cfg.DisableCollateralFallback.Get() {
 			collateral = big.Zero()
 		}
 		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
@@ -654,20 +654,20 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 					scheduleNow := false
 
 					// Slack
-					if timeUntil < s.cfg.batch.Slack {
+					if timeUntil < s.cfg.batch.Slack.Get() {
 						scheduleNow = true
 					}
 
 					// Base fee check
 					if !scheduleNow {
-						if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.batch.BaseFeeThreshold) {
+						if ts.MinTicketBlock().ParentBaseFee.LessThan(abi.TokenAmount(s.cfg.batch.BaseFeeThreshold.Get())) {
 							scheduleNow = true
 						}
 					}
 
 					// Timeout since earliestTime
 					if !scheduleNow && !earliestTime.IsZero() {
-						if time.Since(earliestTime) > s.cfg.batch.Timeout {
+						if time.Since(earliestTime) > s.cfg.batch.Timeout.Get() {
 							scheduleNow = true
 						}
 					}

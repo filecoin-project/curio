@@ -3,7 +3,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'market_mk12_deals' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'market_mk12_deals' 
         AND column_name = 'raw_size'
     ) THEN
         ALTER TABLE market_mk12_deals ADD COLUMN IF NOT EXISTS raw_size BIGINT;
@@ -15,7 +16,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'market_direct_deals' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'market_direct_deals' 
         AND column_name = 'raw_size'
     ) THEN
         ALTER TABLE market_direct_deals ADD COLUMN IF NOT EXISTS raw_size BIGINT;
@@ -35,7 +37,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE table_name = 'market_piece_metadata' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'market_piece_metadata' 
         AND constraint_type = 'PRIMARY KEY'
     ) THEN
         ALTER TABLE market_piece_metadata ADD PRIMARY KEY (piece_cid, piece_size);
@@ -55,7 +58,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE table_name = 'market_piece_deal' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'market_piece_deal' 
         AND constraint_type = 'PRIMARY KEY'
     ) THEN
         ALTER TABLE market_piece_deal ADD PRIMARY KEY (id, sp_id, piece_cid, piece_length);
@@ -67,7 +71,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'market_piece_deal' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'market_piece_deal' 
         AND column_name = 'piece_ref'
     ) THEN
         ALTER TABLE market_piece_deal ADD COLUMN IF NOT EXISTS piece_ref BIGINT;
@@ -83,7 +88,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'parked_pieces' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'parked_pieces' 
         AND column_name = 'skip'
     ) THEN
         ALTER TABLE parked_pieces ADD COLUMN IF NOT EXISTS skip BOOLEAN NOT NULL DEFAULT FALSE;
@@ -95,7 +101,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ipni' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'ipni' 
         AND column_name = 'piece_cid_v2'
     ) THEN
         ALTER TABLE ipni ADD COLUMN IF NOT EXISTS piece_cid_v2 TEXT;
@@ -107,7 +114,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ipni' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'ipni' 
         AND column_name = 'metadata'
     ) THEN
         ALTER TABLE ipni ADD COLUMN IF NOT EXISTS metadata BYTEA NOT NULL DEFAULT '\xa01200';
@@ -120,7 +128,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ipni_chunks' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'ipni_chunks' 
         AND column_name = 'is_pdp'
     ) THEN
         ALTER TABLE ipni_chunks ADD COLUMN IF NOT EXISTS is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
@@ -135,7 +144,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE table_name = 'ipni_chunks' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'ipni_chunks' 
         AND constraint_name = 'ipni_chunks_piece_cid_is_pdp_chunk_num_key'
     ) THEN
         ALTER TABLE ipni_chunks ADD CONSTRAINT ipni_chunks_piece_cid_is_pdp_chunk_num_key
@@ -199,7 +209,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ipni_task' 
+        WHERE table_schema = current_schema()
+        AND table_name = 'ipni_task' 
         AND column_name = 'id'
     ) THEN
         ALTER TABLE ipni_task ADD COLUMN IF NOT EXISTS id TEXT;

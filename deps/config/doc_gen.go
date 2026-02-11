@@ -14,7 +14,8 @@ var Doc = map[string][]DocField{
 			Name: "ChainApiInfo",
 			Type: "[]string",
 
-			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.`,
+			Comment: `ChainApiInfo is the API endpoint for the Lotus daemon.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "StorageRPCSecret",
@@ -36,36 +37,33 @@ var Doc = map[string][]DocField{
 			Name: "Base",
 			Type: "types.FIL",
 
-			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PerSector",
 			Type: "types.FIL",
 
-			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+Updates will affect running instances.`,
 		},
 	},
 	"CommitBatchingConfig": {
-		{
-			Name: "BaseFeeThreshold",
-			Type: "types.FIL",
-
-			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
-		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 	"CompressionConfig": {
@@ -150,7 +148,8 @@ including collateral and other operational resources.`,
 
 			Comment: `MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 alerts will be triggered for the wallet
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PagerDuty",
@@ -287,19 +286,22 @@ Updates will affect running instances.`,
 			Type: "types.FIL",
 
 			Comment: `WindowPoSt is a high-value operation, so the default fee should be high.
-Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")`,
+Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "CollateralFromMinerBalance",
 			Type: "bool",
 
-			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)`,
+			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "DisableCollateralFallback",
 			Type: "bool",
 
-			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
+			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
+Updates will affect running instances.`,
 		},
 		{
 			Name: "MaximizeFeeCap",
@@ -307,7 +309,8 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 
 			Comment: `MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
 This generally doesn't increase message cost, but in highly congested network messages
-are much less likely to get stuck in mempool. (Default: true)`,
+are much less likely to get stuck in mempool. (Default: true)
+Updates will affect running instances.`,
 		},
 	},
 	"CurioIngestConfig": {
@@ -1215,7 +1218,8 @@ If True then all deals coming from unknown clients will be rejected. (Default: f
 			Name: "Enable",
 			Type: "bool",
 
-			Comment: `Enable is a flag to enable or disable the PagerDuty integration.`,
+			Comment: `Enable is a flag to enable or disable the PagerDuty integration.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PagerDutyEventURL",
@@ -1223,14 +1227,16 @@ If True then all deals coming from unknown clients will be rejected. (Default: f
 
 			Comment: `PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 routed to a PagerDuty.com service and processed.
-The default is sufficient for integration with the stock commercial PagerDuty.com company's service.`,
+The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "PageDutyIntegrationKey",
 			Type: "string",
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
-identifier in the integration page for the service.`,
+identifier in the integration page for the service.
+Updates will affect running instances.`,
 		},
 	},
 	"PieceLocatorConfig": {
@@ -1249,25 +1255,20 @@ identifier in the integration page for the service.`,
 	},
 	"PreCommitBatchingConfig": {
 		{
-			Name: "BaseFeeThreshold",
-			Type: "types.FIL",
-
-			Comment: `Base fee value below which we should try to send Precommit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
-		},
-		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {
@@ -1275,13 +1276,15 @@ Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")`,
 			Name: "Enable",
 			Type: "bool",
 
-			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "AlertManagerURL",
 			Type: "string",
 
-			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.`,
+			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+Updates will affect running instances.`,
 		},
 	},
 	"SlackWebhookConfig": {
@@ -1289,14 +1292,16 @@ Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")`,
 			Name: "Enable",
 			Type: "bool",
 
-			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.
+Updates will affect running instances.`,
 		},
 		{
 			Name: "WebHookURL",
 			Type: "string",
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
-Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+Updates will affect running instances.`,
 		},
 	},
 	"StorageMarketConfig": {
@@ -1332,7 +1337,8 @@ Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXX
 User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
 The server must support "HEAD" request and "GET" request.
 1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
-2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value`,
+2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value
+Updates will affect running instances.`,
 		},
 	},
 	"UpdateBatchingConfig": {
@@ -1341,21 +1347,24 @@ The server must support "HEAD" request and "GET" request.
 			Type: "types.FIL",
 
 			Comment: `Base fee value below which we should try to send Commit messages immediately
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Timeout",
 			Type: "time.Duration",
 
 			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 		{
 			Name: "Slack",
 			Type: "time.Duration",
 
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
+Updates will affect running instances.`,
 		},
 	},
 }

@@ -260,7 +260,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
+			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, dependencies.EthClient, si, full, as, must.One(slrLazy.Val()))
 			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err

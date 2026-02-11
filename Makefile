@@ -377,6 +377,7 @@ translation-gen:
 
 go-generate:
 	@bash -lc 'set -euo pipefail; \
+	  LANG=en-US; \
 	  CGO_ALLOW="$(subst ",,$(CGO_LDFLAGS_ALLOW))"; \
 	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
 	  for p in $$(go list ./...); do \
@@ -481,6 +482,9 @@ $(lotus_src_dir):
 update/lotus: $(lotus_src_dir)
 	cd $(lotus_src_dir) && git pull
 .PHONY: update/lotus
+
+docker/testdb:
+	docker run -d --name curio-itest-yugabyte -p7001:7000 -p9000:9000 -p15433:15433 -p5433:5433 -p9042:9042  yugabytedb/yugabyte bin/yugabyted start  --background=false
 
 docker/lotus-all-in-one: info/lotus-all-in-one | $(lotus_src_dir)
 	cd $(lotus_src_dir) && $(curio_docker_build_cmd) -f Dockerfile --target lotus-all-in-one \

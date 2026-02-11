@@ -594,7 +594,7 @@ func stepNewMinerConfig(d *MigrationData) {
 		os.Exit(1)
 	}
 
-	curioCfg.Apis.ChainApiInfo = append(curioCfg.Apis.ChainApiInfo, fmt.Sprintf("%s:%s", string(token), ainfo.Addr))
+	curioCfg.Apis.ChainApiInfo.Set(append(curioCfg.Apis.ChainApiInfo.Get(), fmt.Sprintf("%s:%s", string(token), ainfo.Addr)))
 
 	// write config
 	var titles []string

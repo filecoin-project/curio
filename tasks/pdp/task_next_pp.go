@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -24,7 +24,7 @@ import (
 
 type NextProvingPeriodTask struct {
 	db        *harmonydb.DB
-	ethClient *ethclient.Client
+	ethClient api.EthClientInterface
 	sender    *message.SenderETH
 
 	fil NextProvingPeriodTaskChainApi
@@ -36,7 +36,7 @@ type NextProvingPeriodTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)
 }
 
-func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil NextProvingPeriodTaskChainApi, chainSched *chainsched.CurioChainSched, sender *message.SenderETH) *NextProvingPeriodTask {
+func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient api.EthClientInterface, fil NextProvingPeriodTaskChainApi, chainSched *chainsched.CurioChainSched, sender *message.SenderETH) *NextProvingPeriodTask {
 	n := &NextProvingPeriodTask{
 		db:        db,
 		ethClient: ethClient,

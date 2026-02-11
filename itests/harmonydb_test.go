@@ -19,8 +19,7 @@ func TestCrud(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sharedITestID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+	cdb, err := harmonydb.NewFromConfigWithTest(t)
 	require.NoError(t, err)
 
 	//cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
@@ -51,8 +50,7 @@ func TestTransaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	cdb, err := harmonydb.NewFromConfigWithTest(t)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
 	require.NoError(t, err)
@@ -114,8 +112,7 @@ func TestPartialWalk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	cdb, err := harmonydb.NewFromConfigWithTest(t)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, `
 			INSERT INTO 
