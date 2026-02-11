@@ -90,7 +90,7 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 
 	for _, piece := range pendingDeletes {
 		if !piece.TxSuccess.Valid {
-			log.Debugf("for piece ($d:$d) tx %s not found in message_waits_eth", piece.DataSetID, piece.PieceID, piece.TxHash)
+			log.Debugf("for piece (%d:%d) tx %s not found in message_waits_eth", piece.DataSetID, piece.PieceID, piece.TxHash)
 			continue
 		}
 
@@ -106,8 +106,15 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 
 		contains := lo.Contains(removals, big.NewInt(piece.PieceID))
 		if !contains {
-			// Huston! we have a serious problem
-			return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
+			live, err := verifier.PieceLive(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
+			if err != nil {
+				return xerrors.Errorf("failed to check if piece is live: %w", err)
+			}
+			if live {
+				log.Debugw("piece not scheduled for removal yet", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
+				continue
+			}
+			log.Warnw("piece not live but also not scheduled for removal, marking as removed anyway", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 		}
 		log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 
