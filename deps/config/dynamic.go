@@ -41,6 +41,8 @@ func NewDynamic[T any](value T) *Dynamic[T] {
 // The function is called in a goroutine to avoid blocking the main thread; it should not panic.
 func (d *Dynamic[T]) OnChange(fn func()) {
 	p := reflect.ValueOf(d).Pointer()
+	dynamicLocker.cdmx.Lock() // as OnChange is an init-time function, it's probably in a single-threaded context, but just in case.
+	defer dynamicLocker.cdmx.Unlock()
 	prev := dynamicLocker.notifier[p]
 	if prev == nil {
 		dynamicLocker.notifier[p] = fn
@@ -188,7 +190,7 @@ func (r *cfgRoot[T]) changeMonitor() {
 		time.Sleep(sleepTime)
 		sleepTime = 30 * time.Second
 		configCount := 0
-		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title IN ($2)`, lastTimestamp, strings.Join(r.layers, ",")).Scan(&configCount)
+		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title = ANY($2)`, lastTimestamp, r.layers).Scan(&configCount)
 		if err != nil {
 			logger.Errorf("error selecting configs: %s", err)
 			continue

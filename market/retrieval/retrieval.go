@@ -259,7 +259,6 @@ func Router(mux *chi.Mux, rp *Provider) {
 
 func handleInfo(rw http.ResponseWriter, r *http.Request) {
 	infoOut := fmt.Sprintf(`{"Version":"0.4.0", "Server": "Curio/%s"}`, build.BuildVersion)
-
 	_, _ = rw.Write([]byte(infoOut))
 }
 
