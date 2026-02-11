@@ -167,7 +167,7 @@ cov:
 
 CURIO_TAGS_BASE ?= cunative nofvm
 CURIO_TAGS_EXTRA = $(if $(filter 1,$(FFI_USE_OPENCL)),nosupraseal,)
-CURIO_TAGS = $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
+CURIO_TAGS ?= $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
 
 # Convert space-separated tags to comma-separated for GOFLAGS (which is whitespace-split)
 CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')
@@ -455,7 +455,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.34.0-rc2
+lotus_version?=v1.34.2
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -492,7 +492,7 @@ curio_docker_build_cmd=docker build --build-arg CURIO_TEST_IMAGE=$(curio_base_im
 
 docker/curio-all-in-one:
 	$(curio_docker_build_cmd) -f Dockerfile --target curio-all-in-one \
-		-t $(curio_base_image) --build-arg CURIO_TAGS="cunative debug" .
+		-t $(curio_base_image) --build-arg CURIO_TAGS="cunative debug nosupraseal" .
 .PHONY: docker/curio-all-in-one
 
 docker/lotus:
