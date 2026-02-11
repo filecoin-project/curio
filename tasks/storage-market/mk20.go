@@ -380,6 +380,10 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				return xerrors.Errorf("marshaling headers: %w", err)
 			}
 
+			if headers == nil {
+				headers = []byte("{}")
+			}
+
 			err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
         			VALUES ($1, $2, $3, TRUE) RETURNING ref_id`, pieceID, src.URL, headers).Scan(&refID)
 			if err != nil {
@@ -469,6 +473,9 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				headers, err := json.Marshal(src.Headers)
 				if err != nil {
 					return xerrors.Errorf("marshal headers: %w", err)
+				}
+				if headers == nil {
+					headers = []byte("{}")
 				}
 				batch.Queue(`WITH inserted_piece AS (
 									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
@@ -759,6 +766,10 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 				hdrs, err := json.Marshal(headers)
 				if err != nil {
 					return false, xerrors.Errorf("marshaling headers: %w", err)
+				}
+
+				if hdrs == nil {
+					hdrs = []byte("{}")
 				}
 
 				rawSizeStr := resp.Header.Get("Content-Length")

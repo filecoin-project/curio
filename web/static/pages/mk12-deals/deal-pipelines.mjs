@@ -283,15 +283,17 @@ class DealPipelines extends LitElement {
     }
 
     getDealStatus(deal) {
+        const hasSector = Boolean(deal?.sector?.Valid);
+
         if (deal.complete) {
             return '(#########) Complete';
-        } else if (deal.indexed && deal.announce && !deal.complete) {
+        } else if (deal.indexed && !deal.complete) {
             return '(########.) Announcing';
         } else if (deal.indexed) {
             return '(#######..) Indexed';
-        } else if (deal.sector) {
+        } else if (hasSector) {
             return '(######...) Sealing And Indexing';
-        } else if (deal.after_find_deal && !deal.sector) {
+        } else if (deal.after_find_deal && !hasSector) {
             return '(#####....) Assigning Sector';
         } else if (deal.after_psd) {
             return '(####.....) Waiting for DealID';

@@ -97,7 +97,7 @@ The **chunker** generates entries for advertisements by leveraging the [**index 
    * Sorting ensures that duplicates are identified and removed, minimizing redundancy. This process involves:
      * Sorting the multihashes.
      * Removing duplicates.
-   * After sorting, the entries are split into chunks of predefined size (`entriesChunkSize`, e.g., 16,384 multihashes per chunk).
+   * After sorting, the entries are split into chunks of predefined size (`EntriesChunkSize`, e.g., 16,384 multihashes per chunk).
 3. **Chunk Metadata Storage**:
    * Each chunk is associated with metadata stored in the database, including:
      * `cid`: Unique identifier for the chunk.

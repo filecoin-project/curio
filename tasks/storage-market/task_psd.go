@@ -187,7 +187,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		}, mss, head.Key())
 
 		if err != nil {
-			psdlog.Errorf("simulating deal publish message: %w", err)
+			psdlog.Errorf("simulating deal publish message: %s", err.Error())
 			continue
 		}
 		psdlog.Debugf("validated deal proposal %s successfully", pcid)

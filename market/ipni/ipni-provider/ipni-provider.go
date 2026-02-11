@@ -469,8 +469,7 @@ func RemoveCidContact(slice []*url.URL) []*url.URL {
 	target := "cid.contact"
 
 	return lo.Filter(slice, func(item *url.URL, index int) bool {
-		return !strings.Contains(item.String(), target)
-
+		return !strings.Contains(item.Host, target)
 	})
 }
 
@@ -483,16 +482,17 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 	if build.BuildType == build.BuildMainnet {
 		ticker = time.NewTicker(publishInterval)
 	} else {
-		urls := RemoveCidContact(p.announceURLs)
-		if len(urls) == 0 {
-			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
-			return
-		}
-		log.Info("Starting IPNI provider publishing for testnet build")
 		if build.BuildType != build.BuildCalibnet {
 			ticker = time.NewTicker(time.Second * 10)
 			log.Info("Resetting IPNI provider publishing ticker to 10 seconds for devnet build")
+			urls := RemoveCidContact(p.announceURLs)
+			if len(urls) == 0 {
+				log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
+				return
+			}
+			p.announceURLs = urls
 		}
+		log.Info("Starting IPNI provider publishing for testnet build")
 	}
 
 	go func(ticker *time.Ticker) {

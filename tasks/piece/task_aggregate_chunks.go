@@ -387,7 +387,7 @@ func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask
 			stop = true // assume we're done until we find a task to schedule
 			var mid string
 			var count int
-			err := a.db.QueryRow(ctx, `SELECT id, COUNT(*) AS total_chunks
+			err := tx.QueryRow(`SELECT id, COUNT(*) AS total_chunks
 											FROM market_mk20_deal_chunk
 											GROUP BY id
 											HAVING
