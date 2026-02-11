@@ -196,12 +196,12 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	}
 
 	var acceptedIDs []harmonytask.TaskID
-	err := f.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id_tree_c), '{}')::bigint[] AS task_ids_tree_c FROM 
+	err := f.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id_finalize), '{}')::bigint[] AS task_ids_finalize FROM 
 										  (
-										      SELECT p.task_id_tree_c FROM sectors_sdr_pipeline p
+										      SELECT p.task_id_finalize FROM sectors_sdr_pipeline p
 												INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
 												INNER JOIN storage_path sp ON sp.storage_id = l.storage_id
-												WHERE task_id_tree_r = ANY ($1) 
+												WHERE task_id_finalize = ANY ($1) 
 												  AND sp.urls IS NOT NULL 
 												  AND sp.urls LIKE '%' || $2 || '%' 
 												  LIMIT 100

@@ -730,7 +730,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 					  )
 					OR (
 						-- no file present at all (we handle this gracefully in DO())
-						sl.storage_id IS NULL
+						t.storage_id IS NULL
 					)
 				LIMIT 100
 			) s`, indIDs, engine.Host()).Scan(&resultTaskIDs)
