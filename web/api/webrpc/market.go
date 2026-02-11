@@ -1050,7 +1050,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 													data,
 													ddo_v1,
 													retrieval_v1,
-													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid1.String())
+													pdp_v1 FROM market_mk20_deal WHERE piece_cid_v2 = $1`, pcid.String())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
 	}

@@ -41,6 +41,7 @@ var log = logging.Logger("mk20")
 type MK20API interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifreg9.AllocationId, tsk types.TipSetKey) (*verifreg9.Allocation, error)
+	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 }
 
 type MK20 struct {
@@ -324,6 +325,15 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
+	pi, err := deal.PieceInfo()
+	if err != nil {
+		log.Errorw("error getting piece info", "deal", deal, "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrBadProposal,
+			Reason:   "Error getting piece cid v1 from PieceCID",
+		}, nil
+	}
+
 	if deal.Products.DDOV1.AllocationId != nil {
 		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{
@@ -354,7 +364,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		clientID, err := address.IDFromAddress(client)
+		clientIDAdr, err := m.api.StateLookupID(ctx, client, types.EmptyTSK)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+			}, xerrors.Errorf("looking up client ID: %w", err)
+		}
+
+		clientID, err := address.IDFromAddress(clientIDAdr)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
@@ -383,7 +400,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		if !deal.Data.PieceCID.Equals(alloc.Data) {
+		if !pi.PieceCIDV1.Equals(alloc.Data) {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation data CID does not match the piece CID",
@@ -645,6 +662,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				return xerrors.Errorf("marshaling headers: %w", err)
 			}
 
+			if headers == nil {
+				headers = []byte("{}")
+			}
+
 			err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
         			VALUES ($1, $2, $3, TRUE) RETURNING ref_id`, pieceID, src.URL, headers).Scan(&refID)
 			if err != nil {
@@ -712,6 +733,9 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				headers, err := json.Marshal(src.Headers)
 				if err != nil {
 					return xerrors.Errorf("marshal headers: %w", err)
+				}
+				if headers == nil {
+					headers = []byte("{}")
 				}
 				batch.Queue(`WITH inserted_piece AS (
 									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
