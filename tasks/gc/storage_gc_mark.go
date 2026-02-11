@@ -2,9 +2,12 @@ package gc
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -239,6 +242,16 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 							}
 							if n > 0 {
 								log.Infow("file marked for GC", "miner", decl.Miner, "sector", decl.Number, "filetype", filetype, "storage_id", storageId, "reason", "not-in-use")
+
+								// Record GC metric
+								if maddr, err := address.NewIDAddress(uint64(decl.Miner)); err == nil {
+									if err = stats.RecordWithTags(ctx, []tag.Mutator{
+										tag.Upsert(MinerTag, maddr.String()),
+										tag.Upsert(FileTypeTag, fmt.Sprint(filetype)),
+									}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
+										log.Errorf("recording metric: %v", err)
+									}
+								}
 							}
 						}
 					}
@@ -285,6 +298,16 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			}
 			if n > 0 {
 				log.Infow("file marked for GC", "miner", sector.SpID, "sector", sector.SectorNum, "filetype", 1, "storage_id", sector.StorageID, "reason", "unseal-target-state")
+
+				// Record GC metric
+				if maddr, err := address.NewIDAddress(uint64(sector.SpID)); err == nil {
+					if err = stats.RecordWithTags(ctx, []tag.Mutator{
+						tag.Upsert(MinerTag, maddr.String()),
+						tag.Upsert(FileTypeTag, "1"), // FTUnsealed
+					}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
+						log.Errorf("recording metric: %v", err)
+					}
+				}
 			}
 		}
 
@@ -420,6 +443,16 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				}
 				if n > 0 {
 					log.Infow("file marked for GC", "miner", decl.Miner, "sector", decl.Number, "filetype", storiface.FTSealed, "storage_id", string(storageId), "reason", "snap-sector-key")
+
+					// Record GC metric
+					if maddr, err := address.NewIDAddress(uint64(decl.Miner)); err == nil {
+						if err = stats.RecordWithTags(ctx, []tag.Mutator{
+							tag.Upsert(MinerTag, maddr.String()),
+							tag.Upsert(FileTypeTag, fmt.Sprint(storiface.FTSealed)),
+						}, GCMeasures.SectorsMarkedTotal.M(1)); err != nil {
+							log.Errorf("recording metric: %v", err)
+						}
+					}
 				}
 			}
 		}

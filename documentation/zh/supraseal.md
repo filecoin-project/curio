@@ -1,15 +1,23 @@
 ---
-description: 本页面解释了如何在 Curio 中设置 supraseal 批量封装器
+description: 本页面解释了如何在 Curio 中设置批量封装（extern/supraseal）
 ---
 
-# Batch Sealing with SupraSeal
-# 使用 SupraSeal 进行批量封装
+# 批量封装 | Batch Sealing
 
 {% hint style="danger" %}
-**免责声明：** SupraSeal 批量封装目前处于 **测试阶段**。请谨慎使用，并预期在未来版本中可能出现潜在问题或变更。目前需要一些额外的手动系统配置。
+**免责声明：** 批量封装目前处于 **测试阶段**。请谨慎使用，并预期在未来版本中可能出现潜在问题或变更。目前需要一些额外的手动系统配置。
 {% endhint %}
 
-SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封装多个扇区。与单独封装扇区相比，它可以显著提高封装吞吐量。
+批量封装是一种优化的封装方式，允许并行封装多个扇区，与逐个封装相比可显著提高吞吐量。
+
+## CC 调度器（仅用于批量封装）
+
+Curio 提供 **CC Scheduler**（CC 调度器）页面及其对应的数据库表（`sectors_cc_scheduler`），用于按 SP 配置要排队进行批量封装的 CC 扇区数量。
+
+- **CC 调度器仅用于批量封装**
+- 不要将其用于 deals / SnapDeals
+
+如果你在某个节点启用了批量封装，但集群未启用 SnapDeals，deal 可能会被路由到 CC/批量封装管道并最终封装空扇区（丢弃 deal 数据）。如需封装真实 deal，请确保集群启用 SnapDeals。
 
 ## Key Features
 ## 主要特性
@@ -61,7 +69,7 @@ SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封
   * 大型（多核心）CCX 通常更好
 
 {% hint style="info" %}
-请考虑为 [SupraSeal 硬件示例](https://github.com/filecoin-project/curio/discussions/140) 做出贡献。
+请考虑为 [批量封装硬件示例](https://github.com/filecoin-project/curio/discussions/140) 做出贡献。
 {% endhint %}
 
 ### Benchmark NVME IOPS
@@ -325,7 +333,7 @@ sudo curio batch setup
 此命令将：
 - 如果尚未可用，则下载 SPDK
 - 配置 1GB 大页面（默认 36 页）
-- 绑定 NVMe 设备以供 SupraSeal 使用
+- 绑定 NVMe 设备以供批量封装使用
 
 您可以自定义大页面数量：
 

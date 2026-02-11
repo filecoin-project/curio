@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -296,7 +298,11 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		}
 	}
 
-	goodFunds := big.Add(maxFee, needFunds)
+	// For address selection, require needFunds (collateral shortfall) plus a reasonable gas buffer.
+	// We use 10% of maxFee as the buffer - this is much more realistic than requiring
+	// the full maxFee (which is a cap, not typical usage). Actual gas is verified at send time.
+	gasBuffer := big.Div(maxFee, big.NewInt(10))
+	goodFunds := big.Add(needFunds, gasBuffer)
 
 	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.PreCommitAddr, goodFunds, collateral)
 	if err != nil {
@@ -331,6 +337,13 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	_, err = s.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, mcid)
 	if err != nil {
 		return false, xerrors.Errorf("inserting into message_waits: %w", err)
+	}
+
+	// Record metric
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SealMeasures.PrecommitSubmitted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
 	}
 
 	return true, nil

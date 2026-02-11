@@ -46,8 +46,10 @@ Python 3.7.3
 安装这些依赖项后，我们可以运行安装脚本：
 
 
-wget https://downloads.yugabyte.com/releases/2.21.0.1/yugabyte-2.21.0.1-b1-linux-x86_64.tar.gz
-tar xvfz yugabyte-2.21.0.1-b1-linux-x86_64.tar.gz && cd yugabyte-2.21.0.1/
+# YugabyteDB（单节点开发/测试示例）
+# 注意：生产/HA 部署请参考 YugabyteDB 官方部署文档。
+wget https://software.yugabyte.com/releases/2.25.1.0/yugabyte-2.25.1.0-b381-linux-x86_64.tar.gz
+tar xvfz yugabyte-2.25.1.0-b381-linux-x86_64.tar.gz && cd yugabyte-2.25.1.0/
 ./bin/post_install.sh
 ./bin/yugabyted start --advertise_address 127.0.0.1  --master_flags rpc_bind_addresses=127.0.0.1 --tserver_flags rpc_bind_addresses=127.0.0.1
 

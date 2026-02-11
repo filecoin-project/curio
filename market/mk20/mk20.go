@@ -744,7 +744,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 
 			if batch.Len() > batchSize {
-				res := tx.SendBatch(ctx, batch)
+				res, err := tx.SendBatch(ctx, batch)
+				if err != nil {
+					return xerrors.Errorf("failed to send batch: %w", err)
+				}
 				if err := res.Close(); err != nil {
 					return xerrors.Errorf("closing parked piece query batch: %w", err)
 				}
@@ -753,7 +756,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 		}
 
 		if batch.Len() > 0 {
-			res := tx.SendBatch(ctx, batch)
+			res, err := tx.SendBatch(ctx, batch)
+			if err != nil {
+				return xerrors.Errorf("failed to send batch: %w", err)
+			}
 			if err := res.Close(); err != nil {
 				return xerrors.Errorf("closing parked piece query batch: %w", err)
 			}
@@ -768,7 +774,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				dealID, deal.Client, piece.PieceCID.String(), pdp.ExtraData, *pdp.DataSetID,
 				aggregation, i, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if pBatch.Len() > pBatchSize {
-				res := tx.SendBatch(ctx, pBatch)
+				res, err := tx.SendBatch(ctx, pBatch)
+				if err != nil {
+					return xerrors.Errorf("failed to send batch: %w", err)
+				}
 				if err := res.Close(); err != nil {
 					return xerrors.Errorf("closing mk20 pipeline insert batch: %w", err)
 				}
@@ -776,7 +785,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 		if pBatch.Len() > 0 {
-			res := tx.SendBatch(ctx, pBatch)
+			res, err := tx.SendBatch(ctx, pBatch)
+			if err != nil {
+				return xerrors.Errorf("failed to send batch: %w", err)
+			}
 			if err := res.Close(); err != nil {
 				return xerrors.Errorf("closing mk20 pipeline insert batch: %w", err)
 			}

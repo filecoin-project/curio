@@ -500,7 +500,10 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			}
 
 			if batch.Len() > batchSize {
-				res := tx.SendBatch(ctx, batch)
+				res, err := tx.SendBatch(ctx, batch)
+				if err != nil {
+					return xerrors.Errorf("failed to send batch: %w", err)
+				}
 				if err := res.Close(); err != nil {
 					return xerrors.Errorf("closing parked piece query batch: %w", err)
 				}
@@ -509,7 +512,10 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		}
 
 		if batch.Len() > 0 {
-			res := tx.SendBatch(ctx, batch)
+			res, err := tx.SendBatch(ctx, batch)
+			if err != nil {
+				return xerrors.Errorf("failed to send batch: %w", err)
+			}
 			if err := res.Close(); err != nil {
 				return xerrors.Errorf("closing parked piece query batch: %w", err)
 			}
@@ -534,7 +540,10 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				spi.Size, spi.RawSize, offline, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 				0, aggregation, i, !offline)
 			if pBatch.Len() > pBatchSize {
-				res := tx.SendBatch(ctx, pBatch)
+				res, err := tx.SendBatch(ctx, pBatch)
+				if err != nil {
+					return xerrors.Errorf("failed to send batch: %w", err)
+				}
 				if err := res.Close(); err != nil {
 					return xerrors.Errorf("closing mk20 pipeline insert batch: %w", err)
 				}
@@ -542,7 +551,10 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			}
 		}
 		if pBatch.Len() > 0 {
-			res := tx.SendBatch(ctx, pBatch)
+			res, err := tx.SendBatch(ctx, pBatch)
+			if err != nil {
+				return xerrors.Errorf("failed to send batch: %w", err)
+			}
 			if err := res.Close(); err != nil {
 				return xerrors.Errorf("closing mk20 pipeline insert batch: %w", err)
 			}

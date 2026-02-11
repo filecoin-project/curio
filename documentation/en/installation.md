@@ -9,7 +9,7 @@ description: This guide will show how to build, install and update Curio binarie
 Curio packages are available to be installed directly on Ubuntu / Debian systems.
 
 {% hint style="danger" %}
-Debain packages are only available for mainnet right now. For any other network like calibration network or devnet, binaries must be built from source.
+Debian packages are only available for mainnet right now. For any other network like calibration network or devnet, binaries must be built from source.
 {% endhint %}
 
 1.  Install prerequisites
@@ -53,9 +53,9 @@ You will need the following software installed to install and run Curio.
 Building Curio requires some system dependencies, usually provided by your distribution.
 
 {% hint style="warning" %}
-**Note (Supraseal now builds by default on Linux):** Curio’s Linux build chain now always builds `extern/supraseal` as part of the normal `make deps/build` flow. This means **building Curio on Linux requires Supraseal build dependencies**, including:
+**Note (batch sealing now builds by default on Linux):** Curio’s Linux build chain now always builds `extern/supraseal` as part of the normal `make deps/build` flow. This means **building Curio on Linux requires batch sealing build dependencies**, including:
 
-- CUDA Toolkit **12.x or newer** (needs `nvcc`, even if you won’t run Supraseal at runtime)
+- CUDA Toolkit **13.x or newer** (needs `nvcc`, even if you won’t run batch sealing at runtime)
 - GCC **13** toolchain (`gcc-13` / `g++-13`)
 - Python venv tooling (`python3-venv`) and common build tools (`autoconf`, `automake`, `libtool`, `nasm`, `xxd`, etc.)
 
@@ -70,12 +70,12 @@ Arch:
 
 ```shell
 sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
-# For Supraseal builds (SnapDeals fast TreeR / batch sealing toolchain):
+# For batch sealing builds (SnapDeals fast TreeR / batch sealing toolchain):
 sudo pacman -Syu cuda
 # GCC 13 may be required depending on your supraseal version; install via your distro/AUR as appropriate.
 ```
 
-Ubuntu/Debian:
+Ubuntu 24.04 / Debian:
 
 ```shell
 sudo apt install -y \
@@ -90,7 +90,7 @@ sudo apt install -y \
   libgmp-dev libconfig++-dev \
   && sudo apt upgrade -y
 
-# CUDA Toolkit (Supraseal build requirement; needs nvcc)
+# CUDA Toolkit (batch sealing build requirement; needs nvcc)
 # Install via NVIDIA’s CUDA repository packages for your distro, or use `cuda-toolkit` packages if available.
 ```
 
@@ -124,10 +124,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 To build Curio, you need a working installation of [Go](https://golang.org/dl/): It needs to be at-least [the version specified here](../../GO_VERSION_MIN/).
 
-Example of an OLD version's CLI download:
+Example (match `GO_VERSION_MIN`; current repo min is **1.24.7**):
 
 ```shell
-wget -c https://golang.org/dl/go1.23.6.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+wget -c https://go.dev/dl/go1.24.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 ```
 
 {% hint style="info" %}
@@ -195,6 +195,16 @@ Once all the dependencies are installed, you can build and install Curio.
     echo 'export FFI_USE_CUDA_SUPRASEAL=1' >> ~/.bashrc
     source ~/.bashrc
     ```
+
+    {% hint style="warning" %}
+    On Linux, the Curio build **requires CUDA by default** and will fail if `nvcc` is not found in your PATH. This ensures you don't accidentally build without proper GPU support.
+
+    If you want to use OpenCL instead of CUDA (e.g., for AMD GPUs or systems without CUDA), build with:
+    ```bash
+    FFI_USE_OPENCL=1 make clean build
+    ```
+    {% endhint %}
+
 5.  Curio is compiled to operate on a single network. Choose the network you want to join, then run the corresponding command to build the Curio node:\
 
 

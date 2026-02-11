@@ -11,6 +11,8 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"go.uber.org/multierr"
 	"golang.org/x/exp/maps"
 	"golang.org/x/xerrors"
@@ -424,6 +426,13 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	if err := s.transferUpdatedSectorData(ctx, tasks[0].SpID, transferMap, mcid); err != nil {
 		return false, xerrors.Errorf("updating sector meta: %w", err)
+	}
+
+	// Record metric
+	if err := stats.RecordWithTags(ctx, []tag.Mutator{
+		tag.Upsert(MinerTag, maddr.String()),
+	}, SnapMeasures.SubmitCompleted.M(1)); err != nil {
+		log.Errorf("recording metric: %s", err)
 	}
 
 	return true, nil
