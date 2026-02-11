@@ -190,9 +190,8 @@ func (f *F3Task) participateLoop(ctx context.Context, stillOwned func() bool, ti
 	return ctx.Err()
 }
 
-func (f *F3Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (f *F3Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {

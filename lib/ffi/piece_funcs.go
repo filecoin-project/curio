@@ -128,6 +128,7 @@ func (sb *SealCalls) WriteUploadPiece(ctx context.Context, pieceID storiface.Pie
 	copyStart := time.Now()
 
 	wr := new(commp.Calc)
+	defer wr.Reset()
 	writers := io.MultiWriter(wr, destFile)
 
 	n, err := io.CopyBuffer(writers, io.LimitReader(data, size), make([]byte, 8<<20))

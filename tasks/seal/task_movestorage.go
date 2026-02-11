@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -95,10 +98,20 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("committing transaction: %w", err)
 	}
 
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(task.SpID)); err == nil {
+		err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SealMeasures.MoveStorageCompleted.M(1))
+		if err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
+	}
+
 	return true, nil
 }
 
-func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 
 	ctx := context.Background()
 	/*
@@ -119,12 +132,12 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 				    inner join sector_location l on p.sp_id=l.miner_id and p.sector_number=l.sector_num
 				    where task_id_move_storage in ($1) and l.sector_filetype=4`, indIDs)
 			if err != nil {
-				return nil, xerrors.Errorf("getting tasks: %w", err)
+				return []harmonytask.TaskID{}, xerrors.Errorf("getting tasks: %w", err)
 			}
 
 			ls, err := m.sc.LocalStorage(ctx)
 			if err != nil {
-				return nil, xerrors.Errorf("getting local storage: %w", err)
+				return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 			}
 
 			acceptables := map[harmonytask.TaskID]bool{}
@@ -144,7 +157,7 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 	////
 	ls, err := m.sc.LocalStorage(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 	}
 	var haveStorage bool
 	for _, l := range ls {
@@ -155,11 +168,10 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 	}
 
 	if !haveStorage {
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {

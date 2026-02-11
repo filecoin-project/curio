@@ -242,9 +242,8 @@ func isAlertMuted(alertName, alertMessage string, mutes []alertMute) bool {
 	return false
 }
 
-func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {

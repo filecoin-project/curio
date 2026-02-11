@@ -4,8 +4,11 @@ import (
 	"context"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -102,10 +105,19 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("store sdr-trees success: updated %d rows", n)
 	}
 
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SealMeasures.TreeRCCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
+	}
+
 	return true, nil
 }
 
-func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id_tree_c"`
 		SpID         int64              `db:"sp_id"`
@@ -130,12 +142,12 @@ func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 			WHERE task_id_tree_r = ANY ($1) AND l.sector_filetype = 4
 `, indIDs)
 	if err != nil {
-		return nil, xerrors.Errorf("getting tasks: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting tasks: %w", err)
 	}
 
 	ls, err := t.sc.LocalStorage(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
 	}
 
 	acceptables := map[harmonytask.TaskID]bool{}
@@ -144,6 +156,7 @@ func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		acceptables[t] = true
 	}
 
+	result := []harmonytask.TaskID{}
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
@@ -151,12 +164,12 @@ func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
+				result = append(result, t.TaskID)
 			}
 		}
 	}
 
-	return nil, nil
+	return result, nil
 }
 
 func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {

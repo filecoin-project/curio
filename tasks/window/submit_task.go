@@ -173,7 +173,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
 		return nil, nil
@@ -184,7 +184,7 @@ func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 		return nil, nil
 	}
 
-	return &ids[0], nil
+	return ids, nil
 }
 
 func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {

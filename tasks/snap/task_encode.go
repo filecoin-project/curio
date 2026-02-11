@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -116,13 +119,21 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return true, xerrors.Errorf("dropping piece refs: %w", err)
 	}
 
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SnapMeasures.EncodeCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
+	}
+
 	return true, nil
 }
 
-func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if !e.bindToData {
-		id := ids[0]
-		return &id, nil
+		return ids, nil
 	}
 
 	// debug log
@@ -227,6 +238,8 @@ func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 	// debug log
 	log.Infow("encode task can accept", "tasks", tasks, "bindToData", e.bindToData, "local", local)
 
+	preferred := []harmonytask.TaskID{}
+
 	// Prefer tasks where at least one pieceref is present on local storage
 	for _, t := range tasks {
 		if t.StorageID == "" {
@@ -235,7 +248,7 @@ func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		if _, ok := local[t.StorageID]; ok {
 			id := t.TaskID
 			log.Infow("encode task can accept did accept", "task", t)
-			return &id, nil
+			preferred = append(preferred, id)
 		}
 	}
 
@@ -244,12 +257,12 @@ func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		if t.NoPieceRefs {
 			id := t.TaskID
 			log.Infow("encode task can accept accepting non-pieceref task (anywhere)", "task", t)
-			return &id, nil
+			preferred = append(preferred, id)
 		}
 	}
 
 	// No acceptable tasks for this node
-	return nil, nil
+	return preferred, nil
 }
 
 func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {

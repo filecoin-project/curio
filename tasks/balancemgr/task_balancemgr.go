@@ -152,7 +152,8 @@ func (b *BalanceMgrTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 // CanAccept implements harmonytask.TaskInterface.
-func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	preferred := []harmonytask.TaskID{}
 	for _, id := range ids {
 		var subjectType string
 
@@ -167,11 +168,11 @@ func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 
 		switch subjectType {
 		case "wallet", "proofshare", "f05":
-			return &id, nil
+			preferred = append(preferred, id)
 		}
 	}
 
-	return nil, nil
+	return preferred, nil
 }
 
 // Do implements harmonytask.TaskInterface.

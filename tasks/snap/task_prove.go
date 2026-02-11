@@ -5,8 +5,11 @@ import (
 	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -102,26 +105,34 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("updating sector params: %w", err)
 	}
 
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SnapMeasures.ProveCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
+	}
+
 	return true, nil
 }
 
-func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if p.enableRemoteProofs {
 		// remote proofs enabled but not local prove - we still need the task for poller
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
 	rdy, err := p.paramsReady()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to setup params: %w", err)
+		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
 		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
-		return nil, nil
+		return []harmonytask.TaskID{}, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {

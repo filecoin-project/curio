@@ -127,13 +127,12 @@ func (c *ScrubCommRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	return true, nil
 }
 
-func (c *ScrubCommRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *ScrubCommRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// Only accept if this node can run supraseal TreeR
 	if !CanRunSupraTreeR() {
 		return nil, nil
 	}
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (c *ScrubCommRTask) TypeDetails() harmonytask.TaskTypeDetails {

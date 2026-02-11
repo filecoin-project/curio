@@ -1,4 +1,4 @@
-package harmonydb_test
+package proofshare_test
 
 import (
 	"fmt"

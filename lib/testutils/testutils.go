@@ -190,6 +190,7 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 			return cid.Undef, xerrors.Errorf("getting file stat: %w", err)
 		}
 		cp := new(commp.Calc)
+		defer cp.Reset()
 		_, err = io.Copy(cp, file)
 		if err != nil {
 			return cid.Undef, xerrors.Errorf("copying subpiece to commp writer: %w", err)
@@ -253,6 +254,7 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 	}()
 
 	cp := new(commp.Calc)
+	defer cp.Reset()
 	w := io.MultiWriter(cp, f)
 
 	n, err := io.Copy(w, out)

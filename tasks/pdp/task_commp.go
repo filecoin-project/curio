@@ -98,6 +98,7 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}()
 
 	wr := new(commp.Calc)
+	defer wr.Reset()
 	written, err := io.CopyBuffer(wr, pReader, make([]byte, writer.CommPBuf))
 	if err != nil {
 		return false, xerrors.Errorf("copy into commp writer: %w", err)
@@ -145,7 +146,7 @@ func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 }
 
-func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// CommP task can be of 2 types
 	// 1. Using ParkPiece pieceRef
 	// 2. Using remote HTTP reader
@@ -250,6 +251,7 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		acceptables[t] = true
 	}
 
+	result := []harmonytask.TaskID{}
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
@@ -257,13 +259,13 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
+				result = append(result, t.TaskID)
 			}
 		}
 	}
 
 	// If no local pieceRef was found then just return first TaskID
-	return &ids[0], nil
+	return result, nil
 }
 
 func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {
