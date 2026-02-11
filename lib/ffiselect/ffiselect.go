@@ -96,15 +96,16 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 
 	// get dOrdinal
 	dOrdinal := getDeviceOrdinal()
+
+	if dOrdinal == -1 {
+		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
+	}
+
 	defer func() {
 		gpuSlotsMx.Lock()
 		gpuSlots[dOrdinal]++
 		gpuSlotsMx.Unlock()
 	}()
-
-	if dOrdinal == -1 {
-		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
-	}
 
 	p, err := os.Executable()
 	if err != nil {
