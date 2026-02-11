@@ -30,13 +30,15 @@ if [ "$(find ../../* -newer catalog.go 2>/dev/null)" ]; then
     > "$WORKDIR/main.go"
   
   # Step 3: Initialize Go module for toy package
-  cd "$WORKDIR"
+  cd "$WORKDIR" || exit 1
+  WORKDIR_ABS="$(pwd)"
   GO111MODULE=on go mod init toyextract
   GO111MODULE=on go mod tidy
   
-  # Step 4: Run gotext on the lightweight toy package (fast!)
-  gotext -srclang=en update -out=catalog.go -lang=en,zh,ko toyextract
-  cd "$SCRIPT_DIR"
+  # Step 4: Run gotext on the lightweight toy package only (fast!)
+  # Use "." so gotext only loads this directory; GOMOD/GOWORK prevent using parent Curio.
+  GOWORK=off GOMOD="$WORKDIR_ABS/go.mod" gotext -srclang=en update -out=catalog.go -lang=en,zh,ko .
+  cd "$SCRIPT_DIR" || exit 1
   
   # Step 5: Copy results back to translations directory
   if [ -d "$WORKDIR/locales" ]; then
