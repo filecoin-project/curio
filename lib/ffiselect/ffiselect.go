@@ -49,11 +49,11 @@ var deviceOrdinalMgr = func() *deviceOrdinalManager {
 		acquireChan: make(chan chan int),
 	}
 	go func() {
-		gpuSlots := []byte{1}
 		devices, err := ffi.GetGPUDevices()
 		if err != nil {
 			panic(err)
 		}
+		gpuSlots := []byte{1}
 		if len(devices) > 0 {
 			gpuSlots = make([]byte, len(devices))
 			for i := range gpuSlots {
@@ -62,7 +62,7 @@ var deviceOrdinalMgr = func() *deviceOrdinalManager {
 		}
 
 		waitList := []chan int{}
-		for {
+		for { // distribute loop
 			select {
 			case ordinal := <-d.releaseChan:
 				if len(waitList) > 0 { // unblock the delayed requests
@@ -78,8 +78,9 @@ var deviceOrdinalMgr = func() *deviceOrdinalManager {
 						max, maxIdx = w, i
 					}
 				}
-				if max == 0 {
+				if max == 0 { // no GPU available, add to the wait list
 					waitList = append(waitList, acquireChan)
+					continue
 				}
 				gpuSlots[maxIdx]--
 				acquireChan <- maxIdx
