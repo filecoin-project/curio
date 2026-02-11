@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -39,39 +38,65 @@ var IsTest = false
 var IsCuda = build.IsOpencl != "1"
 
 // Get all devices from ffi
-var gpuSlots []byte
-var gpuSlotsMx sync.Mutex
-
-// getDeviceOrdinal returns the ordinal of the GPU with the least workload.
-func getDeviceOrdinal() int {
-	gpuSlotsMx.Lock()
-	defer gpuSlotsMx.Unlock()
-	max, maxIdx := byte(0), 0
-	for i, w := range gpuSlots {
-		if w > max {
-			max, maxIdx = w, i
-		}
-	}
-	if max == 0 {
-		logger.Errorf("no GPUs available. Something went wrong in the scheduler.")
-		return -1
-	}
-	gpuSlots[maxIdx]--
-	return maxIdx
+type deviceOrdinalManager struct {
+	releaseChan chan int
+	acquireChan chan chan int
 }
-func init() {
-	devices, err := ffi.GetGPUDevices()
-	if err != nil {
-		panic(err)
+
+var deviceOrdinalMgr = func() *deviceOrdinalManager {
+	d := &deviceOrdinalManager{
+		releaseChan: make(chan int),
+		acquireChan: make(chan chan int),
 	}
-	if len(devices) == 0 {
-		gpuSlots = []byte{1}
-	} else {
-		gpuSlots = make([]byte, len(devices))
-		for i := range gpuSlots {
-			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
+	go func() {
+		gpuSlots := []byte{1}
+		devices, err := ffi.GetGPUDevices()
+		if err != nil {
+			panic(err)
 		}
-	}
+		if len(devices) > 0 {
+			gpuSlots = make([]byte, len(devices))
+			for i := range gpuSlots {
+				gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
+			}
+		}
+
+		waitList := []chan int{}
+		for {
+			select {
+			case ordinal := <-d.releaseChan:
+				if len(waitList) > 0 { // unblock the delayed requests
+					waitList[0] <- ordinal
+					waitList = waitList[1:]
+				} else {
+					gpuSlots[ordinal]++
+				}
+			case acquireChan := <-d.acquireChan:
+				max, maxIdx := byte(0), 0
+				for i, w := range gpuSlots { // find the least used GPU
+					if w > max {
+						max, maxIdx = w, i
+					}
+				}
+				if max == 0 {
+					waitList = append(waitList, acquireChan)
+				}
+				gpuSlots[maxIdx]--
+				acquireChan <- maxIdx
+			}
+		}
+	}()
+	return d
+}()
+
+func (d *deviceOrdinalManager) Release(ordinal int) {
+	d.releaseChan <- ordinal
+}
+
+func (d *deviceOrdinalManager) Get() int {
+	acquireChan := make(chan int)
+	d.acquireChan <- acquireChan
+	return <-acquireChan
 }
 
 type ValErr struct {
@@ -95,16 +120,14 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	}
 
 	// get dOrdinal
-	dOrdinal := getDeviceOrdinal()
+	dOrdinal := deviceOrdinalMgr.Get()
 
 	if dOrdinal == -1 {
 		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
 	}
 
 	defer func() {
-		gpuSlotsMx.Lock()
-		gpuSlots[dOrdinal]++
-		gpuSlotsMx.Unlock()
+		deviceOrdinalMgr.Release(dOrdinal)
 	}()
 
 	p, err := os.Executable()
