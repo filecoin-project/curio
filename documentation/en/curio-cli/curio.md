@@ -551,6 +551,8 @@ OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --addr value                       SP ID to compute WindowPoSt for
+   --wait-timeout value               maximum total time to wait for scheduled test tasks to finish (0 disables, default) (default: 0s)
+   --stalled-timeout value            maximum time without task progress before returning an error (0 disables) (default: 15m0s)
    --help, -h                         show help
 ```
 
