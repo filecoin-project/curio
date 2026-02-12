@@ -183,14 +183,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	return true, nil
 }
 
-func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"task_id_finalize"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector_number"`
-		StorageID    string             `db:"storage_id"`
-	}
-
+func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	if storiface.FTCache != 4 {
 		panic("storiface.FTCache != 4")
 	}
@@ -202,40 +195,22 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEn
 		indIDs[i] = int64(id)
 	}
 
-	err := f.db.Select(ctx, &tasks, `
-		SELECT p.task_id_finalize, p.sp_id, p.sector_number, l.storage_id FROM sectors_sdr_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
-			WHERE task_id_finalize = ANY ($1) AND l.sector_filetype = 4
-`, indIDs)
+	var acceptedIDs []harmonytask.TaskID
+	err := f.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id_finalize), '{}')::bigint[] AS task_ids_finalize FROM 
+										  (
+										      SELECT p.task_id_finalize FROM sectors_sdr_pipeline p
+												INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+												INNER JOIN storage_path sp ON sp.storage_id = l.storage_id
+												WHERE task_id_finalize = ANY ($1) 
+												  AND sp.urls IS NOT NULL 
+												  AND sp.urls LIKE '%' || $2 || '%' 
+												  LIMIT 100
+										  ) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
-		return []harmonytask.TaskID{}, xerrors.Errorf("getting tasks: %w", err)
+		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
 
-	ls, err := f.sc.LocalStorage(ctx)
-	if err != nil {
-		return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	acceptables := map[harmonytask.TaskID]bool{}
-
-	for _, t := range ids {
-		acceptables[t] = true
-	}
-
-	result := []harmonytask.TaskID{}
-	for _, t := range tasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
-
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
-				result = append(result, t.TaskID)
-			}
-		}
-	}
-
-	return result, nil
+	return acceptedIDs, nil
 }
 
 func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {

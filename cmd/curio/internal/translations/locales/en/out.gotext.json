@@ -346,9 +346,9 @@
             "fuzzy": true
         },
         {
-            "id": "Compare the configurations {Base} to {MinerAddresses0}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
-            "message": "Compare the configurations {Base} to {MinerAddresses0}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
-            "translation": "Compare the configurations {Base} to {MinerAddresses0}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+            "id": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+            "message": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+            "translation": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
@@ -360,12 +360,12 @@
                     "expr": "\"Base\""
                 },
                 {
-                    "id": "MinerAddresses0",
+                    "id": "Expr",
                     "string": "%[2]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 2,
-                    "expr": "\"MinerAddresses0\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true
@@ -655,9 +655,9 @@
             "fuzzy": true
         },
         {
-            "id": "Downgrade a cluster's daatabase to a previous software version.",
-            "message": "Downgrade a cluster's daatabase to a previous software version.",
-            "translation": "Downgrade a cluster's daatabase to a previous software version.",
+            "id": "Downgrade a cluster's database to a previous software version.",
+            "message": "Downgrade a cluster's database to a previous software version.",
+            "translation": "Downgrade a cluster's database to a previous software version.",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -676,18 +676,18 @@
             "fuzzy": true
         },
         {
-            "id": "Enter {Stringworkersenderi1} address",
-            "message": "Enter {Stringworkersenderi1} address",
-            "translation": "Enter {Stringworkersenderi1} address",
+            "id": "Enter {Expr} address",
+            "message": "Enter {Expr} address",
+            "translation": "Enter {Expr} address",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Stringworkersenderi1",
+                    "id": "Expr",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"Stringworkersenderi1\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true
@@ -700,18 +700,18 @@
             "fuzzy": true
         },
         {
-            "id": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
-            "message": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
-            "translation": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+            "id": "Enter the Yugabyte database {Expr}",
+            "message": "Enter the Yugabyte database {Expr}",
+            "translation": "Enter the Yugabyte database {Expr}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Stringportusernamepassworddatabasei1",
+                    "id": "Expr",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"Stringportusernamepassworddatabasei1\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true
@@ -1373,18 +1373,18 @@
             "fuzzy": true
         },
         {
-            "id": "Host: {Hosts}",
-            "message": "Host: {Hosts}",
-            "translation": "Host: {Hosts}",
+            "id": "Host: {Join}",
+            "message": "Host: {Join}",
+            "translation": "Host: {Join}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Hosts",
+                    "id": "Join",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"Hosts\""
+                    "expr": "\"Join\""
                 }
             ],
             "fuzzy": true
@@ -1867,18 +1867,18 @@
             "fuzzy": true
         },
         {
-            "id": "Owner Wallet: {String}",
-            "message": "Owner Wallet: {String}",
-            "translation": "Owner Wallet: {String}",
+            "id": "Owner Wallet: {Expr}",
+            "message": "Owner Wallet: {Expr}",
+            "translation": "Owner Wallet: {Expr}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "String",
+                    "id": "Expr",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"String\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true
@@ -1978,18 +1978,18 @@
             "fuzzy": true
         },
         {
-            "id": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {String}' to finish the configuration",
-            "message": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {String}' to finish the configuration",
-            "translation": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {String}' to finish the configuration",
+            "id": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+            "message": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+            "translation": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "String",
+                    "id": "Expr",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"String\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true
@@ -2252,18 +2252,18 @@
             "fuzzy": true
         },
         {
-            "id": "Sender Wallet: {String}",
-            "message": "Sender Wallet: {String}",
-            "translation": "Sender Wallet: {String}",
+            "id": "Sender Wallet: {Expr}",
+            "message": "Sender Wallet: {Expr}",
+            "translation": "Sender Wallet: {Expr}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "String",
+                    "id": "Expr",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"String\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true
@@ -2930,18 +2930,18 @@
             "fuzzy": true
         },
         {
-            "id": "Worker Wallet: {String}",
-            "message": "Worker Wallet: {String}",
-            "translation": "Worker Wallet: {String}",
+            "id": "Worker Wallet: {Expr}",
+            "message": "Worker Wallet: {Expr}",
+            "translation": "Worker Wallet: {Expr}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "String",
+                    "id": "Expr",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"String\""
+                    "expr": "\"Expr\""
                 }
             ],
             "fuzzy": true

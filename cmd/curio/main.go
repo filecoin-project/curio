@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime/pprof"
 	"syscall"
 
 	"github.com/docker/go-units"
@@ -51,7 +50,6 @@ func setupCloseHandler() {
 	go func() {
 		<-c
 		fmt.Println("\r- Ctrl+C pressed in Terminal")
-		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 2)
 		panic(1)
 	}()
 }

@@ -452,7 +452,7 @@ var registerPDPServiceProviderCmd = &cli.Command{
 
 var downgradeCmd = &cli.Command{
 	Name:        "downgrade",
-	Usage:       translations.T("Downgrade a cluster's daatabase to a previous software version."),
+	Usage:       translations.T("Downgrade a cluster's database to a previous software version."),
 	Description: translations.T("If, however, the upgrade has a serious bug and you need to downgrade, first shutdown all nodes in your cluster and then run this command. Finally, only start downgraded nodes."),
 	Flags: []cli.Flag{
 		&cli.IntFlag{

@@ -1,56 +1,69 @@
 #####################################
 ARG LOTUS_TEST_IMAGE=curio/lotus-all-in-one:latest
 FROM ${LOTUS_TEST_IMAGE} AS lotus-test
-FROM golang:1.24-bullseye AS curio-builder
+
+#####################################
+FROM rust:1.86.0-slim-bookworm AS rust-toolchain
+
+####################################
+FROM golang:1.24-trixie AS curio-builder
 LABEL Maintainer="Curio Development Team"
 
 RUN apt-get update && apt-get install -y ca-certificates build-essential clang ocl-icd-opencl-dev ocl-icd-libopencl1 jq libhwloc-dev
 
+WORKDIR /opt/curio
+
 ENV XDG_CACHE_HOME="/tmp"
 
-### taken from https://github.com/rust-lang/docker-rust/blob/master/1.63.0/buster/Dockerfile
+# Copy prebuilt Rust from the rust image (arch-matched by buildx)
+COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
+
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.63.0
+    PATH=/usr/local/cargo/bin:$PATH
 
-COPY ./ /opt/curio
-WORKDIR /opt/curio
+RUN rustc --version && cargo --version
+
+COPY go.mod go.sum ./
+COPY extern/filecoin-ffi/go.mod extern/filecoin-ffi/go.sum ./extern/filecoin-ffi/
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+COPY . .
+
 RUN git submodule update --init
-RUN go mod download
-
-RUN set -eux; \
-    dpkgArch="$(dpkg --print-architecture)"; \
-    case "${dpkgArch##*-}" in \
-        amd64) rustArch='x86_64-unknown-linux-gnu'; rustupSha256='5cc9ffd1026e82e7fb2eec2121ad71f4b0f044e88bca39207b3f6b769aaa799c' ;; \
-        arm64) rustArch='aarch64-unknown-linux-gnu'; rustupSha256='e189948e396d47254103a49c987e7fb0e5dd8e34b200aa4481ecc4b8e41fb929' ;; \
-        *) echo >&2 "unsupported architecture: ${dpkgArch}"; exit 1 ;; \
-    esac; \
-    url="https://static.rust-lang.org/rustup/archive/1.25.1/${rustArch}/rustup-init"; \
-    wget "$url"; \
-    echo "${rustupSha256} *rustup-init" | sha256sum -c -; \
-    chmod +x rustup-init; \
-    ./rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION --default-host ${rustArch}; \
-    rm rustup-init; \
-    chmod -R a+w $RUSTUP_HOME $CARGO_HOME; \
-    rustup --version; \
-    cargo --version; \
-    rustc --version;
 
 ### make configurable filecoin-ffi build
 ARG FFI_BUILD_FROM_SOURCE=0
 ENV FFI_BUILD_FROM_SOURCE=${FFI_BUILD_FROM_SOURCE}
 
-RUN make clean deps
+ARG CURIO_OPTIMAL_LIBFILCRYPTO=0
+ENV CURIO_OPTIMAL_LIBFILCRYPTO=${CURIO_OPTIMAL_LIBFILCRYPTO}
+
+ARG FFI_USE_OPENCL=1
+ENV FFI_USE_OPENCL=${FFI_USE_OPENCL}
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make clean deps
 
 ARG RUSTFLAGS=""
 ARG GOFLAGS=""
 ARG CURIO_TAGS=""
 
-RUN make build
+ENV RUSTFLAGS="${RUSTFLAGS}" \
+        GOFLAGS="${GOFLAGS}" \
+        CURIO_TAGS="${CURIO_TAGS}"
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make build
 
 ####################################
-FROM golang:1.24-bullseye AS piece-server-builder
+FROM golang:1.24-trixie AS piece-server-builder
 
 RUN go install github.com/ipld/go-car/cmd/car@latest \
  && cp $GOPATH/bin/car /usr/local/bin/
@@ -58,14 +71,14 @@ RUN go install github.com/ipld/go-car/cmd/car@latest \
 RUN go install github.com/LexLuthr/piece-server@latest \
  && cp $GOPATH/bin/piece-server /usr/local/bin/
 
-RUN go install github.com/ipni/storetheindex@latest \
+RUN go install github.com/ipni/storetheindex@v0.8.41\
  && cp $GOPATH/bin/storetheindex /usr/local/bin/
 
 RUN go install github.com/ethereum/go-ethereum/cmd/geth@latest \
  && cp $GOPATH/bin/geth /usr/local/bin/
 
 #####################################
-FROM ubuntu:22.04 AS curio-all-in-one
+FROM ubuntu:24.04 AS curio-all-in-one
 
 RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget nodejs npm
 

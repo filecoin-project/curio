@@ -131,6 +131,14 @@ func TestNewIndexStore(t *testing.T) {
 	require.Len(t, pcids, 1)
 	require.Equal(t, pcids[0].PieceCid.String(), pcid1.String())
 
+	mhs, err := idxStore.GetPieceHashRange(ctx, pcid1, multihash.Multihash{}, int64(i+1), false)
+	require.NoError(t, err)
+	require.Len(t, mhs, i)
+
+	mhs, err = idxStore.GetPieceHashRange(ctx, pcid1, multihash.Multihash{}, int64(i+1), true)
+	require.Error(t, err)
+	require.Len(t, mhs, 0)
+
 	// Migrate V1 to V2
 	err = idxStore.UpdatePieceCidV1ToV2(ctx, pcid1, pcid2)
 	require.NoError(t, err)

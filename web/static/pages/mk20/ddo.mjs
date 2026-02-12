@@ -90,10 +90,10 @@ class MK20DDODealList extends LitElement {
                 <tr>
                     <td>${formatDate(deal.created_at)}</td>
                     <td><a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a></td>
-                    <td>${deal.miner.Valid ? deal.miner.String : '-'}</td>
+                    <td>${deal.miner}</td>
                     <td>
-                        ${deal.piece_cid_v2
-                                ? html`<a href="/pages/piece/?id=${deal.piece_cid_v2.String}">${this.formatPieceCid(deal.piece_cid_v2.String)}</a>`
+                        ${deal.piece_cid_v2 !== ""
+                                ? html`<a href="/pages/piece/?id=${deal.piece_cid_v2}">${this.formatPieceCid(deal.piece_cid_v2)}</a>`
                                 : 'Not Available'}
                     </td>
                     <td><done-not-done .value=${deal.processed}></yes-no></td>

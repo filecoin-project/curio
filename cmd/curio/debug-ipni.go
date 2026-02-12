@@ -9,6 +9,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
+	"github.com/multiformats/go-multihash"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
@@ -38,7 +39,7 @@ var testDebugIpniChunks = &cli.Command{
 
 		blockMetadata, err := blockReader.SkipNext()
 		for err == nil {
-			if err := ck.Accept(blockMetadata.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
+			if err := ck.Accept([]multihash.Multihash{blockMetadata.Hash()}); err != nil {
 				return xerrors.Errorf("accepting block: %w", err)
 			}
 
