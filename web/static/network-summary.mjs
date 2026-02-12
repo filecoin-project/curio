@@ -66,8 +66,15 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         }
         .summary {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            align-items: stretch;
             gap: 8px;
+        }
+        @media (max-width: 920px) {
+            .summary {
+                flex-wrap: wrap;
+            }
         }
         .note {
             margin-top: 8px;
@@ -76,6 +83,10 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         }
         .summary-item {
             flex: 0 0 170px;
+            min-height: 64px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 8px;
