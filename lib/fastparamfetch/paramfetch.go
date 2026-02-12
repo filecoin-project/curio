@@ -385,12 +385,16 @@ func fetchWithAria2c(ctx context.Context, out, url string) error {
 	return nil
 }
 
-func fetchWithHTTPClient(ctx context.Context, out string, u *url.URL) error {
+func fetchWithHTTPClient(ctx context.Context, out string, u *url.URL) (err error) {
 	outf, err := os.OpenFile(out, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return err
 	}
-	defer outf.Close()
+	defer func() {
+		if closeErr := outf.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	fStat, err := outf.Stat()
 	if err != nil {
@@ -410,7 +414,11 @@ func fetchWithHTTPClient(ctx context.Context, out string, u *url.URL) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return xerrors.New("file not found on server")
