@@ -1,9 +1,11 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import RPCCall from '/lib/jsonrpc.mjs';
 
 window.customElements.define('network-summary', class NetworkSummary extends LitElement {
     constructor() {
         super();
         this.summary = null;
+        this.nodeCount = 0;
         this.loadData();
         this.pollHandle = setInterval(() => this.loadData(), 1000);
     }
@@ -15,9 +17,13 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
 
     async loadData() {
         try {
-            const resp = await fetch('/api/net/summary');
+            const [resp, syncState] = await Promise.all([
+                fetch('/api/net/summary'),
+                RPCCall('SyncerState'),
+            ]);
             if (!resp.ok) throw new Error(`failed /api/net/summary (${resp.status})`);
             this.summary = await resp.json();
+            this.nodeCount = Array.isArray(syncState) ? syncState.length : 0;
             this.requestUpdate();
         } catch (err) {
             console.error('failed to refresh network summary', err);
@@ -44,6 +50,12 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         if (s.includes('public')) return html`<span class="success">${status}</span>`;
         if (s.includes('private')) return html`<span class="warning">${status}</span>`;
         return html`<span class="warning">${status}</span>`;
+    }
+
+    renderFailoverNote() {
+        if (this.nodeCount > 1) return 'Multi-node failover enabled';
+        if (this.nodeCount === 1) return 'Single node configured';
+        return 'Node configuration unknown';
     }
 
     static get styles() {
@@ -108,6 +120,6 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
           <div class="summary-value">${this.renderReachability()}</div>
       </div>
   </div>
-  <div class="note">Multi-node failover enabled</div>`;
+  <div class="note">${this.renderFailoverNote()}</div>`;
     }
 });
