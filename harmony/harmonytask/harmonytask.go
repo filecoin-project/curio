@@ -71,9 +71,8 @@ type TaskTypeDetails struct {
 	// other machines.
 	SchedulingOverrides map[string]bool
 
-	// ShutdownPollFrequency when set will prevent the node from shutting down until the task is completed.
-	// Keep it short to respect SPs. Its purpose is to have message sends be verified.
-	ShutdownPollFrequency time.Duration
+	// Should block shutdown until completion..
+	TimeSensitive bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -251,17 +250,17 @@ func (e *TaskEngine) GracefullyTerminate() {
 	// If there are any Post tasks then wait till Timeout and check again
 	// When no Post tasks are active, break out of loop  and call the shutdown function
 	for {
-		timeout := time.Duration(0)
+		var waited bool
 		for _, h := range e.handlers {
-			if h.Max.Active() > 0 && h.ShutdownPollFrequency > timeout {
-				timeout = h.ShutdownPollFrequency
-				log.Infof("node shutdown deferred for %f seconds due to running %s task", timeout.Seconds(), h.Name)
+			if h.TimeSensitive && h.Max.Active() > 0 {
+				log.Infof("node shutdown deferred due to running %s task", h.Name)
+				time.Sleep(time.Second * 3)
+				waited = true
 			}
 		}
-		if timeout == 0 {
+		if !waited {
 			break
 		}
-		time.Sleep(timeout)
 	}
 }
 
