@@ -191,8 +191,8 @@ func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 10 << 20,
 		},
-		MaxFailures: 10,
-		Follows:     nil, // ??
+		MaxFailures:   10,
+		TimeSensitive: true,
 	}
 }
 

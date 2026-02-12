@@ -269,7 +269,8 @@ func (n *NextProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *harm
 
 func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_ProvPeriod",
+		Name:          "PDPv0_ProvPeriod",
+		TimeSensitive: true,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

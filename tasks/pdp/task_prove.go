@@ -832,7 +832,8 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	const proveTaskRAM = 2 << 30 // 2 GiB
 
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_Prove",
+		Name:          "PDPv0_Prove",
+		TimeSensitive: true,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
