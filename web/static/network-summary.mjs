@@ -75,7 +75,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             opacity: 0.8;
         }
         .summary-item {
-            flex: 0 1 170px;
+            flex: 0 0 170px;
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 8px;
