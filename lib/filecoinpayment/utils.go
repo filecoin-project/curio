@@ -85,7 +85,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 				toSettle = append(toSettle, rail)
 			}
 		} else {
-			//If rail is not terminated, settle if SettledUpTo+LockupPeriod-1day > current block
+			// If rail is not terminated, settle if SettledUpTo+LockupPeriod-1day > current block
 			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
 			thresholdWithGrace := big.NewInt(0).Sub(threshold, bufferPeriod)
 
@@ -126,6 +126,14 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 			calls = make([]multicall.Multicall3Call, 0, 10)
 			rails = make([]int64, 0, 10)
 		}
+	}
+	// Handle any remaining calls that didn't make a full batch
+	if len(calls) > 0 {
+		tx, err := multicall.BatchCallGenerate(calls)
+		if err != nil {
+			return xerrors.Errorf("failed to generate batch call: %w", err)
+		}
+		transactionsToSend[tx] = rails
 	}
 
 	for txToSend, railIDs := range transactionsToSend {
