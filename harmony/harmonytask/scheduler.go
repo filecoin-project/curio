@@ -137,7 +137,7 @@ type taskSource interface {
 	ReserveTask(taskName string, taskID TaskID)
 }
 
-func (e *TaskEngine) tryStartTask(taskName string) (TaskID, error) {
+func (e *TaskEngine) tryStartTask(taskName string, eventEmitter eventEmitter) (TaskID, error) {
 	// TODO can this just be consider work?
 	return 0, nil
 }
@@ -162,6 +162,22 @@ func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter)
 	5. Rethink "retryWait" from poller-only to include schedule-able.
 	6. double-check where we receive events that source =0 works as us.
 	7. tryStartTask should be thin wrapper around considerWork, but that requires moving most of the pollerTryAllWork logic into considerWork, and maybe the rest can go into waterfall.
+
+	Why this works: Guaranteed progress.
+
+	Time-sentitive tasks get an "always reserve" flag.
+
+	Thought: most-starved pipeline first, in pipeline order. Because old tasks could be at the head of a pipeline.
+	So points for a starved pipeline & points for a later task in the pipeline & points for age.
+	what is a starved pipeline?
+
+	First: order handlers by score (later in its pipeline, age counts a little, starvation counts a lot)
+	Then if it continues to be starved (or is time-sensitive), it "goes urgent"
+	It'll be first on another round, and "urgent" will get a reservation.
+	Icky data to carry: 1. handler avg age (rolling average), handler last-run time (vs other handlers), handler-pipeline-position.
+
+	Then calculate the urgency score for each handler and order by that.
+	The handler that has been starved 2-5x (??) the average runtime gets reserved (resources get claimed by the scheduler)
 
 	*/
 	e.pollerTryAllWork(schedulable, taskSource, eventEmitter)
