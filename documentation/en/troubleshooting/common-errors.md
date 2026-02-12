@@ -15,9 +15,9 @@ Tip: many errors are symptoms, not causes. If the same task keeps failing, scrol
 
 ---
 
-## API / CLI
+### API / CLI
 
-### `ERROR: could not get API info for Curio: could not determine API endpoint ... Try setting environment variable: CURIO_API_INFO`
+#### `ERROR: could not get API info for Curio: could not determine API endpoint ... Try setting environment variable: CURIO_API_INFO`
 
 What it means:
 - Your CLI environment can’t find the Curio API endpoint/token.
@@ -28,9 +28,9 @@ What to do:
 
 ---
 
-## Chain / Lotus connectivity
+### Chain / Lotus connectivity
 
-### `Not able to establish connection to node with addr: ws://.../rpc/v1`
+#### `Not able to establish connection to node with addr: ws://.../rpc/v1`
 
 What it means:
 - Curio can’t reach the configured full node endpoint.
@@ -42,9 +42,9 @@ What to do:
 
 ---
 
-## Sealing / PoSt
+### Sealing / PoSt
 
-### `invalid partIdx 0 (deadline has 0 partitions)`
+#### `invalid partIdx 0 (deadline has 0 partitions)`
 
 Plain-English meaning:
 - Curio asked Lotus for “deadline partitions” (groups of sectors) and got **zero** partitions back. Then it tried to run a proof against partition index `0`, which doesn’t exist.
@@ -62,7 +62,7 @@ What to do:
 
 Code reference (for maintainers): `tasks/window/compute_do.go`.
 
-### `Error computing WindowPoSt ... no sectors to prove`
+#### `Error computing WindowPoSt ... no sectors to prove`
 
 What it means:
 - There are no sectors in that deadline/partition that require proofs.
@@ -73,9 +73,9 @@ Next steps:
 
 ---
 
-## Storage / paths
+### Storage / paths
 
-### `sector {..} redeclared in ... paths/db_index.go`
+#### `sector {..} redeclared in ... paths/db_index.go`
 
 What it suggests:
 - The same sector appears declared in multiple storage locations, or your local store index contains conflicting entries.
@@ -87,9 +87,9 @@ What to do:
 
 ---
 
-## Market / indexing
+### Market / indexing
 
-### `duplicate key value violates unique constraint ... (SQLSTATE 23505)` during indexing / CheckIndex
+#### `duplicate key value violates unique constraint ... (SQLSTATE 23505)` during indexing / CheckIndex
 
 What it means:
 - Two workers attempted to insert the same identity row (often a retry/concurrency artifact).
@@ -99,7 +99,7 @@ What to do:
 - Collect: deal UUID, piece CID, task ID, and the full log span.
 - If stuck: see [curio-market troubleshooting](../curio-market/troubleshooting.md).
 
-### `no suitable data URL found for piece_id <N>` (ParkPiece)
+#### `no suitable data URL found for piece_id <N>` (ParkPiece)
 
 Plain-English meaning:
 - Curio has a “parked piece” that it needs to read, but it can’t find any usable location for the bytes.
@@ -127,9 +127,9 @@ Code reference (for maintainers): `tasks/piece/task_park_piece.go`.
 
 ---
 
-## Batch sealing
+### Batch sealing
 
-### `panic: SupraSealInit: supraseal build tag not enabled`
+#### `panic: SupraSealInit: supraseal build tag not enabled`
 
 What it means:
 - The binary you’re running does not include batch sealing support.
@@ -152,9 +152,9 @@ What to do:
 
 ---
 
-## YugabyteDB
+### YugabyteDB
 
-### `Could not upgrade! ...` / `Rewriting of YB table is not yet implemented (SQLSTATE 0A000)`
+#### `Could not upgrade! ...` / `Rewriting of YB table is not yet implemented (SQLSTATE 0A000)`
 
 What it means:
 - You hit a schema migration or table rewrite Yugabyte can’t perform in-place for your version.
