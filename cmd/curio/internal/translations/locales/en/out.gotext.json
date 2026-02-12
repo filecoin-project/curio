@@ -1318,9 +1318,9 @@
             "fuzzy": true
         },
         {
-            "id": "Downgrade a cluster's daatabase to a previous software version.",
-            "message": "Downgrade a cluster's daatabase to a previous software version.",
-            "translation": "Downgrade a cluster's daatabase to a previous software version.",
+            "id": "Downgrade a cluster's database to a previous software version.",
+            "message": "Downgrade a cluster's database to a previous software version.",
+            "translation": "Downgrade a cluster's database to a previous software version.",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

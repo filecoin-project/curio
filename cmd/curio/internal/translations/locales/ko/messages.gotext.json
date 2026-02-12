@@ -2933,9 +2933,9 @@
       "placeholder": null
     },
     {
-      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "id": "Downgrade a cluster's database to a previous software version.",
       "translation": "클러스터의 데이터베이스를 이전 소프트웨어 버전으로 다운그레이드합니다.",
-      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "message": "Downgrade a cluster's database to a previous software version.",
       "placeholder": null
     },
     {

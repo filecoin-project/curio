@@ -2903,9 +2903,9 @@
       "placeholder": null
     },
     {
-      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "id": "Downgrade a cluster's database to a previous software version.",
       "translation": "将集群的数据库降级到之前的软件版本。",
-      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "message": "Downgrade a cluster's database to a previous software version.",
       "placeholder": null
     },
     {

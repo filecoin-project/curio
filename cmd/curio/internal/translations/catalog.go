@@ -100,22 +100,22 @@ var messageKeyToIndex = map[string]int{
 	"Could not create repo from directory: %s. Aborting migration":                                                                                           250,
 	"Could not lock miner repo. Your miner must be stopped: %s\n Aborting migration":                                                                         251,
 	"Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number": 205,
-	"Create a client voucher":                                         71,
-	"Create a new miner":                                              216,
-	"Create a new offline verified DDO deal for Curio":                110,
-	"Create a provider voucher":                                       73,
-	"Create new configuration for a new cluster":                      39,
-	"Creating PDP configuration layer...":                             342,
-	"Ctrl+C pressed in Terminal":                                      213,
-	"Cumulative amount (FIL)":                                         55,
-	"Custom `HEADER` to include in the HTTP request":                  105,
-	"Database config error occurred, abandoning migration: %s ":       303,
-	"Database: %s":                                                    301,
-	"Delete %s":                                                       318,
-	"Deposit FIL into the Router contract (client)":                   44,
-	"Deposit funds into the service pool (service role)":              64,
-	"Documentation: ":                                                 236,
-	"Downgrade a cluster's daatabase to a previous software version.": 188,
+	"Create a client voucher":                                        71,
+	"Create a new miner":                                             216,
+	"Create a new offline verified DDO deal for Curio":               110,
+	"Create a provider voucher":                                      73,
+	"Create new configuration for a new cluster":                     39,
+	"Creating PDP configuration layer...":                            342,
+	"Ctrl+C pressed in Terminal":                                     213,
+	"Cumulative amount (FIL)":                                        55,
+	"Custom `HEADER` to include in the HTTP request":                 105,
+	"Database config error occurred, abandoning migration: %s ":      303,
+	"Database: %s":                                                   301,
+	"Delete %s":                                                      318,
+	"Deposit FIL into the Router contract (client)":                  44,
+	"Deposit funds into the service pool (service role)":             64,
+	"Documentation: ":                                                236,
+	"Downgrade a cluster's database to a previous software version.": 188,
 	"Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.": 212,
 	"Enable load balancing for connecting to the Postgres database in Yugabyte cluster":        95,
 	"Enter %s address":                    265,
@@ -487,67 +487,67 @@ var enIndex = []uint32{ // 392 elements
 	0x000023f4, 0x0000243c, 0x00002452, 0x0000246f,
 	0x0000248b, 0x0000249e, 0x000024b1, 0x000024d2,
 	0x000024f2, 0x00002530, 0x00002597, 0x000025b8,
-	0x000025f0, 0x00002630, 0x000026e0, 0x00002722,
+	0x000025f0, 0x0000262f, 0x000026df, 0x00002721,
 	// Entry C0 - DF
-	0x00002736, 0x0000275e, 0x00002778, 0x000027bd,
-	0x00002805, 0x0000284d, 0x00002862, 0x00002886,
-	0x000028c9, 0x000028e7, 0x0000290a, 0x00002933,
-	0x00002cb9, 0x00002ce7, 0x00002d8f, 0x00002dc4,
-	0x00002e26, 0x00002ee9, 0x00002f58, 0x00002f93,
-	0x00002fd5, 0x0000302e, 0x00003049, 0x00003054,
-	0x00003076, 0x00003089, 0x000030ac, 0x000030c6,
-	0x000030e6, 0x00003116, 0x0000312a, 0x00003144,
+	0x00002735, 0x0000275d, 0x00002777, 0x000027bc,
+	0x00002804, 0x0000284c, 0x00002861, 0x00002885,
+	0x000028c8, 0x000028e6, 0x00002909, 0x00002932,
+	0x00002cb8, 0x00002ce6, 0x00002d8e, 0x00002dc3,
+	0x00002e25, 0x00002ee8, 0x00002f57, 0x00002f92,
+	0x00002fd4, 0x0000302d, 0x00003048, 0x00003053,
+	0x00003075, 0x00003088, 0x000030ab, 0x000030c5,
+	0x000030e5, 0x00003115, 0x00003129, 0x00003143,
 	// Entry E0 - FF
-	0x0000316a, 0x000031e1, 0x0000321e, 0x00003251,
-	0x00003274, 0x000032ba, 0x000032d3, 0x000032fe,
-	0x00003319, 0x0000334e, 0x0000335c, 0x00003366,
-	0x0000339e, 0x000033b2, 0x0000341d, 0x0000345d,
-	0x00003486, 0x000034fd, 0x0000354e, 0x00003578,
-	0x0000358e, 0x000035db, 0x00003615, 0x0000361b,
-	0x00003657, 0x00003683, 0x000036cc, 0x0000370c,
-	0x0000375d, 0x0000376f, 0x00003789, 0x000037a9,
+	0x00003169, 0x000031e0, 0x0000321d, 0x00003250,
+	0x00003273, 0x000032b9, 0x000032d2, 0x000032fd,
+	0x00003318, 0x0000334d, 0x0000335b, 0x00003365,
+	0x0000339d, 0x000033b1, 0x0000341c, 0x0000345c,
+	0x00003485, 0x000034fc, 0x0000354d, 0x00003577,
+	0x0000358d, 0x000035da, 0x00003614, 0x0000361a,
+	0x00003656, 0x00003682, 0x000036cb, 0x0000370b,
+	0x0000375c, 0x0000376e, 0x00003788, 0x000037a8,
 	// Entry 100 - 11F
-	0x000037ce, 0x000037e2, 0x000037f7, 0x0000380c,
-	0x0000381f, 0x0000385e, 0x00003888, 0x000038a0,
-	0x000038b4, 0x000038d7, 0x000038eb, 0x00003902,
-	0x00003909, 0x0000392a, 0x00003930, 0x00003936,
-	0x0000395a, 0x0000397d, 0x000039a5, 0x000039c6,
-	0x000039e1, 0x00003a0a, 0x00003a2c, 0x00003a5e,
-	0x00003af5, 0x00003b6b, 0x00003b96, 0x00003bb9,
-	0x00003be2, 0x00003c0f, 0x00003c41, 0x00003c67,
+	0x000037cd, 0x000037e1, 0x000037f6, 0x0000380b,
+	0x0000381e, 0x0000385d, 0x00003887, 0x0000389f,
+	0x000038b3, 0x000038d6, 0x000038ea, 0x00003901,
+	0x00003908, 0x00003929, 0x0000392f, 0x00003935,
+	0x00003959, 0x0000397c, 0x000039a4, 0x000039c5,
+	0x000039e0, 0x00003a09, 0x00003a2b, 0x00003a5d,
+	0x00003af4, 0x00003b6a, 0x00003b95, 0x00003bb8,
+	0x00003be1, 0x00003c0e, 0x00003c40, 0x00003c66,
 	// Entry 120 - 13F
-	0x00003ca8, 0x00003cd8, 0x00003cfb, 0x00003d23,
-	0x00003d5b, 0x00003d7a, 0x00003db0, 0x00003e01,
-	0x00003e3d, 0x00003e9f, 0x00003eab, 0x00003eb7,
-	0x00003ec7, 0x00003ed7, 0x00003ee7, 0x00003f0e,
-	0x00003f4f, 0x00003f73, 0x00003f84, 0x00003fa6,
-	0x00003fb8, 0x00003fe5, 0x00004024, 0x00004038,
-	0x00004040, 0x00004044, 0x0000405a, 0x00004080,
-	0x000040a4, 0x000040ac, 0x000040c1, 0x000040ce,
+	0x00003ca7, 0x00003cd7, 0x00003cfa, 0x00003d22,
+	0x00003d5a, 0x00003d79, 0x00003daf, 0x00003e00,
+	0x00003e3c, 0x00003e9e, 0x00003eaa, 0x00003eb6,
+	0x00003ec6, 0x00003ed6, 0x00003ee6, 0x00003f0d,
+	0x00003f4e, 0x00003f72, 0x00003f83, 0x00003fa5,
+	0x00003fb7, 0x00003fe4, 0x00004023, 0x00004037,
+	0x0000403f, 0x00004043, 0x00004059, 0x0000407f,
+	0x000040a3, 0x000040ab, 0x000040c0, 0x000040cd,
 	// Entry 140 - 15F
-	0x000040ed, 0x00004107, 0x00004118, 0x00004134,
-	0x00004148, 0x0000415f, 0x0000418a, 0x000041b7,
-	0x000041cd, 0x000041ef, 0x00004263, 0x00004276,
-	0x0000428b, 0x0000429a, 0x000042a6, 0x000042d4,
-	0x000042e9, 0x00004316, 0x0000434f, 0x000043af,
-	0x000043e4, 0x000043f4, 0x00004403, 0x00004427,
-	0x00004450, 0x00004475, 0x000044a8, 0x000044d8,
-	0x000044f7, 0x0000451a, 0x00004539, 0x00004559,
+	0x000040ec, 0x00004106, 0x00004117, 0x00004133,
+	0x00004147, 0x0000415e, 0x00004189, 0x000041b6,
+	0x000041cc, 0x000041ee, 0x00004262, 0x00004275,
+	0x0000428a, 0x00004299, 0x000042a5, 0x000042d3,
+	0x000042e8, 0x00004315, 0x0000434e, 0x000043ae,
+	0x000043e3, 0x000043f3, 0x00004402, 0x00004426,
+	0x0000444f, 0x00004474, 0x000044a7, 0x000044d7,
+	0x000044f6, 0x00004519, 0x00004538, 0x00004558,
 	// Entry 160 - 17F
-	0x00004572, 0x000045b0, 0x000045d2, 0x000045f6,
-	0x00004610, 0x0000462f, 0x0000466a, 0x0000468f,
-	0x000046a5, 0x000046d8, 0x000046f3, 0x0000471c,
-	0x00004777, 0x000047ad, 0x000047b9, 0x000047d1,
-	0x000047e5, 0x0000480b, 0x00004826, 0x0000486f,
-	0x0000487b, 0x000048d9, 0x00004941, 0x0000495c,
-	0x00004999, 0x000049c8, 0x000049e4, 0x00004a08,
-	0x00004a23, 0x00004a43, 0x00004a65, 0x00004a82,
+	0x00004571, 0x000045af, 0x000045d1, 0x000045f5,
+	0x0000460f, 0x0000462e, 0x00004669, 0x0000468e,
+	0x000046a4, 0x000046d7, 0x000046f2, 0x0000471b,
+	0x00004776, 0x000047ac, 0x000047b8, 0x000047d0,
+	0x000047e4, 0x0000480a, 0x00004825, 0x0000486e,
+	0x0000487a, 0x000048d8, 0x00004940, 0x0000495b,
+	0x00004998, 0x000049c7, 0x000049e3, 0x00004a07,
+	0x00004a22, 0x00004a42, 0x00004a64, 0x00004a81,
 	// Entry 180 - 19F
-	0x00004a96, 0x00004abc, 0x00004b1b, 0x00004bb8,
-	0x00004c06, 0x00004c20, 0x00004c3e, 0x00004c9e,
+	0x00004a95, 0x00004abb, 0x00004b1a, 0x00004bb7,
+	0x00004c05, 0x00004c1f, 0x00004c3d, 0x00004c9d,
 } // Size: 1592 bytes
 
-const enData string = "" + // Size: 19614 bytes
+const enData string = "" + // Size: 19613 bytes
 	"\x02Manage batch sealing operations\x02Setup SPDK for batch sealing (con" +
 	"figures hugepages and binds NVMe devices)\x02Setup SPDK for batch sealin" +
 	"g operations.\x0a\x0aThis command automatically:\x0a- Downloads SPDK if " +
@@ -694,43 +694,43 @@ const enData string = "" + // Size: 19614 bytes
 	"Shortest frequency interval in epochs at which the SP is willing to prov" +
 	"e access to the stored dataset\x02Location of the service provider\x02To" +
 	"ken contract for payment (IERC20(address(0)) for FIL)\x02Downgrade a clu" +
-	"ster's daatabase to a previous software version.\x02If, however, the upg" +
-	"rade has a serious bug and you need to downgrade, first shutdown all nod" +
-	"es in your cluster and then run this command. Finally, only start downgr" +
-	"aded nodes.\x02YYYYMMDD when your cluster had the preferred schema. Ex: " +
-	"20251128\x02Fix Boost migration\x02check how many entries need to be fix" +
-	"ed\x02location of boost.db file\x02yugabyte hosts to connect to over cas" +
-	"sandra interface eg '127.0.0.1'\x02yugabyte username to connect to over " +
-	"cassandra interface eg 'cassandra'\x02yugabyte password to connect to ov" +
-	"er cassandra interface eg 'cassandra'\x02Manage unsealed data\x02Get inf" +
-	"ormation about unsealed data\x02List data from the sectors_unseal_pipeli" +
-	"ne and sectors_meta tables\x02Filter by storage provider ID\x02Output fi" +
-	"le path (default: stdout)\x02Set the target unseal state for a sector" +
-	"\x04\x00\x01\x0a\x80\x07\x02Set the target unseal state for a specific s" +
-	"ector.\x0a   <miner-id>: The storage provider ID\x0a   <sector-number>: " +
-	"The sector number\x0a   <target-state>: The target state (true, false, o" +
-	"r none)\x0a\x0a   The unseal target state indicates to curio how an unse" +
-	"aled copy of the sector should be maintained.\x0a\x09   If the target st" +
-	"ate is true, curio will ensure that the sector is unsealed.\x0a\x09   If" +
-	" the target state is false, curio will ensure that there is no unsealed " +
-	"copy of the sector.\x0a\x09   If the target state is none, curio will no" +
-	"t change the current state of the sector.\x0a\x0a   Currently when the c" +
-	"urio will only start new unseal processes when the target state changes " +
-	"from another state to true.\x0a\x0a   When the target state is false, an" +
-	"d an unsealed sector file exists, the GC mark step will create a removal" +
-	" mark\x0a   for the unsealed sector file. The file will only be removed " +
-	"after the removal mark is accepted.\x02Check data integrity in unsealed " +
-	"sector files\x02Create a check task for a specific sector, wait for its " +
-	"completion, and output the result.\x0a   <miner-id>: The storage provide" +
-	"r ID\x0a   <sector-number>: The sector number\x04\x00\x01 0\x02Use the a" +
-	"rrow keys to navigate: ↓ ↑ → ←\x02This interactive tool creates a new mi" +
-	"ner actor and creates the basic configuration layer for it.\x02This proc" +
-	"ess is partially idempotent. Once a new miner actor has been created and" +
-	" subsequent steps fail, the user need to run 'curio config new-cluster <" +
-	" miner ID >' to finish the configuration.\x02This interactive tool sets " +
-	"up a non-Storage Provider cluster for protocols like PDP, Snark market, " +
-	"and others.\x02This setup does not create or migrate a Filecoin SP actor" +
-	".\x02This interactive tool migrates lotus-miner to Curio in 5 minutes." +
+	"ster's database to a previous software version.\x02If, however, the upgr" +
+	"ade has a serious bug and you need to downgrade, first shutdown all node" +
+	"s in your cluster and then run this command. Finally, only start downgra" +
+	"ded nodes.\x02YYYYMMDD when your cluster had the preferred schema. Ex: 2" +
+	"0251128\x02Fix Boost migration\x02check how many entries need to be fixe" +
+	"d\x02location of boost.db file\x02yugabyte hosts to connect to over cass" +
+	"andra interface eg '127.0.0.1'\x02yugabyte username to connect to over c" +
+	"assandra interface eg 'cassandra'\x02yugabyte password to connect to ove" +
+	"r cassandra interface eg 'cassandra'\x02Manage unsealed data\x02Get info" +
+	"rmation about unsealed data\x02List data from the sectors_unseal_pipelin" +
+	"e and sectors_meta tables\x02Filter by storage provider ID\x02Output fil" +
+	"e path (default: stdout)\x02Set the target unseal state for a sector\x04" +
+	"\x00\x01\x0a\x80\x07\x02Set the target unseal state for a specific secto" +
+	"r.\x0a   <miner-id>: The storage provider ID\x0a   <sector-number>: The " +
+	"sector number\x0a   <target-state>: The target state (true, false, or no" +
+	"ne)\x0a\x0a   The unseal target state indicates to curio how an unsealed" +
+	" copy of the sector should be maintained.\x0a\x09   If the target state " +
+	"is true, curio will ensure that the sector is unsealed.\x0a\x09   If the" +
+	" target state is false, curio will ensure that there is no unsealed copy" +
+	" of the sector.\x0a\x09   If the target state is none, curio will not ch" +
+	"ange the current state of the sector.\x0a\x0a   Currently when the curio" +
+	" will only start new unseal processes when the target state changes from" +
+	" another state to true.\x0a\x0a   When the target state is false, and an" +
+	" unsealed sector file exists, the GC mark step will create a removal mar" +
+	"k\x0a   for the unsealed sector file. The file will only be removed afte" +
+	"r the removal mark is accepted.\x02Check data integrity in unsealed sect" +
+	"or files\x02Create a check task for a specific sector, wait for its comp" +
+	"letion, and output the result.\x0a   <miner-id>: The storage provider ID" +
+	"\x0a   <sector-number>: The sector number\x04\x00\x01 0\x02Use the arrow" +
+	" keys to navigate: ↓ ↑ → ←\x02This interactive tool creates a new miner " +
+	"actor and creates the basic configuration layer for it.\x02This process " +
+	"is partially idempotent. Once a new miner actor has been created and sub" +
+	"sequent steps fail, the user need to run 'curio config new-cluster < min" +
+	"er ID >' to finish the configuration.\x02This interactive tool sets up a" +
+	" non-Storage Provider cluster for protocols like PDP, Snark market, and " +
+	"others.\x02This setup does not create or migrate a Filecoin SP actor." +
+	"\x02This interactive tool migrates lotus-miner to Curio in 5 minutes." +
 	"\x02Each step needs your confirmation and can be reversed. Press Ctrl+C " +
 	"to exit at any time.\x02Ctrl+C pressed in Terminal\x02I want to:\x02Migr" +
 	"ate from existing Lotus-Miner\x02Create a new miner\x02Setup non-Storage" +
@@ -1410,4 +1410,4 @@ const zhData string = "" + // Size: 18038 bytes
 	"类似于这个lotus-miner的config.toml。\x04\x00\x01 \x15\x02层%[1]s已创建。\x04\x00" +
 	"\x01 \x13\x02要使用配置：\x02运行Curio：使用机器或cgroup隔离，使用命令（附带示例层选择）："
 
-	// Total table size 66692 bytes (65KiB); checksum: 34DA495C
+	// Total table size 66691 bytes (65KiB); checksum: 161688E8
