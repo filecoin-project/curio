@@ -57,6 +57,11 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 8px;
         }
+        .note {
+            margin-top: 8px;
+            font-size: 12px;
+            opacity: 0.8;
+        }
         .summary-item {
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.08);
@@ -101,6 +106,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
           <div class="summary-label">Reachability</div>
           <div class="summary-value">${this.renderReachability()}</div>
       </div>
-  </div>`;
+  </div>
+  <div class="note">Multi-node failover enabled</div>`;
     }
 });
