@@ -5,7 +5,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         super();
         this.summary = null;
         this.loadData();
-        this.pollHandle = setInterval(() => this.loadData(), 4000);
+        this.pollHandle = setInterval(() => this.loadData(), 1000);
     }
 
     disconnectedCallback() {
@@ -53,8 +53,8 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             box-sizing: border-box;
         }
         .summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            display: flex;
+            flex-wrap: wrap;
             gap: 8px;
         }
         .note {
@@ -63,6 +63,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             opacity: 0.8;
         }
         .summary-item {
+            flex: 0 1 170px;
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 8px;
