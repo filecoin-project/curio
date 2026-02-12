@@ -7,6 +7,7 @@
         crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="chain-connectivity.mjs"></script>
+    <script type="module" src="network-summary.mjs"></script>
     <script type="module" src="harmony-task-counts.mjs"></script>
     <script type="module" src="storage-gc.mjs"></script>
     <script type="module" src="storage-use.mjs"></script>
@@ -56,6 +57,15 @@
                     </div>
                 </div>
                 <div class="col-md-auto">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 1000px">
+                    <div class="info-block">
+                        <h2>Network</h2>
+                        <network-summary></network-summary>
+                    </div>
                 </div>
             </div>
 
