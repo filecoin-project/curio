@@ -107,12 +107,22 @@ var wdPostTaskCmd = &cli.Command{
 
 		var taskIDs []int64
 		for addr := range deps.Maddrs.Get() {
+			if spAddr != address.Undef && address.Address(addr) != spAddr {
+				continue
+			}
+
+			parts, err := deps.Chain.StateMinerPartitions(ctx, address.Address(addr), cctx.Uint64("deadline"), ts.Key())
+			if err != nil {
+				return xerrors.Errorf("getting partitions for miner %s deadline %d: %w", address.Address(addr), cctx.Uint64("deadline"), err)
+			}
+			if len(parts) == 0 {
+				log.Infof("Skipping miner %s for deadline %d: no partitions/sectors to prove", address.Address(addr), cctx.Uint64("deadline"))
+				continue
+			}
+
 			maddr, err := address.IDFromAddress(address.Address(addr))
 			if err != nil {
 				return xerrors.Errorf("cannot get miner id %w", err)
-			}
-			if spAddr != address.Undef && address.Address(addr) != spAddr {
-				continue
 			}
 
 			var taskId int64
@@ -142,6 +152,11 @@ var wdPostTaskCmd = &cli.Command{
 
 			log.Infof("Inserted task %d for miner ID %s. Waiting for success ", taskId, address.Address(addr).String())
 			taskIDs = append(taskIDs, taskId)
+		}
+
+		if len(taskIDs) == 0 {
+			log.Infof("No WindowPoSt test task scheduled: selected deadline has no sectors to prove")
+			return nil
 		}
 
 		var taskID int64
