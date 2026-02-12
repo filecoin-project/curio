@@ -65,15 +65,14 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             box-sizing: border-box;
         }
         .summary {
-            display: flex;
-            flex-direction: row;
-            flex-wrap: nowrap;
+            display: grid;
+            grid-template-columns: repeat(5, minmax(170px, 170px));
             align-items: stretch;
             gap: 8px;
         }
         @media (max-width: 920px) {
             .summary {
-                flex-wrap: wrap;
+                grid-template-columns: 1fr;
             }
         }
         .note {
@@ -82,7 +81,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             opacity: 0.8;
         }
         .summary-item {
-            flex: 0 0 170px;
+            min-width: 170px;
             min-height: 64px;
             display: flex;
             flex-direction: column;
