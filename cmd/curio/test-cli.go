@@ -126,7 +126,7 @@ var wdPostTaskCmd = &cli.Command{
 				return xerrors.Errorf("getting partitions for miner %s deadline %d: %w", address.Address(addr), cctx.Uint64("deadline"), err)
 			}
 			if len(parts) == 0 {
-				log.Infof("Skipping miner %s for deadline %d: no partitions/sectors to prove", address.Address(addr), cctx.Uint64("deadline"))
+				log.Infof("Skipping miner %s for deadline %d: cannot run window-post task test on a deadline with no sectors/partitions", address.Address(addr), cctx.Uint64("deadline"))
 				continue
 			}
 
@@ -165,7 +165,7 @@ var wdPostTaskCmd = &cli.Command{
 		}
 
 		if len(taskIDs) == 0 {
-			log.Infof("No WindowPoSt test task scheduled: selected deadline has no sectors to prove")
+			log.Infof("No WindowPoSt test task scheduled: cannot test this deadline because it has no sectors/partitions")
 			return nil
 		}
 
