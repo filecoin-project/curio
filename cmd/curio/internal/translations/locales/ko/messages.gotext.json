@@ -3021,6 +3021,102 @@
       "translation": "Supra 컨센서스 테스트 유틸리티",
       "message": "Supra consensus testing utilities",
       "placeholder": null
+    },
+    {
+      "id": "Enter {Stringworkersenderi1} address",
+      "translation": "{Stringworkersenderi1} 주소를 입력하세요",
+      "message": "Enter {Stringworkersenderi1} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "translation": "Yugabyte 데이터베이스 {Stringportusernamepassworddatabasei1}을(를) 입력하세요",
+      "message": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the path to the configuration directory used by {Lotusminer}",
+      "translation": "{Lotusminer}에서 사용하는 구성 디렉토리 경로를 입력하세요",
+      "message": "Enter the path to the configuration directory used by {Lotusminer}",
+      "placeholder": null
+    },
+    {
+      "id": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "translation": "Filecoin {Slack} 채널: {Filcuriohelp} 및 {Filcuriodev}",
+      "message": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Hosts}",
+      "translation": "호스트: {Hosts}",
+      "message": "Host: {Hosts}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "translation": "저장 경로 {ExpandedPath}이(가) {StorageTypeStr}(으)로 추가되었습니다. 다음 명령으로 초기화해야 합니다: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "placeholder": null
+    },
+    {
+      "id": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "translation": "'{Base}' 레이어는 공통 구성을 저장합니다. 모든 curio 인스턴스는 {Layers} 인수에 이를 포함할 수 있습니다.",
+      "message": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "placeholder": null
+    },
+    {
+      "id": "Try the web interface with {Render}",
+      "translation": "{Render}로 웹 인터페이스를 사용해 보세요",
+      "message": "Try the web interface with {Render}",
+      "placeholder": null
+    },
+    {
+      "id": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+      "translation": "{Base} 구성과 {Expr} 구성을 비교하세요. 지갑 주소를 제외한 마이너 ID 간의 변경 사항은 해당 러너에 필요한 경우에만 새로운 최소 레이어로 구성되어야 합니다.",
+      "message": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+      "placeholder": null
+    },
+    {
+      "id": "Enter {Expr} address",
+      "translation": "{Expr} 주소를 입력하세요",
+      "message": "Enter {Expr} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Expr}",
+      "translation": "Yugabyte 데이터베이스 {Expr}를 입력하세요",
+      "message": "Enter the Yugabyte database {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Join}",
+      "translation": "호스트: {Join}",
+      "message": "Host: {Join}",
+      "placeholder": null
+    },
+    {
+      "id": "Owner Wallet: {Expr}",
+      "translation": "소유자 지갑: {Expr}",
+      "message": "Owner Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+      "translation": "마이너 생성은 멱등성이 없으므로 guided-setup을 다시 실행하지 마세요. 구성을 완료하려면 'curio config new-cluster {Expr}'를 실행해야 합니다.",
+      "message": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Sender Wallet: {Expr}",
+      "translation": "전송자 지갑: {Expr}",
+      "message": "Sender Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Worker Wallet: {Expr}",
+      "translation": "워커 지갑: {Expr}",
+      "message": "Worker Wallet: {Expr}",
+      "placeholder": null
     }
   ]
 }

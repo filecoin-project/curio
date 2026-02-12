@@ -2991,6 +2991,102 @@
       "translation": "Supra 共识测试工具",
       "message": "Supra consensus testing utilities",
       "placeholder": null
+    },
+    {
+      "id": "Enter {Stringworkersenderi1} address",
+      "translation": "输入 {Stringworkersenderi1} 地址",
+      "message": "Enter {Stringworkersenderi1} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "translation": "输入 Yugabyte 数据库 {Stringportusernamepassworddatabasei1}",
+      "message": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the path to the configuration directory used by {Lotusminer}",
+      "translation": "输入 {Lotusminer} 使用的配置目录路径",
+      "message": "Enter the path to the configuration directory used by {Lotusminer}",
+      "placeholder": null
+    },
+    {
+      "id": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "translation": "Filecoin {Slack} 频道：{Filcuriohelp} 和 {Filcuriodev}",
+      "message": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Hosts}",
+      "translation": "主机：{Hosts}",
+      "message": "Host: {Hosts}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "translation": "存储路径 {ExpandedPath} 已添加为 {StorageTypeStr}。您需要使用以下命令初始化它：curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "placeholder": null
+    },
+    {
+      "id": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "translation": "'{Base}' 层存储通用配置。所有 curio 实例都可以在其 {Layers} 参数中包含它。",
+      "message": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "placeholder": null
+    },
+    {
+      "id": "Try the web interface with {Render}",
+      "translation": "使用 {Render} 尝试 Web 界面",
+      "message": "Try the web interface with {Render}",
+      "placeholder": null
+    },
+    {
+      "id": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+      "translation": "比较 {Base} 与 {Expr} 的配置。除钱包地址外的矿工 ID 之间的变更，应为有需要的运行节点创建一个新的最小层。",
+      "message": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+      "placeholder": null
+    },
+    {
+      "id": "Enter {Expr} address",
+      "translation": "输入 {Expr} 地址",
+      "message": "Enter {Expr} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Expr}",
+      "translation": "输入 Yugabyte 数据库 {Expr}",
+      "message": "Enter the Yugabyte database {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Join}",
+      "translation": "主机：{Join}",
+      "message": "Host: {Join}",
+      "placeholder": null
+    },
+    {
+      "id": "Owner Wallet: {Expr}",
+      "translation": "所有者钱包：{Expr}",
+      "message": "Owner Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+      "translation": "由于矿工创建操作不是幂等的，请不要再次运行 guided-setup。你需要运行 'curio config new-cluster {Expr}' 来完成配置。",
+      "message": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Sender Wallet: {Expr}",
+      "translation": "发送者钱包：{Expr}",
+      "message": "Sender Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Worker Wallet: {Expr}",
+      "translation": "工作钱包：{Expr}",
+      "message": "Worker Wallet: {Expr}",
+      "placeholder": null
     }
   ]
 }
