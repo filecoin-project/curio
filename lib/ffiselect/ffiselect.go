@@ -43,13 +43,15 @@ type deviceOrdinalManager struct {
 	acquireChan chan chan int
 }
 
-var deviceOrdinalMgr = func() *deviceOrdinalManager {
+var deviceOrdinalMgr = newDeviceOrdinalManager(ffi.GetGPUDevices)
+
+func newDeviceOrdinalManager(getGPUDevices func() ([]string, error)) *deviceOrdinalManager {
 	d := &deviceOrdinalManager{
 		releaseChan: make(chan int),
 		acquireChan: make(chan chan int),
 	}
 	go func() {
-		devices, err := ffi.GetGPUDevices()
+		devices, err := getGPUDevices()
 		if err != nil {
 			panic(err)
 		}
@@ -88,7 +90,7 @@ var deviceOrdinalMgr = func() *deviceOrdinalManager {
 		}
 	}()
 	return d
-}()
+}
 
 func (d *deviceOrdinalManager) Release(ordinal int) {
 	d.releaseChan <- ordinal
