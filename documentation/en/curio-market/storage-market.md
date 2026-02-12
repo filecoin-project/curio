@@ -194,6 +194,13 @@ Tasks refer to operations that the system performs on deals to ensure their succ
 
 ### Add data URL for offline deals
 
+Why this exists (plain language):
+- Curio needs a way to *fetch the bytes* for the piece when it’s time to compute CommP / index / snap.
+- For offline deals, there isn’t necessarily a live HTTP endpoint by default—so you must provide one (or otherwise ensure the bytes are accessible via your chosen ingestion method).
+
+If you skip this step, you will typically see ParkPiece failures such as:
+- `no suitable data URL found for piece_id ...`
+
 The `add-url` command allows you to specify a URL from which the miner can fetch piece data for offline deals. This is essential for deals where the client does not transfer the data immediately upon deal acceptance.
 
 {% hint style="warning" %}
