@@ -34,6 +34,7 @@ const paramdir = "/var/tmp/filecoin-proof-parameters"
 const dirEnv = "FIL_PROOFS_PARAMETER_CACHE"
 const lockFile = "fetch.lock"
 const lockRetry = time.Second * 10
+const peerFetchAttempts = 2
 
 var checked = map[string]struct{}{}
 var checkedLk sync.Mutex
@@ -53,7 +54,8 @@ type fetch struct {
 	fsLockOnce    sync.Once
 	lockFail      bool // true if we failed to acquire the lock at least once, meaning that is was claimed by another process
 
-	ps *ParamServe
+	ps        *ParamServe
+	peerHosts []string
 }
 
 func getParamDir() string {
@@ -63,7 +65,15 @@ func getParamDir() string {
 	return os.Getenv(dirEnv)
 }
 
-func GetParams(ctx context.Context, ps *ParamServe, paramBytes []byte, srsBytes []byte, storageSize uint64) error {
+func GetParams(ctx context.Context, paramBytes []byte, srsBytes []byte, storageSize uint64) error {
+	return getParamsWithServe(ctx, nil, paramBytes, srsBytes, storageSize)
+}
+
+func GetParamsWithServe(ctx context.Context, ps *ParamServe, paramBytes []byte, srsBytes []byte, storageSize uint64) error {
+	return getParamsWithServe(ctx, ps, paramBytes, srsBytes, storageSize)
+}
+
+func getParamsWithServe(ctx context.Context, ps *ParamServe, paramBytes []byte, srsBytes []byte, storageSize uint64) error {
 	if err := os.Mkdir(getParamDir(), 0755); err != nil && !os.IsExist(err) {
 		return err
 	}
@@ -74,8 +84,39 @@ func GetParams(ctx context.Context, ps *ParamServe, paramBytes []byte, srsBytes 
 		return err
 	}
 
-	ft := &fetch{
-		ps: ps,
+	ft := &fetch{ps: ps}
+
+	var srs map[string]paramFile
+	if err := json.Unmarshal(srsBytes, &srs); err != nil {
+		return err
+	}
+
+	if ps != nil {
+		cidSet := map[string]struct{}{}
+		for name, info := range params {
+			if storageSize != info.SectorSize && strings.HasSuffix(name, ".params") {
+				continue
+			}
+			cidSet[info.Cid] = struct{}{}
+		}
+		for _, info := range srs {
+			cidSet[info.Cid] = struct{}{}
+		}
+
+		allCids := make([]string, 0, len(cidSet))
+		for c := range cidSet {
+			allCids = append(allCids, c)
+		}
+
+		hosts, err := ps.hostsWithAllCids(ctx, allCids)
+		if err != nil {
+			log.Warnf("failed to query peer hosts with full param set: %v", err)
+		} else if len(hosts) > 0 {
+			ft.peerHosts = hosts
+			log.Infof("found %d peer host(s) with full parameter set", len(hosts))
+		} else {
+			log.Infof("no peer hosts with full parameter set found; will use gateway fallback")
+		}
 	}
 
 	defer func() {
@@ -88,14 +129,7 @@ func GetParams(ctx context.Context, ps *ParamServe, paramBytes []byte, srsBytes 
 		if storageSize != info.SectorSize && strings.HasSuffix(name, ".params") {
 			continue
 		}
-
 		ft.maybeFetchAsync(ctx, name, info)
-	}
-
-	var srs map[string]paramFile
-
-	if err := json.Unmarshal(srsBytes, &srs); err != nil {
-		return err
 	}
 
 	for name, info := range srs {
@@ -275,52 +309,63 @@ func (ft *fetch) doFetch(ctx context.Context, out string, info paramFile) error 
 		return err
 	}
 
-	var urls []string
-
-	if ft.ps != nil {
-		// Get URLs from paramserve
+	peerURLs := make([]string, 0)
+	if len(ft.peerHosts) > 0 {
+		for _, hostAndPort := range ft.peerHosts {
+			peerURLs = append(peerURLs, fmt.Sprintf("http://%s/params/ipfs/%s", hostAndPort, info.Cid))
+		}
+	} else if ft.ps != nil {
+		// fallback to per-CID peers if we don't have a host with full set
 		u, err := ft.ps.urlsForCid(ctx, c)
 		if err != nil {
 			log.Warnf("Failed to get URLs for CID %s: %v", c.String(), err)
 		} else {
 			for _, hostAndPort := range u {
-				// Build URL
-				urlStr := fmt.Sprintf("http://%s/params/ipfs/%s", hostAndPort, info.Cid)
-				urls = append(urls, urlStr)
+				peerURLs = append(peerURLs, fmt.Sprintf("http://%s/params/ipfs/%s", hostAndPort, info.Cid))
 			}
 		}
 	}
 
-	// Append the default gateway at the end
+	for attempt := 1; attempt <= peerFetchAttempts; attempt++ {
+		for _, urlStr := range peerURLs {
+			if err := fetchFromURL(ctx, out, urlStr); err == nil {
+				return nil
+			}
+			log.Warnf("peer fetch attempt %d failed for %s", attempt, urlStr)
+		}
+	}
+
 	gw := os.Getenv("IPFS_GATEWAY")
 	if gw == "" {
 		gw = gateway
 	}
-	urls = append(urls, gw+info.Cid)
-
-	for _, urlStr := range urls {
-		log.Infof("Fetching %s from %s", out, urlStr)
-		u, err := url.Parse(urlStr)
-		if err != nil {
-			log.Warnf("Invalid URL %s: %v", urlStr, err)
-			continue
-		}
-		// Try aria2c first
-		if err := fetchWithAria2c(ctx, out, u.String()); err == nil {
-			return nil
-		} else {
-			log.Warnf("aria2c fetch failed: %s", err)
-		}
-
-		// Try HTTP client
-		if err := fetchWithHTTPClient(ctx, out, u); err == nil {
-			return nil
-		} else {
-			log.Warnf("HTTP fetch failed: %s", err)
-		}
+	if err := fetchFromURL(ctx, out, gw+info.Cid); err != nil {
+		return xerrors.Errorf("failed to fetch %s from peers and gateway: %w", info.Cid, err)
 	}
 
-	return xerrors.Errorf("failed to fetch %s from any source", info.Cid)
+	return nil
+}
+
+func fetchFromURL(ctx context.Context, out, urlStr string) error {
+	log.Infof("Fetching %s from %s", out, urlStr)
+
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return xerrors.Errorf("invalid URL %s: %w", urlStr, err)
+	}
+
+	if err := fetchWithAria2c(ctx, out, u.String()); err == nil {
+		return nil
+	} else {
+		log.Warnf("aria2c fetch failed for %s: %s", u.String(), err)
+	}
+
+	if err := fetchWithHTTPClient(ctx, out, u); err == nil {
+		return nil
+	} else {
+		log.Warnf("HTTP fetch failed for %s: %s", u.String(), err)
+		return err
+	}
 }
 
 func fetchWithAria2c(ctx context.Context, out, url string) error {

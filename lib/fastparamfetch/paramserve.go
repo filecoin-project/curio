@@ -2,15 +2,15 @@ package fastparamfetch
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/gorilla/mux"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 type ParamServe struct {
@@ -74,6 +74,37 @@ func (ps *ParamServe) urlsForCid(ctx context.Context, c cid.Cid) ([]string, erro
 		return nil, err
 	}
 	return urls, nil
+}
+
+func (ps *ParamServe) hostsWithAllCids(ctx context.Context, cids []string) ([]string, error) {
+	if len(cids) == 0 {
+		return nil, nil
+	}
+
+	rows, err := ps.db.Query(ctx, `SELECT hm.host_and_port
+FROM harmony_machines hm
+JOIN paramfetch_urls pu ON hm.id = pu.machine
+WHERE pu.cid = ANY($1)
+GROUP BY hm.id, hm.host_and_port
+HAVING COUNT(DISTINCT pu.cid) = $2`, cids, len(cids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hosts []string
+	for rows.Next() {
+		var hostAndPort string
+		if err := rows.Scan(&hostAndPort); err != nil {
+			return nil, err
+		}
+		hosts = append(hosts, hostAndPort)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return hosts, nil
 }
 
 func (ps *ParamServe) getFilePathForCid(c cid.Cid) (string, error) {
