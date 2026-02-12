@@ -84,13 +84,13 @@ var wdPostTaskCmd = &cli.Command{
 		},
 		&cli.DurationFlag{
 			Name:  "wait-timeout",
-			Usage: "maximum time to wait for scheduled test tasks to finish (0 disables)",
-			Value: 15 * time.Minute,
+			Usage: "maximum total time to wait for scheduled test tasks to finish (0 disables, default)",
+			Value: 0,
 		},
 		&cli.DurationFlag{
 			Name:  "stalled-timeout",
 			Usage: "maximum time without task progress before returning an error (0 disables)",
-			Value: 2 * time.Minute,
+			Value: 15 * time.Minute,
 		},
 	},
 	Action: func(cctx *cli.Context) error {
