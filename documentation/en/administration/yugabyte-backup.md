@@ -188,3 +188,20 @@ You may also need privileges on the `curio` schema and its objects depending on 
 - [YugabyteDB Backup and Restore Documentation](https://docs.yugabyte.com/preview/manage/backup-restore/)
 - [ysql_dump Reference](https://docs.yugabyte.com/preview/admin/ysql-dump/)
 - [YugabyteDB Best Practices](https://docs.yugabyte.com/preview/develop/best-practices-ysql/)
+
+
+---
+
+## Multi-node cluster caveats (practical ops notes)
+
+If you run a multi-node Yugabyte cluster:
+- Validate that your backup method matches your recovery goal.
+  - Logical dumps (`ysql_dump`) are typically easiest for portability.
+  - If you rely on Yugabyte-native distributed backups/snapshots, ensure you test restores.
+
+Before a restore/downgrade:
+- stop all Curio writers
+- confirm no nodes are still writing tasks/metrics
+
+See also:
+- `documentation/en/administration/yugabyte-troubleshooting.md`
