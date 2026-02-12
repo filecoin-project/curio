@@ -78,8 +78,10 @@ CREATE TABLE pdp_data_sets (
     -- Set to true after first root add
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
 
-    
-...
+
+    unrecoverable_proving_failure_epoch BIGINT,
+    next_prove_attempt_at BIGINT,
+    ...
 );
 ```
 
@@ -106,9 +108,11 @@ From the PDPVerifier's perspective when PDP datasets are initialized they are no
 
 Curio waits for the `init_ready` flag to be set for a data set table entry.  This is triggered via the `DataSetWatch` chain scheduler callback when the first piece is added to the dataset.  Then the task executes essentially the same logic as that described above in the `Next Proving Period Task` section.  The only significant difference is the init task's reference to the `InitChallengeWindowStart` parameter in the `PDPConfig`.
 
-
 ## Retries and unrecoverable errors 
 
+Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  At that point the data set is marked as unrecoverably failed and scheduled for deletion.  
+
+To ensure that this retry behavior is acheived scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
 
 
 # Dataset Termination
