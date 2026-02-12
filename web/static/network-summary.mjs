@@ -61,22 +61,27 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
     static get styles() {
         return [css`
         :host {
-            display: block;
+            display: inline-block;
             box-sizing: border-box;
+            max-width: 100%;
         }
         .summary {
             display: grid;
+            width: max-content;
+            max-width: 100%;
             grid-template-columns: repeat(5, minmax(170px, 170px));
             align-items: stretch;
             gap: 8px;
         }
-        @media (max-width: 920px) {
+        @media (max-width: 1100px) {
             .summary {
+                width: 100%;
                 grid-template-columns: 1fr;
             }
         }
         .note {
             margin-top: 8px;
+            margin-bottom: 10px;
             font-size: 12px;
             opacity: 0.8;
         }
