@@ -35,7 +35,7 @@ type taskTypeHandler struct {
 }
 
 // Anti-hammering of storage claims.
-const STORAGE_FAILURE_TIMEOUT = time.Hour
+const STORAGE_FAILURE_TIMEOUT = 3 * time.Minute
 
 func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
 	var tID TaskID

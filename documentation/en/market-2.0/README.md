@@ -17,6 +17,16 @@ Curio's role is purely to onboard data and respect contract terms—it does not 
 
 ---
 
+## 🔧 Lotus prerequisites (for Curio market nodes)
+
+Curio market nodes rely on Lotus’ Ethereum JSON-RPC compatibility layer for some operations.
+
+Make sure your Lotus node has:
+
+- `EnableEthRPC = true`
+
+If this is disabled, Curio market operations may fail.
+
 ## 📡 Supported Endpoints
 
 ### 🔄 POST `/market/mk20/store`

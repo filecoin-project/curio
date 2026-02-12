@@ -5,8 +5,11 @@ import (
 	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -100,6 +103,15 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	_, err = p.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET proof = $1, task_id_prove = NULL, after_prove = TRUE WHERE task_id_prove = $2`, proof, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("updating sector params: %w", err)
+	}
+
+	// Record metric
+	if maddr, err := address.NewIDAddress(uint64(sectorParams.SpID)); err == nil {
+		if err := stats.RecordWithTags(ctx, []tag.Mutator{
+			tag.Upsert(MinerTag, maddr.String()),
+		}, SnapMeasures.ProveCompleted.M(1)); err != nil {
+			log.Errorf("recording metric: %s", err)
+		}
 	}
 
 	return true, nil

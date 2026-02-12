@@ -32,7 +32,7 @@ Data can be ingested using either the Snap Deals pipeline or the PoRep pipeline 
 
 ## FastSnap (SnapDeals UpdateEncode acceleration)
 
-Curio’s SnapDeals `UpdateEncode` path has a **fast mode** (“fastsnap”) that uses Supraseal to accelerate TreeR generation and uses Curio-native snap encoding.
+Curio’s SnapDeals `UpdateEncode` path has a **fast mode** (“fastsnap”) that uses the batch sealing CUDA toolchain (`extern/supraseal`) to accelerate TreeR generation and uses Curio-native snap encoding.
 
 - **Capability check**: run
 
@@ -49,7 +49,7 @@ Look for **“Can run fast TreeR: yes”**.
 export DISABLE_SUPRA_TREE_R=1
 ```
 
-This forces the CPU fallback TreeR path (useful to isolate Supraseal/toolchain issues).
+This forces the CPU fallback TreeR path (useful to isolate batch sealing/toolchain issues).
 
 ### Configuration
 
@@ -73,7 +73,7 @@ When switching between Snap and PoRep deal pipeline, you must ensure that no sec
 Boost adapter is no longer supported with new Curio releases.
 {% endhint %}
 
-1.  Create or update the market layer ([if one is already created](/broken/pages/gEZnqnZB0uPfB4TMhdYf#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.<br>
+1.  Create or update the market layer ([if one is already created](enabling-market.md#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.<br>
 
     ```shell
     curio config add --title mt01000

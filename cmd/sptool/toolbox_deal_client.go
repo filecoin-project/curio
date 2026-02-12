@@ -1625,6 +1625,7 @@ var comm2Cmd = &cli.Command{
 		}
 
 		wr := new(commp.Calc)
+		defer wr.Reset()
 		_, err = io.CopyBuffer(wr, rdr, make([]byte, 2<<20))
 		if err != nil {
 			return fmt.Errorf("copy into commp writer: %w", err)
