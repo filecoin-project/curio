@@ -112,7 +112,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	for _, settle := range goodSettles {
 		err := verifySettle(ctx, db, ethClient, fwssv, serviceAddr, settle)
 		if err != nil {
-			return xerrors.Errorf("failed to verify settle: %w", err)
+			log.Errorw("failed to verify settle, skipping", "txHash", settle.Hash, "error", err)
 		}
 	}
 
@@ -159,10 +159,14 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 
 		// If the rail is terminated ensure we are terminating the service in the deletion pipeline
 		if view.EndEpoch.Int64() > 0 {
+			// Termination is also detected by proving-task error handling, so a
+			// transient DB failure here just delays cleanup rather than losing it.
 			if err := pdp.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
-				return err
+				log.Warnw("failed to ensure service termination", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
 			}
-			// When finalized schedule dataset deletion
+			// When finalized, schedule dataset deletion. This may be the last
+			// time we see this rail in a finalized state, so we perform a hard-fail
+			// here to prevent tx cleanup to allow retry on next loop.
 			if view.EndEpoch.Cmp(view.SettledUpTo) == 0 {
 				if err := ensureDataSetDeletion(ctx, db, dataSet.Int64()); err != nil {
 					return err
@@ -178,7 +182,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		if thresholdWithGrace.Uint64() < current {
 			log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
 			if err := pdp.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
-				return err
+				log.Warnw("failed to ensure service termination for defaulting rail", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
 			}
 		}
 	}
