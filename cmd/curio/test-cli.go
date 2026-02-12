@@ -82,6 +82,16 @@ var wdPostTaskCmd = &cli.Command{
 			Name:  "addr",
 			Usage: translations.T("SP ID to compute WindowPoSt for"),
 		},
+		&cli.DurationFlag{
+			Name:  "wait-timeout",
+			Usage: "maximum time to wait for scheduled test tasks to finish (0 disables)",
+			Value: 15 * time.Minute,
+		},
+		&cli.DurationFlag{
+			Name:  "stalled-timeout",
+			Usage: "maximum time without task progress before returning an error (0 disables)",
+			Value: 2 * time.Minute,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		ctx := context.Background()
@@ -162,15 +172,28 @@ var wdPostTaskCmd = &cli.Command{
 		var taskID int64
 		var result sql.NullString
 		var historyIDs []int64
+		waitTimeout := cctx.Duration("wait-timeout")
+		stalledTimeout := cctx.Duration("stalled-timeout")
+		startWait := time.Now()
+		lastProgress := startWait
 
 		for len(taskIDs) > 0 {
 			time.Sleep(time.Second)
+
+			if waitTimeout > 0 && time.Since(startWait) > waitTimeout {
+				return xerrors.Errorf("timed out waiting for WindowPoSt test tasks after %s; still pending: %v", waitTimeout, taskIDs)
+			}
+			if stalledTimeout > 0 && time.Since(lastProgress) > stalledTimeout {
+				return xerrors.Errorf("no WindowPoSt test task progress for %s; still pending: %v", stalledTimeout, taskIDs)
+			}
+
 			err = deps.DB.QueryRow(ctx, `SELECT task_id, result FROM harmony_test WHERE task_id = ANY($1)`, taskIDs).Scan(&taskID, &result)
 			if err != nil {
 				return xerrors.Errorf("reading result from harmony_test: %w", err)
 			}
 			if result.Valid {
 				log.Infof("Result for task %d: %s", taskID, result.String)
+				lastProgress = time.Now()
 				// remove task from list
 				taskIDs = lo.Filter(taskIDs, func(v int64, i int) bool {
 					return v != taskID
@@ -195,6 +218,7 @@ var wdPostTaskCmd = &cli.Command{
 				for _, h := range hist {
 					if !lo.Contains(historyIDs, h.HistID) {
 						historyIDs = append(historyIDs, h.HistID)
+						lastProgress = time.Now()
 						var errstr string
 						if len(h.Err) > 0 {
 							errstr = h.Err
@@ -210,6 +234,15 @@ var wdPostTaskCmd = &cli.Command{
 				err = deps.DB.Select(ctx, &found, `SELECT id FROM harmony_task WHERE id = ANY($1)`, taskIDs)
 				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 					return xerrors.Errorf("reading result from harmony_task: %w", err)
+				}
+
+				if len(found) != len(taskIDs) {
+					missing := lo.Filter(taskIDs, func(id int64, _ int) bool {
+						return !lo.Contains(found, id)
+					})
+					if len(missing) > 0 {
+						return xerrors.Errorf("WindowPoSt test task(s) disappeared from scheduler without a result: %v", missing)
+					}
 				}
 
 				log.Infof("Tasks found in harmony_task: %v", found)
