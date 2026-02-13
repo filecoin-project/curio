@@ -7,7 +7,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         this.summary = null;
         this.nodeCount = 0;
         this.loadData();
-        this.pollHandle = setInterval(() => this.loadData(), 1000);
+        this.pollHandle = setInterval(() => this.loadData(), 5000);
     }
 
     disconnectedCallback() {
