@@ -40,7 +40,7 @@ func (sb *SealCalls) checkCommR(ctx context.Context, s storiface.SectorRef, seal
 		return cid.Undef, xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	startTime := time.Now()
+	startTime := time.Now() //nolint:staticcheck
 
 	// Get sealed file path (local or streamed to temp)
 	sealedPath, sealedCleanup, err := sb.getSectorFilePath(ctx, s, sealedType, uint64(ssize))
@@ -57,7 +57,7 @@ func (sb *SealCalls) checkCommR(ctx context.Context, s storiface.SectorRef, seal
 	defer cacheCleanup()
 
 	// Read original CommC from cache p_aux (we need it to compute full CommR)
-	origCommC, _, err := proof.ReadPAux(cachePath)
+	origCommC, _, err := proof.ReadPAux(cachePath) //nolint:staticcheck
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("reading original p_aux: %w", err)
 	}
@@ -67,7 +67,9 @@ func (sb *SealCalls) checkCommR(ctx context.Context, s storiface.SectorRef, seal
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("creating temp directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func(path string) {
+		_ = os.RemoveAll(path)
+	}(tmpDir)
 
 	// Run TreeR on the sealed file
 	// For sealed sectors, we pass empty string for data_filename (CC semantics - zeros)
@@ -127,20 +129,20 @@ func (sb *SealCalls) getSectorFilePath(ctx context.Context, s storiface.SectorRe
 	// Create temp file to store the streamed data
 	tmpFile, err := os.CreateTemp("", "sector-*")
 	if err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return "", nil, xerrors.Errorf("creating temp file: %w", err)
 	}
 
 	tmpPath := tmpFile.Name()
 	cleanup = func() {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 	}
 
 	// Copy from reader to temp file
 	log.Infow("streaming sector file from remote", "sector", s.ID, "type", ft, "dest", tmpPath)
 	written, err := io.Copy(tmpFile, reader)
-	reader.Close()
-	tmpFile.Close()
+	_ = reader.Close()
+	_ = tmpFile.Close()
 
 	if err != nil {
 		cleanup()
@@ -184,7 +186,7 @@ func (sb *SealCalls) getCachePath(ctx context.Context, s storiface.SectorRef, ft
 	}
 
 	cleanup = func() {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 	}
 
 	// Extract the tar archive

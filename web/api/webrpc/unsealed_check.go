@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/filecoin-project/go-address"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/lib/dealdata"
 )
