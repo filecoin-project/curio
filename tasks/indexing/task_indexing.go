@@ -23,6 +23,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
+	"github.com/filecoin-project/go-data-segment/datasegmentv2"
 	"github.com/filecoin-project/go-data-segment/fr32"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -167,6 +168,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	var byteData bool
 	var subPieces []mk20.DataSource
+	var aggregateType mk20.AggregateType
 
 	if task.Mk20 {
 		id, err := ulid.Parse(task.UUID)
@@ -177,14 +179,15 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		if err != nil {
 			return false, xerrors.Errorf("getting mk20 deal from DB: %w", err)
 		}
-		if deal.Data.Format.Aggregate != nil {
+		if deal.Data != nil && deal.Data.Format.Aggregate != nil {
+			aggregateType = deal.Data.Format.Aggregate.Type
 			if deal.Data.Format.Aggregate.Type > 0 {
 				var found bool
 				if len(deal.Data.Format.Aggregate.Sub) > 0 {
 					subPieces = deal.Data.Format.Aggregate.Sub
 					found = true
 				}
-				if len(deal.Data.SourceAggregate.Pieces) > 0 {
+				if deal.Data.SourceAggregate != nil && len(deal.Data.SourceAggregate.Pieces) > 0 {
 					subPieces = deal.Data.SourceAggregate.Pieces
 					found = true
 				}
@@ -302,7 +305,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	var aggidx map[cid.Cid][]indexstore.Record
 
-	if task.Mk20 && len(subPieces) > 0 {
+	if task.Mk20 && aggregateType == mk20.AggregateTypeV2 {
+		blocks, aggidx, interrupted, err = IndexAggregateV2(pc2, reader, task.RawSize.Int64, recs, addFail)
+	} else if task.Mk20 && len(subPieces) > 0 {
 		blocks, aggidx, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, addFail)
 	} else {
 		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
@@ -492,6 +497,44 @@ type IndexReader interface {
 	io.ReaderAt
 	io.Seeker
 	io.Reader
+}
+
+// IndexAggregateV2 indexes an AggregateTypeV2 piece: data at [0, indexStart) is CAR-indexed into recs,
+// then the tail index section is parsed with datasegmentv2.ParseIndexSection (same as exa-gateway sector
+// Finalize) and each segment entry is inserted into the index store as aggregate index (piece_cid -> offset/size).
+func IndexAggregateV2(
+	pieceCid cid.Cid,
+	reader IndexReader,
+	rawSize int64,
+	recs chan<- indexstore.Record,
+	addFail <-chan struct{},
+) (int64, map[cid.Cid][]indexstore.Record, bool, error) {
+	idx := &datasegmentv2.IndexDataV2{}
+	if err := idx.ParseIndexSection(reader, rawSize); err != nil {
+		return 0, nil, false, xerrors.Errorf("parsing V2 tail index section: %w", err)
+	}
+	if len(idx.Entries) == 0 {
+		return 0, nil, false, xerrors.New("V2 tail index section has no entries")
+	}
+
+	// Build aggregate index records and save to indexstore: each entry -> (PieceCID, UnpaddedOffset, UnpaddedLength)
+	records := make([]indexstore.Record, 0, len(idx.Entries))
+	for _, entry := range idx.Entries {
+		if entry == nil {
+			continue
+		}
+		records = append(records, indexstore.Record{
+			Cid:    entry.PieceCID(),
+			Offset: entry.UnpaddedOffset(),
+			Size:   entry.UnpaddedLength(),
+		})
+	}
+	aggidx := map[cid.Cid][]indexstore.Record{
+		pieceCid: records,
+	}
+
+	log.Infow("Indexed AggregateTypeV2 tail index", "piece_cid", pieceCid, "num_entries", len(records))
+	return 0, aggidx, false, nil
 }
 
 func IndexAggregate(pieceCid cid.Cid,

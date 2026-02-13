@@ -129,7 +129,7 @@ func (d *DataSource) Validate(ctx context.Context, db *harmonydb.DB) (DealCode, 
 	if d.Format.Aggregate != nil {
 		fagg = true
 
-		if d.Format.Aggregate.Type != AggregateTypeV1 {
+		if d.Format.Aggregate.Type != AggregateTypeV1 && d.Format.Aggregate.Type != AggregateTypeV2 {
 			return ErrMalformedDataSource, xerrors.Errorf("aggregate type not supported")
 		}
 
@@ -144,7 +144,8 @@ func (d *DataSource) Validate(ctx context.Context, db *harmonydb.DB) (DealCode, 
 				return ErrMalformedDataSource, xerrors.Errorf("no pieces in aggregate")
 			}
 
-			if len(d.SourceAggregate.Pieces) == 1 {
+			// AggregateTypeV2 allows a single piece; V1 requires at least 2
+			if d.Format.Aggregate.Type != AggregateTypeV2 && len(d.SourceAggregate.Pieces) == 1 {
 				return ErrMalformedDataSource, xerrors.Errorf("aggregate must have at least 2 pieces")
 			}
 
