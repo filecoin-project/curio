@@ -873,11 +873,13 @@ const docTemplate = `{
             "type": "integer",
             "enum": [
                 0,
-                1
+                1,
+                2
             ],
             "x-enum-varnames": [
                 "AggregateTypeNone",
-                "AggregateTypeV1"
+                "AggregateTypeV1",
+                "AggregateTypeV2"
             ]
         },
         "mk20.DDOV1": {
