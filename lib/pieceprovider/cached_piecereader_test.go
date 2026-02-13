@@ -118,12 +118,12 @@ func (t *trackingPieceGetter) getCalls() []pieceGetterCall {
 	return result
 }
 
-func (t *trackingPieceGetter) setErrorOnCall(n int, err error) {
-	t.callsMu.Lock()
-	defer t.callsMu.Unlock()
-	t.errOnCall = n
-	t.err = err
-}
+//func (t *trackingPieceGetter) setErrorOnCall(n int, err error) {
+//	t.callsMu.Lock()
+//	defer t.callsMu.Unlock()
+//	t.errOnCall = n
+//	t.err = err
+//}
 
 // createTestPieceReader creates a pieceReader for testing with given data
 func createTestPieceReader(t *testing.T, data []byte) (*pieceReader, *trackingPieceGetter) {
@@ -155,7 +155,9 @@ func TestPieceReader_Init(t *testing.T) {
 	t.Run("successful initialization", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, tracker := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		assert.False(t, pr.closed)
 		assert.Equal(t, int64(0), pr.seqAt)
@@ -174,7 +176,9 @@ func TestPieceReader_Init(t *testing.T) {
 	t.Run("init with empty data", func(t *testing.T) {
 		data := []byte{}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		assert.Equal(t, abi.UnpaddedPieceSize(0), pr.len)
 	})
@@ -222,7 +226,9 @@ func TestPieceReader_Read(t *testing.T) {
 	t.Run("read all data in one call", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, len(data))
 		n, err := pr.Read(buf)
@@ -234,7 +240,9 @@ func TestPieceReader_Read(t *testing.T) {
 	t.Run("read in multiple small chunks", func(t *testing.T) {
 		data := []byte("hello world test data for chunked reading")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		result := make([]byte, 0, len(data))
 		buf := make([]byte, 5)
@@ -256,7 +264,9 @@ func TestPieceReader_Read(t *testing.T) {
 	t.Run("read updates seqAt position", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		assert.Equal(t, int64(0), pr.seqAt)
 
@@ -275,7 +285,7 @@ func TestPieceReader_Read(t *testing.T) {
 	t.Run("read from closed reader returns error", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		pr.Close()
+		_ = pr.Close()
 
 		buf := make([]byte, 5)
 		_, err := pr.Read(buf)
@@ -286,7 +296,9 @@ func TestPieceReader_Read(t *testing.T) {
 	t.Run("read empty buffer", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 0)
 		n, err := pr.Read(buf)
@@ -300,7 +312,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek from start", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		pos, err := pr.Seek(5, io.SeekStart)
 		require.NoError(t, err)
@@ -311,7 +325,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek from current position", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// First seek to position 5
 		_, err := pr.Seek(5, io.SeekStart)
@@ -327,7 +343,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek from end", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		pos, err := pr.Seek(-5, io.SeekEnd)
 		require.NoError(t, err)
@@ -337,7 +355,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek to beginning", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read some data first
 		buf := make([]byte, 10)
@@ -353,7 +373,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek with negative offset from current", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Seek to position 10
 		_, err := pr.Seek(10, io.SeekStart)
@@ -368,7 +390,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek with invalid whence", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		_, err := pr.Seek(5, 99) // invalid whence
 		assert.Error(t, err)
@@ -378,7 +402,7 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek on closed reader", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		pr.Close()
+		_ = pr.Close()
 
 		_, err := pr.Seek(0, io.SeekStart)
 		assert.Error(t, err)
@@ -388,7 +412,9 @@ func TestPieceReader_Seek(t *testing.T) {
 	t.Run("seek and read", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Seek to position 6 ("world")
 		_, err := pr.Seek(6, io.SeekStart)
@@ -407,7 +433,9 @@ func TestPieceReader_ReadAt(t *testing.T) {
 	t.Run("read at specific offset", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 5)
 		n, err := pr.ReadAt(buf, 6)
@@ -419,7 +447,9 @@ func TestPieceReader_ReadAt(t *testing.T) {
 	t.Run("read at beginning", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 5)
 		n, err := pr.ReadAt(buf, 0)
@@ -431,7 +461,9 @@ func TestPieceReader_ReadAt(t *testing.T) {
 	t.Run("read at end", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 4)
 		n, err := pr.ReadAt(buf, int64(len(data)-4))
@@ -443,7 +475,9 @@ func TestPieceReader_ReadAt(t *testing.T) {
 	t.Run("read at offset beyond data returns EOF", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 5)
 		n, err := pr.ReadAt(buf, int64(len(data)+10))
@@ -454,7 +488,9 @@ func TestPieceReader_ReadAt(t *testing.T) {
 	t.Run("ReadAt does not affect sequential Read position", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read some data sequentially
 		buf := make([]byte, 5)
@@ -477,7 +513,9 @@ func TestPieceReader_ReadAt(t *testing.T) {
 	t.Run("multiple ReadAt calls", func(t *testing.T) {
 		data := []byte("0123456789ABCDEFGHIJ")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		tests := []struct {
 			offset   int64
@@ -513,7 +551,9 @@ func TestPieceReader_ReadAtCaching(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, tracker := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// First small read (smaller than MinRandomReadSize)
 		buf := make([]byte, 100)
@@ -542,7 +582,9 @@ func TestPieceReader_ReadAtCaching(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Small read at offset 0
 		buf1 := make([]byte, 100)
@@ -605,7 +647,7 @@ func TestPieceReader_Close(t *testing.T) {
 		// Manually set reader to nil
 		pr.seqMu.Lock()
 		if pr.r != nil {
-			pr.r.Close()
+			_ = pr.r.Close()
 			pr.r = nil
 		}
 		pr.seqMu.Unlock()
@@ -626,7 +668,9 @@ func TestPieceReader_BurnBytes(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, tracker := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Initial reader creation
 		initialCalls := len(tracker.getCalls())
@@ -654,7 +698,9 @@ func TestPieceReader_BurnBytes(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, tracker := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read 10 bytes to establish position
 		buf := make([]byte, 10)
@@ -681,7 +727,9 @@ func TestPieceReader_BurnBytes(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, tracker := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read some data to advance position
 		buf := make([]byte, 1000)
@@ -708,7 +756,9 @@ func TestPieceReader_ReadSeqReader(t *testing.T) {
 	t.Run("sequential reads work correctly", func(t *testing.T) {
 		data := []byte("hello world test data for sequential reading")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		result := make([]byte, 0, len(data))
 		buf := make([]byte, 10)
@@ -730,7 +780,9 @@ func TestPieceReader_ReadSeqReader(t *testing.T) {
 	t.Run("handles partial reads at end of data", func(t *testing.T) {
 		data := []byte("hello")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Try to read more than available
 		buf := make([]byte, 100)
@@ -754,7 +806,9 @@ func TestPieceReader_ConcurrentAccess(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		var wg sync.WaitGroup
 		numGoroutines := 10
@@ -784,7 +838,9 @@ func TestPieceReader_ConcurrentAccess(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		var wg sync.WaitGroup
 
@@ -816,7 +872,9 @@ func TestPieceReader_EdgeCases(t *testing.T) {
 	t.Run("seek to exact end", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		pos, err := pr.Seek(0, io.SeekEnd)
 		require.NoError(t, err)
@@ -832,7 +890,9 @@ func TestPieceReader_EdgeCases(t *testing.T) {
 	t.Run("seek beyond end", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		pos, err := pr.Seek(100, io.SeekStart)
 		require.NoError(t, err)
@@ -848,7 +908,9 @@ func TestPieceReader_EdgeCases(t *testing.T) {
 	t.Run("seek to negative position via SeekEnd", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Seek past the beginning
 		pos, err := pr.Seek(-100, io.SeekEnd)
@@ -860,7 +922,9 @@ func TestPieceReader_EdgeCases(t *testing.T) {
 	t.Run("read exactly all data", func(t *testing.T) {
 		data := []byte("hello world test")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, len(data))
 		n, err := pr.Read(buf)
@@ -877,7 +941,9 @@ func TestPieceReader_EdgeCases(t *testing.T) {
 	t.Run("ReadAt with exact buffer size matching data", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, len(data))
 		n, err := pr.ReadAt(buf, 0)
@@ -889,7 +955,9 @@ func TestPieceReader_EdgeCases(t *testing.T) {
 	t.Run("ReadAt requesting more than available", func(t *testing.T) {
 		data := []byte("hello")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 100)
 		n, err := pr.ReadAt(buf, 0)
@@ -907,7 +975,9 @@ func TestPieceReader_ReaderReset(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, tracker := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Force reader to nil by seeking beyond burn threshold and reading
 		buf := make([]byte, 100)
@@ -919,7 +989,7 @@ func TestPieceReader_ReaderReset(t *testing.T) {
 		// Manually close the internal reader to simulate nil state
 		pr.seqMu.Lock()
 		if pr.r != nil {
-			pr.r.Close()
+			_ = pr.r.Close()
 			pr.r = nil
 			pr.br = nil
 		}
@@ -971,7 +1041,9 @@ func TestPieceReader_GetReaderErrors(t *testing.T) {
 
 		initialized, err := pr.init(ctx)
 		require.NoError(t, err)
-		defer initialized.Close()
+		defer func() {
+			_ = initialized.Close()
+		}()
 
 		// ReadAt uses readInto which creates a new reader
 		buf := make([]byte, 100)
@@ -1028,7 +1100,7 @@ func TestPieceReader_GetReaderErrors(t *testing.T) {
 		// Manually nil the reader to simulate state requiring reset
 		initialized.seqMu.Lock()
 		if initialized.r != nil {
-			initialized.r.Close()
+			_ = initialized.r.Close()
 			initialized.r = nil
 			initialized.br = nil
 		}
@@ -1055,7 +1127,9 @@ func TestPieceReader_SmallVsLargeReads(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Small read (less than MinRandomReadSize)
 		smallBuf := make([]byte, MinRandomReadSize/2)
@@ -1076,7 +1150,9 @@ func TestPieceReader_SmallVsLargeReads(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Large read (greater than MinRandomReadSize)
 		largeBuf := make([]byte, MinRandomReadSize*2)
@@ -1100,7 +1176,9 @@ func TestPieceReader_HeaderCaching(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read header (offset 0)
 		headerBuf := make([]byte, 100)
@@ -1124,7 +1202,9 @@ func TestPieceReader_ReadInto(t *testing.T) {
 	t.Run("readInto basic functionality", func(t *testing.T) {
 		data := []byte("hello world test data")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 5)
 		n, err := pr.readInto(buf, 6)
@@ -1136,7 +1216,9 @@ func TestPieceReader_ReadInto(t *testing.T) {
 	t.Run("readInto at end of data", func(t *testing.T) {
 		data := []byte("hello")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 10)
 		n, err := pr.readInto(buf, 0)
@@ -1168,13 +1250,17 @@ func TestPieceReader_UnpaddedPieceSize(t *testing.T) {
 			if size == 0 {
 				// Empty data case
 				pr, _ := createTestPieceReader(t, data)
-				defer pr.Close()
+				defer func() {
+					_ = pr.Close()
+				}()
 				assert.Equal(t, abi.UnpaddedPieceSize(0), pr.len)
 				return
 			}
 
 			pr, _ := createTestPieceReader(t, data)
-			defer pr.Close()
+			defer func() {
+				_ = pr.Close()
+			}()
 
 			// Read all and verify
 			result := make([]byte, 0, size)
@@ -1205,7 +1291,9 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read all data and verify byte-by-byte
 		result := make([]byte, len(data))
@@ -1238,7 +1326,9 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 			data[i] = byte((i * 7) % 256) // Different pattern
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Test various offsets and sizes
 		testCases := []struct {
@@ -1284,7 +1374,9 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Seek to various positions and verify data
 		positions := []int64{0, 100, 500, 1000, 1500, 1999}
@@ -1322,7 +1414,9 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Sequential read
 		buf1 := make([]byte, 100)
@@ -1361,7 +1455,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Read 100 bytes sequentially
 		buf := make([]byte, 100)
@@ -1397,7 +1493,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		offset := int64(100)
 		size := 50
@@ -1425,7 +1523,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 	t.Run("ReadAt at end of data returns correct partial read", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// Try to read 10 bytes starting 3 bytes from end
 		buf := make([]byte, 10)
@@ -1439,7 +1539,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 	t.Run("ReadAt with zero-length buffer", func(t *testing.T) {
 		data := []byte("hello world")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 0)
 		n, err := pr.ReadAt(buf, 5)
@@ -1450,7 +1552,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 	t.Run("ReadAt beyond EOF returns EOF and zero bytes", func(t *testing.T) {
 		data := []byte("hello")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		buf := make([]byte, 10)
 		n, err := pr.ReadAt(buf, 100) // Way past end
@@ -1464,7 +1568,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		var wg sync.WaitGroup
 		errCh := make(chan error, 100)
@@ -1514,7 +1620,9 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 			data[i] = byte((i * 13) % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		// First read
 		buf1 := make([]byte, 100)
@@ -1539,7 +1647,9 @@ func TestPieceReader_ReadSemantics(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		positions := []int64{0}
 		buf := make([]byte, 73) // Odd size
@@ -1563,7 +1673,9 @@ func TestPieceReader_ReadSemantics(t *testing.T) {
 	t.Run("Read after Seek returns correct data", func(t *testing.T) {
 		data := []byte("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		testCases := []struct {
 			seekPos  int64
@@ -1597,7 +1709,9 @@ func TestPieceReader_ReadSemantics(t *testing.T) {
 	t.Run("multiple short reads accumulate correctly", func(t *testing.T) {
 		data := []byte("The quick brown fox jumps over the lazy dog")
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		var accumulated []byte
 		buf := make([]byte, 7) // Small buffer
@@ -1620,7 +1734,9 @@ func TestPieceReader_SeekSemantics(t *testing.T) {
 	t.Run("Seek returns new absolute position", func(t *testing.T) {
 		data := make([]byte, 1000)
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		pos, err := pr.Seek(100, io.SeekStart)
 		require.NoError(t, err)
@@ -1641,7 +1757,9 @@ func TestPieceReader_SeekSemantics(t *testing.T) {
 			data[i] = byte(i % 256)
 		}
 		pr, _ := createTestPieceReader(t, data)
-		defer pr.Close()
+		defer func() {
+			_ = pr.Close()
+		}()
 
 		for i := 0; i < 5; i++ {
 			_, err := pr.Seek(100, io.SeekStart)
@@ -1698,7 +1816,7 @@ func BenchmarkPieceReader_SequentialRead(b *testing.B) {
 						break
 					}
 				}
-				initialized.Close()
+				_ = initialized.Close()
 			}
 		})
 	}
@@ -1723,7 +1841,9 @@ func BenchmarkPieceReader_RandomRead(b *testing.B) {
 		onClose:   cancel,
 	}
 	initialized, _ := pr.init(ctx)
-	defer initialized.Close()
+	defer func() {
+		_ = initialized.Close()
+	}()
 
 	buf := make([]byte, 4096)
 
