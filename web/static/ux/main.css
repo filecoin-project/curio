@@ -140,7 +140,6 @@ a:hover {
     color: var(--color-text-secondary);
     border: 1px solid var(--color-table-border);
     border-radius: 6px;
-    overflow: hidden;
 }
 
 .table-dark thead {
@@ -160,12 +159,11 @@ a:hover {
 .table-dark tbody tr {
     background-color: var(--color-table-bg);
     border-bottom: 1px solid var(--color-border-subtle);
-    transition: background-color 0.15s ease, transform 0.1s ease;
+    transition: background-color 0.15s ease;
 }
 
 .table-dark tbody tr:hover {
     background-color: var(--color-table-hover);
-    transform: translateX(2px);
     cursor: pointer;
 }
 
@@ -202,7 +200,6 @@ a:hover {
 
 .table-dark tbody td table tbody tr:hover {
     background-color: inherit;
-    transform: none;
     cursor: default;
 }
 

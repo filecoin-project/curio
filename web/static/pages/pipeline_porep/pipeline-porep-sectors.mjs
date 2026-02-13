@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
 import '/ux/compact-epoch.mjs';
+import '/ux/task.mjs';
 
 export const pipelineStyles = css`
     .porep-pipeline-table,
@@ -428,9 +429,8 @@ export function renderSectorState(name, rowspan, sector, task, after, started) {
                 : 'pipeline-waiting'}"
         >
           <div>${name}</div>
-          <div>
-            T:
-            <a href="/pages/task/id/?id=${task}">${task}</a>
+          <div style="font-size: 0.9em;">
+            <task-status .taskId=${task}></task-status>
           </div>
           ${missing ? html`<div><b>FAILED</b></div>` : ''}
         </td>

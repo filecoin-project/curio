@@ -3,7 +3,9 @@ package webrpc
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"sort"
+	"time"
 
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/xerrors"
@@ -42,6 +44,15 @@ type ActorDeadline struct {
 	PartFaulty bool
 	Faulty     bool
 	Count      *DeadlineCount
+
+	// Partition info
+	PartitionCount   int
+	PartitionsPosted int
+	PartitionsProven bool // All partitions have submitted PoSt
+
+	// Timing
+	OpenAt         string // HH:MM format when this deadline opens
+	ElapsedMinutes int    // Minutes elapsed since deadline opened (only for current deadline)
 }
 
 type DeadlineCount struct {
@@ -419,10 +430,19 @@ func (a *WebRPC) getDeadlines(ctx context.Context, addr address.Address) ([]Acto
 			faulty += f
 		}
 
+		// Get PoSt submissions for this deadline
+		postSubmissions, err := dls[dlidx].PostSubmissions.Count()
+		if err != nil {
+			return nil, xerrors.Errorf("getting post submissions: %w", err)
+		}
+
 		dl.Empty = live == 0
 		dl.Proven = live > 0 && faulty == 0
 		dl.PartFaulty = faulty > 0
 		dl.Faulty = faulty > 0 && faulty == live
+		dl.PartitionCount = len(p)
+		dl.PartitionsPosted = int(postSubmissions)
+		dl.PartitionsProven = len(p) > 0 && int(postSubmissions) >= len(p)
 		dl.Count = &DeadlineCount{
 			Total:      total,
 			Active:     active,
@@ -440,6 +460,41 @@ func (a *WebRPC) getDeadlines(ctx context.Context, addr address.Address) ([]Acto
 	}
 
 	outDls[pd.Index].Current = true
+
+	// Calculate open times for each deadline
+	// Each deadline is WPoStChallengeWindow epochs long (30 minutes)
+	// 48 deadlines per proving period
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	currentEpoch := head.Height()
+	epochsPerDeadline := pd.WPoStChallengeWindow // typically 60 epochs = 30 minutes
+
+	// Calculate elapsed time for current deadline
+	epochsIntoDeadline := currentEpoch - pd.Open
+	elapsedMinutes := int(epochsIntoDeadline) * 30 / 60 // 30 seconds per epoch
+	outDls[pd.Index].ElapsedMinutes = elapsedMinutes
+
+	for dlidx := range outDls {
+		// Calculate epochs until this deadline opens
+		var epochsUntilOpen abi.ChainEpoch
+		if uint64(dlidx) == pd.Index {
+			epochsUntilOpen = 0
+		} else if uint64(dlidx) > pd.Index {
+			epochsUntilOpen = abi.ChainEpoch(uint64(dlidx)-pd.Index) * epochsPerDeadline
+		} else {
+			epochsUntilOpen = abi.ChainEpoch(48-pd.Index+uint64(dlidx)) * epochsPerDeadline
+		}
+		// Adjust for how far into current deadline we are
+		epochsUntilOpen -= (currentEpoch - pd.Open)
+
+		// Convert epochs to time (30 seconds per epoch)
+		secondsUntilOpen := int64(epochsUntilOpen) * 30
+		openTime := time.Now().Add(time.Duration(secondsUntilOpen) * time.Second)
+		outDls[dlidx].OpenAt = fmt.Sprintf("%02d:%02d", openTime.Hour(), openTime.Minute())
+	}
 
 	return outDls, nil
 }

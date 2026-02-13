@@ -487,6 +487,13 @@ func addSealingTasks(
 		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks, cfg.Subsystems.BindEncodeToData, cfg.Subsystems.AllowEncodeGPUOverprovision)
 		activeTasks = append(activeTasks, encodeTask)
 	}
+
+	// ScrubCommRCheck runs on nodes that can run supraseal TreeR (GPU nodes with PC2 or SnapEncode)
+	// Only register once even if both are enabled
+	if (cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableUpdateEncode) && scrub.CanRunSupraTreeR() {
+		scrubCommRTask := scrub.NewCommRCheckTask(db, slr)
+		activeTasks = append(activeTasks, scrubCommRTask)
+	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
 		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)
 		activeTasks = append(activeTasks, proveTask)
