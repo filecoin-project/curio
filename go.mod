@@ -389,4 +389,8 @@ require (
 
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
 
+replace github.com/filecoin-project/go-data-segment v0.0.1 => github.com/aurorainfra/go-data-segment v0.0.0-20260213131148-8255390d04cd
+
+replace github.com/filecoin-project/go-fil-commp-hashhash => github.com/filecoin-project/go-fil-commp-hashhash v0.2.1-0.20260107152413-d6952fff4f39
+
 replace github.com/KarpelesLab/reflink => github.com/magik6k/reflink v1.0.2-patch1

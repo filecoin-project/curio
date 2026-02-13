@@ -101,6 +101,8 @@ github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYU
 github.com/ardanlabs/darwin/v2 v2.0.0 h1:XCisQMgQ5EG+ZvSEcADEo+pyfIMKyWAGnn5o2TgriYE=
 github.com/ardanlabs/darwin/v2 v2.0.0/go.mod h1:MubZ2e9DAYGaym0mClSOi183NYahrrfKxvSy1HMhoes=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
+github.com/aurorainfra/go-data-segment v0.0.0-20260213131148-8255390d04cd h1:YrIf7M07fCjtwCZllIOnv3edYPiLaITClWu1u2Sr+2M=
+github.com/aurorainfra/go-data-segment v0.0.0-20260213131148-8255390d04cd/go.mod h1:1T6TBbauXzRmJ+ITybSwr43/8n21D/qYvG5pcgrgiCM=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
@@ -329,8 +331,6 @@ github.com/filecoin-project/go-commp-utils/v2 v2.1.0/go.mod h1:NbxJYlhxtWaNhlVCj
 github.com/filecoin-project/go-crypto v0.0.0-20191218222705-effae4ea9f03/go.mod h1:+viYnvGtUTgJRdy6oaeF4MTFKAfatX071MPDPBL11EQ=
 github.com/filecoin-project/go-crypto v0.1.0 h1:Pob2MphoipMbe/ksxZOMcQvmBHAd3sI/WEqcbpIsGI0=
 github.com/filecoin-project/go-crypto v0.1.0/go.mod h1:K9UFXvvoyAVvB+0Le7oGlKiT9mgA5FHOJdYQXEE8IhI=
-github.com/filecoin-project/go-data-segment v0.0.1 h1:1wmDxOG4ubWQm3ZC1XI5nCon5qgSq7Ra3Rb6Dbu10Gs=
-github.com/filecoin-project/go-data-segment v0.0.1/go.mod h1:H0/NKbsRxmRFBcLibmABv+yFNHdmtl5AyplYLnb0Zv4=
 github.com/filecoin-project/go-data-transfer/v2 v2.0.0 h1:SUU6c0+K9K9WY16Ur9+cX1GOboTQ4TypR8cuLZANbDE=
 github.com/filecoin-project/go-data-transfer/v2 v2.0.0/go.mod h1:VdCAN4UqvZzbtTMVUi4yA2TKdzG1CtgjGzs7mdnRPWk=
 github.com/filecoin-project/go-ds-versioning v0.1.2 h1:to4pTadv3IeV1wvgbCbN6Vqd+fu+7tveXgv/rCEZy6w=
@@ -339,8 +339,8 @@ github.com/filecoin-project/go-f3 v0.8.10 h1:Mm+daAn9EKqTTDY3ICbPTR2i3Opjb4gr6Y7
 github.com/filecoin-project/go-f3 v0.8.10/go.mod h1:hFvb2CMxHDmlJAVzfiIL/V8zCtNMQqfSnhP5TyM6CHI=
 github.com/filecoin-project/go-fil-commcid v0.3.1 h1:4EfxpHSlvtkOqa9weG2Yt5kxFmPib2xU7Uc9Lbqk7fs=
 github.com/filecoin-project/go-fil-commcid v0.3.1/go.mod h1:z7Ssf8d7kspF9QRAVHDbZ+43JK4mkhbGH5lyph1TnKY=
-github.com/filecoin-project/go-fil-commp-hashhash v0.3.0 h1:4daUnnDtW8355+kCZTeze5rVCOLS65VVA8j9QLFEoOI=
-github.com/filecoin-project/go-fil-commp-hashhash v0.3.0/go.mod h1:HEJdAn8fzj1pw/qXN5A2mBiX+X9f4Q0Q77ho7aLRfsw=
+github.com/filecoin-project/go-fil-commp-hashhash v0.2.1-0.20260107152413-d6952fff4f39 h1:IZjG3ISKWXHKIlSBjFAIm9v1kgGIEwnbuOZ6pLu+g88=
+github.com/filecoin-project/go-fil-commp-hashhash v0.2.1-0.20260107152413-d6952fff4f39/go.mod h1:cQdlY9t2ZSGQHp5atz0DurLQxM0+i9YC9US8Z2jGk6Y=
 github.com/filecoin-project/go-hamt-ipld v0.1.5 h1:uoXrKbCQZ49OHpsTCkrThPNelC4W3LPEk0OrS/ytIBM=
 github.com/filecoin-project/go-hamt-ipld v0.1.5/go.mod h1:6Is+ONR5Cd5R6XZoCse1CWaXZc0Hdb/JeX+EQCQzX24=
 github.com/filecoin-project/go-hamt-ipld/v2 v2.0.0 h1:b3UDemBYN2HNfk3KOXNuxgTTxlWi3xVvbQP0IT38fvM=

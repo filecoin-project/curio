@@ -133,6 +133,9 @@ const (
 	// AggregateTypeV1 represents the first version of the aggregate type in the system. This is current PODSI aggregation
 	// based on https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0058.md
 	AggregateTypeV1
+
+	// AggregateTypeV2 represents the second version of the aggregate type (e.g. single-piece sector with tail index section).
+	AggregateTypeV2
 )
 
 // DealCode represents an error code as an integer value
