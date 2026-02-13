@@ -315,6 +315,17 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			continue
 		}
 
+		faultySectors, err := part.FaultySectors()
+		if err != nil {
+			log.Warnw("failed to get faulty sectors, skipping partition",
+				"preset", cfg.Name,
+				"sp_id", cfg.SpID,
+				"deadline", dlPart.Deadline,
+				"partition", dlPart.Partition,
+				"error", err)
+			continue
+		}
+
 		sectorsWithoutClaims := bitfield.New()
 		var sectorsWithClaims []miner.SectorClaim
 		numbersToExtend := make([]abi.SectorNumber, 0, len(sectorNums))
@@ -347,13 +358,42 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 				continue
 			}
 
+			// Check if sector is not faulty
+			isFaulty, err := faultySectors.IsSet(uint64(sn))
+			if err != nil {
+				log.Warnw("failed to check if sector is faulty",
+					"sector", sn,
+					"error", err)
+				continue
+			}
+			if isFaulty {
+				log.Debugw("skipping sector: sector is faulty",
+					"preset", cfg.Name,
+					"sp_id", cfg.SpID,
+					"sector", sn,
+					"deadline", dlPart.Deadline,
+					"partition", dlPart.Partition)
+				continue
+			}
+
 			// Check if target expiration exceeds sector's max lifetime
-			maxLifetime := si.Activation + maxExtension
+			maxLifetime := si.Activation + policy.GetSectorMaxLifetime(si.SealProof, nv)
 			if targetExpEpoch > maxLifetime {
 				log.Warnw("skipping sector: target expiration exceeds max lifetime",
 					"sector", sn,
 					"target_expiration", targetExpEpoch,
 					"max_lifetime", maxLifetime)
+				continue
+			}
+
+			// Check if extension from current expiration exceeds max allowed extension
+			if targetExpEpoch-si.Expiration > maxExtension {
+				log.Warnw("skipping sector: extension exceeds max allowed extension",
+					"sector", sn,
+					"current_expiration", si.Expiration,
+					"target_expiration", targetExpEpoch,
+					"extension", targetExpEpoch-si.Expiration,
+					"max_extension", maxExtension)
 				continue
 			}
 
