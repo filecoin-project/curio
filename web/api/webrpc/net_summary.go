@@ -62,9 +62,8 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 	}
 
 	type sampleRes struct {
-		s   nodeNetSample
-		ok  bool
-		err error
+		s  nodeNetSample
+		ok bool
 	}
 	resCh := make(chan sampleRes, len(rpcInfos))
 
@@ -84,39 +83,39 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 
 			addr, err := ai.DialArgs("v1")
 			if err != nil {
-				resCh <- sampleRes{err: err}
+				log.Warnw("NetSummary: DialArgs failed", "addr", ai.Addr, "error", err)
 				return
 			}
 
 			var res api.ChainStruct
 			closer, err := jsonrpc.NewMergeClient(ctx, addr, "Filecoin", api.GetInternalStructs(&res), ai.AuthHeader(), []jsonrpc.Option{jsonrpc.WithErrors(jsonrpc.NewErrors())}...)
 			if err != nil {
-				resCh <- sampleRes{err: err}
+				log.Warnw("NetSummary: NewMergeClient failed", "addr", ai.Addr, "error", err)
 				return
 			}
 			defer closer()
 
 			head, err := res.ChainHead(ctx)
 			if err != nil {
-				resCh <- sampleRes{err: err}
+				log.Warnw("NetSummary: ChainHead failed", "addr", ai.Addr, "error", err)
 				return
 			}
 
 			peers, err := res.NetPeers(ctx)
 			if err != nil {
-				resCh <- sampleRes{err: err}
+				log.Warnw("NetSummary: NetPeers failed", "addr", ai.Addr, "error", err)
 				return
 			}
 
 			bw, err := res.NetBandwidthStats(ctx)
 			if err != nil {
-				resCh <- sampleRes{err: err}
+				log.Warnw("NetSummary: NetBandwidthStats failed", "addr", ai.Addr, "error", err)
 				return
 			}
 
 			nat, err := res.NetAutoNatStatus(ctx)
 			if err != nil {
-				resCh <- sampleRes{err: err}
+				log.Warnw("NetSummary: NetAutoNatStatus failed", "addr", ai.Addr, "error", err)
 				return
 			}
 
