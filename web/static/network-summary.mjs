@@ -72,7 +72,8 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         }
         table {
             border-collapse: collapse;
-            width: max-content;
+            table-layout: fixed;
+            width: 100%;
             min-width: 860px;
             max-width: 100%;
         }
@@ -83,6 +84,7 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
             font-size: 13px;
             vertical-align: middle;
             white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }
         th {
             font-size: 12px;
@@ -93,10 +95,15 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
         .node {
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
             font-size: 12px;
-            max-width: 320px;
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        th:nth-child(1), td:nth-child(1) { width: 40%; }
+        th:nth-child(2), td:nth-child(2) { width: 12%; }
+        th:nth-child(3), td:nth-child(3) { width: 10%; }
+        th:nth-child(4), td:nth-child(4) { width: 14%; }
+        th:nth-child(5), td:nth-child(5) { width: 14%; }
+        th:nth-child(6), td:nth-child(6) { width: 10%; }
         .reach {
             font-weight: 600;
         }
