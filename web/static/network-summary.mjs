@@ -17,13 +17,8 @@ window.customElements.define('network-summary', class NetworkSummary extends Lit
 
     async loadData() {
         try {
-            const [resp, syncState] = await Promise.all([
-                fetch('/api/net/summary'),
-                RPCCall('SyncerState'),
-            ]);
-            if (!resp.ok) throw new Error(`failed /api/net/summary (${resp.status})`);
-            this.summary = await resp.json();
-            this.nodeCount = Array.isArray(syncState) ? syncState.length : 0;
+            this.summary = await RPCCall('NetSummary');
+            this.nodeCount = Number(this.summary?.nodeCount || 0);
             this.requestUpdate();
         } catch (err) {
             console.error('failed to refresh network summary', err);
