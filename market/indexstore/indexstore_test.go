@@ -45,7 +45,7 @@ func TestNewIndexStore(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	rf, err := testutils.CreateRandomTmpFile(dir, 8000000)
+	rf, err := testutils.CreateRandomFile(dir, 1, 8000000)
 	require.NoError(t, err)
 
 	_, carPath, err := testutils.CreateDenseCARWith(dir, rf, 1024, 1024, []carv2.Option{
