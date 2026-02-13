@@ -3,7 +3,6 @@ package webrpc
 import (
 	"context"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -20,6 +19,16 @@ type NetSummaryResponse struct {
 	Bandwidth    NetBandwidthSummary `json:"bandwidth"`
 	Reachability NetReachability     `json:"reachability"`
 	NodeCount    int                 `json:"nodeCount"`
+	Nodes        []NetNodeSummary    `json:"nodes"`
+}
+
+// NetNodeSummary is one sampled chain node for the Network panel.
+type NetNodeSummary struct {
+	Node         string              `json:"node"`
+	Epoch        int64               `json:"epoch"`
+	PeerCount    int                 `json:"peerCount"`
+	Bandwidth    NetBandwidthSummary `json:"bandwidth"`
+	Reachability NetReachability     `json:"reachability"`
 }
 
 type NetBandwidthSummary struct {
@@ -35,6 +44,7 @@ type NetReachability struct {
 }
 
 type nodeNetSample struct {
+	node         string
 	epoch        int64
 	peerCount    int
 	totalIn      int64
@@ -120,6 +130,7 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 			}
 
 			resCh <- sampleRes{ok: true, s: nodeNetSample{
+				node:         ai.Addr,
 				epoch:        int64(head.Height()),
 				peerCount:    len(peers),
 				totalIn:      int64(bw.TotalIn),
@@ -136,15 +147,34 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 	close(resCh)
 
 	summary := NetSummaryResponse{}
-	var reach []string
 	pubAddrsSet := map[string]struct{}{}
-	okCount := 0
 	for r := range resCh {
 		if !r.ok {
 			continue
 		}
-		okCount++
 		s := r.s
+		nodeReachability := strings.ToLower(strings.TrimSpace(s.reachability))
+		if nodeReachability == "" {
+			nodeReachability = "unknown"
+		}
+
+		node := NetNodeSummary{
+			Node:      s.node,
+			Epoch:     s.epoch,
+			PeerCount: s.peerCount,
+			Bandwidth: NetBandwidthSummary{
+				TotalIn:  s.totalIn,
+				TotalOut: s.totalOut,
+				RateIn:   s.rateIn,
+				RateOut:  s.rateOut,
+			},
+			Reachability: NetReachability{
+				Status:      nodeReachability,
+				PublicAddrs: append([]string(nil), s.publicAddrs...),
+			},
+		}
+		summary.Nodes = append(summary.Nodes, node)
+
 		if s.epoch > summary.Epoch {
 			summary.Epoch = s.epoch
 		}
@@ -153,43 +183,44 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 		summary.Bandwidth.TotalOut += s.totalOut
 		summary.Bandwidth.RateIn += s.rateIn
 		summary.Bandwidth.RateOut += s.rateOut
-		if s.reachability != "" {
-			reach = append(reach, strings.ToLower(s.reachability))
-		}
 		for _, a := range s.publicAddrs {
 			pubAddrsSet[a] = struct{}{}
 		}
 	}
 
-	summary.NodeCount = okCount
-	if okCount > 0 {
-		summary.Bandwidth.RateIn = summary.Bandwidth.RateIn / float64(okCount)
-		summary.Bandwidth.RateOut = summary.Bandwidth.RateOut / float64(okCount)
+	summary.NodeCount = len(summary.Nodes)
+	if summary.NodeCount > 0 {
+		summary.Bandwidth.RateIn = summary.Bandwidth.RateIn / float64(summary.NodeCount)
+		summary.Bandwidth.RateOut = summary.Bandwidth.RateOut / float64(summary.NodeCount)
 	}
 
-	if len(reach) == 0 {
-		summary.Reachability.Status = "unknown"
-	} else {
-		pub, priv, unknown := 0, 0, 0
-		for _, r := range reach {
-			switch {
-			case strings.Contains(r, "public"):
-				pub++
-			case strings.Contains(r, "private"):
-				priv++
-			default:
-				unknown++
-			}
+	pub, priv, unknown := 0, 0, 0
+	for _, n := range summary.Nodes {
+		switch {
+		case strings.Contains(n.Reachability.Status, "public"):
+			pub++
+		case strings.Contains(n.Reachability.Status, "private"):
+			priv++
+		default:
+			unknown++
 		}
-		summary.Reachability.Status = "public=" + itoa(pub) + ", private=" + itoa(priv) + ", unknown=" + itoa(unknown)
+	}
+	switch {
+	case pub > 0:
+		summary.Reachability.Status = "public"
+	case priv > 0:
+		summary.Reachability.Status = "private"
+	default:
+		summary.Reachability.Status = "unknown"
 	}
 
 	for a := range pubAddrsSet {
 		summary.Reachability.PublicAddrs = append(summary.Reachability.PublicAddrs, a)
 	}
 	sort.Strings(summary.Reachability.PublicAddrs)
+	sort.Slice(summary.Nodes, func(i, j int) bool {
+		return summary.Nodes[i].Node < summary.Nodes[j].Node
+	})
 
 	return summary, nil
 }
-
-func itoa(v int) string { return strconv.Itoa(v) }
