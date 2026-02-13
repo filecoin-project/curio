@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -27,24 +29,103 @@ var (
 )
 
 func main() {
-	if err := filepath.Walk(".", func(path string, info fs.FileInfo, err error) error {
-		switch {
-		case err != nil:
+	// Get files changed since merge-base with main
+	// Files already on main have had fiximports run, so we only need to process changes
+	changedFiles := getChangedFilesSinceMergeBase()
+
+	if len(changedFiles) == 0 {
+		fmt.Println("No Go files changed since merge-base with main")
+		return
+	}
+
+	fmt.Printf("Processing %d changed Go file(s)\n", len(changedFiles))
+
+	for _, path := range changedFiles {
+		if err := fixGoImports(path); err != nil {
+			fmt.Printf("Error fixing imports in %s: %v\n", path, err)
+			os.Exit(1)
+		}
+	}
+}
+
+// getChangedFilesSinceMergeBase returns Go files that have changed since the merge-base with main.
+// This includes committed changes on the branch, uncommitted changes, and untracked files.
+func getChangedFilesSinceMergeBase() []string {
+	// Find the merge-base between main and HEAD
+	mergeBase, err := exec.Command("git", "merge-base", "main", "HEAD").Output()
+	if err != nil {
+		// If we can't find merge-base (e.g., not on a branch), fall back to all files
+		fmt.Println("Could not determine merge-base, processing all files")
+		return getAllGoFiles()
+	}
+	base := strings.TrimSpace(string(mergeBase))
+
+	// Get files changed between merge-base and HEAD (committed changes)
+	committed, _ := exec.Command("git", "diff", "--name-only", base, "HEAD").Output()
+
+	// Get uncommitted changes (staged + unstaged)
+	staged, _ := exec.Command("git", "diff", "--name-only", "--cached").Output()
+	unstaged, _ := exec.Command("git", "diff", "--name-only").Output()
+
+	// Get untracked files (new files not yet added to git)
+	untracked, _ := exec.Command("git", "ls-files", "--others", "--exclude-standard").Output()
+
+	// Combine all changes
+	allChanges := string(committed) + string(staged) + string(unstaged) + string(untracked)
+
+	// Filter to Go files, excluding extern/ and generated files
+	seen := make(map[string]bool)
+	var goFiles []string
+	for _, line := range strings.Split(allChanges, "\n") {
+		path := strings.TrimSpace(line)
+		if path == "" || seen[path] {
+			continue
+		}
+		if !strings.HasSuffix(path, ".go") {
+			continue
+		}
+		if strings.HasPrefix(path, "extern/") {
+			continue
+		}
+		if strings.HasSuffix(path, "_cbor_gen.go") {
+			continue
+		}
+		// Verify file exists (might have been deleted)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		seen[path] = true
+		goFiles = append(goFiles, path)
+	}
+	return goFiles
+}
+
+// getAllGoFiles returns all Go files in the repo (fallback when merge-base fails)
+func getAllGoFiles() []string {
+	var files []string
+	err := filepath.Walk(".", func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
 			return err
-		case // Skip the entire "./extern/..." directory and its contents.
-			strings.HasPrefix(path, "extern/"):
+		}
+		if strings.HasPrefix(path, "extern/") {
 			return filepath.SkipDir
-		case // Skip directories, generated cborgen go files and any other non-go files.
-			info.IsDir(),
-			strings.HasSuffix(info.Name(), "_cbor_gen.go"),
-			!strings.HasSuffix(info.Name(), ".go"):
+		}
+		if info.IsDir() {
 			return nil
 		}
-		return fixGoImports(path)
-	}); err != nil {
-		fmt.Printf("Error fixing go imports: %v\n", err)
-		os.Exit(1)
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		if strings.HasSuffix(path, "_cbor_gen.go") {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("Failed to walk directory: %v", err)
 	}
+	return files
 }
 
 func fixGoImports(path string) error {

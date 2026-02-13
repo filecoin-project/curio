@@ -179,6 +179,10 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 				return false, xerrors.Errorf("error making GET request: %w", err)
 			}
 
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
 			// Check if the file is found
 			if resp.StatusCode != http.StatusOK {
 				return false, xerrors.Errorf("not ok response from HTTP server: %s", resp.Status)
@@ -268,137 +272,89 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 }
 
-func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// CommP task can be of 2 types
 	// 1. Using ParkPiece pieceRef
-	// 2. Using remote HTTP reader
-	// ParkPiece should be scheduled on same node which has the piece
+	// 2. Using a remote HTTP reader,
+	// CommP should be scheduled on the same node which has the piece
 	// Remote HTTP ones can be scheduled on any node
 
 	if !c.bindToData { //
 		return ids, nil
 	}
 
-	ctx := context.Background()
-
-	var tasks []struct {
-		TaskID    harmonytask.TaskID `db:"commp_task_id"`
-		StorageID string             `db:"storage_id"`
-		Url       sql.NullString     `db:"url"`
+	if storiface.FTPiece != 32 {
+		panic("storiface.FTPiece != 32")
 	}
+
+	ctx := context.Background()
 
 	indIDs := make([]int64, len(ids))
 	for i, id := range ids {
 		indIDs[i] = int64(id)
 	}
 
-	comm, err := c.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		err = tx.Select(&tasks, `  SELECT 
-											commp_task_id, 
-											url
-										FROM 
-											market_mk12_deal_pipeline
-										WHERE 
-											commp_task_id = ANY ($1)
-										
-										UNION ALL
-										
-										SELECT 
-											commp_task_id, 
-											url
-										FROM 
-											market_mk20_pipeline
-										WHERE 
-											commp_task_id = ANY ($1);
-										`, indIDs)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get deal details from DB: %w", err)
-		}
+	var selected []harmonytask.TaskID
 
-		if storiface.FTPiece != 32 {
-			panic("storiface.FTPiece != 32")
-		}
-
-		for i, task := range tasks {
-			if task.Url.Valid {
-				goUrl, err := url.Parse(task.Url.String)
-				if err != nil {
-					return false, xerrors.Errorf("parsing data URL: %w", err)
-				}
-				if goUrl.Scheme == "pieceref" {
-					refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
-					if err != nil {
-						return false, xerrors.Errorf("parsing piece reference number: %w", err)
-					}
-
-					// get pieceID
-					var pieceID []struct {
-						PieceID storiface.PieceNumber `db:"piece_id"`
-					}
-					err = tx.Select(&pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
-					if err != nil {
-						return false, xerrors.Errorf("getting pieceID: %w", err)
-					}
-					if len(pieceID) == 0 {
-						return false, xerrors.Errorf("no pieceID found for ref %d", refNum)
-					}
-
-					var sLocation string
-
-					err = tx.QueryRow(`
-					SELECT storage_id FROM sector_location 
-						WHERE miner_id = 0 AND sector_num = $1 AND sector_filetype = 32`, pieceID[0].PieceID).Scan(&sLocation)
-
-					if err != nil {
-						return false, xerrors.Errorf("failed to get storage location from DB: %w", err)
-					}
-
-					tasks[i].StorageID = sLocation
-				}
-			}
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-
+	err := c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(commp_task_id), '{}')::bigint[] AS commp_task_ids FROM 
+										(
+										    SELECT t.commp_task_id
+											FROM (
+											  SELECT commp_task_id, url
+											  FROM market_mk12_deal_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											
+											  UNION ALL
+											
+											  SELECT commp_task_id, url
+											  FROM market_mk20_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											) t
+											JOIN parked_piece_refs ppr
+											  ON t.url LIKE 'pieceref:%'
+											 AND substring(t.url FROM 10)::bigint = ppr.ref_id
+											JOIN sector_location sl
+											  ON sl.miner_id = 0
+											 AND sl.sector_num = ppr.piece_id
+											 AND sl.sector_filetype = 32
+											JOIN storage_path sp
+											  ON sp.storage_id = sl.storage_id
+											WHERE sp.urls IS NOT NULL
+											  AND sp.urls LIKE '%' || $2 || '%'
+											LIMIT 100
+										) s;`, indIDs, engine.Host()).Scan(&selected)
 	if err != nil {
-		return []harmonytask.TaskID{}, err
+		return nil, xerrors.Errorf("getting tasks with parked piece ref: %w", err)
 	}
 
-	if !comm {
-		return []harmonytask.TaskID{}, xerrors.Errorf("failed to commit the transaction")
+	if len(selected) > 0 {
+		return selected, nil
 	}
 
-	ls, err := c.sc.LocalStorage(ctx)
+	// If we couldn't find a parked piece ref, then we can schedule the tasks with remote HTTP readers
+	err = c.db.QueryRow(ctx, `SELECT COALESCE(array_agg(commp_task_id), '{}')::bigint[] AS commp_task_ids FROM 
+										(
+										    SELECT t.commp_task_id
+											FROM (
+											  SELECT commp_task_id, url
+											  FROM market_mk12_deal_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											
+											  UNION ALL
+											
+											  SELECT commp_task_id, url
+											  FROM market_mk20_pipeline
+											  WHERE commp_task_id = ANY($1::bigint[])
+											) t
+											WHERE t.url IS NOT NULL
+											  AND t.url NOT LIKE 'pieceref:%'
+											LIMIT 100
+										) s`, indIDs).Scan(&selected)
 	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
+		return nil, xerrors.Errorf("getting tasks with remote HTTP reader: %w", err)
 	}
 
-	acceptables := map[harmonytask.TaskID]bool{}
-
-	for _, t := range ids {
-		acceptables[t] = true
-	}
-
-	result := []harmonytask.TaskID{}
-	// debug log
-	log.Infow("commp task can accept", "tasks", tasks, "acceptables", acceptables, "ls", ls, "bindToData", c.bindToData, "ids", ids)
-
-	for _, t := range tasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
-
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
-				result = append(result, t.TaskID)
-				log.Infow("commp task can accept did accept", "t", t, "l", l)
-			}
-		}
-	}
-
-	// If no local pieceRef was found then just return first TaskID
-	return result, nil
+	return selected, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
