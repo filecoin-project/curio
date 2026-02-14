@@ -881,6 +881,16 @@ an IP address`,
 HTTP and the reverse proxy will handle TLS termination.`,
 		},
 		{
+			Name: "ExternalURL",
+			Type: "string",
+
+			Comment: `ExternalURL specifies the full external URL that IPNI and other services should use to reach this Curio instance.
+When set, this takes precedence over DomainName for constructing announcement URLs.
+This is useful when Curio is behind a reverse proxy or when using non-standard ports.
+Example: "https://example.com:8443" or "http://custom.domain:12310"
+If empty, the system falls back to using DomainName with default port (443 for HTTPS on mainnet/calibnet).`,
+		},
+		{
 			Name: "ReadTimeout",
 			Type: "time.Duration",
 

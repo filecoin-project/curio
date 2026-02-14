@@ -540,6 +540,15 @@ description: The default curio configuration
   # type: bool
   #DelegateTLS = false
 
+  # ExternalURL specifies the full external URL that IPNI and other services should use to reach this Curio instance.
+  # When set, this takes precedence over DomainName for constructing announcement URLs.
+  # This is useful when Curio is behind a reverse proxy or when using non-standard ports.
+  # Example: "https://example.com:8443" or "http://custom.domain:12310"
+  # If empty, the system falls back to using DomainName with default port (443 for HTTPS on mainnet/calibnet).
+  #
+  # type: string
+  #ExternalURL = ""
+
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
