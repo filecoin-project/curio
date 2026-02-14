@@ -30,22 +30,22 @@ func BuildSha254Memtree(rawIn io.Reader, size abi.UnpaddedPieceSize) ([]byte, er
 	}
 
 	nLeaves := int64(size.Padded()) / NODE_SIZE
-	totalNodes, levelSizes := computeTotalNodes(nLeaves, 2)
-	memtreeBuf := pool.Get(int(totalNodes * NODE_SIZE))
+	treeSize := computeTreeSize(nLeaves, 2)
+	memtreeBuf := pool.Get(int(treeSize.NodeCount * NODE_SIZE))
 
 	fr32.Pad(unpadBuf, memtreeBuf[:size.Padded()])
 	pool.Put(unpadBuf)
 
 	d := sha256.New()
 
-	levelStarts := make([]int64, len(levelSizes))
+	levelStarts := make([]int64, len(treeSize.LevelSizes))
 	levelStarts[0] = 0
-	for i := 1; i < len(levelSizes); i++ {
-		levelStarts[i] = levelStarts[i-1] + levelSizes[i-1]*NODE_SIZE
+	for i := 1; i < len(treeSize.LevelSizes); i++ {
+		levelStarts[i] = levelStarts[i-1] + treeSize.LevelSizes[i-1]*NODE_SIZE
 	}
 
-	for level := 1; level < len(levelSizes); level++ {
-		levelNodes := levelSizes[level]
+	for level := 1; level < len(treeSize.LevelSizes); level++ {
+		levelNodes := treeSize.LevelSizes[level]
 		prevLevelStart := levelStarts[level-1]
 		currLevelStart := levelStarts[level]
 
