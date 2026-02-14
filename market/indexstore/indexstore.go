@@ -1,36 +1,102 @@
+// Package indexstore provides a Cassandra-backed index for locating blocks
+// within Filecoin pieces.
+//
+// It maintains two core lookup tables:
+//
+//   - PayloadToPieces: multihash → piece CID (find which pieces contain a block)
+//   - PieceBlockOffsetSize: piece CID + multihash → byte offset (locate a block within a piece)
+//
+// It also provides a PDP (Provable Data Possession) cache layer for storing
+// pre-computed Merkle tree nodes used during proof challenges.
+//
+// All methods that accept a pieceCid are CID-version-agnostic: callers may
+// supply either a v1 (commP) or v2 (commP + size) piece CID. The store
+// records whichever version the caller provides. The only method that is
+// version-aware is UpdatePieceCidV1ToV2, which explicitly migrates rows
+// keyed under a v1 CID to a v2 CID.
+//
+// The package is organised across several files:
+//
+//   - indexstore.go   – types, construction, session bootstrap
+//   - index_write.go  – AddIndex, RemoveIndexes
+//   - index_query.go  – PiecesContainingMultihash, GetOffset, GetPieceHashRange, CheckHasPiece
+//   - migration.go    – UpdatePieceCidV1ToV2
+//   - pdp.go          – PDP Merkle-tree cache layer CRUD
+//   - batch.go        – shared batch-execution helpers with retry logic
 package indexstore
 
 import (
 	"context"
-	_ "embed"
+	"embed"
+	"errors"
 	"fmt"
+	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/gocql"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps/config"
 )
 
-const keyspace = "curio"
+// ---------------------------------------------------------------------------
+// Package-level constants
+// ---------------------------------------------------------------------------
 
-//go:embed create.cql
-var createCQL string
+const (
+	// keyspace is the default Cassandra keyspace name used in production.
+	keyspace = "curio"
+
+	// defaultBatchSize is the fallback batch size when the configured value
+	// is zero or negative.
+	defaultBatchSize = 15_000
+
+	// maxRetries is the maximum number of retry attempts for a failed CQL batch.
+	maxRetries = 20
+
+	// initialBackoff is the starting delay between retries.
+	initialBackoff = 20 * time.Second
+
+	// maxBackoff caps the exponential backoff duration.
+	maxBackoff = 180 * time.Second
+
+	// slowBatchThreshold logs a warning when a batch takes longer than this.
+	slowBatchThreshold = 30 * time.Second
+
+	// hashDigestSize is the byte length of a PDP Merkle-tree node hash.
+	hashDigestSize = 32
+
+	// typicalMultihashSize is a pre-allocation hint for multihash byte slices.
+	typicalMultihashSize = 36
+
+	// pdpPageSize is the Cassandra page size used when scanning PDP layer rows.
+	pdpPageSize = 2000
+)
+
+//go:embed cql/*.cql
+var cqlFiles embed.FS
 
 var log = logging.Logger("indexstore")
 
+// ErrNotFound is returned when a queried item does not exist in the store.
+var ErrNotFound = errors.New("not found")
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+// settings holds tuning parameters for batch CQL operations.
 type settings struct {
-	// Number of records per insert batch
-	InsertBatchSize int // default 15000
-	// Number of concurrent inserts to split AddIndex/DeleteIndex calls to
-	InsertConcurrency int // default 8
+	InsertBatchSize   int // records per CQL batch (default 15 000)
+	InsertConcurrency int // parallel workers for AddIndex / RemoveIndexes (default 8)
 }
 
+// IndexStore wraps a Cassandra session and provides block-level indexing
+// for Filecoin pieces.
 type IndexStore struct {
 	settings settings
 	cluster  *gocql.ClusterConfig
@@ -38,12 +104,34 @@ type IndexStore struct {
 	ctx      context.Context
 }
 
+// Record represents a single block inside a piece: its CID, byte offset, and
+// size. It is used both when inserting and when reading index entries.
 type Record struct {
 	Cid    cid.Cid `json:"cid"`
 	Offset uint64  `json:"offset"`
 	Size   uint64  `json:"size"`
 }
 
+// PieceInfo is a (pieceCid, blockSize) pair returned by PiecesContainingMultihash.
+// The PieceCid may be either v1 or v2, depending on what was stored.
+type PieceInfo struct {
+	PieceCid  cid.Cid
+	BlockSize uint64
+}
+
+// NodeDigest represents a single node in a cached PDP Merkle-tree layer.
+type NodeDigest struct {
+	Layer int      // layer index in the Merkle tree
+	Index int64    // node position within the layer
+	Hash  [32]byte // 32-byte hash digest
+}
+
+// ---------------------------------------------------------------------------
+// Construction & initialisation
+// ---------------------------------------------------------------------------
+
+// NewIndexStore creates an IndexStore configured for the given Cassandra
+// hosts. Call Start before performing any queries.
 func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
 	if len(hosts) == 0 {
 		return nil, xerrors.Errorf("no hosts provided for cassandra")
@@ -55,24 +143,46 @@ func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexSto
 	cluster.NumConns = cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency * 8
 	cluster.Port = port
 
-	store := &IndexStore{
+	return &IndexStore{
 		cluster: cluster,
 		settings: settings{
 			InsertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
 			InsertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
 		},
-	}
-
-	return store, store.Start(context.Background())
+	}, nil
 }
 
-func (i *IndexStore) Start(ctx context.Context) error {
-	// Create Cassandra keyspace
+// ITestID is an opaque identifier used to isolate test keyspaces.
+type ITestID string
+
+// ITestNewID returns a random test keyspace suffix.
+func ITestNewID() ITestID {
+	return ITestID(strconv.Itoa(rand.Intn(99999)))
+}
+
+// Start opens a Cassandra session, creates the keyspace (if absent), and
+// applies every embedded CQL migration file in sorted order.
+//
+// When test is true a randomly-named keyspace is created so that concurrent
+// test runs do not interfere with each other.
+func (i *IndexStore) Start(ctx context.Context, test bool) error {
+	if len(i.cluster.Hosts) == 0 {
+		return xerrors.Errorf("no hosts provided for cassandra")
+	}
+
+	keyspaceName := keyspace
+	if test {
+		id := ITestNewID()
+		keyspaceName = fmt.Sprintf("test%s", id)
+		fmt.Printf("Using test keyspace: %s\n", keyspaceName)
+	}
+
+	// Create Cassandra keyspace if it doesn't exist yet.
 	session, err := i.cluster.CreateSession()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
 	}
-	query := `CREATE KEYSPACE IF NOT EXISTS ` + keyspace +
+	query := `CREATE KEYSPACE IF NOT EXISTS ` + keyspaceName +
 		` WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 3 }`
 	err = session.Query(query).WithContext(ctx).Exec()
 	if err != nil {
@@ -81,24 +191,16 @@ func (i *IndexStore) Start(ctx context.Context) error {
 
 	session.Close()
 
-	// Recreate session with the keyspace
-	i.cluster.Keyspace = keyspace
+	// Reconnect with the keyspace selected so all subsequent queries use it.
+	i.cluster.Keyspace = keyspaceName
 	session, err = i.cluster.CreateSession()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
 	}
 
-	lines := strings.Split(createCQL, ";")
-	for _, line := range lines {
-		line = strings.Trim(line, "\n \t")
-		if line == "" {
-			continue
-		}
-		log.Debug(line)
-		err := session.Query(line).WithContext(ctx).Exec()
-		if err != nil {
-			return xerrors.Errorf("creating tables: executing\n%s\n%w", line, err)
-		}
+	// Apply embedded CQL migrations in alphabetical order.
+	if err := i.applyMigrations(ctx, session); err != nil {
+		return err
 	}
 
 	i.session = session
@@ -107,271 +209,35 @@ func (i *IndexStore) Start(ctx context.Context) error {
 	return nil
 }
 
-// AddIndex adds multihash -> piece cid mappings, along with offset and size information for the piece.
-func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan chan Record) error {
-	insertPieceBlockOffsetSize := `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`
-	insertPayloadToPieces := `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`
-	pieceCidBytes := pieceCid.Bytes()
-
-	var eg errgroup.Group
-
-	// Start worker threads based on InsertConcurrency value
-	for worker := 0; worker < i.settings.InsertConcurrency; worker++ {
-		eg.Go(func() error {
-			var batchPieceBlockOffsetSize *gocql.Batch
-			var batchPayloadToPieces *gocql.Batch
-			for {
-				if batchPieceBlockOffsetSize == nil {
-					batchPieceBlockOffsetSize = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-					batchPieceBlockOffsetSize.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
-				}
-				if batchPayloadToPieces == nil {
-					batchPayloadToPieces = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-					batchPayloadToPieces.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
-				}
-
-				rec, ok := <-recordsChan
-
-				if !ok {
-					if len(batchPieceBlockOffsetSize.Entries) > 0 {
-						if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCid); err != nil {
-							return err
-						}
-					}
-					if len(batchPayloadToPieces.Entries) > 0 {
-						if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCid); err != nil {
-							return err
-						}
-					}
-					return nil
-				}
-
-				payloadMultihashBytes := []byte(rec.Cid.Hash())
-
-				batchPieceBlockOffsetSize.Entries = append(batchPieceBlockOffsetSize.Entries, gocql.BatchEntry{
-					Stmt:       insertPieceBlockOffsetSize,
-					Args:       []interface{}{pieceCidBytes, payloadMultihashBytes, rec.Offset},
-					Idempotent: true,
-				})
-
-				batchPayloadToPieces.Entries = append(batchPayloadToPieces.Entries, gocql.BatchEntry{
-					Stmt:       insertPayloadToPieces,
-					Args:       []interface{}{payloadMultihashBytes, pieceCidBytes, rec.Size},
-					Idempotent: true,
-				})
-
-				if len(batchPieceBlockOffsetSize.Entries) == i.settings.InsertBatchSize {
-					if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCid); err != nil {
-						return err
-					}
-					batchPieceBlockOffsetSize = nil
-				}
-				if len(batchPayloadToPieces.Entries) == i.settings.InsertBatchSize {
-					if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCid); err != nil {
-						return err
-					}
-					batchPayloadToPieces = nil
-				}
-			}
-		})
-	}
-
-	err := eg.Wait()
+// applyMigrations reads every *.cql file embedded under cql/ and executes
+// each semicolon-delimited statement against the given session.
+func (i *IndexStore) applyMigrations(ctx context.Context, session *gocql.Session) error {
+	entries, err := cqlFiles.ReadDir("cql")
 	if err != nil {
-		return xerrors.Errorf("addindex wait: %w", err)
+		return xerrors.Errorf("reading embedded cql directory: %w", err)
 	}
 
-	return nil
-}
-
-// executeBatchWithRetry executes a batch with retry logic and exponential backoff
-func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Batch, pieceCid cid.Cid) error {
-	var err error
-	maxRetries := 20
-	backoff := 20 * time.Second
-	maxBackoff := 180 * time.Second
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		start := time.Now()
-		err = i.session.ExecuteBatch(batch)
-		if time.Since(start) > 30*time.Second {
-			log.Warnw("Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
-		} else {
-			log.Debugw("Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
 		}
 
-		if err == nil {
-			return nil
-		}
-
-		// If context is done, exit immediately
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		log.Warnf("Batch insert attempt %d failed for piece %s: %v", attempt+1, pieceCid, err)
-
-		// If max retries reached, return error
-		if attempt == maxRetries {
-			return xerrors.Errorf("execute batch: executing batch insert for piece %s: %w", pieceCid, err)
-		}
-
-		// Sleep for backoff duration before retrying
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-
-		// Exponential backoff
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-
-	return nil
-}
-
-// RemoveIndexes removes all multihash -> piece cid mappings, and all
-// offset information for the piece.
-func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error {
-	pieceCidBytes := pieceCid.Bytes()
-
-	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
-	selectQry := `SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ?`
-	iter := i.session.Query(selectQry, pieceCidBytes).WithContext(ctx).Iter()
-
-	var payloadMultihashBytes []byte
-	var payloadMultihashes [][]byte
-	for iter.Scan(&payloadMultihashBytes) {
-		// Copy the bytes since the slice will be overwritten
-		mhCopy := make([]byte, len(payloadMultihashBytes))
-		copy(mhCopy, payloadMultihashBytes)
-		payloadMultihashes = append(payloadMultihashes, mhCopy)
-	}
-	if err := iter.Close(); err != nil {
-		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCid, err)
-	}
-
-	// Prepare batch deletes for PayloadToPieces
-	delPayloadToPiecesQry := `DELETE FROM PayloadToPieces WHERE PayloadMultihash = ? AND PieceCid = ?`
-	batch := i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-	batchSize := i.settings.InsertBatchSize
-
-	for idx, payloadMH := range payloadMultihashes {
-		batch.Entries = append(batch.Entries, gocql.BatchEntry{
-			Stmt:       delPayloadToPiecesQry,
-			Args:       []interface{}{payloadMH, pieceCidBytes},
-			Idempotent: true,
-		})
-
-		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
-			if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
-				return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
-			}
-			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-		}
-	}
-
-	if len(batch.Entries) >= 0 {
-		if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
-			return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
-		}
-	}
-
-	// Delete from PieceBlockOffsetSize
-	delPieceBlockOffsetSizeQry := `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ?`
-	err := i.session.Query(delPieceBlockOffsetSizeQry, pieceCidBytes).WithContext(ctx).Exec()
-	if err != nil {
-		return xerrors.Errorf("deleting PieceBlockOffsetSize for piece %s: %w", pieceCid, err)
-	}
-
-	return nil
-}
-
-// PieceInfo contains PieceCid and BlockSize
-type PieceInfo struct {
-	PieceCid  cid.Cid
-	BlockSize uint64
-}
-
-// PiecesContainingMultihash gets all pieces that contain a multihash along with their BlockSize
-func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]PieceInfo, error) {
-	var pieces []PieceInfo
-	var pieceCidBytes []byte
-	var blockSize uint64
-
-	qry := `SELECT PieceCid, BlockSize FROM PayloadToPieces WHERE PayloadMultihash = ?`
-	iter := i.session.Query(qry, []byte(m)).WithContext(ctx).Iter()
-	for iter.Scan(&pieceCidBytes, &blockSize) {
-		pcid, err := cid.Parse(pieceCidBytes)
+		data, err := cqlFiles.ReadFile("cql/" + entry.Name())
 		if err != nil {
-			return nil, fmt.Errorf("parsing piece cid: %w", err)
+			return xerrors.Errorf("reading cql file %s: %w", entry.Name(), err)
 		}
-		pieces = append(pieces, PieceInfo{
-			PieceCid:  pcid,
-			BlockSize: blockSize,
-		})
+
+		// Each CQL file may contain multiple statements separated by ";".
+		for _, stmt := range strings.Split(string(data), ";") {
+			stmt = strings.TrimSpace(stmt)
+			if stmt == "" {
+				continue
+			}
+			log.Debug(stmt)
+			if err := session.Query(stmt).WithContext(ctx).Exec(); err != nil {
+				return xerrors.Errorf("creating tables: executing\n%s\n%w", stmt, err)
+			}
+		}
 	}
-	if err := iter.Close(); err != nil {
-		return nil, fmt.Errorf("getting pieces containing multihash %s: %w", m, err)
-	}
-
-	return pieces, nil
-}
-
-// GetOffset retrieves the offset of a payload in a piece
-func (i *IndexStore) GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error) {
-	var offset uint64
-	qryOffset := `SELECT BlockOffset FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
-	err := i.session.Query(qryOffset, pieceCid.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
-	if err != nil {
-		return 0, fmt.Errorf("getting offset: %w", err)
-	}
-
-	return offset, nil
-}
-
-func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
-	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
-	iter := i.session.Query(qry, piece.Bytes(), []byte(start), num).WithContext(ctx).Iter()
-
-	var hashes []multihash.Multihash
-	var r []byte
-	for iter.Scan(&r) {
-		m := multihash.Multihash(r)
-		hashes = append(hashes, m)
-
-		// Allocate new r, preallocating the typical size of a multihash (36 bytes)
-		r = make([]byte, 0, 36)
-	}
-	if err := iter.Close(); err != nil {
-		return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piece.Bytes(), []byte(start), num, err)
-	}
-	if len(hashes) != int(num) {
-		return nil, xerrors.Errorf("expected %d hashes, got %d (possibly missing indexes)", num, len(hashes))
-	}
-
-	return hashes, nil
-}
-
-func (i *IndexStore) CheckHasPiece(ctx context.Context, piece cid.Cid) (bool, error) {
-	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
-	iter := i.session.Query(qry, piece.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
-
-	var hashes []multihash.Multihash
-	var r []byte
-	for iter.Scan(&r) {
-		m := multihash.Multihash(r)
-		hashes = append(hashes, m)
-
-		// Allocate new r, preallocating the typical size of a multihash (36 bytes)
-		r = make([]byte, 0, 36)
-	}
-	if err := iter.Close(); err != nil {
-		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piece.Bytes(), len(hashes), err)
-	}
-
-	return len(hashes) > 0, nil
+	return nil
 }
