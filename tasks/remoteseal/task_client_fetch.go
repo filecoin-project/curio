@@ -238,7 +238,7 @@ func (c *RSealClient) FetchCacheData(ctx context.Context, providerURL, token str
 	if err != nil {
 		return xerrors.Errorf("performing request to %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
