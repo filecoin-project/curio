@@ -379,36 +379,22 @@ go-generate:
 	@bash -lc 'set -euo pipefail; \
 	  CGO_ALLOW="$(subst ",,$(CGO_LDFLAGS_ALLOW))"; \
 	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
-	  TIME_BIN="$$(command -v time 2>/dev/null || true)"; \
-	  if [ -n "$$TIME_BIN" ] && ! [ -x "$$TIME_BIN" ]; then TIME_BIN=""; fi; \
 	  for p in $$(go list ./...); do \
 	    tf="$$(mktemp -t go-gen-time.XXXXXX)"; \
 	    cmd=(env CGO_LDFLAGS_ALLOW="$$CGO_ALLOW" GOFLAGS="$$GO_FLAGS" $(GOCC) generate "$$p"); \
 	    printf "CMD: "; printf "%q " "$${cmd[@]}"; echo ""; \
-	    if [ -n "$$TIME_BIN" ]; then \
-	      if "$$TIME_BIN" -p -o "$$tf" "$${cmd[@]}"; then \
-	        : ; \
-	      else \
-	        rc="$$?"; \
-	        echo "FAILED: $$p (exit $$rc)"; \
-	        grep "^real " "$$tf" || true; \
-	        rm -f "$$tf" || true; \
-	        exit "$$rc"; \
-	      fi; \
-	      echo "### timing for $$p ###"; \
-	      grep "^real " "$$tf"; \
-	      rm -f "$$tf"; \
+	    if /usr/bin/time -p -o "$$tf" "$${cmd[@]}"; then \
+	      : ; \
 	    else \
-	      if "$${cmd[@]}"; then \
-	        : ; \
-	      else \
-	        rc="$$?"; \
-	        echo "FAILED: $$p (exit $$rc)"; \
-	        rm -f "$$tf" || true; \
-	        exit "$$rc"; \
-	      fi; \
-	      rm -f "$$tf"; \
+	      rc="$$?"; \
+	      echo "FAILED: $$p (exit $$rc)"; \
+	      grep "^real " "$$tf" || true; \
+	      rm -f "$$tf" || true; \
+	      exit "$$rc"; \
 	    fi; \
+	    echo "### timing for $$p ###"; \
+	    grep "^real " "$$tf"; \
+	    rm -f "$$tf"; \
 	  done'
 .PHONY: go-generate
 
