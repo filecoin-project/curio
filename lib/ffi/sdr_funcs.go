@@ -794,6 +794,36 @@ func (sb *SealCalls) TreeD(ctx context.Context, sector storiface.SectorRef, unse
 	return nil
 }
 
+// EnsureSyntheticProofs generates synthetic PoRep vanilla proofs for a sector
+// if they don't already exist. Unlike SyntheticProofs, this does NOT clear the
+// cache or generate the unsealed copy — it only creates the syn-porep-vanilla-proofs.dat
+// file needed by SealCommitPhase1.
+//
+// This is used by the remote seal provider's C1 handler: the provider runs
+// SDR+trees but not the normal Synth task (which also clears layers). The provider
+// must keep layers until the client finishes the pipeline, but still needs synthetic
+// proofs to serve C1 requests.
+func (sb *SealCalls) EnsureSyntheticProofs(ctx context.Context, sector storiface.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) error {
+	fspaths, _, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, storiface.FTCache|storiface.FTSealed, storiface.FTNone, storiface.PathStorage)
+	if err != nil {
+		return xerrors.Errorf("acquiring sector paths: %w", err)
+	}
+	defer releaseSector()
+
+	// Check if synthetic proofs already exist (idempotent)
+	synthPath := filepath.Join(fspaths.Cache, "syn-porep-vanilla-proofs.dat")
+	if _, err := os.Stat(synthPath); err == nil {
+		return nil // already generated
+	}
+
+	err = ffi.GenerateSynthProofs(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
+	if err != nil {
+		return xerrors.Errorf("generating synthetic proofs: %w", err)
+	}
+
+	return nil
+}
+
 func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo, keepUnsealed bool) error {
 	fspaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, task, sector, storiface.FTCache|storiface.FTSealed, storiface.FTNone, storiface.PathSealing)
 	if err != nil {

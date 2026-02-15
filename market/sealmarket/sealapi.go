@@ -735,6 +735,29 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 		ProofType: abi.RegisteredSealProof(sector.RegSealProof),
 	}
 
+	// Ensure synthetic proofs exist. The provider runs SDR+trees but not the
+	// normal Synth task (which also clears layers and generates the unsealed
+	// copy). SealCommitPhase1 requires syn-porep-vanilla-proofs.dat for
+	// synthetic proof types. Generate it now if it doesn't already exist.
+	ssize, err := sref.ProofType.SectorSize()
+	if err != nil {
+		log.Errorw("commit1: get sector size", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Remote-sealed sectors are always CC: single piece with size = sector size, PieceCID = unsealedCID (zero-comm)
+	pieces := []abi.PieceInfo{{
+		Size:     abi.PaddedPieceSize(ssize),
+		PieceCID: unsealedCID,
+	}}
+
+	if err := sm.sc.EnsureSyntheticProofs(r.Context(), sref, sealedCID, unsealedCID, abi.SealRandomness(sector.TicketValue), pieces); err != nil {
+		log.Errorw("commit1: EnsureSyntheticProofs failed", "error", err)
+		http.Error(w, "failed to generate synthetic proofs", http.StatusInternalServerError)
+		return
+	}
+
 	// Compute the vanilla proof (C1)
 	vanillaProof, err := sm.sc.GeneratePoRepVanillaProof(
 		r.Context(),

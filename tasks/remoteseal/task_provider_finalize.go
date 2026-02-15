@@ -153,7 +153,7 @@ func (f *RSealProviderFinalize) CanAccept(ids []harmonytask.TaskID, _ *harmonyta
 func (f *RSealProviderFinalize) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(f.max),
-		Name: "RSealProvFinalize",
+		Name: "RSealProvFinal",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

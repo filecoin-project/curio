@@ -472,6 +472,12 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, treeDTask, synthTask, treeRCTask)
 		addFinalize = true
 	}
+	// Remote seal client needs the Finalize task to run after PoRep.
+	// The client skips SDR/Trees (done by provider) but still runs the
+	// standard pipeline from precommit onward, which requires Finalize.
+	if cfg.Subsystems.EnableRemoteSealClient {
+		addFinalize = true
+	}
 	if addFinalize {
 		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db, slotMgr)
 		activeTasks = append(activeTasks, finalizeTask)
