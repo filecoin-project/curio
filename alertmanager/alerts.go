@@ -289,9 +289,10 @@ func permanentStorageCheck(al *alerts) {
 		sectorMap[key] = false
 
 		for _, strg := range storages {
-			if space > strg.Available {
+			if space <= strg.Available {
 				strg.Available -= space
 				sectorMap[key] = true
+				break
 			}
 		}
 	}
