@@ -30,7 +30,7 @@ func TestNoGPUs(t *testing.T) {
 
 	d.acquireChan <- acquireChan
 	select {
-	case ord = <-acquireChan:
+	case _ = <-acquireChan:
 		t.Fatal("should not have gotten a GPU")
 	case <-time.After(time.Millisecond * 100):
 		// preferred outcome: no additional GPU
@@ -62,10 +62,10 @@ func TestOverprovisionFactor(t *testing.T) {
 	acquireChan := make(chan int)
 
 	expect := []int{0, 1, 2, 0, 1, 2}
-	for i, ord := range expect {
+	for i := range expect {
 		d.acquireChan <- acquireChan
 		select {
-		case ord = <-acquireChan:
+		case ord := <-acquireChan:
 			if ord != expect[i] {
 				t.Fatal("should have gotten GPU", expect[i])
 			}
@@ -96,10 +96,10 @@ func TestWaitList(t *testing.T) {
 
 	acquireChan := make(chan int)
 	expect := []int{0, 1, 2}
-	for i, ord := range expect {
+	for i := range expect {
 		d.acquireChan <- acquireChan
 		select {
-		case ord = <-acquireChan:
+		case ord := <-acquireChan:
 			if ord != expect[i] {
 				t.Fatal("should have gotten GPU", expect[i])
 			}
