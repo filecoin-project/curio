@@ -853,7 +853,6 @@ const docTemplate = `{
         },
         "github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId": {
             "type": "integer",
-            "format": "int64",
             "enum": [
                 0
             ],
