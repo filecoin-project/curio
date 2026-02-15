@@ -169,4 +169,32 @@ CREATE TABLE IF NOT EXISTS rseal_provider_pipeline (
 ALTER TABLE batch_sector_refs DROP CONSTRAINT IF EXISTS batch_sector_refs_sp_id_sector_number_fkey;
 ALTER TABLE batch_sector_refs ADD COLUMN IF NOT EXISTS pipeline_source TEXT NOT NULL DEFAULT 'local';
 -- pipeline_source: 'local' = sectors_sdr_pipeline, 'remote' = rseal_provider_pipeline
--- TODO: add a ref check on batch_sector_refs + trigger to ensure cascading delete from rseal_provider_pipeline and sectors_sdr_pipeline
+
+-- Cascade-delete triggers: when a pipeline row is deleted, clean up its batch_sector_refs.
+-- This replaces the dropped FK with conditional logic based on pipeline_source.
+
+CREATE OR REPLACE FUNCTION cascade_delete_batch_refs_local() RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM batch_sector_refs
+    WHERE sp_id = OLD.sp_id AND sector_number = OLD.sector_number AND pipeline_source = 'local';
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_cascade_batch_refs_local ON sectors_sdr_pipeline;
+CREATE TRIGGER trg_cascade_batch_refs_local
+    BEFORE DELETE ON sectors_sdr_pipeline
+    FOR EACH ROW EXECUTE FUNCTION cascade_delete_batch_refs_local();
+
+CREATE OR REPLACE FUNCTION cascade_delete_batch_refs_remote() RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM batch_sector_refs
+    WHERE sp_id = OLD.sp_id AND sector_number = OLD.sector_number AND pipeline_source = 'remote';
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_cascade_batch_refs_remote ON rseal_provider_pipeline;
+CREATE TRIGGER trg_cascade_batch_refs_remote
+    BEFORE DELETE ON rseal_provider_pipeline
+    FOR EACH ROW EXECUTE FUNCTION cascade_delete_batch_refs_remote();
