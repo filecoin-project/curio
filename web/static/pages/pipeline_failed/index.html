@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Curio Failed Sectors</title>
+        <script src="https://unpkg.com/htmx.org@1.9.5" integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO" crossorigin="anonymous"></script>
+        <script type="module" src="/ux/curio-ux.mjs"></script>
+        <script type="module" src="/ux/components/Drawer.mjs"></script>
+        <script type="module" src="/chain-connectivity.mjs"></script>
+        <script type="module" src="pipeline-failed.mjs"></script>
+        <link rel="stylesheet" href="/ux/main.css">
+    </head>
+    <body style="visibility: hidden">
+        <curio-ux>
+            <div class="page" style="margin-left: 20px; margin-right: 10px">
+                <div class="app-head">
+                    <div class="head-left">
+                        <h1>Failed Sectors</h1>
+                    </div>
+                    <hr/>
+                </div>
+                <div class="row">
+                    <div class="row-md-auto" style="width: 100%">
+                        <div class="info-block">
+                            <pipeline-failed-sectors></pipeline-failed-sectors>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </curio-ux>
+    </body>
+</html>
