@@ -142,7 +142,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			ret += fmt.Sprintf("Balance for wallet %s (%s) is below 5 Fil. ", addr, keyAddr)
+			ret += fmt.Sprintf("Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
 	if ret != "" {
