@@ -217,7 +217,7 @@ func taskFailureCheck(al *alerts) {
 	}
 
 	// Alert if a machine failed more than 5 tasks
-	for name, count := range tmap {
+	for name, count := range mmap {
 		if count > 5 {
 			al.alertMap[Name].alertString += fmt.Sprintf("Machine: %s, Failures: %d. ", name, count)
 		}
