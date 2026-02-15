@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -39,15 +41,15 @@ func TestMain(m *testing.M) {
 				"9042/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "9042"}},
 			}
 		}),
-		// Remove YSQL_PASSWORD so YugabyteDB uses trust authentication
-		// (same as the default `docker run` in CI). The testcontainers
-		// YugabyteDB module sets YSQL_PASSWORD=yugabyte by default which
-		// enables md5 auth, but harmonyquery's ensureSchemaExists has a
-		// bug where it sends a masked password in the connection string.
+		// Strip all YSQL_*/YCQL_* env vars so YugabyteDB starts with
+		// default trust authentication (no passwords, same as the bare
+		// `docker run` used in CI). The testcontainers YugabyteDB module
+		// sets user/password env vars by default, which causes yugabyted
+		// to enable md5 auth (YSQL) and PasswordAuthenticator (YCQL).
 		testcontainers.WithConfigModifier(func(cfg *container.Config) {
 			filtered := cfg.Env[:0]
 			for _, e := range cfg.Env {
-				if e != "YSQL_PASSWORD=yugabyte" {
+				if !strings.HasPrefix(e, "YSQL_") && !strings.HasPrefix(e, "YCQL_") {
 					filtered = append(filtered, e)
 				}
 			}

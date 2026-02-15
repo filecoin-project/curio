@@ -126,7 +126,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 
 	// Start provider instance first so we can discover its HTTP address.
 	t.Log("Starting provider instance...")
-	providerAPI, providerTerm, providerCloser, providerFinish, providerDeps := ConstructCurioTest(ctx, t, providerDir, db, idxStore, full, maddr, &providerCfg)
+	_, providerTerm, providerCloser, _, providerDeps := ConstructCurioTest(ctx, t, providerDir, db, idxStore, full, maddr, &providerCfg)
 	defer providerTerm()
 	defer providerCloser()
 
@@ -136,7 +136,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 
 	// Start client instance.
 	t.Log("Starting client instance...")
-	clientAPI, clientTerm, clientCloser, clientFinish, clientDeps := ConstructCurioTest(ctx, t, clientDir, db, idxStore, full, maddr, &clientCfg)
+	_, clientTerm, clientCloser, _, clientDeps := ConstructCurioTest(ctx, t, clientDir, db, idxStore, full, maddr, &clientCfg)
 	defer clientTerm()
 	defer clientCloser()
 
@@ -329,9 +329,5 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	}, 15*time.Minute, 2*time.Second, "remote seal pipeline did not complete in 15 minutes")
 
 	t.Log("Remote seal pipeline completed successfully!")
-
-	_ = providerAPI.Shutdown(ctx)
-	_ = clientAPI.Shutdown(ctx)
-	<-providerFinish
-	<-clientFinish
+	// Cleanup is handled by defers: providerTerm/clientTerm + providerCloser/clientCloser
 }
