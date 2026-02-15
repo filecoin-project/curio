@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -450,6 +452,29 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	err = dependencies.PopulateRemainingDeps(ctx, cctx, false)
 	require.NoError(t, err)
 
+	// Register storage BEFORE starting tasks to avoid a race where the task
+	// engine picks up sectors before any storage path is known (causes
+	// "storage claim failed" for SyntheticProofs and similar tasks).
+	scfg := storiface.LocalStorageMeta{
+		ID:         storiface.ID(uuid.New().String()),
+		Weight:     10,
+		CanSeal:    true,
+		CanStore:   true,
+		MaxStorage: 0,
+		Groups:     []string{},
+		AllowTo:    []string{},
+	}
+
+	{
+		b, serr := json.MarshalIndent(scfg, "", "  ")
+		require.NoError(t, serr)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "sectorstore.json"), b, 0644))
+	}
+	require.NoError(t, dependencies.LocalStore.OpenPath(ctx, dir))
+	require.NoError(t, dependencies.LocalPaths.SetStorage(func(sc *storiface.StorageConfig) {
+		sc.StoragePaths = append(sc.StoragePaths, storiface.LocalPath{Path: dir})
+	}))
+
 	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 	require.NoError(t, err)
 
@@ -493,22 +518,6 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	require.NoError(t, err)
 
 	capi, ccloser, err := rpc.GetCurioAPI(&cli.Context{})
-	require.NoError(t, err)
-
-	scfg := storiface.LocalStorageMeta{
-		ID:         storiface.ID(uuid.New().String()),
-		Weight:     10,
-		CanSeal:    true,
-		CanStore:   true,
-		MaxStorage: 0,
-		Groups:     []string{},
-		AllowTo:    []string{},
-	}
-
-	err = capi.StorageInit(ctx, dir, scfg)
-	require.NoError(t, err)
-
-	err = capi.StorageAddLocal(ctx, dir)
 	require.NoError(t, err)
 
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
