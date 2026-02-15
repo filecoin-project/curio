@@ -127,17 +127,6 @@ func (c *RSealClient) GetStatus(ctx context.Context, providerURL, token string, 
 	return &resp, nil
 }
 
-// SendCommit1 sends the C1 seed to the provider and receives C1 output.
-// POST /remoteseal/delegated/v0/commit1
-func (c *RSealClient) SendCommit1(ctx context.Context, providerURL, token string, req *sealmarket.Commit1Request) (*sealmarket.Commit1Response, error) {
-	req.PartnerToken = token
-	var resp sealmarket.Commit1Response
-	if err := c.doPost(ctx, endpoint(providerURL, "commit1"), req, &resp); err != nil {
-		return nil, xerrors.Errorf("sending commit1: %w", err)
-	}
-	return &resp, nil
-}
-
 // SendFinalize tells the provider that layers can be dropped.
 // POST /remoteseal/delegated/v0/finalize
 func (c *RSealClient) SendFinalize(ctx context.Context, providerURL, token string, req *sealmarket.FinalizeRequest) error {

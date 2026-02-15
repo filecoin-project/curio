@@ -2,10 +2,12 @@ package remoteseal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -17,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	ffi "github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/tarutil"
 	"github.com/filecoin-project/curio/market/sealmarket"
@@ -112,6 +115,22 @@ func (f *RSealClientFetch) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		sector.SpID, sector.SectorNumber, sealedPaths.Cache)
 	if err != nil {
 		return false, xerrors.Errorf("fetching cache data: %w", err)
+	}
+
+	// Write c1.url file in cache dir so that GeneratePoRepVanillaProof can fetch
+	// C1 output from the remote provider when the PoRep task runs.
+	c1Info := paths.RemoteSealC1Info{
+		C1URL:        fmt.Sprintf("%s%scommit1", sector.ProviderURL, sealmarket.DelegatedSealPath),
+		PartnerToken: sector.ProviderToken,
+		SpID:         sector.SpID,
+		SectorNumber: sector.SectorNumber,
+	}
+	c1InfoJSON, err := json.Marshal(c1Info)
+	if err != nil {
+		return false, xerrors.Errorf("marshaling c1 url info: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(sealedPaths.Cache, paths.RemoteSealC1UrlFile), c1InfoJSON, 0644); err != nil {
+		return false, xerrors.Errorf("writing c1.url file: %w", err)
 	}
 
 	if !stillOwned() {

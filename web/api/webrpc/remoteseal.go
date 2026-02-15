@@ -68,7 +68,6 @@ type RSealClientPipelineRow struct {
 	AfterTreeC      bool   `db:"after_tree_c" json:"after_tree_c"`
 	AfterTreeR      bool   `db:"after_tree_r" json:"after_tree_r"`
 	AfterFetch      bool   `db:"after_fetch" json:"after_fetch"`
-	AfterC1Exchange bool   `db:"after_c1_exchange" json:"after_c1_exchange"`
 	AfterCleanup    bool   `db:"after_cleanup" json:"after_cleanup"`
 	Failed          bool   `db:"failed" json:"failed"`
 	FailedReasonMsg string `db:"failed_reason_msg" json:"failed_reason_msg"`
@@ -264,7 +263,7 @@ func (a *WebRPC) RSealClientPipeline(ctx context.Context) ([]RSealClientPipeline
 	var rows []RSealClientPipelineRow
 	err := a.deps.DB.Select(ctx, &rows, `SELECT c.sp_id, c.sector_number, COALESCE(p.provider_name, p.provider_url) AS provider_name,
 		c.after_sdr, c.after_tree_d, c.after_tree_c, c.after_tree_r,
-		c.after_fetch, c.after_c1_exchange, c.after_cleanup,
+		c.after_fetch, c.after_cleanup,
 		c.failed, c.failed_reason_msg, c.create_time
 		FROM rseal_client_pipeline c
 		JOIN rseal_client_providers p ON c.provider_id = p.id

@@ -554,10 +554,9 @@ func addSealingTasks(
 		delegateTask := remoteseal.NewRSealDelegate(db, rsealClient)
 		pollTask := remoteseal.NewRSealClientPoll(db, rsealClient, clientPoller)
 		fetchTask := remoteseal.NewRSealClientFetch(db, rsealClient, slr, clientPoller)
-		c1Task := remoteseal.NewRSealClientC1Exchange(db, rsealClient, clientPoller)
 		cleanupTask := remoteseal.NewRSealClientCleanup(db, rsealClient, clientPoller)
 
-		activeTasks = append(activeTasks, delegateTask, pollTask, fetchTask, c1Task, cleanupTask)
+		activeTasks = append(activeTasks, delegateTask, pollTask, fetchTask, cleanupTask)
 	}
 
 	// harmony treats the first task as highest priority, so reverse the order

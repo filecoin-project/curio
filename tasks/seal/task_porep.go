@@ -78,16 +78,6 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 	sectorParams := sectorParamsArr[0]
 
-	// Check if this is a remote-sealed sector with pre-computed C1 output
-	var remoteC1 []struct {
-		C1Output []byte `db:"c1_output"`
-	}
-	err = p.db.Select(ctx, &remoteC1, `SELECT c1_output FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2 AND after_c1_exchange = TRUE AND c1_output IS NOT NULL`,
-		sectorParams.SpID, sectorParams.SectorNumber)
-	if err != nil {
-		return false, xerrors.Errorf("checking for remote C1 output: %w", err)
-	}
-
 	sealed, err := cid.Parse(sectorParams.SealedCID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse sealed cid: %w", err)
@@ -127,15 +117,9 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// COMPUTE THE PROOF!
-
-	var proof []byte
-	if len(remoteC1) == 1 && len(remoteC1[0].C1Output) > 0 {
-		// Remote-sealed sector: use pre-computed C1 output, run only C2
-		proof, err = p.sc.PoRepSnarkWithVanilla(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand), remoteC1[0].C1Output)
-	} else {
-		// Locally-sealed sector: normal C1+C2 path
-		proof, err = p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
-	}
+	// GeneratePoRepVanillaProof (called by PoRepSnark) handles remote-sealed
+	// sectors transparently via the c1.url file in the cache directory.
+	proof, err := p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
 	if err != nil {
 		//end, rerr := p.recoverErrors(ctx, sectorParams.SpID, sectorParams.SectorNumber, err)
 		//if rerr != nil {

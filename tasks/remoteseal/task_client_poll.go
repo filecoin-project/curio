@@ -36,6 +36,8 @@ func NewRSealClientPoll(db *harmonydb.DB, client *RSealClient, sp *RSealClientPo
 func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
+	const pollInterval = 30 * time.Second
+
 	// Find the sector assigned to this poll task
 	var sectors []struct {
 		SpID          int64  `db:"sp_id"`
@@ -59,64 +61,79 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	}
 	sector := sectors[0]
 
-	// Poll the provider for status
-	statusResp, err := p.client.GetStatus(ctx, sector.ProviderURL, sector.ProviderToken, &sealmarket.StatusRequest{
-		SpID:         sector.SpID,
-		SectorNumber: sector.SectorNumber,
-	})
-	if err != nil {
-		return false, xerrors.Errorf("polling provider status: %w", err)
-	}
-
-	switch statusResp.State {
-	case "complete":
-		// Provider is done with SDR+trees. Apply the completion.
-		if err := applyRemoteCompletion(ctx, p.db, sector.SpID, sector.SectorNumber,
-			statusResp.TreeDCid, statusResp.TreeRCid); err != nil {
-			return false, xerrors.Errorf("applying remote completion: %w", err)
-		}
-
-		log.Infow("remote seal poll: sector completed",
-			"sp_id", sector.SpID, "sector", sector.SectorNumber,
-			"tree_d_cid", statusResp.TreeDCid, "tree_r_cid", statusResp.TreeRCid)
-
-		return true, nil
-
-	case "failed":
-		// Provider reports failure - mark the client pipeline as failed
-		_, err := p.db.Exec(ctx, `
-			UPDATE rseal_client_pipeline
-			SET failed = TRUE, failed_at = NOW(), failed_reason = 'provider', failed_reason_msg = $3,
-			    task_id_sdr = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			sector.SpID, sector.SectorNumber, statusResp.FailReason)
+	// Poll the provider in a loop until completion, failure, or ownership loss
+	for {
+		statusResp, err := p.client.GetStatus(ctx, sector.ProviderURL, sector.ProviderToken, &sealmarket.StatusRequest{
+			SpID:         sector.SpID,
+			SectorNumber: sector.SectorNumber,
+		})
 		if err != nil {
-			return false, xerrors.Errorf("marking sector failed: %w", err)
+			// HTTP error - log and retry within the loop after a sleep
+			log.Warnw("remote seal poll: error polling provider, will retry",
+				"sp_id", sector.SpID, "sector", sector.SectorNumber, "error", err)
+
+			time.Sleep(pollInterval)
+
+			if !stillOwned() {
+				return false, xerrors.Errorf("yield")
+			}
+			continue
 		}
 
-		// Also clear the task_ids in sectors_sdr_pipeline so it can be retried
-		_, err = p.db.Exec(ctx, `
-			UPDATE sectors_sdr_pipeline
-			SET task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			sector.SpID, sector.SectorNumber)
-		if err != nil {
-			return false, xerrors.Errorf("clearing sector task ids: %w", err)
+		switch statusResp.State {
+		case "complete":
+			// Provider is done with SDR+trees. Apply the completion.
+			if err := applyRemoteCompletion(ctx, p.db, sector.SpID, sector.SectorNumber,
+				statusResp.TreeDCid, statusResp.TreeRCid); err != nil {
+				return false, xerrors.Errorf("applying remote completion: %w", err)
+			}
+
+			log.Infow("remote seal poll: sector completed",
+				"sp_id", sector.SpID, "sector", sector.SectorNumber,
+				"tree_d_cid", statusResp.TreeDCid, "tree_r_cid", statusResp.TreeRCid)
+
+			return true, nil
+
+		case "failed":
+			// Provider reports failure - mark the client pipeline as failed
+			_, err := p.db.Exec(ctx, `
+				UPDATE rseal_client_pipeline
+				SET failed = TRUE, failed_at = NOW(), failed_reason = 'provider', failed_reason_msg = $3,
+				    task_id_sdr = NULL
+				WHERE sp_id = $1 AND sector_number = $2`,
+				sector.SpID, sector.SectorNumber, statusResp.FailReason)
+			if err != nil {
+				return false, xerrors.Errorf("marking sector failed: %w", err)
+			}
+
+			// Also clear the task_ids in sectors_sdr_pipeline so it can be retried
+			_, err = p.db.Exec(ctx, `
+				UPDATE sectors_sdr_pipeline
+				SET task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
+				WHERE sp_id = $1 AND sector_number = $2`,
+				sector.SpID, sector.SectorNumber)
+			if err != nil {
+				return false, xerrors.Errorf("clearing sector task ids: %w", err)
+			}
+
+			log.Warnw("remote seal poll: sector failed on provider",
+				"sp_id", sector.SpID, "sector", sector.SectorNumber,
+				"reason", statusResp.FailReason)
+
+			return true, nil
+
+		default:
+			// Still in progress (pending, sdr, trees) - sleep and poll again
+			log.Debugw("remote seal poll: sector still in progress",
+				"sp_id", sector.SpID, "sector", sector.SectorNumber,
+				"state", statusResp.State)
+
+			time.Sleep(pollInterval)
+
+			if !stillOwned() {
+				return false, xerrors.Errorf("yield")
+			}
 		}
-
-		log.Warnw("remote seal poll: sector failed on provider",
-			"sp_id", sector.SpID, "sector", sector.SectorNumber,
-			"reason", statusResp.FailReason)
-
-		return true, nil
-
-	default:
-		// Still in progress (pending, sdr, trees) - retry later
-		log.Debugw("remote seal poll: sector still in progress",
-			"sp_id", sector.SpID, "sector", sector.SectorNumber,
-			"state", statusResp.State)
-
-		return false, nil
 	}
 }
 
@@ -184,14 +201,15 @@ func (p *RSealClientPoll) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Tas
 
 func (p *RSealClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "RSealClientPoll",
+		Name:     "RSealClientPoll",
+		CanYield: true,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
 			Ram: 16 << 20, // 16 MiB - just HTTP calls
 		},
-		MaxFailures: 1000,
-		RetryWait:   taskhelp.RetryWaitLinear(5*time.Minute, 0),
+		MaxFailures: 10,
+		RetryWait:   taskhelp.RetryWaitLinear(30*time.Second, 0),
 	}
 }
 

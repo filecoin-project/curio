@@ -17,6 +17,10 @@ import (
 
 // RSealDelegate intercepts sectors before normal SDR processing and delegates
 // them to remote providers. Uses the IAmBored pattern like SupraSeal's schedule().
+//
+// The schedule() callback only does fast DB operations to claim sectors.
+// The expensive HTTP dance (CheckAvailable + SendOrder) happens in Do() so
+// the scheduling loop is not blocked.
 type RSealDelegate struct {
 	db     *harmonydb.DB
 	client *RSealClient
@@ -42,26 +46,32 @@ type candidateSector struct {
 }
 
 // schedule is the IAmBored callback. It finds unclaimed sectors that have enabled
-// providers, checks availability with each provider, and if an order is accepted,
-// atomically claims the sector in both rseal_client_pipeline and sectors_sdr_pipeline.
+// providers and atomically claims them in the DB. No HTTP calls happen here —
+// the expensive provider interaction is deferred to Do().
 func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Step 1: Find sectors ready for SDR that are not yet claimed by any task and
-	// have no existing rseal_client_pipeline entry.
-	var sectors []candidateSector
+	// Find sectors ready for SDR that are not yet claimed by any task and
+	// have no existing rseal_client_pipeline entry, but DO have an enabled provider.
+	var sectors []struct {
+		SpID         int64 `db:"sp_id"`
+		SectorNumber int64 `db:"sector_number"`
+		RegSealProof int   `db:"reg_seal_proof"`
+		ProviderID   int64 `db:"provider_id"`
+	}
 	err := d.db.Select(ctx, &sectors, `
-		SELECT sp_id, sector_number, reg_seal_proof
-		FROM sectors_sdr_pipeline
-		WHERE after_sdr = FALSE
-		  AND task_id_sdr IS NULL
+		SELECT s.sp_id, s.sector_number, s.reg_seal_proof, p.id AS provider_id
+		FROM sectors_sdr_pipeline s
+		JOIN rseal_client_providers p ON p.sp_id = s.sp_id AND p.enabled = TRUE
+		WHERE s.after_sdr = FALSE
+		  AND s.task_id_sdr IS NULL
 		  AND NOT EXISTS (
 			SELECT 1 FROM rseal_client_pipeline c
-			WHERE c.sp_id = sectors_sdr_pipeline.sp_id
-			  AND c.sector_number = sectors_sdr_pipeline.sector_number
+			WHERE c.sp_id = s.sp_id
+			  AND c.sector_number = s.sector_number
 		  )
-		LIMIT 10`)
+		LIMIT 1`)
 	if err != nil {
 		return xerrors.Errorf("finding candidate sectors: %w", err)
 	}
@@ -70,125 +80,114 @@ func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 		return nil
 	}
 
-	// Step 2: For each sector, try to find an available provider and delegate.
-	for _, sector := range sectors {
-		var providers []availableProvider
-		err := d.db.Select(ctx, &providers, `
-			SELECT id, provider_url, provider_token
-			FROM rseal_client_providers
-			WHERE sp_id = $1 AND enabled = TRUE`, sector.SpID)
+	sector := sectors[0]
+
+	// Atomically claim the sector in the DB. Do() will handle the HTTP calls.
+	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
+		// Insert into rseal_client_pipeline
+		n, err := tx.Exec(`
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
+			sector.SpID, sector.SectorNumber, sector.ProviderID, sector.RegSealProof)
 		if err != nil {
-			log.Errorw("failed to query providers", "sp_id", sector.SpID, "error", err)
-			continue
+			return false, xerrors.Errorf("inserting rseal_client_pipeline: %w", err)
+		}
+		if n == 0 {
+			return false, nil // already claimed
 		}
 
-		if len(providers) == 0 {
-			continue
+		// Claim the sector in sectors_sdr_pipeline by setting all SDR/tree task_ids
+		// to this task's ID. This prevents the local SDR poller from assigning tasks.
+		n, err = tx.Exec(`
+			UPDATE sectors_sdr_pipeline
+			SET task_id_sdr = $1, task_id_tree_d = $1, task_id_tree_c = $1, task_id_tree_r = $1
+			WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL`,
+			id, sector.SpID, sector.SectorNumber)
+		if err != nil {
+			return false, xerrors.Errorf("claiming sector in sdr_pipeline: %w", err)
+		}
+		if n != 1 {
+			return false, nil // someone else claimed it
 		}
 
-		// Try each provider for this sector
-		delegated := false
-		for _, prov := range providers {
-			if delegated {
-				break
-			}
-
-			// Check availability (HTTP call, outside transaction)
-			availCtx, availCancel := context.WithTimeout(ctx, 5*time.Second)
-			availResp, err := d.client.CheckAvailable(availCtx, prov.URL, prov.Token)
-			availCancel()
-			if err != nil {
-				log.Warnw("provider availability check failed", "provider", prov.URL, "error", err)
-				continue
-			}
-			if !availResp.Available {
-				continue
-			}
-
-			slotToken := availResp.SlotToken
-
-			// Send order (HTTP call, outside transaction - idempotent)
-			orderResp, err := d.client.SendOrder(ctx, prov.URL, prov.Token, &sealmarket.OrderRequest{
-				SlotToken:    slotToken,
-				SpID:         sector.SpID,
-				SectorNumber: sector.SectorNumber,
-				RegSealProof: sector.RegSealProof,
-			})
-			if err != nil {
-				log.Warnw("provider order failed", "provider", prov.URL, "error", err)
-				continue
-			}
-			if !orderResp.Accepted {
-				log.Infow("provider rejected order", "provider", prov.URL, "reason", orderResp.RejectReason,
-					"sp_id", sector.SpID, "sector", sector.SectorNumber)
-				continue
-			}
-
-			// Step 3: Order accepted - atomically claim the sector.
-			provID := prov.ID
-			sectorCopy := sector
-			taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-				// Insert into rseal_client_pipeline
-				n, err := tx.Exec(`
-					INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof)
-					VALUES ($1, $2, $3, $4)
-					ON CONFLICT (sp_id, sector_number) DO NOTHING`,
-					sectorCopy.SpID, sectorCopy.SectorNumber, provID, sectorCopy.RegSealProof)
-				if err != nil {
-					return false, xerrors.Errorf("inserting rseal_client_pipeline: %w", err)
-				}
-				if n == 0 {
-					// Already exists - someone else claimed it
-					return false, nil
-				}
-
-				// Claim the sector in sectors_sdr_pipeline by setting all SDR/tree task_ids
-				// to this task's ID. This prevents the local SDR poller from assigning tasks.
-				n, err = tx.Exec(`
-					UPDATE sectors_sdr_pipeline
-					SET task_id_sdr = $1, task_id_tree_d = $1, task_id_tree_c = $1, task_id_tree_r = $1
-					WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL`,
-					id, sectorCopy.SpID, sectorCopy.SectorNumber)
-				if err != nil {
-					return false, xerrors.Errorf("claiming sector in sdr_pipeline: %w", err)
-				}
-				if n != 1 {
-					// Someone else claimed it in sectors_sdr_pipeline
-					return false, nil
-				}
-
-				return true, nil
-			})
-
-			delegated = true
-			log.Infow("delegated sector to remote provider",
-				"sp_id", sector.SpID,
-				"sector", sector.SectorNumber,
-				"provider", prov.URL)
-		}
-	}
+		return true, nil
+	})
 
 	return nil
 }
 
 func (d *RSealDelegate) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	// The RSealDelegate task has no Do work. All work happens in the IAmBored/schedule
-	// callback which creates the task atomically. Once the task is created (order sent,
-	// pipeline entries made), it completes immediately.
-	//
-	// The task_id set in sectors_sdr_pipeline will be cleaned up by harmonytask when
-	// this task completes (task is deleted from harmony_task). The complete notification
-	// from the provider (or the poll task) will set after_sdr=TRUE and clear task_ids.
+	ctx := context.Background()
 
-	// However, the task can actually be scheduled - that means the taskFunc callback
-	// returned true and the task was created. At this point, the delegation is done.
+	// Read the claimed sector and provider info
+	var sectors []struct {
+		SpID          int64  `db:"sp_id"`
+		SectorNumber  int64  `db:"sector_number"`
+		RegSealProof  int    `db:"reg_seal_proof"`
+		ProviderURL   string `db:"provider_url"`
+		ProviderToken string `db:"provider_token"`
+	}
 
-	// When this task completes, harmonytask deletes the task entry from harmony_task.
-	// sectors_sdr_pipeline still has our old task_id values set in task_id_sdr etc.
-	// The SDR poller sees task_id_sdr is non-null so it won't re-assign.
-	// The /complete callback or RSealClientPoll will eventually set after_* = TRUE
-	// and clear the task_ids.
+	err = d.db.Select(ctx, &sectors, `
+		SELECT c.sp_id, c.sector_number, c.reg_seal_proof,
+		       p.provider_url, p.provider_token
+		FROM rseal_client_pipeline c
+		JOIN rseal_client_providers p ON c.provider_id = p.id
+		WHERE c.task_id_sdr = $1`, taskID)
+	if err != nil {
+		return false, xerrors.Errorf("querying sector for delegate task: %w", err)
+	}
 
+	if len(sectors) != 1 {
+		return false, xerrors.Errorf("expected 1 sector for delegate task, got %d", len(sectors))
+	}
+	sector := sectors[0]
+
+	// Check provider availability
+	availCtx, availCancel := context.WithTimeout(ctx, 10*time.Second)
+	availResp, err := d.client.CheckAvailable(availCtx, sector.ProviderURL, sector.ProviderToken)
+	availCancel()
+	if err != nil {
+		return false, xerrors.Errorf("checking provider availability: %w", err)
+	}
+
+	if !availResp.Available {
+		// Provider not available right now — retry later
+		return false, xerrors.Errorf("provider %s not available", sector.ProviderURL)
+	}
+
+	// Send order to provider
+	orderResp, err := d.client.SendOrder(ctx, sector.ProviderURL, sector.ProviderToken, &sealmarket.OrderRequest{
+		SlotToken:    availResp.SlotToken,
+		SpID:         sector.SpID,
+		SectorNumber: sector.SectorNumber,
+		RegSealProof: sector.RegSealProof,
+	})
+	if err != nil {
+		return false, xerrors.Errorf("sending order to provider: %w", err)
+	}
+
+	if !orderResp.Accepted {
+		// Provider rejected the order — fail permanently so the sector can be
+		// re-assigned (the poller will clear task_id_sdr on failure)
+		log.Warnw("provider rejected order",
+			"provider", sector.ProviderURL,
+			"reason", orderResp.RejectReason,
+			"sp_id", sector.SpID,
+			"sector", sector.SectorNumber)
+		return false, xerrors.Errorf("provider rejected order: %s", orderResp.RejectReason)
+	}
+
+	log.Infow("delegated sector to remote provider",
+		"sp_id", sector.SpID,
+		"sector", sector.SectorNumber,
+		"provider", sector.ProviderURL)
+
+	// Order accepted. Task completes — the RSealClientPoll task will take over
+	// to monitor progress. The task_id_sdr in rseal_client_pipeline will become
+	// stale when harmonytask deletes this task entry, allowing the poller to
+	// create poll tasks.
 	return true, nil
 }
 

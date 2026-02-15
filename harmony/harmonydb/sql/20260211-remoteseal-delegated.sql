@@ -85,13 +85,6 @@ CREATE TABLE IF NOT EXISTS rseal_client_pipeline (
     task_id_fetch bigint,
     after_fetch bool not null default false,
 
-    -- C1 exchange: after precommit lands on chain and seed is available,
-    -- supply seed to the remote provider and receive C1 output back.
-    -- The C1 output (vanilla proofs) is used by the porep (C2) task.
-    task_id_c1_exchange bigint,
-    after_c1_exchange bool not null default false,
-    c1_output bytea, -- serialized SealCommit1Output / vanilla proofs (~192 KiB)
-
     -- Provider cleanup: after PoRep/finalize, request the provider to
     -- release sealed sector data (layers, trees) on its side.
     task_id_cleanup bigint,
