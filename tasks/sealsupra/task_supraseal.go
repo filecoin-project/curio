@@ -265,12 +265,12 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	ctx := context.Background()
 
 	var sectors []struct {
-		SpID         int64          `db:"sp_id"`
-		SectorNumber int64          `db:"sector_number"`
-		RegSealProof int64          `db:"reg_seal_proof"`
-		Pipeline     string         `db:"pipeline"`
-		TicketEpoch  sql.NullInt64  `db:"ticket_epoch"`
-		TicketValue  []byte         `db:"ticket_value"`
+		SpID         int64         `db:"sp_id"`
+		SectorNumber int64         `db:"sector_number"`
+		RegSealProof int64         `db:"reg_seal_proof"`
+		Pipeline     string        `db:"pipeline"`
+		TicketEpoch  sql.NullInt64 `db:"ticket_epoch"`
+		TicketValue  []byte        `db:"ticket_value"`
 	}
 
 	err = s.db.Select(ctx, &sectors, `

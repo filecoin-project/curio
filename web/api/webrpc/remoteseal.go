@@ -43,16 +43,16 @@ type RSealProvPipelineRow struct {
 	SectorNumber int64  `db:"sector_number" json:"sector_number"`
 	PartnerName  string `db:"partner_name" json:"partner_name"`
 
-	AfterSDR         bool `db:"after_sdr" json:"after_sdr"`
-	AfterTreeD       bool `db:"after_tree_d" json:"after_tree_d"`
-	AfterTreeC       bool `db:"after_tree_c" json:"after_tree_c"`
-	AfterTreeR       bool `db:"after_tree_r" json:"after_tree_r"`
-	AfterNotify      bool `db:"after_notify_client" json:"after_notify_client"`
-	AfterC1          bool `db:"after_c1_supplied" json:"after_c1_supplied"`
-	AfterFinalize    bool `db:"after_finalize" json:"after_finalize"`
-	AfterCleanup     bool `db:"after_cleanup" json:"after_cleanup"`
-	Failed           bool `db:"failed" json:"failed"`
-	FailedReasonMsg  string `db:"failed_reason_msg" json:"failed_reason_msg"`
+	AfterSDR        bool   `db:"after_sdr" json:"after_sdr"`
+	AfterTreeD      bool   `db:"after_tree_d" json:"after_tree_d"`
+	AfterTreeC      bool   `db:"after_tree_c" json:"after_tree_c"`
+	AfterTreeR      bool   `db:"after_tree_r" json:"after_tree_r"`
+	AfterNotify     bool   `db:"after_notify_client" json:"after_notify_client"`
+	AfterC1         bool   `db:"after_c1_supplied" json:"after_c1_supplied"`
+	AfterFinalize   bool   `db:"after_finalize" json:"after_finalize"`
+	AfterCleanup    bool   `db:"after_cleanup" json:"after_cleanup"`
+	Failed          bool   `db:"failed" json:"failed"`
+	FailedReasonMsg string `db:"failed_reason_msg" json:"failed_reason_msg"`
 
 	CreateTime time.Time `db:"create_time" json:"create_time"`
 }
@@ -63,14 +63,14 @@ type RSealClientPipelineRow struct {
 	SectorNumber int64  `db:"sector_number" json:"sector_number"`
 	ProviderName string `db:"provider_name" json:"provider_name"`
 
-	AfterSDR        bool `db:"after_sdr" json:"after_sdr"`
-	AfterTreeD      bool `db:"after_tree_d" json:"after_tree_d"`
-	AfterTreeC      bool `db:"after_tree_c" json:"after_tree_c"`
-	AfterTreeR      bool `db:"after_tree_r" json:"after_tree_r"`
-	AfterFetch      bool `db:"after_fetch" json:"after_fetch"`
-	AfterC1Exchange bool `db:"after_c1_exchange" json:"after_c1_exchange"`
-	AfterCleanup    bool `db:"after_cleanup" json:"after_cleanup"`
-	Failed          bool `db:"failed" json:"failed"`
+	AfterSDR        bool   `db:"after_sdr" json:"after_sdr"`
+	AfterTreeD      bool   `db:"after_tree_d" json:"after_tree_d"`
+	AfterTreeC      bool   `db:"after_tree_c" json:"after_tree_c"`
+	AfterTreeR      bool   `db:"after_tree_r" json:"after_tree_r"`
+	AfterFetch      bool   `db:"after_fetch" json:"after_fetch"`
+	AfterC1Exchange bool   `db:"after_c1_exchange" json:"after_c1_exchange"`
+	AfterCleanup    bool   `db:"after_cleanup" json:"after_cleanup"`
+	Failed          bool   `db:"failed" json:"failed"`
 	FailedReasonMsg string `db:"failed_reason_msg" json:"failed_reason_msg"`
 
 	CreateTime time.Time `db:"create_time" json:"create_time"`

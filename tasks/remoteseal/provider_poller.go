@@ -40,10 +40,10 @@ func NewProviderPoller(db *harmonydb.DB) *RSealProviderPoller {
 }
 
 type pollProviderTask struct {
-	SpID         int64  `db:"sp_id"`
-	SectorNumber int64  `db:"sector_number"`
-	RegSealProof int    `db:"reg_seal_proof"`
-	PartnerID    int64  `db:"partner_id"`
+	SpID         int64 `db:"sp_id"`
+	SectorNumber int64 `db:"sector_number"`
+	RegSealProof int   `db:"reg_seal_proof"`
+	PartnerID    int64 `db:"partner_id"`
 
 	// ticket
 	TicketEpoch *int64 `db:"ticket_epoch"`

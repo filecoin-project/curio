@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -25,8 +26,6 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/chain/types"
-
-	"github.com/go-chi/chi/v5"
 )
 
 var log = logging.Logger("sealmarket")

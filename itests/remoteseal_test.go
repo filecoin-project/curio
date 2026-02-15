@@ -248,23 +248,23 @@ func TestRemoteSealHappyPath(t *testing.T) {
 
 	// Poll for completion
 	var pollTask []struct {
-		SpID          int64         `db:"sp_id"`
-		SectorNumber  int64         `db:"sector_number"`
-		AfterSDR      bool          `db:"after_sdr"`
-		AfterTreeD    bool          `db:"after_tree_d"`
-		AfterTreeC    bool          `db:"after_tree_c"`
-		AfterTreeR    bool          `db:"after_tree_r"`
-		AfterSynth    bool          `db:"after_synth"`
-		AfterPrecommitMsg        bool `db:"after_precommit_msg"`
-		AfterPrecommitMsgSuccess bool `db:"after_precommit_msg_success"`
-		AfterPoRep    bool          `db:"after_porep"`
-		AfterFinalize bool          `db:"after_finalize"`
-		AfterMoveStorage bool       `db:"after_move_storage"`
-		AfterCommitMsg bool         `db:"after_commit_msg"`
-		AfterCommitMsgSuccess bool  `db:"after_commit_msg_success"`
-		Failed        bool          `db:"failed"`
-		FailedReason  string        `db:"failed_reason"`
-		StartEpoch    sql.NullInt64 `db:"start_epoch"`
+		SpID                     int64         `db:"sp_id"`
+		SectorNumber             int64         `db:"sector_number"`
+		AfterSDR                 bool          `db:"after_sdr"`
+		AfterTreeD               bool          `db:"after_tree_d"`
+		AfterTreeC               bool          `db:"after_tree_c"`
+		AfterTreeR               bool          `db:"after_tree_r"`
+		AfterSynth               bool          `db:"after_synth"`
+		AfterPrecommitMsg        bool          `db:"after_precommit_msg"`
+		AfterPrecommitMsgSuccess bool          `db:"after_precommit_msg_success"`
+		AfterPoRep               bool          `db:"after_porep"`
+		AfterFinalize            bool          `db:"after_finalize"`
+		AfterMoveStorage         bool          `db:"after_move_storage"`
+		AfterCommitMsg           bool          `db:"after_commit_msg"`
+		AfterCommitMsgSuccess    bool          `db:"after_commit_msg_success"`
+		Failed                   bool          `db:"failed"`
+		FailedReason             string        `db:"failed_reason"`
+		StartEpoch               sql.NullInt64 `db:"start_epoch"`
 	}
 
 	require.Eventuallyf(t, func() bool {
@@ -293,16 +293,16 @@ func TestRemoteSealHappyPath(t *testing.T) {
 
 		// Also log remote seal pipeline status
 		var provPipeline []struct {
-			SpID         int64  `db:"sp_id"`
-			SectorNumber int64  `db:"sector_number"`
-			AfterSDR     bool   `db:"after_sdr"`
-			AfterTreeR   bool   `db:"after_tree_r"`
-			AfterNotify  bool   `db:"after_notify_client"`
-			AfterC1      bool   `db:"after_c1_supplied"`
-			AfterFinalize bool  `db:"after_finalize"`
-			AfterCleanup bool   `db:"after_cleanup"`
-			Failed       bool   `db:"failed"`
-			FailedMsg    string `db:"failed_reason_msg"`
+			SpID          int64  `db:"sp_id"`
+			SectorNumber  int64  `db:"sector_number"`
+			AfterSDR      bool   `db:"after_sdr"`
+			AfterTreeR    bool   `db:"after_tree_r"`
+			AfterNotify   bool   `db:"after_notify_client"`
+			AfterC1       bool   `db:"after_c1_supplied"`
+			AfterFinalize bool   `db:"after_finalize"`
+			AfterCleanup  bool   `db:"after_cleanup"`
+			Failed        bool   `db:"failed"`
+			FailedMsg     string `db:"failed_reason_msg"`
 		}
 		_ = db.Select(ctx, &provPipeline, `SELECT sp_id, sector_number, after_sdr, after_tree_r, after_notify_client, after_c1_supplied, after_finalize, after_cleanup, failed, failed_reason_msg FROM rseal_provider_pipeline`)
 		for _, pp := range provPipeline {
