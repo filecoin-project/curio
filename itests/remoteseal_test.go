@@ -83,7 +83,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, fapi)
 	require.NoError(t, err)
 
-	// Load base config
+	// Load base config from DB (has miner identity, API secrets, etc.)
 	baseCfg := config.DefaultCurioConfig()
 	var baseText string
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
@@ -94,27 +94,26 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
-	// Provider config: SDR + Trees + Remote Seal Provider + DealMarket (for HTTP)
+	// Provider config: SDR + Trees + Remote Seal Provider + HTTP server
+	// No DealMarket needed - the HTTP server only needs sealmarket routes.
 	providerCfg := *baseCfg
 	providerCfg.Subsystems.EnableSealSDR = true
 	providerCfg.Subsystems.EnableSealSDRTrees = true
 	providerCfg.Subsystems.EnableRemoteSealProvider = true
-	providerCfg.Subsystems.EnableDealMarket = true
+	providerCfg.HTTP.Enable = true
+	providerCfg.HTTP.DelegateTLS = true            // plain HTTP for test (no Let's Encrypt)
+	providerCfg.HTTP.ListenAddress = "127.0.0.1:0" // OS assigns random port
 
-	// Client config: Remote Seal Client + PoRep + commit flow + DealMarket (for HTTP)
+	// Client config: Remote Seal Client + PoRep + commit flow + HTTP server
 	clientCfg := *baseCfg
 	clientCfg.Subsystems.EnableRemoteSealClient = true
 	clientCfg.Subsystems.EnablePoRepProof = true
 	clientCfg.Subsystems.EnableSendPrecommitMsg = true
 	clientCfg.Subsystems.EnableSendCommitMsg = true
 	clientCfg.Subsystems.EnableMoveStorage = true
-	clientCfg.Subsystems.EnableDealMarket = true
-
-	// Save configs
-	cb, err := config.ConfigUpdate(&providerCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, "base", string(cb))
-	require.NoError(t, err)
+	clientCfg.HTTP.Enable = true
+	clientCfg.HTTP.DelegateTLS = true
+	clientCfg.HTTP.ListenAddress = "127.0.0.1:0"
 
 	// Create temp dirs for provider and client
 	providerDir, err := os.MkdirTemp("", "curio-provider-*")
@@ -125,76 +124,57 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(clientDir) }()
 
-	// Start provider instance
+	// Start provider instance first so we can discover its HTTP address.
 	t.Log("Starting provider instance...")
-	providerAPI, providerTerm, providerCloser, providerFinish := ConstructCurioTest(ctx, t, providerDir, db, idxStore, full, maddr, &providerCfg)
+	providerAPI, providerTerm, providerCloser, providerFinish, providerDeps := ConstructCurioTest(ctx, t, providerDir, db, idxStore, full, maddr, &providerCfg)
 	defer providerTerm()
 	defer providerCloser()
 
-	// Wait for provider machine to register
-	time.Sleep(2 * time.Second)
+	providerHTTPAddr := providerDeps.HTTPListenAddr
+	require.NotEmpty(t, providerHTTPAddr, "provider HTTP server should have started")
+	t.Logf("Provider HTTP address: %s", providerHTTPAddr)
 
-	// Now start client instance (uses same DB, different temp dir)
-	// We need a separate DB connection since ConstructCurioTest checks harmony_machines
-	// and we now have the provider in there. Let's update the config for client.
-
-	// Save the client config as a separate layer
-	ccb, err := config.ConfigUpdate(&clientCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, "base", string(ccb))
-	require.NoError(t, err)
-
+	// Start client instance.
 	t.Log("Starting client instance...")
-	clientAPI, clientTerm, clientCloser, clientFinish := ConstructCurioTest(ctx, t, clientDir, db, idxStore, full, maddr, &clientCfg)
+	clientAPI, clientTerm, clientCloser, clientFinish, clientDeps := ConstructCurioTest(ctx, t, clientDir, db, idxStore, full, maddr, &clientCfg)
 	defer clientTerm()
 	defer clientCloser()
 
-	// Wait for both instances to settle
+	clientHTTPAddr := clientDeps.HTTPListenAddr
+	require.NotEmpty(t, clientHTTPAddr, "client HTTP server should have started")
+	t.Logf("Client HTTP address: %s", clientHTTPAddr)
+
+	// Wait for both instances to settle (register with harmony_machines).
 	time.Sleep(3 * time.Second)
 
-	// Get provider's host_and_port from harmony_machines to build the provider URL
-	var machines []struct {
-		HostAndPort string `db:"host_and_port"`
-	}
-	err = db.Select(ctx, &machines, `SELECT host_and_port FROM harmony_machines ORDER BY id`)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(machines), 1, "expected at least 1 machine")
-	t.Logf("Machines registered: %+v", machines)
-
-	// For remote seal, we need the provider's HTTP endpoint.
-	// In test, the HTTP server may not start because DealMarket deps may not be fully wired.
-	// Instead, we'll directly insert the partner/provider DB rows to set up the relationship.
-	// This tests the pipeline tasks without needing the HTTP setup flow.
-
-	// Generate a test token
+	// Generate a shared auth token for the partner/provider relationship.
 	tokenBytes := make([]byte, 32)
 	_, err = rand.Read(tokenBytes)
 	require.NoError(t, err)
 	testToken := hex.EncodeToString(tokenBytes)
 
-	// Insert partner on provider side
+	// Insert partner entry on the provider side.
+	// partner_url points to the CLIENT's HTTP address (provider calls client for ticket/complete).
 	var partnerID int64
+	clientURL := fmt.Sprintf("http://%s", clientHTTPAddr)
 	err = db.QueryRow(ctx, `INSERT INTO rseal_delegated_partners (partner_name, partner_url, partner_token, allowance_remaining, allowance_total)
 		VALUES ($1, $2, $3, $4, $4) RETURNING id`,
-		"test-client", "http://localhost:0", testToken, int64(100)).Scan(&partnerID)
+		"test-client", clientURL, testToken, int64(100)).Scan(&partnerID)
 	require.NoError(t, err)
-	t.Logf("Created partner ID: %d with token: %s", partnerID, testToken[:8]+"...")
+	t.Logf("Created partner ID: %d, partner_url: %s", partnerID, clientURL)
 
-	// Insert provider on client side
+	// Insert provider entry on the client side.
+	// provider_url points to the PROVIDER's HTTP address (client calls provider for status/fetch/c1/cleanup).
 	mid, err := address.IDFromAddress(maddr)
 	require.NoError(t, err)
 
-	// For the client provider entry, we need the provider's HTTP base URL.
-	// Since HTTP servers may not be running in test, use the first machine's host_and_port
-	// as a placeholder - the actual HTTP calls are handled by tasks that poll the DB.
-	providerURL := fmt.Sprintf("http://%s", machines[0].HostAndPort)
-
+	providerURL := fmt.Sprintf("http://%s", providerHTTPAddr)
 	var providerID int64
 	err = db.QueryRow(ctx, `INSERT INTO rseal_client_providers (sp_id, provider_url, provider_token, provider_name)
 		VALUES ($1, $2, $3, $4) RETURNING id`,
 		int64(mid), providerURL, testToken, "test-provider").Scan(&providerID)
 	require.NoError(t, err)
-	t.Logf("Created provider ID: %d", providerID)
+	t.Logf("Created provider ID: %d, provider_url: %s", providerID, providerURL)
 
 	// Get seal proof type
 	mi, err := full.StateMinerInfo(ctx, maddr, types.EmptyTSK)
@@ -205,7 +185,10 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	spt, err := miner2.PreferredSealProofTypeFromWindowPoStType(nv, wpt, true)
 	require.NoError(t, err)
 
-	// Allocate a sector and insert into the pipeline
+	// Allocate a sector and insert into both pipelines.
+	// In the real flow, RSealDelegate does this after calling /available + /order.
+	// For the test we manually insert to skip the delegation HTTP handshake and
+	// directly test the sealing pipeline.
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		nums, err := seal.AllocateSectorNumbers(ctx, full, tx, maddr, 1)
 		if err != nil {
@@ -216,14 +199,14 @@ func TestRemoteSealHappyPath(t *testing.T) {
 		sectorNum := nums[0]
 		t.Logf("Allocated sector number: %d", sectorNum)
 
-		// Insert into sectors_sdr_pipeline
+		// Insert into sectors_sdr_pipeline (client side main pipeline entry)
 		_, err = tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3)`,
 			int64(mid), sectorNum, spt)
 		if err != nil {
 			return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
 		}
 
-		// Insert into rseal_client_pipeline to indicate this sector is remotely sealed
+		// Insert into rseal_client_pipeline (marks sector as remotely sealed)
 		_, err = tx.Exec(`INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof)
 			VALUES ($1, $2, $3, $4)`,
 			int64(mid), sectorNum, providerID, spt)
@@ -231,7 +214,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 			return false, xerrors.Errorf("inserting into rseal_client_pipeline: %w", err)
 		}
 
-		// Also insert into rseal_provider_pipeline so the provider side picks it up
+		// Insert into rseal_provider_pipeline (provider side picks this up)
 		_, err = tx.Exec(`INSERT INTO rseal_provider_pipeline (partner_id, sp_id, sector_number, reg_seal_proof)
 			VALUES ($1, $2, $3, $4)`,
 			partnerID, int64(mid), sectorNum, spt)
@@ -246,7 +229,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 
 	t.Log("Sector pipeline entries created, waiting for sealing to complete...")
 
-	// Poll for completion
+	// Poll for completion of the full pipeline.
 	var pollTask []struct {
 		SpID                     int64         `db:"sp_id"`
 		SectorNumber             int64         `db:"sector_number"`
@@ -291,11 +274,12 @@ func TestRemoteSealHappyPath(t *testing.T) {
 				task.Failed, task.FailedReason)
 		}
 
-		// Also log remote seal pipeline status
+		// Log remote seal pipeline status for debugging
 		var provPipeline []struct {
 			SpID          int64  `db:"sp_id"`
 			SectorNumber  int64  `db:"sector_number"`
 			AfterSDR      bool   `db:"after_sdr"`
+			AfterTreeD    bool   `db:"after_tree_d"`
 			AfterTreeR    bool   `db:"after_tree_r"`
 			AfterNotify   bool   `db:"after_notify_client"`
 			AfterC1       bool   `db:"after_c1_supplied"`
@@ -304,16 +288,17 @@ func TestRemoteSealHappyPath(t *testing.T) {
 			Failed        bool   `db:"failed"`
 			FailedMsg     string `db:"failed_reason_msg"`
 		}
-		_ = db.Select(ctx, &provPipeline, `SELECT sp_id, sector_number, after_sdr, after_tree_r, after_notify_client, after_c1_supplied, after_finalize, after_cleanup, failed, failed_reason_msg FROM rseal_provider_pipeline`)
+		_ = db.Select(ctx, &provPipeline, `SELECT sp_id, sector_number, after_sdr, after_tree_d, after_tree_r, after_notify_client, after_c1_supplied, after_finalize, after_cleanup, failed, failed_reason_msg FROM rseal_provider_pipeline`)
 		for _, pp := range provPipeline {
-			t.Logf("ProvPipeline: sp=%d sector=%d sdr=%t treeR=%t notify=%t c1=%t finalize=%t cleanup=%t failed=%t msg=%s",
-				pp.SpID, pp.SectorNumber, pp.AfterSDR, pp.AfterTreeR, pp.AfterNotify, pp.AfterC1, pp.AfterFinalize, pp.AfterCleanup, pp.Failed, pp.FailedMsg)
+			t.Logf("ProvPipeline: sp=%d sector=%d sdr=%t treeD=%t treeR=%t notify=%t c1=%t finalize=%t cleanup=%t failed=%t msg=%s",
+				pp.SpID, pp.SectorNumber, pp.AfterSDR, pp.AfterTreeD, pp.AfterTreeR, pp.AfterNotify, pp.AfterC1, pp.AfterFinalize, pp.AfterCleanup, pp.Failed, pp.FailedMsg)
 		}
 
 		var clientPipeline []struct {
 			SpID         int64  `db:"sp_id"`
 			SectorNumber int64  `db:"sector_number"`
 			AfterSDR     bool   `db:"after_sdr"`
+			AfterTreeD   bool   `db:"after_tree_d"`
 			AfterTreeR   bool   `db:"after_tree_r"`
 			AfterFetch   bool   `db:"after_fetch"`
 			AfterC1      bool   `db:"after_c1_exchange"`
@@ -321,10 +306,10 @@ func TestRemoteSealHappyPath(t *testing.T) {
 			Failed       bool   `db:"failed"`
 			FailedMsg    string `db:"failed_reason_msg"`
 		}
-		_ = db.Select(ctx, &clientPipeline, `SELECT sp_id, sector_number, after_sdr, after_tree_r, after_fetch, after_c1_exchange, after_cleanup, failed, failed_reason_msg FROM rseal_client_pipeline`)
+		_ = db.Select(ctx, &clientPipeline, `SELECT sp_id, sector_number, after_sdr, after_tree_d, after_tree_r, after_fetch, after_c1_exchange, after_cleanup, failed, failed_reason_msg FROM rseal_client_pipeline`)
 		for _, cp := range clientPipeline {
-			t.Logf("ClientPipeline: sp=%d sector=%d sdr=%t treeR=%t fetch=%t c1=%t cleanup=%t failed=%t msg=%s",
-				cp.SpID, cp.SectorNumber, cp.AfterSDR, cp.AfterTreeR, cp.AfterFetch, cp.AfterC1, cp.AfterCleanup, cp.Failed, cp.FailedMsg)
+			t.Logf("ClientPipeline: sp=%d sector=%d sdr=%t treeD=%t treeR=%t fetch=%t c1=%t cleanup=%t failed=%t msg=%s",
+				cp.SpID, cp.SectorNumber, cp.AfterSDR, cp.AfterTreeD, cp.AfterTreeR, cp.AfterFetch, cp.AfterC1, cp.AfterCleanup, cp.Failed, cp.FailedMsg)
 		}
 
 		if len(pollTask) == 0 {

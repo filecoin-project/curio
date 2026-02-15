@@ -137,7 +137,7 @@ func TestCurioHappyPath(t *testing.T) {
 		_ = os.Remove(dir)
 	}()
 
-	capi, enginerTerm, closure, finishCh := ConstructCurioTest(ctx, t, dir, db, idxStore, full, maddr, baseCfg)
+	capi, enginerTerm, closure, finishCh, _ := ConstructCurioTest(ctx, t, dir, db, idxStore, full, maddr, baseCfg)
 	defer enginerTerm()
 	defer closure()
 
@@ -425,7 +425,7 @@ func createCliContext(dir string) (*cli.Context, error) {
 	return ctx, nil
 }
 
-func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmonydb.DB, idx *indexstore.IndexStore, full v1api.FullNode, maddr address.Address, cfg *config.CurioConfig) (api.Curio, func(), jsonrpc.ClientCloser, <-chan struct{}) {
+func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmonydb.DB, idx *indexstore.IndexStore, full v1api.FullNode, maddr address.Address, cfg *config.CurioConfig) (api.Curio, func(), jsonrpc.ClientCloser, <-chan struct{}, *deps.Deps) {
 	ffiselect.IsTest = true
 
 	cctx, err := createCliContext(dir)
@@ -446,6 +446,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	dependencies.DB = db
 	dependencies.Chain = full
 	dependencies.IndexStore = idx
+	dependencies.Cfg = cfg // set before PopulateRemainingDeps so it skips DB config load
 	seal.SetDevnet(true)
 	err = os.Setenv("CURIO_REPO_PATH", dir)
 	require.NoError(t, err)
@@ -523,7 +524,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
 	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
-	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
+	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh, dependencies
 }
 
 // Helper functions to handle nil or null values
