@@ -448,6 +448,8 @@ func (sm *SealMarket) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	providerID := providers[0].ID
+
 	// Get the miner address from sp_id
 	maddr, err := address.NewIDAddress(uint64(req.SpID))
 	if err != nil {
@@ -468,10 +470,13 @@ func (sm *SealMarket) handleTicket(w http.ResponseWriter, r *http.Request) {
 	// The PoRep task reads ticket_epoch/ticket_value from sectors_sdr_pipeline,
 	// so we must propagate it there as well.
 	_, err = sm.db.BeginTransaction(r.Context(), func(tx *harmonydb.Tx) (bool, error) {
-		_, err := tx.Exec(`UPDATE rseal_client_pipeline SET ticket_epoch = $1, ticket_value = $2 WHERE sp_id = $3 AND sector_number = $4`,
-			int64(ticketEpoch), []byte(ticket), req.SpID, req.SectorNumber)
+		n, err := tx.Exec(`UPDATE rseal_client_pipeline SET ticket_epoch = $1, ticket_value = $2 WHERE sp_id = $3 AND sector_number = $4 AND provider_id = $5`,
+			int64(ticketEpoch), []byte(ticket), req.SpID, req.SectorNumber, providerID)
 		if err != nil {
 			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
+		}
+		if n == 0 {
+			return false, xerrors.Errorf("sector not found or not owned by this provider")
 		}
 
 		_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET ticket_epoch = $1, ticket_value = $2 WHERE sp_id = $3 AND sector_number = $4`,
@@ -504,7 +509,7 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate partner token
-	_, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
+	partnerID, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -521,8 +526,8 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 		FailedReasonMsg string  `db:"failed_reason_msg"`
 	}
 
-	err = sm.db.Select(r.Context(), &rows, `SELECT ticket_epoch, after_sdr, after_tree_c, after_tree_r, tree_d_cid, tree_r_cid, failed, failed_reason_msg FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2`,
-		req.SpID, req.SectorNumber)
+	err = sm.db.Select(r.Context(), &rows, `SELECT ticket_epoch, after_sdr, after_tree_c, after_tree_r, tree_d_cid, tree_r_cid, failed, failed_reason_msg FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
+		req.SpID, req.SectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("status: db query failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -585,12 +590,14 @@ func (sm *SealMarket) handleComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	providerID := providers[0].ID
+
 	// Check if already complete
 	var existing []struct {
 		AfterSDR bool `db:"after_sdr"`
 	}
 
-	err = sm.db.Select(r.Context(), &existing, `SELECT after_sdr FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2`, req.SpID, req.SectorNumber)
+	err = sm.db.Select(r.Context(), &existing, `SELECT after_sdr FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2 AND provider_id = $3`, req.SpID, req.SectorNumber, providerID)
 	if err != nil {
 		log.Errorw("complete: db query failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -615,8 +622,8 @@ func (sm *SealMarket) handleComplete(w http.ResponseWriter, r *http.Request) {
 			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
 			    tree_d_cid = $3, tree_r_cid = $4,
 			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			req.SpID, req.SectorNumber, req.TreeDCid, req.TreeRCid)
+			WHERE sp_id = $1 AND sector_number = $2 AND provider_id = $5`,
+			req.SpID, req.SectorNumber, req.TreeDCid, req.TreeRCid, providerID)
 		if err != nil {
 			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
 		}
@@ -627,8 +634,8 @@ func (sm *SealMarket) handleComplete(w http.ResponseWriter, r *http.Request) {
 		// Read ticket from rseal_client_pipeline (stored by handleTicket)
 		var ticketEpoch *int64
 		var ticketValue []byte
-		err = tx.QueryRow(`SELECT ticket_epoch, ticket_value FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2`,
-			req.SpID, req.SectorNumber).Scan(&ticketEpoch, &ticketValue)
+		err = tx.QueryRow(`SELECT ticket_epoch, ticket_value FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2 AND provider_id = $3`,
+			req.SpID, req.SectorNumber, providerID).Scan(&ticketEpoch, &ticketValue)
 		if err != nil {
 			return false, xerrors.Errorf("reading ticket from rseal_client_pipeline: %w", err)
 		}
@@ -677,7 +684,7 @@ func (sm *SealMarket) handleSealedData(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 
 	// Validate partner token
-	_, err := sm.validatePartnerToken(r.Context(), token)
+	partnerID, err := sm.validatePartnerToken(r.Context(), token)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -688,7 +695,7 @@ func (sm *SealMarket) handleSealedData(w http.ResponseWriter, r *http.Request) {
 		RegSealProof int `db:"reg_seal_proof"`
 	}
 
-	err = sm.db.Select(r.Context(), &sectors, `SELECT reg_seal_proof FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2`, spID, sectorNumber)
+	err = sm.db.Select(r.Context(), &sectors, `SELECT reg_seal_proof FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`, spID, sectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("sealed-data: db query failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -739,7 +746,7 @@ func (sm *SealMarket) handleCacheData(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 
 	// Validate partner token
-	_, err := sm.validatePartnerToken(r.Context(), token)
+	partnerID, err := sm.validatePartnerToken(r.Context(), token)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -750,7 +757,7 @@ func (sm *SealMarket) handleCacheData(w http.ResponseWriter, r *http.Request) {
 		RegSealProof int `db:"reg_seal_proof"`
 	}
 
-	err = sm.db.Select(r.Context(), &sectors, `SELECT reg_seal_proof FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2`, spID, sectorNumber)
+	err = sm.db.Select(r.Context(), &sectors, `SELECT reg_seal_proof FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`, spID, sectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("cache-data: db query failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -805,7 +812,7 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate partner token
-	_, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
+	partnerID, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -821,8 +828,8 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 		AfterTreeR   bool    `db:"after_tree_r"`
 	}
 
-	err = sm.db.Select(r.Context(), &sectors, `SELECT reg_seal_proof, ticket_epoch, ticket_value, tree_d_cid, tree_r_cid, after_tree_r FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2`,
-		req.SpID, req.SectorNumber)
+	err = sm.db.Select(r.Context(), &sectors, `SELECT reg_seal_proof, ticket_epoch, ticket_value, tree_d_cid, tree_r_cid, after_tree_r FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
+		req.SpID, req.SectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("commit1: db query failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -886,8 +893,8 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark after_c1_supplied = TRUE
-	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET after_c1_supplied = TRUE WHERE sp_id = $1 AND sector_number = $2`,
-		req.SpID, req.SectorNumber)
+	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET after_c1_supplied = TRUE WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
+		req.SpID, req.SectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("commit1: failed to update after_c1_supplied", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -909,7 +916,7 @@ func (sm *SealMarket) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate partner token
-	_, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
+	partnerID, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -918,8 +925,8 @@ func (sm *SealMarket) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	// Mark after_c1_supplied = TRUE if not already set.
 	// The finalize task in the provider poller starts when after_c1_supplied is TRUE.
 	// If /commit1 was already called, this is a no-op.
-	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET after_c1_supplied = TRUE WHERE sp_id = $1 AND sector_number = $2 AND after_c1_supplied = FALSE`,
-		req.SpID, req.SectorNumber)
+	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET after_c1_supplied = TRUE WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3 AND after_c1_supplied = FALSE`,
+		req.SpID, req.SectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("finalize: failed to update", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -939,15 +946,15 @@ func (sm *SealMarket) handleCleanup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate partner token
-	_, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
+	partnerID, err := sm.validatePartnerToken(r.Context(), req.PartnerToken)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Set cleanup_requested = true (no-op if already set)
-	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET cleanup_requested = TRUE WHERE sp_id = $1 AND sector_number = $2`,
-		req.SpID, req.SectorNumber)
+	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET cleanup_requested = TRUE WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
+		req.SpID, req.SectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("cleanup: failed to update", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
