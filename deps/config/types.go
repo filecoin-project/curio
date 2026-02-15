@@ -390,6 +390,16 @@ type CurioSubsystemsConfig struct {
 	// EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)
 	EnableBatchSeal bool
 
+	// EnableRemoteSealProvider enables the remote seal provider on this node.
+	// When enabled, this node will accept seal orders from remote clients and perform
+	// SDR + tree computation on their behalf. (Default: false)
+	EnableRemoteSealProvider bool
+
+	// EnableRemoteSealClient enables the remote seal client on this node.
+	// When enabled, this node can delegate SDR + tree computation to remote providers
+	// configured in the rseal_client_providers table. (Default: false)
+	EnableRemoteSealClient bool
+
 	// EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured. (Default: false)
 	EnableDealMarket bool
 

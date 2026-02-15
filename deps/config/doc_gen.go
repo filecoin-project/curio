@@ -804,6 +804,22 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Comment: `EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)`,
 		},
 		{
+			Name: "EnableRemoteSealProvider",
+			Type: "bool",
+
+			Comment: `EnableRemoteSealProvider enables the remote seal provider on this node.
+When enabled, this node will accept seal orders from remote clients and perform
+SDR + tree computation on their behalf. (Default: false)`,
+		},
+		{
+			Name: "EnableRemoteSealClient",
+			Type: "bool",
+
+			Comment: `EnableRemoteSealClient enables the remote seal client on this node.
+When enabled, this node can delegate SDR + tree computation to remote providers
+configured in the rseal_client_providers table. (Default: false)`,
+		},
+		{
 			Name: "EnableDealMarket",
 			Type: "bool",
 

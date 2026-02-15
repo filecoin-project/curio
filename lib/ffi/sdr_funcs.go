@@ -357,6 +357,13 @@ func (sb *SealCalls) GenerateSynthPoRep() {
 	panic("todo")
 }
 
+// GeneratePoRepVanillaProof generates a vanilla proof for a sector (C1 output).
+// This is the first phase of SealCommit and produces the vanilla proofs that
+// are later used in SealCommitPhase2 (C2) to produce the SNARK proof.
+func (sb *SealCalls) GeneratePoRepVanillaProof(ctx context.Context, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+	return sb.Sectors.storage.GeneratePoRepVanillaProof(ctx, sn, sealed, unsealed, ticket, seed)
+}
+
 func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	vproof, err := sb.Sectors.storage.GeneratePoRepVanillaProof(ctx, sn, sealed, unsealed, ticket, seed)
 	if err != nil {

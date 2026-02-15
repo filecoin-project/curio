@@ -168,6 +168,7 @@ type Deps struct {
 	LocalPaths        *paths.BasicLocalStorage
 	Prover            storiface.Prover
 	ListenAddr        string
+	HTTPListenAddr    string // actual address of the HTTP server (set after bind)
 	Name              string
 	MachineID         *int64
 	Alert             *alertmanager.AlertNow

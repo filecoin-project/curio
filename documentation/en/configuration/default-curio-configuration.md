@@ -268,6 +268,20 @@ description: The default curio configuration
   # type: bool
   #EnableBatchSeal = false
 
+  # EnableRemoteSealProvider enables the remote seal provider on this node.
+  # When enabled, this node will accept seal orders from remote clients and perform
+  # SDR + tree computation on their behalf. (Default: false)
+  #
+  # type: bool
+  #EnableRemoteSealProvider = false
+
+  # EnableRemoteSealClient enables the remote seal client on this node.
+  # When enabled, this node can delegate SDR + tree computation to remote providers
+  # configured in the rseal_client_providers table. (Default: false)
+  #
+  # type: bool
+  #EnableRemoteSealClient = false
+
   # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured. (Default: false)
   #
   # type: bool
