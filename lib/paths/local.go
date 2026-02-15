@@ -1385,27 +1385,25 @@ func (st *Local) remoteSealPoRepVanillaProof(src storiface.SectorPaths, sr stori
 		return nil, xerrors.Errorf("commit1 returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
-	var c1Resp struct {
-		C1Output []byte `json:"c1_output"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&c1Resp); err != nil {
-		return nil, xerrors.Errorf("decode commit1 response: %w", err)
+	// Read raw bytes — provider sends application/octet-stream
+	c1Output, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, xerrors.Errorf("read commit1 response body: %w", err)
 	}
 
-	if len(c1Resp.C1Output) == 0 {
+	if len(c1Output) == 0 {
 		return nil, xerrors.Errorf("provider returned empty C1 output")
 	}
 
 	// Write to commit-phase1-output for caching / consistency with supra path
-	if err := os.WriteFile(commitPhase1OutputPath, c1Resp.C1Output, 0644); err != nil {
+	if err := os.WriteFile(commitPhase1OutputPath, c1Output, 0644); err != nil {
 		return nil, xerrors.Errorf("write commit-phase1-output: %w", err)
 	}
 
 	log.Infow("remoteSealPoRepVanillaProof: fetched C1 from provider",
-		"sref", sr, "c1_size", len(c1Resp.C1Output), "url", c1Info.C1URL)
+		"sref", sr, "c1_size", len(c1Output), "url", c1Info.C1URL)
 
-	return c1Resp.C1Output, nil
+	return c1Output, nil
 }
 
 var supraC1Token = make(chan struct{}, 1)

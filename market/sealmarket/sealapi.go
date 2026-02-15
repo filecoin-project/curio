@@ -173,11 +173,6 @@ type Commit1Request struct {
 	SeedValue    []byte `json:"seed_value"`
 }
 
-// Commit1Response contains the C1 output (vanilla proofs) from the provider.
-type Commit1Response struct {
-	C1Output []byte `json:"c1_output"` // serialized SealCommit1Output
-}
-
 // FinalizeRequest is sent by the client to tell the provider layers can be dropped.
 type FinalizeRequest struct {
 	PartnerToken string `json:"partner_token"`
@@ -764,10 +759,12 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := Commit1Response{
-		C1Output: vanillaProof,
+	// Write raw bytes — C1 output is large (~50-128 MiB), JSON+base64 adds ~33% overhead
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(vanillaProof); err != nil {
+		log.Errorw("commit1: failed to write response", "error", err)
 	}
-	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleFinalize tells the provider that layers can be dropped (sealed data fetched).
