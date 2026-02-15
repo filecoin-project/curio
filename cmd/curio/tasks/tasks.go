@@ -330,9 +330,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		ipniTask := indexing.NewIPNITask(db, cfg, idxMax, iStore)
 		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
 		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
@@ -495,6 +495,13 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableUpdateEncode {
 		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks, cfg.Subsystems.BindEncodeToData, cfg.Subsystems.AllowEncodeGPUOverprovision)
 		activeTasks = append(activeTasks, encodeTask)
+	}
+
+	// ScrubCommRCheck runs on nodes that can run supraseal TreeR (GPU nodes with PC2 or SnapEncode)
+	// Only register once even if both are enabled
+	if (cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableUpdateEncode) && scrub.CanRunSupraTreeR() {
+		scrubCommRTask := scrub.NewCommRCheckTask(db, slr)
+		activeTasks = append(activeTasks, scrubCommRTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
 		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)

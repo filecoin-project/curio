@@ -61,6 +61,11 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 		return nil, xerrors.Errorf("getting partitions: %w", err)
 	}
 
+	if len(parts) == 0 {
+		log.Infow("no partitions in deadline", "Miner", maddr.String(), "Deadline", di.Index, "Partition", partIdx, "Height", ts.Height())
+		return nil, errEmptyPartition
+	}
+
 	if partIdx >= uint64(len(parts)) {
 		return nil, xerrors.Errorf("invalid partIdx %d (deadline has %d partitions)", partIdx, len(parts))
 	}

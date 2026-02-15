@@ -676,122 +676,70 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 }
 
 func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	ctx := context.Background()
-
-	type task struct {
-		TaskID       harmonytask.TaskID `db:"indexing_task_id"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector"`
-		StorageID    string             `db:"storage_id"`
-		Url          string             `db:"url"`
-		Indexing     bool               `db:"indexing"`
+	if storiface.FTPiece != 32 {
+		panic("storiface.FTPiece != 32")
+	}
+	if storiface.FTUnsealed != 1 {
+		panic("storiface.FTUnsealed != 1")
 	}
 
-	var tasks []task
+	ctx := context.Background()
 
 	indIDs := make([]int64, len(ids))
 	for x, id := range ids {
 		indIDs[x] = int64(id)
 	}
 
-	var mk20tasks []task
-	if storiface.FTPiece != 32 {
-		panic("storiface.FTPiece != 32")
-	}
+	var resultTaskIDs []harmonytask.TaskID
 
-	err := i.db.Select(ctx, &mk20tasks, `SELECT indexing_task_id, url, indexing FROM market_mk20_pipeline WHERE indexing_task_id = ANY($1)`, indIDs)
+	// Convert task_id to a table for easier join across the multiple tables
+	// Query MK20 table and get piece_ref, then join with parked_piece_refs to get piece_id and finally join with sector_location to get storage_id
+	// Query MK12 table and get sector_id, then join with sector_location to get storage_id
+	// Create a Union All query to get the first task that is either DOES NOT require indexing or has a storage_id that is in the local storage
+	err := i.db.QueryRow(ctx, `SELECT COALESCE(array_agg(s.indexing_task_id), '{}')::bigint[] AS indexing_task_ids FROM 
+			(
+				SELECT indexing_task_id
+				FROM (
+				  SELECT m20.indexing_task_id, m20.indexing AS need_indexing, sl.storage_id
+				  FROM market_mk20_pipeline m20
+				  LEFT JOIN parked_piece_refs ppr
+					ON (m20.url LIKE 'pieceref:%'
+						AND CAST(substring(m20.url FROM 10) AS BIGINT) = ppr.ref_id)
+				  LEFT JOIN sector_location sl
+					ON sl.sector_num = ppr.piece_id
+				   AND sl.miner_id   = 0
+				   AND sl.sector_filetype = 32
+				  WHERE m20.indexing_task_id = ANY($1::bigint[])
+				
+				  UNION ALL
+				
+				  SELECT dp.indexing_task_id, dp.should_index AS need_indexing, l.storage_id
+				  FROM market_mk12_deal_pipeline dp
+				  JOIN sector_location l
+					ON l.miner_id = dp.sp_id
+				   AND l.sector_num = dp.sector
+				   AND l.sector_filetype = 1
+				  WHERE dp.indexing_task_id = ANY($1::bigint[])
+				) t
+				WHERE t.need_indexing = FALSE
+					OR EXISTS (
+						SELECT 1
+						FROM storage_path sp
+						WHERE sp.storage_id = t.storage_id
+						  AND sp.urls LIKE '%' || $2 || '%'
+					  )
+					OR (
+						-- no file present at all (we handle this gracefully in DO())
+						t.storage_id IS NULL
+					)
+				LIMIT 100
+			) s`, indIDs, engine.Host()).Scan(&resultTaskIDs)
+
 	if err != nil {
-		return nil, xerrors.Errorf("getting mk20 urls: %w", err)
+		return nil, xerrors.Errorf("can accept query: %w", err)
 	}
 
-	for idx := range mk20tasks {
-
-		if !mk20tasks[idx].Indexing {
-			continue
-		}
-
-		goUrl, err := url.Parse(mk20tasks[idx].Url)
-		if err != nil {
-			return nil, xerrors.Errorf("parsing data URL: %w", err)
-		}
-		if goUrl.Scheme == "pieceref" {
-			refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
-			if err != nil {
-				return nil, xerrors.Errorf("parsing piece reference number: %w", err)
-			}
-
-			// get pieceID
-			var pieceID []struct {
-				PieceID storiface.PieceNumber `db:"piece_id"`
-			}
-			err = i.db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
-			if err != nil {
-				return nil, xerrors.Errorf("getting pieceID: %w", err)
-			}
-
-			var sLocation string
-
-			err = i.db.QueryRow(ctx, `
-					SELECT storage_id FROM sector_location 
-						WHERE miner_id = 0 AND sector_num = $1 AND sector_filetype = 32`, pieceID[0].PieceID).Scan(&sLocation)
-
-			if err != nil {
-				return nil, xerrors.Errorf("failed to get storage location from DB: %w", err)
-			}
-
-			mk20tasks[idx].StorageID = sLocation
-
-		}
-	}
-
-	if storiface.FTUnsealed != 1 {
-		panic("storiface.FTUnsealed != 1")
-	}
-
-	var mk12tasks []task
-
-	// Use LEFT JOIN to include tasks without unsealed copies.
-	// Tasks with should_index = false don't need an unsealed copy since they
-	// complete immediately without reading the sector.
-	err = i.db.Select(ctx, &mk12tasks, `SELECT dp.indexing_task_id, dp.should_index AS indexing, dp.sp_id, dp.sector, COALESCE(l.storage_id, '') AS storage_id
-										FROM market_mk12_deal_pipeline dp
-										LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num AND l.sector_filetype = 1
-										WHERE dp.indexing_task_id = ANY ($1)`, indIDs)
-	if err != nil {
-		return nil, xerrors.Errorf("getting mk12 tasks: %w", err)
-	}
-
-	tasks = append(mk20tasks, mk12tasks...)
-
-	ls, err := i.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	localStorageMap := make(map[string]bool, len(ls))
-	for _, l := range ls {
-		localStorageMap[string(l.ID)] = true
-	}
-
-	var acceptables []harmonytask.TaskID
-	for idx := range tasks {
-		// Tasks with Indexing = false don't need to read the sector, accept them
-		if !tasks[idx].Indexing {
-
-			acceptables = append(acceptables, tasks[idx].TaskID)
-		}
-		// Tasks with no unsealed copy (empty StorageID) can be accepted to handle
-		// gracefully in Do() - we'll complete them without actual indexing
-		if tasks[idx].StorageID == "" {
-			acceptables = append(acceptables, tasks[idx].TaskID)
-		}
-		// Tasks with unsealed copy on this node's storage can be accepted
-		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
-			acceptables = append(acceptables, tasks[idx].TaskID)
-		}
-	}
-
-	return acceptables, nil
+	return resultTaskIDs, nil
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {

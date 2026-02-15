@@ -52,6 +52,9 @@ customElements.define('storage-use', class StorageUse extends LitElement {
       <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
             rel="stylesheet" crossorigin="anonymous">
       <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+      <div style="margin-bottom: 10px;">
+        <a href="/pages/storage_paths/">View All Storage Paths</a>
+      </div>
       <table class="table table-dark">
         <thead>
           <tr>

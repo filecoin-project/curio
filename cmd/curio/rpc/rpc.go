@@ -173,6 +173,28 @@ func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsS
 	return p.Stor.FsStat(ctx, id)
 }
 
+func (p *CurioAPI) StorageList(ctx context.Context) (map[storiface.ID][]storiface.Decl, error) {
+	var storageIDs []struct {
+		StorageID string `db:"storage_id"`
+	}
+	err := p.DB.Select(ctx, &storageIDs, "SELECT storage_id FROM storage_path")
+	if err != nil {
+		return nil, xerrors.Errorf("get storage IDs: %w", err)
+	}
+
+	out := make(map[storiface.ID][]storiface.Decl, len(storageIDs))
+	for _, sid := range storageIDs {
+		id := storiface.ID(sid.StorageID)
+		decls, err := p.SectorIndex.StorageList(ctx, id)
+		if err != nil {
+			return nil, xerrors.Errorf("StorageList(%s): %w", id, err)
+		}
+		out[id] = decls
+	}
+
+	return out, nil
+}
+
 // this method is currently unused, might be back when we get markets into curio
 func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) {
 	/*di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Full, maddr, true, time.Minute, false)
@@ -422,7 +444,7 @@ func (p *CurioAPI) IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.
 
 	firstHash := multihash.Multihash(cb)
 
-	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks)
+	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks, true)
 }
 
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {

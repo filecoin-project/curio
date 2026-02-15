@@ -111,7 +111,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                 </tr>
                 ${(this.data.Storage||[]).map((item) => html`
                     <tr>
-                        <td>${item.ID}</td>
+                        <td><a href="/pages/storage_path/?id=${item.ID}">${item.ID.substring(0, 8)}...</a></td>
                         <td><small>${item.URLs}</small></td>
                         <td>
                             ${!item.CanSeal && !item.CanStore ? 'ReadOnly' : ''}

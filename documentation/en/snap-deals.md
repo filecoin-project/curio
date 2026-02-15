@@ -143,3 +143,60 @@ Boost adapter is no longer supported with new Curio releases.
     ```
     systemctl restart curio
     ```
+
+---
+
+## Troubleshooting Snap Deals ingestion
+
+### Error: `allocating sector numbers: no suitable sectors found`
+
+Plain-English meaning:
+- Curio tried to pick an existing **CC sector** to upgrade (snap), but none matched the constraints.
+
+Common causes:
+- There are no CC sectors available to upgrade for that miner.
+- Expiration constraints: the candidate sectors cannot satisfy the deal end-epoch requirements.
+- Snap pipeline not actually enabled where ingestion runs (layer mismatch).
+- Required snap tasks are not running on any GPU-capable node.
+
+What to check first:
+1) Confirm ingestion is routed to Snap:
+
+```toml
+[Ingest]
+DoSnap = true
+```
+
+2) Confirm at least one node is running the `upgrade` layer (or equivalent snap task enablement) and has GPU resources.
+3) Check in the Curio UI whether the miner has CC sectors expected to be eligible for upgrades.
+
+What to include when asking for help:
+- deal UUID + piece CID
+- the full error line + surrounding logs
+- your `CURIO_LAYERS` for the ingest node and the GPU node
+
+### Error: `skipped scheduling ParkPiece ... out of available Storage`
+
+Plain-English meaning:
+- Curio refused to start ParkPiece because there isn’t enough eligible free space on any attached storage path.
+
+What to do:
+- Verify free space on the storage paths attached to the node running ParkPiece.
+- Check `AllowTypes` / `DenyTypes` in `<path>/sectorstorage.json` (if `unsealed` is effectively disallowed everywhere, ParkPiece can’t place data).
+- Check the Curio config knob `ParkPieceMinFreeStoragePercent` (default is 20%) and whether your current free space is below that threshold.
+
+See:
+- [Storage Configuration](storage-configuration.md)
+
+### Error: `no suitable data URL found for piece_id <N>`
+
+Plain-English meaning:
+- Curio has a piece to ingest, but can’t find any usable location for the bytes (most commonly: no data URL was stored for the parked piece).
+
+What to do:
+- Ensure you have added a data URL (and any required headers) for the deal/piece.
+- Verify the market/ingest layer is enabled on the node that runs ParkPiece.
+
+See:
+- [Storage Market](curio-market/storage-market.md)
+- [Curio Market troubleshooting](curio-market/troubleshooting.md)

@@ -20,7 +20,7 @@ class CompactPrettyEpoch extends LitElement {
     return this; // light DOM for easier styling
   }
 
-  _handleComponentMouseEnter() {
+  _handleComponentMouseEnter(e) {
     this._mouseOverComponent = true;
     if (this._hideTimeout) clearTimeout(this._hideTimeout);
     this._showInfoBox = true;
@@ -63,12 +63,12 @@ class CompactPrettyEpoch extends LitElement {
           position: absolute;
           top: 100%;
           left: 0;
-          background-color: var(--color-form-group-1, #222);
-          border: 1px solid #ccc;
+          background-color: var(--color-form-group-1, #1a2a3a);
+          border: 1px solid #555;
           padding: 6px 8px;
-          z-index: 1000;
+          z-index: 10000;
           white-space: nowrap;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
           font-size: 0.9em;
         }
       </style>

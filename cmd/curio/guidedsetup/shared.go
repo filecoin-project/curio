@@ -33,7 +33,7 @@ import (
 	"github.com/filecoin-project/lotus/node/repo"
 )
 
-//go:generate cbor-gen-for --map-encoding SectorInfo
+//go:generate go run github.com/filecoin-project/curio/scripts/cbongen-guidedsetup
 
 const (
 	FlagMinerRepo = "miner-repo"

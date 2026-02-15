@@ -1,6 +1,10 @@
 import { LitElement, css, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import RPCCall from '/lib/jsonrpc.mjs';
 
 class CurioUX extends LitElement {
+  static properties = {
+    alertCount: { type: Number },
+  };
   static styles = css`
     .curio-slot {
     }
@@ -91,7 +95,55 @@ class CurioUX extends LitElement {
         display: block;
       }
     }
+
+    .alert-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      margin-top: 15px;
+      border-radius: 6px;
+      text-decoration: none;
+      color: white;
+    }
+    .alert-indicator:hover {
+      text-decoration: none;
+      color: white;
+    }
+    .alert-indicator.has-alerts {
+      background: rgba(182, 51, 51, 0.3);
+      animation: pulse-alert 2s infinite;
+    }
+    .alert-indicator.has-alerts:hover {
+      background: rgba(182, 51, 51, 0.5);
+    }
+    .alert-indicator.no-alerts {
+      background: rgba(75, 181, 67, 0.2);
+    }
+    .alert-indicator.no-alerts:hover {
+      background: rgba(75, 181, 67, 0.35);
+    }
+    .alert-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .alert-dot.active {
+      background: #B63333;
+    }
+    .alert-dot.ok {
+      background: #4BB543;
+    }
+    @keyframes pulse-alert {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
   `;
+  constructor() {
+    super();
+    this.alertCount = 0;
+  }
+
   connectedCallback() {
     super.connectedCallback();
     document.head.innerHTML += `
@@ -108,6 +160,21 @@ class CurioUX extends LitElement {
     
     var s = document.body.style;
     s.padding = 0;
+
+    // Load alert status
+    this.loadAlertStatus();
+  }
+
+  async loadAlertStatus() {
+    try {
+      const count = await RPCCall('AlertUnacknowledgedCount');
+      this.alertCount = count || 0;
+    } catch (e) {
+      // Silently fail - alerts endpoint may not exist yet
+      this.alertCount = 0;
+    }
+    // Refresh every 30 seconds
+    setTimeout(() => this.loadAlertStatus(), 30000);
   }
 
   render() {
@@ -151,7 +218,7 @@ class CurioUX extends LitElement {
           <span class="fs-4">Curio</span>
           </a>
           <hr>
-            <ul class="nav nav-pills flex-column mb-auto">
+            <ul class="nav nav-pills flex-column">
               <li class="nav-item">
                 <a href="/" class="nav-link text-white ${active=='/'? 'active':''}" aria-current="page">
                   <svg class="bi me-2" width="16" height="16"><use xlink:href="#home"></use></svg>
@@ -230,10 +297,10 @@ class CurioUX extends LitElement {
                 </a>
               </li>
               <li>
-              <a href="/pages/pdp/" class="nav-link text-white ${active=='/pages/pdp/'? 'active':''}">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-hdd" viewBox="0 0 16 16">
-                      <path d="M4.5 11a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1M3 10.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0"/>
-                      <path d="M16 11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V9.51c0-.418.105-.83.305-1.197l2.472-4.531A1.5 1.5 0 0 1 4.094 3h7.812a1.5 1.5 0 0 1 1.317.782l2.472 4.53c.2.368.305.78.305 1.198zM3.655 4.26 1.592 8.043Q1.79 8 2 8h12q.21 0 .408.042L12.345 4.26a.5.5 0 0 0-.439-.26H4.094a.5.5 0 0 0-.44.26zM1 10v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1"/>
+                <a href="/pages/pdp/" class="nav-link text-white ${active=='/pages/pdp/'? 'active':''}">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi me-2 bi-hdd" viewBox="0 0 16 16">
+                    <path d="M4.5 11a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1M3 10.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0"/>
+                    <path d="M16 11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V9.51c0-.418.105-.83.305-1.197l2.472-4.531A1.5 1.5 0 0 1 4.094 3h7.812a1.5 1.5 0 0 1 1.317.782l2.472 4.53c.2.368.305.78.305 1.198zM3.655 4.26 1.592 8.043Q1.79 8 2 8h12q.21 0 .408.042L12.345 4.26a.5.5 0 0 0-.439-.26H4.094a.5.5 0 0 0-.44.26zM1 10v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1"/>
                   </svg>
                   <span>PDP</span>
                 </a>
@@ -259,7 +326,7 @@ class CurioUX extends LitElement {
               </li>
               <li>
                 <a href="/pages/wallet/" class="nav-link text-white ${active=='/pages/wallet/'? 'active':''}">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-wallet" viewBox="0 0 16 16">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi me-2 bi-wallet" viewBox="0 0 16 16">
                     <path d="M0 3a2 2 0 0 1 2-2h13.5a.5.5 0 0 1 0 1H15v2a1 1 0 0 1 1 1v8.5a1.5 1.5 0 0 1-1.5 1.5h-12A2.5 2.5 0 0 1 0 12.5zm1 1.732V12.5A1.5 1.5 0 0 0 2.5 14h12a.5.5 0 0 0 .5-.5V5H2a2 2 0 0 1-1-.268M1 3a1 1 0 0 0 1 1h12V2H2a1 1 0 0 0-1 1"/>
                   </svg>
                   <span>Wallets</span>
@@ -282,7 +349,14 @@ class CurioUX extends LitElement {
                 </a>
               </li>
             </ul>
-          </hr>
+            <hr>
+            <a href="/pages/alerts/" class="alert-indicator ${this.alertCount > 0 ? 'has-alerts' : 'no-alerts'}">
+              <span class="alert-dot ${this.alertCount > 0 ? 'active' : 'ok'}"></span>
+              <span>${this.alertCount > 0 ? `${this.alertCount} Active Alerts` : 'No Active Alerts'}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bell" viewBox="0 0 16 16">
+                <path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2M8 1.918l-.797.161A4 4 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4 4 0 0 0-3.203-3.92zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5 5 0 0 1 13 6c0 .88.32 4.2 1.22 6"/>
+              </svg>
+            </a>
        </div>
     `;
   }

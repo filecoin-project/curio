@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/ux/task.mjs';
 
 customElements.define('partition-detail', class PartitionDetail extends LitElement {
     static styles = css`
@@ -46,6 +47,52 @@ customElements.define('partition-detail', class PartitionDetail extends LitEleme
             font-size: 0.85rem;
             color: #999;
         }
+        .test-result-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+            padding: 1rem;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+        }
+        .test-stat {
+            text-align: center;
+        }
+        .test-stat-value {
+            font-size: 1.5rem;
+            font-weight: 500;
+        }
+        .test-stat-label {
+            font-size: 0.8rem;
+            color: #aaa;
+        }
+        .test-results-table {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .test-passed {
+            color: #4BB543;
+        }
+        .test-failed {
+            color: #B63333;
+        }
+        .test-slow {
+            color: #FFD600;
+        }
+        .test-stat-clickable {
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        .test-stat-clickable:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+        .test-stat-active {
+            background-color: rgba(255,255,255,0.15);
+            outline: 1px solid rgba(255,255,255,0.3);
+        }
     `;
 
     constructor() {
@@ -53,7 +100,24 @@ customElements.define('partition-detail', class PartitionDetail extends LitEleme
         this.data = null;
         this.loading = true;
         this.error = null;
+        this.vanillaTestResult = null;
+        this.vanillaTestRunning = false;
+        // WdPost task test state
+        this.wdpostTaskId = null;
+        this.wdpostTaskResult = null;
+        this.wdpostTaskRunning = false;
+        this.wdpostTaskPolling = null;
+        // Vanilla test filter: null (all), 'passed', 'failed', 'slow'
+        this.vanillaTestFilter = null;
         this.loadData();
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this.wdpostTaskPolling) {
+            clearInterval(this.wdpostTaskPolling);
+            this.wdpostTaskPolling = null;
+        }
     }
 
     async loadData() {
@@ -70,6 +134,10 @@ customElements.define('partition-detail', class PartitionDetail extends LitEleme
                 return;
             }
 
+            this.sp = sp;
+            this.deadlineIdx = deadline;
+            this.partitionIdx = partition;
+
             this.data = await RPCCall('PartitionDetail', [sp, deadline, partition]);
             this.loading = false;
             this.requestUpdate();
@@ -79,6 +147,207 @@ customElements.define('partition-detail', class PartitionDetail extends LitEleme
             this.loading = false;
             this.requestUpdate();
         }
+    }
+
+    async runVanillaTest() {
+        if (this.vanillaTestRunning) return;
+        this.vanillaTestRunning = true;
+        this.vanillaTestResult = null;
+        this.requestUpdate();
+        
+        try {
+            this.vanillaTestResult = await RPCCall('PartitionVanillaTest', [this.sp, this.deadlineIdx, this.partitionIdx]);
+        } catch (err) {
+            this.vanillaTestResult = { error: err.message };
+        }
+        this.vanillaTestRunning = false;
+        this.requestUpdate();
+    }
+
+    async startWdPostTask() {
+        if (this.wdpostTaskRunning) return;
+        this.wdpostTaskRunning = true;
+        this.wdpostTaskId = null;
+        this.wdpostTaskResult = null;
+        this.requestUpdate();
+
+        try {
+            const result = await RPCCall('WdPostTaskStart', [this.sp, this.deadlineIdx, this.partitionIdx]);
+            if (result.error) {
+                this.wdpostTaskResult = { error: result.error };
+                this.wdpostTaskRunning = false;
+                this.requestUpdate();
+                return;
+            }
+            this.wdpostTaskId = result.task_id;
+            this.wdpostTaskRunning = false;
+            this.requestUpdate();
+
+            // Start polling for task completion
+            this.pollWdPostTask();
+        } catch (err) {
+            this.wdpostTaskResult = { error: err.message };
+            this.wdpostTaskRunning = false;
+            this.requestUpdate();
+        }
+    }
+
+    async pollWdPostTask() {
+        if (this.wdpostTaskPolling) {
+            clearInterval(this.wdpostTaskPolling);
+        }
+        
+        const checkTask = async () => {
+            try {
+                const result = await RPCCall('WdPostTaskCheck', [this.wdpostTaskId]);
+                if (result.result || result.error) {
+                    // Task completed
+                    this.wdpostTaskResult = result;
+                    if (this.wdpostTaskPolling) {
+                        clearInterval(this.wdpostTaskPolling);
+                        this.wdpostTaskPolling = null;
+                    }
+                }
+                this.requestUpdate();
+            } catch (err) {
+                console.error('Failed to check WdPost task:', err);
+            }
+        };
+
+        // Check immediately, then every 3 seconds
+        await checkTask();
+        this.wdpostTaskPolling = setInterval(checkTask, 3000);
+    }
+
+    renderWdPostTaskResult() {
+        if (this.wdpostTaskResult && this.wdpostTaskResult.error) {
+            return html`
+                <div style="color: #B63333; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 4px; margin-top: 1rem;">
+                    <strong>Error:</strong> ${this.wdpostTaskResult.error}
+                </div>
+            `;
+        }
+
+        if (this.wdpostTaskResult && this.wdpostTaskResult.result) {
+            return html`
+                <div style="color: #4BB543; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 4px; margin-top: 1rem;">
+                    <strong>Completed:</strong> ${this.wdpostTaskResult.result}
+                </div>
+            `;
+        }
+
+        return '';
+    }
+
+    toggleVanillaFilter(filter) {
+        // Toggle off if clicking the same filter, otherwise set new filter
+        this.vanillaTestFilter = this.vanillaTestFilter === filter ? null : filter;
+        this.requestUpdate();
+    }
+
+    renderVanillaTestResults() {
+        if (!this.vanillaTestResult) return '';
+        
+        if (this.vanillaTestResult.error) {
+            return html`
+                <div style="color: #B63333; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                    <strong>Error:</strong> ${this.vanillaTestResult.error}
+                </div>
+            `;
+        }
+
+        const r = this.vanillaTestResult;
+        
+        // Filter results based on selected filter
+        let filteredResults = r.results || [];
+        if (this.vanillaTestFilter === 'passed') {
+            filteredResults = filteredResults.filter(x => x.generate_ok && x.verify_ok);
+        } else if (this.vanillaTestFilter === 'failed') {
+            filteredResults = filteredResults.filter(x => !x.generate_ok || !x.verify_ok);
+        } else if (this.vanillaTestFilter === 'slow') {
+            filteredResults = filteredResults.filter(x => x.slow);
+        }
+        
+        return html`
+            <div class="test-result-summary">
+                <div class="test-stat">
+                    <div class="test-stat-value">${r.tested_count}</div>
+                    <div class="test-stat-label">Tested</div>
+                </div>
+                <div class="test-stat test-stat-clickable ${this.vanillaTestFilter === 'passed' ? 'test-stat-active' : ''}"
+                     @click="${() => this.toggleVanillaFilter('passed')}"
+                     title="Click to filter">
+                    <div class="test-stat-value test-passed">${r.passed_count}</div>
+                    <div class="test-stat-label">Passed</div>
+                </div>
+                <div class="test-stat test-stat-clickable ${this.vanillaTestFilter === 'failed' ? 'test-stat-active' : ''}"
+                     @click="${() => this.toggleVanillaFilter('failed')}"
+                     title="Click to filter">
+                    <div class="test-stat-value test-failed">${r.failed_count}</div>
+                    <div class="test-stat-label">Failed</div>
+                </div>
+                <div class="test-stat test-stat-clickable ${this.vanillaTestFilter === 'slow' ? 'test-stat-active' : ''}"
+                     @click="${() => this.toggleVanillaFilter('slow')}"
+                     title="Click to filter">
+                    <div class="test-stat-value test-slow">${r.slow_count}</div>
+                    <div class="test-stat-label">Slow (&gt;2s)</div>
+                </div>
+                <div class="test-stat">
+                    <div class="test-stat-value">${r.total_time}</div>
+                    <div class="test-stat-label">Total Time</div>
+                </div>
+            </div>
+            
+            ${filteredResults.length > 0 ? html`
+                ${this.vanillaTestFilter ? html`
+                    <div style="margin-bottom: 0.5rem; color: #aaa; font-size: 0.9em;">
+                        Showing ${filteredResults.length} ${this.vanillaTestFilter} sector${filteredResults.length !== 1 ? 's' : ''}
+                        <a href="#" @click="${(e) => { e.preventDefault(); this.toggleVanillaFilter(this.vanillaTestFilter); }}" style="margin-left: 0.5rem;">(clear filter)</a>
+                    </div>
+                ` : ''}
+                <div class="test-results-table">
+                    <table class="table table-dark table-sm">
+                        <thead>
+                            <tr>
+                                <th>Sector</th>
+                                <th>Generate</th>
+                                <th>Verify</th>
+                                <th>Gen Time</th>
+                                <th>Verify Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filteredResults.map(result => html`
+                                <tr class="${result.slow ? 'test-slow' : ''}">
+                                    <td>
+                                        <a href="/pages/sector/?sp=${this.sp}&id=${result.sector_number}">
+                                            ${result.sector_number}
+                                        </a>
+                                    </td>
+                                    <td class="${result.generate_ok ? 'test-passed' : 'test-failed'}">
+                                        ${result.generate_ok ? 'OK' : 'FAIL'}
+                                        ${result.generate_error ? html`<br><small>${result.generate_error}</small>` : ''}
+                                    </td>
+                                    <td class="${result.verify_ok ? 'test-passed' : result.generate_ok ? 'test-failed' : ''}">
+                                        ${result.generate_ok ? (result.verify_ok ? 'OK' : 'FAIL') : '-'}
+                                        ${result.verify_error ? html`<br><small>${result.verify_error}</small>` : ''}
+                                    </td>
+                                    <td>${result.generate_time}</td>
+                                    <td>${result.verify_time || '-'}</td>
+                                </tr>
+                            `)}
+                        </tbody>
+                    </table>
+                </div>
+            ` : html`
+                ${this.vanillaTestFilter ? html`
+                    <div style="color: #aaa; padding: 1rem;">
+                        No ${this.vanillaTestFilter} sectors
+                        <a href="#" @click="${(e) => { e.preventDefault(); this.toggleVanillaFilter(this.vanillaTestFilter); }}" style="margin-left: 0.5rem;">(clear filter)</a>
+                    </div>
+                ` : ''}
+            `}
+        `;
     }
 
     renderStoragePaths() {
@@ -219,6 +488,49 @@ customElements.define('partition-detail', class PartitionDetail extends LitEleme
                         ${this.renderStoragePaths()}
                     </div>
                 ` : ''}
+            </div>
+
+            <div class="info-block" style="margin-top: 2rem;">
+                <h2>WindowPoSt Vanilla Test</h2>
+                <p style="font-size: 0.9em; color: #aaa; margin-bottom: 1rem;">
+                    Test vanilla proof generation and verification for all ${this.data.live_sectors_count} live sectors in this partition.
+                    This simulates the work done during WindowPoSt proving.
+                </p>
+                <button 
+                    class="btn btn-primary" 
+                    @click="${() => this.runVanillaTest()}"
+                    ?disabled="${this.vanillaTestRunning}"
+                >
+                    ${this.vanillaTestRunning ? 'Running Test...' : 'Run Vanilla Proof Test'}
+                </button>
+                ${this.vanillaTestRunning ? html`
+                    <span style="margin-left: 1rem; color: #aaa;">
+                        Testing ${this.data.live_sectors_count} sectors in parallel...
+                    </span>
+                ` : ''}
+                ${this.renderVanillaTestResults()}
+            </div>
+
+            <div class="info-block" style="margin-top: 2rem;">
+                <h2>WindowPoSt Task Test</h2>
+                <p style="font-size: 0.9em; color: #aaa; margin-bottom: 1rem;">
+                    Create an actual WdPost task in the Curio task scheduler for this partition.
+                    This tests the full WindowPoSt pipeline including task pickup, proof generation, and SNARK aggregation.
+                    The task will be marked as a test and will not submit proofs on-chain.
+                </p>
+                <button 
+                    class="btn btn-warning" 
+                    @click="${() => this.startWdPostTask()}"
+                    ?disabled="${this.wdpostTaskRunning || this.wdpostTaskId !== null}"
+                >
+                    ${this.wdpostTaskRunning ? 'Creating Task...' : 'Run WdPost Task Test'}
+                </button>
+                ${this.wdpostTaskId !== null ? html`
+                    <span style="margin-left: 1rem;">
+                        Task: <task-status .taskId="${this.wdpostTaskId}"></task-status>
+                    </span>
+                ` : ''}
+                ${this.renderWdPostTaskResult()}
             </div>
 
             <div style="margin-top: 2rem;">
