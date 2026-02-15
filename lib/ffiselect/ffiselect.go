@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -39,39 +38,86 @@ var IsTest = false
 var IsCuda = build.IsOpencl != "1"
 
 // Get all devices from ffi
-var gpuSlots []byte
-var gpuSlotsMx sync.Mutex
-
-// getDeviceOrdinal returns the ordinal of the GPU with the least workload.
-func getDeviceOrdinal() int {
-	gpuSlotsMx.Lock()
-	defer gpuSlotsMx.Unlock()
-	max, maxIdx := byte(0), 0
-	for i, w := range gpuSlots {
-		if w > max {
-			max, maxIdx = w, i
-		}
-	}
-	if max == 0 {
-		logger.Errorf("no GPUs available. Something went wrong in the scheduler.")
-		return -1
-	}
-	gpuSlots[maxIdx]--
-	return maxIdx
+type deviceOrdinalManager struct {
+	releaseChan chan int
+	acquireChan chan chan int
 }
-func init() {
-	devices, err := ffi.GetGPUDevices()
-	if err != nil {
-		panic(err)
+
+var deviceOrdinalMgr = newDeviceOrdinalManager(ffi.GetGPUDevices)
+
+func newDeviceOrdinalManager(getGPUDevices func() ([]string, error)) *deviceOrdinalManager {
+	d := &deviceOrdinalManager{
+		releaseChan: make(chan int),
+		acquireChan: make(chan chan int),
 	}
-	if len(devices) == 0 {
-		gpuSlots = []byte{1}
-	} else {
-		gpuSlots = make([]byte, len(devices))
+	go func() {
+		devices, err := getGPUDevices()
+		if err != nil {
+			panic(err)
+		}
+
+		// No GPUs: immediately respond with -1 to every acquire, ignore releases.
+		if len(devices) == 0 {
+			for {
+				select {
+				case <-d.releaseChan:
+					// nothing to track
+				case acquireChan := <-d.acquireChan:
+					acquireChan <- -1
+				}
+			}
+		}
+
+		gpuSlots := make([]byte, len(devices))
 		for i := range gpuSlots {
 			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
 		}
-	}
+
+		waitList := []chan int{}
+		for { // distribute loop
+			select {
+			case ordinal := <-d.releaseChan:
+				if ordinal < 0 || ordinal >= len(gpuSlots) {
+					logger.Errorf("release of invalid GPU ordinal %d (have %d GPUs), ignoring", ordinal, len(gpuSlots))
+					continue
+				}
+				if gpuSlots[ordinal] >= byte(resources.GpuOverprovisionFactor) {
+					logger.Errorf("double-release of GPU ordinal %d (slot already at capacity %d), ignoring", ordinal, resources.GpuOverprovisionFactor)
+					continue
+				}
+				if len(waitList) > 0 { // unblock the delayed requests
+					waitList[0] <- ordinal
+					waitList = waitList[1:]
+				} else {
+					gpuSlots[ordinal]++
+				}
+			case acquireChan := <-d.acquireChan:
+				max, maxIdx := byte(0), 0
+				for i, w := range gpuSlots { // find the least used GPU
+					if w > max {
+						max, maxIdx = w, i
+					}
+				}
+				if max == 0 { // no GPU available, add to the wait list
+					waitList = append(waitList, acquireChan)
+					continue
+				}
+				gpuSlots[maxIdx]--
+				acquireChan <- maxIdx
+			}
+		}
+	}()
+	return d
+}
+
+func (d *deviceOrdinalManager) Release(ordinal int) {
+	d.releaseChan <- ordinal
+}
+
+func (d *deviceOrdinalManager) Get() int {
+	acquireChan := make(chan int)
+	d.acquireChan <- acquireChan
+	return <-acquireChan
 }
 
 type ValErr struct {
@@ -95,16 +141,14 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	}
 
 	// get dOrdinal
-	dOrdinal := getDeviceOrdinal()
+	dOrdinal := deviceOrdinalMgr.Get()
 
 	if dOrdinal == -1 {
 		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
 	}
 
 	defer func() {
-		gpuSlotsMx.Lock()
-		gpuSlots[dOrdinal]++
-		gpuSlotsMx.Unlock()
+		deviceOrdinalMgr.Release(dOrdinal)
 	}()
 
 	p, err := os.Executable()
@@ -142,7 +186,8 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	lw := NewLogWriter(ctx.Value(logCtxKey).([]any), os.Stderr)
+	logKvs, _ := ctx.Value(logCtxKey).([]any)
+	lw := NewLogWriter(logKvs, os.Stderr)
 
 	cmd.Stderr = lw
 	cmd.Stdout = lw
@@ -155,11 +200,15 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	cmd.Stdin = bytes.NewReader(body)
 	err = cmd.Run()
 	if err != nil {
+		_ = outFile.Close()
+		_ = os.Remove(outFile.Name())
 		return nil, err
 	}
 
 	// seek to start
 	if _, err := outFile.Seek(0, io.SeekStart); err != nil {
+		_ = outFile.Close()
+		_ = os.Remove(outFile.Name())
 		return nil, xerrors.Errorf("failed to seek to beginning of output file: %w", err)
 	}
 
