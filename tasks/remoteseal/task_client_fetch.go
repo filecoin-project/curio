@@ -194,7 +194,7 @@ func (c *RSealClient) FetchSealedData(ctx context.Context, providerURL, token st
 	if err != nil {
 		return xerrors.Errorf("performing request to %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -210,7 +210,7 @@ func (c *RSealClient) FetchSealedData(ctx context.Context, providerURL, token st
 	buf := make([]byte, 1<<20) // 1 MiB buffer
 	_, err = io.CopyBuffer(f, resp.Body, buf)
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return xerrors.Errorf("writing sealed data to %s: %w", destPath, err)
 	}
 

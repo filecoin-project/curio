@@ -44,7 +44,7 @@ func (c *RSealClient) doPost(ctx context.Context, url string, reqBody interface{
 	if err != nil {
 		return xerrors.Errorf("performing request to %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -77,7 +77,7 @@ func (c *RSealClient) doPostNoResponse(ctx context.Context, url string, reqBody 
 	if err != nil {
 		return xerrors.Errorf("performing request to %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

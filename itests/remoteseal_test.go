@@ -119,11 +119,11 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	// Create temp dirs for provider and client
 	providerDir, err := os.MkdirTemp("", "curio-provider-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(providerDir)
+	defer func() { _ = os.RemoveAll(providerDir) }()
 
 	clientDir, err := os.MkdirTemp("", "curio-client-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(clientDir)
+	defer func() { _ = os.RemoveAll(clientDir) }()
 
 	// Start provider instance
 	t.Log("Starting provider instance...")
