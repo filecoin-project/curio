@@ -401,7 +401,9 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
+SWAG_VERSION := v1.16.4
 marketgen:
+	GOFLAGS= $(GOCC) install github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION)
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
