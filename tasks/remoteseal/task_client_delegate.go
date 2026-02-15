@@ -33,18 +33,6 @@ func NewRSealDelegate(db *harmonydb.DB, client *RSealClient) *RSealDelegate {
 	}
 }
 
-type availableProvider struct {
-	ID    int64  `db:"id"`
-	URL   string `db:"provider_url"`
-	Token string `db:"provider_token"`
-}
-
-type candidateSector struct {
-	SpID         int64 `db:"sp_id"`
-	SectorNumber int64 `db:"sector_number"`
-	RegSealProof int   `db:"reg_seal_proof"`
-}
-
 // schedule is the IAmBored callback. It finds unclaimed sectors that have enabled
 // providers and atomically claims them in the DB. No HTTP calls happen here —
 // the expensive provider interaction is deferred to Do().

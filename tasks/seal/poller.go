@@ -159,8 +159,9 @@ type pollTask struct {
 	AfterMoveStorage      bool          `db:"after_move_storage"`       // 1 byte
 	AfterCommitMsg        bool          `db:"after_commit_msg"`         // 1 byte
 	AfterCommitMsgSuccess bool          `db:"after_commit_msg_success"` // 1 byte
-	// Remote seal flag
-	IsRemote bool `db:"is_remote"` // true when sector has rseal_client_pipeline entry
+	// Remote seal flags
+	IsRemote   bool `db:"is_remote"`   // true when sector has rseal_client_pipeline entry
+	AfterFetch bool `db:"after_fetch"` // true when sealed data has been fetched from provider (remote only)
 	// Larger fields at end
 	PoRepProof   []byte `db:"porep_proof"`   // 24 bytes - only used in specific stages
 	FailedReason string `db:"failed_reason"` // 16 bytes - only used when Failed=true
@@ -203,7 +204,8 @@ func (s *SealPoller) poll(ctx context.Context) error {
 												p.failed,
 												p.failed_reason,
 												p.start_epoch,
-												(c.sp_id IS NOT NULL) AS is_remote
+												(c.sp_id IS NOT NULL) AS is_remote,
+												COALESCE(c.after_fetch, TRUE) AS after_fetch
 											FROM
 												sectors_sdr_pipeline p
 											LEFT JOIN rseal_client_pipeline c ON p.sp_id = c.sp_id AND p.sector_number = c.sector_number
@@ -342,6 +344,7 @@ func (t pollTask) afterPrecommitMsgSuccess() bool {
 func (s *SealPoller) pollStartPoRep(ctx context.Context, task pollTask, ts *types.TipSet) {
 	if s.pollers[pollerPoRep].IsSet() && task.afterPrecommitMsgSuccess() && task.SeedEpoch.Valid &&
 		!task.TaskPoRep.Valid && !task.AfterPoRep &&
+		task.AfterFetch && // Remote sectors: sealed data must be fetched before PoRep (local: always true)
 		ts.Height() >= abi.ChainEpoch(task.SeedEpoch.Int64+seedEpochConfidence) {
 
 		s.pollers[pollerPoRep].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
