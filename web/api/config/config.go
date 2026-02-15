@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -37,6 +38,8 @@ func Routes(r *mux.Router, deps *deps.Deps) {
 	r.Methods("GET").Path("/layers/{layer}").HandlerFunc(c.getLayer)
 	r.Methods("POST").Path("/addlayer").HandlerFunc(c.addLayer)
 	r.Methods("POST").Path("/layers/{layer}").HandlerFunc(c.setLayer)
+	r.Methods("GET").Path("/history/{layer}").HandlerFunc(c.getLayerHistory)
+	r.Methods("GET").Path("/history/{layer}/{id}").HandlerFunc(c.getHistoryEntry)
 	r.Methods("GET").Path("/default").HandlerFunc(c.def)
 }
 
@@ -208,9 +211,50 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 		configStr = string(cb)
 	}
 
+	// Save config history if the layer already exists and config changed
+	var oldConfig string
+	err = c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, layer).Scan(&oldConfig)
+	if err == nil && oldConfig != configStr {
+		_, err = c.DB.Exec(context.Background(),
+			`INSERT INTO harmony_config_history (title, old_config, new_config) VALUES ($1, $2, $3)`,
+			layer, oldConfig, configStr)
+		apihelper.OrHTTPFail(w, err)
+	}
+
 	//Write the TOML to the database
 	_, err = c.DB.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, layer, configStr)
 	apihelper.OrHTTPFail(w, err)
+}
+
+func (c *cfg) getLayerHistory(w http.ResponseWriter, r *http.Request) {
+	layer := mux.Vars(r)["layer"]
+	var history []struct {
+		ID        int       `db:"id" json:"id"`
+		Title     string    `db:"title" json:"title"`
+		ChangedAt time.Time `db:"changed_at" json:"changed_at"`
+	}
+	apihelper.OrHTTPFail(w, c.DB.Select(context.Background(), &history,
+		`SELECT id, title, changed_at FROM harmony_config_history WHERE title = $1 ORDER BY changed_at DESC LIMIT 50`, layer))
+	w.Header().Set("Content-Type", "application/json")
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(history))
+}
+
+func (c *cfg) getHistoryEntry(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	id, err := strconv.Atoi(idStr)
+	apihelper.OrHTTPFail(w, err)
+
+	var entry struct {
+		ID        int       `db:"id" json:"id"`
+		Title     string    `db:"title" json:"title"`
+		OldConfig string    `db:"old_config" json:"old_config"`
+		NewConfig string    `db:"new_config" json:"new_config"`
+		ChangedAt time.Time `db:"changed_at" json:"changed_at"`
+	}
+	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
+		`SELECT id, title, old_config, new_config, changed_at FROM harmony_config_history WHERE id = $1`, id).Scan(&entry.ID, &entry.Title, &entry.OldConfig, &entry.NewConfig, &entry.ChangedAt))
+	w.Header().Set("Content-Type", "application/json")
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(entry))
 }
 
 func (c *cfg) topo(w http.ResponseWriter, r *http.Request) {

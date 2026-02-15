@@ -35,6 +35,26 @@
             background-color: #555;
         }
 
+        #historyButton {
+            display: block;
+            position: fixed;
+            bottom: 80px;
+            right: 30px;
+            z-index: 99;
+            font-size: 14px;
+            border: none;
+            outline: none;
+            background-color: #495057;
+            color: white;
+            cursor: pointer;
+            padding: 10px 15px;
+            border-radius: 4px;
+        }
+
+        #historyButton:hover {
+            background-color: #6c757d;
+        }
+
         .help-button button {
             font-size: 24px;
             border-radius: 50%;
@@ -57,6 +77,47 @@
             right: 200px;
             z-index: 100;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        #historyModal .modal-dialog {
+            max-width: 90%;
+        }
+
+        #historyModal .modal-body {
+            max-height: 75vh;
+            overflow-y: auto;
+        }
+
+        .history-list-item {
+            cursor: pointer;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+        }
+
+        .history-list-item:hover {
+            background-color: #2a2a2a;
+        }
+
+        .diff-container {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .diff-line-add {
+            background-color: rgba(46, 160, 67, 0.2);
+            color: #3fb950;
+        }
+
+        .diff-line-remove {
+            background-color: rgba(248, 81, 73, 0.2);
+            color: #f85149;
+        }
+
+        .diff-line-context {
+            color: #8b949e;
         }
 
         .hidden {
@@ -101,6 +162,29 @@
                 <div class="col-md-8">
                     <div>
                         <button id="saveButton" class="saveButton">Save</button>
+                        <button id="historyButton">&#128337; History</button>
+                    </div>
+
+                    <!-- History Modal -->
+                    <div class="modal fade" id="historyModal" tabindex="-1" aria-labelledby="historyModalLabel" aria-hidden="true">
+                        <div class="modal-dialog modal-xl">
+                            <div class="modal-content bg-dark">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="historyModalLabel">Config History</h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="historyListView">
+                                        <p class="text-muted">Loading history...</p>
+                                    </div>
+                                    <div id="historyDiffView" style="display:none;">
+                                        <button class="btn btn-sm btn-outline-secondary mb-3" id="backToHistoryList">&larr; Back to list</button>
+                                        <h6 id="diffTitle" class="text-muted mb-3"></h6>
+                                        <div class="diff-container bg-black p-3 rounded" id="diffOutput"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="help-button">
@@ -223,6 +307,133 @@
                                             });
                                     }
                                 });
+
+                                // History feature
+                                var historyButton = document.getElementById('historyButton');
+                                var historyModal = new bootstrap.Modal(document.getElementById('historyModal'));
+                                var historyListView = document.getElementById('historyListView');
+                                var historyDiffView = document.getElementById('historyDiffView');
+                                var diffOutput = document.getElementById('diffOutput');
+                                var diffTitle = document.getElementById('diffTitle');
+
+                                if (layer === 'default') {
+                                    historyButton.style.display = 'none';
+                                }
+
+                                historyButton.addEventListener('click', function() {
+                                    historyListView.style.display = 'block';
+                                    historyDiffView.style.display = 'none';
+                                    historyListView.innerHTML = '<p class="text-muted">Loading history...</p>';
+                                    historyModal.show();
+
+                                    axios.get('/api/config/history/' + layer)
+                                        .then(function(resp) {
+                                            var entries = resp.data;
+                                            if (!entries || entries.length === 0) {
+                                                historyListView.innerHTML = '<p class="text-muted">No history entries for this layer yet.</p>';
+                                                return;
+                                            }
+                                            var html = '<div class="list-group">';
+                                            entries.forEach(function(entry) {
+                                                var dt = new Date(entry.changed_at);
+                                                var formatted = dt.toLocaleString();
+                                                html += '<div class="history-list-item list-group-item list-group-item-action bg-dark text-light" data-id="' + entry.id + '">';
+                                                html += '<span>' + formatted + '</span>';
+                                                html += '</div>';
+                                            });
+                                            html += '</div>';
+                                            historyListView.innerHTML = html;
+
+                                            historyListView.querySelectorAll('.history-list-item').forEach(function(el) {
+                                                el.addEventListener('click', function() {
+                                                    var entryId = this.getAttribute('data-id');
+                                                    loadHistoryDiff(entryId);
+                                                });
+                                            });
+                                        })
+                                        .catch(function(err) {
+                                            historyListView.innerHTML = '<p class="text-danger">Failed to load history.</p>';
+                                            console.error('Error loading history:', err);
+                                        });
+                                });
+
+                                document.getElementById('backToHistoryList').addEventListener('click', function() {
+                                    historyDiffView.style.display = 'none';
+                                    historyListView.style.display = 'block';
+                                });
+
+                                function loadHistoryDiff(entryId) {
+                                    historyListView.style.display = 'none';
+                                    historyDiffView.style.display = 'block';
+                                    diffOutput.textContent = 'Loading...';
+
+                                    axios.get('/api/config/history/' + layer + '/' + entryId)
+                                        .then(function(resp) {
+                                            var entry = resp.data;
+                                            var dt = new Date(entry.changed_at);
+                                            diffTitle.textContent = 'Change from ' + dt.toLocaleString();
+                                            diffOutput.innerHTML = computeDiff(entry.old_config, entry.new_config);
+                                        })
+                                        .catch(function(err) {
+                                            diffOutput.innerHTML = '<span class="text-danger">Failed to load diff.</span>';
+                                            console.error('Error loading diff:', err);
+                                        });
+                                }
+
+                                function computeDiff(oldText, newText) {
+                                    var oldLines = oldText.split('\n');
+                                    var newLines = newText.split('\n');
+                                    var html = '';
+
+                                    // LCS-based unified diff
+                                    var m = oldLines.length;
+                                    var n = newLines.length;
+
+                                    var dp = [];
+                                    for (var i = 0; i <= m; i++) {
+                                        dp[i] = [];
+                                        for (var j = 0; j <= n; j++) {
+                                            if (i === 0 || j === 0) {
+                                                dp[i][j] = 0;
+                                            } else if (oldLines[i - 1] === newLines[j - 1]) {
+                                                dp[i][j] = dp[i - 1][j - 1] + 1;
+                                            } else {
+                                                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                                            }
+                                        }
+                                    }
+
+                                    var result = [];
+                                    var i = m, j = n;
+                                    while (i > 0 || j > 0) {
+                                        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+                                            result.unshift({ type: 'context', text: oldLines[i - 1] });
+                                            i--; j--;
+                                        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                                            result.unshift({ type: 'add', text: newLines[j - 1] });
+                                            j--;
+                                        } else {
+                                            result.unshift({ type: 'remove', text: oldLines[i - 1] });
+                                            i--;
+                                        }
+                                    }
+
+                                    result.forEach(function(line) {
+                                        var escaped = line.text
+                                            .replace(/&/g, '&amp;')
+                                            .replace(/</g, '&lt;')
+                                            .replace(/>/g, '&gt;');
+                                        if (line.type === 'add') {
+                                            html += '<div class="diff-line-add">+ ' + escaped + '</div>';
+                                        } else if (line.type === 'remove') {
+                                            html += '<div class="diff-line-remove">- ' + escaped + '</div>';
+                                        } else {
+                                            html += '<div class="diff-line-context">  ' + escaped + '</div>';
+                                        }
+                                    });
+
+                                    return html || '<span class="text-muted">No differences found.</span>';
+                                }
                             })
                             .catch(error => {
                                 console.error('Error fetching data:', error);
