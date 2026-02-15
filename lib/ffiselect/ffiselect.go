@@ -55,18 +55,36 @@ func newDeviceOrdinalManager(getGPUDevices func() ([]string, error)) *deviceOrdi
 		if err != nil {
 			panic(err)
 		}
-		gpuSlots := []byte{1}
-		if len(devices) > 0 {
-			gpuSlots = make([]byte, len(devices))
-			for i := range gpuSlots {
-				gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
+
+		// No GPUs: immediately respond with -1 to every acquire, ignore releases.
+		if len(devices) == 0 {
+			for {
+				select {
+				case <-d.releaseChan:
+					// nothing to track
+				case acquireChan := <-d.acquireChan:
+					acquireChan <- -1
+				}
 			}
+		}
+
+		gpuSlots := make([]byte, len(devices))
+		for i := range gpuSlots {
+			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
 		}
 
 		waitList := []chan int{}
 		for { // distribute loop
 			select {
 			case ordinal := <-d.releaseChan:
+				if ordinal < 0 || ordinal >= len(gpuSlots) {
+					logger.Errorf("release of invalid GPU ordinal %d (have %d GPUs), ignoring", ordinal, len(gpuSlots))
+					continue
+				}
+				if gpuSlots[ordinal] >= byte(resources.GpuOverprovisionFactor) {
+					logger.Errorf("double-release of GPU ordinal %d (slot already at capacity %d), ignoring", ordinal, resources.GpuOverprovisionFactor)
+					continue
+				}
 				if len(waitList) > 0 { // unblock the delayed requests
 					waitList[0] <- ordinal
 					waitList = waitList[1:]
@@ -168,7 +186,8 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	lw := NewLogWriter(ctx.Value(logCtxKey).([]any), os.Stderr)
+	logKvs, _ := ctx.Value(logCtxKey).([]any)
+	lw := NewLogWriter(logKvs, os.Stderr)
 
 	cmd.Stderr = lw
 	cmd.Stdout = lw
@@ -181,11 +200,15 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	cmd.Stdin = bytes.NewReader(body)
 	err = cmd.Run()
 	if err != nil {
+		_ = outFile.Close()
+		_ = os.Remove(outFile.Name())
 		return nil, err
 	}
 
 	// seek to start
 	if _, err := outFile.Seek(0, io.SeekStart); err != nil {
+		_ = outFile.Close()
+		_ = os.Remove(outFile.Name())
 		return nil, xerrors.Errorf("failed to seek to beginning of output file: %w", err)
 	}
 
