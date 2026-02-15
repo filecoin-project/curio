@@ -15,27 +15,15 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/tarutil"
-	"github.com/filecoin-project/curio/tasks/seal"
-
-	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var log = logging.Logger("sealmarket")
-
-// TicketAPI is the chain API interface needed by the /ticket handler
-// to fetch SDR tickets from the chain.
-type TicketAPI interface {
-	ChainHead(context.Context) (*types.TipSet, error)
-	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
-}
 
 // slotEntry is an in-memory slot reservation with a deadline.
 type slotEntry struct {
@@ -44,19 +32,17 @@ type slotEntry struct {
 }
 
 type SealMarket struct {
-	db  *harmonydb.DB
-	sc  *ffi2.SealCalls
-	api TicketAPI
+	db *harmonydb.DB
+	sc *ffi2.SealCalls
 
 	slotsMu sync.Mutex
 	slots   map[string]*slotEntry
 }
 
-func NewSealMarket(db *harmonydb.DB, sc *ffi2.SealCalls, api TicketAPI) *SealMarket {
+func NewSealMarket(db *harmonydb.DB, sc *ffi2.SealCalls) *SealMarket {
 	return &SealMarket{
 		db:    db,
 		sc:    sc,
-		api:   api,
 		slots: make(map[string]*slotEntry),
 	}
 }
@@ -88,9 +74,9 @@ const DelegatedSealPath = SealMarketRoutePath + "delegated/v0/"
 4. If provider is available, rseal_client_pipeline entry is created
 5. RSealDelegate task starts client side, sends /remoteseal/delegated/v0/order to provider with sector details
 6. Provider spawns matching pipeline
-7. Provider sdr task (batch or single sdr) queries client /remoteseal/delegated/v0/ticket to get sdr ticket
-8. SDR and Trees run and finish Provider side
-9. Provider sends /remoteseal/delegated/v0/complete to client, client RSealDelegate also polls /remoteseal/delegated/v0/status every 5mins
+7. Provider SDR task computes ticket from chain locally and runs SDR
+8. Trees run and finish provider side
+9. Provider sends /remoteseal/delegated/v0/complete to client (includes ticket), client also polls /remoteseal/delegated/v0/status
 10.1. Client sends precommit through the normal precommit pipeline
 10.2. Client fetches sealed file: GET /remoteseal/delegated/v0/sealed-data/{sp_id}/{sector_number}?token=... (32 GiB, Range, aria2c)
 10.3. Client fetches fincache: GET /remoteseal/delegated/v0/cache-data/{sp_id}/{sector_number}?token=... (tar, ~73 MiB)
@@ -150,19 +136,6 @@ type OrderResponse struct {
 	RejectReason string `json:"reject_reason,omitempty"`
 }
 
-// TicketRequest is sent by the provider to the client to get the SDR ticket.
-type TicketRequest struct {
-	PartnerToken string `json:"partner_token"`
-	SpID         int64  `json:"sp_id"`
-	SectorNumber int64  `json:"sector_number"`
-}
-
-// TicketResponse contains the ticket for SDR computation.
-type TicketResponse struct {
-	TicketEpoch int64  `json:"ticket_epoch"`
-	TicketValue []byte `json:"ticket_value"`
-}
-
 // StatusRequest is used by the client to poll completion status.
 type StatusRequest struct {
 	PartnerToken string `json:"partner_token"`
@@ -172,10 +145,12 @@ type StatusRequest struct {
 
 // StatusResponse describes the current state of a remote seal job.
 type StatusResponse struct {
-	State      string `json:"state"` // "pending", "sdr", "trees", "complete", "failed"
-	TreeDCid   string `json:"tree_d_cid,omitempty"`
-	TreeRCid   string `json:"tree_r_cid,omitempty"`
-	FailReason string `json:"fail_reason,omitempty"`
+	State       string `json:"state"` // "pending", "sdr", "trees", "complete", "failed"
+	TreeDCid    string `json:"tree_d_cid,omitempty"`
+	TreeRCid    string `json:"tree_r_cid,omitempty"`
+	TicketEpoch int64  `json:"ticket_epoch,omitempty"`
+	TicketValue []byte `json:"ticket_value,omitempty"`
+	FailReason  string `json:"fail_reason,omitempty"`
 }
 
 // CompleteNotification is sent by the provider to the client when SDR+trees finish.
@@ -185,6 +160,8 @@ type CompleteNotification struct {
 	SectorNumber int64  `json:"sector_number"`
 	TreeDCid     string `json:"tree_d_cid"`
 	TreeRCid     string `json:"tree_r_cid"`
+	TicketEpoch  int64  `json:"ticket_epoch"`
+	TicketValue  []byte `json:"ticket_value"`
 }
 
 // Commit1Request is sent by the client to the provider to exchange C1 seed for C1 output.
@@ -236,7 +213,6 @@ func Routes(r *chi.Mux, sm *SealMarket) {
 		r.Post("/cleanup", sm.handleCleanup)
 
 		// Sealing flow - client-side endpoints (called by provider)
-		r.Post("/ticket", sm.handleTicket)
 		r.Post("/complete", sm.handleComplete)
 	})
 }
@@ -422,84 +398,6 @@ func (sm *SealMarket) handleOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, OrderResponse{Accepted: true})
 }
 
-// handleTicket provides the SDR ticket to the provider.
-// Called by the provider against the client's curio instance.
-// POST /remoteseal/delegated/v0/ticket
-func (sm *SealMarket) handleTicket(w http.ResponseWriter, r *http.Request) {
-	var req TicketRequest
-	if !readJSON(w, r, &req) {
-		return
-	}
-
-	// Validate partner token by looking up in rseal_client_providers
-	var providers []struct {
-		ID int64 `db:"id"`
-	}
-
-	err := sm.db.Select(r.Context(), &providers, `SELECT id FROM rseal_client_providers WHERE provider_token = $1`, req.PartnerToken)
-	if err != nil {
-		log.Errorw("ticket: db query failed", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	if len(providers) == 0 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	providerID := providers[0].ID
-
-	// Get the miner address from sp_id
-	maddr, err := address.NewIDAddress(uint64(req.SpID))
-	if err != nil {
-		log.Errorw("ticket: invalid sp_id", "error", err, "sp_id", req.SpID)
-		http.Error(w, "invalid sp_id", http.StatusBadRequest)
-		return
-	}
-
-	// Get a fresh ticket from the chain
-	ticket, ticketEpoch, err := seal.GetTicket(r.Context(), sm.api, maddr)
-	if err != nil {
-		log.Errorw("ticket: failed to get ticket from chain", "error", err)
-		http.Error(w, "failed to get ticket", http.StatusInternalServerError)
-		return
-	}
-
-	// Store ticket in both rseal_client_pipeline and sectors_sdr_pipeline.
-	// The PoRep task reads ticket_epoch/ticket_value from sectors_sdr_pipeline,
-	// so we must propagate it there as well.
-	_, err = sm.db.BeginTransaction(r.Context(), func(tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`UPDATE rseal_client_pipeline SET ticket_epoch = $1, ticket_value = $2 WHERE sp_id = $3 AND sector_number = $4 AND provider_id = $5`,
-			int64(ticketEpoch), []byte(ticket), req.SpID, req.SectorNumber, providerID)
-		if err != nil {
-			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
-		}
-		if n == 0 {
-			return false, xerrors.Errorf("sector not found or not owned by this provider")
-		}
-
-		_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET ticket_epoch = $1, ticket_value = $2 WHERE sp_id = $3 AND sector_number = $4`,
-			int64(ticketEpoch), []byte(ticket), req.SpID, req.SectorNumber)
-		if err != nil {
-			return false, xerrors.Errorf("updating sectors_sdr_pipeline: %w", err)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		log.Errorw("ticket: failed to store ticket", "error", err)
-		http.Error(w, "failed to store ticket", http.StatusInternalServerError)
-		return
-	}
-
-	resp := TicketResponse{
-		TicketEpoch: int64(ticketEpoch),
-		TicketValue: []byte(ticket),
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
 // handleStatus returns the current state of a remote seal job.
 // POST /remoteseal/delegated/v0/status
 func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -516,7 +414,9 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rows []struct {
+		TaskIDSdr       *int64  `db:"task_id_sdr"`
 		TicketEpoch     *int64  `db:"ticket_epoch"`
+		TicketValue     []byte  `db:"ticket_value"`
 		AfterSDR        bool    `db:"after_sdr"`
 		AfterTreeC      bool    `db:"after_tree_c"`
 		AfterTreeR      bool    `db:"after_tree_r"`
@@ -526,7 +426,7 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 		FailedReasonMsg string  `db:"failed_reason_msg"`
 	}
 
-	err = sm.db.Select(r.Context(), &rows, `SELECT ticket_epoch, after_sdr, after_tree_c, after_tree_r, tree_d_cid, tree_r_cid, failed, failed_reason_msg FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
+	err = sm.db.Select(r.Context(), &rows, `SELECT task_id_sdr, ticket_epoch, ticket_value, after_sdr, after_tree_c, after_tree_r, tree_d_cid, tree_r_cid, failed, failed_reason_msg FROM rseal_provider_pipeline WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
 		req.SpID, req.SectorNumber, partnerID)
 	if err != nil {
 		log.Errorw("status: db query failed", "error", err)
@@ -553,9 +453,13 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 		if row.TreeRCid != nil {
 			resp.TreeRCid = *row.TreeRCid
 		}
+		if row.TicketEpoch != nil {
+			resp.TicketEpoch = *row.TicketEpoch
+			resp.TicketValue = row.TicketValue
+		}
 	} else if row.AfterSDR {
 		resp.State = "trees"
-	} else if row.TicketEpoch != nil {
+	} else if row.TaskIDSdr != nil {
 		resp.State = "sdr"
 	} else {
 		resp.State = "pending"
@@ -615,50 +519,9 @@ func (sm *SealMarket) handleComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply the completion in a transaction (same logic as applyRemoteCompletion in remoteseal package)
-	_, err = sm.db.BeginTransaction(r.Context(), func(tx *harmonydb.Tx) (bool, error) {
-		// Update rseal_client_pipeline: mark SDR and all trees as done
-		n, err := tx.Exec(`UPDATE rseal_client_pipeline
-			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
-			    tree_d_cid = $3, tree_r_cid = $4,
-			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2 AND provider_id = $5`,
-			req.SpID, req.SectorNumber, req.TreeDCid, req.TreeRCid, providerID)
-		if err != nil {
-			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected to update 1 rseal_client_pipeline row, updated %d", n)
-		}
-
-		// Read ticket from rseal_client_pipeline (stored by handleTicket)
-		var ticketEpoch *int64
-		var ticketValue []byte
-		err = tx.QueryRow(`SELECT ticket_epoch, ticket_value FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2 AND provider_id = $3`,
-			req.SpID, req.SectorNumber, providerID).Scan(&ticketEpoch, &ticketValue)
-		if err != nil {
-			return false, xerrors.Errorf("reading ticket from rseal_client_pipeline: %w", err)
-		}
-
-		// Update sectors_sdr_pipeline: mark SDR, trees, and synth as done.
-		// Propagate ticket data so the PoRep task can use it.
-		n, err = tx.Exec(`UPDATE sectors_sdr_pipeline
-			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
-			    after_synth = TRUE,
-			    tree_d_cid = $3, tree_r_cid = $4,
-			    ticket_epoch = $5, ticket_value = $6,
-			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			req.SpID, req.SectorNumber, req.TreeDCid, req.TreeRCid, ticketEpoch, ticketValue)
-		if err != nil {
-			return false, xerrors.Errorf("updating sectors_sdr_pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected to update 1 sectors_sdr_pipeline row, updated %d", n)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
+	// Apply the completion using shared function (ticket comes from the provider notification)
+	err = ApplyRemoteCompletion(r.Context(), sm.db, req.SpID, req.SectorNumber, providerID,
+		req.TreeDCid, req.TreeRCid, req.TicketEpoch, req.TicketValue)
 	if err != nil {
 		log.Errorw("complete: transaction failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -962,6 +825,58 @@ func (sm *SealMarket) handleCleanup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// --- Shared functions ---
+
+// ApplyRemoteCompletion updates both rseal_client_pipeline and sectors_sdr_pipeline
+// when a remote provider completes SDR+trees. This is called by both the poll task
+// (in remoteseal package) and the /complete callback handler.
+// The ticket data comes from the provider (via notification or status poll).
+func ApplyRemoteCompletion(ctx context.Context, db *harmonydb.DB, spID, sectorNumber, providerID int64, treeDCid, treeRCid string, ticketEpoch int64, ticketValue []byte) error {
+	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Update rseal_client_pipeline: mark SDR and all trees as done
+		n, err := tx.Exec(`
+			UPDATE rseal_client_pipeline
+			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
+			    tree_d_cid = $3, tree_r_cid = $4,
+			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
+			WHERE sp_id = $1 AND sector_number = $2`,
+			spID, sectorNumber, treeDCid, treeRCid)
+		if err != nil {
+			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 rseal_client_pipeline row, updated %d", n)
+		}
+
+		// Update sectors_sdr_pipeline: mark SDR, trees, and synth as done.
+		// Set after_synth = TRUE because remote-sealed sectors skip the local synth step.
+		// Propagate ticket data from the provider so the PoRep task can use it.
+		// Clear task_ids so the normal precommit pipeline can proceed.
+		n, err = tx.Exec(`
+			UPDATE sectors_sdr_pipeline
+			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
+			    after_synth = TRUE,
+			    tree_d_cid = $3, tree_r_cid = $4,
+			    ticket_epoch = $5, ticket_value = $6,
+			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
+			WHERE sp_id = $1 AND sector_number = $2`,
+			spID, sectorNumber, treeDCid, treeRCid, ticketEpoch, ticketValue)
+		if err != nil {
+			return false, xerrors.Errorf("updating sectors_sdr_pipeline: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("expected to update 1 sectors_sdr_pipeline row, updated %d", n)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return xerrors.Errorf("applying remote completion transaction: %w", err)
+	}
+
+	return nil
 }
 
 // --- Helpers ---

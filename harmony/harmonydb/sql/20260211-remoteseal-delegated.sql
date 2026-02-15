@@ -56,10 +56,7 @@ CREATE TABLE IF NOT EXISTS rseal_client_pipeline (
     -- harmony task id. The poller detects rseal_client_pipeline rows and
     -- creates the combined remote-seal task instead of individual local tasks.
 
-    -- sdr
-    ticket_epoch bigint,
-    ticket_value bytea,
-
+    -- sdr (ticket is computed by the provider and returned in the /complete notification)
     task_id_sdr bigint,
     after_sdr bool not null default false,
 

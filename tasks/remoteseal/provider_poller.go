@@ -15,8 +15,7 @@ import (
 var log = logging.Logger("remoteseal")
 
 const (
-	pollerProvTicketFetch = iota
-	pollerProvSDR
+	pollerProvSDR = iota
 	pollerProvTreeD
 	pollerProvTreeRC
 	pollerProvNotifyClient
@@ -44,9 +43,6 @@ type pollProviderTask struct {
 	SectorNumber int64 `db:"sector_number"`
 	RegSealProof int   `db:"reg_seal_proof"`
 	PartnerID    int64 `db:"partner_id"`
-
-	// ticket
-	TicketEpoch *int64 `db:"ticket_epoch"`
 
 	// task IDs
 	TaskIDSdr          *int64 `db:"task_id_sdr"`
@@ -99,7 +95,6 @@ func (sp *RSealProviderPoller) poll(ctx context.Context) error {
 		sector_number,
 		reg_seal_proof,
 		partner_id,
-		ticket_epoch,
 		task_id_sdr,
 		after_sdr,
 		task_id_tree_d,
@@ -131,45 +126,38 @@ func (sp *RSealProviderPoller) poll(ctx context.Context) error {
 			continue
 		}
 
-		// 1. Ticket fetch: ticket not yet obtained, no SDR task assigned
-		//    We reuse the task_id_sdr column for the ticket fetch task.
-		//    After ticket is fetched, task_id_sdr is cleared so the real SDR can be assigned.
-		if task.TicketEpoch == nil && task.TaskIDSdr == nil {
-			sp.pollStartTicketFetch(ctx, task)
-			continue
-		}
-
-		// 2. SDR: ticket obtained, no SDR task running, SDR not done
-		if !task.AfterSDR && task.TaskIDSdr == nil && task.TicketEpoch != nil {
+		// 1. SDR: not done, no SDR task running
+		//    The SDR task computes its own ticket from the chain - no separate ticket fetch needed.
+		if !task.AfterSDR && task.TaskIDSdr == nil {
 			sp.pollStartSDR(ctx, task)
 			continue
 		}
 
-		// 3. TreeD: SDR done, TreeD not done, no TreeD task running
+		// 2. TreeD: SDR done, TreeD not done, no TreeD task running
 		if task.AfterSDR && !task.AfterTreeD && task.TaskIDTreeD == nil {
 			sp.pollStartTreeD(ctx, task)
 			continue
 		}
 
-		// 4. TreeRC: TreeD done, TreeC/TreeR not done, no tasks running
+		// 3. TreeRC: TreeD done, TreeC/TreeR not done, no tasks running
 		if task.AfterTreeD && !task.AfterTreeC && !task.AfterTreeR && task.TaskIDTreeC == nil && task.TaskIDTreeR == nil {
 			sp.pollStartTreeRC(ctx, task)
 			continue
 		}
 
-		// 5. NotifyClient: TreeR done, not yet notified, no notify task running
+		// 4. NotifyClient: TreeR done, not yet notified, no notify task running
 		if task.AfterTreeR && !task.AfterNotifyClient && task.TaskIDNotifyClient == nil {
 			sp.pollStartNotifyClient(ctx, task)
 			continue
 		}
 
-		// 6. Finalize: C1 supplied by client, not yet finalized, no finalize task running
+		// 5. Finalize: C1 supplied by client, not yet finalized, no finalize task running
 		if task.AfterC1Supplied && !task.AfterFinalize && task.TaskIDFinalize == nil {
 			sp.pollStartFinalize(ctx, task)
 			continue
 		}
 
-		// 7. Cleanup: cleanup requested (or timeout reached), not yet cleaned, no cleanup task running
+		// 6. Cleanup: cleanup requested (or timeout reached), not yet cleaned, no cleanup task running
 		if !task.AfterCleanup && task.TaskIDCleanup == nil {
 			shouldCleanup := task.CleanupRequested ||
 				(task.CleanupTimeout != nil && time.Now().After(*task.CleanupTimeout))
@@ -183,33 +171,10 @@ func (sp *RSealProviderPoller) poll(ctx context.Context) error {
 	return nil
 }
 
-// pollStartTicketFetch creates a ticket-fetch task. The task_id is stored in the
-// task_id_sdr column temporarily. The RSealProviderTicket task fetches the ticket
-// from the client, writes ticket_epoch/ticket_value, and clears task_id_sdr so
-// that the real SDR task can be assigned next poll cycle.
-func (sp *RSealProviderPoller) pollStartTicketFetch(ctx context.Context, task pollProviderTask) {
-	if !sp.pollers[pollerProvTicketFetch].IsSet() {
-		return
-	}
-
-	sp.pollers[pollerProvTicketFetch].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-		n, err := tx.Exec(`UPDATE rseal_provider_pipeline SET task_id_sdr = $1
-			WHERE sp_id = $2 AND sector_number = $3 AND ticket_epoch IS NULL AND task_id_sdr IS NULL`,
-			id, task.SpID, task.SectorNumber)
-		if err != nil {
-			return false, xerrors.Errorf("update ticket fetch task: %w", err)
-		}
-		if n != 1 {
-			return false, nil // someone else got it
-		}
-
-		return true, nil
-	})
-}
-
-// pollStartSDR assigns an SDR task to a sector that has obtained its ticket.
+// pollStartSDR assigns an SDR task to a sector.
 // This uses the same SDR task type as the regular seal pipeline; the existing
 // SDR task's Do() queries rseal_provider_pipeline via UNION ALL.
+// The SDR task computes its own ticket from the chain.
 func (sp *RSealProviderPoller) pollStartSDR(ctx context.Context, task pollProviderTask) {
 	if !sp.pollers[pollerProvSDR].IsSet() {
 		return
@@ -217,7 +182,7 @@ func (sp *RSealProviderPoller) pollStartSDR(ctx context.Context, task pollProvid
 
 	sp.pollers[pollerProvSDR].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		n, err := tx.Exec(`UPDATE rseal_provider_pipeline SET task_id_sdr = $1
-			WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL AND ticket_epoch IS NOT NULL AND after_sdr = FALSE`,
+			WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL AND after_sdr = FALSE`,
 			id, task.SpID, task.SectorNumber)
 		if err != nil {
 			return false, xerrors.Errorf("update sdr task: %w", err)

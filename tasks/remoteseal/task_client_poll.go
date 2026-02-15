@@ -43,12 +43,13 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		SpID          int64  `db:"sp_id"`
 		SectorNumber  int64  `db:"sector_number"`
 		RegSealProof  int    `db:"reg_seal_proof"`
+		ProviderID    int64  `db:"provider_id"`
 		ProviderURL   string `db:"provider_url"`
 		ProviderToken string `db:"provider_token"`
 	}
 
 	err = p.db.Select(ctx, &sectors, `
-		SELECT c.sp_id, c.sector_number, c.reg_seal_proof, pr.provider_url, pr.provider_token
+		SELECT c.sp_id, c.sector_number, c.reg_seal_proof, c.provider_id, pr.provider_url, pr.provider_token
 		FROM rseal_client_pipeline c
 		JOIN rseal_client_providers pr ON c.provider_id = pr.id
 		WHERE c.task_id_sdr = $1 AND c.after_sdr = FALSE`, taskID)
@@ -82,9 +83,9 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 		switch statusResp.State {
 		case "complete":
-			// Provider is done with SDR+trees. Apply the completion.
-			if err := applyRemoteCompletion(ctx, p.db, sector.SpID, sector.SectorNumber,
-				statusResp.TreeDCid, statusResp.TreeRCid); err != nil {
+			// Provider is done with SDR+trees. Apply the completion (ticket comes from status response).
+			if err := sealmarket.ApplyRemoteCompletion(ctx, p.db, sector.SpID, sector.SectorNumber, sector.ProviderID,
+				statusResp.TreeDCid, statusResp.TreeRCid, statusResp.TicketEpoch, statusResp.TicketValue); err != nil {
 				return false, xerrors.Errorf("applying remote completion: %w", err)
 			}
 
@@ -135,64 +136,6 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			}
 		}
 	}
-}
-
-// applyRemoteCompletion updates both rseal_client_pipeline and sectors_sdr_pipeline
-// when a remote provider completes SDR+trees. This is called by both the poll task
-// and the /complete callback handler.
-func applyRemoteCompletion(ctx context.Context, db *harmonydb.DB, spID, sectorNumber int64, treeDCid, treeRCid string) error {
-	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Update rseal_client_pipeline: mark SDR and all trees as done
-		n, err := tx.Exec(`
-			UPDATE rseal_client_pipeline
-			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
-			    tree_d_cid = $3, tree_r_cid = $4,
-			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			spID, sectorNumber, treeDCid, treeRCid)
-		if err != nil {
-			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected to update 1 rseal_client_pipeline row, updated %d", n)
-		}
-
-		// Read ticket from rseal_client_pipeline (stored by handleTicket)
-		var ticketEpoch *int64
-		var ticketValue []byte
-		err = tx.QueryRow(`SELECT ticket_epoch, ticket_value FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2`,
-			spID, sectorNumber).Scan(&ticketEpoch, &ticketValue)
-		if err != nil {
-			return false, xerrors.Errorf("reading ticket from rseal_client_pipeline: %w", err)
-		}
-
-		// Update sectors_sdr_pipeline: mark SDR, trees, and synth as done.
-		// Set after_synth = TRUE because remote-sealed sectors skip the local synth step.
-		// Propagate ticket data so the PoRep task can use it.
-		// Clear task_ids so the normal precommit pipeline can proceed.
-		n, err = tx.Exec(`
-			UPDATE sectors_sdr_pipeline
-			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
-			    after_synth = TRUE,
-			    tree_d_cid = $3, tree_r_cid = $4,
-			    ticket_epoch = $5, ticket_value = $6,
-			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			spID, sectorNumber, treeDCid, treeRCid, ticketEpoch, ticketValue)
-		if err != nil {
-			return false, xerrors.Errorf("updating sectors_sdr_pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected to update 1 sectors_sdr_pipeline row, updated %d", n)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return xerrors.Errorf("applying remote completion transaction: %w", err)
-	}
-
-	return nil
 }
 
 func (p *RSealClientPoll) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

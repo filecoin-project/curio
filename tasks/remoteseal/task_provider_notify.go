@@ -47,9 +47,11 @@ func (t *RSealProviderNotify) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		PartnerID    int64  `db:"partner_id"`
 		TreeDCid     string `db:"tree_d_cid"`
 		TreeRCid     string `db:"tree_r_cid"`
+		TicketEpoch  int64  `db:"ticket_epoch"`
+		TicketValue  []byte `db:"ticket_value"`
 	}
 
-	err = t.db.Select(ctx, &sectors, `SELECT sp_id, sector_number, partner_id, tree_d_cid, tree_r_cid
+	err = t.db.Select(ctx, &sectors, `SELECT sp_id, sector_number, partner_id, tree_d_cid, tree_r_cid, ticket_epoch, ticket_value
 		FROM rseal_provider_pipeline
 		WHERE task_id_notify_client = $1`, taskID)
 	if err != nil {
@@ -83,13 +85,15 @@ func (t *RSealProviderNotify) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		return false, xerrors.Errorf("task no longer owned")
 	}
 
-	// Notify the client that SDR+trees are complete
+	// Notify the client that SDR+trees are complete (includes ticket for the client)
 	notification := sealmarket.CompleteNotification{
 		PartnerToken: partner.PartnerToken,
 		SpID:         sector.SpID,
 		SectorNumber: sector.SectorNumber,
 		TreeDCid:     sector.TreeDCid,
 		TreeRCid:     sector.TreeRCid,
+		TicketEpoch:  sector.TicketEpoch,
+		TicketValue:  sector.TicketValue,
 	}
 
 	err = t.sendCompleteNotification(ctx, partner.PartnerURL, notification)

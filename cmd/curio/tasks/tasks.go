@@ -338,7 +338,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		// Create SealMarket for remote seal HTTP API
 		if cfg.Subsystems.EnableRemoteSealProvider || cfg.Subsystems.EnableRemoteSealClient {
-			sdeps.SealMarket = sealmarket.NewSealMarket(db, sc, full)
+			sdeps.SealMarket = sealmarket.NewSealMarket(db, sc)
 		}
 
 		if cfg.HTTP.Enable {
@@ -533,12 +533,11 @@ func addSealingTasks(
 		provPoller := remoteseal.NewProviderPoller(db)
 		go provPoller.RunPoller(ctx)
 
-		ticketTask := remoteseal.NewProviderTicketTask(db, provPoller)
 		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller)
 		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, cfg.Subsystems.FinalizeMaxTasks)
 		provCleanupTask := remoteseal.NewProviderCleanupTask(db, provPoller, stor, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
 
-		activeTasks = append(activeTasks, ticketTask, notifyTask, provFinalizeTask, provCleanupTask)
+		activeTasks = append(activeTasks, notifyTask, provFinalizeTask, provCleanupTask)
 
 		// Provider-side SDR/Tree tasks are handled by the existing SDR/TreeD/TreeRC tasks
 		// via UNION ALL queries - they just need to be enabled (EnableSealSDR/EnableSealSDRTrees)

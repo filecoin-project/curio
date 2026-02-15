@@ -154,7 +154,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	testToken := hex.EncodeToString(tokenBytes)
 
 	// Insert partner entry on the provider side.
-	// partner_url points to the CLIENT's HTTP address (provider calls client for ticket/complete).
+	// partner_url points to the CLIENT's HTTP address (provider calls client for /complete notification).
 	var partnerID int64
 	clientURL := fmt.Sprintf("http://%s", clientHTTPAddr)
 	err = db.QueryRow(ctx, `INSERT INTO rseal_delegated_partners (partner_name, partner_url, partner_token, allowance_remaining, allowance_total)
