@@ -199,6 +199,8 @@ jobs:
         test-suite:
           - name: test-itest-curio
             target: "./itests/curio_test.go"
+          - name: test-itest-remoteseal
+            target: "-run TestRemoteSealHappyPath ./itests/"
           - name: test-all
             target: "`go list ./... | grep -v curio/itests`"
           - name: test-itest-harmonyDB

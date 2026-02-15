@@ -41,6 +41,13 @@ type SDRAPI interface {
 	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
 }
 
+// ProviderPollerSDR is an interface that allows registering the SDR task's
+// AddTaskFunc with the remote seal provider poller. This enables the provider
+// poller to schedule SDR tasks for rseal_provider_pipeline rows.
+type ProviderPollerSDR interface {
+	SetPollerSDR(harmonytask.AddTaskFunc)
+}
+
 type SDRTask struct {
 	api SDRAPI
 	db  *harmonydb.DB
@@ -48,18 +55,21 @@ type SDRTask struct {
 
 	sc *ffi2.SealCalls
 
+	provPoller ProviderPollerSDR // optional, nil when remote seal provider is not enabled
+
 	max taskhelp.Limiter
 	min int
 }
 
-func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR taskhelp.Limiter, minSDR int) *SDRTask {
+func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR taskhelp.Limiter, minSDR int, provPoller ProviderPollerSDR) *SDRTask {
 	return &SDRTask{
-		api: api,
-		db:  db,
-		sp:  sp,
-		sc:  sc,
-		max: maxSDR,
-		min: minSDR,
+		api:        api,
+		db:         db,
+		sp:         sp,
+		sc:         sc,
+		provPoller: provPoller,
+		max:        maxSDR,
+		min:        minSDR,
 	}
 }
 
@@ -224,6 +234,9 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (s *SDRTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerSDR].Set(taskFunc)
+	if s.provPoller != nil {
+		s.provPoller.SetPollerSDR(taskFunc)
+	}
 }
 
 func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {

@@ -414,6 +414,13 @@ func addSealingTasks(
 	var slotMgr *slotmgr.SlotMgr
 	var addFinalize bool
 
+	// Create the provider poller early if remote seal provider is enabled,
+	// so SDR/TreeD/TreeRC tasks can register their AddTaskFunc with it.
+	var provPoller *remoteseal.RSealProviderPoller
+	if cfg.Subsystems.EnableRemoteSealProvider {
+		provPoller = remoteseal.NewProviderPoller(db)
+	}
+
 	// NOTE: Tasks with the LEAST priority are at the top
 	if cfg.Subsystems.EnableCommP {
 		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
@@ -441,14 +448,26 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableSealSDR {
 		sdrMax := taskhelp.Max(cfg.Subsystems.SealSDRMaxTasks)
 
-		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks)
+		// provPoller is passed so SDR registers its AddTaskFunc with both SealPoller
+		// and RSealProviderPoller. When nil, only the local SealPoller is used.
+		var sdrProvPoller seal.ProviderPollerSDR
+		if provPoller != nil {
+			sdrProvPoller = provPoller
+		}
+		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks, sdrProvPoller)
 		keyTask := unseal.NewTaskUnsealSDR(slr, db, sdrMax, full)
 
 		activeTasks = append(activeTasks, sdrTask, keyTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {
-		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, cfg.Subsystems.BindSDRTreeToNode)
-		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
+		var treeDProvPoller seal.ProviderPollerTreeD
+		var treeRCProvPoller seal.ProviderPollerTreeRC
+		if provPoller != nil {
+			treeDProvPoller = provPoller
+			treeRCProvPoller = provPoller
+		}
+		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, cfg.Subsystems.BindSDRTreeToNode, treeDProvPoller)
+		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, treeRCProvPoller)
 		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
 		activeTasks = append(activeTasks, treeDTask, synthTask, treeRCTask)
 		addFinalize = true
@@ -530,7 +549,8 @@ func addSealingTasks(
 
 	// Remote seal provider tasks
 	if cfg.Subsystems.EnableRemoteSealProvider {
-		provPoller := remoteseal.NewProviderPoller(db)
+		// provPoller was created earlier (before SDR/TreeD/TreeRC tasks) so that
+		// those tasks could register their AddTaskFunc with it via Adder().
 		go provPoller.RunPoller(ctx)
 
 		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller)
@@ -540,7 +560,8 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, notifyTask, provFinalizeTask, provCleanupTask)
 
 		// Provider-side SDR/Tree tasks are handled by the existing SDR/TreeD/TreeRC tasks
-		// via UNION ALL queries - they just need to be enabled (EnableSealSDR/EnableSealSDRTrees)
+		// via UNION ALL queries - they just need to be enabled (EnableSealSDR/EnableSealSDRTrees).
+		// The SDR/TreeD/TreeRC tasks register their AddTaskFunc with provPoller in their Adder() methods.
 	}
 
 	// Remote seal client tasks

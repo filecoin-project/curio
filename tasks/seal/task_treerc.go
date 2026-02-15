@@ -21,19 +21,29 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+// ProviderPollerTreeRC is an interface that allows registering the TreeRC task's
+// AddTaskFunc with the remote seal provider poller.
+type ProviderPollerTreeRC interface {
+	SetPollerTreeRC(harmonytask.AddTaskFunc)
+}
+
 type TreeRCTask struct {
 	sp *SealPoller
 	db *harmonydb.DB
 	sc *ffi2.SealCalls
 
+	provPoller ProviderPollerTreeRC // optional, nil when remote seal provider is not enabled
+
 	max int
 }
 
-func NewTreeRCTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int) *TreeRCTask {
+func NewTreeRCTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int, provPoller ProviderPollerTreeRC) *TreeRCTask {
 	return &TreeRCTask{
 		sp: sp,
 		db: db,
 		sc: sc,
+
+		provPoller: provPoller,
 
 		max: maxTrees,
 	}
@@ -222,6 +232,9 @@ var _ = harmonytask.Reg(&TreeRCTask{})
 
 func (t *TreeRCTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.sp.pollers[pollerTreeRC].Set(taskFunc)
+	if t.provPoller != nil {
+		t.provPoller.SetPollerTreeRC(taskFunc)
+	}
 }
 
 func (t *TreeRCTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {

@@ -38,6 +38,24 @@ func NewProviderPoller(db *harmonydb.DB) *RSealProviderPoller {
 	}
 }
 
+// SetPollerSDR allows the SDR task to register its AddTaskFunc with the
+// provider poller so that rseal_provider_pipeline rows can be scheduled.
+func (sp *RSealProviderPoller) SetPollerSDR(f harmonytask.AddTaskFunc) {
+	sp.pollers[pollerProvSDR].Set(f)
+}
+
+// SetPollerTreeD allows the TreeD task to register its AddTaskFunc with the
+// provider poller so that rseal_provider_pipeline rows can be scheduled.
+func (sp *RSealProviderPoller) SetPollerTreeD(f harmonytask.AddTaskFunc) {
+	sp.pollers[pollerProvTreeD].Set(f)
+}
+
+// SetPollerTreeRC allows the TreeRC task to register its AddTaskFunc with the
+// provider poller so that rseal_provider_pipeline rows can be scheduled.
+func (sp *RSealProviderPoller) SetPollerTreeRC(f harmonytask.AddTaskFunc) {
+	sp.pollers[pollerProvTreeRC].Set(f)
+}
+
 type pollProviderTask struct {
 	SpID         int64 `db:"sp_id"`
 	SectorNumber int64 `db:"sector_number"`

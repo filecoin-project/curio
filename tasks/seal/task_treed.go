@@ -19,11 +19,19 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+// ProviderPollerTreeD is an interface that allows registering the TreeD task's
+// AddTaskFunc with the remote seal provider poller.
+type ProviderPollerTreeD interface {
+	SetPollerTreeD(harmonytask.AddTaskFunc)
+}
+
 type TreeDTask struct {
 	sp    *SealPoller
 	db    *harmonydb.DB
 	sc    *ffi2.SealCalls
 	bound bool
+
+	provPoller ProviderPollerTreeD // optional, nil when remote seal provider is not enabled
 
 	max int
 }
@@ -141,13 +149,18 @@ func (t *TreeDTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) 
 
 func (t *TreeDTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.sp.pollers[pollerTreeD].Set(taskFunc)
+	if t.provPoller != nil {
+		t.provPoller.SetPollerTreeD(taskFunc)
+	}
 }
 
-func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int, bound bool) *TreeDTask {
+func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int, bound bool, provPoller ProviderPollerTreeD) *TreeDTask {
 	return &TreeDTask{
 		sp: sp,
 		db: db,
 		sc: sc,
+
+		provPoller: provPoller,
 
 		max:   maxTrees,
 		bound: bound,
