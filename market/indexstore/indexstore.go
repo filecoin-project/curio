@@ -759,7 +759,7 @@ func (i *IndexStore) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (
 func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int) ([]NodeDigest, error) {
 	var layer []NodeDigest
 
-	iter := i.session.Query(`SELECT LeafIndex, Leaf FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ?`, pieceCidV2.Bytes(), layerIdx).WithContext(ctx).PageSize(2000).Iter()
+	iter := i.session.Query(`SELECT LeafIndex, Leaf FROM pdp_cache_layer WHERE PieceCid = ? AND LayerIndex = ?`, pieceCidV2.Bytes(), layerIdx).WithContext(ctx).PageSize(10000).Iter()
 
 	var leafIdx int64
 	var leaf []byte
