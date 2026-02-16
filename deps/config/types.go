@@ -19,6 +19,7 @@ func DefaultCurioConfig() *CurioConfig {
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 20,
+			RemoteSealCleanupTimeout:       72 * time.Hour,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -394,6 +395,17 @@ type CurioSubsystemsConfig struct {
 	// When enabled, this node will accept seal orders from remote clients and perform
 	// SDR + tree computation on their behalf. (Default: false)
 	EnableRemoteSealProvider bool
+
+	// RemoteSealProviderMaxTasks limits how many concurrent remote seal orders the provider
+	// will process. This controls the number of Notify, Finalize, and Cleanup tasks that can
+	// run simultaneously. SDR/Tree concurrency is controlled by the existing SealSDRMaxTasks
+	// and SealSDRTreesMaxTasks settings. Set to 0 for unlimited. (Default: 0 - unlimited)
+	RemoteSealProviderMaxTasks int
+
+	// RemoteSealCleanupTimeout is how long the provider keeps sealed sector data after
+	// notifying the client of completion. If the client doesn't trigger cleanup within this
+	// period, the provider automatically cleans up the data. (Default: 72h)
+	RemoteSealCleanupTimeout time.Duration
 
 	// EnableRemoteSealClient enables the remote seal client on this node.
 	// When enabled, this node can delegate SDR + tree computation to remote providers

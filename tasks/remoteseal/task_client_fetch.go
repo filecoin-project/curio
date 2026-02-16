@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -197,44 +199,110 @@ func (f *RSealClientFetch) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.Sec
 }
 
 // FetchSealedData downloads the sealed sector file from the provider and writes it to disk.
+// It first tries aria2c for multi-connection resumable download, falling back to a Go HTTP
+// client with Range header support.
 // GET /remoteseal/delegated/v0/sealed-data/{sp_id}/{sector_number}?token=...
 func (c *RSealClient) FetchSealedData(ctx context.Context, providerURL, token string, spID, sectorNumber int64, destPath string) error {
 	url := fmt.Sprintf("%s%ssealed-data/%d/%d?token=%s",
 		providerURL, sealmarket.DelegatedSealPath, spID, sectorNumber, token)
+
+	// Try aria2c first for multi-connection parallel resumable download.
+	// aria2c handles resume via --continue, splits into 16 segments, and retries.
+	if err := fetchWithAria2c(ctx, destPath, url); err == nil {
+		return nil
+	} else {
+		log.Warnw("aria2c fetch failed, falling back to Go HTTP",
+			"error", err, "sp_id", spID, "sector", sectorNumber)
+	}
+
+	// Fallback: Go HTTP with Range header for resumable download.
+	return fetchWithGoHTTP(ctx, destPath, url)
+}
+
+// fetchWithAria2c invokes aria2c as a subprocess for multi-connection resumable downloads.
+// Same pattern as lib/fastparamfetch/paramfetch.go.
+func fetchWithAria2c(ctx context.Context, destPath, url string) error {
+	aria2cPath, err := exec.LookPath("aria2c")
+	if err != nil {
+		return xerrors.New("aria2c not found in PATH")
+	}
+
+	cmd := exec.CommandContext(ctx, aria2cPath,
+		"--lowest-speed-limit", "16K",
+		"-m100",
+		"--retry-wait", "10",
+		"--continue",
+		"-x16",
+		"-s16",
+		"--dir", filepath.Dir(destPath),
+		"-o", filepath.Base(destPath),
+		url)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return xerrors.Errorf("aria2c failed: %w", err)
+	}
+	return nil
+}
+
+// fetchWithGoHTTP downloads a file using a plain Go HTTP client with Range header
+// support for resuming partial downloads.
+func fetchWithGoHTTP(ctx context.Context, destPath, url string) error {
+	// Open file in append mode so we can resume from where we left off.
+	f, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return xerrors.Errorf("opening file %s: %w", destPath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	fStat, err := f.Stat()
+	if err != nil {
+		return xerrors.Errorf("stat file %s: %w", destPath, err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return xerrors.Errorf("creating request: %w", err)
 	}
 
-	// Use a client without the default 30s timeout for large file downloads
+	// Set Range header if we have partial data.
+	if fStat.Size() > 0 {
+		req.Header.Set("Range", "bytes="+strconv.FormatInt(fStat.Size(), 10)+"-")
+	}
+
 	dlClient := &http.Client{}
 	resp, err := dlClient.Do(req)
 	if err != nil {
-		return xerrors.Errorf("performing request to %s: %w", url, err)
+		return xerrors.Errorf("performing request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Server doesn't support Range or sent full file; truncate and rewrite.
+		if fStat.Size() > 0 {
+			if err := f.Truncate(0); err != nil {
+				return xerrors.Errorf("truncating file for full rewrite: %w", err)
+			}
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return xerrors.Errorf("seeking to start: %w", err)
+			}
+		}
+	case http.StatusPartialContent:
+		// Server is sending the remaining bytes from our Range offset.
+	case http.StatusRequestedRangeNotSatisfiable:
+		// File is already complete (Range start >= file size on server).
+		return nil
+	default:
 		body, _ := io.ReadAll(resp.Body)
-		return xerrors.Errorf("unexpected status %d from %s: %s", resp.StatusCode, url, string(body))
-	}
-
-	// Stream directly to disk
-	f, err := os.Create(destPath)
-	if err != nil {
-		return xerrors.Errorf("creating sealed file %s: %w", destPath, err)
+		return xerrors.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 
 	buf := make([]byte, 1<<20) // 1 MiB buffer
 	_, err = io.CopyBuffer(f, resp.Body, buf)
 	if err != nil {
-		_ = f.Close()
-		return xerrors.Errorf("writing sealed data to %s: %w", destPath, err)
-	}
-
-	if err := f.Close(); err != nil {
-		return xerrors.Errorf("closing sealed file %s: %w", destPath, err)
+		return xerrors.Errorf("writing data to %s: %w", destPath, err)
 	}
 
 	return nil

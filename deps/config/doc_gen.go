@@ -812,6 +812,23 @@ When enabled, this node will accept seal orders from remote clients and perform
 SDR + tree computation on their behalf. (Default: false)`,
 		},
 		{
+			Name: "RemoteSealProviderMaxTasks",
+			Type: "int",
+
+			Comment: `RemoteSealProviderMaxTasks limits how many concurrent remote seal orders the provider
+will process. This controls the number of Notify, Finalize, and Cleanup tasks that can
+run simultaneously. SDR/Tree concurrency is controlled by the existing SealSDRMaxTasks
+and SealSDRTreesMaxTasks settings. Set to 0 for unlimited. (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "RemoteSealCleanupTimeout",
+			Type: "time.Duration",
+
+			Comment: `RemoteSealCleanupTimeout is how long the provider keeps sealed sector data after
+notifying the client of completion. If the client doesn't trigger cleanup within this
+period, the provider automatically cleans up the data. (Default: 72h)`,
+		},
+		{
 			Name: "EnableRemoteSealClient",
 			Type: "bool",
 

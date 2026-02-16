@@ -20,17 +20,27 @@ import (
 	"github.com/filecoin-project/curio/market/sealmarket"
 )
 
+const defaultCleanupTimeout = 72 * time.Hour
+
 type RSealProviderNotify struct {
 	db *harmonydb.DB
 	sp *RSealProviderPoller
 
+	max            int
+	cleanupTimeout time.Duration
+
 	httpClient *http.Client
 }
 
-func NewProviderNotifyTask(db *harmonydb.DB, sp *RSealProviderPoller) *RSealProviderNotify {
+func NewProviderNotifyTask(db *harmonydb.DB, sp *RSealProviderPoller, maxTasks int, cleanupTimeout time.Duration) *RSealProviderNotify {
+	if cleanupTimeout <= 0 {
+		cleanupTimeout = defaultCleanupTimeout
+	}
 	return &RSealProviderNotify{
-		db: db,
-		sp: sp,
+		db:             db,
+		sp:             sp,
+		max:            maxTasks,
+		cleanupTimeout: cleanupTimeout,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -102,11 +112,12 @@ func (t *RSealProviderNotify) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	}
 
 	// Mark notification as done and set the cleanup timeout
+	cleanupTimeoutStr := fmt.Sprintf("%d seconds", int(t.cleanupTimeout.Seconds()))
 	n, err := t.db.Exec(ctx, `UPDATE rseal_provider_pipeline
 		SET after_notify_client = TRUE, task_id_notify_client = NULL,
-		    cleanup_timeout = NOW() + INTERVAL '72 hours'
+		    cleanup_timeout = NOW() + $4::interval
 		WHERE sp_id = $1 AND sector_number = $2 AND task_id_notify_client = $3`,
-		sector.SpID, sector.SectorNumber, taskID)
+		sector.SpID, sector.SectorNumber, taskID, cleanupTimeoutStr)
 	if err != nil {
 		return false, xerrors.Errorf("updating notify status: %w", err)
 	}
@@ -158,7 +169,7 @@ func (t *RSealProviderNotify) CanAccept(ids []harmonytask.TaskID, _ *harmonytask
 
 func (t *RSealProviderNotify) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(4),
+		Max:  taskhelp.Max(t.max),
 		Name: "RSealProvNotify",
 		Cost: resources.Resources{
 			Cpu: 1,

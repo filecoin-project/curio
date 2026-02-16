@@ -559,7 +559,10 @@ func addSealingTasks(
 		// those tasks could register their AddTaskFunc with it via Adder().
 		go provPoller.RunPoller(ctx)
 
-		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller)
+		provMaxTasks := cfg.Subsystems.RemoteSealProviderMaxTasks
+		cleanupTimeout := cfg.Subsystems.RemoteSealCleanupTimeout
+
+		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller, provMaxTasks, cleanupTimeout)
 		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, cfg.Subsystems.FinalizeMaxTasks)
 		provCleanupTask := remoteseal.NewProviderCleanupTask(db, provPoller, stor, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
 
