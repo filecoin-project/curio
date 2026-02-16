@@ -11,7 +11,6 @@ FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
 $(FFI_DEPS): build/.filecoin-install ;
 
 # When enabled, build size-optimized libfilcrypto by default
-CURIO_OPTIMAL_LIBFILCRYPTO ?= 1
 CGO_LDFLAGS_ALLOW_PATTERN := (-Wl,--whole-archive|-Wl,--no-as-needed|-Wl,--no-whole-archive|-Wl,--allow-multiple-definition|--whole-archive|--no-as-needed|--no-whole-archive|--allow-multiple-definition)
 CGO_LDFLAGS_ALLOW ?= "$(CGO_LDFLAGS_ALLOW_PATTERN)"
 export CGO_LDFLAGS_ALLOW
@@ -28,11 +27,7 @@ setup-cgo-env:
 	fi
 
 build/.filecoin-install: $(FFI_PATH)
-	@if [ "$(CURIO_OPTIMAL_LIBFILCRYPTO)" = "1" ]; then \
 		$(MAKE) curio-libfilecoin; \
-	else \
-		$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%); \
-	fi
 	@touch $@
 
 MODULES+=$(FFI_PATH)
@@ -57,7 +52,6 @@ curio-libfilecoin:
 	FFI_USE_GPU=1 \
 	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
 	FFI_USE_MULTICORE_SDR=1 \
-	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
 
@@ -132,7 +126,6 @@ deps: $(BUILD_DEPS)
 
 ## Test targets
 
-test-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
 test-deps: $(BUILD_DEPS)
 	@echo "Built dependencies with FVM support for testing"
 .PHONY: test-deps
@@ -405,7 +398,6 @@ marketgen:
 	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
-gen-deps: CURIO_OPTIMAL_LIBFILCRYPTO=0
 gen-deps: $(BUILD_DEPS)
 	@echo "Built dependencies with FVM support for testing"
 .PHONY: gen-deps
