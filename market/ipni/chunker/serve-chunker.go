@@ -284,7 +284,7 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstHash, numBlocks)
+	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstHash, numBlocks, true)
 	if err != nil {
 		return nil, xerrors.Errorf("getting piece hash range: %w", err)
 	}
