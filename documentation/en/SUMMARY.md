@@ -59,3 +59,6 @@
   * [Snark Market](experimental-features/Snark-Market.md)
   * [Market 2.0 API](experimental-features/market-2.0-api.md)
   * [Wallet Exporter](experimental-features/Wallet-Exporter.md)
+  * [Remote Seal](remote-seal.md)
+    * [Client Guide](remote-seal-client.md)
+    * [Provider Guide](remote-seal-provider.md)
