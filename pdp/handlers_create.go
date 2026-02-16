@@ -157,11 +157,6 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 			}
 		}
 
-		// Always enable save cache for added pieces (builds merkle tree layers for fast proving)
-		if err := EnableSaveCacheForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
-			return false, err
-		}
-
 		return true, err
 	}, harmonydb.OptionRetry())
 
