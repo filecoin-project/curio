@@ -482,9 +482,11 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 		ct := t.Max.ActiveThis()
 		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
-		tmp.Ram -= uint64(ct) * t.Cost.Ram
-		if tmp.Ram < 0 {
+		ramUsed := uint64(ct) * t.Cost.Ram
+		if ramUsed >= tmp.Ram {
 			tmp.Ram = 0
+		} else {
+			tmp.Ram -= ramUsed
 		}
 		rlog.Debugw("Per task type", "Name", t.Name, "Count", ct, "CPU", ct*t.Cost.Cpu, "RAM", uint64(ct)*t.Cost.Ram, "GPU", float64(ct)*t.Cost.Gpu)
 	}
