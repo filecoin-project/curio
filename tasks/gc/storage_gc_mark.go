@@ -3,6 +3,7 @@ package gc
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
@@ -122,6 +123,13 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 				mact, err := s.api.StateGetActor(ctx, maddr, types.EmptyTSK)
 				if err != nil {
+					if isActorNotFoundErr(err) {
+						// Miner actor no longer exists on-chain. Sector files for this
+						// miner are orphaned — skip loading state so that all its sectors
+						// remain in toRemove (no precommit/live/unproven subtraction).
+						log.Warnw("miner actor not found on-chain, treating sectors as orphaned for GC", "miner", maddr)
+						continue
+					}
 					return false, xerrors.Errorf("get miner actor %s: %w", maddr, err)
 				}
 
@@ -383,6 +391,12 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 		mact, err := s.api.StateGetActor(ctx, maddr, finalityTipset.Key())
 		if err != nil {
+			if isActorNotFoundErr(err) {
+				// Miner actor no longer exists on-chain at finality height.
+				// Skip — snap sector key cleanup is irrelevant for a deleted miner.
+				log.Warnw("miner actor not found at finality height, skipping snap-key GC", "miner", maddr)
+				continue
+			}
 			return false, xerrors.Errorf("get miner actor %s at finality: %w", maddr, err)
 		}
 
@@ -501,3 +515,15 @@ func (s *StorageGCMark) Adder(taskFunc harmonytask.AddTaskFunc) {
 
 var _ harmonytask.TaskInterface = &StorageGCMark{}
 var _ = harmonytask.Reg(&StorageGCMark{})
+
+// isActorNotFoundErr checks whether the error indicates that a miner actor
+// does not exist on-chain. Because Curio talks to Lotus via JSON-RPC, the
+// typed types.ErrActorNotFound / api.ErrActorNotFound may not survive the
+// round-trip. Fall back to a string check consistent with existing callers
+// in sptool (see cmd/sptool/toolbox_deal_client.go).
+func isActorNotFoundErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "actor not found")
+}
