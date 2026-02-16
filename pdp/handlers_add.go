@@ -443,6 +443,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				return false, err
 			}
 		}
+
+		// Always enable save cache for added pieces (builds merkle tree layers for fast proving)
+		if err := EnableSaveCacheForPiecesInTx(txdb, serviceLabel, subPieceCidList); err != nil {
+			return false, err
+		}
+
 		// Return true to commit the transaction
 		return true, nil
 	}, harmonydb.OptionRetry())

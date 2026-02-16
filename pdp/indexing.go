@@ -140,3 +140,24 @@ func EnableIndexingForPiecesInTx(
 	`, serviceLabel, subPieceCids)
 	return err
 }
+
+// EnableSaveCacheForPiecesInTx marks the specified pieces as needing save cache within a transaction.
+// This should be called alongside EnableIndexingForPiecesInTx when pieces are added to a data set.
+func EnableSaveCacheForPiecesInTx(
+	tx *harmonydb.Tx,
+	serviceLabel string,
+	subPieceCids []string,
+) error {
+	log.Debugw("Marking subpieces as needing save cache (in transaction)",
+		"serviceLabel", serviceLabel,
+		"subPieceCount", len(subPieceCids))
+
+	_, err := tx.Exec(`
+		UPDATE pdp_piecerefs
+		SET needs_save_cache = TRUE
+		WHERE service = $1
+			AND piece_cid = ANY($2)
+			AND needs_save_cache = FALSE
+	`, serviceLabel, subPieceCids)
+	return err
+}
