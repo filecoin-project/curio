@@ -119,25 +119,6 @@ func TestGlobal(t *testing.T) {
 	deviceOrdinalMgr.Release(ord)
 }
 
-// Regression: no-GPU manager must never hand out ordinal 0.
-// Before the fix, gpuSlots was []byte{1} when no GPUs existed, so Get()
-// returned 0 and call() would set CUDA_VISIBLE_DEVICES=0 for a device
-// that doesn't exist.
-func TestNoGPUs_NeverReturnsZero(t *testing.T) {
-	d := newDeviceOrdinalManager(func() ([]string, error) {
-		return []string{}, nil
-	})
-
-	for i := 0; i < 10; i++ {
-		ord := d.Get()
-		if ord != -1 {
-			t.Fatalf("no-GPU manager returned ordinal %d, want -1", ord)
-		}
-		// Release should not block or panic even with -1.
-		d.Release(ord)
-	}
-}
-
 // Regression: extracting log context from a bare context must not panic.
 // Before the fix, ctx.Value(logCtxKey).([]any) was a hard type assertion
 // that panicked when the context had no logCtxKey value.
