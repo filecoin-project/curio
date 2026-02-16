@@ -94,6 +94,9 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			if err != nil {
 				return false, xerrors.Errorf("failed to copy piece data to commP: %w", err)
 			}
+			if uint64(n) != task.RawSize {
+				return false, xerrors.Errorf("copied size does not match expected piece size: %d != %d", n, task.RawSize)
+			}
 
 			digest, _, lidx, _, snap, err := cp.DigestWithSnapShot()
 			if err != nil {
