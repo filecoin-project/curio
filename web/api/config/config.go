@@ -211,13 +211,13 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 		configStr = string(cb)
 	}
 
-	// Save config history if the layer already exists and config changed
+	// Save config history: snapshot the old config before overwriting
 	var oldConfig string
 	err = c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, layer).Scan(&oldConfig)
 	if err == nil && oldConfig != configStr {
 		_, err = c.DB.Exec(context.Background(),
-			`INSERT INTO harmony_config_history (title, old_config, new_config) VALUES ($1, $2, $3)`,
-			layer, oldConfig, configStr)
+			`INSERT INTO harmony_config_history (title, config) VALUES ($1, $2)`,
+			layer, oldConfig)
 		apihelper.OrHTTPFail(w, err)
 	}
 
@@ -244,17 +244,43 @@ func (c *cfg) getHistoryEntry(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(idStr)
 	apihelper.OrHTTPFail(w, err)
 
+	// Fetch the history entry (snapshot of config before this change)
 	var entry struct {
 		ID        int       `db:"id" json:"id"`
 		Title     string    `db:"title" json:"title"`
-		OldConfig string    `db:"old_config" json:"old_config"`
-		NewConfig string    `db:"new_config" json:"new_config"`
+		Config    string    `db:"config" json:"config"`
 		ChangedAt time.Time `db:"changed_at" json:"changed_at"`
 	}
 	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
-		`SELECT id, title, old_config, new_config, changed_at FROM harmony_config_history WHERE id = $1`, id).Scan(&entry.ID, &entry.Title, &entry.OldConfig, &entry.NewConfig, &entry.ChangedAt))
+		`SELECT id, title, config, changed_at FROM harmony_config_history WHERE id = $1`, id).Scan(&entry.ID, &entry.Title, &entry.Config, &entry.ChangedAt))
+
+	// Find what it changed to: the next newer history entry, or the current live config
+	var newConfig string
+	err = c.DB.QueryRow(context.Background(),
+		`SELECT config FROM harmony_config_history WHERE title = $1 AND changed_at > $2 ORDER BY changed_at ASC LIMIT 1`,
+		entry.Title, entry.ChangedAt).Scan(&newConfig)
+	if err != nil {
+		// No newer history entry — use the current live config
+		apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
+			`SELECT config FROM harmony_config WHERE title = $1`, entry.Title).Scan(&newConfig))
+	}
+
+	resp := struct {
+		ID        int       `json:"id"`
+		Title     string    `json:"title"`
+		OldConfig string    `json:"old_config"`
+		NewConfig string    `json:"new_config"`
+		ChangedAt time.Time `json:"changed_at"`
+	}{
+		ID:        entry.ID,
+		Title:     entry.Title,
+		OldConfig: entry.Config,
+		NewConfig: newConfig,
+		ChangedAt: entry.ChangedAt,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(entry))
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(resp))
 }
 
 func (c *cfg) topo(w http.ResponseWriter, r *http.Request) {
