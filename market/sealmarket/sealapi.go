@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -191,6 +193,8 @@ type CleanupRequest struct {
 
 func Routes(r *chi.Mux, sm *SealMarket) {
 	r.Route(DelegatedSealPath, func(r chi.Router) {
+		r.Use(rsealMetricsMiddleware)
+
 		// Setup flow endpoints (called by client)
 		r.Get("/capabilities", sm.handleCapabilities)
 		r.Post("/authorize", sm.handleAuthorize)
@@ -329,6 +333,8 @@ func (sm *SealMarket) handleAvailable(w http.ResponseWriter, r *http.Request) {
 	}
 	sm.slotsMu.Unlock()
 
+	stats.Record(r.Context(), RsealSlotsIssued.M(1))
+
 	writeJSON(w, http.StatusOK, AvailableResponse{
 		Available: true,
 		SlotToken: slotToken,
@@ -364,6 +370,10 @@ func (sm *SealMarket) handleOrder(w http.ResponseWriter, r *http.Request) {
 		sm.slotsMu.Unlock()
 
 		if !ok {
+			_ = stats.RecordWithTags(r.Context(), []tag.Mutator{
+				tag.Upsert(RsealAcceptedKey, "false"),
+			}, RsealOrdersTotal.M(1))
+
 			writeJSON(w, http.StatusOK, OrderResponse{
 				Accepted:     false,
 				RejectReason: "invalid or expired slot token",
@@ -389,6 +399,10 @@ func (sm *SealMarket) handleOrder(w http.ResponseWriter, r *http.Request) {
 			// The pipeline entry was created, so we still return accepted
 		}
 	}
+
+	_ = stats.RecordWithTags(r.Context(), []tag.Mutator{
+		tag.Upsert(RsealAcceptedKey, "true"),
+	}, RsealOrdersTotal.M(1))
 
 	writeJSON(w, http.StatusOK, OrderResponse{Accepted: true})
 }
@@ -752,6 +766,8 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 		PieceCID: unsealedCID,
 	}}
 
+	computeStart := time.Now()
+
 	if err := sm.sc.EnsureSyntheticProofs(r.Context(), sref, sealedCID, unsealedCID, abi.SealRandomness(sector.TicketValue), pieces); err != nil {
 		log.Errorw("commit1: EnsureSyntheticProofs failed", "error", err)
 		http.Error(w, "failed to generate synthetic proofs", http.StatusInternalServerError)
@@ -772,6 +788,8 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to compute C1", http.StatusInternalServerError)
 		return
 	}
+
+	stats.Record(r.Context(), RsealCommit1ComputeDuration.M(float64(time.Since(computeStart).Milliseconds())))
 
 	// Mark after_c1_supplied = TRUE
 	_, err = sm.db.Exec(r.Context(), `UPDATE rseal_provider_pipeline SET after_c1_supplied = TRUE WHERE sp_id = $1 AND sector_number = $2 AND partner_id = $3`,
