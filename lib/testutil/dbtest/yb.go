@@ -7,11 +7,23 @@
 // The container uses dynamic port mapping so that multiple packages can each
 // start their own YugabyteDB without port conflicts when `go test ./...` runs
 // packages in parallel.
+//
+// Two optimizations are applied to speed up schema migrations in tests:
+//
+//  1. Tablet count is reduced to 1 per tserver (--yb_num_shards_per_tserver=1,
+//     --ysql_num_shards_per_tserver=1) instead of the default based on CPU
+//     count.  This drastically reduces the overhead of CREATE TABLE/INDEX.
+//
+//  2. A colocated database ("curio_test") is created after startup.  Colocated
+//     databases store all tables in a single tablet, which eliminates per-table
+//     tablet creation overhead entirely.  Tests connect to this database via
+//     the CURIO_HARMONYDB_DB environment variable.
 package dbtest
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -24,6 +36,9 @@ import (
 )
 
 const ybImage = "yugabytedb/yugabyte:2024.1.2.0-b77"
+
+// colocatedDBName is the name of the colocated database created for tests.
+const colocatedDBName = "curio_test"
 
 // StartYugabyte starts a YugabyteDB container (unless CURIO_HARMONYDB_HOSTS is
 // already set), runs the test suite, terminates the container, and returns the
@@ -46,6 +61,18 @@ func StartYugabyte(m *testing.M) int {
 		// that multiple packages can each run their own container in
 		// parallel without conflicts.
 
+		// Reduce tablet count to 1 per tserver for both YCQL and YSQL.
+		// YugabyteDB normally creates multiple tablets per table based on
+		// CPU count, which makes CREATE TABLE very slow. With 1 shard
+		// per tserver, each DDL statement creates just one tablet.
+		// See: https://docs.yugabyte.com/v2024.1/best-practices-operations/administration/#settings-for-ci-and-cd-integration-tests
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Cmd: []string{
+					"--tserver_flags=yb_num_shards_per_tserver=1,ysql_num_shards_per_tserver=1",
+				},
+			},
+		}),
 		// Strip all YSQL_*/YCQL_* env vars so YugabyteDB starts with
 		// default trust authentication (no passwords, same as the bare
 		// `docker run` used historically in CI).  The testcontainers
@@ -107,14 +134,46 @@ func StartYugabyte(m *testing.M) int {
 	fmt.Printf("dbtest: YugabyteDB ready (YSQL=%s:%s, YCQL=%s:%s)\n",
 		host, ysqlPort.Port(), host, ycqlPort.Port())
 
+	// Create a colocated database for tests.  In a colocated database all
+	// tables share a single tablet, which eliminates the per-table tablet
+	// creation overhead that makes schema migrations slow in YugabyteDB.
+	// yugabyted binds YSQL to the container's assigned IP (not 0.0.0.0
+	// or 127.0.0.1), so we need the container IP for the exec command.
+	containerIP, err := ctr.ContainerIP(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dbtest: failed to get container IP: %v\n", err)
+		_ = testcontainers.TerminateContainer(ctr)
+		return 1
+	}
+
+	exitCode, execReader, err := ctr.Exec(ctx, []string{
+		"ysqlsh", "-h", containerIP, "-p", "5433", "-U", "yugabyte",
+		"-c", fmt.Sprintf("CREATE DATABASE %s WITH COLOCATION = true", colocatedDBName),
+	})
+	if err != nil || exitCode != 0 {
+		var execOutput string
+		if execReader != nil {
+			if b, readErr := io.ReadAll(execReader); readErr == nil {
+				execOutput = string(b)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "dbtest: failed to create colocated database %q (exit=%d): %v\nOutput: %s\n",
+			colocatedDBName, exitCode, err, execOutput)
+		_ = testcontainers.TerminateContainer(ctr)
+		return 1
+	}
+	fmt.Printf("dbtest: created colocated database %q\n", colocatedDBName)
+
 	// Publish connection info via environment variables so that
-	// harmonydb.NewFromConfigWithITestID (reads CURIO_HARMONYDB_HOSTS and
-	// CURIO_HARMONYDB_PORT) and indexstore tests (reads CURIO_HARMONYDB_HOSTS
-	// and CURIO_HARMONYDB_CQL_PORT) can find the container.
+	// harmonydb.NewFromConfigWithITestID (reads CURIO_HARMONYDB_HOSTS,
+	// CURIO_HARMONYDB_PORT, and CURIO_HARMONYDB_DB) and indexstore tests
+	// (reads CURIO_HARMONYDB_HOSTS and CURIO_HARMONYDB_CQL_PORT) can find
+	// the container.
 	for _, kv := range [][2]string{
 		{"CURIO_HARMONYDB_HOSTS", host},
 		{"CURIO_HARMONYDB_PORT", ysqlPort.Port()},
 		{"CURIO_HARMONYDB_CQL_PORT", ycqlPort.Port()},
+		{"CURIO_HARMONYDB_DB", colocatedDBName},
 	} {
 		if err := os.Setenv(kv[0], kv[1]); err != nil {
 			fmt.Fprintf(os.Stderr, "dbtest: failed to set %s: %v\n", kv[0], err)
