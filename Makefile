@@ -27,7 +27,7 @@ setup-cgo-env:
 	fi
 
 build/.filecoin-install: $(FFI_PATH)
-		$(MAKE) curio-libfilecoin; \
+	$(MAKE) curio-libfilecoin
 	@touch $@
 
 MODULES+=$(FFI_PATH)
