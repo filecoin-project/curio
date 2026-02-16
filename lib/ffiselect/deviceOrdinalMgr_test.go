@@ -15,22 +15,17 @@ func TestNoGPUs(t *testing.T) {
 		return []string{}, nil
 	})
 
-	// Every acquire should immediately return -1 when there are no GPUs.
-	for i := 0; i < 3; i++ {
-		acquireChan := make(chan int)
-		d.acquireChan <- acquireChan
-		select {
-		case ord := <-acquireChan:
-			if ord != -1 {
-				t.Fatalf("iteration %d: expected -1 for no GPUs, got %d", i, ord)
-			}
-		case <-time.After(time.Millisecond * 100):
-			t.Fatalf("iteration %d: timeout waiting for acquire", i)
-		}
+	// There should be only 1 slot
+	ord := d.Get()
+	if ord != 0 {
+		t.Fatal("should have gotten GPU 0")
 	}
-
-	// Release of -1 should not panic or block.
-	d.Release(-1)
+	go func() {
+		_ = d.Get()
+		panic("should have blocked")
+	}()
+	time.Sleep(time.Millisecond * 100)
+	d.Release(0)
 }
 
 func TestOverprovisionFactor(t *testing.T) {
