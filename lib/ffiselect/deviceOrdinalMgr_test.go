@@ -15,22 +15,22 @@ func TestNoGPUs(t *testing.T) {
 		return []string{}, nil
 	})
 
-	// Every acquire should immediately return -1 when there are no GPUs.
-	for i := 0; i < 3; i++ {
-		acquireChan := make(chan int)
-		d.acquireChan <- acquireChan
-		select {
-		case ord := <-acquireChan:
-			if ord != -1 {
-				t.Fatalf("iteration %d: expected -1 for no GPUs, got %d", i, ord)
-			}
-		case <-time.After(time.Millisecond * 100):
-			t.Fatalf("iteration %d: timeout waiting for acquire", i)
-		}
+	// There should be only 1 slot
+	ord := d.Get()
+	if ord != 0 {
+		t.Fatal("should have gotten GPU 0")
 	}
 
-	// Release of -1 should not panic or block.
-	d.Release(-1)
+	ch := make(chan int)
+	d.acquireChan <- ch
+	select {
+	case <-ch:
+		panic("should have blocked")
+	case <-time.After(time.Millisecond * 100):
+		// expected: blocked because capacity is 1
+	}
+
+	d.Release(0)
 }
 
 func TestOverprovisionFactor(t *testing.T) {
@@ -117,25 +117,6 @@ func TestWaitList(t *testing.T) {
 func TestGlobal(t *testing.T) {
 	ord := deviceOrdinalMgr.Get()
 	deviceOrdinalMgr.Release(ord)
-}
-
-// Regression: no-GPU manager must never hand out ordinal 0.
-// Before the fix, gpuSlots was []byte{1} when no GPUs existed, so Get()
-// returned 0 and call() would set CUDA_VISIBLE_DEVICES=0 for a device
-// that doesn't exist.
-func TestNoGPUs_NeverReturnsZero(t *testing.T) {
-	d := newDeviceOrdinalManager(func() ([]string, error) {
-		return []string{}, nil
-	})
-
-	for i := 0; i < 10; i++ {
-		ord := d.Get()
-		if ord != -1 {
-			t.Fatalf("no-GPU manager returned ordinal %d, want -1", ord)
-		}
-		// Release should not block or panic even with -1.
-		d.Release(ord)
-	}
 }
 
 // Regression: extracting log context from a bare context must not panic.
