@@ -5,6 +5,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"strconv"
 	"testing"
 
 	carv2 "github.com/ipld/go-car/v2"
@@ -33,7 +34,12 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	cqlPort := 9042
+	if v := os.Getenv("CURIO_HARMONYDB_CQL_PORT"); v != "" {
+		cqlPort, _ = strconv.Atoi(v)
+	}
+
+	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, cqlPort, cfg)
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 

@@ -14,7 +14,6 @@ require (
 	github.com/curiostorage/harmonyquery v0.0.0-20260127224413-4c39280f279e
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/docker v28.5.1+incompatible
-	github.com/docker/go-connections v0.6.0
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-sysinfo v1.15.4
@@ -174,6 +173,7 @@ require (
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
+	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/drand/drand/v2 v2.1.3 // indirect
 	github.com/drand/go-clients v0.2.3 // indirect
 	github.com/drand/kyber v1.3.1 // indirect

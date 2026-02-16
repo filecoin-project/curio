@@ -38,7 +38,7 @@ func NewFromConfigWithITestID(t *testing.T, id harmonyquery.ITestID) (*DB, error
 		Database:         "yugabyte",
 		Username:         "yugabyte",
 		Password:         "yugabyte",
-		Port:             "5433",
+		Port:             envElse("CURIO_HARMONYDB_PORT", "5433"),
 		LoadBalance:      false,
 		ITestID:          id,
 		SqlEmbedFS:       &upgradeFS,

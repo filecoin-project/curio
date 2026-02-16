@@ -1,4 +1,4 @@
-package itests
+package indexstore
 
 import (
 	"os"
