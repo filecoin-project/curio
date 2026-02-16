@@ -35,26 +35,6 @@
             background-color: #555;
         }
 
-        #historyButton {
-            display: block;
-            position: fixed;
-            bottom: 80px;
-            right: 30px;
-            z-index: 99;
-            font-size: 14px;
-            border: none;
-            outline: none;
-            background-color: #495057;
-            color: white;
-            cursor: pointer;
-            padding: 10px 15px;
-            border-radius: 4px;
-        }
-
-        #historyButton:hover {
-            background-color: #6c757d;
-        }
-
         .help-button button {
             font-size: 24px;
             border-radius: 50%;
@@ -79,23 +59,99 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
-        #historyModal .modal-dialog {
-            max-width: 90%;
-        }
-
-        #historyModal .modal-body {
-            max-height: 75vh;
+        /* History sidebar */
+        #historySidebar {
+            position: fixed;
+            top: 60px;
+            right: 0;
+            width: 300px;
+            height: calc(100vh - 60px);
+            background-color: #1a1a2e;
+            border-left: 1px solid #333;
+            z-index: 90;
             overflow-y: auto;
+            display: none;
+            padding: 0;
         }
 
-        .history-list-item {
-            cursor: pointer;
-            padding: 8px 12px;
+        #historySidebar.open {
+            display: block;
+        }
+
+        #historySidebar .sidebar-header {
+            padding: 12px 15px;
             border-bottom: 1px solid #333;
+            font-weight: bold;
+            font-size: 14px;
+            color: #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            background-color: #1a1a2e;
+            z-index: 1;
         }
 
-        .history-list-item:hover {
-            background-color: #2a2a2a;
+        .history-entry {
+            padding: 10px 15px;
+            border-bottom: 1px solid #2a2a3e;
+            cursor: pointer;
+            font-size: 13px;
+            color: #8b949e;
+            transition: background-color 0.15s;
+        }
+
+        .history-entry:hover {
+            background-color: #2a2a3e;
+        }
+
+        .history-entry.active {
+            background-color: #30304a;
+            border-left: 3px solid #58a6ff;
+        }
+
+        .history-entry .entry-hash {
+            color: #58a6ff;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .history-entry .entry-time {
+            color: #6e7681;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        #historyToggle {
+            position: fixed;
+            top: 70px;
+            right: 15px;
+            z-index: 99;
+            font-size: 13px;
+            border: 1px solid #444;
+            background-color: #1a1a2e;
+            color: #ccc;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }
+
+        #historyToggle:hover {
+            background-color: #2a2a3e;
+        }
+
+        /* Diff view */
+        #diffPanel {
+            display: none;
+            margin-top: 20px;
+        }
+
+        #diffPanel .diff-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
         }
 
         .diff-container {
@@ -104,15 +160,21 @@
             line-height: 1.5;
             white-space: pre-wrap;
             word-break: break-all;
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 12px;
+            max-height: 70vh;
+            overflow-y: auto;
         }
 
         .diff-line-add {
-            background-color: rgba(46, 160, 67, 0.2);
+            background-color: rgba(46, 160, 67, 0.15);
             color: #3fb950;
         }
 
         .diff-line-remove {
-            background-color: rgba(248, 81, 73, 0.2);
+            background-color: rgba(248, 81, 73, 0.15);
             color: #f85149;
         }
 
@@ -162,28 +224,28 @@
                 <div class="col-md-8">
                     <div>
                         <button id="saveButton" class="saveButton">Save</button>
-                        <button id="historyButton">&#128337; History</button>
                     </div>
 
-                    <!-- History Modal -->
-                    <div class="modal fade" id="historyModal" tabindex="-1" aria-labelledby="historyModalLabel" aria-hidden="true">
-                        <div class="modal-dialog modal-xl">
-                            <div class="modal-content bg-dark">
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="historyModalLabel">Config History</h5>
-                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <div id="historyListView">
-                                        <p class="text-muted">Loading history...</p>
-                                    </div>
-                                    <div id="historyDiffView" style="display:none;">
-                                        <button class="btn btn-sm btn-outline-secondary mb-3" id="backToHistoryList">&larr; Back to list</button>
-                                        <h6 id="diffTitle" class="text-muted mb-3"></h6>
-                                        <div class="diff-container bg-black p-3 rounded" id="diffOutput"></div>
-                                    </div>
-                                </div>
-                            </div>
+                    <!-- Diff panel (shown below editor when a history entry is selected) -->
+                    <div id="diffPanel">
+                        <div class="diff-header">
+                            <h6 id="diffTitle" class="text-muted mb-0"></h6>
+                            <button class="btn btn-sm btn-outline-secondary" id="closeDiff">&times; Close diff</button>
+                        </div>
+                        <div class="diff-container" id="diffOutput"></div>
+                    </div>
+
+                    <!-- History sidebar toggle -->
+                    <button id="historyToggle">&#9776; History</button>
+
+                    <!-- History sidebar -->
+                    <div id="historySidebar">
+                        <div class="sidebar-header">
+                            <span>&#128337; Change History</span>
+                            <button class="btn btn-sm btn-outline-secondary py-0 px-1" id="closeSidebar">&times;</button>
+                        </div>
+                        <div id="historyList">
+                            <p class="text-muted p-3" style="font-size:13px;">Loading...</p>
                         </div>
                     </div>
 
@@ -308,75 +370,86 @@
                                     }
                                 });
 
-                                // History feature
-                                var historyButton = document.getElementById('historyButton');
-                                var historyModal = new bootstrap.Modal(document.getElementById('historyModal'));
-                                var historyListView = document.getElementById('historyListView');
-                                var historyDiffView = document.getElementById('historyDiffView');
+                                // History sidebar feature
+                                var sidebar = document.getElementById('historySidebar');
+                                var historyList = document.getElementById('historyList');
+                                var historyToggle = document.getElementById('historyToggle');
+                                var diffPanel = document.getElementById('diffPanel');
                                 var diffOutput = document.getElementById('diffOutput');
                                 var diffTitle = document.getElementById('diffTitle');
 
                                 if (layer === 'default') {
-                                    historyButton.style.display = 'none';
+                                    historyToggle.style.display = 'none';
                                 }
 
-                                historyButton.addEventListener('click', function() {
-                                    historyListView.style.display = 'block';
-                                    historyDiffView.style.display = 'none';
-                                    historyListView.innerHTML = '<p class="text-muted">Loading history...</p>';
-                                    historyModal.show();
+                                historyToggle.addEventListener('click', function() {
+                                    sidebar.classList.toggle('open');
+                                    if (sidebar.classList.contains('open')) {
+                                        loadHistory();
+                                    }
+                                });
 
+                                document.getElementById('closeSidebar').addEventListener('click', function() {
+                                    sidebar.classList.remove('open');
+                                });
+
+                                document.getElementById('closeDiff').addEventListener('click', function() {
+                                    diffPanel.style.display = 'none';
+                                    // Deselect active entry
+                                    var active = historyList.querySelector('.history-entry.active');
+                                    if (active) active.classList.remove('active');
+                                });
+
+                                function loadHistory() {
+                                    historyList.innerHTML = '<p class="text-muted p-3" style="font-size:13px;">Loading...</p>';
                                     axios.get('/api/config/history/' + layer)
                                         .then(function(resp) {
                                             var entries = resp.data;
                                             if (!entries || entries.length === 0) {
-                                                historyListView.innerHTML = '<p class="text-muted">No history entries for this layer yet.</p>';
+                                                historyList.innerHTML = '<p class="text-muted p-3" style="font-size:13px;">No changes recorded yet.</p>';
                                                 return;
                                             }
-                                            var html = '<div class="list-group">';
-                                            entries.forEach(function(entry) {
+                                            var html = '';
+                                            entries.forEach(function(entry, idx) {
                                                 var dt = new Date(entry.changed_at);
-                                                var formatted = dt.toLocaleString();
-                                                html += '<div class="history-list-item list-group-item list-group-item-action bg-dark text-light" data-id="' + entry.id + '">';
-                                                html += '<span>' + formatted + '</span>';
+                                                var dateStr = dt.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+                                                var timeStr = dt.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
+                                                var hash = entry.id.toString(16).padStart(7, '0');
+                                                html += '<div class="history-entry" data-id="' + entry.id + '">';
+                                                html += '<div class="entry-hash">' + hash + '</div>';
+                                                html += '<div class="entry-time">' + dateStr + ' ' + timeStr + '</div>';
                                                 html += '</div>';
                                             });
-                                            html += '</div>';
-                                            historyListView.innerHTML = html;
+                                            historyList.innerHTML = html;
 
-                                            historyListView.querySelectorAll('.history-list-item').forEach(function(el) {
+                                            historyList.querySelectorAll('.history-entry').forEach(function(el) {
                                                 el.addEventListener('click', function() {
-                                                    var entryId = this.getAttribute('data-id');
-                                                    loadHistoryDiff(entryId);
+                                                    // Mark active
+                                                    historyList.querySelectorAll('.history-entry').forEach(function(e) { e.classList.remove('active'); });
+                                                    this.classList.add('active');
+                                                    loadDiff(this.getAttribute('data-id'));
                                                 });
                                             });
                                         })
                                         .catch(function(err) {
-                                            historyListView.innerHTML = '<p class="text-danger">Failed to load history.</p>';
-                                            console.error('Error loading history:', err);
+                                            historyList.innerHTML = '<p class="text-danger p-3" style="font-size:13px;">Failed to load history.</p>';
                                         });
-                                });
+                                }
 
-                                document.getElementById('backToHistoryList').addEventListener('click', function() {
-                                    historyDiffView.style.display = 'none';
-                                    historyListView.style.display = 'block';
-                                });
-
-                                function loadHistoryDiff(entryId) {
-                                    historyListView.style.display = 'none';
-                                    historyDiffView.style.display = 'block';
+                                function loadDiff(entryId) {
+                                    diffPanel.style.display = 'block';
                                     diffOutput.textContent = 'Loading...';
+                                    diffTitle.textContent = '';
 
                                     axios.get('/api/config/history/' + layer + '/' + entryId)
                                         .then(function(resp) {
                                             var entry = resp.data;
                                             var dt = new Date(entry.changed_at);
-                                            diffTitle.textContent = 'Change from ' + dt.toLocaleString();
+                                            diffTitle.textContent = dt.toLocaleString() + ' → current';
                                             diffOutput.innerHTML = computeDiff(entry.old_config, entry.new_config);
                                         })
                                         .catch(function(err) {
                                             diffOutput.innerHTML = '<span class="text-danger">Failed to load diff.</span>';
-                                            console.error('Error loading diff:', err);
                                         });
                                 }
 
@@ -384,8 +457,6 @@
                                     var oldLines = oldText.split('\n');
                                     var newLines = newText.split('\n');
                                     var html = '';
-
-                                    // LCS-based unified diff
                                     var m = oldLines.length;
                                     var n = newLines.length;
 

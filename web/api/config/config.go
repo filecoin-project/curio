@@ -234,7 +234,7 @@ func (c *cfg) getLayerHistory(w http.ResponseWriter, r *http.Request) {
 		ChangedAt time.Time `db:"changed_at" json:"changed_at"`
 	}
 	apihelper.OrHTTPFail(w, c.DB.Select(context.Background(), &history,
-		`SELECT id, title, changed_at FROM harmony_config_history WHERE title = $1 ORDER BY changed_at DESC LIMIT 50`, layer))
+		`SELECT id, title, changed_at FROM harmony_config_history WHERE title = $1 ORDER BY changed_at DESC LIMIT 20`, layer))
 	w.Header().Set("Content-Type", "application/json")
 	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(history))
 }
@@ -254,16 +254,10 @@ func (c *cfg) getHistoryEntry(w http.ResponseWriter, r *http.Request) {
 	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
 		`SELECT id, title, config, changed_at FROM harmony_config_history WHERE id = $1`, id).Scan(&entry.ID, &entry.Title, &entry.Config, &entry.ChangedAt))
 
-	// Find what it changed to: the next newer history entry, or the current live config
-	var newConfig string
-	err = c.DB.QueryRow(context.Background(),
-		`SELECT config FROM harmony_config_history WHERE title = $1 AND changed_at > $2 ORDER BY changed_at ASC LIMIT 1`,
-		entry.Title, entry.ChangedAt).Scan(&newConfig)
-	if err != nil {
-		// No newer history entry — use the current live config
-		apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
-			`SELECT config FROM harmony_config WHERE title = $1`, entry.Title).Scan(&newConfig))
-	}
+	// Always diff against the current live config
+	var currentConfig string
+	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
+		`SELECT config FROM harmony_config WHERE title = $1`, entry.Title).Scan(&currentConfig))
 
 	resp := struct {
 		ID        int       `json:"id"`
@@ -275,7 +269,7 @@ func (c *cfg) getHistoryEntry(w http.ResponseWriter, r *http.Request) {
 		ID:        entry.ID,
 		Title:     entry.Title,
 		OldConfig: entry.Config,
-		NewConfig: newConfig,
+		NewConfig: currentConfig,
 		ChangedAt: entry.ChangedAt,
 	}
 
