@@ -81,7 +81,10 @@ func TestMain(m *testing.M) {
 
 	// Set the environment variable so that harmonydb.NewFromConfigWithITestID
 	// and indexstore test helpers pick up the container's address.
-	os.Setenv("CURIO_HARMONYDB_HOSTS", "127.0.0.1")
+	if err := os.Setenv("CURIO_HARMONYDB_HOSTS", "127.0.0.1"); err != nil {
+		fmt.Printf("itests: failed to set CURIO_HARMONYDB_HOSTS: %v\n", err)
+		os.Exit(1)
+	}
 
 	code := m.Run()
 
