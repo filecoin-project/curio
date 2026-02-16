@@ -52,8 +52,8 @@ class RSealPipelineElement extends LitElement {
         integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous" />
       <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
-      <div class="container">
-        <h2>Pipeline Status</h2>
+      <div>
+        <h3>Pipeline Status</h3>
 
         <h4>Provider Pipeline</h4>
         ${this.providerPipeline.length > 0 ? html`

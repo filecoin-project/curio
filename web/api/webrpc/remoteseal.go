@@ -88,8 +88,27 @@ func (a *WebRPC) RSealListPartners(ctx context.Context) ([]RSealPartner, error) 
 	return partners, nil
 }
 
+// RSealGetPartnerURL returns the current node's base URL for remote seal
+// (derived from HTTP.DomainName config). Clients paste this when configuring
+// their provider connection, and it is shown in the UI for reference.
+func (a *WebRPC) RSealGetPartnerURL(ctx context.Context) (string, error) {
+	dn := a.deps.Cfg.HTTP.DomainName
+	if dn == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("https://%s", dn), nil
+}
+
 // RSealAddPartner creates a new remote seal partner with a generated token.
 func (a *WebRPC) RSealAddPartner(ctx context.Context, name string, url string, allowance int64) (*RSealPartner, error) {
+	// Prevent adding ourselves as a partner
+	if a.deps.Cfg.HTTP.DomainName != "" {
+		selfURL := fmt.Sprintf("https://%s", a.deps.Cfg.HTTP.DomainName)
+		if url == selfURL || url == selfURL+"/" {
+			return nil, fmt.Errorf("cannot add yourself as a partner")
+		}
+	}
+
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, xerrors.Errorf("generating token: %w", err)
@@ -194,6 +213,14 @@ func (a *WebRPC) RSealAddProvider(ctx context.Context, spID int64, connectString
 
 	if payload.URL == "" || payload.Token == "" {
 		return nil, fmt.Errorf("connect string missing url or token")
+	}
+
+	// Prevent adding ourselves as a provider
+	if a.deps.Cfg.HTTP.DomainName != "" {
+		selfURL := fmt.Sprintf("https://%s", a.deps.Cfg.HTTP.DomainName)
+		if payload.URL == selfURL || payload.URL == selfURL+"/" {
+			return nil, fmt.Errorf("cannot add yourself as a provider")
+		}
 	}
 
 	var provider RSealProvider
