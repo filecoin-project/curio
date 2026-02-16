@@ -484,8 +484,8 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
 		tmp.Ram -= uint64(ct) * t.Cost.Ram
 		if tmp.Ram < 0 {
-		  tmp.Ram = 0
-		  }
+			tmp.Ram = 0
+		}
 		rlog.Debugw("Per task type", "Name", t.Name, "Count", ct, "CPU", ct*t.Cost.Cpu, "RAM", uint64(ct)*t.Cost.Ram, "GPU", float64(ct)*t.Cost.Gpu)
 	}
 	rlog.Debugw("Total", "CPU", tmp.Cpu, "RAM", tmp.Ram, "GPU", tmp.Gpu)
