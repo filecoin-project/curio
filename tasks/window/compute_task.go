@@ -438,7 +438,6 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 			// RAM of smallest proof's max is listed here
 			Ram: ram,
 		},
-		MustReserve: true,
 	}
 }
 

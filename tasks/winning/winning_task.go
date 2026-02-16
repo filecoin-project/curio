@@ -574,7 +574,6 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 			Ram: 1 << 30, // todo arbitrary number
 		},
-		MustReserve: true,
 	}
 }
 

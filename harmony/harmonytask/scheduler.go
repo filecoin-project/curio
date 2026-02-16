@@ -32,11 +32,25 @@ const (
 
 const chokePoint = 1000
 
+// taskSchedule is a collection of available tasks of one type that are to be scheduled.
 type taskSchedule struct {
 	hasID  map[TaskID]task
 	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
 	// In this state, we try what we have, and go to DB if we need more.
 	reservedTask TaskID // This will be ran when resources are available. 0 for none.
+}
+
+func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
+	sched.reservedTask = 0
+	if len(sched.hasID) > 0 {
+		for _, t := range sched.hasID {
+			if !t.ReservedElsewhere {
+				sched.reservedTask = t.ID
+				reserveTask(t.ID)
+				break
+			}
+		}
+	}
 }
 
 func (e *TaskEngine) startScheduler() {
@@ -80,10 +94,12 @@ func (e *TaskEngine) startScheduler() {
 					availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 					bundleCollector(event.TaskType)
 				case schedulerSourcePeerStarted:
-					t := availableTasks[event.TaskType]
-					delete(t.hasID, event.TaskID)
-					if t.reservedTask == event.TaskID {
-						t.reservedTask = 0
+					avail := availableTasks[event.TaskType]
+					delete(avail.hasID, event.TaskID)
+					if avail.reservedTask == event.TaskID {
+						avail.ReserveNext(func(taskID TaskID) {
+							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
+						})
 					}
 				case schedulerSourceTaskCompleted:
 					err := e.waterfall(taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
@@ -91,28 +107,21 @@ func (e *TaskEngine) startScheduler() {
 						log.Errorw("failed to full waterfall", "error", err)
 						continue
 					}
-				case schedulerSourcePeerReserved:
+				case schedulerSourcePeerReserved: // FUTURE: apply and respect reservations for anti-starve common tasks.
 					avail := availableTasks[event.TaskType]
 					if event.PeerID > int64(e.ownerID) && avail.reservedTask == event.TaskID {
-						avail.reservedTask = 0
 						t := avail.hasID[event.TaskID]
 						t.ReservedElsewhere = true
 						avail.hasID[event.TaskID] = t
-						if len(avail.hasID) > 0 {
-							for _, t := range avail.hasID {
-								if !t.ReservedElsewhere {
-									avail.reservedTask = t.ID
-									e.peering.TellOthers(messageTypeReserve, event.TaskType, t.ID)
-									break
-								}
-							}
-						}
+						avail.ReserveNext(func(taskID TaskID) {
+							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
+						})
 					}
 				default:
 					log.Warnw("unknown scheduler source", "source", event.Source)
 				}
 			case taskName := <-bundleSleep:
-				shouldReserve, err := e.tryStartTask(taskName, eventEmitter{e.schedulerChannel})
+				shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
 				if err != nil {
 					log.Errorw("failed to try waterfall", "error", err)
 					continue
@@ -128,17 +137,23 @@ func (e *TaskEngine) startScheduler() {
 					continue
 				}
 			}
+			// FUTURE: RetryWait could start timers.
 		}
 	}()
-} // TODO Move all harmony_task writers to taskEngine.AddTask()
+} // FUTURE Move all harmony_task writers to taskEngine.AddTask() to transmit over the RPC.
 
 type taskSource interface {
 	GetTasks(taskName string) []task
 	ReserveTask(taskName string, taskID TaskID)
 }
 
-func (e *TaskEngine) tryStartTask(taskName string, eventEmitter eventEmitter) (TaskID, error) {
-	// TODO can this just be consider work?
+func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
+	err := e.waterfall(taskSource, eventEmitter)
+	if err != nil {
+		log.Errorw("failed to try waterfall", "error", err)
+		return 0, err
+	}
+
 	return 0, nil
 }
 
@@ -156,36 +171,17 @@ func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter)
 
 	e.yieldBackground.Store(!schedulable)
 
-	// TODO Implement this here
-	/* THis should:
-	4. bring decreasing resources down (respecting reservations).
-	5. Rethink "retryWait" from poller-only to include schedule-able.
+	/* TODO
 	6. double-check where we receive events that source =0 works as us.
-	7. tryStartTask should be thin wrapper around considerWork, but that requires moving most of the pollerTryAllWork logic into considerWork, and maybe the rest can go into waterfall.
-
-	Why this works: Guaranteed progress.
-
-	Time-sentitive tasks get an "always reserve" flag.
-
-	Thought: most-starved pipeline first, in pipeline order. Because old tasks could be at the head of a pipeline.
-	So points for a starved pipeline & points for a later task in the pipeline & points for age.
-	what is a starved pipeline?
-
-	First: order handlers by score (later in its pipeline, age counts a little, starvation counts a lot)
-	Then if it continues to be starved (or is time-sensitive), it "goes urgent"
-	It'll be first on another round, and "urgent" will get a reservation.
-	Icky data to carry: 1. handler avg age (rolling average), handler last-run time (vs other handlers), handler-pipeline-position.
-
-	Then calculate the urgency score for each handler and order by that.
-	The handler that has been starved 2-5x (??) the average runtime gets reserved (resources get claimed by the scheduler)
-
+	7. Tests
 	*/
-	e.pollerTryAllWork(schedulable, taskSource, eventEmitter)
 
 	if !schedulable {
 		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
 		return nil
 	}
+
+	e.pollerTryAllWork(schedulable, taskSource, eventEmitter)
 
 	// update resource usage
 	availableResources := e.ResourcesAvailable()

@@ -32,7 +32,13 @@ type taskTypeHandler struct {
 	TaskTypeDetails
 	TaskEngine      *TaskEngine
 	storageFailures map[TaskID]time.Time
+
+	// for caching CanAccept() results to db unnecessarily.
+	acceptedTasks    []TaskID
+	lastAcceptedTime time.Time
 }
+
+const CAN_ACCEPT_CACHE_TTL = 60 * time.Second
 
 // Anti-hammering of storage claims.
 const STORAGE_FAILURE_TIMEOUT = 3 * time.Minute
@@ -126,8 +132,21 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	ids := lo.Map(tasks, func(t task, _ int) TaskID {
 		return t.ID
 	})
+	// Were any accepted already?
+	if time.Since(h.lastAcceptedTime) < CAN_ACCEPT_CACHE_TTL {
+		h.acceptedTasks = []TaskID{}
+	}
+	alreadyAccepted := lo.Filter(ids, func(tID TaskID, _ int) bool {
+		return !lo.Contains(h.acceptedTasks, tID)
+	})
+	tIDs := alreadyAccepted
+
 	// 3. What does the impl say?
-	tIDs, err := h.CanAccept(ids, h.TaskEngine)
+	if len(alreadyAccepted) == 0 {
+		tIDs, err = h.CanAccept(ids, h.TaskEngine)
+	} else {
+		defer h.considerWork(from, tasks, eventEmitter) // try db only if we don't consume all slots with the cached accepts first.
+	}
 
 	h.TaskEngine.WorkOrigin = ""
 
@@ -189,6 +208,10 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 			return false
 		}
 		if len(tasksAccepted) != len(tIDs) {
+			h.acceptedTasks = lo.Filter(tIDs, func(tID TaskID, _ int) bool {
+				return !lo.Contains(tasksAccepted, tID)
+			})
+			h.lastAcceptedTime = time.Now()
 			tIDs = tasksAccepted // update tIDs to the accepted tasks
 		}
 	}

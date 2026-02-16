@@ -66,9 +66,6 @@ type TaskTypeDetails struct {
 	// task would block a short-running task from being scheduled, blocking other related pipelines on
 	// other machines.
 	SchedulingOverrides map[string]bool
-
-	// MustReserve is true if the task must reserve capacity of a machine so that it can run as soon as possible.
-	MustReserve bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -350,16 +347,8 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 		})
 
 		if len(unownedTasks) > 0 {
-			accepted := v.considerWork(WorkSourcePoller, unownedTasks, eventEmitter)
-			if !accepted && v.MustReserve {
-				for _, task := range unownedTasks {
-					if task.ReservedElsewhere == false {
-						taskSource.ReserveTask(v.Name, task.ID)
-						// TODO reduce 'available' resources down
-						break
-					}
-				}
-			}
+			_ = v.considerWork(WorkSourcePoller, unownedTasks, eventEmitter)
+
 			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 		}
 	}
