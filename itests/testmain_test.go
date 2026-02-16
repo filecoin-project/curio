@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
-
-	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
