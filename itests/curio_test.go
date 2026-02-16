@@ -124,6 +124,15 @@ func TestCurioHappyPath(t *testing.T) {
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
+	// Enable all sealing subsystems needed for the full pipeline.
+	baseCfg.Subsystems.EnableSealSDR = true
+	baseCfg.Subsystems.EnableSealSDRTrees = true
+	baseCfg.Subsystems.EnableSendPrecommitMsg = true
+	baseCfg.Subsystems.EnablePoRepProof = true
+	baseCfg.Subsystems.EnableSendCommitMsg = true
+	baseCfg.Subsystems.EnableMoveStorage = true
+	baseCfg.Subsystems.UseSyntheticPoRep = true
+
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
 
