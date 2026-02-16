@@ -136,10 +136,6 @@ func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	// get dOrdinal
 	dOrdinal := deviceOrdinalMgr.Get()
 
-	if dOrdinal == -1 {
-		return nil, xerrors.Errorf("no GPUs available. Something went wrong in the scheduler.")
-	}
-
 	defer func() {
 		deviceOrdinalMgr.Release(dOrdinal)
 	}()
