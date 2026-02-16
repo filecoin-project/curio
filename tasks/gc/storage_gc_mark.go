@@ -125,9 +125,10 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				if err != nil {
 					if isActorNotFoundErr(err) {
 						// Miner actor no longer exists on-chain. Sector files for this
-						// miner are orphaned — skip loading state so that all its sectors
+						// miner are orphaned — don't load state so that all its sectors
 						// remain in toRemove (no precommit/live/unproven subtraction).
 						log.Warnw("miner actor not found on-chain, treating sectors as orphaned for GC", "miner", maddr)
+						toRemove[decl.Miner].Set(uint64(decl.Number))
 						continue
 					}
 					return false, xerrors.Errorf("get miner actor %s: %w", maddr, err)
