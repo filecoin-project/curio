@@ -24,7 +24,7 @@ func TestNoGPUs(t *testing.T) {
 	ch := make(chan int)
 	d.acquireChan <- ch
 	select {
-	case _ = <-ch:
+	case <-ch:
 		panic("should have blocked")
 	case <-time.After(time.Millisecond * 100):
 		// expected: blocked because capacity is 1
