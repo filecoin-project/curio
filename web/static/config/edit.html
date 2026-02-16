@@ -111,12 +111,6 @@
             border-left: 3px solid #58a6ff;
         }
 
-        .history-entry .entry-hash {
-            color: #58a6ff;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-
         .history-entry .entry-time {
             color: #6e7681;
             font-size: 11px;
@@ -230,7 +224,7 @@
                     <div id="diffPanel">
                         <div class="diff-header">
                             <h6 id="diffTitle" class="text-muted mb-0"></h6>
-                            <button class="btn btn-sm btn-outline-secondary" id="closeDiff">&times; Close diff</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="closeDiff">&times; Close</button>
                         </div>
                         <div class="diff-container" id="diffOutput"></div>
                     </div>
@@ -414,9 +408,7 @@
                                                 var dt = new Date(entry.changed_at);
                                                 var dateStr = dt.toLocaleDateString(undefined, {month:'short', day:'numeric'});
                                                 var timeStr = dt.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
-                                                var hash = entry.id.toString(16).padStart(7, '0');
                                                 html += '<div class="history-entry" data-id="' + entry.id + '">';
-                                                html += '<div class="entry-hash">' + hash + '</div>';
                                                 html += '<div class="entry-time">' + dateStr + ' ' + timeStr + '</div>';
                                                 html += '</div>';
                                             });
