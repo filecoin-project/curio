@@ -595,7 +595,6 @@ func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.Handl
 				log.Errorf("failed to encode response: %s", err)
 			}
 		}
-		resp.WriteHeader(http.StatusOK)
 	}
 	return hnd
 }
