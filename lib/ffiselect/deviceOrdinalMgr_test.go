@@ -105,8 +105,8 @@ func TestWaitList(t *testing.T) {
 	}
 	for i := range expect {
 		d.Release(expect[i])
+		time.Sleep(time.Millisecond * 100)
 	}
-	time.Sleep(time.Millisecond * 100)
 	for i := range expect {
 		if list[i] != i {
 			t.Fatal("waitlist fired out-of-order", list, i)

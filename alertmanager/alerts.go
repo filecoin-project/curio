@@ -142,7 +142,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			ret += fmt.Sprintf("Balance for wallet %s (%s) is below 5 Fil. ", addr, keyAddr)
+			ret += fmt.Sprintf("Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
 	if ret != "" {
@@ -217,7 +217,7 @@ func taskFailureCheck(al *alerts) {
 	}
 
 	// Alert if a machine failed more than 5 tasks
-	for name, count := range tmap {
+	for name, count := range mmap {
 		if count > 5 {
 			al.alertMap[Name].alertString += fmt.Sprintf("Machine: %s, Failures: %d. ", name, count)
 		}
@@ -289,9 +289,10 @@ func permanentStorageCheck(al *alerts) {
 		sectorMap[key] = false
 
 		for _, strg := range storages {
-			if space > strg.Available {
+			if space <= strg.Available {
 				strg.Available -= space
 				sectorMap[key] = true
+				break
 			}
 		}
 	}
