@@ -39,8 +39,16 @@ MODULES+=$(FFI_PATH)
 BUILD_DEPS+=build/.filecoin-install
 CLEAN+=build/.filecoin-install
 
-## Custom libfilcrypto build for Curio (size-optimized, no FVM)
+## Custom libfilcrypto build for Curio (GPU-enabled, from source)
 ## By default, requires CUDA on Linux. Set FFI_USE_OPENCL=1 to build with OpenCL instead.
+##
+## NOTE: FFI_DISABLE_FVM is intentionally NOT set here. When set, filecoin-ffi's
+## install-filcrypto script appends "-no-fvm" to GPU feature flags (e.g. "cuda"
+## becomes "cuda-no-fvm"). The Rust cfg gates in filecoin-ffi only check for
+## "cuda"/"opencl"/"cuda-supraseal" — not the "-no-fvm" variants — causing
+## get_gpu_devices() to return an empty list and GPU detection to fail.
+## Curio's Go build tags (nofvm) already prevent FVM code paths from being used;
+## the FVM code in libfilcrypto.a is dead weight but harmless.
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
 	@if [ "$$(uname)" = "Linux" ] && [ "$(FFI_USE_OPENCL)" != "1" ] && ! command -v nvcc >/dev/null 2>&1; then \
@@ -57,7 +65,6 @@ curio-libfilecoin:
 	FFI_USE_GPU=1 \
 	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
 	FFI_USE_MULTICORE_SDR=1 \
-	FFI_DISABLE_FVM=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
 
