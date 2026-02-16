@@ -20,11 +20,16 @@ func TestNoGPUs(t *testing.T) {
 	if ord != 0 {
 		t.Fatal("should have gotten GPU 0")
 	}
-	go func() {
-		_ = d.Get()
+
+	ch := make(chan int)
+	d.acquireChan <- ch
+	select {
+	case _ = <-ch:
 		panic("should have blocked")
-	}()
-	time.Sleep(time.Millisecond * 100)
+	case <-time.After(time.Millisecond * 100):
+		// expected: blocked because capacity is 1
+	}
+
 	d.Release(0)
 }
 
