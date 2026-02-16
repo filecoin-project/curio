@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -355,6 +356,34 @@ func (sm *SealMarket) handleOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	// Check allowed proof types for this partner
+	{
+		var partners []struct {
+			AllowedProofTypes []int64 `db:"allowed_proof_types"`
+		}
+		if err := sm.db.Select(r.Context(), &partners, `SELECT allowed_proof_types FROM rseal_delegated_partners WHERE id = $1`, partnerID); err != nil {
+			log.Errorw("order: failed to query allowed proof types", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if len(partners) > 0 && len(partners[0].AllowedProofTypes) > 0 {
+			allowed := false
+			for _, pt := range partners[0].AllowedProofTypes {
+				if pt == int64(req.RegSealProof) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				writeJSON(w, http.StatusOK, OrderResponse{
+					Accepted:     false,
+					RejectReason: fmt.Sprintf("proof type %d not allowed for this partner", req.RegSealProof),
+				})
+				return
+			}
+		}
 	}
 
 	// Validate slot token (if present)

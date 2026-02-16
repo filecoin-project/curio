@@ -1,12 +1,19 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
+// Proof types: value -> label. For mainnet/calibnet only 32GiB and 64GiB V1.1 matter.
+const PROOF_TYPES = [
+  { value: 8,  label: '32GiB 1.1' },
+  { value: 9,  label: '64GiB 1.1' },
+];
+
 class RSealProviderElement extends LitElement {
   static properties = {
     partners: { type: Array },
     newName: { type: String },
     newURL: { type: String },
     newAllowance: { type: Number },
+    newProofTypes: { type: Array },
     connectStringPartnerID: { type: Number },
     connectString: { type: String },
     ourURL: { type: String },
@@ -18,6 +25,7 @@ class RSealProviderElement extends LitElement {
     this.newName = '';
     this.newURL = '';
     this.newAllowance = 10;
+    this.newProofTypes = PROOF_TYPES.map(p => p.value); // all checked by default
     this.connectStringPartnerID = null;
     this.connectString = '';
     this.ourURL = '';
@@ -43,16 +51,38 @@ class RSealProviderElement extends LitElement {
     this.requestUpdate();
   }
 
+  toggleProofType(value) {
+    const idx = this.newProofTypes.indexOf(value);
+    if (idx >= 0) {
+      this.newProofTypes = this.newProofTypes.filter(v => v !== value);
+    } else {
+      this.newProofTypes = [...this.newProofTypes, value];
+    }
+  }
+
+  proofTypeLabels(types) {
+    if (!types || types.length === 0) return 'Any';
+    return types.map(v => {
+      const pt = PROOF_TYPES.find(p => p.value === v);
+      return pt ? pt.label : `proof:${v}`;
+    }).join(', ');
+  }
+
   async addPartner() {
     if (!this.newName || !this.newURL) {
       alert('Name and URL are required');
       return;
     }
+    if (this.newProofTypes.length === 0) {
+      alert('Select at least one allowed proof type');
+      return;
+    }
     try {
-      await RPCCall('RSealAddPartner', [this.newName, this.newURL, this.newAllowance]);
+      await RPCCall('RSealAddPartner', [this.newName, this.newURL, this.newAllowance, this.newProofTypes]);
       this.newName = '';
       this.newURL = '';
       this.newAllowance = 10;
+      this.newProofTypes = PROOF_TYPES.map(p => p.value);
       await this.loadData();
     } catch (err) {
       alert(`Failed to add partner: ${err.message || err}`);
@@ -153,7 +183,34 @@ class RSealProviderElement extends LitElement {
           grid-template-columns: 1fr 1.5fr 0.8fr max-content;
           grid-column-gap: 0.75rem;
           align-items: end;
+          margin-bottom: 0.75rem;
+        }
+        .rseal-proof-row {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
           margin-bottom: 1.5rem;
+        }
+        .rseal-proof-row label.rseal-proof-label {
+          font-size: 0.75rem;
+          color: var(--color-text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-right: 0.25rem;
+        }
+        .rseal-proof-check {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+          cursor: pointer;
+          font-size: 0.9rem;
+          color: var(--color-text-primary);
+        }
+        .rseal-proof-check input[type="checkbox"] {
+          accent-color: var(--color-primary-main);
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
         }
         .rseal-connect-row {
           display: grid;
@@ -198,13 +255,22 @@ class RSealProviderElement extends LitElement {
             <input type="text" class="rseal-input" placeholder="https://their-curio.example.com" .value=${this.newURL} @input=${e => this.newURL = e.target.value} />
           </div>
           <div class="rseal-field">
-            <label>Allowance</label>
+            <label>Sector Allowance</label>
             <input type="number" class="rseal-input" placeholder="10" .value=${this.newAllowance} @input=${e => this.newAllowance = parseInt(e.target.value)} />
           </div>
           <div class="rseal-field">
             <label>&nbsp;</label>
             <button class="rseal-btn" @click=${this.addPartner}>Add Partner</button>
           </div>
+        </div>
+        <div class="rseal-proof-row">
+          <label class="rseal-proof-label">Allowed Proof Types</label>
+          ${PROOF_TYPES.map(pt => html`
+            <label class="rseal-proof-check">
+              <input type="checkbox" ?checked=${this.newProofTypes.includes(pt.value)} @change=${() => this.toggleProofType(pt.value)} />
+              ${pt.label}
+            </label>
+          `)}
         </div>
 
         ${this.connectString ? html`
@@ -226,8 +292,9 @@ class RSealProviderElement extends LitElement {
                 <th>ID</th>
                 <th>Name</th>
                 <th>URL</th>
-                <th>Remaining</th>
-                <th>Total</th>
+                <th>Sectors Remaining</th>
+                <th>Sectors Total</th>
+                <th>Proof Types</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -240,6 +307,7 @@ class RSealProviderElement extends LitElement {
                   <td class="text-break" style="max-width:200px">${p.partner_url}</td>
                   <td>${p.allowance_remaining}</td>
                   <td>${p.allowance_total}</td>
+                  <td>${this.proofTypeLabels(p.allowed_proof_types)}</td>
                   <td>${new Date(p.created_at).toLocaleDateString()}</td>
                   <td>
                     <button class="btn btn-sm btn-info me-1" @click=${() => this.getConnectString(p.id)} title="Get connect string">Connect</button>

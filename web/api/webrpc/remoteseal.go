@@ -21,6 +21,7 @@ type RSealPartner struct {
 	PartnerToken       string    `db:"partner_token" json:"partner_token"`
 	AllowanceRemaining int64     `db:"allowance_remaining" json:"allowance_remaining"`
 	AllowanceTotal     int64     `db:"allowance_total" json:"allowance_total"`
+	AllowedProofTypes  []int64   `db:"allowed_proof_types" json:"allowed_proof_types"`
 	CreatedAt          time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
 }
@@ -78,7 +79,7 @@ type RSealClientPipelineRow struct {
 // RSealListPartners returns all remote seal partners (provider side).
 func (a *WebRPC) RSealListPartners(ctx context.Context) ([]RSealPartner, error) {
 	var partners []RSealPartner
-	err := a.deps.DB.Select(ctx, &partners, `SELECT id, partner_name, partner_url, partner_token, allowance_remaining, allowance_total, created_at, updated_at FROM rseal_delegated_partners ORDER BY id`)
+	err := a.deps.DB.Select(ctx, &partners, `SELECT id, partner_name, partner_url, partner_token, allowance_remaining, allowance_total, allowed_proof_types, created_at, updated_at FROM rseal_delegated_partners ORDER BY id`)
 	if err != nil {
 		return nil, xerrors.Errorf("listing partners: %w", err)
 	}
@@ -100,13 +101,17 @@ func (a *WebRPC) RSealGetPartnerURL(ctx context.Context) (string, error) {
 }
 
 // RSealAddPartner creates a new remote seal partner with a generated token.
-func (a *WebRPC) RSealAddPartner(ctx context.Context, name string, url string, allowance int64) (*RSealPartner, error) {
+func (a *WebRPC) RSealAddPartner(ctx context.Context, name string, url string, allowance int64, allowedProofTypes []int64) (*RSealPartner, error) {
 	// Prevent adding ourselves as a partner
 	if a.deps.Cfg.HTTP.DomainName != "" {
 		selfURL := fmt.Sprintf("https://%s", a.deps.Cfg.HTTP.DomainName)
 		if url == selfURL || url == selfURL+"/" {
 			return nil, fmt.Errorf("cannot add yourself as a partner")
 		}
+	}
+
+	if allowedProofTypes == nil {
+		allowedProofTypes = []int64{}
 	}
 
 	tokenBytes := make([]byte, 32)
@@ -116,11 +121,11 @@ func (a *WebRPC) RSealAddPartner(ctx context.Context, name string, url string, a
 	token := hex.EncodeToString(tokenBytes)
 
 	var partner RSealPartner
-	err := a.deps.DB.QueryRow(ctx, `INSERT INTO rseal_delegated_partners (partner_name, partner_url, partner_token, allowance_remaining, allowance_total)
-		VALUES ($1, $2, $3, $4, $4) RETURNING id, partner_name, partner_url, partner_token, allowance_remaining, allowance_total, created_at, updated_at`,
-		name, url, token, allowance).Scan(
+	err := a.deps.DB.QueryRow(ctx, `INSERT INTO rseal_delegated_partners (partner_name, partner_url, partner_token, allowance_remaining, allowance_total, allowed_proof_types)
+		VALUES ($1, $2, $3, $4, $4, $5) RETURNING id, partner_name, partner_url, partner_token, allowance_remaining, allowance_total, allowed_proof_types, created_at, updated_at`,
+		name, url, token, allowance, allowedProofTypes).Scan(
 		&partner.ID, &partner.PartnerName, &partner.PartnerURL, &partner.PartnerToken,
-		&partner.AllowanceRemaining, &partner.AllowanceTotal, &partner.CreatedAt, &partner.UpdatedAt)
+		&partner.AllowanceRemaining, &partner.AllowanceTotal, &partner.AllowedProofTypes, &partner.CreatedAt, &partner.UpdatedAt)
 	if err != nil {
 		return nil, xerrors.Errorf("inserting partner: %w", err)
 	}
