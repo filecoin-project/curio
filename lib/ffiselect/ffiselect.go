@@ -56,21 +56,14 @@ func newDeviceOrdinalManager(getGPUDevices func() ([]string, error)) *deviceOrdi
 			panic(err)
 		}
 
-		// No GPUs: immediately respond with -1 to every acquire, ignore releases.
-		if len(devices) == 0 {
-			for {
-				select {
-				case <-d.releaseChan:
-					// nothing to track
-				case acquireChan := <-d.acquireChan:
-					acquireChan <- -1
-				}
-			}
-		}
-
 		gpuSlots := make([]byte, len(devices))
 		for i := range gpuSlots {
 			gpuSlots[i] = byte(resources.GpuOverprovisionFactor)
+		}
+
+		// No GPUs? allow 1 slot
+		if len(devices) == 0 {
+			gpuSlots = []byte{1}
 		}
 
 		waitList := []chan int{}
