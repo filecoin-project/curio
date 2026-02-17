@@ -25,3 +25,11 @@ uuid = { workspace = true }
 hex = "0.4"
 tower = "0.4"
 hyper-util = "0.1"
+
+# Optional: for gen-vanilla subcommand (CPU-only vanilla proof generation)
+filecoin-proofs-api = { workspace = true, optional = true }
+cid = { workspace = true, optional = true }
+
+[features]
+default = []
+gen-vanilla = ["filecoin-proofs-api", "cid"]

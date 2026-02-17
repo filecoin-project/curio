@@ -1,11 +1,12 @@
 //! cuzk-bench: Testing and benchmarking utility for the cuzk proving daemon.
 //!
 //! Commands:
-//!   single   — Run a single proof through the daemon
-//!   batch    — Run N identical proofs and report throughput
-//!   status   — Query daemon status
-//!   preload  — Pre-warm SRS parameters
-//!   metrics  — Get Prometheus metrics
+//!   single      — Run a single proof through the daemon
+//!   batch       — Run N identical proofs and report throughput
+//!   status      — Query daemon status
+//!   preload     — Pre-warm SRS parameters
+//!   metrics     — Get Prometheus metrics
+//!   gen-vanilla — Generate vanilla proof test data (requires `gen-vanilla` feature)
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -14,6 +15,9 @@ use std::time::Instant;
 use tracing::info;
 
 use cuzk_proto::cuzk::v1 as pb;
+
+#[cfg(feature = "gen-vanilla")]
+mod gen_vanilla;
 
 #[derive(Parser, Debug)]
 #[command(name = "cuzk-bench", about = "cuzk proving engine test/benchmark utility")]
@@ -145,6 +149,134 @@ enum Commands {
 
     /// Get Prometheus metrics from the daemon.
     Metrics,
+
+    /// Generate vanilla proof test data for PoSt/SnapDeals (requires `gen-vanilla` feature).
+    ///
+    /// Calls filecoin-proofs-api CPU-only functions to produce vanilla proofs
+    /// from sealed sector data on disk. Output is a JSON array of base64-encoded
+    /// proof bytes, suitable for use with the `--vanilla` flag of single/batch.
+    #[command(subcommand)]
+    GenVanilla(GenVanillaCommands),
+}
+
+#[derive(Subcommand, Debug)]
+enum GenVanillaCommands {
+    /// Generate WinningPoSt vanilla proofs.
+    ///
+    /// Determines which sectors are challenged, generates Merkle inclusion
+    /// proofs from the sealed sector's tree-r-last. Typically produces 1 proof
+    /// for our single-sector test setup.
+    WinningPost {
+        /// Registered proof type (numeric). Winning 32G=3.
+        #[arg(long, default_value = "3")]
+        registered_proof: u64,
+
+        /// Sector number.
+        #[arg(long, default_value = "1")]
+        sector_number: u64,
+
+        /// Miner ID.
+        #[arg(long, default_value = "1000")]
+        miner_id: u64,
+
+        /// Hex-encoded 32-byte randomness. If omitted, uses all zeros.
+        #[arg(long)]
+        randomness: Option<String>,
+
+        /// CommR as a Filecoin CID string (bagboea4b5abc...) or path to commdr.txt.
+        #[arg(long)]
+        comm_r: String,
+
+        /// Path to the sealed sector file.
+        #[arg(long)]
+        sealed: PathBuf,
+
+        /// Path to the sealing cache directory (contains tree-r-last-*, p_aux, t_aux).
+        #[arg(long)]
+        cache: PathBuf,
+
+        /// Output file path for the vanilla proofs JSON.
+        #[arg(short, long, default_value = "winning-vanilla.json")]
+        output: PathBuf,
+    },
+
+    /// Generate WindowPoSt vanilla proofs.
+    ///
+    /// WindowPoSt challenges all sectors. For our single-sector test setup,
+    /// this generates challenges and vanilla proofs for the one sector.
+    WindowPost {
+        /// Registered proof type (numeric). Window 32G V1.1=13 (maps to V1_2).
+        #[arg(long, default_value = "13")]
+        registered_proof: u64,
+
+        /// Sector number.
+        #[arg(long, default_value = "1")]
+        sector_number: u64,
+
+        /// Miner ID.
+        #[arg(long, default_value = "1000")]
+        miner_id: u64,
+
+        /// Hex-encoded 32-byte randomness. If omitted, uses all zeros.
+        #[arg(long)]
+        randomness: Option<String>,
+
+        /// CommR as a Filecoin CID string (bagboea4b5abc...) or path to commdr.txt.
+        #[arg(long)]
+        comm_r: String,
+
+        /// Path to the sealed sector file.
+        #[arg(long)]
+        sealed: PathBuf,
+
+        /// Path to the sealing cache directory (contains tree-r-last-*, p_aux, t_aux).
+        #[arg(long)]
+        cache: PathBuf,
+
+        /// Output file path for the vanilla proofs JSON.
+        #[arg(short, long, default_value = "wpost-vanilla.json")]
+        output: PathBuf,
+    },
+
+    /// Generate SnapDeals (sector update) vanilla partition proofs.
+    ///
+    /// Reads both the original sealed sector and the updated replica to produce
+    /// partition-level vanilla proofs for the empty sector update circuit.
+    SnapProve {
+        /// Registered update proof type (numeric). Update 32G=3.
+        #[arg(long, default_value = "3")]
+        registered_proof: u64,
+
+        /// Path to commdr.txt for the ORIGINAL sealed sector.
+        /// Format: "d:<CID> r:<CID>". Only the r: (CommR) is used as comm_r_old.
+        #[arg(long)]
+        orig_commdr: PathBuf,
+
+        /// Path to update-commdr.txt for the UPDATED sector.
+        /// Format: "d:<CID> r:<CID>". CommD → comm_d_new, CommR → comm_r_new.
+        #[arg(long)]
+        update_commdr: PathBuf,
+
+        /// Path to the original sealed sector file (sector key).
+        #[arg(long)]
+        sector_key: PathBuf,
+
+        /// Path to the original sealing cache directory.
+        #[arg(long)]
+        sector_key_cache: PathBuf,
+
+        /// Path to the updated replica file.
+        #[arg(long)]
+        replica: PathBuf,
+
+        /// Path to the updated replica cache directory.
+        #[arg(long)]
+        replica_cache: PathBuf,
+
+        /// Output file path for the vanilla partition proofs JSON.
+        #[arg(short, long, default_value = "snap-vanilla.json")]
+        output: PathBuf,
+    },
 }
 
 fn proof_kind_from_str(s: &str) -> Result<i32> {
@@ -462,9 +594,146 @@ async fn main() -> Result<()> {
 
             print!("{}", resp.prometheus_text);
         }
+
+        Commands::GenVanilla(subcmd) => {
+            run_gen_vanilla(subcmd)?;
+        }
     }
 
     Ok(())
+}
+
+/// Parse a hex string to 32 bytes, or return zeros if None.
+#[cfg(feature = "gen-vanilla")]
+fn parse_randomness_hex(hex_str: &Option<String>) -> Result<[u8; 32]> {
+    match hex_str {
+        Some(s) => {
+            let bytes = hex::decode(s).context("invalid hex for randomness")?;
+            if bytes.len() != 32 {
+                anyhow::bail!("randomness must be exactly 32 bytes, got {}", bytes.len());
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Ok(arr)
+        }
+        None => Ok([0u8; 32]),
+    }
+}
+
+/// Resolve a CommR argument: either a CID string directly, or a path to a commdr.txt file.
+/// If it looks like a file path (exists on disk), read it and extract CommR.
+/// Otherwise, treat it as a CID string.
+#[cfg(feature = "gen-vanilla")]
+fn resolve_comm_r(comm_r_arg: &str) -> Result<[u8; 32]> {
+    let path = std::path::Path::new(comm_r_arg);
+    if path.exists() {
+        let contents = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let (_comm_d, comm_r) = gen_vanilla::parse_commdr_file(&contents)?;
+        Ok(comm_r)
+    } else {
+        gen_vanilla::parse_commitment_cid(comm_r_arg)
+    }
+}
+
+#[cfg(feature = "gen-vanilla")]
+fn run_gen_vanilla(cmd: GenVanillaCommands) -> Result<()> {
+    // Set FIL_PROOFS_PARAMETER_CACHE if not already set (needed for proof type registration)
+    if std::env::var("FIL_PROOFS_PARAMETER_CACHE").is_err() {
+        // Default to the standard location
+        if std::path::Path::new("/data/zk/params").exists() {
+            std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", "/data/zk/params");
+        }
+    }
+
+    match cmd {
+        GenVanillaCommands::WinningPost {
+            registered_proof,
+            sector_number,
+            miner_id,
+            randomness,
+            comm_r,
+            sealed,
+            cache,
+            output,
+        } => {
+            let randomness = parse_randomness_hex(&randomness)?;
+            let comm_r = resolve_comm_r(&comm_r)?;
+            gen_vanilla::gen_winning_post_vanilla(
+                registered_proof,
+                sector_number,
+                miner_id,
+                randomness,
+                comm_r,
+                cache,
+                sealed,
+                output,
+            )
+        }
+
+        GenVanillaCommands::WindowPost {
+            registered_proof,
+            sector_number,
+            miner_id,
+            randomness,
+            comm_r,
+            sealed,
+            cache,
+            output,
+        } => {
+            let randomness = parse_randomness_hex(&randomness)?;
+            let comm_r = resolve_comm_r(&comm_r)?;
+            gen_vanilla::gen_window_post_vanilla(
+                registered_proof,
+                sector_number,
+                miner_id,
+                randomness,
+                comm_r,
+                cache,
+                sealed,
+                output,
+            )
+        }
+
+        GenVanillaCommands::SnapProve {
+            registered_proof,
+            orig_commdr,
+            update_commdr,
+            sector_key,
+            sector_key_cache,
+            replica,
+            replica_cache,
+            output,
+        } => {
+            let orig_contents = std::fs::read_to_string(&orig_commdr)
+                .with_context(|| format!("failed to read {}", orig_commdr.display()))?;
+            let (_orig_comm_d, comm_r_old) = gen_vanilla::parse_commdr_file(&orig_contents)?;
+
+            let update_contents = std::fs::read_to_string(&update_commdr)
+                .with_context(|| format!("failed to read {}", update_commdr.display()))?;
+            let (comm_d_new, comm_r_new) = gen_vanilla::parse_commdr_file(&update_contents)?;
+
+            gen_vanilla::gen_snap_vanilla(
+                registered_proof,
+                comm_r_old,
+                comm_r_new,
+                comm_d_new,
+                sector_key,
+                sector_key_cache,
+                replica,
+                replica_cache,
+                output,
+            )
+        }
+    }
+}
+
+#[cfg(not(feature = "gen-vanilla"))]
+fn run_gen_vanilla(_cmd: GenVanillaCommands) -> Result<()> {
+    anyhow::bail!(
+        "gen-vanilla subcommand requires the 'gen-vanilla' feature.\n\
+         Rebuild with: cargo build -p cuzk-bench --features gen-vanilla"
+    );
 }
 
 use std::sync::Arc;
