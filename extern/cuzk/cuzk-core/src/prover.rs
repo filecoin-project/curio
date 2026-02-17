@@ -53,7 +53,7 @@ pub struct C1OutputWrapper {
 ///
 /// Filecoin ID addresses have a 1-byte protocol prefix (0x00) followed by
 /// the actor ID as a varint. The payload is just the varint portion.
-fn make_prover_id(miner_id: u64) -> [u8; 32] {
+pub fn make_prover_id(miner_id: u64) -> [u8; 32] {
     let mut prover_id = [0u8; 32];
     // Encode miner_id as unsigned LEB128 / varint (same as Go address payload)
     let mut val = miner_id;
@@ -208,7 +208,7 @@ pub fn prove_porep_c2(
 ///
 /// These values match the FFI `#[repr(i32)]` enum used by Go's `abi.RegisteredPoStProof`.
 /// Note: FFI V1_1 (Go side) maps to filecoin-proofs-api V1_2 (grindability fix).
-fn registered_post_proof_from_u64(v: u64) -> Result<RegisteredPoStProof> {
+pub fn registered_post_proof_from_u64(v: u64) -> Result<RegisteredPoStProof> {
     match v {
         0 => Ok(RegisteredPoStProof::StackedDrgWinning2KiBV1),
         1 => Ok(RegisteredPoStProof::StackedDrgWinning8MiBV1),
@@ -233,7 +233,7 @@ fn registered_post_proof_from_u64(v: u64) -> Result<RegisteredPoStProof> {
 /// Convert a numeric registered proof value (from gRPC) to a `RegisteredUpdateProof`.
 ///
 /// These values match the FFI `#[repr(i32)]` enum used by Go's `abi.RegisteredUpdateProof`.
-fn registered_update_proof_from_u64(v: u64) -> Result<RegisteredUpdateProof> {
+pub fn registered_update_proof_from_u64(v: u64) -> Result<RegisteredUpdateProof> {
     match v {
         0 => Ok(RegisteredUpdateProof::StackedDrg2KiBV1),
         1 => Ok(RegisteredUpdateProof::StackedDrg8MiBV1),
@@ -245,7 +245,7 @@ fn registered_update_proof_from_u64(v: u64) -> Result<RegisteredUpdateProof> {
 }
 
 /// Convert a byte slice to a 32-byte array (for commitments, randomness, etc.).
-fn to_array32(bytes: &[u8], name: &str) -> Result<[u8; 32]> {
+pub fn to_array32(bytes: &[u8], name: &str) -> Result<[u8; 32]> {
     if bytes.len() != 32 {
         anyhow::bail!("{} must be exactly 32 bytes, got {}", name, bytes.len());
     }

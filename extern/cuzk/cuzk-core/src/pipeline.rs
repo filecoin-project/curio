@@ -1,7 +1,6 @@
 //! Pipelined synthesis/GPU proving engine (Phase 2).
 //!
-//! Splits the monolithic `seal_commit_phase2()` (and analogous PoSt/SnapDeals
-//! functions) into two phases:
+//! Splits the monolithic proving functions into two phases:
 //!
 //! 1. **Synthesis** (CPU-bound): Builds circuits from vanilla proofs, runs
 //!    `bellperson::synthesize_circuits_batch()` to produce intermediate state
@@ -10,12 +9,14 @@
 //! 2. **GPU Prove** (GPU-bound): Takes the synthesized state and SRS, runs
 //!    `bellperson::prove_from_assignments()` for NTT + MSM on the GPU.
 //!
-//! This allows CPU synthesis for job N+1 to overlap with GPU proving for job N,
-//! achieving ~1.5x throughput improvement when there's a continuous workload.
+//! Supported proof types:
+//! - PoRep C2 (batch all partitions — matches monolithic performance)
+//! - WinningPoSt (single partition)
+//! - WindowPoSt (single partition per call, as sent by Curio)
+//! - SnapDeals (all partitions batched)
 //!
-//! For PoRep 32G, we use **per-partition pipelining**: each of the 10 partitions
-//! is synthesized and proven individually, keeping intermediate memory at ~13.6 GiB
-//! (vs ~136 GiB for all 10 at once). This allows pipelining on 128 GiB machines.
+//! The pipeline allows CPU synthesis for job N+1 to overlap with GPU proving
+//! for job N, achieving ~1.5x throughput when there's a continuous workload.
 
 #[cfg(feature = "cuda-supraseal")]
 use std::sync::Arc;
@@ -55,6 +56,27 @@ use storage_proofs_core::compound_proof::CompoundProof;
 #[cfg(feature = "cuda-supraseal")]
 use storage_proofs_porep::stacked::{StackedCompound, StackedDrg};
 
+// PoSt circuit construction
+#[cfg(feature = "cuda-supraseal")]
+use filecoin_proofs::parameters::{window_post_setup_params, winning_post_setup_params};
+#[cfg(feature = "cuda-supraseal")]
+use filecoin_proofs::FallbackPoStSectorProof;
+#[cfg(feature = "cuda-supraseal")]
+use storage_proofs_post::fallback::{self as fallback_vanilla, FallbackPoSt, FallbackPoStCompound};
+
+// SnapDeals circuit construction
+#[cfg(feature = "cuda-supraseal")]
+use filecoin_proofs::types::SectorUpdateConfig;
+#[cfg(feature = "cuda-supraseal")]
+use storage_proofs_update::{
+    EmptySectorUpdate, EmptySectorUpdateCompound, PartitionProof as UpdatePartitionProof,
+    PublicInputs as UpdatePublicInputs,
+};
+
+// Common types
+#[cfg(feature = "cuda-supraseal")]
+use filecoin_hashers::Hasher;
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /// Number of Groth16 proof bytes per partition (2 × G1 + 1 × G2 compressed).
@@ -69,16 +91,13 @@ const GROTH_PROOF_BYTES: usize = 192;
 /// This struct holds the output of `bellperson::synthesize_circuits_batch()`:
 /// the a/b/c constraint evaluations, density trackers, and witness assignments.
 /// It is produced by the synthesis phase and consumed by the GPU phase.
-///
-/// For PoRep 32G with per-partition pipelining, each `SynthesizedProof` holds
-/// one partition (~13.6 GiB). For PoSt, it holds the full proof.
 #[cfg(feature = "cuda-supraseal")]
 pub struct SynthesizedProof {
     /// Circuit type (determines which SRS to use).
     pub circuit_id: CircuitId,
 
     /// Bellperson proving assignments (a/b/c evaluations + density trackers).
-    /// One per circuit in the batch (1 for per-partition, up to 10 for full batch).
+    /// One per circuit in the batch.
     pub provers: Vec<ProvingAssignment<Fr>>,
 
     /// Input witness vectors (extracted from provers via `std::mem::take`).
@@ -97,7 +116,7 @@ pub struct SynthesizedProof {
     pub synthesis_duration: Duration,
 
     /// For multi-partition proofs (PoRep): which partition index this is.
-    /// None for single-partition proofs (PoSt).
+    /// None for batch synthesis of all partitions.
     pub partition_index: Option<usize>,
 
     /// Total number of partitions expected for the complete proof.
@@ -124,220 +143,26 @@ pub struct GpuProveResult {
     pub partition_index: Option<usize>,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PoRep C2 Synthesis (CPU phase)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Synthesize a single partition of a PoRep C2 proof (CPU-only).
-///
-/// This replicates the circuit construction logic from
-/// `seal_commit_phase2_circuit_proofs` in filecoin-proofs, but stops after
-/// synthesis — the GPU proving is done separately via `gpu_prove()`.
-///
-/// # Per-Partition Pipeline
-///
-/// Instead of building all 10 partition circuits at once (~136 GiB intermediate),
-/// this function builds ONE partition circuit (~13.6 GiB). The caller invokes
-/// this 10 times (one per partition) and feeds each result to the GPU worker.
-///
-/// # Arguments
-/// * `vanilla_proof_json` — The raw C1 JSON output (with base64 wrapper)
-/// * `sector_number` — Sector ID
-/// * `miner_id` — Miner actor ID
-/// * `partition_index` — Which partition (0..9) to synthesize
-/// * `job_id` — For log correlation
-#[cfg(feature = "cuda-supraseal")]
-pub fn synthesize_porep_c2_partition(
-    vanilla_proof_json: &[u8],
-    _sector_number: u64,
-    _miner_id: u64,
-    partition_index: usize,
-    job_id: &str,
-) -> Result<SynthesizedProof> {
-    let _span = info_span!(
-        "synthesize_porep_c2",
-        job_id = job_id,
-        partition = partition_index
-    )
-    .entered();
-
-    // ── Step 1: Deserialize C1 output ──────────────────────────────────
-    let deser_start = Instant::now();
-
-    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
-        .context("failed to parse C1 output wrapper JSON")?;
-
-    let phase1_json_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &wrapper.phase1_out,
-    )
-    .context("failed to decode base64 Phase1Output")?;
-
-    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
-        .context("failed to deserialize SealCommitPhase1Output from JSON")?;
-
-    let deser_duration = deser_start.elapsed();
-    debug!(
-        deser_ms = deser_duration.as_millis(),
-        "deserialized C1 output"
-    );
-
-    // ── Step 2: Build PoRep config from the registered proof ───────────
-    let porep_config = c1_output.registered_proof.as_v1_config();
-    let num_partitions = usize::from(porep_config.partitions);
-
-    anyhow::ensure!(
-        partition_index < num_partitions,
-        "partition_index {} >= num_partitions {}",
-        partition_index,
-        num_partitions,
-    );
-
-    // ── Step 3: Call the typed inner function ──────────────────────────
-    // We use SectorShape32GiB directly for 32G sectors.
-    // For other sizes, we'd dispatch via with_shape! — but Phase 2 focuses on 32G.
-    let sector_size = u64::from(porep_config.sector_size);
-    anyhow::ensure!(
-        sector_size == SECTOR_SIZE_32_GIB,
-        "Phase 2 pipelined synthesis currently supports only 32 GiB sectors, got {} bytes",
-        sector_size,
-    );
-
-    // ── Step 3: Unpack C1 output ─────────────────────────────────────
-    //
-    // The VanillaSealProof enum wraps Vec<Vec<stacked::Proof<Tree>>>.
-    // We convert from the API-level type to the concrete SectorShape32GiB type.
-    type Tree = SectorShape32GiB;
-
-    let vanilla_proofs: Vec<Vec<storage_proofs_porep::stacked::Proof<Tree, DefaultPieceHasher>>> =
-        c1_output
-            .vanilla_proofs
-            .try_into()
-            .map_err(|e| anyhow::anyhow!("failed to convert vanilla proofs: {:?}", e))?;
-
-    let comm_r = c1_output.comm_r;
-    let comm_d = c1_output.comm_d;
-    let replica_id = c1_output.replica_id;
-    let seed = c1_output.seed;
-
-    anyhow::ensure!(comm_d != [0; 32], "Invalid all zero commitment (comm_d)");
-    anyhow::ensure!(comm_r != [0; 32], "Invalid all zero commitment (comm_r)");
-    anyhow::ensure!(seed != [0; 32], "Invalid porep challenge seed");
-
-    let comm_r_safe = as_safe_commitment(&comm_r, "comm_r")?;
-    let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&comm_d, "comm_d")?;
-
-    // ── Step 4: Build stacked public inputs ────────────────────────────
-    use storage_proofs_porep::stacked::{PublicInputs, Tau};
-
-    let public_inputs = PublicInputs {
-        replica_id,
-        tau: Some(Tau {
-            comm_d: comm_d_safe,
-            comm_r: comm_r_safe,
-        }),
-        k: None,
-        seed: Some(seed),
-    };
-
-    // ── Step 5: Build compound public params ───────────────────────────
-    use storage_proofs_core::compound_proof::SetupParams;
-
-    let vanilla_setup = setup_params(&porep_config)?;
-    let compound_setup = SetupParams {
-        vanilla_params: vanilla_setup,
-        partitions: Some(num_partitions),
-        priority: false,
-    };
-
-    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
-        StackedDrg<'_, Tree, DefaultPieceHasher>,
-        _,
-    >>::setup(&compound_setup)?;
-
-    // ── Step 6: Build circuit for this one partition ────────────────────
-    //
-    // CompoundProof::circuit() builds a circuit instance from the vanilla
-    // proof for partition `k`. The vanilla_proofs[partition_index] is the
-    // Vec<stacked::Proof> for this partition's challenges.
-
-    anyhow::ensure!(
-        partition_index < vanilla_proofs.len(),
-        "partition_index {} >= vanilla_proofs.len() {}",
-        partition_index,
-        vanilla_proofs.len(),
-    );
-
-    let partition_vanilla = &vanilla_proofs[partition_index];
-
-    // StackedCircuit::ComponentPrivateInputs = () (unit type)
-    let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
-        StackedDrg<'_, Tree, DefaultPieceHasher>,
-        _,
-    >>::circuit(
-        &public_inputs,
-        Default::default(), // ComponentPrivateInputs = ()
-        partition_vanilla,
-        &compound_public_params.vanilla_params,
-        Some(partition_index),
-    )?;
-
-    debug!(partition = partition_index, "built circuit for partition");
-
-    // ── Step 7: Synthesize (CPU phase) ─────────────────────────────────
-    //
-    // This runs `circuit.synthesize(&mut prover)` which generates the
-    // a/b/c constraint evaluations and witness assignments. CPU-intensive,
-    // uses rayon for parallel constraint evaluation.
-
-    let synth_start = Instant::now();
-
-    let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(vec![circuit])?;
-
-    let synthesis_duration = synth_start.elapsed();
-
-    info!(
-        partition = partition_index,
-        synth_ms = synthesis_duration.as_millis(),
-        num_constraints = provers[0].a.len(),
-        "partition synthesis complete"
-    );
-
-    // ── Step 8: Generate randomization values ──────────────────────────
-    //
-    // Each circuit gets random r and s for zero-knowledge. We generate
-    // them here and carry them through to the GPU phase.
-    let mut rng = rand_core::OsRng;
-    let r_s = vec![Fr::random(&mut rng)];
-    let s_s = vec![Fr::random(&mut rng)];
-
-    Ok(SynthesizedProof {
-        circuit_id: CircuitId::Porep32G,
-        provers,
-        input_assignments,
-        aux_assignments,
-        r_s,
-        s_s,
-        synthesis_duration,
-        partition_index: Some(partition_index),
-        total_partitions: num_partitions,
-    })
+/// Timing breakdown for pipelined proving.
+#[derive(Debug, Clone, Default)]
+pub struct PipelinedTimings {
+    /// Total time spent in CPU synthesis across all partitions.
+    pub synthesis: Duration,
+    /// Total time spent in GPU compute across all partitions.
+    pub gpu_compute: Duration,
+    /// Wall-clock total.
+    pub total: Duration,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GPU Prove (GPU phase)
+// GPU Prove (common GPU phase for all proof types)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Execute the GPU phase of proving on a pre-synthesized witness.
 ///
-/// Takes a `SynthesizedProof` (output of synthesis) and SRS parameters,
-/// runs NTT + MSM on the GPU via the SupraSeal C++ backend, and returns
-/// the raw Groth16 proof bytes.
-///
-/// # Arguments
-/// * `synth` — Synthesized proof state (from `synthesize_porep_c2_partition` etc.)
-/// * `params` — SupraSeal SRS parameters for the circuit type
+/// Takes a `SynthesizedProof` (output of any synthesis function) and SRS
+/// parameters, runs NTT + MSM on the GPU via the SupraSeal C++ backend,
+/// and returns the raw Groth16 proof bytes.
 #[cfg(feature = "cuda-supraseal")]
 pub fn gpu_prove(
     synth: SynthesizedProof,
@@ -386,17 +211,302 @@ pub fn gpu_prove(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Full pipelined PoRep C2 (all partitions, sequential for now)
+// PoRep C2 Synthesis (CPU phase) — batch all partitions
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Execute a full PoRep C2 proof using the pipelined synthesis → GPU approach.
+/// Synthesize a single partition of a PoRep C2 proof (CPU-only).
 ///
-/// Iterates over all partitions, synthesizing each one and proving it on the GPU.
-/// In Phase 2, this is called from a single worker — true overlap (synthesis of
-/// partition N+1 while GPU proves partition N) is handled by the engine's pipeline
-/// scheduler.
+/// Builds ONE partition circuit (~13.6 GiB). For per-partition pipelining.
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_porep_c2_partition(
+    vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+    partition_index: usize,
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!(
+        "synthesize_porep_c2",
+        job_id = job_id,
+        partition = partition_index
+    )
+    .entered();
+
+    // Deserialize C1 output
+    let deser_start = Instant::now();
+    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+        .context("failed to parse C1 output wrapper JSON")?;
+    let phase1_json_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &wrapper.phase1_out,
+    )
+    .context("failed to decode base64 Phase1Output")?;
+    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+        .context("failed to deserialize SealCommitPhase1Output from JSON")?;
+    let deser_duration = deser_start.elapsed();
+    debug!(
+        deser_ms = deser_duration.as_millis(),
+        "deserialized C1 output"
+    );
+
+    // Build PoRep config
+    let porep_config = c1_output.registered_proof.as_v1_config();
+    let num_partitions = usize::from(porep_config.partitions);
+    anyhow::ensure!(
+        partition_index < num_partitions,
+        "partition_index {} >= num_partitions {}",
+        partition_index,
+        num_partitions,
+    );
+
+    let sector_size = u64::from(porep_config.sector_size);
+    anyhow::ensure!(
+        sector_size == SECTOR_SIZE_32_GIB,
+        "pipelined synthesis currently supports only 32 GiB sectors, got {} bytes",
+        sector_size,
+    );
+
+    type Tree = SectorShape32GiB;
+
+    let vanilla_proofs: Vec<Vec<storage_proofs_porep::stacked::Proof<Tree, DefaultPieceHasher>>> =
+        c1_output
+            .vanilla_proofs
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("failed to convert vanilla proofs: {:?}", e))?;
+
+    let comm_r_safe = as_safe_commitment(&c1_output.comm_r, "comm_r")?;
+    let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&c1_output.comm_d, "comm_d")?;
+
+    anyhow::ensure!(
+        c1_output.comm_d != [0; 32],
+        "Invalid all zero commitment (comm_d)"
+    );
+    anyhow::ensure!(
+        c1_output.comm_r != [0; 32],
+        "Invalid all zero commitment (comm_r)"
+    );
+    anyhow::ensure!(c1_output.seed != [0; 32], "Invalid porep challenge seed");
+
+    use storage_proofs_porep::stacked::{PublicInputs, Tau};
+    let public_inputs = PublicInputs {
+        replica_id: c1_output.replica_id,
+        tau: Some(Tau {
+            comm_d: comm_d_safe,
+            comm_r: comm_r_safe,
+        }),
+        k: None,
+        seed: Some(c1_output.seed),
+    };
+
+    use storage_proofs_core::compound_proof::SetupParams;
+    let vanilla_setup = setup_params(&porep_config)?;
+    let compound_setup = SetupParams {
+        vanilla_params: vanilla_setup,
+        partitions: Some(num_partitions),
+        priority: false,
+    };
+    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::setup(&compound_setup)?;
+
+    anyhow::ensure!(
+        partition_index < vanilla_proofs.len(),
+        "partition_index {} >= vanilla_proofs.len() {}",
+        partition_index,
+        vanilla_proofs.len(),
+    );
+
+    let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::circuit(
+        &public_inputs,
+        Default::default(),
+        &vanilla_proofs[partition_index],
+        &compound_public_params.vanilla_params,
+        Some(partition_index),
+    )?;
+
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch(vec![circuit])?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        partition = partition_index,
+        synth_ms = synthesis_duration.as_millis(),
+        num_constraints = provers[0].a.len(),
+        "partition synthesis complete"
+    );
+
+    let mut rng = rand_core::OsRng;
+    let r_s = vec![Fr::random(&mut rng)];
+    let s_s = vec![Fr::random(&mut rng)];
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::Porep32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: Some(partition_index),
+        total_partitions: num_partitions,
+    })
+}
+
+/// Synthesize ALL partitions of a PoRep C2 proof in a single rayon-parallel batch.
 ///
-/// This function is the pipelined equivalent of `prover::prove_porep_c2()`.
+/// This matches the monolithic `CompoundProof::circuit_proofs()` approach: builds
+/// all 10 partition circuits in parallel via rayon, then synthesizes them all in
+/// one `synthesize_circuits_batch()` call. The resulting `SynthesizedProof` holds
+/// all 10 partitions (intermediate state ~136 GiB for 32G — requires 256+ GiB RAM).
+///
+/// For machines with >= 256 GiB RAM, this is faster than per-partition synthesis
+/// because rayon parallelizes across all 10 circuits simultaneously.
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_porep_c2_batch(
+    vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!("synthesize_porep_c2_batch", job_id = job_id).entered();
+
+    // Deserialize C1 output
+    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+        .context("failed to parse C1 output wrapper JSON")?;
+    let phase1_json_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &wrapper.phase1_out,
+    )
+    .context("failed to decode base64 Phase1Output")?;
+    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+        .context("failed to deserialize SealCommitPhase1Output from JSON")?;
+
+    let porep_config = c1_output.registered_proof.as_v1_config();
+    let num_partitions = usize::from(porep_config.partitions);
+
+    let sector_size = u64::from(porep_config.sector_size);
+    anyhow::ensure!(
+        sector_size == SECTOR_SIZE_32_GIB,
+        "pipelined synthesis currently supports only 32 GiB sectors, got {} bytes",
+        sector_size,
+    );
+
+    type Tree = SectorShape32GiB;
+
+    let vanilla_proofs: Vec<Vec<storage_proofs_porep::stacked::Proof<Tree, DefaultPieceHasher>>> =
+        c1_output
+            .vanilla_proofs
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("failed to convert vanilla proofs: {:?}", e))?;
+
+    let comm_r_safe = as_safe_commitment(&c1_output.comm_r, "comm_r")?;
+    let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&c1_output.comm_d, "comm_d")?;
+
+    anyhow::ensure!(
+        c1_output.comm_d != [0; 32],
+        "Invalid all zero commitment (comm_d)"
+    );
+    anyhow::ensure!(
+        c1_output.comm_r != [0; 32],
+        "Invalid all zero commitment (comm_r)"
+    );
+    anyhow::ensure!(c1_output.seed != [0; 32], "Invalid porep challenge seed");
+
+    use storage_proofs_porep::stacked::{PublicInputs, Tau};
+    let public_inputs = PublicInputs {
+        replica_id: c1_output.replica_id,
+        tau: Some(Tau {
+            comm_d: comm_d_safe,
+            comm_r: comm_r_safe,
+        }),
+        k: None,
+        seed: Some(c1_output.seed),
+    };
+
+    use storage_proofs_core::compound_proof::SetupParams;
+    let vanilla_setup = setup_params(&porep_config)?;
+    let compound_setup = SetupParams {
+        vanilla_params: vanilla_setup,
+        partitions: Some(num_partitions),
+        priority: false,
+    };
+    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::setup(&compound_setup)?;
+
+    // Build ALL partition circuits in parallel (rayon), matching circuit_proofs()
+    info!(
+        num_partitions = num_partitions,
+        "building circuits for all partitions (parallel)"
+    );
+    let circuits: Vec<_> = (0..num_partitions)
+        .into_iter()
+        .map(|k| {
+            anyhow::ensure!(
+                k < vanilla_proofs.len(),
+                "partition {} >= vanilla_proofs.len() {}",
+                k,
+                vanilla_proofs.len(),
+            );
+            let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+                StackedDrg<'_, Tree, DefaultPieceHasher>,
+                _,
+            >>::circuit(
+                &public_inputs,
+                Default::default(),
+                &vanilla_proofs[k],
+                &compound_public_params.vanilla_params,
+                Some(k),
+            )?;
+            Ok(circuit)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    info!(num_circuits = circuits.len(), "synthesizing all circuits");
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch(circuits)?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        synth_ms = synthesis_duration.as_millis(),
+        num_circuits = provers.len(),
+        num_constraints = provers[0].a.len(),
+        "batch synthesis complete"
+    );
+
+    // Generate r/s randomization for each partition
+    let mut rng = rand_core::OsRng;
+    let r_s: Vec<Fr> = (0..num_partitions).map(|_| Fr::random(&mut rng)).collect();
+    let s_s: Vec<Fr> = (0..num_partitions).map(|_| Fr::random(&mut rng)).collect();
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::Porep32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: None, // batch — all partitions
+        total_partitions: num_partitions,
+    })
+}
+
+/// Execute a full PoRep C2 proof using the pipelined approach.
+///
+/// Uses batch synthesis (all partitions at once) for optimal single-proof
+/// latency. The synthesis produces all partition circuits in parallel via rayon,
+/// then the GPU proves them in a single `prove_from_assignments` call.
+///
+/// For per-partition pipelining (across multiple proofs), the engine calls
+/// `synthesize_porep_c2_partition()` + `gpu_prove()` directly.
 ///
 /// Returns the concatenated proof bytes (10 × 192 = 1920 bytes for 32G).
 #[cfg(feature = "cuda-supraseal")]
@@ -410,77 +520,600 @@ pub fn prove_porep_c2_pipelined(
     let _span = info_span!("prove_porep_c2_pipelined", job_id = job_id).entered();
     let total_start = Instant::now();
 
-    // First, determine the number of partitions by parsing the config from the C1 output.
-    // We parse the wrapper once to get registered_proof, then pass the raw JSON to each
-    // partition synthesis call (which will re-parse — acceptable overhead since deser is <200ms
-    // total and we avoid holding the full deserialized C1 output in memory).
-    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
-        .context("failed to parse C1 output wrapper JSON")?;
-    let phase1_json_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &wrapper.phase1_out,
-    )
-    .context("failed to decode base64 Phase1Output")?;
-    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
-        .context("failed to deserialize SealCommitPhase1Output")?;
-    let porep_config = c1_output.registered_proof.as_v1_config();
-    let num_partitions = usize::from(porep_config.partitions);
-    drop(c1_output);
-
     info!(
         sector = sector_number,
-        num_partitions = num_partitions,
-        "starting pipelined PoRep C2"
+        "starting pipelined PoRep C2 (batch mode)"
     );
 
-    let mut all_proof_bytes = Vec::with_capacity(num_partitions * GROTH_PROOF_BYTES);
-    let mut total_synth_duration = Duration::ZERO;
-    let mut total_gpu_duration = Duration::ZERO;
+    // Batch synthesis: all partitions in one call
+    let synth = synthesize_porep_c2_batch(vanilla_proof_json, sector_number, miner_id, job_id)?;
+    let synth_duration = synth.synthesis_duration;
 
-    for partition in 0..num_partitions {
-        // Synthesis phase (CPU)
-        let synth = synthesize_porep_c2_partition(
-            vanilla_proof_json,
-            sector_number,
-            miner_id,
-            partition,
-            job_id,
-        )?;
-        total_synth_duration += synth.synthesis_duration;
-
-        // GPU phase
-        let gpu_result = gpu_prove(synth, params)?;
-        total_gpu_duration += gpu_result.gpu_duration;
-
-        all_proof_bytes.extend_from_slice(&gpu_result.proof_bytes);
-    }
+    // GPU prove: all partitions in one call
+    let gpu_result = gpu_prove(synth, params)?;
 
     let timings = PipelinedTimings {
-        synthesis: total_synth_duration,
-        gpu_compute: total_gpu_duration,
+        synthesis: synth_duration,
+        gpu_compute: gpu_result.gpu_duration,
         total: total_start.elapsed(),
     };
 
     info!(
-        proof_len = all_proof_bytes.len(),
+        proof_len = gpu_result.proof_bytes.len(),
         synth_ms = timings.synthesis.as_millis(),
         gpu_ms = timings.gpu_compute.as_millis(),
         total_ms = timings.total.as_millis(),
-        "pipelined PoRep C2 complete"
+        "pipelined PoRep C2 complete (batch mode)"
     );
 
-    Ok((all_proof_bytes, timings))
+    Ok((gpu_result.proof_bytes, timings))
 }
 
-/// Timing breakdown for pipelined proving.
-#[derive(Debug, Clone, Default)]
-pub struct PipelinedTimings {
-    /// Total time spent in CPU synthesis across all partitions.
-    pub synthesis: Duration,
-    /// Total time spent in GPU compute across all partitions.
-    pub gpu_compute: Duration,
-    /// Wall-clock total.
-    pub total: Duration,
+// ═══════════════════════════════════════════════════════════════════════════
+// WinningPoSt Synthesis (CPU phase)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Synthesize a WinningPoSt proof (CPU-only).
+///
+/// Replicates the circuit construction from `generate_winning_post_with_vanilla`
+/// but stops after synthesis. The vanilla proofs are bincode-serialized
+/// `FallbackPoStSectorProof<Tree>` (one per challenged sector).
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_winning_post(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!("synthesize_winning_post", job_id = job_id).entered();
+
+    use crate::prover::{make_prover_id, registered_post_proof_from_u64, to_array32};
+
+    let post_proof_type = registered_post_proof_from_u64(registered_proof)
+        .context("invalid registered proof for WinningPoSt")?;
+    let prover_id = make_prover_id(miner_id);
+    let challenge_seed: [u8; 32] = to_array32(randomness, "randomness")?;
+
+    type Tree = SectorShape32GiB;
+    let post_config = post_proof_type.as_v1_config();
+
+    // Deserialize vanilla proofs from bincode
+    let fallback_proofs: Vec<FallbackPoStSectorProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!("failed to deserialize WinningPoSt vanilla proof: {}", e)
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    info!(
+        num_sectors = fallback_proofs.len(),
+        "building WinningPoSt circuit"
+    );
+
+    // Build public inputs
+    let randomness_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&challenge_seed, "randomness")?;
+    let prover_id_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&prover_id, "prover_id")?;
+
+    let pub_sectors: Vec<fallback_vanilla::PublicSector<_>> = fallback_proofs
+        .iter()
+        .map(|p| fallback_vanilla::PublicSector {
+            id: p.sector_id,
+            comm_r: p.comm_r,
+        })
+        .collect();
+
+    let pub_inputs = fallback_vanilla::PublicInputs {
+        randomness: randomness_safe,
+        prover_id: prover_id_safe,
+        sectors: pub_sectors,
+        k: None,
+    };
+
+    // Build setup params
+    let vanilla_params = winning_post_setup_params(&post_config)?;
+    let setup_params = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params,
+        partitions: None, // WinningPoSt: single partition
+        priority: post_config.priority,
+    };
+    let pub_params = FallbackPoStCompound::<Tree>::setup(&setup_params)?;
+
+    // Build partitioned vanilla proofs for WinningPoSt.
+    //
+    // WinningPoSt has a single sector but multiple challenges. The vanilla proof
+    // has one SectorProof with N inclusion proofs. We unroll each inclusion proof
+    // into its own SectorProof (required by the circuit). The CompoundProof::circuit
+    // is called once with k=0 for the single partition.
+    let num_sectors_per_chunk = pub_params.vanilla_params.sector_count;
+    anyhow::ensure!(!fallback_proofs.is_empty(), "no WinningPoSt vanilla proofs");
+    anyhow::ensure!(
+        fallback_proofs[0].vanilla_proof.sectors.len() == 1,
+        "WinningPoSt expected 1 sector proof, got {}",
+        fallback_proofs[0].vanilla_proof.sectors.len()
+    );
+
+    let cur_sector_proof = &fallback_proofs[0].vanilla_proof.sectors[0];
+    let mut sector_proofs = Vec::with_capacity(post_config.challenge_count);
+    for inclusion_proof in cur_sector_proof.inclusion_proofs() {
+        sector_proofs.push(storage_proofs_post::fallback::SectorProof {
+            inclusion_proofs: vec![inclusion_proof.clone()],
+            comm_c: cur_sector_proof.comm_c,
+            comm_r_last: cur_sector_proof.comm_r_last,
+        });
+    }
+    // Pad to required sector count
+    while sector_proofs.len() < num_sectors_per_chunk {
+        sector_proofs.push(sector_proofs[sector_proofs.len() - 1].clone());
+    }
+
+    let partition_proof = fallback_vanilla::Proof {
+        sectors: sector_proofs,
+    };
+
+    // Build circuit for the single partition
+    let circuit =
+        <FallbackPoStCompound<Tree> as CompoundProof<FallbackPoSt<'_, Tree>, _>>::circuit(
+            &pub_inputs,
+            Default::default(),
+            &partition_proof,
+            &pub_params.vanilla_params,
+            Some(0),
+        )?;
+    let circuits = vec![circuit];
+
+    let num_circuits = circuits.len();
+    info!(
+        num_circuits = num_circuits,
+        "synthesizing WinningPoSt circuits"
+    );
+
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch(circuits)?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        synth_ms = synthesis_duration.as_millis(),
+        num_constraints = provers[0].a.len(),
+        "WinningPoSt synthesis complete"
+    );
+
+    let mut rng = rand_core::OsRng;
+    let r_s: Vec<Fr> = (0..num_circuits).map(|_| Fr::random(&mut rng)).collect();
+    let s_s: Vec<Fr> = (0..num_circuits).map(|_| Fr::random(&mut rng)).collect();
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::WinningPost32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: None,
+        total_partitions: 1, // WinningPoSt always has 1 partition
+    })
+}
+
+/// Full WinningPoSt proof via pipeline (synthesis + GPU).
+#[cfg(feature = "cuda-supraseal")]
+pub fn prove_winning_post_pipelined(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+    params: &SuprasealParameters<Bls12>,
+    job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    let total_start = Instant::now();
+
+    let synth = synthesize_winning_post(
+        vanilla_proofs_bytes,
+        registered_proof,
+        miner_id,
+        randomness,
+        job_id,
+    )?;
+    let synth_duration = synth.synthesis_duration;
+
+    let gpu_result = gpu_prove(synth, params)?;
+
+    let timings = PipelinedTimings {
+        synthesis: synth_duration,
+        gpu_compute: gpu_result.gpu_duration,
+        total: total_start.elapsed(),
+    };
+
+    info!(
+        proof_len = gpu_result.proof_bytes.len(),
+        synth_ms = timings.synthesis.as_millis(),
+        gpu_ms = timings.gpu_compute.as_millis(),
+        total_ms = timings.total.as_millis(),
+        "pipelined WinningPoSt complete"
+    );
+
+    Ok((gpu_result.proof_bytes, timings))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WindowPoSt Synthesis (CPU phase)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Synthesize a single WindowPoSt partition (CPU-only).
+///
+/// Replicates the circuit construction from `generate_single_window_post_with_vanilla`.
+/// Each element of `vanilla_proofs_bytes` is a bincode-serialized
+/// `FallbackPoStSectorProof<Tree>` for one sector.
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_window_post(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+    partition_index: u32,
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!(
+        "synthesize_window_post",
+        job_id = job_id,
+        partition = partition_index
+    )
+    .entered();
+
+    use crate::prover::{make_prover_id, registered_post_proof_from_u64, to_array32};
+
+    let post_proof_type = registered_post_proof_from_u64(registered_proof)
+        .context("invalid registered proof for WindowPoSt")?;
+    let prover_id = make_prover_id(miner_id);
+    let challenge_seed: [u8; 32] = to_array32(randomness, "randomness")?;
+
+    type Tree = SectorShape32GiB;
+    let post_config = post_proof_type.as_v1_config();
+
+    // Deserialize vanilla proofs from bincode
+    let fallback_proofs: Vec<FallbackPoStSectorProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!("failed to deserialize WindowPoSt vanilla proof: {}", e)
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let num_sectors = fallback_proofs.len();
+    info!(
+        num_sectors = num_sectors,
+        partition = partition_index,
+        "building WindowPoSt circuit"
+    );
+
+    // Build public inputs
+    let randomness_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&challenge_seed, "randomness")?;
+    let prover_id_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&prover_id, "prover_id")?;
+
+    let pub_sectors: Vec<fallback_vanilla::PublicSector<_>> = fallback_proofs
+        .iter()
+        .map(|p| fallback_vanilla::PublicSector {
+            id: p.sector_id,
+            comm_r: p.comm_r,
+        })
+        .collect();
+
+    let pub_inputs = fallback_vanilla::PublicInputs {
+        randomness: randomness_safe,
+        prover_id: prover_id_safe,
+        sectors: pub_sectors,
+        k: Some(partition_index as usize),
+    };
+
+    // Build setup params — window post uses per-partition approach
+    let vanilla_params = window_post_setup_params(&post_config);
+    let partitions = {
+        let p = (num_sectors as f32 / post_config.sector_count as f32).ceil() as usize;
+        if p > 1 {
+            Some(p)
+        } else {
+            None
+        }
+    };
+    let setup_params = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params,
+        partitions,
+        priority: post_config.priority,
+    };
+    let pub_params = FallbackPoStCompound::<Tree>::setup(&setup_params)?;
+
+    // Build single partition vanilla proof.
+    //
+    // For WindowPoSt, we find sector proofs by sector ID from the flat list,
+    // matching the logic of `single_partition_vanilla_proofs` in filecoin-proofs.
+    let num_sectors_per_chunk = pub_params.vanilla_params.sector_count;
+    let sectors_chunk = &pub_inputs.sectors;
+
+    let mut sector_proofs = Vec::with_capacity(num_sectors_per_chunk);
+    for pub_sector in sectors_chunk.iter() {
+        let cur_proof = fallback_proofs
+            .iter()
+            .find(|proof| proof.sector_id == pub_sector.id)
+            .ok_or_else(|| {
+                anyhow::anyhow!("failed to find vanilla proof for sector {}", pub_sector.id)
+            })?;
+        sector_proofs.extend(cur_proof.vanilla_proof.sectors.clone());
+    }
+    // Pad to required sector count
+    while sector_proofs.len() < num_sectors_per_chunk {
+        sector_proofs.push(sector_proofs[sector_proofs.len() - 1].clone());
+    }
+
+    let partitioned_proof = fallback_vanilla::Proof {
+        sectors: sector_proofs,
+    };
+
+    // Build circuit for this single partition
+    let circuit =
+        <FallbackPoStCompound<Tree> as CompoundProof<FallbackPoSt<'_, Tree>, _>>::circuit(
+            &pub_inputs,
+            Default::default(),
+            &partitioned_proof,
+            &pub_params.vanilla_params,
+            Some(partition_index as usize),
+        )?;
+
+    info!("synthesizing WindowPoSt circuit");
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch(vec![circuit])?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        synth_ms = synthesis_duration.as_millis(),
+        num_constraints = provers[0].a.len(),
+        "WindowPoSt synthesis complete"
+    );
+
+    let mut rng = rand_core::OsRng;
+    let r_s = vec![Fr::random(&mut rng)];
+    let s_s = vec![Fr::random(&mut rng)];
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::WindowPost32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: Some(partition_index as usize),
+        total_partitions: 1,
+    })
+}
+
+/// Full WindowPoSt single-partition proof via pipeline (synthesis + GPU).
+#[cfg(feature = "cuda-supraseal")]
+pub fn prove_window_post_pipelined(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+    partition_index: u32,
+    params: &SuprasealParameters<Bls12>,
+    job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    let total_start = Instant::now();
+
+    let synth = synthesize_window_post(
+        vanilla_proofs_bytes,
+        registered_proof,
+        miner_id,
+        randomness,
+        partition_index,
+        job_id,
+    )?;
+    let synth_duration = synth.synthesis_duration;
+
+    let gpu_result = gpu_prove(synth, params)?;
+
+    let timings = PipelinedTimings {
+        synthesis: synth_duration,
+        gpu_compute: gpu_result.gpu_duration,
+        total: total_start.elapsed(),
+    };
+
+    info!(
+        proof_len = gpu_result.proof_bytes.len(),
+        synth_ms = timings.synthesis.as_millis(),
+        gpu_ms = timings.gpu_compute.as_millis(),
+        total_ms = timings.total.as_millis(),
+        "pipelined WindowPoSt complete"
+    );
+
+    Ok((gpu_result.proof_bytes, timings))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SnapDeals Synthesis (CPU phase)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Synthesize a SnapDeals (empty sector update) proof (CPU-only).
+///
+/// Replicates the circuit construction from
+/// `generate_empty_sector_update_proof_with_vanilla` but stops after synthesis.
+/// Each element of `vanilla_proofs_bytes` is a bincode-serialized
+/// `PartitionProof<Tree>` for one partition.
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_snap_deals(
+    vanilla_proofs_bytes: Vec<Vec<u8>>,
+    registered_proof: u64,
+    comm_r_old: &[u8],
+    comm_r_new: &[u8],
+    comm_d_new: &[u8],
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!("synthesize_snap_deals", job_id = job_id).entered();
+
+    use crate::prover::{registered_update_proof_from_u64, to_array32};
+    use filecoin_hashers::poseidon::PoseidonHasher;
+
+    let update_proof_type = registered_update_proof_from_u64(registered_proof)
+        .context("invalid registered proof for SnapDeals")?;
+    let porep_config = update_proof_type.as_v1_config();
+    let sector_size = u64::from(porep_config.sector_size);
+    anyhow::ensure!(
+        sector_size == SECTOR_SIZE_32_GIB,
+        "pipelined synthesis currently supports only 32 GiB sectors, got {} bytes",
+        sector_size,
+    );
+
+    type Tree = SectorShape32GiB;
+
+    let comm_r_old_bytes: [u8; 32] = to_array32(comm_r_old, "comm_r_old")?;
+    let comm_r_new_bytes: [u8; 32] = to_array32(comm_r_new, "comm_r_new")?;
+    let comm_d_new_bytes: [u8; 32] = to_array32(comm_d_new, "comm_d_new")?;
+
+    let comm_r_old_safe: <PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&comm_r_old_bytes, "comm_r_old")?;
+    let comm_r_new_safe: <PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&comm_r_new_bytes, "comm_r_new")?;
+    let comm_d_new_safe: filecoin_hashers::sha256::Sha256Domain =
+        as_safe_commitment(&comm_d_new_bytes, "comm_d_new")?;
+
+    // Deserialize vanilla partition proofs
+    let vanilla_proofs: Vec<UpdatePartitionProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!("failed to deserialize SnapDeals partition proof: {}", e)
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let config = SectorUpdateConfig::from_porep_config(&porep_config);
+    let num_partitions = usize::from(config.update_partitions);
+
+    info!(
+        num_partitions = num_partitions,
+        num_vanilla_proofs = vanilla_proofs.len(),
+        "building SnapDeals circuits"
+    );
+
+    // Build public inputs
+    let public_inputs = UpdatePublicInputs {
+        k: num_partitions,
+        comm_r_old: comm_r_old_safe,
+        comm_d_new: comm_d_new_safe,
+        comm_r_new: comm_r_new_safe,
+        h: config.h,
+    };
+
+    // Build setup params
+    let update_vanilla_setup = storage_proofs_update::SetupParams {
+        sector_bytes: u64::from(config.sector_size),
+    };
+    let compound_setup = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params: update_vanilla_setup,
+        partitions: Some(num_partitions),
+        priority: false,
+    };
+    let pub_params = EmptySectorUpdateCompound::<Tree>::setup(&compound_setup)?;
+
+    // Build circuits from vanilla proofs
+    let circuits: Vec<_> = vanilla_proofs
+        .iter()
+        .enumerate()
+        .map(|(k, vanilla_proof)| {
+            <EmptySectorUpdateCompound<Tree> as CompoundProof<EmptySectorUpdate<Tree>, _>>::circuit(
+                &public_inputs,
+                Default::default(),
+                vanilla_proof,
+                &pub_params.vanilla_params,
+                Some(k),
+            )
+        })
+        .collect::<Result<_, _>>()
+        .context("failed to build SnapDeals circuits")?;
+
+    let num_circuits = circuits.len();
+    info!(
+        num_circuits = num_circuits,
+        "synthesizing SnapDeals circuits"
+    );
+
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch(circuits)?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        synth_ms = synthesis_duration.as_millis(),
+        num_circuits = provers.len(),
+        num_constraints = provers[0].a.len(),
+        "SnapDeals synthesis complete"
+    );
+
+    let mut rng = rand_core::OsRng;
+    let r_s: Vec<Fr> = (0..num_circuits).map(|_| Fr::random(&mut rng)).collect();
+    let s_s: Vec<Fr> = (0..num_circuits).map(|_| Fr::random(&mut rng)).collect();
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::SnapDeals32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: None, // batch — all partitions
+        total_partitions: num_partitions,
+    })
+}
+
+/// Full SnapDeals proof via pipeline (synthesis + GPU).
+#[cfg(feature = "cuda-supraseal")]
+pub fn prove_snap_deals_pipelined(
+    vanilla_proofs_bytes: Vec<Vec<u8>>,
+    registered_proof: u64,
+    comm_r_old: &[u8],
+    comm_r_new: &[u8],
+    comm_d_new: &[u8],
+    params: &SuprasealParameters<Bls12>,
+    job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    let total_start = Instant::now();
+
+    let synth = synthesize_snap_deals(
+        vanilla_proofs_bytes,
+        registered_proof,
+        comm_r_old,
+        comm_r_new,
+        comm_d_new,
+        job_id,
+    )?;
+    let synth_duration = synth.synthesis_duration;
+
+    let gpu_result = gpu_prove(synth, params)?;
+
+    let timings = PipelinedTimings {
+        synthesis: synth_duration,
+        gpu_compute: gpu_result.gpu_duration,
+        total: total_start.elapsed(),
+    };
+
+    info!(
+        proof_len = gpu_result.proof_bytes.len(),
+        synth_ms = timings.synthesis.as_millis(),
+        gpu_ms = timings.gpu_compute.as_millis(),
+        total_ms = timings.total.as_millis(),
+        "pipelined SnapDeals complete"
+    );
+
+    Ok((gpu_result.proof_bytes, timings))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -508,6 +1141,41 @@ pub fn prove_porep_c2_pipelined(
     anyhow::bail!("pipelined proving requires cuda-supraseal feature")
 }
 
+#[cfg(not(feature = "cuda-supraseal"))]
+pub fn prove_winning_post_pipelined(
+    _vanilla_proofs_bytes: &[Vec<u8>],
+    _registered_proof: u64,
+    _miner_id: u64,
+    _randomness: &[u8],
+    _job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    anyhow::bail!("pipelined proving requires cuda-supraseal feature")
+}
+
+#[cfg(not(feature = "cuda-supraseal"))]
+pub fn prove_window_post_pipelined(
+    _vanilla_proofs_bytes: &[Vec<u8>],
+    _registered_proof: u64,
+    _miner_id: u64,
+    _randomness: &[u8],
+    _partition_index: u32,
+    _job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    anyhow::bail!("pipelined proving requires cuda-supraseal feature")
+}
+
+#[cfg(not(feature = "cuda-supraseal"))]
+pub fn prove_snap_deals_pipelined(
+    _vanilla_proofs_bytes: Vec<Vec<u8>>,
+    _registered_proof: u64,
+    _comm_r_old: &[u8],
+    _comm_r_new: &[u8],
+    _comm_d_new: &[u8],
+    _job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    anyhow::bail!("pipelined proving requires cuda-supraseal feature")
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -526,13 +1194,11 @@ mod tests {
 
     #[test]
     fn test_gpu_prove_result_size() {
-        // A 32G PoRep partition should produce exactly 192 bytes
         assert_eq!(GROTH_PROOF_BYTES, 192);
     }
 
     #[test]
     fn test_synthesized_proof_stub() {
-        // Verify the stub struct compiles and can be constructed
         let _sp = SynthesizedProof {
             circuit_id: CircuitId::Porep32G,
             synthesis_duration: Duration::from_secs(1),

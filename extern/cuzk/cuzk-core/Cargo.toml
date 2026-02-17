@@ -37,6 +37,7 @@ ff = { workspace = true }
 rayon = { workspace = true }
 rand_core = { workspace = true }
 filecoin-hashers = { workspace = true }
+bincode = { workspace = true }
 
 [features]
 default = ["cuda-supraseal"]

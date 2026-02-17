@@ -310,24 +310,64 @@ impl Engine {
                             std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
                             std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);
 
-                            // Phase 2: Use pipelined prover for PoRep C2 if enabled
+                            // Phase 2: Use pipelined prover for all proof types if enabled
                             #[cfg(feature = "cuda-supraseal")]
-                            if pipeline_enabled && proof_kind == ProofKind::PoRepSealCommit {
+                            if pipeline_enabled {
                                 use crate::pipeline;
                                 use crate::srs_manager::CircuitId;
 
-                                // Ensure SRS is loaded
-                                let circuit_id = CircuitId::Porep32G;
-                                let srs = {
-                                    let mut mgr = srs_mgr.blocking_lock();
-                                    mgr.ensure_loaded(&circuit_id)?
+                                let (circuit_id, proof_bytes, ptimings) = match proof_kind {
+                                    ProofKind::PoRepSealCommit => {
+                                        let cid = CircuitId::Porep32G;
+                                        let srs = {
+                                            let mut mgr = srs_mgr.blocking_lock();
+                                            mgr.ensure_loaded(&cid)?
+                                        };
+                                        let (bytes, t) = pipeline::prove_porep_c2_pipelined(
+                                            &vanilla, sector_number, miner_id, &srs, &jid,
+                                        )?;
+                                        (cid, bytes, t)
+                                    }
+                                    ProofKind::WinningPost => {
+                                        let cid = CircuitId::WinningPost32G;
+                                        let srs = {
+                                            let mut mgr = srs_mgr.blocking_lock();
+                                            mgr.ensure_loaded(&cid)?
+                                        };
+                                        let (bytes, t) = pipeline::prove_winning_post_pipelined(
+                                            &vanilla_proofs, registered_proof, miner_id,
+                                            &randomness, &srs, &jid,
+                                        )?;
+                                        (cid, bytes, t)
+                                    }
+                                    ProofKind::WindowPostPartition => {
+                                        let cid = CircuitId::WindowPost32G;
+                                        let srs = {
+                                            let mut mgr = srs_mgr.blocking_lock();
+                                            mgr.ensure_loaded(&cid)?
+                                        };
+                                        let (bytes, t) = pipeline::prove_window_post_pipelined(
+                                            &vanilla_proofs, registered_proof, miner_id,
+                                            &randomness, partition_index, &srs, &jid,
+                                        )?;
+                                        (cid, bytes, t)
+                                    }
+                                    ProofKind::SnapDealsUpdate => {
+                                        let cid = CircuitId::SnapDeals32G;
+                                        let srs = {
+                                            let mut mgr = srs_mgr.blocking_lock();
+                                            mgr.ensure_loaded(&cid)?
+                                        };
+                                        let (bytes, t) = pipeline::prove_snap_deals_pipelined(
+                                            vanilla_proofs, registered_proof,
+                                            &comm_r_old, &comm_r_new, &comm_d_new,
+                                            &srs, &jid,
+                                        )?;
+                                        (cid, bytes, t)
+                                    }
                                 };
 
-                                let (proof_bytes, ptimings) =
-                                    pipeline::prove_porep_c2_pipelined(
-                                        &vanilla, sector_number, miner_id, &srs, &jid,
-                                    )?;
-
+                                let _ = circuit_id; // used for SRS affinity tracking in future
                                 let mut timings = ProofTimings::default();
                                 timings.synthesis = ptimings.synthesis;
                                 timings.gpu_compute = ptimings.gpu_compute;

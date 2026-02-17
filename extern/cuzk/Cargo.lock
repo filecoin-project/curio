@@ -696,6 +696,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bellperson",
+ "bincode",
  "blstrs",
  "chrono",
  "cuzk-proto",
