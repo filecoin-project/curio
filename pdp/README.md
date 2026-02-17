@@ -144,10 +144,10 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 4. Create a Proof Set
+### 4. Create a Data Set
 
-- **Endpoint:** `POST /pdp/proof-sets`
-- **Description:** Create a new proof set.
+- **Endpoint:** `POST /pdp/data-sets`
+- **Description:** Create a new data set.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **Request Body:**
 
@@ -164,7 +164,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - **Status Code:** `201 Created`
 - **Headers:**
-    - `Location`: The URL to check the status of the proof set creation.
+    - `Location`: The URL to check the status of the data set creation.
 
 #### Errors
 
@@ -174,13 +174,13 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 5. Check Proof Set Creation Status
+### 5. Check Data Set Creation Status
 
-- **Endpoint:** `GET /pdp/proof-sets/created/{txHash}`
-- **Description:** Retrieve the status of a proof set creation.
+- **Endpoint:** `GET /pdp/data-sets/created/{txHash}`
+- **Description:** Retrieve the status of a data set creation.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `txHash`: The transaction hash returned when creating the proof set.
+    - `txHash`: The transaction hash returned when creating the data set.
 
 #### Response
 
@@ -190,37 +190,37 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 ```json
 {
   "createMessageHash": "<transaction-hash>",
-  "proofsetCreated": <boolean>,
+  "dataSetCreated": <boolean>,
   "service": "<service-name>",
   "txStatus": "<transaction-status>",
   "ok": <null-or-boolean>,
-  "proofSetId": <proof-set-id-or-null>
+  "dataSetId": <data-set-id-or-null>
 }
 ```
 
 - **Fields:**
-    - `createMessageHash`: The transaction hash used to create the proof set.
-    - `proofsetCreated`: Whether the proof set has been created (`true` or `false`).
+    - `createMessageHash`: The transaction hash used to create the data set.
+    - `dataSetCreated`: Whether the data set has been created (`true` or `false`).
     - `service`: The service name.
     - `txStatus`: The transaction status (`"pending"`, `"confirmed"`, etc.).
     - `ok`: `true` if the transaction was successful, `false` if it failed, or `null` if pending.
-    - `proofSetId`: The ID of the created proof set, if available.
+    - `dataSetId`: The ID of the created data set, if available.
 
 #### Errors
 
 - `400 Bad Request`: Missing or invalid `txHash`.
 - `401 Unauthorized`: Missing or invalid JWT token, or service label mismatch.
-- `404 Not Found`: Proof set creation not found for the given `txHash`.
+- `404 Not Found`: Data set creation not found for the given `txHash`.
 
 ---
 
-### 6. Get Proof Set Details
+### 6. Get Data Set Details
 
-- **Endpoint:** `GET /pdp/proof-sets/{proofSetID}`
-- **Description:** Retrieve the details of a proof set, including its roots.
+- **Endpoint:** `GET /pdp/data-sets/{dataSetId}`
+- **Description:** Retrieve the details of a data set, including its pieces.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
+    - `dataSetId`: The ID of the data set.
 
 #### Response
 
@@ -229,13 +229,13 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ```json
 {
-  "id": <proofSetID>,
-  "roots": [
+  "id": <dataSetId>,
+  "pieces": [
     {
-      "rootId": <rootID>,
-      "rootCid": "<rootCID>",
-      "subrootCid": "<subrootCID>",
-      "subrootOffset": <subrootOffset>
+      "pieceId": <pieceId>,
+      "pieceCid": "<pieceCID>",
+      "subPieceCid": "<subpieceCID>",
+      "subPieceOffset": <subpieceOffset>
     },
     // ...
   ]
@@ -243,28 +243,28 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 ```
 
 - **Fields:**
-    - `id`: The ID of the proof set.
-    - `roots`: An array of root entries.
-        - `rootId`: The ID of the root.
-        - `rootCid`: The CID of the root.
-        - `subrootCid`: The CID of the subroot.
-        - `subrootOffset`: The offset of the subroot.
+    - `id`: The ID of the data set.
+    - `pieces`: An array of piece entries.
+        - `pieceId`: The ID of the piece.
+        - `pieceCid`: The CID of the piece.
+        - `subPieceCid`: The CID of the subPiece.
+        - `subPieceOffset`: The offset of the subPiece.
 
 #### Errors
 
-- `400 Bad Request`: Missing or invalid `proofSetID`.
-- `401 Unauthorized`: Missing or invalid JWT token, or proof set does not belong to the service.
-- `404 Not Found`: Proof set not found.
+- `400 Bad Request`: Missing or invalid `dataSetId`.
+- `401 Unauthorized`: Missing or invalid JWT token, or data set does not belong to the service.
+- `404 Not Found`: Data set not found.
 
 ---
 
-### 7. Delete a Proof Set *(To be implemented)*
+### 7. Delete a Data Set *(To be implemented)*
 
-- **Endpoint:** `DELETE /pdp/proof-sets/{proofSetID}`
-- **Description:** Remove the specified proof set entirely.
+- **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}`
+- **Description:** Remove the specified data set entirely.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
+    - `dataSetId`: The ID of the data set.
 
 #### Response
 
@@ -274,54 +274,59 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - `400 Bad Request`: Invalid request.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Proof set not found.
+- `404 Not Found`: Data set not found.
 
 ---
 
-### 8. Add Roots to a Proof Set
+### 8. Add Pieces to a Data Set
 
-- **Endpoint:** `POST /pdp/proof-sets/{proofSetID}/roots`
-- **Description:** Add roots to a proof set.
+- **Endpoint:** `POST /pdp/data-sets/{dataSetId}/pieces`
+- **Description:** Add pieces to a data set.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
-- **Request Body:** An array of root entries.
+    - `dataSetId`: The ID of the data set.
+- **Request Body:** An object containing an array of piece entries.
 
 ```json
-[
-  {
-    "rootCid": "<rootCID>",
-    "subroots": [
-      {
-        "subrootCid": "<subrootCID1>"
-      },
-      {
-        "subrootCid": "<subrootCID2>"
-      },
-      // ...
-    ]
-  },
-  // ...
-]
+{
+  "pieces": [
+    {
+      "pieceCid": "<pieceCID>",
+      "subPieces": [
+        {
+          "subPieceCid": "<subpieceCID1>"
+        },
+        {
+          "subPieceCid": "<subpieceCID2>"
+        },
+        // ...
+      ]
+    },
+    // ...
+  ],
+  "extraData": "<optional-hex-data>"
+}
 ```
 
 - **Fields:**
-    - Each root entry contains:
-        - `rootCid`: The root CID.
-        - `subroots`: An array of subroot entries.
-            - Each subroot entry contains:
-                - `subrootCid`: The CID of the subroot.
+    - `pieces`: An array of piece entries.
+        - Each piece entry contains:
+            - `pieceCid`: The piece CID.
+            - `subPieces`: An array of subPiece entries.
+                - Each subPiece entry contains:
+                    - `subPieceCid`: The CID of the subPiece.
+    - `extraData`: (Optional) Additional hex-encoded data for the transaction.
 
 #### Constraints and Requirements
 
-- **Subroots Ordering:** The `subroots` must be provided in order **from largest to smallest size**. This ensures that no padding is required between subroots during the computation of the root CID.
-- **Subroots Ownership:** All subroots must belong to the service making the request, and they must be previously uploaded and stored on the PDP service.
-- **Subroot Sizes:**
-    - Each subroot size must be at least 128 bytes.
-- **Subroot Alignment:** The subroots are concatenated without padding. Proper ordering ensures that the concatenated data aligns correctly for root computation.
-- **Root CID Verification:**
-    - The provider computes the root CID from the provided subroots and verifies that it matches the `rootCid` specified in the request.
-    - If the computed root CID does not match, the request is rejected.
+- **SubPieces Ordering:** The `subPieces` must be provided in order **from largest to smallest size**. This ensures that no padding is required between subPieces during the computation of the piece CID.
+- **SubPieces Ownership:** All subPieces must belong to the service making the request, and they must be previously uploaded and stored on the PDP service.
+- **SubPiece Sizes:**
+    - Each subPiece size must be at least 128 bytes.
+- **SubPiece Alignment:** The subPieces are concatenated without padding. Proper ordering ensures that the concatenated data aligns correctly for piece computation.
+- **Piece CID Verification:**
+    - The provider computes the piece CID from the provided subPieces and verifies that it matches the `pieceCid` specified in the request.
+    - If the computed piece CID does not match, the request is rejected.
 
 #### Response
 
@@ -329,43 +334,43 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, missing fields, validation errors, or subroots not ordered correctly.
+- `400 Bad Request`: Invalid request body, missing fields, validation errors, or subPieces not ordered correctly.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Proof set not found or subroots not found.
+- `404 Not Found`: Data set not found or subPieces not found.
 - `500 Internal Server Error`: Failed to process the request.
 
 ---
 
-### 9. Get Proof Set Root Details *(To be implemented)*
+### 9. Get Piece Details *(To be implemented)*
 
-- **Endpoint:** `GET /pdp/proof-sets/{proofSetID}/roots/{rootID}`
-- **Description:** Retrieve the details of a root in a proof set.
+- **Endpoint:** `GET /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
+- **Description:** Retrieve the details of a piece in a data set.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
-    - `rootID`: The ID of the root.
+    - `dataSetId`: The ID of the data set.
+    - `pieceId`: The ID of the piece.
 
 #### Response
 
 - **Status Code:** `200 OK`
-- **Response Body:** Root details (to be defined).
+- **Response Body:** Piece details (to be defined).
 
 #### Errors
 
 - `400 Bad Request`: Invalid request.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Proof set or root not found.
+- `404 Not Found`: Data set or piece not found.
 
 ---
 
-### 10. Delete a Root from a Proof Set *(To be implemented)*
+### 10. Delete a Piece from a Data Set *(To be implemented)*
 
-- **Endpoint:** `DELETE /pdp/proof-sets/{proofSetID}/roots/{rootID}`
-- **Description:** Remove a root from a proof set.
+- **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
+- **Description:** Remove a piece from a data set.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
-    - `rootID`: The ID of the root.
+    - `dataSetId`: The ID of the data set.
+    - `pieceId`: The ID of the piece.
 
 #### Response
 
@@ -375,7 +380,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - `400 Bad Request`: Invalid request.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Proof set or root not found.
+- `404 Not Found`: Data set or piece not found.
 
 ---
 
@@ -440,56 +445,56 @@ The server verifies the JWT token as follows:
 
 ---
 
-## Root CID Computation from Subroots
+## Piece CID Computation from SubPieces
 
-When adding roots to a proof set using the `POST /pdp/proof-sets/{proofSetID}/roots` endpoint, the server performs validation and computation of the root CID from the provided subroots.
+When adding pieces to a data set using the `POST /pdp/data-sets/{dataSetId}/pieces` endpoint, the server performs validation and computation of the piece CID from the provided subPieces.
 
-### Root Computation Process
+### Piece Computation Process
 
-1. **Validating Subroots:**
-    - Ensure that all subroots are owned by the requesting service.
-    - The subroots must have been previously uploaded and stored on the server.
+1. **Validating SubPieces:**
+    - Ensure that all subPieces are owned by the requesting service.
+    - The subPieces must have been previously uploaded and stored on the server.
 
-2. **Ordering Subroots:**
-    - **Important:** Subroots must be ordered from **largest to smallest size**.
-    - This ordering ensures that no padding is required between the subroots, aligning them correctly for root computation.
+2. **Ordering SubPieces:**
+    - **Important:** SubPieces must be ordered from **largest to smallest size**.
+    - This ordering ensures that no padding is required between the subPieces, aligning them correctly for piece computation.
 
 3. **Piece Sizes and Alignment:**
-    - Each subroot corresponds to a piece with a size that is a power of two (e.g., 128 bytes, 256 bytes, 512 bytes).
-    - The concatenation of the subroots must not require padding to align to the sector size used in the computation.
+    - Each subPiece corresponds to a data segment with a size that is a power of two (e.g., 128 bytes, 256 bytes, 512 bytes).
+    - The concatenation of the subPieces must not require padding to align to the sector size used in the computation.
 
-4. **Computing the Root CID:**
-    - The server uses the `GenerateUnsealedCID` function to compute the root CID from the subroots.
+4. **Computing the Piece CID:**
+    - The server uses the `GenerateUnsealedCID` function to compute the piece CID from the subPieces.
     - This function emulates the computation performed in the Filecoin proofs implementation.
-    - The process involves stacking the subroots and combining them using a Merkle tree hash function.
+    - The process involves stacking the subPieces and combining them using a Merkle tree hash function.
 
-5. **Validation of Computed Root CID:**
-    - The computed root CID is compared with the `rootCid` provided in the request.
-    - If the computed root CID does not match the provided `rootCid`, the request is rejected with an error.
+5. **Validation of Computed Piece CID:**
+    - The computed piece CID is compared with the `pieceCid` provided in the request.
+    - If the computed piece CID does not match the provided `pieceCid`, the request is rejected with an error.
 
 ### Constraints and Requirements
 
-- **Subroots Ownership:** All subroot CIDs must belong to the requesting service.
-- **Subroots Existence:** All subroot CIDs must be valid and previously stored on the server.
-- **Ordering of Subroots:** Must be ordered from largest to smallest. The sizes must be decreasing or equal; no subroot can be larger than the preceding one.
-- **Subroot Sizes:** Each subroot size must be a power of two and at least 128 bytes.
-- **Total Size Limit:** The total size of the concatenated subroots must not exceed the maximum allowed sector size.
+- **SubPieces Ownership:** All subPiece CIDs must belong to the requesting service.
+- **SubPieces Existence:** All subPiece CIDs must be valid and previously stored on the server.
+- **Ordering of SubPieces:** Must be ordered from largest to smallest. The sizes must be decreasing or equal; no subPiece can be larger than the preceding one.
+- **SubPiece Sizes:** Each subPiece size must be a power of two and at least 128 bytes.
+- **Total Size Limit:** The total size of the concatenated subPieces must not exceed the maximum allowed sector size.
 
 ### Error Responses
 
-- **Invalid Subroot Order:**
+- **Invalid SubPiece Order:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `Subroots must be in descending order of size`
+    - **Message:** `SubPieces must be in descending order of size`
 
-- **Subroot Not Found or Unauthorized:**
+- **SubPiece Not Found or Unauthorized:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `subroot CID <CID> not found or does not belong to service`
+    - **Message:** `subPiece CID <CID> not found or does not belong to service`
 
-- **Root CID Mismatch:**
+- **Piece CID Mismatch:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `provided RootCID does not match generated RootCID`
+    - **Message:** `provided PieceCID does not match generated PieceCID`
 
-### Root Computation Function
+### Piece Computation Function
 
 ```go
 func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.PieceInfo) (cid.Cid, error)
@@ -497,8 +502,8 @@ func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.Pie
 
 Where:
 
-- `pieceInfos` is a list of pieces (subroots) with their sizes and CIDs.
-- The function builds a CommP tree from the subroots, combining them correctly according to their sizes and alignment.
+- `pieceInfos` is a list of pieces (subPieces) with their sizes and CIDs.
+- The function builds a CommP tree from the subPieces, combining them correctly according to their sizes and alignment.
 
 ---
 
@@ -521,24 +526,24 @@ Represents hash information about a piece.
     - `hash`: Hex-encoded hash value.
     - `size`: Size of the piece in bytes.
 
-### RootEntry
+### PieceEntry
 
-Represents a root entry in a proof set.
+Represents a piece entry in a data set.
 
 ```json
 {
-  "rootId": <rootID>,
-  "rootCid": "<rootCID>",
-  "subrootCid": "<subrootCID>",
-  "subrootOffset": <subrootOffset>
+  "pieceId": <pieceID>,
+  "pieceCid": "<pieceCID>",
+  "subPieceCid": "<subPieceCID>",
+  "subPieceOffset": <subPieceOffset>
 }
 ```
 
 - **Fields:**
-    - `rootId`: The ID of the root.
-    - `rootCid`: The CID of the root.
-    - `subrootCid`: The CID of the subroot.
-    - `subrootOffset`: The offset of the subroot.
+    - `pieceId`: The ID of the piece.
+    - `pieceCid`: The CID of the piece.
+    - `subPieceCid`: The CID of the subPiece.
+    - `subPieceOffset`: The offset of the subPiece.
 
 ---
 
@@ -643,12 +648,12 @@ Error responses typically include an error message in the response body.
    HTTP/1.1 200 OK
    ```
 
-### Creating a Proof Set
+### Creating a Data Set
 
 **Request:**
 
 ```http
-POST /pdp/proof-sets HTTP/1.1
+POST /pdp/data-sets HTTP/1.1
 Host: example.com
 Authorization: Bearer <JWT-token>
 Content-Type: application/json
@@ -662,30 +667,32 @@ Content-Type: application/json
 
 ```http
 HTTP/1.1 201 Created
-Location: /pdp/proof-sets/created/0xabc123...
+Location: /pdp/data-sets/created/0xabc123...
 ```
 
-### Adding Roots to a Proof Set
+### Adding Pieces to a Data Set
 
 **Request:**
 
 ```http
-POST /pdp/proof-sets/{proofSetID}/roots HTTP/1.1
+POST /pdp/data-sets/{dataSetId}/pieces HTTP/1.1
 Host: example.com
 Authorization: Bearer <JWT-token>
 Content-Type: application/json
 
-[
-  {
-    "rootCid": "<rootCID>",
-    "subroots": [
-      { "subrootCid": "<subrootCID1>" },
-      { "subrootCid": "<subrootCID2>" },
-      { "subrootCid": "<subrootCID3>" }
-    ]
-  },
-  // ... Additional roots if needed
-]
+{
+  "pieces": [
+    {
+      "pieceCid": "<pieceCID>",
+      "subPieces": [
+        { "subPieceCid": "<subPieceCID1>" },
+        { "subPieceCid": "<subPieceCID2>" },
+        { "subPieceCid": "<subPieceCID3>" }
+      ]
+    },
+    // ... Additional pieces if needed
+  ]
+}
 ```
 
 **Response:**

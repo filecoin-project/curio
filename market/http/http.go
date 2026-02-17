@@ -17,7 +17,6 @@ import (
 type MarketHandler struct {
 	mdh12      *mk12http.MK12DealHandler
 	mdh20      *mk20http.MK20DealHandler
-	pdpService *pdp.PDPService
 	domainName string
 }
 
@@ -34,17 +33,9 @@ func NewMarketHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_mar
 		return nil, err
 	}
 
-	var pdpService *pdp.PDPService
-
-	if sn != nil {
-		pdpService = pdp.NewPDPService(db, stor, eth, fc, sn)
-		//pdp.Routes(r, pdsvc)
-	}
-
 	return &MarketHandler{
 		mdh12:      mdh12,
 		mdh20:      mdh20,
-		pdpService: pdpService,
 		domainName: cfg.HTTP.DomainName,
 	}, nil
 }
@@ -54,8 +45,5 @@ func NewMarketHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_mar
 func Router(mux *chi.Mux, mh *MarketHandler) {
 	mux.Mount("/market/mk12", mk12http.Router(mh.mdh12))
 	mux.Mount("/market/mk20", mk20http.Router(mh.mdh20, mh.domainName))
-	if mh.pdpService != nil {
-		mux.Mount("/market/pdp", pdp.Routes(mh.pdpService))
-	}
 	// TODO: Attach a info endpoint here with details about supported market modules and services under them
 }

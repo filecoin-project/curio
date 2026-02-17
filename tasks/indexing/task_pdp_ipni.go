@@ -743,3 +743,48 @@ func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPIPNITask{}
 var _ = harmonytask.Reg(&PDPIPNITask{})
+
+// TODO: Remove this once pdpv0 is merged into main
+// The ipni provider key for pdpv0 is -2
+func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
+	var peerID string
+	err := tx.QueryRow(`SELECT peer_id FROM ipni_peerid WHERE sp_id = $1`, -2).Scan(&peerID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", xerrors.Errorf("failed to get private libp2p key: %w", err)
+		}
+
+		// generate the ipni provider key
+		pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
+		if err != nil {
+			return "", xerrors.Errorf("failed to generate a new key: %w", err)
+		}
+
+		privKey, err := crypto.MarshalPrivateKey(pk)
+		if err != nil {
+			return "", xerrors.Errorf("failed to marshal the private key: %w", err)
+		}
+
+		pid, err := peer.IDFromPublicKey(pk.GetPublic())
+		if err != nil {
+			return "", xerrors.Errorf("getting peer ID: %w", err)
+		}
+		peerID = pid.String()
+
+		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, peerID, -2)
+		if err != nil {
+			return "", xerrors.Errorf("failed to to insert the key into DB: %w", err)
+		}
+
+		if n == 0 {
+			return "", xerrors.Errorf("failed to insert the key into db")
+		}
+	}
+	pid, err := peer.Decode(peerID)
+	if err != nil {
+		return "", xerrors.Errorf("decoding peer ID: %w", err)
+	}
+	return pid, nil
+}
+
+const PDP_SP_ID = -2
