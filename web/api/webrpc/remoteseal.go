@@ -1,6 +1,7 @@
 package webrpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -8,9 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/market/sealmarket"
 )
 
 // RSealPartner maps to rseal_delegated_partners (provider side).
@@ -276,6 +280,81 @@ func (a *WebRPC) RSealToggleProvider(ctx context.Context, id int64, enabled bool
 		return xerrors.Errorf("toggling provider: %w", err)
 	}
 	return nil
+}
+
+// RSealUpdateProviderName updates the display name for a client-side provider.
+func (a *WebRPC) RSealUpdateProviderName(ctx context.Context, id int64, name string) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE rseal_client_providers SET provider_name = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, id, name)
+	if err != nil {
+		return xerrors.Errorf("updating provider name: %w", err)
+	}
+	return nil
+}
+
+// RSealProviderAvailability is the result of probing a provider's /available endpoint.
+type RSealProviderAvailability struct {
+	ID        int64  `json:"id"`
+	Available bool   `json:"available"`
+	Error     string `json:"error,omitempty"` // non-empty if the probe failed
+}
+
+// RSealCheckProviderAvailability probes each configured provider's /available
+// endpoint and returns whether it currently has slots. This is called from the
+// client UI so operators can see at a glance which providers are ready.
+func (a *WebRPC) RSealCheckProviderAvailability(ctx context.Context) ([]RSealProviderAvailability, error) {
+	var providers []struct {
+		ID    int64  `db:"id"`
+		URL   string `db:"provider_url"`
+		Token string `db:"provider_token"`
+	}
+	err := a.deps.DB.Select(ctx, &providers, `SELECT id, provider_url, provider_token FROM rseal_client_providers WHERE enabled = TRUE ORDER BY id`)
+	if err != nil {
+		return nil, xerrors.Errorf("listing providers for availability check: %w", err)
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	results := make([]RSealProviderAvailability, len(providers))
+	for i, p := range providers {
+		results[i].ID = p.ID
+
+		reqBody := sealmarket.AuthorizeRequest{PartnerToken: p.Token}
+		bodyBytes, err := json.Marshal(reqBody)
+		if err != nil {
+			results[i].Error = err.Error()
+			continue
+		}
+
+		url := p.URL + sealmarket.DelegatedSealPath + "available"
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+		if err != nil {
+			results[i].Error = err.Error()
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			results[i].Error = err.Error()
+			continue
+		}
+
+		var availResp sealmarket.AvailableResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&availResp)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			results[i].Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+			continue
+		}
+		if decErr != nil {
+			results[i].Error = decErr.Error()
+			continue
+		}
+
+		results[i].Available = availResp.Available
+	}
+
+	return results, nil
 }
 
 // RSealProviderPipeline returns active provider-side pipeline rows.

@@ -8,6 +8,8 @@ class RSealClientElement extends LitElement {
     newSpAddr: { type: String },
     newConnectString: { type: String },
     ourURL: { type: String },
+    availability: { type: Object },  // Map<id, {available, error}>
+    checkingAvail: { type: Boolean },
   };
 
   constructor() {
@@ -17,6 +19,8 @@ class RSealClientElement extends LitElement {
     this.newSpAddr = '';
     this.newConnectString = '';
     this.ourURL = '';
+    this.availability = {};
+    this.checkingAvail = false;
     this.loadData();
   }
 
@@ -86,6 +90,43 @@ class RSealClientElement extends LitElement {
     } catch (err) {
       alert(`Failed to toggle provider: ${err.message || err}`);
     }
+  }
+
+  async renameProvider(id, currentName) {
+    const name = prompt('Provider name:', currentName || '');
+    if (name === null) return; // cancelled
+    try {
+      await RPCCall('RSealUpdateProviderName', [id, name]);
+      await this.loadData();
+    } catch (err) {
+      alert(`Failed to rename provider: ${err.message || err}`);
+    }
+  }
+
+  async checkAvailability() {
+    this.checkingAvail = true;
+    this.requestUpdate();
+    try {
+      const results = await RPCCall('RSealCheckProviderAvailability', []);
+      const avail = {};
+      for (const r of (results || [])) {
+        avail[r.id] = r;
+      }
+      this.availability = avail;
+    } catch (err) {
+      console.error('Failed to check availability:', err);
+    }
+    this.checkingAvail = false;
+    this.requestUpdate();
+  }
+
+  renderAvailability(id) {
+    const a = this.availability[id];
+    if (!a) return html`<span class="badge bg-secondary">-</span>`;
+    if (a.error) return html`<span class="badge bg-warning text-dark" title="${a.error}">Error</span>`;
+    return a.available
+      ? html`<span class="badge bg-success">Available</span>`
+      : html`<span class="badge bg-danger">Full</span>`;
   }
 
   render() {
@@ -202,7 +243,12 @@ class RSealClientElement extends LitElement {
         </div>
 
         ${this.providers.length > 0 ? html`
-          <h4>Providers</h4>
+          <h4 style="display:flex;align-items:center;gap:1rem">
+            Providers
+            <button class="btn btn-sm btn-outline-info" @click=${this.checkAvailability} ?disabled=${this.checkingAvail}>
+              ${this.checkingAvail ? 'Checking...' : 'Check Availability'}
+            </button>
+          </h4>
           <table class="table table-dark table-striped table-hover">
             <thead>
               <tr>
@@ -211,6 +257,7 @@ class RSealClientElement extends LitElement {
                 <th>Provider URL</th>
                 <th>Name</th>
                 <th>Enabled</th>
+                <th>Available</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -221,16 +268,22 @@ class RSealClientElement extends LitElement {
                   <td>${p.id}</td>
                   <td>f0${p.sp_id}</td>
                   <td class="text-break" style="max-width:250px">${p.provider_url}</td>
-                  <td>${p.provider_name || '-'}</td>
+                  <td>
+                    <span @click=${() => this.renameProvider(p.id, p.provider_name)} style="cursor:pointer" title="Click to rename">
+                      ${p.provider_name || html`<em style="color:#888">unnamed</em>`}
+                    </span>
+                  </td>
                   <td>
                     <span class="badge ${p.enabled ? 'bg-success' : 'bg-secondary'}">${p.enabled ? 'Yes' : 'No'}</span>
                   </td>
+                  <td>${this.renderAvailability(p.id)}</td>
                   <td>${new Date(p.created_at).toLocaleDateString()}</td>
                   <td>
                     <button class="btn btn-sm ${p.enabled ? 'btn-warning' : 'btn-success'} me-1"
                       @click=${() => this.toggleProvider(p.id, p.enabled)}>
                       ${p.enabled ? 'Disable' : 'Enable'}
                     </button>
+                    <button class="btn btn-sm btn-outline-light me-1" @click=${() => this.renameProvider(p.id, p.provider_name)}>Rename</button>
                     <button class="btn btn-sm btn-danger" @click=${() => this.removeProvider(p.id)}>Remove</button>
                   </td>
                 </tr>
