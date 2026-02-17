@@ -53,7 +53,7 @@ You will need the following software installed to install and run Curio.
 Building Curio requires some system dependencies, usually provided by your distribution.
 
 {% hint style="warning" %}
-**Note (supraseal now builds by default on Linux):** Curio's Linux build now compiles `extern/supraseal` as part of the standard `make build` flow (needed for SnapDeals fast TreeR and batch sealing). This adds the following build requirements:
+**Note (batch sealing now builds by default on Linux):** Curio's Linux build now compiles `extern/supraseal` as part of the standard `make build` flow (needed for SnapDeals fast TreeR and batch sealing). This adds the following build requirements:
 
 - **CUDA Toolkit 12.x or later** (`nvcc` must be in PATH)
 - **GCC 12 or 13** — pick the version your CUDA toolkit supports:
