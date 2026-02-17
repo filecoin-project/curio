@@ -18,6 +18,8 @@ setup-cgo-env:
 build/.filecoin-install: $(FFI_PATH)
 ifeq ($(UNAME_S),Darwin)
 	$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%)
+else ifeq ($(FFI_USE_OPENCL),1)
+	$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%)
 else
 	$(MAKE) curio-libfilecoin
 endif

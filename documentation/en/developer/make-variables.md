@@ -94,7 +94,7 @@ Defaults and guardrails:
 |---|---|---|---|---|
 | Linux | Yes | unset/empty | `1` | Build succeeds. `FFI_USE_CUDA=1`, FFI defaults to `cuda-supraseal`, linux supraseal dep included unless `DISABLE_SUPRASEAL=1`, tags default to `cunative` (or `cunative nosupraseal` when `DISABLE_SUPRASEAL=1`). |
 | Linux | No | unset/empty | `1` | Build fails early in `curio-libfilecoin` with CUDA-required error. |
-| Linux | Yes/No | `1` | `0` | Build succeeds. `FFI_USE_CUDA=0`, effective `FFI_USE_CUDA_SUPRASEAL=0`, FFI OpenCL path, supraseal dep skipped, `nosupraseal` auto-added to tags, `build.IsOpencl=1`. |
+| Linux | Yes/No | `1` | `0` | Build succeeds. `FFI_USE_CUDA=0`, effective `FFI_USE_CUDA_SUPRASEAL=0`, direct filecoin-ffi OpenCL install path (prebuilt eligible), supraseal dep skipped, `nosupraseal` auto-added to tags, `build.IsOpencl=1`. |
 | Linux | Yes | `0` | `1` | Build succeeds. `FFI_USE_CUDA=1` (unambiguous CUDA), FFI defaults to `cuda-supraseal`, supraseal dep included unless `DISABLE_SUPRASEAL=1`. |
 | Linux | No | `0` | `1` | Build fails (same CUDA-required guard as default). |
 | macOS | Yes/No | unset/empty | `0` | Build succeeds. Darwin filecoin-ffi install path is used, linux supraseal dep block not applicable, tags default to `cunative` (or `cunative nosupraseal` when `DISABLE_SUPRASEAL=1`). |
@@ -117,7 +117,7 @@ This section answers "what exactly is in the binary and what path was taken?" fo
 |---|---|---|---|---|---|---|
 | Linux default (CUDA path) | `make build` | `cunative` | Linux `curio-libfilecoin` path, `FFI_USE_CUDA=1` | `cuda-supraseal` (default) | Yes | empty string |
 | macOS default | `make build` | `cunative` | Darwin direct `make -C extern/filecoin-ffi .install-filcrypto` | Darwin OpenCL-style default in filecoin-ffi | No (linux-only dep block) | empty string |
-| Linux OpenCL path | `make build FFI_USE_OPENCL=1` | `cunative nosupraseal` | Linux `curio-libfilecoin` path, `FFI_USE_CUDA=0` | `opencl` | No | `1` |
+| Linux OpenCL path | `make build FFI_USE_OPENCL=1` | `cunative nosupraseal` | Linux direct `make -C extern/filecoin-ffi .install-filcrypto` | `opencl` | No | `1` |
 | Linux CUDA but disable supraseal in Curio binary | `make build FFI_USE_OPENCL=0 DISABLE_SUPRASEAL=1` | `cunative nosupraseal` | Linux `curio-libfilecoin` path, `FFI_USE_CUDA=1` | `cuda-supraseal` (default unless overridden) | No | `0` |
 
 ### 1. Linux + `make build` (default CUDA-style path)
@@ -138,7 +138,7 @@ Resulting behavior:
   - `build/.blst-install`
   - `build/.supraseal-install` (because linux and `FFI_USE_OPENCL != 1`)
 - `build/.filecoin-install` uses `curio-libfilecoin` (linux path), which:
-  - requires `nvcc` unless `FFI_USE_OPENCL=1`
+  - requires `nvcc` on this CUDA path
   - passes `FFI_USE_CUDA=1` when `FFI_USE_OPENCL` is unset/empty
   - defaults `FFI_USE_CUDA_SUPRASEAL=1` on Linux CUDA path
 - tags default to `CURIO_TAGS="cunative"` (no `nosupraseal`)
@@ -183,10 +183,9 @@ Resulting behavior:
   - linux supraseal dependency block is skipped
   - `CURIO_TAGS_EXTRA` adds `nosupraseal`
   - final tags become `CURIO_TAGS="cunative nosupraseal"`
-- `curio-libfilecoin` still runs for filecoin-ffi, but:
-  - `nvcc` gate is bypassed (`FFI_USE_OPENCL == 1`)
-  - `FFI_USE_CUDA=0` is passed
-  - effective `FFI_USE_CUDA_SUPRASEAL=0`
+- `build/.filecoin-install` uses direct filecoin-ffi install path on Linux OpenCL:
+  - `make -C extern/filecoin-ffi .install-filcrypto`
+  - prebuilt libfilcrypto is eligible (unless `FFI_BUILD_FROM_SOURCE=1` is set externally)
 - `curio` ldflag embeds `build.IsOpencl=1`.
 
 ### 4. Linux + CUDA, but you do not want supraseal in the Curio binary
