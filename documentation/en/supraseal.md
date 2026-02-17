@@ -7,7 +7,7 @@ description: This page explains how to set up Curio batch sealing (extern/supras
 {% hint style="danger" %}
 **Disclaimer:** Batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Some additional manual system configuration is required.
 
-Batch sealing only supports **CC sectors** at the moment.
+Batch sealing only supports **CC sectors** at the moment. The recommended workflow for onboarding deal data is to batch-seal CC sectors and then upgrade them with SnapDeals.
 
 If you enable batch sealing on a node but do **not** enable SnapDeals in the cluster, deals may be routed into the CC/batch pipeline which will seal empty sectors (discarding deal data). Make sure SnapDeals are enabled if you intend to onboard real data deals.
 {% endhint %}
@@ -17,7 +17,7 @@ If you enable batch sealing on a node but do **not** enable SnapDeals in the clu
 Curio includes a **CC Scheduler** UI and DB table (`sectors_cc_scheduler`) used to decide how many CC sectors to queue for batch sealing per SP.
 
 - The **CC Scheduler is only used for batch sealing**.
-- Do not enable or rely on it for deals/SnapDeals.
+- Do not enable or rely on it for deals.
 
 Curio’s web UI exposes this as the **CC Scheduler** page/tab.
 
