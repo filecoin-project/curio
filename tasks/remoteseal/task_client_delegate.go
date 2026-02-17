@@ -2,6 +2,7 @@ package remoteseal
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -15,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/sealmarket"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -46,6 +46,8 @@ type RSealDelegate struct {
 	db     *harmonydb.DB
 	api    RSealDelegateAPI // optional, nil disables CC scheduling
 	client *RSealClient
+
+	lastScheduledWork bool // true if the last schedule() call found/created work
 }
 
 func NewRSealDelegate(db *harmonydb.DB, api RSealDelegateAPI, client *RSealClient) *RSealDelegate {
@@ -65,6 +67,8 @@ func NewRSealDelegate(db *harmonydb.DB, api RSealDelegateAPI, client *RSealClien
 func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	d.lastScheduledWork = false
 
 	// Find sectors ready for SDR that are not yet claimed by any task and
 	// have no existing rseal_client_pipeline entry, but DO have an enabled provider.
@@ -99,6 +103,7 @@ func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 
 	// Atomically claim the sector in the DB. Do() will handle the HTTP calls.
 	d.claimSectorForDelegation(taskFunc, sector.SpID, sector.SectorNumber, sector.ProviderID, sector.RegSealProof)
+	d.lastScheduledWork = true
 
 	return nil
 }
@@ -261,6 +266,7 @@ func (d *RSealDelegate) scheduleCCRemote(ctx context.Context, taskFunc harmonyta
 		return true, nil
 	})
 
+	d.lastScheduledWork = true
 	return nil
 }
 
@@ -351,7 +357,35 @@ func (d *RSealDelegate) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 16 << 20, // 16 MiB - minimal, just HTTP calls
 		},
 		MaxFailures: 100,
-		IAmBored:    passcall.Every(15*time.Second, d.schedule),
+		IAmBored:    d.adaptiveSchedule(),
+	}
+}
+
+// adaptiveSchedule returns a rate-limited schedule function that runs more
+// frequently (1s) when work was found on the last call, and backs off to 15s
+// when idle. This allows rapid CC sector creation when the scheduler is active.
+func (d *RSealDelegate) adaptiveSchedule() func(harmonytask.AddTaskFunc) error {
+	var lastCall time.Time
+	var lk sync.Mutex
+
+	return func(taskFunc harmonytask.AddTaskFunc) error {
+		lk.Lock()
+		defer lk.Unlock()
+
+		interval := 15 * time.Second
+		if d.lastScheduledWork {
+			interval = 1 * time.Second
+		}
+
+		if time.Since(lastCall) < interval {
+			return nil
+		}
+
+		defer func() {
+			lastCall = time.Now()
+		}()
+
+		return d.schedule(taskFunc)
 	}
 }
 
