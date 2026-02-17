@@ -225,8 +225,6 @@ jobs:
       - name: Run tests with coverage
         env:
           CURIO_OPTIMAL_LIBFILCRYPTO: 0
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
-          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
           FFI_USE_OPENCL: 1
         run: |
           mkdir -p coverage
