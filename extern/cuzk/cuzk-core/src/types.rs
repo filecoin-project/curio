@@ -105,16 +105,25 @@ pub struct ProofRequest {
     pub priority: Priority,
     pub sector_size: u64,
     pub registered_proof: u64,
+
+    /// For PoRep C2: single monolithic C1 output (JSON blob).
     pub vanilla_proof: Vec<u8>,
+    /// For PoSt / SnapDeals: multiple vanilla proofs (one per sector or partition).
+    pub vanilla_proofs: Vec<Vec<u8>>,
+
     pub sector_number: u64,
     pub miner_id: u64,
+    /// 32-byte challenge seed for PoSt.
     pub randomness: Vec<u8>,
+    /// Partition index for WindowPoSt per-partition proving.
     pub partition_index: u32,
-    // SnapDeals fields
-    pub sector_key_cid: Vec<u8>,
-    pub new_sealed_cid: Vec<u8>,
-    pub new_unsealed_cid: Vec<u8>,
-    /// When the request was submitted
+
+    // SnapDeals commitments (raw 32-byte arrays)
+    pub comm_r_old: Vec<u8>,
+    pub comm_r_new: Vec<u8>,
+    pub comm_d_new: Vec<u8>,
+
+    /// When the request was submitted.
     pub submitted_at: Instant,
 }
 

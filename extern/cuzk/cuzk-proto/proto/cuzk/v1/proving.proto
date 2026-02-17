@@ -51,20 +51,26 @@ message SubmitProofRequest {
   string request_id = 1;         // caller-provided idempotency key
   ProofKind proof_kind = 2;
   uint64 sector_size = 3;        // e.g. 34359738368 for 32 GiB
-  uint64 registered_proof = 4;   // numeric RegisteredSealProof / RegisteredPoStProof
+  uint64 registered_proof = 4;   // numeric RegisteredSealProof / RegisteredPoStProof / RegisteredUpdateProof
   Priority priority = 5;
 
-  bytes vanilla_proof = 10;      // C1 output / vanilla proof (serialized JSON, ~50 MB for PoRep)
+  // For PoRep C2: single monolithic C1 output (JSON, ~50 MB for 32 GiB).
+  bytes vanilla_proof = 10;
+
+  // For PoSt / SnapDeals: multiple vanilla proofs (one per sector or partition).
+  // PoSt: one bincode-serialized FallbackPoStSectorProof per sector.
+  // SnapDeals: one bincode-serialized PartitionProof per partition.
+  repeated bytes vanilla_proofs = 11;
 
   uint64 sector_number = 20;
   uint64 miner_id = 21;
-  bytes randomness = 22;
+  bytes randomness = 22;         // 32-byte ChallengeSeed for PoSt
   uint32 partition_index = 23;   // for WindowPoSt per-partition
 
-  // For SnapDeals: old sealed CID, new sealed CID, new unsealed CID
-  bytes sector_key_cid = 30;
-  bytes new_sealed_cid = 31;
-  bytes new_unsealed_cid = 32;
+  // For SnapDeals: commitments as raw 32-byte arrays
+  bytes comm_r_old = 30;         // original sealed commitment (was sector_key_cid)
+  bytes comm_r_new = 31;         // new sealed commitment (was new_sealed_cid)
+  bytes comm_d_new = 32;         // new data commitment (was new_unsealed_cid)
 }
 
 message SubmitProofResponse {

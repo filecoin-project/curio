@@ -1,7 +1,13 @@
 //! Prover module — wraps calls into `filecoin-proofs-api`.
 //!
-//! Phase 0: Calls directly into `seal_commit_phase2()` etc.
+//! Phase 0-1: Calls directly into `filecoin-proofs-api` proving functions.
 //! Each call hits `GROTH_PARAM_MEMORY_CACHE` for SRS residency.
+//!
+//! Supported proof types:
+//! - PoRep C2 (`seal_commit_phase2`)
+//! - WinningPoSt (`generate_winning_post_with_vanilla`)
+//! - WindowPoSt per-partition (`generate_single_window_post_with_vanilla`)
+//! - SnapDeals (`generate_empty_sector_update_proof_with_vanilla`)
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
@@ -10,7 +16,10 @@ use std::time::Instant;
 use tracing::{debug, info, info_span, warn};
 
 use filecoin_proofs_api::seal::{self, SealCommitPhase1Output};
-use filecoin_proofs_api::SectorId;
+use filecoin_proofs_api::{
+    post, update, ChallengeSeed, Commitment, PartitionProofBytes, RegisteredPoStProof,
+    RegisteredUpdateProof, SectorId,
+};
 
 use crate::types::ProofTimings;
 
@@ -195,42 +204,258 @@ pub fn prove_porep_c2(
     Ok((output.proof, timings))
 }
 
-/// Execute a WinningPoSt proof (stub for Phase 1).
+/// Convert a numeric registered proof value (from gRPC) to a `RegisteredPoStProof`.
+///
+/// These values match the FFI `#[repr(i32)]` enum used by Go's `abi.RegisteredPoStProof`.
+/// Note: FFI V1_1 (Go side) maps to filecoin-proofs-api V1_2 (grindability fix).
+fn registered_post_proof_from_u64(v: u64) -> Result<RegisteredPoStProof> {
+    match v {
+        0 => Ok(RegisteredPoStProof::StackedDrgWinning2KiBV1),
+        1 => Ok(RegisteredPoStProof::StackedDrgWinning8MiBV1),
+        2 => Ok(RegisteredPoStProof::StackedDrgWinning512MiBV1),
+        3 => Ok(RegisteredPoStProof::StackedDrgWinning32GiBV1),
+        4 => Ok(RegisteredPoStProof::StackedDrgWinning64GiBV1),
+        5 => Ok(RegisteredPoStProof::StackedDrgWindow2KiBV1),
+        6 => Ok(RegisteredPoStProof::StackedDrgWindow8MiBV1),
+        7 => Ok(RegisteredPoStProof::StackedDrgWindow512MiBV1),
+        8 => Ok(RegisteredPoStProof::StackedDrgWindow32GiBV1),
+        9 => Ok(RegisteredPoStProof::StackedDrgWindow64GiBV1),
+        // FFI V1_1 → proofs-api V1_2 (grindability fix)
+        10 => Ok(RegisteredPoStProof::StackedDrgWindow2KiBV1_2),
+        11 => Ok(RegisteredPoStProof::StackedDrgWindow8MiBV1_2),
+        12 => Ok(RegisteredPoStProof::StackedDrgWindow512MiBV1_2),
+        13 => Ok(RegisteredPoStProof::StackedDrgWindow32GiBV1_2),
+        14 => Ok(RegisteredPoStProof::StackedDrgWindow64GiBV1_2),
+        _ => anyhow::bail!("unknown RegisteredPoStProof value: {}", v),
+    }
+}
+
+/// Convert a numeric registered proof value (from gRPC) to a `RegisteredUpdateProof`.
+///
+/// These values match the FFI `#[repr(i32)]` enum used by Go's `abi.RegisteredUpdateProof`.
+fn registered_update_proof_from_u64(v: u64) -> Result<RegisteredUpdateProof> {
+    match v {
+        0 => Ok(RegisteredUpdateProof::StackedDrg2KiBV1),
+        1 => Ok(RegisteredUpdateProof::StackedDrg8MiBV1),
+        2 => Ok(RegisteredUpdateProof::StackedDrg512MiBV1),
+        3 => Ok(RegisteredUpdateProof::StackedDrg32GiBV1),
+        4 => Ok(RegisteredUpdateProof::StackedDrg64GiBV1),
+        _ => anyhow::bail!("unknown RegisteredUpdateProof value: {}", v),
+    }
+}
+
+/// Convert a byte slice to a 32-byte array (for commitments, randomness, etc.).
+fn to_array32(bytes: &[u8], name: &str) -> Result<[u8; 32]> {
+    if bytes.len() != 32 {
+        anyhow::bail!("{} must be exactly 32 bytes, got {}", name, bytes.len());
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(bytes);
+    Ok(arr)
+}
+
+/// Execute a WinningPoSt proof.
+///
+/// Calls `generate_winning_post_with_vanilla()` with the provided vanilla proofs.
+/// Each element of `vanilla_proofs` is a bincode-serialized `FallbackPoStSectorProof`
+/// for one challenged sector.
+///
+/// Returns the concatenated SNARK proof bytes.
 pub fn prove_winning_post(
-    _vanilla_proof: &[u8],
-    _miner_id: u64,
-    _randomness: &[u8],
+    vanilla_proofs: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
     job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
     let _span = info_span!("prove_winning_post", job_id = job_id).entered();
-    warn!("WinningPoSt proof is a STUB — will be implemented in Phase 1");
-    anyhow::bail!("WinningPoSt not yet implemented in Phase 0")
+    let total_start = Instant::now();
+    let mut timings = ProofTimings::default();
+
+    // --- Phase: Deserialize / validate ---
+    let deser_start = Instant::now();
+
+    let post_proof_type = registered_post_proof_from_u64(registered_proof)
+        .context("invalid registered proof for WinningPoSt")?;
+    let prover_id = make_prover_id(miner_id);
+    let challenge_seed: ChallengeSeed = to_array32(randomness, "randomness")?;
+
+    info!(
+        proof_type = ?post_proof_type,
+        miner_id = miner_id,
+        num_vanilla_proofs = vanilla_proofs.len(),
+        "proving WinningPoSt"
+    );
+
+    timings.deserialize = deser_start.elapsed();
+
+    // --- Phase: Prove ---
+    let prove_start = Instant::now();
+    let results = post::generate_winning_post_with_vanilla(
+        post_proof_type,
+        &challenge_seed,
+        prover_id,
+        vanilla_proofs,
+    )
+    .context("generate_winning_post_with_vanilla failed")?;
+    timings.proving = prove_start.elapsed();
+
+    // Collect proof bytes from all results (typically one)
+    let mut proof_bytes = Vec::new();
+    for (_reg_proof, snark_proof) in &results {
+        proof_bytes.extend_from_slice(snark_proof);
+    }
+
+    timings.srs_load = std::time::Duration::ZERO;
+    timings.synthesis = std::time::Duration::ZERO;
+    timings.gpu_compute = timings.proving;
+    timings.total = total_start.elapsed();
+
+    info!(
+        proof_len = proof_bytes.len(),
+        prove_ms = timings.proving.as_millis(),
+        total_ms = timings.total.as_millis(),
+        "WinningPoSt proof completed"
+    );
+
+    Ok((proof_bytes, timings))
 }
 
-/// Execute a WindowPoSt partition proof (stub for Phase 1).
+/// Execute a WindowPoSt single-partition proof.
+///
+/// Calls `generate_single_window_post_with_vanilla()` for one partition.
+/// Each element of `vanilla_proofs` is a bincode-serialized `FallbackPoStSectorProof`
+/// for one sector in this partition.
+///
+/// Returns the `PartitionSnarkProof` bytes for this partition.
 pub fn prove_window_post(
-    _vanilla_proof: &[u8],
-    _miner_id: u64,
-    _randomness: &[u8],
-    _partition_index: u32,
+    vanilla_proofs: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+    partition_index: u32,
     job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
     let _span = info_span!("prove_window_post", job_id = job_id).entered();
-    warn!("WindowPoSt proof is a STUB — will be implemented in Phase 1");
-    anyhow::bail!("WindowPoSt not yet implemented in Phase 0")
+    let total_start = Instant::now();
+    let mut timings = ProofTimings::default();
+
+    // --- Phase: Deserialize / validate ---
+    let deser_start = Instant::now();
+
+    let post_proof_type = registered_post_proof_from_u64(registered_proof)
+        .context("invalid registered proof for WindowPoSt")?;
+    let prover_id = make_prover_id(miner_id);
+    let challenge_seed: ChallengeSeed = to_array32(randomness, "randomness")?;
+
+    info!(
+        proof_type = ?post_proof_type,
+        miner_id = miner_id,
+        partition_index = partition_index,
+        num_vanilla_proofs = vanilla_proofs.len(),
+        "proving WindowPoSt partition"
+    );
+
+    timings.deserialize = deser_start.elapsed();
+
+    // --- Phase: Prove ---
+    let prove_start = Instant::now();
+    let partition_proof = post::generate_single_window_post_with_vanilla(
+        post_proof_type,
+        &challenge_seed,
+        prover_id,
+        vanilla_proofs,
+        partition_index as usize,
+    )
+    .context("generate_single_window_post_with_vanilla failed")?;
+    timings.proving = prove_start.elapsed();
+
+    let proof_bytes = partition_proof.0;
+
+    timings.srs_load = std::time::Duration::ZERO;
+    timings.synthesis = std::time::Duration::ZERO;
+    timings.gpu_compute = timings.proving;
+    timings.total = total_start.elapsed();
+
+    info!(
+        proof_len = proof_bytes.len(),
+        prove_ms = timings.proving.as_millis(),
+        total_ms = timings.total.as_millis(),
+        "WindowPoSt partition proof completed"
+    );
+
+    Ok((proof_bytes, timings))
 }
 
-/// Execute a SnapDeals update proof (stub for Phase 1).
+/// Execute a SnapDeals (empty sector update) proof.
+///
+/// Calls `generate_empty_sector_update_proof_with_vanilla()` with the provided
+/// partition vanilla proofs. Each element of `vanilla_proofs` is a bincode-serialized
+/// `PartitionProof` for one partition.
+///
+/// Returns the SNARK proof bytes.
 pub fn prove_snap_deals(
-    _vanilla_proof: &[u8],
-    _sector_key_cid: &[u8],
-    _new_sealed_cid: &[u8],
-    _new_unsealed_cid: &[u8],
+    vanilla_proofs: Vec<Vec<u8>>,
+    registered_proof: u64,
+    comm_r_old: &[u8],
+    comm_r_new: &[u8],
+    comm_d_new: &[u8],
     job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
     let _span = info_span!("prove_snap_deals", job_id = job_id).entered();
-    warn!("SnapDeals proof is a STUB — will be implemented in Phase 1");
-    anyhow::bail!("SnapDeals not yet implemented in Phase 0")
+    let total_start = Instant::now();
+    let mut timings = ProofTimings::default();
+
+    // --- Phase: Deserialize / validate ---
+    let deser_start = Instant::now();
+
+    let update_proof_type = registered_update_proof_from_u64(registered_proof)
+        .context("invalid registered proof for SnapDeals")?;
+    let comm_r_old: Commitment = to_array32(comm_r_old, "comm_r_old")?;
+    let comm_r_new: Commitment = to_array32(comm_r_new, "comm_r_new")?;
+    let comm_d_new: Commitment = to_array32(comm_d_new, "comm_d_new")?;
+
+    // Wrap each vanilla proof in PartitionProofBytes
+    let partition_proofs: Vec<PartitionProofBytes> = vanilla_proofs
+        .into_iter()
+        .map(PartitionProofBytes)
+        .collect();
+
+    info!(
+        proof_type = ?update_proof_type,
+        num_partition_proofs = partition_proofs.len(),
+        "proving SnapDeals update"
+    );
+
+    timings.deserialize = deser_start.elapsed();
+
+    // --- Phase: Prove ---
+    let prove_start = Instant::now();
+    let update_proof = update::generate_empty_sector_update_proof_with_vanilla(
+        update_proof_type,
+        partition_proofs,
+        comm_r_old,
+        comm_r_new,
+        comm_d_new,
+    )
+    .context("generate_empty_sector_update_proof_with_vanilla failed")?;
+    timings.proving = prove_start.elapsed();
+
+    let proof_bytes = update_proof.0;
+
+    timings.srs_load = std::time::Duration::ZERO;
+    timings.synthesis = std::time::Duration::ZERO;
+    timings.gpu_compute = timings.proving;
+    timings.total = total_start.elapsed();
+
+    info!(
+        proof_len = proof_bytes.len(),
+        prove_ms = timings.proving.as_millis(),
+        total_ms = timings.total.as_millis(),
+        "SnapDeals proof completed"
+    );
+
+    Ok((proof_bytes, timings))
 }
 
 #[cfg(test)]
@@ -248,6 +473,47 @@ mod tests {
             .decode(&wrapper.phase1_out)
             .unwrap();
         assert_eq!(decoded, b"hello");
+    }
+
+    #[test]
+    fn test_registered_post_proof_from_u64() {
+        // Winning 32G = 3
+        let p = registered_post_proof_from_u64(3).unwrap();
+        assert_eq!(p, RegisteredPoStProof::StackedDrgWinning32GiBV1);
+
+        // Window 32G V1 = 8
+        let p = registered_post_proof_from_u64(8).unwrap();
+        assert_eq!(p, RegisteredPoStProof::StackedDrgWindow32GiBV1);
+
+        // Window 32G V1_1 (FFI) -> V1_2 (proofs-api) = 13
+        let p = registered_post_proof_from_u64(13).unwrap();
+        assert_eq!(p, RegisteredPoStProof::StackedDrgWindow32GiBV1_2);
+
+        // Invalid
+        assert!(registered_post_proof_from_u64(100).is_err());
+    }
+
+    #[test]
+    fn test_registered_update_proof_from_u64() {
+        // 32G = 3
+        let p = registered_update_proof_from_u64(3).unwrap();
+        assert_eq!(p, RegisteredUpdateProof::StackedDrg32GiBV1);
+
+        // Invalid
+        assert!(registered_update_proof_from_u64(99).is_err());
+    }
+
+    #[test]
+    fn test_to_array32() {
+        let bytes = vec![0u8; 32];
+        let arr = to_array32(&bytes, "test").unwrap();
+        assert_eq!(arr, [0u8; 32]);
+
+        // Too short
+        assert!(to_array32(&[0u8; 31], "test").is_err());
+
+        // Too long
+        assert!(to_array32(&[0u8; 33], "test").is_err());
     }
 
     #[test]

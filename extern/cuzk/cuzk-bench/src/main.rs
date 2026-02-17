@@ -38,13 +38,20 @@ enum Commands {
         #[arg(short = 't', long = "type")]
         proof_type: String,
 
-        /// Path to C1 output JSON (for PoRep) or vanilla proof file.
+        /// Path to C1 output JSON (for PoRep).
         #[arg(long)]
         c1: Option<PathBuf>,
 
-        /// Path to vanilla proof file (for PoSt/SnapDeals).
+        /// Path to vanilla proof JSON file (for PoSt/SnapDeals).
+        /// PoSt: JSON array of base64-encoded proofs, or single base64 proof.
+        /// SnapDeals: JSON array of base64-encoded partition proofs.
         #[arg(long)]
         vanilla: Option<PathBuf>,
+
+        /// Registered proof type (numeric, matches Go abi enum values).
+        /// Winning 32G=3, Window 32G V1.1=13, Update 32G=3.
+        #[arg(long, default_value = "0")]
+        registered_proof: u64,
 
         /// Sector number.
         #[arg(long, default_value = "1")]
@@ -57,6 +64,22 @@ enum Commands {
         /// Partition index (for WindowPoSt).
         #[arg(long, default_value = "0")]
         partition: u32,
+
+        /// Hex-encoded 32-byte randomness (for PoSt).
+        #[arg(long)]
+        randomness: Option<String>,
+
+        /// Hex-encoded 32-byte comm_r_old (for SnapDeals).
+        #[arg(long)]
+        comm_r_old: Option<String>,
+
+        /// Hex-encoded 32-byte comm_r_new (for SnapDeals).
+        #[arg(long)]
+        comm_r_new: Option<String>,
+
+        /// Hex-encoded 32-byte comm_d_new (for SnapDeals).
+        #[arg(long)]
+        comm_d_new: Option<String>,
     },
 
     /// Run N identical proofs and report throughput statistics.
@@ -65,13 +88,17 @@ enum Commands {
         #[arg(short = 't', long = "type")]
         proof_type: String,
 
-        /// Path to C1 output JSON (for PoRep) or vanilla proof file.
+        /// Path to C1 output JSON (for PoRep).
         #[arg(long)]
         c1: Option<PathBuf>,
 
-        /// Path to vanilla proof file (for PoSt/SnapDeals).
+        /// Path to vanilla proof JSON file (for PoSt/SnapDeals).
         #[arg(long)]
         vanilla: Option<PathBuf>,
+
+        /// Registered proof type (numeric, matches Go abi enum values).
+        #[arg(long, default_value = "0")]
+        registered_proof: u64,
 
         /// Number of proofs to run.
         #[arg(short, long, default_value = "3")]
@@ -88,6 +115,22 @@ enum Commands {
         /// Miner ID.
         #[arg(long, default_value = "1000")]
         miner_id: u64,
+
+        /// Hex-encoded 32-byte randomness (for PoSt).
+        #[arg(long)]
+        randomness: Option<String>,
+
+        /// Hex-encoded 32-byte comm_r_old (for SnapDeals).
+        #[arg(long)]
+        comm_r_old: Option<String>,
+
+        /// Hex-encoded 32-byte comm_r_new (for SnapDeals).
+        #[arg(long)]
+        comm_r_new: Option<String>,
+
+        /// Hex-encoded 32-byte comm_d_new (for SnapDeals).
+        #[arg(long)]
+        comm_d_new: Option<String>,
     },
 
     /// Query daemon status.
@@ -175,17 +218,32 @@ async fn main() -> Result<()> {
             proof_type,
             c1,
             vanilla,
+            registered_proof,
             sector_num,
             miner_id,
             partition,
+            randomness,
+            comm_r_old,
+            comm_r_new,
+            comm_d_new,
         } => {
             let proof_kind = proof_kind_from_str(&proof_type)?;
-
-            let vanilla_bytes = load_proof_input(&c1, &vanilla)?;
+            let params = build_proof_params(
+                proof_kind,
+                &c1,
+                &vanilla,
+                registered_proof,
+                sector_num,
+                miner_id,
+                partition,
+                &randomness,
+                &comm_r_old,
+                &comm_r_new,
+                &comm_d_new,
+            )?;
 
             info!(
                 proof_type = %proof_type,
-                input_size = vanilla_bytes.len(),
                 "submitting proof"
             );
 
@@ -193,16 +251,7 @@ async fn main() -> Result<()> {
             let start = Instant::now();
 
             let mut client = connect(&cli.addr).await?;
-            let resp = do_prove(
-                &mut client,
-                request_id,
-                proof_kind,
-                vanilla_bytes,
-                sector_num,
-                miner_id,
-                partition,
-            )
-            .await?;
+            let resp = do_prove(&mut client, request_id, params).await?;
 
             print_result(&resp, start.elapsed());
         }
@@ -211,19 +260,35 @@ async fn main() -> Result<()> {
             proof_type,
             c1,
             vanilla,
+            registered_proof,
             count,
             concurrency,
             sector_num,
             miner_id,
+            randomness,
+            comm_r_old,
+            comm_r_new,
+            comm_d_new,
         } => {
             let proof_kind = proof_kind_from_str(&proof_type)?;
-            let vanilla_bytes = load_proof_input(&c1, &vanilla)?;
+            let params = build_proof_params(
+                proof_kind,
+                &c1,
+                &vanilla,
+                registered_proof,
+                sector_num,
+                miner_id,
+                0,
+                &randomness,
+                &comm_r_old,
+                &comm_r_new,
+                &comm_d_new,
+            )?;
 
             println!("=== Batch Benchmark ===");
             println!("proof type:  {}", proof_type);
             println!("count:       {}", count);
             println!("concurrency: {}", concurrency);
-            println!("input size:  {} bytes", vanilla_bytes.len());
             println!();
 
             let batch_start = Instant::now();
@@ -235,16 +300,7 @@ async fn main() -> Result<()> {
                     let request_id = uuid::Uuid::new_v4().to_string();
                     let start = Instant::now();
                     let mut client = connect(&cli.addr).await?;
-                    let resp = do_prove(
-                        &mut client,
-                        request_id,
-                        proof_kind,
-                        vanilla_bytes.clone(),
-                        sector_num,
-                        miner_id,
-                        0,
-                    )
-                    .await?;
+                    let resp = do_prove(&mut client, request_id, params.clone()).await?;
                     let elapsed = start.elapsed();
 
                     let status_str = status_label(resp.status);
@@ -269,21 +325,12 @@ async fn main() -> Result<()> {
                 for i in 0..count {
                     let permit = sem.clone().acquire_owned().await.unwrap();
                     let addr = addr.clone();
-                    let vanilla = vanilla_bytes.clone();
+                    let params = params.clone();
                     handles.push(tokio::spawn(async move {
                         let request_id = uuid::Uuid::new_v4().to_string();
                         let start = Instant::now();
                         let mut client = connect(&addr).await?;
-                        let resp = do_prove(
-                            &mut client,
-                            request_id,
-                            proof_kind,
-                            vanilla,
-                            sector_num,
-                            miner_id,
-                            0,
-                        )
-                        .await?;
+                        let resp = do_prove(&mut client, request_id, params).await?;
                         let elapsed = start.elapsed();
                         drop(permit);
                         Ok::<_, anyhow::Error>((i, resp, elapsed))
@@ -422,42 +469,133 @@ async fn main() -> Result<()> {
 
 use std::sync::Arc;
 
-/// Load proof input from --c1 or --vanilla path.
-fn load_proof_input(c1: &Option<PathBuf>, vanilla: &Option<PathBuf>) -> Result<Vec<u8>> {
-    if let Some(path) = c1.as_ref().or(vanilla.as_ref()) {
-        info!(path = %path.display(), "loading proof input");
-        std::fs::read(path)
-            .with_context(|| format!("failed to read {}", path.display()))
+/// Proof parameters for submitting a proof request.
+#[derive(Clone)]
+struct ProofParams {
+    proof_kind: i32,
+    registered_proof: u64,
+    vanilla_proof: Vec<u8>,
+    vanilla_proofs: Vec<Vec<u8>>,
+    sector_number: u64,
+    miner_id: u64,
+    partition_index: u32,
+    randomness: Vec<u8>,
+    comm_r_old: Vec<u8>,
+    comm_r_new: Vec<u8>,
+    comm_d_new: Vec<u8>,
+}
+
+/// Build proof parameters from CLI arguments.
+#[allow(clippy::too_many_arguments)]
+fn build_proof_params(
+    proof_kind: i32,
+    c1: &Option<PathBuf>,
+    vanilla: &Option<PathBuf>,
+    registered_proof: u64,
+    sector_num: u64,
+    miner_id: u64,
+    partition_index: u32,
+    randomness: &Option<String>,
+    comm_r_old: &Option<String>,
+    comm_r_new: &Option<String>,
+    comm_d_new: &Option<String>,
+) -> Result<ProofParams> {
+    let is_porep = proof_kind == pb::ProofKind::PorepSealCommit as i32;
+
+    let (vanilla_proof, vanilla_proofs) = if is_porep {
+        // PoRep: single monolithic C1 output
+        let path = c1.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--c1 required for PoRep proof type"))?;
+        info!(path = %path.display(), "loading C1 output");
+        let data = std::fs::read(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        (data, vec![])
     } else {
-        anyhow::bail!("must specify --c1 (for PoRep) or --vanilla (for PoSt/SnapDeals)");
-    }
+        // PoSt / SnapDeals: load vanilla proofs JSON file.
+        // Expected format: JSON array of base64-encoded proof bytes,
+        // e.g. ["base64data1", "base64data2", ...]
+        // Or for raw binary: a single file is treated as one proof.
+        let path = vanilla.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--vanilla required for PoSt/SnapDeals proof types"))?;
+        info!(path = %path.display(), "loading vanilla proofs");
+        let data = std::fs::read(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+
+        // Try to parse as JSON array of base64 strings (Go's json.Marshal([][]byte))
+        let proofs: Vec<Vec<u8>> = match serde_json::from_slice::<Vec<String>>(&data) {
+            Ok(b64_strings) => {
+                use base64::Engine as _;
+                b64_strings.iter().map(|s| {
+                    base64::engine::general_purpose::STANDARD.decode(s)
+                        .with_context(|| "failed to decode base64 vanilla proof entry")
+                }).collect::<Result<Vec<_>>>()?
+            }
+            Err(_) => {
+                // Fall back: treat the entire file as a single raw proof
+                info!("vanilla file is not JSON array, treating as single raw proof");
+                vec![data]
+            }
+        };
+
+        info!(num_proofs = proofs.len(), "loaded vanilla proofs");
+        (vec![], proofs)
+    };
+
+    let randomness = match randomness {
+        Some(hex_str) => hex::decode(hex_str).context("invalid hex for --randomness")?,
+        None => vec![0u8; 32], // default: zero randomness for testing
+    };
+
+    let comm_r_old = match comm_r_old {
+        Some(hex_str) => hex::decode(hex_str).context("invalid hex for --comm-r-old")?,
+        None => vec![],
+    };
+    let comm_r_new = match comm_r_new {
+        Some(hex_str) => hex::decode(hex_str).context("invalid hex for --comm-r-new")?,
+        None => vec![],
+    };
+    let comm_d_new = match comm_d_new {
+        Some(hex_str) => hex::decode(hex_str).context("invalid hex for --comm-d-new")?,
+        None => vec![],
+    };
+
+    Ok(ProofParams {
+        proof_kind,
+        registered_proof,
+        vanilla_proof,
+        vanilla_proofs,
+        sector_number: sector_num,
+        miner_id,
+        partition_index,
+        randomness,
+        comm_r_old,
+        comm_r_new,
+        comm_d_new,
+    })
 }
 
 async fn do_prove(
     client: &mut pb::proving_engine_client::ProvingEngineClient<tonic::transport::Channel>,
     request_id: String,
-    proof_kind: i32,
-    vanilla_proof: Vec<u8>,
-    sector_number: u64,
-    miner_id: u64,
-    partition_index: u32,
+    params: ProofParams,
 ) -> Result<pb::AwaitProofResponse> {
     let resp = client
         .prove(pb::ProveRequest {
             submit: Some(pb::SubmitProofRequest {
                 request_id,
-                proof_kind,
+                proof_kind: params.proof_kind,
                 sector_size: 34359738368, // 32 GiB
-                registered_proof: 0,
+                registered_proof: params.registered_proof,
                 priority: 0, // use default
-                vanilla_proof,
-                sector_number,
-                miner_id,
-                randomness: vec![],
-                partition_index,
-                sector_key_cid: vec![],
-                new_sealed_cid: vec![],
-                new_unsealed_cid: vec![],
+                vanilla_proof: params.vanilla_proof,
+                vanilla_proofs: params.vanilla_proofs,
+                sector_number: params.sector_number,
+                miner_id: params.miner_id,
+                randomness: params.randomness,
+                partition_index: params.partition_index,
+                comm_r_old: params.comm_r_old,
+                comm_r_new: params.comm_r_new,
+                comm_d_new: params.comm_d_new,
             }),
         })
         .await

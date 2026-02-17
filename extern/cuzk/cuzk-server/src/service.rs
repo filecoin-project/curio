@@ -40,13 +40,14 @@ fn proto_to_request(req: &pb::SubmitProofRequest) -> Result<ProofRequest, Status
         sector_size: req.sector_size,
         registered_proof: req.registered_proof,
         vanilla_proof: req.vanilla_proof.clone(),
+        vanilla_proofs: req.vanilla_proofs.clone(),
         sector_number: req.sector_number,
         miner_id: req.miner_id,
         randomness: req.randomness.clone(),
         partition_index: req.partition_index,
-        sector_key_cid: req.sector_key_cid.clone(),
-        new_sealed_cid: req.new_sealed_cid.clone(),
-        new_unsealed_cid: req.new_unsealed_cid.clone(),
+        comm_r_old: req.comm_r_old.clone(),
+        comm_r_new: req.comm_r_new.clone(),
+        comm_d_new: req.comm_d_new.clone(),
         submitted_at: Instant::now(),
     })
 }
@@ -196,28 +197,49 @@ impl ProvingEngine for ProvingService {
             }
         }).collect();
 
+        // Count in-progress jobs per proof kind from worker state
+        let running_by_kind: std::collections::HashMap<ProofKind, u32> = {
+            let mut m = std::collections::HashMap::new();
+            for w in &status.workers {
+                if let Some((_, kind)) = &w.current_job {
+                    *m.entry(*kind).or_insert(0) += 1;
+                }
+            }
+            m
+        };
+
         let queue_entries: Vec<pb::QueueStatus> = status.queue_stats.iter().map(|(kind, count)| {
             pb::QueueStatus {
                 proof_kind: kind.to_string(),
                 pending: *count,
-                in_progress: if status.running_job.is_some() { 1 } else { 0 },
+                in_progress: running_by_kind.get(kind).copied().unwrap_or(0),
             }
         }).collect();
 
-        // GPU info — Phase 0 uses nvidia-smi subprocess for basic info.
-        // Phase 1 will use NVML bindings for real-time data.
-        let gpus = detect_gpus();
+        // GPU info — detect GPUs and annotate with running jobs from worker state.
+        let detected_gpus = detect_gpus();
 
-        // If there's a running job, annotate GPU 0 with it
-        let gpus: Vec<pb::GpuStatus> = gpus.into_iter().enumerate().map(|(i, mut gpu)| {
-            if i == 0 {
-                if let Some((ref job_id, ref kind)) = status.running_job {
-                    gpu.current_job_id = job_id.0.clone();
-                    gpu.current_proof_kind = kind.to_string();
+        // Build GPU status from worker state, falling back to detected GPU info
+        let gpus: Vec<pb::GpuStatus> = if status.workers.is_empty() {
+            detected_gpus
+        } else {
+            status.workers.iter().map(|worker| {
+                // Find matching detected GPU for VRAM info
+                let detected = detected_gpus.iter().find(|g| g.ordinal == worker.gpu_ordinal);
+                let (current_job_id, current_proof_kind) = match &worker.current_job {
+                    Some((job_id, kind)) => (job_id.0.clone(), kind.to_string()),
+                    None => (String::new(), String::new()),
+                };
+                pb::GpuStatus {
+                    ordinal: worker.gpu_ordinal,
+                    name: detected.map_or_else(|| format!("GPU {}", worker.gpu_ordinal), |g| g.name.clone()),
+                    vram_total_bytes: detected.map_or(0, |g| g.vram_total_bytes),
+                    vram_free_bytes: detected.map_or(0, |g| g.vram_free_bytes),
+                    current_job_id,
+                    current_proof_kind,
                 }
-            }
-            gpu
-        }).collect();
+            }).collect()
+        };
 
         Ok(Response::new(pb::GetStatusResponse {
             gpus,
@@ -302,13 +324,16 @@ impl ProvingEngine for ProvingService {
             }
         }
 
-        // --- Running job ---
+        // --- Running jobs ---
+        let running_count = status.workers.iter().filter(|w| w.current_job.is_some()).count();
         text.push_str("# HELP cuzk_running_jobs Currently running proofs\n");
         text.push_str("# TYPE cuzk_running_jobs gauge\n");
-        text.push_str(&format!(
-            "cuzk_running_jobs {}\n",
-            if status.running_job.is_some() { 1 } else { 0 }
-        ));
+        text.push_str(&format!("cuzk_running_jobs {}\n", running_count));
+
+        // --- Worker count ---
+        text.push_str("# HELP cuzk_gpu_workers Number of GPU workers\n");
+        text.push_str("# TYPE cuzk_gpu_workers gauge\n");
+        text.push_str(&format!("cuzk_gpu_workers {}\n", status.workers.len()));
 
         Ok(Response::new(pb::GetMetricsResponse {
             prometheus_text: text,
