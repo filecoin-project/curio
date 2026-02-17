@@ -104,15 +104,15 @@ func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 }
 
 // claimSectorForDelegation atomically creates the rseal_client_pipeline entry
-// and claims all SDR/tree task_ids in sectors_sdr_pipeline.
+// and claims all SDR/tree task_ids in both sectors_sdr_pipeline and rseal_client_pipeline.
 func (d *RSealDelegate) claimSectorForDelegation(taskFunc harmonytask.AddTaskFunc, spID, sectorNumber int64, providerID int64, regSealProof int) {
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-		// Insert into rseal_client_pipeline
+		// Insert into rseal_client_pipeline with task_id_sdr set
 		n, err := tx.Exec(`
-			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, task_id_sdr)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
-			spID, sectorNumber, providerID, regSealProof)
+			spID, sectorNumber, providerID, regSealProof, id)
 		if err != nil {
 			return false, xerrors.Errorf("inserting rseal_client_pipeline: %w", err)
 		}
@@ -219,12 +219,12 @@ func (d *RSealDelegate) scheduleCCRemote(ctx context.Context, taskFunc harmonyta
 			return false, xerrors.Errorf("inserting sector %d for SP %d: %w", sectorNum, schedule.SpID, err)
 		}
 
-		// Insert into rseal_client_pipeline
+		// Insert into rseal_client_pipeline with task_id_sdr set
 		n, err := tx.Exec(`
-			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, task_id_sdr)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
-			schedule.SpID, int64(sectorNum), schedule.ProviderID, int(spt))
+			schedule.SpID, int64(sectorNum), schedule.ProviderID, int(spt), id)
 		if err != nil {
 			return false, xerrors.Errorf("inserting rseal_client_pipeline: %w", err)
 		}
