@@ -1,0 +1,377 @@
+package pdp
+
+import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/big"
+	"net/http"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	logger "github.com/ipfs/go-log/v2"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/pdp/contract"
+)
+
+var logCreate = logger.Logger("pdp/create")
+
+// handleCreateDataSetAndAddPieces handles the creation of a new data set and adding pieces at the same time
+func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// We should use background context here for consistency.
+	//	If some task is taking longer than expected, a client might time out and context will be canceled.
+	//	This can result in an inconsistent state in the database where we created the dataSet but did not add to DB.
+
+	workCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.AuthService(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	type RequestBody struct {
+		RecordKeeper string            `json:"recordKeeper"`
+		Pieces       []AddPieceRequest `json:"pieces"`
+		ExtraData    *string           `json:"extraData,omitempty"`
+	}
+
+	var reqBody RequestBody
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if reqBody.RecordKeeper == "" {
+		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		return
+	}
+
+	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
+	if recordKeeperAddr == (common.Address{}) {
+		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the recordkeeper is in the whitelist for public services
+	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
+		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		return
+	}
+
+	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
+	if err != nil {
+		http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+		return
+	}
+	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSetAndAddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+
+	// Check if indexing is needed by decoding the extraData
+	mustIndex, err := CheckIfIndexingNeededFromExtraData(extraDataBytes)
+	if err != nil {
+		logCreate.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
+		mustIndex = false
+	}
+	if mustIndex {
+		logCreate.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
+	}
+
+	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	if err != nil {
+		logCreate.Warnf("Failed to process AddPieces request data: %+v", err)
+		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	abiData, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data, err := abiData.Pack("addPieces", new(big.Int), recordKeeperAddr, pieceDataArray, extraDataBytes)
+	if err != nil {
+		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	tx := types.NewTransaction(
+		0,
+		contract.ContractAddresses().PDPVerifier,
+		contract.SybilFee(),
+		0,
+		nil,
+		data,
+	)
+
+	reason := "pdp-create-and-add"
+	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
+	if err != nil {
+		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		logCreate.Errorf("Failed to send transaction: %+v", err)
+		return
+	}
+
+	txHashLower := strings.ToLower(txHash.Hex())
+	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
+		"txHash", txHashLower,
+		"service", serviceLabel,
+		"recordKeeper", recordKeeperAddr.Hex())
+	// Begin a database transaction
+	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
+		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
+		if err != nil {
+			return false, err
+		}
+		// insert piece adds with data_set id = NULL as the dataset is pending
+		err = p.insertPieceAdds(tx, nil, txHashLower, reqBody.Pieces, subPieceInfoMap)
+		if err != nil {
+			return false, err
+		}
+
+		// Enable indexing if the extraData indicates indexing is needed
+		if mustIndex {
+			logCreate.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
+			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
+				return false, err
+			}
+		}
+
+		return true, err
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		logCreate.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !comm {
+		logCreate.Error("Failed to commit database transaction")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 7: Respond with 201 Created and Location header
+	w.Header().Set("Location", path.Join("/pdp/data-sets/created", txHashLower))
+	w.WriteHeader(http.StatusCreated)
+}
+
+func decodeExtraData(extraDataString *string) ([]byte, error) {
+	if extraDataString == nil {
+		return nil, nil
+	}
+
+	extraDataHexStr := *extraDataString
+	decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+	if err != nil {
+		logCreate.Errorf("Failed to decode hex extraData: %v", err)
+		return nil, err
+	}
+	return decodedBytes, nil
+}
+
+// handleCreateDataSet handles the creation of a new data set
+func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	workCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.AuthService(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Step 2: Parse the request body to get the 'recordKeeper' address and extraData
+	type RequestBody struct {
+		RecordKeeper string  `json:"recordKeeper"`
+		ExtraData    *string `json:"extraData,omitempty"`
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer func() {
+		_ = r.Body.Close()
+	}()
+
+	var reqBody RequestBody
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if reqBody.RecordKeeper == "" {
+		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		return
+	}
+
+	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
+	if recordKeeperAddr == (common.Address{}) {
+		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the recordkeeper is in the whitelist for public services
+	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
+		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		return
+	}
+
+	// Decode extraData if provided
+	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
+	if err != nil {
+		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(extraDataBytes) > MaxCreateDataSetExtraDataSize {
+		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSet (%d bytes)", len(extraDataBytes), MaxCreateDataSetExtraDataSize)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 4: Manually create the transaction without requiring a Signer
+	// Obtain the ABI of the PDPVerifier contract
+	abiData, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Pack the method call data
+	data, err := abiData.Pack("createDataSet", recordKeeperAddr, extraDataBytes)
+	if err != nil {
+		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
+	tx := types.NewTransaction(
+		0,
+		contract.ContractAddresses().PDPVerifier,
+		contract.SybilFee(),
+		0,
+		nil,
+		data,
+	)
+
+	// Step 5: Send the transaction using SenderETH
+	reason := "pdp-mkdataset"
+	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
+	if err != nil {
+		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		logCreate.Errorf("Failed to send transaction: %+v", err)
+		return
+	}
+
+	// Step 6: Insert into message_waits_eth and pdp_data_set_creates
+	txHashLower := strings.ToLower(txHash.Hex())
+	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
+		"txHash", txHashLower,
+		"service", serviceLabel,
+		"recordKeeper", recordKeeperAddr.Hex())
+
+	// Begin a database transaction
+	comm, err := p.db.BeginTransaction(workCtx, func(tx *harmonydb.Tx) (bool, error) {
+		err := p.insertMessageWaitsAndDataSetCreate(tx, txHashLower, serviceLabel)
+		if err != nil {
+			return false, err
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		logCreate.Errorf("Failed to insert database tracking records: %+v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !comm {
+		logCreate.Error("Failed to commit database transaction")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 7: Respond with 201 Created and Location header
+	w.Header().Set("Location", path.Join("/pdp/data-sets/created", txHashLower))
+	w.WriteHeader(http.StatusCreated)
+}
+
+// insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
+func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string) error {
+	// Insert into message_waits_eth
+	logCreate.Debugw("Inserting into message_waits_eth",
+		"txHash", txHashHex,
+		"status", "pending")
+	n, err := tx.Exec(`
+            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+            VALUES ($1, $2)
+        `, txHashHex, "pending")
+	if err != nil {
+		logCreate.Errorw("Failed to insert into message_waits_eth",
+			"txHash", txHashHex,
+			"error", err)
+		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("expected 1 row to be inserted into message_waits_eth, got %d", n)
+	}
+
+	// Insert into pdp_data_set_creates
+	logCreate.Debugw("Inserting into pdp_data_set_creates",
+		"txHash", txHashHex,
+		"service", serviceLabel)
+	n, err = tx.Exec(`
+            INSERT INTO pdp_data_set_creates (create_message_hash, service)
+            VALUES ($1, $2)
+        `, txHashHex, serviceLabel)
+	if err != nil {
+		logCreate.Errorw("Failed to insert into pdp_data_set_creates",
+			"txHash", txHashHex,
+			"error", err)
+		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_creates, got %d", n)
+	}
+
+	logCreate.Infow("Successfully inserted transaction tracking records",
+		"txHash", txHashHex,
+		"service", serviceLabel)
+	return nil
+}

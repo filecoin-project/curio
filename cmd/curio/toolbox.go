@@ -5,15 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	mbig "math/big"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/docker/go-units"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/fatih/color"
 	"github.com/ipfs/go-cid"
 	"github.com/manifoldco/promptui"
@@ -29,7 +25,6 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-	"github.com/filecoin-project/curio/pdp/contract"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -43,7 +38,6 @@ var toolboxCmd = &cli.Command{
 	Usage: translations.T("Tool Box for Curio"),
 	Subcommands: []*cli.Command{
 		fixMsgCmd,
-		registerPDPServiceProviderCmd,
 		downgradeCmd,
 		fixBoostMigrationCmd,
 	},
@@ -303,151 +297,6 @@ func ffMsg2Message(ffmsg FilfoxMsg) (types.Message, error) {
 		Method:     abi.MethodNum(ffmsg.MethodNumber),
 		Params:     []byte(ffmsg.Params),
 	}, nil
-}
-
-var registerPDPServiceProviderCmd = &cli.Command{
-	Name:  "register-pdp-service-provider",
-	Usage: translations.T("Register a PDP service provider with Filecoin Service Registry Contract"),
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "name",
-			Usage:    translations.T("Service provider name"),
-			Required: true,
-		},
-		&cli.StringFlag{
-			Name:  "description",
-			Usage: translations.T("Service provider description"),
-		},
-		&cli.StringFlag{
-			Name:     "service-url",
-			Usage:    translations.T("URL of the service provider"),
-			Required: true,
-		},
-		&cli.StringFlag{
-			Name:  "min-size",
-			Usage: translations.T("Minimum piece size"),
-			Value: "1 MiB",
-		},
-		&cli.StringFlag{
-			Name:  "max-size",
-			Usage: translations.T("Maximum piece size"),
-			Value: "64 GiB",
-		},
-		&cli.BoolFlag{
-			Name:  "ipni-piece",
-			Usage: translations.T("Supports IPNI piece CID indexing"),
-		},
-		&cli.BoolFlag{
-			Name:  "ipni-ipfs",
-			Usage: translations.T("Supports IPNI IPFS CID indexing"),
-		},
-		&cli.Int64Flag{
-			Name:  "price",
-			Usage: translations.T("Storage price per TiB per month in USDFC, Default is 1 USDFC."),
-			Value: 1000000,
-		},
-		&cli.Int64Flag{
-			Name:  "proving-period",
-			Usage: translations.T("Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset"),
-			Value: 60,
-		},
-		&cli.StringFlag{
-			Name:  "location",
-			Usage: translations.T("Location of the service provider"),
-		},
-		&cli.StringFlag{
-			Name:  "token-address",
-			Usage: translations.T("Token contract for payment (IERC20(address(0)) for FIL)"),
-		},
-	},
-	Action: func(cctx *cli.Context) error {
-		ctx := reqcontext.ReqContext(cctx)
-		dep, err := deps.GetDepsCLI(ctx, cctx)
-		if err != nil {
-			return err
-		}
-
-		serviceURL, err := url.Parse(cctx.String("service-url"))
-		if err != nil {
-			return xerrors.Errorf("failed to parse service url: %w", err)
-		}
-
-		minSize, err := units.RAMInBytes(cctx.String("min-size"))
-		if err != nil {
-			return xerrors.Errorf("failed to parse min size: %w", err)
-		}
-
-		maxSize, err := units.RAMInBytes(cctx.String("max-size"))
-		if err != nil {
-			return xerrors.Errorf("failed to parse max size: %w", err)
-		}
-
-		if minSize > maxSize {
-			return xerrors.Errorf("min size must be less than max size")
-		}
-
-		ipiece := cctx.Bool("ipni-piece")
-		ipfs := cctx.Bool("ipni-ipfs")
-
-		price := cctx.Int64("price")
-
-		pp := cctx.Int64("proving-period")
-		if pp < 0 {
-			return xerrors.Errorf("proving period must be greater than 0")
-		}
-
-		location := cctx.String("location")
-		if location == "" {
-			location = "Unknown"
-		}
-
-		if len(location) > 128 {
-			return xerrors.Errorf("location must be less than 128 characters")
-		}
-
-		tokenAddress := cctx.String("token-address")
-
-		if tokenAddress == "" {
-			tokenAddress = "0x0000000000000000000000000000000000000000"
-		}
-
-		if tokenAddress[0:1] == "0x" {
-			tokenAddress = tokenAddress[2:]
-		}
-
-		if !common.IsHexAddress(tokenAddress) {
-			return xerrors.Errorf("token address is not valid")
-		}
-
-		offering := contract.ServiceProviderRegistryStoragePDPOffering{
-			ServiceURL:                 serviceURL.String(),
-			MinPieceSizeInBytes:        mbig.NewInt(minSize),
-			MaxPieceSizeInBytes:        mbig.NewInt(maxSize),
-			IpniPiece:                  ipiece,
-			IpniIpfs:                   ipfs,
-			StoragePricePerTibPerMonth: mbig.NewInt(price),
-			MinProvingPeriodInEpochs:   mbig.NewInt(pp),
-			Location:                   location,
-			PaymentTokenAddress:        common.HexToAddress(tokenAddress),
-		}
-
-		ethClient, err := dep.EthClient.Val()
-		if err != nil {
-			return xerrors.Errorf("failed to get eth client: %w", err)
-		}
-
-		name := cctx.String("name")
-		description := cctx.String("description")
-
-		id, err := contract.FSRegister(ctx, dep.DB, dep.Chain, ethClient, name, description, offering, nil)
-		if err != nil {
-			return xerrors.Errorf("failed to register storage provider with service contract: %w", err)
-		}
-
-		fmt.Printf("Registered storage provider with ID: %d\n", id)
-
-		return nil
-	},
 }
 
 var downgradeCmd = &cli.Command{

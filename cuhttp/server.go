@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -25,6 +26,7 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
+	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
@@ -179,6 +181,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		_, _ = fmt.Fprintf(w, "Service is up and running")
 	})
 
+	// Status endpoint to check the health of the service
+	chiRouter.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "%s", build.UserVersion())
+	})
+
 	// TODO: Attach a info page here with details about all the service and endpoints
 
 	chiRouter, err = attachRouters(ctx, chiRouter, d, sd)
@@ -293,10 +301,10 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
 
-	//if sd.EthSender != nil {
-	//	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
-	//	pdp.Routes(r, pdsvc)
-	//}
+	if sd.EthSender != nil {
+		pdsvc := pdp.NewPDPService(ctx, d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
+		pdp.Routes(r, pdsvc)
+	}
 
 	// Attach the market handler
 	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
