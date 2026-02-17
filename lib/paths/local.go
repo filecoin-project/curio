@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"expvar"
 	"fmt"
+	"io"
 	"math/bits"
 	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,6 +73,17 @@ const BatchMetaFile = "batch.json" // supraseal
 const MinFreeStoragePercentage = float64(0)
 
 const CommitPhase1OutputFileSupra = "commit-phase1-output"
+const RemoteSealC1UrlFile = "c1.url" // remote seal: JSON with commit1 endpoint info
+
+// RemoteSealC1Info is the JSON structure stored in the c1.url file in a sector's
+// cache directory. It tells GeneratePoRepVanillaProof how to fetch C1 output
+// from a remote seal provider instead of computing it locally.
+type RemoteSealC1Info struct {
+	C1URL        string `json:"c1_url"`        // full URL to the provider's /commit1 endpoint
+	PartnerToken string `json:"partner_token"` // auth token for the provider
+	SpID         int64  `json:"sp_id"`
+	SectorNumber int64  `json:"sector_number"`
+}
 
 // used to guard allocation decisions between assignment and reservation
 var ReservationCtxLock = contextlock.NewContextLock()
@@ -1278,6 +1291,14 @@ func (st *Local) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 		}
 	}
 
+	{
+		// check if this is a remote-sealed sector with a c1.url file
+		c1UrlPath := filepath.Join(src.Cache, RemoteSealC1UrlFile)
+		if _, err := os.Stat(c1UrlPath); err == nil {
+			return st.remoteSealPoRepVanillaProof(src, sr, seed)
+		}
+	}
+
 	secPiece := []abi.PieceInfo{{
 		Size:     abi.PaddedPieceSize(ssize),
 		PieceCID: unsealed,
@@ -1302,6 +1323,87 @@ func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 	}
 
 	return out, nil
+}
+
+// remoteSealPoRepVanillaProof fetches C1 output from a remote seal provider.
+// The c1.url file in the sector cache directory contains the endpoint info.
+// The result is saved as commit-phase1-output in the cache directory so that
+// the standard PoRepSnark path can use it, consistent with the supra path.
+func (st *Local) remoteSealPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, seed abi.InteractiveSealRandomness) ([]byte, error) {
+	// Check if commit-phase1-output already exists (idempotent retry)
+	commitPhase1OutputPath := filepath.Join(src.Cache, CommitPhase1OutputFileSupra)
+	if data, err := os.ReadFile(commitPhase1OutputPath); err == nil && len(data) > 0 {
+		log.Infow("remoteSealPoRepVanillaProof: using cached commit-phase1-output", "sref", sr)
+		return data, nil
+	}
+
+	// Read c1.url file
+	c1UrlPath := filepath.Join(src.Cache, RemoteSealC1UrlFile)
+	c1InfoData, err := os.ReadFile(c1UrlPath)
+	if err != nil {
+		return nil, xerrors.Errorf("read c1.url file: %w", err)
+	}
+
+	var c1Info RemoteSealC1Info
+	if err := json.Unmarshal(c1InfoData, &c1Info); err != nil {
+		return nil, xerrors.Errorf("unmarshal c1.url: %w", err)
+	}
+
+	// Build commit1 request
+	reqBody := struct {
+		PartnerToken string `json:"partner_token"`
+		SpID         int64  `json:"sp_id"`
+		SectorNumber int64  `json:"sector_number"`
+		SeedValue    []byte `json:"seed_value"`
+	}{
+		PartnerToken: c1Info.PartnerToken,
+		SpID:         c1Info.SpID,
+		SectorNumber: c1Info.SectorNumber,
+		SeedValue:    seed,
+	}
+
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, xerrors.Errorf("marshal commit1 request: %w", err)
+	}
+
+	// POST to provider
+	httpReq, err := http.NewRequest(http.MethodPost, c1Info.C1URL, bytes.NewReader(reqJSON))
+	if err != nil {
+		return nil, xerrors.Errorf("create commit1 request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, xerrors.Errorf("commit1 request to %s: %w", c1Info.C1URL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, xerrors.Errorf("commit1 returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Read raw bytes — provider sends application/octet-stream
+	c1Output, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, xerrors.Errorf("read commit1 response body: %w", err)
+	}
+
+	if len(c1Output) == 0 {
+		return nil, xerrors.Errorf("provider returned empty C1 output")
+	}
+
+	// Write to commit-phase1-output for caching / consistency with supra path
+	if err := os.WriteFile(commitPhase1OutputPath, c1Output, 0644); err != nil {
+		return nil, xerrors.Errorf("write commit-phase1-output: %w", err)
+	}
+
+	log.Infow("remoteSealPoRepVanillaProof: fetched C1 from provider",
+		"sref", sr, "c1_size", len(c1Output), "url", c1Info.C1URL)
+
+	return c1Output, nil
 }
 
 var supraC1Token = make(chan struct{}, 1)

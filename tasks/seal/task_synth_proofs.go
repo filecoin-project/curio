@@ -105,7 +105,7 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 
 	err = s.sc.SyntheticProofs(ctx, &taskID, sref, sealed, unsealed, sectorParams.TicketValue, dealData.PieceInfos, keepUnsealed)
 	if err != nil {
-		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, s.db, s.TypeDetails().Name)
+		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, s.db, s.TypeDetails().Name, "local")
 		if serr != nil {
 			return false, xerrors.Errorf("generating synthetic proofs: %w", err)
 		}
@@ -128,13 +128,21 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	return true, nil
 }
 
-func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error, db *harmonydb.DB, name string) error {
+func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error, db *harmonydb.DB, name string, pipeline string) error {
 	if err != nil {
 		if strings.Contains(err.Error(), "checking PreCommit") {
-			n, serr := db.Exec(ctx, `UPDATE sectors_sdr_pipeline 
+			var n int
+			var serr error
+			if pipeline == "remote" {
+				n, serr = db.Exec(ctx, `UPDATE rseal_provider_pipeline
+						SET after_tree_d = false, tree_d_cid = NULL, after_tree_r = false, after_tree_c = false, task_id_tree_r = NULL, task_id_tree_c = NULL
+						WHERE sp_id = $1 AND sector_number = $2`, spid, secNum)
+			} else {
+				n, serr = db.Exec(ctx, `UPDATE sectors_sdr_pipeline
 						SET after_tree_d = false, tree_d_cid = NULL, after_tree_r = false, after_tree_c = false, task_id_tree_r = NULL, task_id_tree_c = NULL,
 						    after_synth = false, task_id_synth = null
 						WHERE sp_id = $1 AND sector_number = $2`, spid, secNum)
+			}
 			if serr != nil {
 				return xerrors.Errorf("store %s failure: updating pipeline: Original error %w: DB error %w", name, err, serr)
 			}
@@ -148,7 +156,9 @@ func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error,
 }
 
 func (s *SyntheticProofTask) markFinished(ctx context.Context, spid, sector int64) error {
-	n, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_synth = true, task_id_synth = NULL 
+	// Synth proofs only run on the local pipeline; the provider pipeline does not
+	// have task_id_synth / after_synth columns (provider does SDR+trees only).
+	n, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_synth = true, task_id_synth = NULL
                             WHERE sp_id = $1 AND sector_number = $2`,
 		spid, sector)
 	if err != nil {
@@ -222,7 +232,8 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 func (s *SyntheticProofTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
 	var refs []ffi.SectorRef
 
-	err := s.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_synth = $1`, id)
+	err := s.db.Select(context.Background(), &refs, `
+		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_synth = $1`, id)
 	if err != nil {
 		return ffi.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
 	}
@@ -251,7 +262,7 @@ func (s *SyntheticProofTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 
 func (s *SyntheticProofTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
 	var spId, sectorNumber uint64
-	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_synth = $1`, taskID).Scan(&spId, &sectorNumber)
+	err := db.QueryRow(context.Background(), `SELECT sp_id, sector_number FROM sectors_sdr_pipeline WHERE task_id_synth = $1`, taskID).Scan(&spId, &sectorNumber)
 	if err != nil {
 		return nil, err
 	}

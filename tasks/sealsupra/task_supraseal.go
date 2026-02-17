@@ -265,13 +265,20 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	ctx := context.Background()
 
 	var sectors []struct {
-		SpID         int64 `db:"sp_id"`
-		SectorNumber int64 `db:"sector_number"`
-
-		RegSealProof int64 `db:"reg_seal_proof"`
+		SpID         int64         `db:"sp_id"`
+		SectorNumber int64         `db:"sector_number"`
+		RegSealProof int64         `db:"reg_seal_proof"`
+		Pipeline     string        `db:"pipeline"`
+		TicketEpoch  sql.NullInt64 `db:"ticket_epoch"`
+		TicketValue  []byte        `db:"ticket_value"`
 	}
 
-	err = s.db.Select(ctx, &sectors, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1`, taskID)
+	err = s.db.Select(ctx, &sectors, `
+		SELECT sp_id, sector_number, reg_seal_proof, 'local' as pipeline, NULL::bigint as ticket_epoch, NULL::bytea as ticket_value FROM sectors_sdr_pipeline
+		WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1
+		UNION ALL
+		SELECT sp_id, sector_number, reg_seal_proof, 'remote' as pipeline, ticket_epoch, ticket_value FROM rseal_provider_pipeline
+		WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
@@ -320,20 +327,26 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		// get ticket
-		maddr, err := address.NewIDAddress(uint64(t.SpID))
-		if err != nil {
-			return false, xerrors.Errorf("getting miner address: %w", err)
-		}
+		if t.Pipeline == "remote" && t.TicketEpoch.Valid {
+			// Remote sectors already have tickets from the client
+			ticketEpochs[i] = abi.ChainEpoch(t.TicketEpoch.Int64)
+			tickets[i] = abi.SealRandomness(t.TicketValue)
+		} else {
+			maddr, err := address.NewIDAddress(uint64(t.SpID))
+			if err != nil {
+				return false, xerrors.Errorf("getting miner address: %w", err)
+			}
 
-		ticket, ticketEpoch, err := seal.GetTicket(ctx, s.api, maddr)
-		if err != nil {
-			return false, xerrors.Errorf("getting ticket: %w", err)
+			ticket, ticketEpoch, err := seal.GetTicket(ctx, s.api, maddr)
+			if err != nil {
+				return false, xerrors.Errorf("getting ticket: %w", err)
+			}
+			ticketEpochs[i] = ticketEpoch
+			tickets[i] = ticket
 		}
-		ticketEpochs[i] = ticketEpoch
-		tickets[i] = ticket
 
 		spt := abi.RegisteredSealProof(t.RegSealProof)
-		replicaIDs[i], err = spt.ReplicaId(abi.ActorID(t.SpID), abi.SectorNumber(t.SectorNumber), ticket, commd)
+		replicaIDs[i], err = spt.ReplicaId(abi.ActorID(t.SpID), abi.SectorNumber(t.SectorNumber), tickets[i], commd)
 		if err != nil {
 			return false, xerrors.Errorf("getting replica id: %w", err)
 		}
@@ -485,16 +498,25 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 				return false, xerrors.Errorf("getting sealed CID: %w", err)
 			}
 
-			_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET after_sdr = TRUE, after_tree_c = TRUE, after_tree_r = TRUE, after_tree_d = TRUE, after_synth = TRUE,
+			pipelineSource := "local"
+			if sector.Pipeline == "remote" {
+				pipelineSource = "remote"
+				// Remote sectors already have ticket from the client; update SDR/tree results only
+				_, err = tx.Exec(`UPDATE rseal_provider_pipeline SET after_sdr = TRUE, after_tree_c = TRUE, after_tree_r = TRUE, after_tree_d = TRUE,
+                                tree_d_cid = $3, tree_r_cid = $4, task_id_sdr = NULL, task_id_tree_r = NULL, task_id_tree_c = NULL, task_id_tree_d = NULL
+                            WHERE sp_id = $1 AND sector_number = $2`, sector.SpID, sector.SectorNumber, unsealedCID.String(), sealedCID)
+			} else {
+				_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET after_sdr = TRUE, after_tree_c = TRUE, after_tree_r = TRUE, after_tree_d = TRUE, after_synth = TRUE,
                                 ticket_epoch = $3, ticket_value = $4, tree_d_cid = $5, tree_r_cid = $6, task_id_sdr = NULL, task_id_tree_r = NULL, task_id_tree_c = NULL, task_id_tree_d = NULL
                             WHERE sp_id = $1 AND sector_number = $2`, sector.SpID, sector.SectorNumber, ticketEpochs[i], tickets[i], unsealedCID.String(), sealedCID)
+			}
 			if err != nil {
 				return false, xerrors.Errorf("updating sector: %w", err)
 			}
 
 			// insert batch refs
-			_, err = tx.Exec(`INSERT INTO batch_sector_refs (sp_id, sector_number, machine_host_and_port, pipeline_slot)
-    						  VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, sector.SpID, sector.SectorNumber, ownedBy[0].HostAndPort, slot)
+			_, err = tx.Exec(`INSERT INTO batch_sector_refs (sp_id, sector_number, machine_host_and_port, pipeline_slot, pipeline_source)
+    						  VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`, sector.SpID, sector.SectorNumber, ownedBy[0].HostAndPort, slot, pipelineSource)
 			if err != nil {
 				return false, xerrors.Errorf("inserting batch refs: %w", err)
 			}
@@ -568,6 +590,7 @@ type sectorClaim struct {
 	SpID         int64         `db:"sp_id"`
 	SectorNumber int64         `db:"sector_number"`
 	TaskIDSDR    sql.NullInt64 `db:"task_id_sdr"`
+	Pipeline     string        `db:"pipeline"`
 }
 
 func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
@@ -584,9 +607,15 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 		// claim [sectors] pipeline entries
 
 		var sectors []sectorClaim
-		err := tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_sdr FROM sectors_sdr_pipeline
-                                         LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_sdr = ht.id
-                                         WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1`, s.sectors)
+		err := tx.Select(&sectors, `
+			(SELECT sp_id, sector_number, task_id_sdr, 'local' as pipeline FROM sectors_sdr_pipeline
+			 LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_sdr = ht.id
+			 WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1)
+			UNION ALL
+			(SELECT sp_id, sector_number, task_id_sdr, 'remote' as pipeline FROM rseal_provider_pipeline
+			 LEFT JOIN harmony_task ht on rseal_provider_pipeline.task_id_sdr = ht.id
+			 WHERE after_sdr = FALSE AND ticket_epoch IS NOT NULL AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1)
+			LIMIT $1`, s.sectors)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}
@@ -610,7 +639,12 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 
 		// assign to pipeline entries, set task_id_sdr, task_id_tree_r, task_id_tree_c
 		for _, t := range sectors {
-			_, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_sdr = $1, task_id_tree_r = $1, task_id_tree_c = $1, task_id_tree_d = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+			var err error
+			if t.Pipeline == "remote" {
+				_, err = tx.Exec(`UPDATE rseal_provider_pipeline SET task_id_sdr = $1, task_id_tree_r = $1, task_id_tree_c = $1, task_id_tree_d = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+			} else {
+				_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_sdr = $1, task_id_tree_r = $1, task_id_tree_c = $1, task_id_tree_d = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+			}
 			if err != nil {
 				return false, xerrors.Errorf("updating task id: %w", err)
 			}
@@ -704,6 +738,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 				SpID:         schedule.SpID,
 				SectorNumber: int64(sectorNum),
 				TaskIDSDR:    sql.NullInt64{}, // New sector, no existing task
+				Pipeline:     "local",
 			})
 
 			userDuration := int64(schedule.DurationDays) * builtin.EpochsInDay
@@ -744,7 +779,12 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 func (s *SupraSeal) taskToSectors(id harmonytask.TaskID) ([]ffi.SectorRef, error) {
 	var sectors []ffi.SectorRef
 
-	err := s.db.Select(context.Background(), &sectors, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1`, id)
+	err := s.db.Select(context.Background(), &sectors, `
+		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline
+		WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1
+		UNION ALL
+		SELECT sp_id, sector_number, reg_seal_proof FROM rseal_provider_pipeline
+		WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1`, id)
 	if err != nil {
 		return nil, xerrors.Errorf("getting sector params: %w", err)
 	}

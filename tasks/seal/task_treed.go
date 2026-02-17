@@ -19,11 +19,19 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+// ProviderPollerTreeD is an interface that allows registering the TreeD task's
+// AddTaskFunc with the remote seal provider poller.
+type ProviderPollerTreeD interface {
+	SetPollerTreeD(harmonytask.AddTaskFunc)
+}
+
 type TreeDTask struct {
 	sp    *SealPoller
 	db    *harmonydb.DB
 	sc    *ffi2.SealCalls
 	bound bool
+
+	provPoller ProviderPollerTreeD // optional, nil when remote seal provider is not enabled
 
 	max int
 }
@@ -58,7 +66,13 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 			SELECT p.task_id_tree_d FROM sectors_sdr_pipeline p
 			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
 		    INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
-			WHERE p.task_id_tree_d = ANY($1::bigint[]) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100
+			WHERE p.task_id_tree_d = ANY($1::bigint[]) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%'
+		UNION ALL
+			SELECT p.task_id_tree_d FROM rseal_provider_pipeline p
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+		    INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
+			WHERE p.task_id_tree_d = ANY($1::bigint[]) AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%'
+			LIMIT 100
 			) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
@@ -99,7 +113,11 @@ func (t *TreeDTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 
 func (t *TreeDTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
 	var spId, sectorNumber uint64
-	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1`, taskID).Scan(&spId, &sectorNumber)
+	err := db.QueryRow(context.Background(), `SELECT sp_id, sector_number FROM (
+		SELECT sp_id, sector_number FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1
+		UNION ALL
+		SELECT sp_id, sector_number FROM rseal_provider_pipeline WHERE task_id_tree_d = $1
+	) s`, taskID).Scan(&spId, &sectorNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +132,10 @@ var _ = harmonytask.Reg(&TreeDTask{})
 func (t *TreeDTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var refs []ffi2.SectorRef
 
-	err := t.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1`, id)
+	err := t.db.Select(context.Background(), &refs, `
+		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1
+		UNION ALL
+		SELECT sp_id, sector_number, reg_seal_proof FROM rseal_provider_pipeline WHERE task_id_tree_d = $1`, id)
 	if err != nil {
 		return ffi2.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
 	}
@@ -128,13 +149,18 @@ func (t *TreeDTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) 
 
 func (t *TreeDTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.sp.pollers[pollerTreeD].Set(taskFunc)
+	if t.provPoller != nil {
+		t.provPoller.SetPollerTreeD(taskFunc)
+	}
 }
 
-func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int, bound bool) *TreeDTask {
+func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int, bound bool, provPoller ProviderPollerTreeD) *TreeDTask {
 	return &TreeDTask{
 		sp: sp,
 		db: db,
 		sc: sc,
+
+		provPoller: provPoller,
 
 		max:   maxTrees,
 		bound: bound,
@@ -148,11 +174,16 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		SpID         int64                   `db:"sp_id"`
 		SectorNumber int64                   `db:"sector_number"`
 		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
+		Pipeline     string                  `db:"pipeline"`
 	}
 
 	err = t.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof
+		SELECT sp_id, sector_number, reg_seal_proof, 'local' as pipeline
 		FROM sectors_sdr_pipeline
+		WHERE task_id_tree_d = $1
+		UNION ALL
+		SELECT sp_id, sector_number, reg_seal_proof, 'remote' as pipeline
+		FROM rseal_provider_pipeline
 		WHERE task_id_tree_d = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
@@ -195,9 +226,16 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to generate TreeD: %w", err)
 	}
 
-	n, err := t.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
-		SET after_tree_d = true, tree_d_cid = $3, task_id_tree_d = NULL WHERE sp_id = $1 AND sector_number = $2`,
-		sectorParams.SpID, sectorParams.SectorNumber, dealData.CommD)
+	var n int
+	if sectorParams.Pipeline == "remote" {
+		n, err = t.db.Exec(ctx, `UPDATE rseal_provider_pipeline
+			SET after_tree_d = true, tree_d_cid = $3, task_id_tree_d = NULL WHERE sp_id = $1 AND sector_number = $2`,
+			sectorParams.SpID, sectorParams.SectorNumber, dealData.CommD)
+	} else {
+		n, err = t.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
+			SET after_tree_d = true, tree_d_cid = $3, task_id_tree_d = NULL WHERE sp_id = $1 AND sector_number = $2`,
+			sectorParams.SpID, sectorParams.SectorNumber, dealData.CommD)
+	}
 	if err != nil {
 		return false, xerrors.Errorf("store TreeD success: updating pipeline: %w", err)
 	}

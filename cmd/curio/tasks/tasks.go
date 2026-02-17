@@ -37,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
+	"github.com/filecoin-project/curio/market/sealmarket"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
@@ -47,6 +48,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/pdp"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
+	"github.com/filecoin-project/curio/tasks/remoteseal"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
@@ -223,7 +225,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableUpdateSubmit ||
 		cfg.Subsystems.EnableCommP ||
 		cfg.Subsystems.EnableProofShare ||
-		cfg.Subsystems.EnableRemoteProofs
+		cfg.Subsystems.EnableRemoteProofs ||
+		cfg.Subsystems.EnableRemoteSealProvider ||
+		cfg.Subsystems.EnableRemoteSealClient
 
 	var p2Active sealsupra.P2Active
 	if hasAnySealingTask {
@@ -332,9 +336,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
 		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
 
+		// Create SealMarket for remote seal HTTP API
+		if cfg.Subsystems.EnableRemoteSealProvider || cfg.Subsystems.EnableRemoteSealClient {
+			sdeps.SealMarket = sealmarket.NewSealMarket(db, sc)
+		}
+
 		if cfg.HTTP.Enable {
-			if !cfg.Subsystems.EnableDealMarket {
-				return nil, xerrors.New("deal market must be enabled on HTTP server")
+			if !cfg.Subsystems.EnableDealMarket && !cfg.Subsystems.EnableRemoteSealProvider && !cfg.Subsystems.EnableRemoteSealClient {
+				return nil, xerrors.New("deal market or remote seal must be enabled on HTTP server")
 			}
 			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
@@ -405,6 +414,13 @@ func addSealingTasks(
 	var slotMgr *slotmgr.SlotMgr
 	var addFinalize bool
 
+	// Create the provider poller early if remote seal provider is enabled,
+	// so SDR/TreeD/TreeRC tasks can register their AddTaskFunc with it.
+	var provPoller *remoteseal.RSealProviderPoller
+	if cfg.Subsystems.EnableRemoteSealProvider {
+		provPoller = remoteseal.NewProviderPoller(db)
+	}
+
 	// NOTE: Tasks with the LEAST priority are at the top
 	if cfg.Subsystems.EnableCommP {
 		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
@@ -432,16 +448,34 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableSealSDR {
 		sdrMax := taskhelp.Max(cfg.Subsystems.SealSDRMaxTasks)
 
-		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks)
+		// provPoller is passed so SDR registers its AddTaskFunc with both SealPoller
+		// and RSealProviderPoller. When nil, only the local SealPoller is used.
+		var sdrProvPoller seal.ProviderPollerSDR
+		if provPoller != nil {
+			sdrProvPoller = provPoller
+		}
+		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks, sdrProvPoller)
 		keyTask := unseal.NewTaskUnsealSDR(slr, db, sdrMax, full)
 
 		activeTasks = append(activeTasks, sdrTask, keyTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {
-		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, cfg.Subsystems.BindSDRTreeToNode)
-		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
+		var treeDProvPoller seal.ProviderPollerTreeD
+		var treeRCProvPoller seal.ProviderPollerTreeRC
+		if provPoller != nil {
+			treeDProvPoller = provPoller
+			treeRCProvPoller = provPoller
+		}
+		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, cfg.Subsystems.BindSDRTreeToNode, treeDProvPoller)
+		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, treeRCProvPoller)
 		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
 		activeTasks = append(activeTasks, treeDTask, synthTask, treeRCTask)
+		addFinalize = true
+	}
+	// Remote seal client needs the Finalize task to run after PoRep.
+	// The client skips SDR/Trees (done by provider) but still runs the
+	// standard pipeline from precommit onward, which requires Finalize.
+	if cfg.Subsystems.EnableRemoteSealClient {
 		addFinalize = true
 	}
 	if addFinalize {
@@ -517,6 +551,41 @@ func addSealingTasks(
 		remotePollTask := proofshare.NewTaskClientPoll(db, full)
 		remoteSendTask := proofshare.NewTaskClientSend(db, full, router)
 		activeTasks = append(activeTasks, remoteUploadTask, remotePollTask, remoteSendTask)
+	}
+
+	// Remote seal provider tasks
+	if cfg.Subsystems.EnableRemoteSealProvider {
+		// provPoller was created earlier (before SDR/TreeD/TreeRC tasks) so that
+		// those tasks could register their AddTaskFunc with it via Adder().
+		go provPoller.RunPoller(ctx)
+
+		provMaxTasks := cfg.Subsystems.RemoteSealProviderMaxTasks
+		cleanupTimeout := cfg.Subsystems.RemoteSealCleanupTimeout
+
+		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller, provMaxTasks, cleanupTimeout)
+		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, cfg.Subsystems.FinalizeMaxTasks)
+		provCleanupTask := remoteseal.NewProviderCleanupTask(db, provPoller, stor, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
+
+		activeTasks = append(activeTasks, notifyTask, provFinalizeTask, provCleanupTask)
+
+		// Provider-side SDR/Tree tasks are handled by the existing SDR/TreeD/TreeRC tasks
+		// via UNION ALL queries - they just need to be enabled (EnableSealSDR/EnableSealSDRTrees).
+		// The SDR/TreeD/TreeRC tasks register their AddTaskFunc with provPoller in their Adder() methods.
+	}
+
+	// Remote seal client tasks
+	if cfg.Subsystems.EnableRemoteSealClient {
+		clientPoller := remoteseal.NewRSealClientPoller(db)
+		go clientPoller.RunPoller(ctx)
+
+		rsealClient := remoteseal.NewRSealClient()
+
+		delegateTask := remoteseal.NewRSealDelegate(db, full, rsealClient)
+		pollTask := remoteseal.NewRSealClientPoll(db, rsealClient, clientPoller)
+		fetchTask := remoteseal.NewRSealClientFetch(db, rsealClient, slr, clientPoller)
+		cleanupTask := remoteseal.NewRSealClientCleanup(db, rsealClient, clientPoller)
+
+		activeTasks = append(activeTasks, delegateTask, pollTask, fetchTask, cleanupTask)
 	}
 
 	// harmony treats the first task as highest priority, so reverse the order

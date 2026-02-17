@@ -44,6 +44,9 @@ func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err := s.cleanupPDPPipeline(); err != nil {
 		return false, xerrors.Errorf("cleanupPDPPipeline: %w", err)
 	}
+	if err := s.cleanupRemoteSealProvider(); err != nil {
+		return false, xerrors.Errorf("cleanupRemoteSealProvider: %w", err)
+	}
 
 	return true, nil
 }
@@ -235,6 +238,20 @@ func (s *PipelineGC) cleanupPDPPipeline() error {
 	_, err := s.db.Exec(ctx, `DELETE FROM pdp_pipeline WHERE complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
+	}
+	return nil
+}
+
+func (s *PipelineGC) cleanupRemoteSealProvider() error {
+	// Remove rseal_provider_pipeline entries where cleanup is done and the row
+	// has been idle for at least 24 hours (gives time for any pending queries).
+	ctx := context.Background()
+	_, err := s.db.Exec(ctx, `DELETE FROM rseal_provider_pipeline
+		WHERE after_cleanup = TRUE
+		  AND cleanup_timeout IS NOT NULL
+		  AND cleanup_timeout < NOW() - INTERVAL '24 hours'`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up remote seal provider entries: %w", err)
 	}
 	return nil
 }

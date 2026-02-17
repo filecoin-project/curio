@@ -804,6 +804,39 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Comment: `EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)`,
 		},
 		{
+			Name: "EnableRemoteSealProvider",
+			Type: "bool",
+
+			Comment: `EnableRemoteSealProvider enables the remote seal provider on this node.
+When enabled, this node will accept seal orders from remote clients and perform
+SDR + tree computation on their behalf. (Default: false)`,
+		},
+		{
+			Name: "RemoteSealProviderMaxTasks",
+			Type: "int",
+
+			Comment: `RemoteSealProviderMaxTasks limits how many concurrent remote seal orders the provider
+will process. This controls the number of Notify, Finalize, and Cleanup tasks that can
+run simultaneously. SDR/Tree concurrency is controlled by the existing SealSDRMaxTasks
+and SealSDRTreesMaxTasks settings. Set to 0 for unlimited. (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "RemoteSealCleanupTimeout",
+			Type: "time.Duration",
+
+			Comment: `RemoteSealCleanupTimeout is how long the provider keeps sealed sector data after
+notifying the client of completion. If the client doesn't trigger cleanup within this
+period, the provider automatically cleans up the data. (Default: 72h)`,
+		},
+		{
+			Name: "EnableRemoteSealClient",
+			Type: "bool",
+
+			Comment: `EnableRemoteSealClient enables the remote seal client on this node.
+When enabled, this node can delegate SDR + tree computation to remote providers
+configured in the rseal_client_providers table. (Default: false)`,
+		},
+		{
 			Name: "EnableDealMarket",
 			Type: "bool",
 

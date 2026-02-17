@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Remote Seal</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="rseal-provider.mjs"></script>
+    <script type="module" src="rseal-client.mjs"></script>
+    <script type="module" src="rseal-pipeline.mjs"></script>
+    <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+    <style>
+        .rseal-tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+        }
+        .rseal-tab {
+            all: unset;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            background: rgba(255,255,255,0.05);
+            color: #aaa;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+        .rseal-tab:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .rseal-tab.active {
+            background: rgba(59, 130, 246, 0.3);
+            color: #fff;
+        }
+        .rseal-tab-content {
+            display: none;
+        }
+        .rseal-tab-content.active {
+            display: block;
+        }
+    </style>
+    <script>
+        function switchTab(tabName) {
+            document.querySelectorAll('.rseal-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+            document.querySelectorAll('.rseal-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tabName));
+        }
+        document.addEventListener('DOMContentLoaded', () => switchTab('provider'));
+    </script>
+</head>
+<body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
+<curio-ux>
+    <div class="page" style="margin-left: 20px; margin-right: 10px">
+        <section class="section">
+            <div class="row">
+                <h1>Remote Seal</h1>
+            </div>
+        </section>
+        <section class="section">
+            <div class="rseal-tabs">
+                <button class="rseal-tab active" data-tab="provider" onclick="switchTab('provider')">Provider</button>
+                <button class="rseal-tab" data-tab="client" onclick="switchTab('client')">Client</button>
+                <button class="rseal-tab" data-tab="pipeline" onclick="switchTab('pipeline')">Pipeline</button>
+            </div>
+            <div id="tab-provider" class="rseal-tab-content active">
+                <rseal-provider></rseal-provider>
+            </div>
+            <div id="tab-client" class="rseal-tab-content">
+                <rseal-client></rseal-client>
+            </div>
+            <div id="tab-pipeline" class="rseal-tab-content">
+                <rseal-pipeline></rseal-pipeline>
+            </div>
+        </section>
+    </div>
+</curio-ux>
+</body>
+</html>

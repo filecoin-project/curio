@@ -41,25 +41,44 @@ type SDRAPI interface {
 	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
 }
 
+// ProviderPollerSDR is an interface that allows registering the SDR task's
+// AddTaskFunc with the remote seal provider poller. This enables the provider
+// poller to schedule SDR tasks for rseal_provider_pipeline rows.
+type ProviderPollerSDR interface {
+	SetPollerSDR(harmonytask.AddTaskFunc)
+}
+
 type SDRTask struct {
-	api SDRAPI
-	db  *harmonydb.DB
-	sp  *SealPoller
+	api   SDRAPI
+	ccAPI CCSchedulerAPI // optional, nil disables CC scheduling
+	db    *harmonydb.DB
+	sp    *SealPoller
 
 	sc *ffi2.SealCalls
+
+	provPoller ProviderPollerSDR // optional, nil when remote seal provider is not enabled
 
 	max taskhelp.Limiter
 	min int
 }
 
-func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR taskhelp.Limiter, minSDR int) *SDRTask {
+func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR taskhelp.Limiter, minSDR int, provPoller ProviderPollerSDR) *SDRTask {
+	// If the API also satisfies CCSchedulerAPI, enable CC scheduling.
+	// This is the case when the full chain API is passed (normal operation).
+	var ccAPI CCSchedulerAPI
+	if ca, ok := api.(CCSchedulerAPI); ok {
+		ccAPI = ca
+	}
+
 	return &SDRTask{
-		api: api,
-		db:  db,
-		sp:  sp,
-		sc:  sc,
-		max: maxSDR,
-		min: minSDR,
+		api:        api,
+		ccAPI:      ccAPI,
+		db:         db,
+		sp:         sp,
+		sc:         sc,
+		provPoller: provPoller,
+		max:        maxSDR,
+		min:        minSDR,
 	}
 }
 
@@ -70,11 +89,16 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		SpID         int64                   `db:"sp_id"`
 		SectorNumber int64                   `db:"sector_number"`
 		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
+		Pipeline     string                  `db:"pipeline"`
 	}
 
 	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof
+		SELECT sp_id, sector_number, reg_seal_proof, 'local' as pipeline
 		FROM sectors_sdr_pipeline
+		WHERE task_id_sdr = $1
+		UNION ALL
+		SELECT sp_id, sector_number, reg_seal_proof, 'remote' as pipeline
+		FROM rseal_provider_pipeline
 		WHERE task_id_sdr = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
@@ -127,10 +151,18 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	}
 
 	// store success!
-	n, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
-		SET after_sdr = true, ticket_epoch = $3, ticket_value = $4, task_id_sdr = NULL
-		WHERE sp_id = $1 AND sector_number = $2`,
-		sectorParams.SpID, sectorParams.SectorNumber, ticketEpoch, []byte(ticket))
+	var n int
+	if sectorParams.Pipeline == "remote" {
+		n, err = s.db.Exec(ctx, `UPDATE rseal_provider_pipeline
+			SET after_sdr = true, ticket_epoch = $3, ticket_value = $4, task_id_sdr = NULL
+			WHERE sp_id = $1 AND sector_number = $2`,
+			sectorParams.SpID, sectorParams.SectorNumber, ticketEpoch, []byte(ticket))
+	} else {
+		n, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
+			SET after_sdr = true, ticket_epoch = $3, ticket_value = $4, task_id_sdr = NULL
+			WHERE sp_id = $1 AND sector_number = $2`,
+			sectorParams.SpID, sectorParams.SectorNumber, ticketEpoch, []byte(ticket))
+	}
 	if err != nil {
 		return false, xerrors.Errorf("store sdr success: updating pipeline: %w", err)
 	}
@@ -199,6 +231,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 2,
 		Follows:     nil,
+		IAmBored:    s.newScheduleCCFunc(),
 	}
 
 	if IsDevnet {
@@ -211,6 +244,9 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (s *SDRTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerSDR].Set(taskFunc)
+	if s.provPoller != nil {
+		s.provPoller.SetPollerSDR(taskFunc)
+	}
 }
 
 func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
@@ -224,7 +260,11 @@ func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 
 func (s *SDRTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
 	var spId, sectorNumber uint64
-	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spId, &sectorNumber)
+	err := db.QueryRow(context.Background(), `SELECT sp_id, sector_number FROM (
+		SELECT sp_id, sector_number FROM sectors_sdr_pipeline WHERE task_id_sdr = $1
+		UNION ALL
+		SELECT sp_id, sector_number FROM rseal_provider_pipeline WHERE task_id_sdr = $1
+	) s`, taskID).Scan(&spId, &sectorNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +279,10 @@ var _ = harmonytask.Reg(&SDRTask{})
 func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var refs []ffi2.SectorRef
 
-	err := s.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, id)
+	err := s.db.Select(context.Background(), &refs, `
+		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1
+		UNION ALL
+		SELECT sp_id, sector_number, reg_seal_proof FROM rseal_provider_pipeline WHERE task_id_sdr = $1`, id)
 	if err != nil {
 		return ffi2.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
 	}

@@ -268,6 +268,35 @@ description: The default curio configuration
   # type: bool
   #EnableBatchSeal = false
 
+  # EnableRemoteSealProvider enables the remote seal provider on this node.
+  # When enabled, this node will accept seal orders from remote clients and perform
+  # SDR + tree computation on their behalf. (Default: false)
+  #
+  # type: bool
+  #EnableRemoteSealProvider = false
+
+  # RemoteSealProviderMaxTasks limits how many concurrent remote seal orders the provider
+  # will process. This controls the number of Notify, Finalize, and Cleanup tasks that can
+  # run simultaneously. SDR/Tree concurrency is controlled by the existing SealSDRMaxTasks
+  # and SealSDRTreesMaxTasks settings. Set to 0 for unlimited. (Default: 0 - unlimited)
+  #
+  # type: int
+  #RemoteSealProviderMaxTasks = 0
+
+  # RemoteSealCleanupTimeout is how long the provider keeps sealed sector data after
+  # notifying the client of completion. If the client doesn't trigger cleanup within this
+  # period, the provider automatically cleans up the data. (Default: 72h)
+  #
+  # type: time.Duration
+  #RemoteSealCleanupTimeout = "72h0m0s"
+
+  # EnableRemoteSealClient enables the remote seal client on this node.
+  # When enabled, this node can delegate SDR + tree computation to remote providers
+  # configured in the rseal_client_providers table. (Default: false)
+  #
+  # type: bool
+  #EnableRemoteSealClient = false
+
   # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured. (Default: false)
   #
   # type: bool

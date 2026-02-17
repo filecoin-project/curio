@@ -40,10 +40,10 @@ func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	var id, pieceCidStr string
 	var spID, sectorNumer, pieceOffset, pieceSize, proof int64
-	err = f.db.QueryRow(ctx, `SELECT f.id, mpd.sp_id, mpd.sector_number, mpd.piece_cid, mpd.piece_offset, mpd.piece_length, m.reg_seal_proof 
+	err = f.db.QueryRow(ctx, `SELECT f.id, mpd.sp_id, mpd.sector_num, mpd.piece_cid, mpd.piece_offset, mpd.piece_length, m.reg_seal_proof 
 									FROM market_fix_raw_size f 
 									INNER JOIN market_piece_deal mpd ON f.id = mpd.id
-									INNER JOIN sectors_meta m ON mpd.sp_id = m.sp_id AND mpd.sector_number = m.sector_num
+									INNER JOIN sectors_meta m ON mpd.sp_id = m.sp_id AND mpd.sector_num = m.sector_num
 									WHERE  f.task_id = $1 AND mpd.raw_size = 0 
 									    AND piece_offset IS NOT NULL 
 									LIMIT 1`, taskID).Scan(&id, &spID, &sectorNumer, &pieceCidStr, &pieceOffset, &pieceSize, &proof)
@@ -129,9 +129,9 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 	err := f.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id), '{}')::bigint[] AS task_ids FROM (
 						SELECT f.task_id FROM market_fix_raw_size f
 						INNER JOIN market_piece_deal mpd ON f.id = mpd.id
-						INNER JOIN sector_location l ON mpd.sp_id = mpd.miner_id AND mpd.sector_number = l.sector_num AND l.sector_filetype = 4
+						INNER JOIN sector_location l ON mpd.sp_id = l.miner_id AND mpd.sector_num = l.sector_num AND l.sector_filetype = 4
 						INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
-						WHERE f.task_id = ANY($1::[]bigint)  AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
+						WHERE f.task_id = ANY($1::bigint[])  AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
