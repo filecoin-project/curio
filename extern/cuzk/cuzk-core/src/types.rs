@@ -127,6 +127,29 @@ pub struct ProofRequest {
     pub submitted_at: Instant,
 }
 
+impl Default for ProofRequest {
+    fn default() -> Self {
+        Self {
+            job_id: JobId(String::new()),
+            request_id: String::new(),
+            proof_kind: ProofKind::PoRepSealCommit,
+            priority: Priority::Normal,
+            sector_size: 0,
+            registered_proof: 0,
+            vanilla_proof: vec![],
+            vanilla_proofs: vec![],
+            sector_number: 0,
+            miner_id: 0,
+            randomness: vec![],
+            partition_index: 0,
+            comm_r_old: vec![],
+            comm_r_new: vec![],
+            comm_d_new: vec![],
+            submitted_at: Instant::now(),
+        }
+    }
+}
+
 /// Status of a proof job.
 #[derive(Debug, Clone)]
 pub enum JobStatus {

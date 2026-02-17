@@ -94,8 +94,14 @@ impl JobTracker {
 ///
 /// This is the message type sent through the pipeline channel from the
 /// synthesis task to GPU workers.
+///
+/// Phase 3: Supports both single-sector and batched multi-sector proofs.
+/// For batched proofs, `batch_requests` contains the individual sector
+/// requests (with their job IDs for result routing), and `sector_boundaries`
+/// holds the partition count per sector for splitting GPU output.
 pub(crate) struct SynthesizedJob {
-    /// The proof request (for job tracking and field access).
+    /// The proof request for single-sector proofs.
+    /// For batched proofs, this is the first request in the batch (used for proof_kind etc).
     pub request: ProofRequest,
     /// The synthesized proof (intermediate CPU state for GPU consumption).
     pub synth: crate::pipeline::SynthesizedProof,
@@ -104,6 +110,13 @@ pub(crate) struct SynthesizedJob {
     pub params: Arc<bellperson::groth16::SuprasealParameters<blstrs::Bls12>>,
     /// Circuit ID (for SRS affinity tracking).
     pub circuit_id: CircuitId,
+    /// For Phase 3 batched proofs: the individual requests in this batch.
+    /// Empty for single-sector proofs.
+    pub batch_requests: Vec<ProofRequest>,
+    /// For Phase 3 batched proofs: number of partitions per sector.
+    /// Used by GPU worker to split proof output back into per-sector groups.
+    /// Empty for single-sector proofs.
+    pub sector_boundaries: Vec<usize>,
 }
 
 /// The cuzk proving engine.
@@ -294,171 +307,299 @@ impl Engine {
                 "starting pipeline: synthesis task + GPU workers"
             );
 
-            // Spawn the synthesis task
+            // Spawn the synthesis task (Phase 3: with batch collection)
             {
                 let scheduler = self.scheduler.clone();
                 let tracker = self.tracker.clone();
                 let srs_manager = self.srs_manager.clone();
                 let param_cache = self.config.srs.param_cache.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
+                let max_batch_size = self.config.scheduler.max_batch_size;
+                let max_batch_wait_ms = self.config.scheduler.max_batch_wait_ms;
 
                 tokio::spawn(async move {
-                    info!("synthesis task started");
+                    info!(
+                        max_batch_size = max_batch_size,
+                        max_batch_wait_ms = max_batch_wait_ms,
+                        "synthesis task started (Phase 3 batch-aware)"
+                    );
+
+                    let mut batch_collector = crate::batch_collector::BatchCollector::new(
+                        crate::batch_collector::BatchConfig {
+                            max_batch_size,
+                            max_batch_wait_ms,
+                        },
+                    );
+
                     loop {
-                        // Pull next request from scheduler (respects priority)
-                        let request = tokio::select! {
-                            biased;
-                            _ = shutdown_rx.changed() => {
-                                if *shutdown_rx.borrow() {
-                                    info!("synthesis task received shutdown signal");
-                                    break;
+                        // Determine if we should wait for scheduler or flush a timeout.
+                        // If the batch collector has pending items, use a timeout.
+                        let request = if batch_collector.has_pending() {
+                            // There's a pending batch. Race between:
+                            //   1. Scheduler delivers another same-type request
+                            //   2. Batch timeout expires
+                            //   3. Shutdown signal
+                            let timeout_dur = batch_collector.time_until_flush()
+                                .unwrap_or(Duration::from_millis(100));
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.changed() => {
+                                    if *shutdown_rx.borrow() {
+                                        info!("synthesis task received shutdown signal");
+                                        // Flush any pending batch before exiting
+                                        if let Some(batch) = batch_collector.force_flush() {
+                                            let span = info_span!("synth_shutdown_flush", batch_size = batch.len());
+                                            let _ = process_batch(
+                                                batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                            ).instrument(span).await;
+                                        }
+                                        break;
+                                    }
+                                    continue;
                                 }
-                                continue;
+                                _ = tokio::time::sleep(timeout_dur) => {
+                                    // Timer expired — check timeout and flush
+                                    if let Some(batch) = batch_collector.check_timeout() {
+                                        let span = info_span!("synth_timeout_flush", batch_size = batch.len());
+                                        let ok = process_batch(
+                                            batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                        ).instrument(span).await;
+                                        if !ok { break; }
+                                    }
+                                    continue;
+                                }
+                                request = scheduler.next() => Some(request),
                             }
-                            request = scheduler.next() => request,
+                        } else {
+                            // No pending batch — block on scheduler
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.changed() => {
+                                    if *shutdown_rx.borrow() {
+                                        info!("synthesis task received shutdown signal");
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                request = scheduler.next() => Some(request),
+                            }
                         };
 
-                        let job_id = request.job_id.clone();
+                        let request = match request {
+                            Some(r) => r,
+                            None => continue,
+                        };
+
                         let proof_kind = request.proof_kind;
-                        let span = info_span!("synthesis", job_id = %job_id, proof_kind = %proof_kind);
 
-                        let synth_result = async {
-                            info!("starting synthesis");
-
-                            // Note: we don't mark as running on a specific worker yet.
-                            // Synthesis is CPU-only; the GPU worker will update
-                            // current_job when it picks up the synth result.
-
-                            // Determine circuit ID and run synthesis on blocking thread
-                            let param_cache_str = param_cache.to_string_lossy().to_string();
-                            let srs_mgr = srs_manager.clone();
-                            let req = request.clone();
-
-                            #[cfg(feature = "cuda-supraseal")]
-                            {
-                                use crate::pipeline;
-
-                                let synth_result = tokio::task::spawn_blocking(move || -> Result<SynthesizedJob> {
-                                    // Set param cache for this thread (needed by filecoin-proofs lazy init)
-                                    std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);
-
-                                    let jid = req.job_id.0.clone();
-
-                                    // Determine circuit ID, load SRS, and synthesize
-                                    let (circuit_id, synth) = match req.proof_kind {
-                                        ProofKind::PoRepSealCommit => {
-                                            let cid = CircuitId::Porep32G;
-                                            let s = pipeline::synthesize_porep_c2_batch(
-                                                &req.vanilla_proof, req.sector_number, req.miner_id, &jid,
-                                            )?;
-                                            (cid, s)
-                                        }
-                                        ProofKind::WinningPost => {
-                                            let cid = CircuitId::WinningPost32G;
-                                            let s = pipeline::synthesize_winning_post(
-                                                &req.vanilla_proofs, req.registered_proof, req.miner_id,
-                                                &req.randomness, &jid,
-                                            )?;
-                                            (cid, s)
-                                        }
-                                        ProofKind::WindowPostPartition => {
-                                            let cid = CircuitId::WindowPost32G;
-                                            let s = pipeline::synthesize_window_post(
-                                                &req.vanilla_proofs, req.registered_proof, req.miner_id,
-                                                &req.randomness, req.partition_index, &jid,
-                                            )?;
-                                            (cid, s)
-                                        }
-                                        ProofKind::SnapDealsUpdate => {
-                                            let cid = CircuitId::SnapDeals32G;
-                                            let s = pipeline::synthesize_snap_deals(
-                                                req.vanilla_proofs.clone(), req.registered_proof,
-                                                &req.comm_r_old, &req.comm_r_new, &req.comm_d_new,
-                                                &jid,
-                                            )?;
-                                            (cid, s)
-                                        }
-                                    };
-
-                                    // Load SRS (may already be cached — fast path)
-                                    let srs = {
-                                        let mut mgr = srs_mgr.blocking_lock();
-                                        mgr.ensure_loaded(&circuit_id)?
-                                    };
-
-                                    Ok(SynthesizedJob {
-                                        request: req,
-                                        synth,
-                                        params: srs,
-                                        circuit_id,
-                                    })
-                                }).await;
-
-                                match synth_result {
-                                    Ok(Ok(job)) => {
-                                        info!(
-                                            synth_ms = job.synth.synthesis_duration.as_millis(),
-                                            circuit_id = %job.circuit_id,
-                                            "synthesis complete, sending to GPU"
-                                        );
-                                        // Send to GPU channel (blocks if channel is full — backpressure)
-                                        if synth_tx.send(job).await.is_err() {
-                                            error!("GPU channel closed, stopping synthesis task");
-                                            return false; // signal to break
-                                        }
-                                    }
-                                    Ok(Err(e)) => {
-                                        error!(error = %e, "synthesis failed");
-                                        // Complete the job as failed
-                                        let mut t = tracker.lock().await;
-                                        t.record_failure(proof_kind);
-                                        let status = JobStatus::Failed(format!("synthesis failed: {}", e));
-                                        if let Some(senders) = t.pending.remove(&job_id) {
-                                            for sender in senders {
-                                                let _ = sender.send(status.clone());
-                                            }
-                                        }
-                                        t.completed.insert(job_id.clone(), status);
-                                    }
-                                    Err(e) => {
-                                        error!(error = %e, "synthesis task panicked");
-                                        let mut t = tracker.lock().await;
-                                        t.record_failure(proof_kind);
-                                        let status = JobStatus::Failed(format!("synthesis panicked: {}", e));
-                                        if let Some(senders) = t.pending.remove(&job_id) {
-                                            for sender in senders {
-                                                let _ = sender.send(status.clone());
-                                            }
-                                        }
-                                        t.completed.insert(job_id.clone(), status);
-                                    }
-                                }
+                        // Phase 3: Route through batch collector for batchable types,
+                        // or process immediately for non-batchable types.
+                        if crate::batch_collector::is_batchable(proof_kind) && max_batch_size > 1 {
+                            // Try to add to batch. May return a flushed batch.
+                            if let Some(batch) = batch_collector.add(request) {
+                                let span = info_span!("synth_batch_full",
+                                    batch_size = batch.len(),
+                                    proof_kind = %batch.proof_kind,
+                                );
+                                let ok = process_batch(
+                                    batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                ).instrument(span).await;
+                                if !ok { break; }
+                            }
+                        } else {
+                            // Non-batchable (PoSt) or batching disabled — process immediately.
+                            // First, flush any pending batch of a different type.
+                            if let Some(pending_batch) = batch_collector.force_flush() {
+                                let span = info_span!("synth_preempt_flush",
+                                    batch_size = pending_batch.len(),
+                                    proof_kind = %pending_batch.proof_kind,
+                                );
+                                let ok = process_batch(
+                                    pending_batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                ).instrument(span).await;
+                                if !ok { break; }
                             }
 
-                            #[cfg(not(feature = "cuda-supraseal"))]
-                            {
-                                let _ = (param_cache_str, srs_mgr, req);
-                                error!("pipeline mode requires cuda-supraseal feature");
-                                let mut t = tracker.lock().await;
-                                t.record_failure(proof_kind);
-                                let status = JobStatus::Failed("pipeline mode requires cuda-supraseal".into());
-                                if let Some(senders) = t.pending.remove(&job_id) {
-                                    for sender in senders {
-                                        let _ = sender.send(status.clone());
-                                    }
-                                }
-                                t.completed.insert(job_id.clone(), status);
-                            }
-
-                            true // continue
-                        }.instrument(span).await;
-
-                        if !synth_result {
-                            break;
+                            // Process the single non-batchable request
+                            let single_batch = crate::batch_collector::ProofBatch {
+                                proof_kind,
+                                requests: vec![request],
+                                first_received_at: Instant::now(),
+                            };
+                            let span = info_span!("synth_single",
+                                proof_kind = %proof_kind,
+                            );
+                            let ok = process_batch(
+                                single_batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                            ).instrument(span).await;
+                            if !ok { break; }
                         }
                     }
                     info!("synthesis task stopped");
                 });
+            }
+
+            /// Process a batch of proof requests: synthesize all circuits, load SRS,
+            /// and send the synthesized job to the GPU channel.
+            ///
+            /// Returns `true` to continue, `false` to stop the synthesis task.
+            async fn process_batch(
+                batch: crate::batch_collector::ProofBatch,
+                tracker: &Arc<Mutex<JobTracker>>,
+                srs_manager: &Arc<Mutex<SrsManager>>,
+                param_cache: &std::path::Path,
+                synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
+            ) -> bool {
+                let batch_size = batch.len();
+                let proof_kind = batch.proof_kind;
+                let requests = batch.requests;
+
+                info!(
+                    batch_size = batch_size,
+                    proof_kind = %proof_kind,
+                    "processing batch"
+                );
+
+                let param_cache_str = param_cache.to_string_lossy().to_string();
+                let srs_mgr = srs_manager.clone();
+                let tracker_clone = tracker.clone();
+
+                #[cfg(feature = "cuda-supraseal")]
+                {
+                    use crate::pipeline;
+
+                    let reqs = requests.clone();
+                    let synth_result = tokio::task::spawn_blocking(move || -> Result<SynthesizedJob> {
+                        std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);
+
+                        let batch_job_id = reqs[0].job_id.0.clone();
+
+                        let (circuit_id, synth, sector_boundaries) = match proof_kind {
+                            ProofKind::PoRepSealCommit if reqs.len() > 1 => {
+                                // Phase 3: Multi-sector batch synthesis
+                                let sector_inputs: Vec<(&[u8], u64, u64)> = reqs.iter()
+                                    .map(|r| (r.vanilla_proof.as_slice(), r.sector_number, r.miner_id))
+                                    .collect();
+                                let (s, boundaries) = pipeline::synthesize_porep_c2_multi(
+                                    &sector_inputs, &batch_job_id,
+                                )?;
+                                (CircuitId::Porep32G, s, boundaries)
+                            }
+                            ProofKind::PoRepSealCommit => {
+                                // Single sector — use existing batch synthesis
+                                let req = &reqs[0];
+                                let s = pipeline::synthesize_porep_c2_batch(
+                                    &req.vanilla_proof, req.sector_number, req.miner_id, &batch_job_id,
+                                )?;
+                                (CircuitId::Porep32G, s, vec![])
+                            }
+                            ProofKind::WinningPost => {
+                                let req = &reqs[0];
+                                let s = pipeline::synthesize_winning_post(
+                                    &req.vanilla_proofs, req.registered_proof, req.miner_id,
+                                    &req.randomness, &batch_job_id,
+                                )?;
+                                (CircuitId::WinningPost32G, s, vec![])
+                            }
+                            ProofKind::WindowPostPartition => {
+                                let req = &reqs[0];
+                                let s = pipeline::synthesize_window_post(
+                                    &req.vanilla_proofs, req.registered_proof, req.miner_id,
+                                    &req.randomness, req.partition_index, &batch_job_id,
+                                )?;
+                                (CircuitId::WindowPost32G, s, vec![])
+                            }
+                            ProofKind::SnapDealsUpdate => {
+                                let req = &reqs[0];
+                                let s = pipeline::synthesize_snap_deals(
+                                    req.vanilla_proofs.clone(), req.registered_proof,
+                                    &req.comm_r_old, &req.comm_r_new, &req.comm_d_new,
+                                    &batch_job_id,
+                                )?;
+                                (CircuitId::SnapDeals32G, s, vec![])
+                            }
+                        };
+
+                        // Load SRS
+                        let srs = {
+                            let mut mgr = srs_mgr.blocking_lock();
+                            mgr.ensure_loaded(&circuit_id)?
+                        };
+
+                        Ok(SynthesizedJob {
+                            request: reqs[0].clone(),
+                            synth,
+                            params: srs,
+                            circuit_id,
+                            batch_requests: if reqs.len() > 1 { reqs } else { vec![] },
+                            sector_boundaries,
+                        })
+                    }).await;
+
+                    match synth_result {
+                        Ok(Ok(job)) => {
+                            let is_batched = !job.batch_requests.is_empty();
+                            info!(
+                                synth_ms = job.synth.synthesis_duration.as_millis(),
+                                circuit_id = %job.circuit_id,
+                                batch_size = if is_batched { job.batch_requests.len() } else { 1 },
+                                sectors = if is_batched { job.sector_boundaries.len() } else { 1 },
+                                "synthesis complete, sending to GPU"
+                            );
+                            if synth_tx.send(job).await.is_err() {
+                                error!("GPU channel closed, stopping synthesis task");
+                                return false;
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            error!(error = %e, "synthesis failed");
+                            let mut t = tracker_clone.lock().await;
+                            for req in &requests {
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("synthesis failed: {}", e));
+                                if let Some(senders) = t.pending.remove(&req.job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(req.job_id.clone(), status);
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "synthesis task panicked");
+                            let mut t = tracker_clone.lock().await;
+                            for req in &requests {
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("synthesis panicked: {}", e));
+                                if let Some(senders) = t.pending.remove(&req.job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(req.job_id.clone(), status);
+                            }
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "cuda-supraseal"))]
+                {
+                    let _ = (param_cache_str, srs_mgr, synth_tx);
+                    error!("pipeline mode requires cuda-supraseal feature");
+                    let mut t = tracker_clone.lock().await;
+                    for req in &requests {
+                        t.record_failure(proof_kind);
+                        let status = JobStatus::Failed("pipeline mode requires cuda-supraseal".into());
+                        if let Some(senders) = t.pending.remove(&req.job_id) {
+                            for sender in senders {
+                                let _ = sender.send(status.clone());
+                            }
+                        }
+                        t.completed.insert(req.job_id.clone(), status);
+                    }
+                }
+
+                true
             }
 
             // Spawn GPU worker tasks — one per GPU, all pulling from shared channel
@@ -501,10 +642,22 @@ impl Engine {
                         let submitted_at = synth_job.request.submitted_at;
                         let synth_duration = synth_job.synth.synthesis_duration;
                         let circuit_id_str = synth_job.circuit_id.to_string();
-                        let span = info_span!("gpu_worker", worker_id = worker_id, gpu = gpu_ordinal, job_id = %job_id, proof_kind = %proof_kind);
+                        let is_batched = !synth_job.batch_requests.is_empty();
+                        let batch_requests = synth_job.batch_requests.clone();
+                        let sector_boundaries = synth_job.sector_boundaries.clone();
+                        let span = info_span!("gpu_worker",
+                            worker_id = worker_id,
+                            gpu = gpu_ordinal,
+                            job_id = %job_id,
+                            proof_kind = %proof_kind,
+                            batch_size = if is_batched { batch_requests.len() } else { 1 },
+                        );
 
                         async {
-                            info!("GPU worker picked up synthesized proof");
+                            info!(
+                                batched = is_batched,
+                                "GPU worker picked up synthesized proof"
+                            );
 
                             // Mark as running on this GPU worker
                             {
@@ -532,9 +685,86 @@ impl Engine {
                                 Ok(Err(anyhow::anyhow!("GPU proving requires cuda-supraseal feature")))
                             };
 
-                            // Process result
-                            let status = match result {
+                            // Process result and notify callers
+                            let mut t = tracker.lock().await;
+
+                            // Clear current job from worker
+                            if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                w.current_job = None;
+                            }
+
+                            match result {
+                                Ok(Ok((proof_bytes, gpu_duration))) if is_batched => {
+                                    // Phase 3: Split batched proof output back into per-sector groups
+                                    match crate::pipeline::split_batched_proofs(&proof_bytes, &sector_boundaries) {
+                                        Ok(per_sector_proofs) => {
+                                            info!(
+                                                total_proof_bytes = proof_bytes.len(),
+                                                num_sectors = per_sector_proofs.len(),
+                                                synth_ms = synth_duration.as_millis(),
+                                                gpu_ms = gpu_duration.as_millis(),
+                                                "batched proof completed — splitting results"
+                                            );
+
+                                            if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                                w.last_circuit_id = Some(circuit_id_str.clone());
+                                            }
+
+                                            // Deliver results to each sector's caller
+                                            for (i, (sector_proof, req)) in per_sector_proofs.into_iter()
+                                                .zip(batch_requests.iter())
+                                                .enumerate()
+                                            {
+                                                let mut timings = ProofTimings::default();
+                                                timings.synthesis = synth_duration;
+                                                timings.gpu_compute = gpu_duration;
+                                                timings.proving = synth_duration + gpu_duration;
+                                                timings.queue_wait = req.submitted_at.elapsed().saturating_sub(timings.proving);
+                                                timings.total = req.submitted_at.elapsed();
+
+                                                info!(
+                                                    sector_idx = i,
+                                                    job_id = %req.job_id,
+                                                    proof_len = sector_proof.len(),
+                                                    total_ms = timings.total.as_millis(),
+                                                    "sector proof delivered from batch"
+                                                );
+
+                                                t.record_completion(proof_kind, timings.total);
+
+                                                let status = JobStatus::Completed(ProofResult {
+                                                    job_id: req.job_id.clone(),
+                                                    proof_kind,
+                                                    proof_bytes: sector_proof,
+                                                    timings,
+                                                });
+
+                                                if let Some(senders) = t.pending.remove(&req.job_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(req.job_id.clone(), status);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "failed to split batched proofs");
+                                            // Fail all requests in the batch
+                                            for req in &batch_requests {
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(format!("proof split failed: {}", e));
+                                                if let Some(senders) = t.pending.remove(&req.job_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(req.job_id.clone(), status);
+                                            }
+                                        }
+                                    }
+                                }
                                 Ok(Ok((proof_bytes, gpu_duration))) => {
+                                    // Single-sector proof (Phase 2 path)
                                     let mut timings = ProofTimings::default();
                                     timings.synthesis = synth_duration;
                                     timings.gpu_compute = gpu_duration;
@@ -549,48 +779,73 @@ impl Engine {
                                         gpu_ms = timings.gpu_compute.as_millis(),
                                         "proof completed successfully (pipeline)"
                                     );
-                                    JobStatus::Completed(ProofResult {
+
+                                    if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                        w.last_circuit_id = Some(circuit_id_str.clone());
+                                    }
+                                    t.record_completion(proof_kind, timings.total);
+
+                                    let status = JobStatus::Completed(ProofResult {
                                         job_id: job_id.clone(),
                                         proof_kind,
                                         proof_bytes,
                                         timings,
-                                    })
+                                    });
+                                    if let Some(senders) = t.pending.remove(&job_id) {
+                                        for sender in senders {
+                                            let _ = sender.send(status.clone());
+                                        }
+                                    }
+                                    t.completed.insert(job_id.clone(), status);
                                 }
                                 Ok(Err(e)) => {
                                     error!(error = %e, "GPU proving failed");
-                                    JobStatus::Failed(e.to_string())
+                                    // Fail all requests (batched or single)
+                                    let all_requests = if is_batched {
+                                        batch_requests.clone()
+                                    } else {
+                                        vec![ProofRequest {
+                                            job_id: job_id.clone(),
+                                            ..Default::default()
+                                        }]
+                                    };
+                                    for req in &all_requests {
+                                        t.record_failure(proof_kind);
+                                        let status = JobStatus::Failed(e.to_string());
+                                        if let Some(senders) = t.pending.remove(&req.job_id) {
+                                            for sender in senders {
+                                                let _ = sender.send(status.clone());
+                                            }
+                                        }
+                                        t.completed.insert(req.job_id.clone(), status);
+                                    }
+                                    // For single-sector, also notify via primary job_id
+                                    if !is_batched {
+                                        // Already handled above
+                                    }
                                 }
                                 Err(e) => {
                                     error!(error = %e, "GPU proving task panicked");
-                                    JobStatus::Failed(format!("GPU task panicked: {}", e))
-                                }
-                            };
-
-                            // Update tracker
-                            let mut t = tracker.lock().await;
-                            if let Some(w) = t.workers.get_mut(worker_id as usize) {
-                                w.current_job = None;
-                                if matches!(&status, JobStatus::Completed(_)) {
-                                    w.last_circuit_id = Some(circuit_id_str.clone());
-                                }
-                            }
-                            match &status {
-                                JobStatus::Completed(result) => {
-                                    t.record_completion(proof_kind, result.timings.total);
-                                }
-                                JobStatus::Failed(_) => {
-                                    t.record_failure(proof_kind);
-                                }
-                                _ => {}
-                            }
-
-                            // Notify awaiting clients
-                            if let Some(senders) = t.pending.remove(&job_id) {
-                                for sender in senders {
-                                    let _ = sender.send(status.clone());
+                                    let all_requests = if is_batched {
+                                        batch_requests.clone()
+                                    } else {
+                                        vec![ProofRequest {
+                                            job_id: job_id.clone(),
+                                            ..Default::default()
+                                        }]
+                                    };
+                                    for req in &all_requests {
+                                        t.record_failure(proof_kind);
+                                        let status = JobStatus::Failed(format!("GPU task panicked: {}", e));
+                                        if let Some(senders) = t.pending.remove(&req.job_id) {
+                                            for sender in senders {
+                                                let _ = sender.send(status.clone());
+                                            }
+                                        }
+                                        t.completed.insert(req.job_id.clone(), status);
+                                    }
                                 }
                             }
-                            t.completed.insert(job_id, status);
                         }.instrument(span).await;
                     }
                     info!(worker_id = worker_id, "pipeline GPU worker stopped");

@@ -37,10 +37,32 @@ devices = []
 
 [scheduler]
 # Max proofs to batch into a single GPU invocation (same circuit type).
-# Phase 0: always 1 (batching not yet implemented).
+#
+# Phase 3: Cross-sector batching for PoRep C2 and SnapDeals.
+# When multiple same-type proof requests arrive, the engine accumulates
+# them into a batch and processes all sectors in a single synthesis + GPU
+# pass. This amortizes fixed GPU costs and improves SM utilization.
+#
+# Memory impact (PoRep 32G, batch synthesis — all partitions at once):
+#   batch=1: ~136 GiB intermediate (10 circuits)    → needs 256+ GiB RAM
+#   batch=2: ~272 GiB intermediate (20 circuits)    → needs 384+ GiB RAM
+#   batch=3: ~408 GiB intermediate (30 circuits)    → needs 512+ GiB RAM
+#
+# Throughput improvement (approximate, PoRep C2):
+#   batch=1: baseline (Phase 2)
+#   batch=2: ~1.5x throughput (amortize GPU fixed costs)
+#   batch=3: ~2.0x throughput
+#
+# Set to 1 to disable batching (Phase 2 behavior).
+# Set to 2-3 on large-memory machines for higher throughput.
+# WinningPoSt and WindowPoSt bypass batching regardless of this setting.
 max_batch_size = 1
 
 # Max time (ms) to wait for batch to fill before flushing.
+# When a batchable proof request arrives and the batch is not yet full,
+# the engine waits up to this duration for more same-type requests.
+# Set to 0 to flush immediately (lower latency, less batching).
+# Set to 30000-60000 for proofshare nodes with steady workload.
 max_batch_wait_ms = 10000
 
 # Reorder NORMAL-priority queue to group by circuit type.

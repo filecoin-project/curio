@@ -211,7 +211,270 @@ pub fn gpu_prove(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PoRep C2 Synthesis (CPU phase) — batch all partitions
+// PoRep C2 Multi-Sector Synthesis (Phase 3 — cross-sector batching)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Synthesize PoRep C2 circuits for MULTIPLE sectors in a single batch.
+///
+/// This is the Phase 3 cross-sector batching function. It takes N sectors'
+/// C1 outputs, constructs all N×10 = N×num_partitions circuits, and
+/// synthesizes them in a single `synthesize_circuits_batch()` call. The
+/// resulting `SynthesizedProof` can then be passed to `gpu_prove()` for
+/// a single GPU pass over all N sectors.
+///
+/// After GPU proving, the caller splits the resulting proof bytes back
+/// into per-sector groups (each sector gets `num_partitions × 192` bytes).
+///
+/// ## Why This Works
+///
+/// All 32 GiB PoRep sectors share the same R1CS structure, constraints,
+/// and SRS. The supraseal C++ code's `generate_groth16_proofs_c()` already
+/// handles variable `num_circuits` — the `provers[]` array, bit vectors,
+/// and MSM loops are all parameterized by circuit count.
+///
+/// ## Memory Analysis
+///
+/// With batch synthesis (all partitions of all sectors at once):
+///   - 1 sector (10 circuits): ~136 GiB intermediate
+///   - 2 sectors (20 circuits): ~272 GiB intermediate
+///   - 3 sectors (30 circuits): ~408 GiB intermediate
+///
+/// This requires machines with sufficient RAM. The engine's batch_collector
+/// caps max_batch_size to prevent OOM.
+///
+/// ## Arguments
+///
+/// * `sector_c1_outputs` — Vec of (vanilla_proof_json, sector_number, miner_id)
+///   tuples, one per sector to batch.
+/// * `job_id` — Job ID for tracing (represents the batch, not individual sectors).
+///
+/// ## Returns
+///
+/// A `SynthesizedProof` containing all N×num_partitions circuits.
+/// `total_partitions` is set to `N × num_partitions_per_sector`.
+/// `partition_index` is None (batch of everything).
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_porep_c2_multi(
+    sector_c1_outputs: &[(&[u8], u64, u64)], // (vanilla_proof_json, sector_number, miner_id)
+    job_id: &str,
+) -> Result<(SynthesizedProof, Vec<usize>)> {
+    let _span = info_span!(
+        "synthesize_porep_c2_multi",
+        job_id = job_id,
+        num_sectors = sector_c1_outputs.len(),
+    )
+    .entered();
+
+    let num_sectors = sector_c1_outputs.len();
+    anyhow::ensure!(
+        num_sectors > 0,
+        "empty sector list for multi-sector synthesis"
+    );
+
+    info!(
+        num_sectors = num_sectors,
+        "starting multi-sector PoRep C2 synthesis"
+    );
+
+    // Deserialize all sectors' C1 outputs and build all circuits.
+    // We track partition boundaries so the caller can split proofs back.
+    let mut all_circuits = Vec::new();
+    let mut sector_boundaries = Vec::with_capacity(num_sectors); // num_partitions per sector
+
+    for (i, (vanilla_proof_json, _sector_number, _miner_id)) in sector_c1_outputs.iter().enumerate()
+    {
+        let _sector_span = info_span!("sector_deser", sector_idx = i).entered();
+
+        // Deserialize C1 output
+        let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+            .context("failed to parse C1 output wrapper JSON")?;
+        let phase1_json_bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &wrapper.phase1_out,
+        )
+        .context("failed to decode base64 Phase1Output")?;
+        let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+            .context("failed to deserialize SealCommitPhase1Output from JSON")?;
+
+        let porep_config = c1_output.registered_proof.as_v1_config();
+        let num_partitions = usize::from(porep_config.partitions);
+
+        let sector_size = u64::from(porep_config.sector_size);
+        anyhow::ensure!(
+            sector_size == SECTOR_SIZE_32_GIB,
+            "multi-sector synthesis currently supports only 32 GiB sectors, got {} bytes",
+            sector_size,
+        );
+
+        type Tree = SectorShape32GiB;
+
+        let vanilla_proofs: Vec<
+            Vec<storage_proofs_porep::stacked::Proof<Tree, DefaultPieceHasher>>,
+        > = c1_output
+            .vanilla_proofs
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("failed to convert vanilla proofs: {:?}", e))?;
+
+        let comm_r_safe = as_safe_commitment(&c1_output.comm_r, "comm_r")?;
+        let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&c1_output.comm_d, "comm_d")?;
+
+        anyhow::ensure!(
+            c1_output.comm_d != [0; 32],
+            "Invalid all zero commitment (comm_d)"
+        );
+        anyhow::ensure!(
+            c1_output.comm_r != [0; 32],
+            "Invalid all zero commitment (comm_r)"
+        );
+        anyhow::ensure!(c1_output.seed != [0; 32], "Invalid porep challenge seed");
+
+        use storage_proofs_porep::stacked::{PublicInputs, Tau};
+        let public_inputs = PublicInputs {
+            replica_id: c1_output.replica_id,
+            tau: Some(Tau {
+                comm_d: comm_d_safe,
+                comm_r: comm_r_safe,
+            }),
+            k: None,
+            seed: Some(c1_output.seed),
+        };
+
+        use storage_proofs_core::compound_proof::SetupParams;
+        let vanilla_setup = setup_params(&porep_config)?;
+        let compound_setup = SetupParams {
+            vanilla_params: vanilla_setup,
+            partitions: Some(num_partitions),
+            priority: false,
+        };
+        let compound_public_params =
+            <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+                StackedDrg<'_, Tree, DefaultPieceHasher>,
+                _,
+            >>::setup(&compound_setup)?;
+
+        // Build all partition circuits for this sector
+        for k in 0..num_partitions {
+            anyhow::ensure!(
+                k < vanilla_proofs.len(),
+                "partition {} >= vanilla_proofs.len() {}",
+                k,
+                vanilla_proofs.len(),
+            );
+            let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+                StackedDrg<'_, Tree, DefaultPieceHasher>,
+                _,
+            >>::circuit(
+                &public_inputs,
+                Default::default(),
+                &vanilla_proofs[k],
+                &compound_public_params.vanilla_params,
+                Some(k),
+            )?;
+            all_circuits.push(circuit);
+        }
+
+        sector_boundaries.push(num_partitions);
+
+        debug!(
+            sector_idx = i,
+            num_partitions = num_partitions,
+            total_circuits = all_circuits.len(),
+            "sector circuits built"
+        );
+    }
+
+    let total_circuits = all_circuits.len();
+    let total_partitions = total_circuits; // all partitions across all sectors
+    info!(
+        num_sectors = num_sectors,
+        total_circuits = total_circuits,
+        "synthesizing all circuits (multi-sector batch)"
+    );
+
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch(all_circuits)?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        synth_ms = synthesis_duration.as_millis(),
+        num_circuits = provers.len(),
+        num_constraints = provers[0].a.len(),
+        "multi-sector batch synthesis complete"
+    );
+
+    // Generate r/s randomization for each circuit
+    let mut rng = rand_core::OsRng;
+    let r_s: Vec<Fr> = (0..total_circuits).map(|_| Fr::random(&mut rng)).collect();
+    let s_s: Vec<Fr> = (0..total_circuits).map(|_| Fr::random(&mut rng)).collect();
+
+    let synth = SynthesizedProof {
+        circuit_id: CircuitId::Porep32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: None, // batch — all partitions of all sectors
+        total_partitions,
+    };
+
+    Ok((synth, sector_boundaries))
+}
+
+/// Split batched GPU proof output into per-sector proof byte vectors.
+///
+/// After `gpu_prove()` returns concatenated proof bytes for N×P circuits
+/// (N sectors × P partitions), this function splits them back into
+/// per-sector groups.
+///
+/// # Arguments
+///
+/// * `proof_bytes` — Concatenated Groth16 proof bytes (N×P × 192 bytes).
+/// * `sector_boundaries` — Number of partitions per sector (from `synthesize_porep_c2_multi`).
+///
+/// # Returns
+///
+/// Vec of per-sector proof byte vectors, each containing P × 192 bytes.
+pub fn split_batched_proofs(
+    proof_bytes: &[u8],
+    sector_boundaries: &[usize],
+) -> Result<Vec<Vec<u8>>> {
+    let total_partitions: usize = sector_boundaries.iter().sum();
+    let expected_len = total_partitions * GROTH_PROOF_BYTES;
+    anyhow::ensure!(
+        proof_bytes.len() == expected_len,
+        "proof bytes length mismatch: got {}, expected {} ({} partitions × {} bytes)",
+        proof_bytes.len(),
+        expected_len,
+        total_partitions,
+        GROTH_PROOF_BYTES,
+    );
+
+    let mut results = Vec::with_capacity(sector_boundaries.len());
+    let mut offset = 0;
+
+    for &num_partitions in sector_boundaries {
+        let sector_proof_len = num_partitions * GROTH_PROOF_BYTES;
+        results.push(proof_bytes[offset..offset + sector_proof_len].to_vec());
+        offset += sector_proof_len;
+    }
+
+    Ok(results)
+}
+
+/// Non-CUDA stub for multi-sector synthesis.
+#[cfg(not(feature = "cuda-supraseal"))]
+pub fn synthesize_porep_c2_multi(
+    _sector_c1_outputs: &[(&[u8], u64, u64)],
+    _job_id: &str,
+) -> Result<(SynthesizedProof, Vec<usize>)> {
+    anyhow::bail!("multi-sector synthesis requires cuda-supraseal feature")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PoRep C2 Synthesis (CPU phase) — batch all partitions (single sector)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Synthesize a single partition of a PoRep C2 proof (CPU-only).
@@ -1215,5 +1478,47 @@ mod tests {
             #[cfg(feature = "cuda-supraseal")]
             s_s: vec![],
         };
+    }
+
+    #[test]
+    fn test_split_batched_proofs() {
+        // 3 sectors × 10 partitions = 30 proofs × 192 bytes
+        let boundaries = vec![10, 10, 10];
+        let total_bytes = 30 * GROTH_PROOF_BYTES;
+        let mut proof_bytes = vec![0u8; total_bytes];
+        // Mark each sector's first byte distinctively
+        for (i, &_parts) in boundaries.iter().enumerate() {
+            let offset: usize = boundaries[..i].iter().sum::<usize>() * GROTH_PROOF_BYTES;
+            proof_bytes[offset] = (i + 1) as u8;
+        }
+
+        let results = split_batched_proofs(&proof_bytes, &boundaries).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].len(), 10 * GROTH_PROOF_BYTES);
+        assert_eq!(results[1].len(), 10 * GROTH_PROOF_BYTES);
+        assert_eq!(results[2].len(), 10 * GROTH_PROOF_BYTES);
+        assert_eq!(results[0][0], 1);
+        assert_eq!(results[1][0], 2);
+        assert_eq!(results[2][0], 3);
+    }
+
+    #[test]
+    fn test_split_batched_proofs_mixed_partitions() {
+        // PoRep: 10 partitions, SnapDeals might have 16
+        let boundaries = vec![10, 16];
+        let total_bytes = 26 * GROTH_PROOF_BYTES;
+        let proof_bytes = vec![0xAA; total_bytes];
+
+        let results = split_batched_proofs(&proof_bytes, &boundaries).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].len(), 10 * GROTH_PROOF_BYTES);
+        assert_eq!(results[1].len(), 16 * GROTH_PROOF_BYTES);
+    }
+
+    #[test]
+    fn test_split_batched_proofs_length_mismatch() {
+        let boundaries = vec![10];
+        let proof_bytes = vec![0u8; 100]; // Wrong length
+        assert!(split_batched_proofs(&proof_bytes, &boundaries).is_err());
     }
 }
