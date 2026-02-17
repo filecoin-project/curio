@@ -30,7 +30,7 @@ import (
 func TestPDPProving(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
-	idxStore, err := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	require.NoError(t, err)
 	// Start the index store in test mode. This creates a temporary keyspace
 	// so tests can run against a clean, isolated Cassandra instance.
