@@ -38,9 +38,25 @@ COVERAGE_DIR ?= coverage
 COVERAGE_PROFILE = $(COVERAGE_DIR)/coverage.out
 COVERAGE_HTML = $(COVERAGE_DIR)/coverage.html
 
+# Toggle to force curio binary build without supraseal code paths.
+# 0 = default behavior, 1 = add nosupraseal tag and skip supraseal dependency build.
+DISABLE_SUPRASEAL ?= 0
+
+# FFI backend selection.
+# 1 = CUDA-style FFI build path, 0 = OpenCL-style FFI build path.
+FFI_USE_CUDA ?= $(if $(filter 1,$(FFI_USE_OPENCL)),0,1)
+
+# FFI-only switch for filecoin-ffi's cuda-supraseal feature.
+# Enabled by default only when building on Linux with CUDA enabled.
+FFI_USE_CUDA_SUPRASEAL ?= $(if $(and $(filter Linux,$(UNAME_S)),$(filter 1,$(FFI_USE_CUDA))),1,0)
+
+# Guardrail: cuda-supraseal cannot apply when CUDA is disabled.
+FFI_USE_CUDA_SUPRASEAL_EFFECTIVE = $(if $(filter 1,$(FFI_USE_CUDA)),$(FFI_USE_CUDA_SUPRASEAL),0)
+
 # Build tags.
-CURIO_TAGS_BASE ?= cunative nofvm
-CURIO_TAGS_EXTRA = $(if $(filter 1,$(FFI_USE_OPENCL)),nosupraseal,)
+CURIO_TAGS_BASE ?= cunative
+CURIO_NOSUPRASEAL = $(if $(filter 1,$(FFI_USE_OPENCL) $(DISABLE_SUPRASEAL)),1,)
+CURIO_TAGS_EXTRA = $(if $(CURIO_NOSUPRASEAL),nosupraseal,)
 CURIO_TAGS ?= $(strip $(CURIO_TAGS_BASE) $(CURIO_TAGS_EXTRA))
 # Convert space-separated tags to comma-separated for GOFLAGS (whitespace-split).
 CURIO_TAGS_CSV = $(shell echo "$(CURIO_TAGS)" | tr ' ' ',')

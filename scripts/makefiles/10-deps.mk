@@ -27,11 +27,10 @@ MODULES += $(FFI_PATH)
 BUILD_DEPS += build/.filecoin-install
 CLEAN += build/.filecoin-install
 
-## Custom libfilcrypto build for Curio (size-optimized, no FVM)
 ## By default, requires CUDA on Linux. Set FFI_USE_OPENCL=1 to build with OpenCL instead.
 .PHONY: curio-libfilecoin
 curio-libfilecoin:
-	@if [ "$$(uname)" = "Linux" ] && [ "$(FFI_USE_OPENCL)" != "1" ] && ! command -v nvcc >/dev/null 2>&1; then \
+	@if [ "$$(uname)" = "Linux" ] && [ "$(FFI_USE_CUDA)" = "1" ] && ! command -v nvcc >/dev/null 2>&1; then \
 		echo ""; \
 		echo "ERROR: nvcc not found but CUDA build is required for Curio on Linux."; \
 		echo ""; \
@@ -43,7 +42,8 @@ curio-libfilecoin:
 	fi
 	FFI_BUILD_FROM_SOURCE=1 \
 	FFI_USE_GPU=1 \
-	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
+	FFI_USE_CUDA=$(FFI_USE_CUDA) \
+	FFI_USE_CUDA_SUPRASEAL=$(FFI_USE_CUDA_SUPRASEAL_EFFECTIVE) \
 	FFI_USE_MULTICORE_SDR=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
 	$(MAKE) -C $(FFI_PATH) .install-filcrypto
@@ -71,6 +71,7 @@ CLEAN += build/.blst-install
 
 ifeq ($(UNAME_S),Linux)
 ifneq ($(FFI_USE_OPENCL),1)
+ifneq ($(DISABLE_SUPRASEAL),1)
 SUPRA_FFI_DEPS := .install-supraseal
 SUPRA_FFI_DEPS := $(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
 
@@ -82,6 +83,7 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 
 BUILD_DEPS += build/.supraseal-install
 CLEAN += build/.supraseal-install
+endif
 endif
 endif
 
