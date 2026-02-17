@@ -54,16 +54,25 @@ threads = 0
 
 [pipeline]
 # Enable pipelined synthesis → GPU proving (Phase 2).
-# When enabled, PoRep C2 proofs use per-partition synthesis/GPU overlap:
-# CPU synthesizes partition N+1 while GPU proves partition N.
-# When disabled, falls back to monolithic Phase 1 proving.
+# When enabled, a dedicated synthesis task pre-synthesizes proofs on CPU
+# and feeds them to GPU workers via a bounded channel. This allows CPU
+# synthesis of proof N+1 to overlap with GPU proving of proof N:
+#
+#   Synthesis:  [=== proof N ===][=== proof N+1 ===][=== proof N+2 ===]
+#   GPU:                         [=== proof N ===]  [=== proof N+1 ===]
+#
+# Steady-state throughput = max(synth_time, gpu_time) per proof.
+# For PoRep 32G: ~55s/proof (synthesis-bound) vs ~91s sequential.
+#
+# When disabled, falls back to monolithic Phase 1 proving (no overlap).
 enabled = true
 
-# Max pre-synthesized partitions waiting for GPU. Controls backpressure.
-# Each in-flight PoRep partition is ~13.6 GiB of intermediate state.
-#   0 = sequential (synthesis then GPU per partition, no overlap)
-#   1 = one partition pre-synthesized (recommended, uses ~27 GiB intermediate)
-# For PoSt proofs (much smaller): this value doesn't matter much.
+# Max pre-synthesized proofs buffered between synthesis and GPU stages.
+# Controls memory backpressure — each in-flight PoRep 32G proof is ~136 GiB
+# of intermediate state (10 partitions × ~13.6 GiB each).
+#   1 = one proof pre-synthesized (recommended for PoRep on 512+ GiB machines)
+#   2+ = more aggressive lookahead (only for PoSt which has small state)
+# The synthesis task blocks when the channel is full, preventing OOM.
 synthesis_lookahead = 1
 
 [logging]
