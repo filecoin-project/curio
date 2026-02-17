@@ -1026,14 +1026,19 @@ Week 14-18: Phase 5 — Pre-compiled constraint evaluator
 
 ### Stopping Points & Cumulative Impact
 
-| After Phase | Throughput vs Baseline | Min RAM | Key Win |
+| After Phase | Throughput vs Baseline | Peak RAM | Key Win |
 |---|---|---|---|
-| **Phase 0** | **1.3x** | 256 GiB | SRS residency, daemon scaffold |
-| **Phase 1** | **1.3x** (+ scheduling) | 256 GiB | All proof types, priority |
-| **Phase 2** | **1.8x** | 128 GiB | GPU pipelining |
-| **Phase 3** | **4-5x** | 128 GiB | Cross-sector batching |
-| **Phase 4** | **6-7x** | 96 GiB | Per-proof speedups |
-| **Phase 5** | **10x+** | 96 GiB | PCE eliminates synthesis |
+| **Phase 0** | **1.3x** (measured) | 203 GiB | SRS residency, daemon scaffold |
+| **Phase 1** | **1.3x** (+ scheduling) | 203 GiB | All proof types, priority |
+| **Phase 2** | **1.27x** pipeline (measured) | 203 GiB | GPU pipelining (synth∥GPU overlap) |
+| **Phase 3** | **1.42x** batch=2 (measured) | 360 GiB | Cross-sector batching (62.3s/proof) |
+| **Phase 4** | **2-3x** (estimated) | ~200 GiB | Per-proof speedups |
+| **Phase 5** | **5-10x** (estimated) | ~100 GiB | PCE eliminates synthesis |
+
+*Note: Phase 2/3 measured on RTX 5070 Ti. Pipeline overlap is modest (1.27x) because
+synthesis (55s) dominates GPU (34s) on this hardware. Phase 3 batch=2 amortizes synthesis
+across sectors, giving 1.42x. Larger batch sizes and Phase 4/5 synthesis reduction will
+compound significantly.*
 
 ---
 
@@ -1096,7 +1101,112 @@ Once cuzk is proven stable, it replaces ffiselect for all GPU proving. The
 
 ---
 
-## 14. Open Questions
+## 14. E2E Test Results (RTX 5070 Ti, 32 GiB PoRep C2)
+
+### Hardware
+- **GPU**: NVIDIA RTX 5070 Ti (Blackwell sm_120, 16 GB VRAM, CUDA 13.1)
+- **RAM**: 512 GiB DDR5
+- **CPU**: ~142 cores used during synthesis
+
+### Phase 2 Baseline (Single Proof, Pipeline, batch_size=1)
+
+| Metric | Value |
+|---|---|
+| **Total** | 88.9s |
+| Synthesis | 54.7s (10 partitions, ~130M constraints) |
+| GPU | 34.0s |
+| Queue | 0.2s |
+| Proof size | 1920 bytes |
+| Peak RSS | **202.9 GiB** |
+| Idle RSS (SRS resident) | 45.0 GiB |
+| SRS load (cold) | ~15s (from disk) |
+
+### Phase 3 Test 1: Timeout Flush (batch_size=2, single proof submitted)
+
+Verifies that the BatchCollector correctly flushes after `max_batch_wait_ms` when insufficient
+proofs arrive to fill the batch.
+
+| Metric | Value |
+|---|---|
+| **Total** | 120.2s |
+| Queue (batch wait) | 30.3s (matches 30s timeout + 0.3s overhead) |
+| Synthesis | 55.6s |
+| GPU | 34.4s |
+| Proof size | 1920 bytes |
+| **Result** | **PASS** — batch timeout works correctly |
+
+### Phase 3 Test 2: Batched Proofs (batch_size=2, 2 concurrent proofs)
+
+Verifies cross-sector batching: 2 PoRep C2 proofs batched into a single 20-circuit
+synthesis + GPU call, then split back into 2 individual proof results.
+
+| Metric | Value |
+|---|---|
+| **Total (wall)** | 125.4s for 2 proofs |
+| Queue | 0.5s (batch filled immediately) |
+| Synthesis | 55.3s for **20 circuits** (2×10 partitions) |
+| GPU | 69.4s for **20 circuits** |
+| Proof sizes | 2 × 1920 bytes (3840 total, correctly split) |
+| **Throughput** | **0.96 proofs/min (62.7s/proof)** |
+| **Peak RSS** | **~360 GiB** |
+| **Result** | **PASS** — cross-sector batching works correctly |
+
+**Key insight**: Synthesis time is nearly identical for 10 vs 20 circuits (55.3s vs 54.7s)
+because rayon saturates all CPU cores either way. The synthesis cost is fully amortized
+across sectors. GPU time doubles linearly (69.4s vs 34.0s).
+
+### Phase 3 Test 3: Overflow (batch_size=2, 3 concurrent proofs)
+
+Verifies batch overflow: 3 proofs submitted, batch fills at 2, 3rd proof overflows to
+next batch (flushed by timeout or next batch fill).
+
+| Metric | Value |
+|---|---|
+| **Total (wall)** | 186.8s for 3 proofs |
+| Proofs 1-2 (batched) | 133.9s each (synth=56.7s, GPU=76.6s) |
+| Proof 3 (overflow, timeout flush) | 186.7s (queue=87.4s waiting, synth=58.1s, GPU=41.1s) |
+| **Throughput** | **0.96 proofs/min (62.3s/proof)** |
+| **Peak RSS** | **420.3 GiB** (batch-of-2 synth + 3rd proof synth overlap) |
+| **Result** | **PASS** — overflow handling + pipeline overlap work correctly |
+
+**Pipeline overlap observed**: The 3rd proof's synthesis started while the batch-of-2 GPU
+phase was still running, demonstrating Phase 2 pipeline + Phase 3 batching working together.
+
+### Phase 3 Test 4: Non-Batchable Type (WinningPoSt with batch_size=2)
+
+Verifies that non-batchable proof types bypass the BatchCollector entirely.
+
+| Metric | Value |
+|---|---|
+| **Total** | 0.8s |
+| Queue | 88ms (no batch wait!) |
+| Synthesis | 52ms (370K constraints vs 130M for PoRep) |
+| GPU | 666ms |
+| Proof size | 192 bytes |
+| SRS load | 87ms (184 MiB WinningPoSt params, lazy-loaded) |
+| **Result** | **PASS** — WinningPoSt bypasses BatchCollector correctly |
+
+### Throughput Comparison
+
+| Configuration | Throughput | Per-proof | Notes |
+|---|---|---|---|
+| **Phase 2 baseline** (batch=1) | ~0.67 proofs/min | 89s | Single proof at a time |
+| **Phase 2 pipeline** (batch=1, 3 proofs, j=3) | ~0.84 proofs/min | ~71s | Synth∥GPU overlap |
+| **Phase 3 batch=2** (2 proofs, j=2) | **0.96 proofs/min** | **62.7s** | Cross-sector batching |
+| **Phase 3 batch=2** (3 proofs, j=3) | **0.96 proofs/min** | **62.3s** | Batch + pipeline |
+| Speedup (batch=2 vs baseline) | | | **1.42x throughput** |
+
+### Memory Comparison
+
+| Configuration | Peak RSS | Idle RSS | Notes |
+|---|---|---|---|
+| Phase 2 baseline (batch=1) | 202.9 GiB | 45.0 GiB | 10 partitions |
+| Phase 3 batch=2 | ~360 GiB | 45.0 GiB | 20 circuits |
+| Phase 3 batch=2 + overlap | 420.3 GiB | 45.0 GiB | Batch + next proof synth |
+
+---
+
+## 15. Open Questions
 
 1. **SnapDeals 16 partitions:** SnapDeals has 16 partitions vs PoRep's 10. With batching
    (Phase 3), this means 16+ circuits in one GPU call. The supraseal code has
@@ -1119,7 +1229,7 @@ Once cuzk is proven stable, it replaces ffiselect for all GPU proving. The
 
 ---
 
-## 15. Dependency Versions
+## 16. Dependency Versions
 
 cuzk links against the same Filecoin proving stack as Curio:
 
@@ -1144,7 +1254,7 @@ cuzk links against the same Filecoin proving stack as Curio:
 
 ---
 
-## 16. File Reference
+## 17. File Reference
 
 ### Curio (Go) — Current Architecture
 
@@ -1199,7 +1309,7 @@ cuzk links against the same Filecoin proving stack as Curio:
 
 ---
 
-## 17. Related Documents
+## 18. Related Documents
 
 | Document | Contents |
 |---|---|
