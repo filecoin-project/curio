@@ -477,22 +477,22 @@ func RemoveCidContact(slice []*url.URL) []*url.URL {
 func (p *Provider) StartPublishing(ctx context.Context) {
 	var ticker *time.Ticker
 
-	// A poller which publishes head for each provider
-	// every 10 minutes for mainnet build
-	if build.BuildType == build.BuildMainnet {
+	// A poller which publishes head for each provider.
+	// Mainnet and calibnet use the normal publish interval (10 min),
+	// devnet builds use a faster 10-second interval.
+	switch build.BuildType {
+	case build.BuildMainnet, build.BuildCalibnet:
 		ticker = time.NewTicker(publishInterval)
-	} else {
-		if build.BuildType != build.BuildCalibnet {
-			ticker = time.NewTicker(time.Second * 10)
-			log.Info("Resetting IPNI provider publishing ticker to 10 seconds for devnet build")
-			urls := RemoveCidContact(p.announceURLs)
-			if len(urls) == 0 {
-				log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
-				return
-			}
-			p.announceURLs = urls
+	default:
+		// devnet / debug / 2k builds
+		ticker = time.NewTicker(time.Second * 10)
+		log.Info("Resetting IPNI provider publishing ticker to 10 seconds for devnet build")
+		urls := RemoveCidContact(p.announceURLs)
+		if len(urls) == 0 {
+			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
+			return
 		}
-		log.Info("Starting IPNI provider publishing for testnet build")
+		p.announceURLs = urls
 	}
 
 	go func(ticker *time.Ticker) {
