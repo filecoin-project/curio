@@ -27,7 +27,11 @@ setup-cgo-env:
 	fi
 
 build/.filecoin-install: $(FFI_PATH)
+ifeq ($(shell uname),Darwin)
+	$(MAKE) -C $(FFI_PATH) $(FFI_DEPS:$(FFI_PATH)%=%)
+else
 	$(MAKE) curio-libfilecoin
+endif
 	@touch $@
 
 MODULES+=$(FFI_PATH)
@@ -53,7 +57,7 @@ curio-libfilecoin:
 	FFI_USE_CUDA=$(if $(FFI_USE_OPENCL),0,1) \
 	FFI_USE_MULTICORE_SDR=1 \
 	RUSTFLAGS='-C codegen-units=1 -C opt-level=3 -C strip=symbols' \
-	$(MAKE) -C $(FFI_PATH) clean .install-filcrypto
+	$(MAKE) -C $(FFI_PATH) .install-filcrypto
 
 ffi-version-check:
 	@[[ "$$(awk '/const Version/{print $$5}' extern/filecoin-ffi/version.go)" -eq 3 ]] || (echo "FFI version mismatch, update submodules"; exit 1)
