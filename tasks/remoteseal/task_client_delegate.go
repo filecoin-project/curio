@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/market/sealmarket"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -357,6 +358,7 @@ func (d *RSealDelegate) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 16 << 20, // 16 MiB - minimal, just HTTP calls
 		},
 		MaxFailures: 100,
+		RetryWait:   taskhelp.RetryWaitLinear(20*time.Second, 0),
 		IAmBored:    d.adaptiveSchedule(),
 	}
 }
