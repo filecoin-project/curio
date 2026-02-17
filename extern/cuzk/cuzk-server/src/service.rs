@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 use tonic::{Request, Response, Status};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use cuzk_core::engine::Engine;
 use cuzk_core::types::*;
@@ -108,7 +108,12 @@ impl ProvingEngine for ProvingService {
         request: Request<pb::SubmitProofRequest>,
     ) -> Result<Response<pb::SubmitProofResponse>, Status> {
         let req = request.into_inner();
-        info!(request_id = %req.request_id, proof_kind = req.proof_kind, "SubmitProof");
+        info!(
+            request_id = %req.request_id,
+            proof_kind = req.proof_kind,
+            input_size = req.vanilla_proof.len(),
+            "SubmitProof"
+        );
 
         let proof_request = proto_to_request(&req)?;
         let (job_id, position) = self.engine.submit(proof_request).await
@@ -143,7 +148,12 @@ impl ProvingEngine for ProvingService {
         let submit_req = req.submit
             .ok_or_else(|| Status::invalid_argument("missing submit field"))?;
 
-        info!(request_id = %submit_req.request_id, proof_kind = submit_req.proof_kind, "Prove");
+        info!(
+            request_id = %submit_req.request_id,
+            proof_kind = submit_req.proof_kind,
+            input_size = submit_req.vanilla_proof.len(),
+            "Prove"
+        );
 
         let proof_request = proto_to_request(&submit_req)?;
         let job_id_str = proof_request.job_id.0.clone();
@@ -164,7 +174,7 @@ impl ProvingEngine for ProvingService {
         request: Request<pb::CancelProofRequest>,
     ) -> Result<Response<pb::CancelProofResponse>, Status> {
         let req = request.into_inner();
-        info!(job_id = %req.job_id, "CancelProof (not yet implemented)");
+        warn!(job_id = %req.job_id, "CancelProof (not yet implemented)");
         // Phase 0: cancellation not implemented
         Ok(Response::new(pb::CancelProofResponse {
             was_running: false,
@@ -181,7 +191,7 @@ impl ProvingEngine for ProvingService {
             pb::SrsStatus {
                 circuit_id: cid.clone(),
                 tier: pb::srs_status::Tier::Hot as i32,
-                size_bytes: 0,  // TODO: track actual sizes
+                size_bytes: 0,  // TODO: track actual sizes in Phase 1
                 ref_count: 0,
             }
         }).collect();
@@ -194,8 +204,23 @@ impl ProvingEngine for ProvingService {
             }
         }).collect();
 
+        // GPU info — Phase 0 uses nvidia-smi subprocess for basic info.
+        // Phase 1 will use NVML bindings for real-time data.
+        let gpus = detect_gpus();
+
+        // If there's a running job, annotate GPU 0 with it
+        let gpus: Vec<pb::GpuStatus> = gpus.into_iter().enumerate().map(|(i, mut gpu)| {
+            if i == 0 {
+                if let Some((ref job_id, ref kind)) = status.running_job {
+                    gpu.current_job_id = job_id.0.clone();
+                    gpu.current_proof_kind = kind.to_string();
+                }
+            }
+            gpu
+        }).collect();
+
         Ok(Response::new(pb::GetStatusResponse {
-            gpus: vec![],  // TODO: detect GPUs
+            gpus,
             loaded_srs: srs_entries,
             queues: queue_entries,
             total_proofs_completed: status.total_completed,
@@ -210,26 +235,81 @@ impl ProvingEngine for ProvingService {
         &self,
         _request: Request<pb::GetMetricsRequest>,
     ) -> Result<Response<pb::GetMetricsResponse>, Status> {
-        // Phase 0: minimal metrics
         let status = self.engine.get_status().await;
-        let text = format!(
-            "# HELP cuzk_proofs_completed_total Total proofs completed\n\
-             # TYPE cuzk_proofs_completed_total counter\n\
-             cuzk_proofs_completed_total {}\n\
-             # HELP cuzk_proofs_failed_total Total proofs failed\n\
-             # TYPE cuzk_proofs_failed_total counter\n\
-             cuzk_proofs_failed_total {}\n\
-             # HELP cuzk_uptime_seconds Daemon uptime\n\
-             # TYPE cuzk_uptime_seconds gauge\n\
-             cuzk_uptime_seconds {}\n\
-             # HELP cuzk_queue_depth Current queue depth\n\
-             # TYPE cuzk_queue_depth gauge\n\
-             cuzk_queue_depth {}\n",
-            status.total_completed,
-            status.total_failed,
-            status.uptime_seconds,
-            status.queue_depth,
-        );
+        let stats = self.engine.get_proof_stats().await;
+
+        let mut text = String::with_capacity(4096);
+
+        // --- Global counters ---
+        text.push_str("# HELP cuzk_proofs_completed_total Total proofs completed\n");
+        text.push_str("# TYPE cuzk_proofs_completed_total counter\n");
+        text.push_str(&format!("cuzk_proofs_completed_total {}\n", status.total_completed));
+
+        text.push_str("# HELP cuzk_proofs_failed_total Total proofs failed\n");
+        text.push_str("# TYPE cuzk_proofs_failed_total counter\n");
+        text.push_str(&format!("cuzk_proofs_failed_total {}\n", status.total_failed));
+
+        text.push_str("# HELP cuzk_uptime_seconds Daemon uptime\n");
+        text.push_str("# TYPE cuzk_uptime_seconds gauge\n");
+        text.push_str(&format!("cuzk_uptime_seconds {}\n", status.uptime_seconds));
+
+        text.push_str("# HELP cuzk_queue_depth Current queue depth\n");
+        text.push_str("# TYPE cuzk_queue_depth gauge\n");
+        text.push_str(&format!("cuzk_queue_depth {}\n", status.queue_depth));
+
+        // --- Per proof-kind counters ---
+        text.push_str("# HELP cuzk_proofs_completed Per proof-kind completions\n");
+        text.push_str("# TYPE cuzk_proofs_completed counter\n");
+        for (kind, count) in &stats.completed_by_kind {
+            text.push_str(&format!(
+                "cuzk_proofs_completed{{proof_kind=\"{}\"}} {}\n",
+                kind.metric_label(), count
+            ));
+        }
+
+        text.push_str("# HELP cuzk_proofs_failed Per proof-kind failures\n");
+        text.push_str("# TYPE cuzk_proofs_failed counter\n");
+        for (kind, count) in &stats.failed_by_kind {
+            text.push_str(&format!(
+                "cuzk_proofs_failed{{proof_kind=\"{}\"}} {}\n",
+                kind.metric_label(), count
+            ));
+        }
+
+        // --- Duration histogram approximation ---
+        // Emit recent proof durations as a summary (last N proofs).
+        if !stats.recent_durations.is_empty() {
+            text.push_str("# HELP cuzk_proof_duration_seconds Proof duration\n");
+            text.push_str("# TYPE cuzk_proof_duration_seconds summary\n");
+
+            // Group by kind, compute count/sum
+            let mut kind_stats: std::collections::HashMap<ProofKind, (u64, f64)> =
+                std::collections::HashMap::new();
+            for (kind, dur) in &stats.recent_durations {
+                let entry = kind_stats.entry(*kind).or_insert((0, 0.0));
+                entry.0 += 1;
+                entry.1 += dur.as_secs_f64();
+            }
+            for (kind, (count, sum)) in &kind_stats {
+                text.push_str(&format!(
+                    "cuzk_proof_duration_seconds_count{{proof_kind=\"{}\"}} {}\n",
+                    kind.metric_label(), count
+                ));
+                text.push_str(&format!(
+                    "cuzk_proof_duration_seconds_sum{{proof_kind=\"{}\"}} {:.3}\n",
+                    kind.metric_label(), sum
+                ));
+            }
+        }
+
+        // --- Running job ---
+        text.push_str("# HELP cuzk_running_jobs Currently running proofs\n");
+        text.push_str("# TYPE cuzk_running_jobs gauge\n");
+        text.push_str(&format!(
+            "cuzk_running_jobs {}\n",
+            if status.running_job.is_some() { 1 } else { 0 }
+        ));
+
         Ok(Response::new(pb::GetMetricsResponse {
             prometheus_text: text,
         }))
@@ -256,11 +336,52 @@ impl ProvingEngine for ProvingService {
         request: Request<pb::EvictSrsRequest>,
     ) -> Result<Response<pb::EvictSrsResponse>, Status> {
         let req = request.into_inner();
-        info!(circuit_id = %req.circuit_id, "EvictSRS (not yet implemented)");
+        warn!(circuit_id = %req.circuit_id, "EvictSRS (not yet implemented)");
         // Phase 0: eviction not implemented
         Ok(Response::new(pb::EvictSrsResponse {
             was_loaded: false,
             freed_bytes: 0,
         }))
+    }
+}
+
+/// Detect GPUs by parsing nvidia-smi output.
+///
+/// Phase 0: subprocess call, cached per status request.
+/// Phase 1: NVML bindings for real-time data.
+fn detect_gpus() -> Vec<pb::GpuStatus> {
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=index,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            text.lines()
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+                    if parts.len() >= 4 {
+                        let ordinal = parts[0].parse::<u32>().unwrap_or(0);
+                        let name = parts[1].to_string();
+                        let total_mib = parts[2].parse::<u64>().unwrap_or(0);
+                        let free_mib = parts[3].parse::<u64>().unwrap_or(0);
+                        Some(pb::GpuStatus {
+                            ordinal,
+                            name,
+                            vram_total_bytes: total_mib * 1024 * 1024,
+                            vram_free_bytes: free_mib * 1024 * 1024,
+                            current_job_id: String::new(),
+                            current_proof_kind: String::new(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+        _ => vec![],
     }
 }

@@ -1,0 +1,61 @@
+# cuzk daemon configuration
+#
+# Copy to /data/zk/cuzk.toml or pass via --config flag.
+# All fields have sensible defaults — this file only needs to
+# contain values you want to override.
+
+[daemon]
+# Listen address. TCP or Unix domain socket.
+# TCP:   "0.0.0.0:9820"
+# UDS:   "unix:///run/curio/cuzk.sock"
+listen = "0.0.0.0:9820"
+
+[srs]
+# Directory containing Filecoin proof parameter files (.params, .vk).
+# Must contain the relevant v28-*.params files for the proof types you run.
+# Download with: curio fetch-params 32
+param_cache = "/data/zk/params"
+
+# SRS entries to pre-warm at daemon startup.
+# This sets the environment so the first proof call per circuit type
+# populates GROTH_PARAM_MEMORY_CACHE automatically.
+# Values: "porep-32g", "wpost-32g", "winning-32g", "snap-32g"
+preload = ["porep-32g"]
+
+[memory]
+# Maximum CUDA pinned memory budget for SRS residency.
+# Phase 1+: controls how much SRS data is kept in pinned memory.
+pinned_budget = "50GiB"
+
+# Maximum working memory for proof operations.
+working_memory_budget = "80GiB"
+
+[gpus]
+# GPU ordinals to use. Empty = auto-detect all GPUs.
+# Example: [0, 1] to use only the first two GPUs.
+devices = []
+
+[scheduler]
+# Max proofs to batch into a single GPU invocation (same circuit type).
+# Phase 0: always 1 (batching not yet implemented).
+max_batch_size = 1
+
+# Max time (ms) to wait for batch to fill before flushing.
+max_batch_wait_ms = 10000
+
+# Reorder NORMAL-priority queue to group by circuit type.
+# This reduces SRS context switches on GPUs with limited VRAM.
+sort_by_type = true
+
+[synthesis]
+# CPU threads for circuit synthesis. 0 = auto (num_cpus / 2).
+# PoRep 32G synthesis uses ~140+ threads effectively.
+threads = 0
+
+[logging]
+# Log level: trace, debug, info, warn, error
+# Can also be overridden via RUST_LOG env var.
+level = "info"
+
+# Log format: unset for human-readable, "json" for structured.
+# format = "json"

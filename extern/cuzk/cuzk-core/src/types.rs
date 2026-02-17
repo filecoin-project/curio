@@ -44,6 +44,16 @@ impl ProofKind {
         }
     }
 
+    /// Prometheus-safe label value.
+    pub fn metric_label(&self) -> &'static str {
+        match self {
+            ProofKind::PoRepSealCommit => "porep_c2",
+            ProofKind::SnapDealsUpdate => "snap_update",
+            ProofKind::WindowPostPartition => "window_post",
+            ProofKind::WinningPost => "winning_post",
+        }
+    }
+
     /// Convert from protobuf ProofKind enum value.
     pub fn from_proto(v: i32) -> Option<Self> {
         match v {
@@ -122,18 +132,43 @@ pub enum JobStatus {
 #[derive(Debug, Clone)]
 pub struct ProofResult {
     pub job_id: JobId,
+    pub proof_kind: ProofKind,
     pub proof_bytes: Vec<u8>,
     pub timings: ProofTimings,
 }
 
 /// Timing breakdown for a proof.
+///
+/// Phase 0 cannot separate synthesis from GPU compute because
+/// `seal_commit_phase2` is monolithic. The `proving` field captures
+/// the full `seal_commit_phase2` call (synthesis + GPU + verify).
+/// `deserialize` captures JSON parsing + base64 decoding.
 #[derive(Debug, Clone, Default)]
 pub struct ProofTimings {
+    /// Time spent waiting in the scheduler queue.
     pub queue_wait: Duration,
+    /// Time to deserialize the proof input (JSON parse, base64 decode).
+    pub deserialize: Duration,
+    /// Time for the full proving call (SRS load + synthesis + GPU + verify).
+    /// In Phase 0 this is the entire `seal_commit_phase2` duration.
+    pub proving: Duration,
+    /// Wall-clock total from submission to completion.
+    pub total: Duration,
+
+    // Legacy fields kept for proto compat — filled from `proving` in Phase 0.
     pub srs_load: Duration,
     pub synthesis: Duration,
     pub gpu_compute: Duration,
-    pub total: Duration,
+}
+
+/// Aggregate statistics tracked by the engine, used for metrics.
+#[derive(Debug, Clone, Default)]
+pub struct ProofStats {
+    /// Per proof-kind counters.
+    pub completed_by_kind: Vec<(ProofKind, u64)>,
+    pub failed_by_kind: Vec<(ProofKind, u64)>,
+    /// Recent proof durations for histogram approximation (ring buffer).
+    pub recent_durations: Vec<(ProofKind, Duration)>,
 }
 
 /// Error type for engine operations.

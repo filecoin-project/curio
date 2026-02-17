@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use base64::Engine as _;
 use std::path::Path;
 use std::time::Instant;
-use tracing::{info, warn};
+use tracing::{debug, info, info_span, warn};
 
 use filecoin_proofs_api::seal::{self, SealCommitPhase1Output};
 use filecoin_proofs_api::SectorId;
@@ -107,15 +107,26 @@ pub fn preload_srs(circuit_id: &str, param_cache: &Path) -> Result<std::time::Du
 ///
 /// Deserializes the C1 output (JSON), calls `seal_commit_phase2()`, returns proof bytes.
 /// SRS is loaded from `GROTH_PARAM_MEMORY_CACHE` (cached after first call in this process).
+///
+/// `job_id` is threaded through for log correlation.
 pub fn prove_porep_c2(
     vanilla_proof_json: &[u8],
     sector_number: u64,
     miner_id: u64,
+    job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
+    let _span = info_span!("prove_porep_c2", job_id = job_id).entered();
     let total_start = Instant::now();
     let mut timings = ProofTimings::default();
 
+    // --- Phase: Deserialize ---
+    let deser_start = Instant::now();
+
     // Parse the C1 wrapper JSON (outer Curio format)
+    debug!(
+        input_len = vanilla_proof_json.len(),
+        "parsing C1 outer wrapper JSON"
+    );
     let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
         .context("failed to parse C1 output wrapper JSON")?;
 
@@ -123,7 +134,7 @@ pub fn prove_porep_c2(
         sector_num = wrapper.sector_num,
         sector_size = wrapper.sector_size,
         phase1_out_b64_len = wrapper.phase1_out.len(),
-        "starting PoRep C2 proof"
+        "parsed C1 wrapper"
     );
 
     // Decode the base64-encoded Phase1Output.
@@ -132,52 +143,51 @@ pub fn prove_porep_c2(
         .decode(&wrapper.phase1_out)
         .context("failed to decode base64 Phase1Output")?;
 
-    info!(
+    debug!(
         phase1_json_len = phase1_json_bytes.len(),
         "decoded Phase1Output from base64"
     );
 
     // Deserialize the JSON into the Rust SealCommitPhase1Output struct.
-    // This is the same format that the Rust FFI layer uses: serde_json.
-    let srs_start = Instant::now();
     let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
         .context("failed to deserialize SealCommitPhase1Output from JSON")?;
-    timings.srs_load = srs_start.elapsed(); // First call includes SRS load time
 
+    timings.deserialize = deser_start.elapsed();
     info!(
         registered_proof = ?c1_output.registered_proof,
+        deser_ms = timings.deserialize.as_millis(),
         "deserialized SealCommitPhase1Output"
     );
 
-    // Construct prover_id and sector_id
+    // --- Phase: Prove (SRS load + synthesis + GPU + verify, monolithic in Phase 0) ---
     let prover_id = make_prover_id(miner_id);
     let sector_id = SectorId::from(sector_number);
 
     info!(
         sector_id = sector_number,
         miner_id = miner_id,
-        "calling seal_commit_phase2"
+        "calling seal_commit_phase2 (includes SRS load + synthesis + GPU + verify)"
     );
 
-    // Call into filecoin-proofs-api. This is the real proving call.
-    // On first call: GROTH_PARAM_MEMORY_CACHE loads the SRS (~30-90s for 32G PoRep).
-    // On subsequent calls: cache hit, SRS load is ~0.
-    // The function internally performs circuit synthesis (CPU) + GPU compute (NTT/MSM).
     let prove_start = Instant::now();
     let output = seal::seal_commit_phase2(c1_output, prover_id, sector_id)
         .context("seal_commit_phase2 failed")?;
-    let prove_elapsed = prove_start.elapsed();
+    timings.proving = prove_start.elapsed();
 
-    // We can't separate synthesis from GPU time at this level — seal_commit_phase2
-    // is a monolithic call. Report the total as "gpu_compute" for Phase 0.
-    // Phase 2+ with the split API will separate these.
-    timings.gpu_compute = prove_elapsed;
+    // Phase 0: We cannot split synthesis from GPU time. Report the total
+    // proving duration under gpu_compute for proto compat, and zero out
+    // the parts we can't measure.
+    timings.srs_load = std::time::Duration::ZERO;
+    timings.synthesis = std::time::Duration::ZERO;
+    timings.gpu_compute = timings.proving;
+
     timings.total = total_start.elapsed();
     timings.queue_wait = std::time::Duration::ZERO; // Set by engine
 
     info!(
         proof_len = output.proof.len(),
-        prove_ms = prove_elapsed.as_millis(),
+        deser_ms = timings.deserialize.as_millis(),
+        prove_ms = timings.proving.as_millis(),
         total_ms = timings.total.as_millis(),
         "PoRep C2 proof completed"
     );
@@ -190,7 +200,9 @@ pub fn prove_winning_post(
     _vanilla_proof: &[u8],
     _miner_id: u64,
     _randomness: &[u8],
+    job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
+    let _span = info_span!("prove_winning_post", job_id = job_id).entered();
     warn!("WinningPoSt proof is a STUB — will be implemented in Phase 1");
     anyhow::bail!("WinningPoSt not yet implemented in Phase 0")
 }
@@ -201,7 +213,9 @@ pub fn prove_window_post(
     _miner_id: u64,
     _randomness: &[u8],
     _partition_index: u32,
+    job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
+    let _span = info_span!("prove_window_post", job_id = job_id).entered();
     warn!("WindowPoSt proof is a STUB — will be implemented in Phase 1");
     anyhow::bail!("WindowPoSt not yet implemented in Phase 0")
 }
@@ -212,7 +226,9 @@ pub fn prove_snap_deals(
     _sector_key_cid: &[u8],
     _new_sealed_cid: &[u8],
     _new_unsealed_cid: &[u8],
+    job_id: &str,
 ) -> Result<(Vec<u8>, ProofTimings)> {
+    let _span = info_span!("prove_snap_deals", job_id = job_id).entered();
     warn!("SnapDeals proof is a STUB — will be implemented in Phase 1");
     anyhow::bail!("SnapDeals not yet implemented in Phase 0")
 }
