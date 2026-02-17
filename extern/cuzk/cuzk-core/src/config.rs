@@ -17,6 +17,8 @@ pub struct Config {
     #[serde(default)]
     pub synthesis: SynthesisConfig,
     #[serde(default)]
+    pub pipeline: PipelineConfig,
+    #[serde(default)]
     pub srs: SrsConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -141,6 +143,43 @@ impl Default for SynthesisConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct PipelineConfig {
+    /// Enable pipelined synthesis → GPU proving.
+    /// When enabled, synthesis and GPU compute overlap for consecutive proofs.
+    /// When disabled, falls back to Phase 1 monolithic proving.
+    #[serde(default = "PipelineConfig::default_enabled")]
+    pub enabled: bool,
+    /// Maximum number of pre-synthesized proofs waiting for GPU.
+    /// Controls memory backpressure:
+    /// - 0 = no pipelining (synthesis and GPU are sequential per proof)
+    /// - 1 = one proof pre-synthesized (recommended for PoRep on 256+ GiB machines)
+    /// - N = N proofs pre-synthesized (only for PoSt which has small intermediate state)
+    ///
+    /// Per-partition pipelining reduces this further: for PoRep, each
+    /// in-flight unit is one partition (~13.6 GiB), not the full proof.
+    #[serde(default = "PipelineConfig::default_synthesis_lookahead")]
+    pub synthesis_lookahead: u32,
+}
+
+impl PipelineConfig {
+    fn default_enabled() -> bool {
+        true
+    }
+    fn default_synthesis_lookahead() -> u32 {
+        1
+    }
+}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Self::default_enabled(),
+            synthesis_lookahead: Self::default_synthesis_lookahead(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SrsConfig {
     /// Directory containing .params and .vk files.
     #[serde(default = "SrsConfig::default_param_cache")]
@@ -196,6 +235,7 @@ impl Default for Config {
             gpus: GpuConfig::default(),
             scheduler: SchedulerConfig::default(),
             synthesis: SynthesisConfig::default(),
+            pipeline: PipelineConfig::default(),
             srs: SrsConfig::default(),
             logging: LoggingConfig::default(),
         }

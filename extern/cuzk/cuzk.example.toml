@@ -52,6 +52,20 @@ sort_by_type = true
 # PoRep 32G synthesis uses ~140+ threads effectively.
 threads = 0
 
+[pipeline]
+# Enable pipelined synthesis → GPU proving (Phase 2).
+# When enabled, PoRep C2 proofs use per-partition synthesis/GPU overlap:
+# CPU synthesizes partition N+1 while GPU proves partition N.
+# When disabled, falls back to monolithic Phase 1 proving.
+enabled = true
+
+# Max pre-synthesized partitions waiting for GPU. Controls backpressure.
+# Each in-flight PoRep partition is ~13.6 GiB of intermediate state.
+#   0 = sequential (synthesis then GPU per partition, no overlap)
+#   1 = one partition pre-synthesized (recommended, uses ~27 GiB intermediate)
+# For PoSt proofs (much smaller): this value doesn't matter much.
+synthesis_lookahead = 1
+
 [logging]
 # Log level: trace, debug, info, warn, error
 # Can also be overridden via RUST_LOG env var.

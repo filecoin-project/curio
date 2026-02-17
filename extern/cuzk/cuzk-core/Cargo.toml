@@ -23,7 +23,41 @@ base64 = { workspace = true }
 # Without it, bellperson's native prover is used.
 filecoin-proofs-api = { workspace = true }
 
+# Phase 2: Direct circuit construction and pipelined proving.
+# These are already transitive deps via filecoin-proofs-api;
+# adding them as direct deps doesn't increase compile time or binary size.
+filecoin-proofs = { workspace = true }
+storage-proofs-core = { workspace = true }
+storage-proofs-porep = { workspace = true }
+storage-proofs-post = { workspace = true }
+storage-proofs-update = { workspace = true }
+bellperson = { workspace = true }
+blstrs = { workspace = true }
+ff = { workspace = true }
+rayon = { workspace = true }
+rand_core = { workspace = true }
+filecoin-hashers = { workspace = true }
+
 [features]
 default = ["cuda-supraseal"]
-cuda = ["filecoin-proofs-api/cuda"]
-cuda-supraseal = ["filecoin-proofs-api/cuda-supraseal"]
+cuda = [
+    "filecoin-proofs-api/cuda",
+    "filecoin-proofs/cuda",
+    "storage-proofs-core/cuda",
+    "storage-proofs-porep/cuda",
+    "storage-proofs-post/cuda",
+    "storage-proofs-update/cuda",
+    "bellperson/cuda",
+]
+# cuda-supraseal: bellperson and storage-proofs-core get cuda-supraseal,
+# but porep/post/update only have a "cuda" feature (which is sufficient —
+# they don't call bellperson directly, only through storage-proofs-core).
+cuda-supraseal = [
+    "filecoin-proofs-api/cuda-supraseal",
+    "filecoin-proofs/cuda-supraseal",
+    "storage-proofs-core/cuda-supraseal",
+    "storage-proofs-porep/cuda",
+    "storage-proofs-post/cuda",
+    "storage-proofs-update/cuda",
+    "bellperson/cuda-supraseal",
+]

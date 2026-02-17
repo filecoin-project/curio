@@ -53,9 +53,26 @@ cid = { version = "0.11", default-features = false, features = ["alloc"] }
 # Activated with cuda-supraseal for best GPU performance.
 filecoin-proofs-api = { version = "19.0", default-features = false }
 
+# Direct deps on storage-proofs crates (Phase 2: direct circuit construction).
+# These are already transitive deps via filecoin-proofs-api.
+filecoin-proofs = { version = "19.0", default-features = false }
+storage-proofs-core = { version = "19.0", default-features = false }
+storage-proofs-porep = { version = "19.0", default-features = false }
+storage-proofs-post = { version = "19.0", default-features = false }
+storage-proofs-update = { version = "19.0", default-features = false }
+
 # Forked bellperson with split synthesis/GPU API (Phase 2).
 # The [patch.crates-io] below ensures ALL transitive deps use the fork.
 bellperson = { path = "../bellperson", default-features = false }
+
+# BLS12-381 types (already transitive via bellperson/blstrs)
+blstrs = "0.7"
+ff = "0.13"
+rayon = "1.10"
+rand_core = "0.6"
+
+# Filecoin hashers (Domain trait, already transitive via filecoin-proofs)
+filecoin-hashers = { version = "14.0", default-features = false, features = ["poseidon", "sha256"] }
 
 [patch.crates-io]
 bellperson = { path = "../bellperson" }

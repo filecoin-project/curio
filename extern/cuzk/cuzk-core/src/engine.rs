@@ -3,9 +3,9 @@
 //! Owns the scheduler, GPU workers, and SRS manager. Provides the public API
 //! for submitting proofs, querying status, and managing SRS.
 //!
-//! Phase 1: Multi-GPU worker pool. Each worker is bound to a specific GPU
-//! via `CUDA_VISIBLE_DEVICES`. The scheduler dispatches jobs to workers,
-//! preferring workers whose GPU already has the required SRS loaded (affinity).
+//! Phase 2: Supports both monolithic (Phase 1) and pipelined proving modes.
+//! In pipeline mode, PoRep C2 proofs use per-partition synthesis → GPU overlap
+//! with SRS managed directly via `SrsManager` (bypassing `GROTH_PARAM_MEMORY_CACHE`).
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -17,6 +17,7 @@ use tracing::{error, info, info_span, warn, Instrument};
 use crate::config::Config;
 use crate::prover;
 use crate::scheduler::Scheduler;
+use crate::srs_manager::{CircuitId, SrsManager};
 use crate::types::*;
 
 /// Per-worker state visible to the engine.
@@ -91,7 +92,13 @@ pub struct Engine {
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
     /// SRS entries that have been preloaded (circuit_id → load time ms).
+    /// Used by Phase 1 (monolithic) mode.
     preloaded_srs: Arc<RwLock<HashMap<String, u64>>>,
+    /// Phase 2 SRS manager — loads params directly via SuprasealParameters.
+    /// Shared across all GPU workers.
+    srs_manager: Arc<Mutex<SrsManager>>,
+    /// Whether pipeline mode is enabled.
+    pipeline_enabled: bool,
 }
 
 /// Detect available GPU ordinals.
@@ -125,6 +132,11 @@ impl Engine {
     /// Create a new engine with the given configuration.
     pub fn new(config: Config) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let pipeline_enabled = config.pipeline.enabled;
+        let srs_manager = SrsManager::new(
+            config.srs.param_cache.clone(),
+            config.memory.pinned_budget_bytes(),
+        );
         Self {
             config,
             scheduler: Arc::new(Scheduler::new()),
@@ -133,28 +145,77 @@ impl Engine {
             shutdown_tx,
             shutdown_rx,
             preloaded_srs: Arc::new(RwLock::new(HashMap::new())),
+            srs_manager: Arc::new(Mutex::new(srs_manager)),
+            pipeline_enabled,
         }
     }
 
     /// Start the engine: preload SRS, spawn GPU worker(s).
     pub async fn start(&self) -> Result<()> {
-        info!("starting cuzk engine");
+        info!(
+            pipeline_enabled = self.pipeline_enabled,
+            "starting cuzk engine"
+        );
 
         // Preload configured SRS entries
-        let param_cache = self.config.srs.param_cache.clone();
-        for circuit_id in &self.config.srs.preload {
-            match prover::preload_srs(circuit_id, &param_cache) {
-                Ok(elapsed) => {
-                    let mut srs = self.preloaded_srs.write().await;
-                    srs.insert(circuit_id.clone(), elapsed.as_millis() as u64);
-                    info!(
-                        circuit_id = circuit_id.as_str(),
-                        elapsed_ms = elapsed.as_millis(),
-                        "SRS preloaded"
-                    );
-                }
-                Err(e) => {
-                    warn!(circuit_id = circuit_id.as_str(), error = %e, "SRS preload failed");
+        if self.pipeline_enabled {
+            // Phase 2: Preload via SrsManager (direct SuprasealParameters loading)
+            let srs_mgr = self.srs_manager.clone();
+            let preload_ids: Vec<CircuitId> = self
+                .config
+                .srs
+                .preload
+                .iter()
+                .filter_map(|s| CircuitId::from_str_id(s))
+                .collect();
+            if !preload_ids.is_empty() {
+                info!(
+                    circuit_ids = ?preload_ids,
+                    "preloading SRS via SrsManager (Phase 2)"
+                );
+                let srs_mgr_clone = srs_mgr.clone();
+                let preloaded_srs = self.preloaded_srs.clone();
+                // SRS loading is blocking I/O, run on blocking thread
+                tokio::task::spawn_blocking(move || {
+                    let mut mgr = srs_mgr_clone.blocking_lock();
+                    for cid in &preload_ids {
+                        let start = Instant::now();
+                        match mgr.ensure_loaded(cid) {
+                            Ok(_) => {
+                                let elapsed = start.elapsed();
+                                let mut srs = preloaded_srs.blocking_write();
+                                srs.insert(cid.to_string(), elapsed.as_millis() as u64);
+                                info!(
+                                    circuit_id = %cid,
+                                    elapsed_ms = elapsed.as_millis(),
+                                    "SRS preloaded (Phase 2)"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(circuit_id = %cid, error = %e, "SRS preload failed");
+                            }
+                        }
+                    }
+                })
+                .await?;
+            }
+        } else {
+            // Phase 1: Preload via environment variable (lazy GROTH_PARAM_MEMORY_CACHE)
+            let param_cache = self.config.srs.param_cache.clone();
+            for circuit_id in &self.config.srs.preload {
+                match prover::preload_srs(circuit_id, &param_cache) {
+                    Ok(elapsed) => {
+                        let mut srs = self.preloaded_srs.write().await;
+                        srs.insert(circuit_id.clone(), elapsed.as_millis() as u64);
+                        info!(
+                            circuit_id = circuit_id.as_str(),
+                            elapsed_ms = elapsed.as_millis(),
+                            "SRS preloaded (Phase 1)"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(circuit_id = circuit_id.as_str(), error = %e, "SRS preload failed");
+                    }
                 }
             }
         }
@@ -189,6 +250,8 @@ impl Engine {
             let tracker = self.tracker.clone();
             let mut shutdown_rx = self.shutdown_rx.clone();
             let param_cache = self.config.srs.param_cache.clone();
+            let pipeline_enabled = self.pipeline_enabled;
+            let srs_manager = self.srs_manager.clone();
 
             tokio::spawn(async move {
                 info!(worker_id = worker_id, gpu = gpu_ordinal, "GPU worker started");
@@ -239,6 +302,7 @@ impl Engine {
                         let jid = job_id.0.clone();
 
                         // Execute proof on a blocking thread (proving is CPU/GPU-bound)
+                        let srs_mgr = srs_manager.clone();
                         let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, ProofTimings)> {
                             // Set environment variables for this worker thread.
                             // CUDA_VISIBLE_DEVICES constrains which GPU is visible.
@@ -246,6 +310,33 @@ impl Engine {
                             std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
                             std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);
 
+                            // Phase 2: Use pipelined prover for PoRep C2 if enabled
+                            #[cfg(feature = "cuda-supraseal")]
+                            if pipeline_enabled && proof_kind == ProofKind::PoRepSealCommit {
+                                use crate::pipeline;
+                                use crate::srs_manager::CircuitId;
+
+                                // Ensure SRS is loaded
+                                let circuit_id = CircuitId::Porep32G;
+                                let srs = {
+                                    let mut mgr = srs_mgr.blocking_lock();
+                                    mgr.ensure_loaded(&circuit_id)?
+                                };
+
+                                let (proof_bytes, ptimings) =
+                                    pipeline::prove_porep_c2_pipelined(
+                                        &vanilla, sector_number, miner_id, &srs, &jid,
+                                    )?;
+
+                                let mut timings = ProofTimings::default();
+                                timings.synthesis = ptimings.synthesis;
+                                timings.gpu_compute = ptimings.gpu_compute;
+                                timings.proving = ptimings.total;
+                                timings.total = ptimings.total;
+                                return Ok((proof_bytes, timings));
+                            }
+
+                            // Phase 1: Monolithic proving (fallback or non-PoRep types)
                             match proof_kind {
                                 ProofKind::PoRepSealCommit => {
                                     prover::prove_porep_c2(&vanilla, sector_number, miner_id, &jid)
