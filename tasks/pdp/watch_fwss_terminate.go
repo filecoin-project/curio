@@ -54,7 +54,11 @@ func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(sAddr, ethClient)
+	viewAddr, err := contract.ResolveViewAddress(sAddr, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to get FWSS view address: %w", err)
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, ethClient)
 	if err != nil {
 		return xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
 	}
