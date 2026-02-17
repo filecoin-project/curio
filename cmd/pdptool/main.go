@@ -25,6 +25,7 @@ import (
 	"github.com/minio/sha256-simd"
 	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -66,12 +67,14 @@ func main() {
 			uploadFileCmd,   // upload a file to a pdp service in many chunks
 			downloadFileCmd, // download a file from curio
 
-			createProofSetCmd,    // create a new proof set on the PDP service
-			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
-			getProofSetCmd,       // retrieve the details of a proof set from the PDP service
+			streamingPieceUploadCmd, // upload a piece to a pdp service in streaming mode
 
-			addRootsCmd,
-			removeRootsCmd, // schedule roots for removal after next proof submission
+			createDataSetCmd,    // create a new data set on the PDP service
+			getDataSetStatusCmd, // get the status of a data set creation on the PDP service
+			getDataSetCmd,       // retrieve the details of a data set from the PDP service
+
+			addPiecesCmd,
+			removePiecesCmd, // schedule pieces for removal after next proof submission
 		},
 	}
 	app.Setup()
@@ -117,7 +120,7 @@ var authCreateServiceSecretCmd = &cli.Command{
 			"private_key": string(privPEM),
 		}
 
-		file, err := os.OpenFile("pdpservice.json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		file, err := os.OpenFile("pdpservice.json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return fmt.Errorf("failed to open pdpservice.json for writing: %v", err)
 		}
@@ -191,8 +194,6 @@ var pingCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-
-		serviceURL = serviceURL + "/market"
 
 		// Append /pdp/ping to the service URL
 		pingURL := serviceURL + "/pdp/ping"
@@ -299,7 +300,7 @@ func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	defer cp.Reset()
 
 	// Copy data into commp calculator
-	_, err := io.Copy(cp, r)
+	rawSize, err := io.Copy(cp, r)
 	if err != nil {
 		return cid.Undef, 0, nil, nil, fmt.Errorf("failed to read input file: %v", err)
 	}
@@ -311,7 +312,7 @@ func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	}
 
 	// Convert digest to CID
-	pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
+	pieceCIDComputed, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(rawSize))
 	if err != nil {
 		return cid.Undef, 0, nil, nil, fmt.Errorf("failed to compute piece CID: %v", err)
 	}
@@ -365,7 +366,7 @@ var piecePrepareCmd = &cli.Command{
 		}
 
 		// Output the piece CID and size
-		fmt.Printf("Piece CID: %s\n", pieceCIDComputed)
+		fmt.Printf("CommPv2 CID: %s\n", pieceCIDComputed)
 		fmt.Printf("SHA256: %x\n", shadigest)
 		fmt.Printf("Padded Piece Size: %d bytes\n", paddedPieceSize)
 		fmt.Printf("Raw Piece Size: %d bytes\n", pieceSize)
@@ -440,15 +441,19 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 		if verbose {
 			fmt.Println("http.StatusOK")
 		}
-		// Piece already exists, get the pieceCID from the response
+		// Piece already exists, get the pieceCid from the response
 		var respData map[string]string
 		err = json.NewDecoder(resp.Body).Decode(&respData)
 		if err != nil {
 			return fmt.Errorf("failed to parse response: %v", err)
 		}
-		pieceCID := respData["pieceCID"]
+		// Try both pieceCid and pieceCID for compatibility
+		pieceCid := respData["pieceCid"]
+		if pieceCid == "" {
+			pieceCid = respData["pieceCID"]
+		}
 		if verbose {
-			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
+			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCid)
 		}
 		return nil
 	case http.StatusCreated:
@@ -540,7 +545,6 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		jwtToken := cctx.String("jwt-token")
 		notifyURL := cctx.String("notify-url")
 		serviceName := cctx.String("service-name")
@@ -593,40 +597,39 @@ var pieceUploadCmd = &cli.Command{
 		pieceSize := fi.Size()
 
 		// Compute CommP (PieceCID)
-		_, _, commpDigest, shadigest, err := preparePiece(file)
+		pieceCIDComputed, _, _, shadigest, err := preparePiece(file)
 		if err != nil {
 			return fmt.Errorf("failed to prepare piece: %v", err)
 		}
 
-		// Prepare the check data
-		var checkData map[string]interface{}
+		// Prepare the request data based on hash type
+		var reqData map[string]interface{}
+		var reqBody []byte
 
 		switch hashType {
 		case "sha256":
-			checkData = map[string]interface{}{
+			// For sha256, still use old format for backward compatibility
+			checkData := map[string]interface{}{
 				"name": "sha2-256",
 				"hash": hex.EncodeToString(shadigest),
 				"size": pieceSize,
 			}
+			reqData = map[string]interface{}{
+				"check": checkData,
+			}
 		case "commp":
-			hashHex := hex.EncodeToString(commpDigest)
-			checkData = map[string]interface{}{
-				"name": "sha2-256-trunc254-padded",
-				"hash": hashHex,
-				"size": pieceSize,
+			// For commp, use new format with pieceCid (CommPv2)
+			reqData = map[string]interface{}{
+				"pieceCid": pieceCIDComputed.String(),
 			}
 		default:
 			return fmt.Errorf("unsupported hash type: %s", hashType)
 		}
 
-		// Prepare the request data
-		reqData := map[string]interface{}{
-			"check": checkData,
-		}
 		if notifyURL != "" {
 			reqData["notify"] = notifyURL
 		}
-		reqBody, err := json.Marshal(reqData)
+		reqBody, err = json.Marshal(reqData)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
@@ -635,6 +638,7 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("failed to upload piece: %v", err)
 		}
 
+		fmt.Printf("Piece CID: %s\n", pieceCIDComputed.String())
 		fmt.Println("Piece uploaded successfully.")
 		return nil
 	},
@@ -689,14 +693,12 @@ var uploadFileCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-
 		inputFile := cctx.Args().Get(0)
 		if inputFile == "" {
 			return fmt.Errorf("input file is required")
 		}
 
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		jwtToken := cctx.String("jwt-token")
 		serviceName := cctx.String("service-name")
 		hashType := cctx.String("hash-type")
@@ -761,18 +763,20 @@ var uploadFileCmd = &cli.Command{
 			}
 		}
 
-		// group piece aggregations for tracking as onchain roots into sector size chunks
-		type rootSetInfo struct {
-			pieces     []abi.PieceInfo
-			subrootStr string
+		// group piece aggregations for tracking as onchain pieces into sector size chunks
+		type pieceSetInfo struct {
+			pieces      []abi.PieceInfo
+			rawSizes    []uint64 // Track raw sizes for each piece
+			subPieceStr string
 		}
-		rootSets := []rootSetInfo{}
-		rootSets = append(rootSets, rootSetInfo{
-			pieces:     make([]abi.PieceInfo, 0),
-			subrootStr: "",
+		pieceSets := []pieceSetInfo{}
+		pieceSets = append(pieceSets, pieceSetInfo{
+			pieces:      make([]abi.PieceInfo, 0),
+			rawSizes:    make([]uint64, 0),
+			subPieceStr: "",
 		})
-		rootSize := uint64(0)
-		maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
+		pieceSize := uint64(0)
+		maxPieceSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
 		if err != nil {
 			return fmt.Errorf("failed to get sector size: %v", err)
 		}
@@ -787,37 +791,39 @@ var uploadFileCmd = &cli.Command{
 			}
 			// Prepare the piece
 			chunkReader := bytes.NewReader(buf[:n])
-			commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
+			commP, paddedPieceSize, _, shadigest, err := preparePiece(chunkReader)
 			if err != nil {
 				return fmt.Errorf("failed to prepare piece: %v", err)
 			}
 			if !dryRun {
 				// Prepare the request data
-				var checkData map[string]interface{}
+				var reqData map[string]interface{}
+				var reqBody []byte
+
 				switch hashType {
 				case "sha256":
-					checkData = map[string]interface{}{
+					// For sha256, use old format for backward compatibility
+					checkData := map[string]interface{}{
 						"name": "sha2-256",
 						"hash": hex.EncodeToString(shadigest),
 						"size": n,
 					}
+					reqData = map[string]interface{}{
+						"check": checkData,
+					}
 				case "commp":
-					checkData = map[string]interface{}{
-						"name": "sha2-256-trunc254-padded",
-						"hash": hex.EncodeToString(commpDigest),
-						"size": n,
+					// For commp, use new format with pieceCid (CommPv2)
+					reqData = map[string]interface{}{
+						"pieceCid": commP.String(),
 					}
 				default:
 					return fmt.Errorf("unsupported hash type: %s", hashType)
 				}
 
-				reqData := map[string]interface{}{
-					"check": checkData,
-				}
 				if notifyURL != "" {
 					reqData["notify"] = notifyURL
 				}
-				reqBody, err := json.Marshal(reqData)
+				reqBody, err = json.Marshal(reqData)
 				if err != nil {
 					return fmt.Errorf("failed to marshal request data: %v", err)
 				}
@@ -833,33 +839,50 @@ var uploadFileCmd = &cli.Command{
 					return fmt.Errorf("failed to write chunk to file: %v", err)
 				}
 			}
-			if rootSize+paddedPieceSize > uint64(maxRootSize) {
-				rootSets = append(rootSets, rootSetInfo{
-					pieces:     make([]abi.PieceInfo, 0),
-					subrootStr: "",
+			if pieceSize+paddedPieceSize > uint64(maxPieceSize) {
+				pieceSets = append(pieceSets, pieceSetInfo{
+					pieces:      make([]abi.PieceInfo, 0),
+					rawSizes:    make([]uint64, 0),
+					subPieceStr: "",
 				})
-				rootSize = 0
+				pieceSize = 0
 			}
-			rootSize += paddedPieceSize
-			rootSets[len(rootSets)-1].pieces = append(rootSets[len(rootSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
-			rootSets[len(rootSets)-1].subrootStr = fmt.Sprintf("%s+%s", rootSets[len(rootSets)-1].subrootStr, commP)
+			pieceSize += paddedPieceSize
+			pieceSets[len(pieceSets)-1].pieces = append(pieceSets[len(pieceSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
+			pieceSets[len(pieceSets)-1].rawSizes = append(pieceSets[len(pieceSets)-1].rawSizes, uint64(n)) // n is the raw size
+			pieceSets[len(pieceSets)-1].subPieceStr = fmt.Sprintf("%s+%s", pieceSets[len(pieceSets)-1].subPieceStr, commP)
 			counter++
 			if err := bar.Set(int(counter)); err != nil {
 				return fmt.Errorf("failed to update progress bar: %v", err)
 			}
 		}
 
-		for i, rootSet := range rootSets {
-			pieceSize := uint64(0)
-			for _, piece := range rootSet.pieces {
-				pieceSize += uint64(piece.Size)
+		for i, pieceSet := range pieceSets {
+			rawSize := uint64(0)
+			paddedSize := uint64(0)
+			// Need to convert pieces back to v1 for GenerateUnsealedCID
+			piecesV1 := make([]abi.PieceInfo, len(pieceSet.pieces))
+			for j, piece := range pieceSet.pieces {
+				paddedSize += uint64(piece.Size)
+				rawSize += pieceSet.rawSizes[j]
+				// Convert CommPv2 to CommPv1 for compatibility with GenerateUnsealedCID
+				pieceCidV1, _, err := commcid.PieceCidV1FromV2(piece.PieceCID)
+				if err != nil {
+					return fmt.Errorf("failed to convert piece CID to v1: %v", err)
+				}
+				piecesV1[j] = abi.PieceInfo{Size: piece.Size, PieceCID: pieceCidV1}
 			}
-			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
-			root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
+			fmt.Printf("%d: paddedSize: %d, rawSize: %d\n", i, paddedSize, rawSize)
+			pieceCidV1, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, piecesV1)
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}
-			s := fmt.Sprintf("%s:%s\n", root, rootSet.subrootStr[1:])
+			// Convert the aggregated piece CID to CommPv2
+			pieceCidV2, err := commcid.PieceCidV2FromV1(pieceCidV1, rawSize)
+			if err != nil {
+				return fmt.Errorf("failed to convert aggregated piece CID to v2: %v", err)
+			}
+			s := fmt.Sprintf("%s:%s\n", pieceCidV2, pieceSet.subPieceStr[1:])
 			fmt.Printf("%s\n", s)
 		}
 
@@ -867,9 +890,9 @@ var uploadFileCmd = &cli.Command{
 	},
 }
 
-var createProofSetCmd = &cli.Command{
-	Name:  "create-proof-set",
-	Usage: "Create a new proof set on the PDP service",
+var createDataSetCmd = &cli.Command{
+	Name:  "create-data-set",
+	Usage: "Create a new data set on the PDP service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -894,7 +917,6 @@ var createProofSetCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		recordKeeper := cctx.String("pdp-service-contract")
 		extraDataHexStr := cctx.String("extra-data")
@@ -923,8 +945,8 @@ var createProofSetCmd = &cli.Command{
 			return fmt.Errorf("failed to marshal request body: %v", err)
 		}
 
-		// Append /pdp/proof-sets to the service URL
-		postURL := serviceURL + "/pdp/proof-sets"
+		// Append /pdp/data-sets to the service URL
+		postURL := serviceURL + "/pdp/data-sets"
 
 		// Create the POST request
 		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
@@ -955,20 +977,20 @@ var createProofSetCmd = &cli.Command{
 
 		if resp.StatusCode == http.StatusCreated {
 			location := resp.Header.Get("Location")
-			fmt.Printf("Proof set creation initiated successfully.\n")
+			fmt.Printf("Data set creation initiated successfully.\n")
 			fmt.Printf("Location: %s\n", location)
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
-			return fmt.Errorf("failed to create proof set, status code %d: %s", resp.StatusCode, bodyString)
+			return fmt.Errorf("failed to create data set, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
 		return nil
 	},
 }
 
-var getProofSetStatusCmd = &cli.Command{
-	Name:  "get-proof-set-create-status",
-	Usage: "Get the status of a proof set creation on the PDP service",
+var getDataSetStatusCmd = &cli.Command{
+	Name:  "get-data-set-create-status",
+	Usage: "Get the status of a data set creation on the PDP service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -977,7 +999,7 @@ var getProofSetStatusCmd = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:     "tx-hash",
-			Usage:    "Transaction hash of the proof set creation",
+			Usage:    "Transaction hash of the data set creation",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -988,7 +1010,6 @@ var getProofSetStatusCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 		txHash := cctx.String("tx-hash")
 
@@ -1005,7 +1026,7 @@ var getProofSetStatusCmd = &cli.Command{
 		txHash = strings.ToLower(txHash) // Ensure txHash is in lowercase
 
 		// Construct the request URL
-		getURL := fmt.Sprintf("%s/pdp/proof-sets/created/%s", serviceURL, txHash)
+		getURL := fmt.Sprintf("%s/pdp/data-sets/created/%s", serviceURL, txHash)
 
 		// Create the GET request
 		req, err := http.NewRequest("GET", getURL, nil)
@@ -1036,11 +1057,11 @@ var getProofSetStatusCmd = &cli.Command{
 			// Decode the JSON response
 			var response struct {
 				CreateMessageHash string  `json:"createMessageHash"`
-				ProofsetCreated   bool    `json:"proofsetCreated"`
+				DataSetCreated    bool    `json:"dataSetCreated"`
 				Service           string  `json:"service"`
 				TxStatus          string  `json:"txStatus"`
 				OK                *bool   `json:"ok"`
-				ProofSetId        *uint64 `json:"proofSetId,omitempty"`
+				DataSetId         *uint64 `json:"dataSetId,omitempty"`
 			}
 			err = json.Unmarshal(bodyBytes, &response)
 			if err != nil {
@@ -1048,7 +1069,7 @@ var getProofSetStatusCmd = &cli.Command{
 			}
 
 			// Display the status
-			fmt.Printf("Proof Set Creation Status:\n")
+			fmt.Printf("Data Set Creation Status:\n")
 			fmt.Printf("Transaction Hash: %s\n", response.CreateMessageHash)
 			fmt.Printf("Transaction Status: %s\n", response.TxStatus)
 			if response.OK != nil {
@@ -1056,21 +1077,21 @@ var getProofSetStatusCmd = &cli.Command{
 			} else {
 				fmt.Printf("Transaction Successful: Pending\n")
 			}
-			fmt.Printf("Proofset Created: %v\n", response.ProofsetCreated)
-			if response.ProofSetId != nil {
-				fmt.Printf("ProofSet ID: %d\n", *response.ProofSetId)
+			fmt.Printf("Dataset Created: %v\n", response.DataSetCreated)
+			if response.DataSetId != nil {
+				fmt.Printf("Dataset ID: %d\n", *response.DataSetId)
 			}
 		} else {
-			return fmt.Errorf("failed to get proof set status, status code %d: %s", resp.StatusCode, string(bodyBytes))
+			return fmt.Errorf("failed to get data set status, status code %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		return nil
 	},
 }
 
-var getProofSetCmd = &cli.Command{
-	Name:      "get-proof-set",
-	Usage:     "Retrieve the details of a proof set from the PDP service",
+var getDataSetCmd = &cli.Command{
+	Name:      "get-data-set",
+	Usage:     "Retrieve the details of a data set from the PDP service",
 	ArgsUsage: "<set-id>",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
@@ -1098,7 +1119,6 @@ var getProofSetCmd = &cli.Command{
 		}
 
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 
 		// Create the JWT token
@@ -1108,7 +1128,7 @@ var getProofSetCmd = &cli.Command{
 		}
 
 		// Construct the request URL
-		getURL := fmt.Sprintf("%s/pdp/proof-sets/%d", serviceURL, setID)
+		getURL := fmt.Sprintf("%s/pdp/data-sets/%d", serviceURL, setID)
 
 		// Create the GET request
 		req, err := http.NewRequest("GET", getURL, nil)
@@ -1140,40 +1160,40 @@ var getProofSetCmd = &cli.Command{
 			var response struct {
 				ID                 uint64 `json:"id"`
 				NextChallengeEpoch int64  `json:"nextChallengeEpoch"`
-				Roots              []struct {
-					RootID        uint64 `json:"rootId"`
-					RootCID       string `json:"rootCid"`
-					SubrootCID    string `json:"subrootCid"`
-					SubrootOffset int64  `json:"subrootOffset"`
-				} `json:"roots"`
+				Pieces             []struct {
+					PieceId        uint64 `json:"pieceId"`
+					PieceCid       string `json:"pieceCid"`
+					SubPieceCid    string `json:"subPieceCid"`
+					SubPieceOffset int64  `json:"subPieceOffset"`
+				} `json:"pieces"`
 			}
 			err = json.Unmarshal(bodyBytes, &response)
 			if err != nil {
 				return fmt.Errorf("failed to parse JSON response: %v", err)
 			}
 
-			// Display the proof set details
-			fmt.Printf("Proof Set ID: %d\n", response.ID)
+			// Display the data set details
+			fmt.Printf("Data Set ID: %d\n", response.ID)
 			fmt.Printf("Next Challenge Epoch: %d\n", response.NextChallengeEpoch)
-			fmt.Printf("Roots:\n")
-			for _, root := range response.Roots {
-				fmt.Printf("  - Root ID: %d\n", root.RootID)
-				fmt.Printf("    Root CID: %s\n", root.RootCID)
-				fmt.Printf("    Subroot CID: %s\n", root.SubrootCID)
-				fmt.Printf("    Subroot Offset: %d\n", root.SubrootOffset)
+			fmt.Printf("Pieces:\n")
+			for _, piece := range response.Pieces {
+				fmt.Printf("  - Piece ID: %d\n", piece.PieceId)
+				fmt.Printf("    Piece CID: %s\n", piece.PieceCid)
+				fmt.Printf("    SubPiece CID: %s\n", piece.SubPieceCid)
+				fmt.Printf("    SubPiece Offset: %d\n", piece.SubPieceOffset)
 				fmt.Println()
 			}
 		} else {
-			return fmt.Errorf("failed to get proof set, status code %d: %s", resp.StatusCode, string(bodyBytes))
+			return fmt.Errorf("failed to get data set, status code %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		return nil
 	},
 }
 
-var addRootsCmd = &cli.Command{
-	Name:  "add-roots",
-	Usage: "Add roots to a proof set on the PDP service",
+var addPiecesCmd = &cli.Command{
+	Name:  "add-pieces",
+	Usage: "Add pieces to a data set on the PDP service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -1181,8 +1201,8 @@ var addRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.Uint64Flag{
-			Name:     "proof-set-id",
-			Usage:    "ID of the proof set to which roots will be added",
+			Name:     "data-set-id",
+			Usage:    "ID of the data set to which pieces will be added",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1191,8 +1211,8 @@ var addRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringSliceFlag{
-			Name:     "root",
-			Usage:    "Root CID and its subroots. Format: rootCID:subrootCID1+subrootCID2,...",
+			Name:     "piece",
+			Usage:    "Piece CID and its subPieces. Format: pieceCID:subPieceCID1+subPieceCID2,...",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1203,10 +1223,9 @@ var addRootsCmd = &cli.Command{
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
-		proofSetID := cctx.Uint64("proof-set-id")
-		rootInputs := cctx.StringSlice("root")
+		dataSetId := cctx.Uint64("data-set-id")
+		pieceInputs := cctx.StringSlice("piece")
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
@@ -1220,51 +1239,51 @@ var addRootsCmd = &cli.Command{
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
 
-		// Parse the root inputs to construct the request payload
-		type SubrootEntry struct {
-			SubrootCID string `json:"subrootCid"`
+		// Parse the piece inputs to construct the request payload
+		type SubpieceEntry struct {
+			SubpieceCID string `json:"subPieceCid"`
 		}
 
-		type AddRootRequest struct {
-			RootCID  string         `json:"rootCid"`
-			Subroots []SubrootEntry `json:"subroots"`
+		type AddPieceRequest struct {
+			PieceCID  string          `json:"pieceCid"`
+			Subpieces []SubpieceEntry `json:"subPieces"`
 		}
 
-		var addRootRequests []AddRootRequest
+		var addPieceRequests []AddPieceRequest
 
-		for _, rootInput := range rootInputs {
-			// Expected format: rootCID:subrootCID1,subrootCID2,...
-			parts := strings.SplitN(rootInput, ":", 2)
+		for _, pieceInput := range pieceInputs {
+			// Expected format: pieceCID:subPieceCID1,subPieceCID2,...
+			parts := strings.SplitN(pieceInput, ":", 2)
 			if len(parts) != 2 {
-				return fmt.Errorf("invalid root input format: %s (%d)", rootInput, len(parts))
+				return fmt.Errorf("invalid piece input format: %s (%d)", pieceInput, len(parts))
 			}
-			rootCID := parts[0]
-			subrootsStr := parts[1]
-			subrootCIDStrs := strings.Split(subrootsStr, "+")
+			pieceCID := parts[0]
+			subPiecesStr := parts[1]
+			subPieceCIDStrs := strings.Split(subPiecesStr, "+")
 
-			if rootCID == "" || len(subrootCIDStrs) == 0 {
-				return fmt.Errorf("rootCID and at least one subrootCID are required")
-			}
-
-			var subroots []SubrootEntry
-			for _, subrootCID := range subrootCIDStrs {
-				subroots = append(subroots, SubrootEntry{SubrootCID: subrootCID})
+			if pieceCID == "" || len(subPieceCIDStrs) == 0 {
+				return fmt.Errorf("pieceCID and at least one subPieceCID are required")
 			}
 
-			addRootRequests = append(addRootRequests, AddRootRequest{
-				RootCID:  rootCID,
-				Subroots: subroots,
+			var subPieces []SubpieceEntry
+			for _, subPieceCID := range subPieceCIDStrs {
+				subPieces = append(subPieces, SubpieceEntry{SubpieceCID: subPieceCID})
+			}
+
+			addPieceRequests = append(addPieceRequests, AddPieceRequest{
+				PieceCID:  pieceCID,
+				Subpieces: subPieces,
 			})
 		}
 
 		// Construct the full request payload including extraData
-		type AddRootsPayload struct {
-			Roots     []AddRootRequest `json:"roots"`
-			ExtraData *string          `json:"extraData,omitempty"`
+		type AddPiecesPayload struct {
+			Pieces    []AddPieceRequest `json:"pieces"`
+			ExtraData *string           `json:"extraData,omitempty"`
 		}
 
-		payload := AddRootsPayload{
-			Roots: addRootRequests,
+		payload := AddPiecesPayload{
+			Pieces: addPieceRequests,
 		}
 		if extraDataHexStr != "" {
 			// Pass the validated 0x-prefixed hex string directly
@@ -1277,7 +1296,7 @@ var addRootsCmd = &cli.Command{
 		}
 
 		// Construct the POST URL
-		postURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots", serviceURL, proofSetID)
+		postURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces", serviceURL, dataSetId)
 
 		// Create the POST request
 		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
@@ -1307,10 +1326,10 @@ var addRootsCmd = &cli.Command{
 		bodyString := string(bodyBytes)
 
 		if resp.StatusCode == http.StatusCreated {
-			fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
+			fmt.Printf("Pieces added to data set ID %d successfully.\n", dataSetId)
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
-			return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
+			return fmt.Errorf("failed to add pieces, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
 		return nil
@@ -1423,9 +1442,9 @@ var downloadFileCmd = &cli.Command{
 	},
 }
 
-var removeRootsCmd = &cli.Command{
-	Name:  "remove-roots",
-	Usage: "Schedule roots for removal after next proof submission",
+var removePiecesCmd = &cli.Command{
+	Name:  "remove-pieces",
+	Usage: "Schedule pieces for removal after next proof submission",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -1433,8 +1452,8 @@ var removeRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.Uint64Flag{
-			Name:     "proof-set-id",
-			Usage:    "ID of the proof set to which roots will be added",
+			Name:     "data-set-id",
+			Usage:    "ID of the data set from which pieces will be removed",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1443,17 +1462,16 @@ var removeRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.Uint64Flag{
-			Name:     "root-id",
-			Usage:    "Root ID for removal",
+			Name:     "piece-id",
+			Usage:    "Piece ID for removal",
 			Required: true,
 		},
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
-		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
-		proofSetID := cctx.Uint64("proof-set-id")
-		rootID := cctx.Uint64("root-id")
+		dataSetId := cctx.Uint64("data-set-id")
+		pieceId := cctx.Uint64("piece-id")
 
 		// Create the JWT token
 		jwtToken, err := getJWTTokenForService(serviceName)
@@ -1462,7 +1480,7 @@ var removeRootsCmd = &cli.Command{
 		}
 
 		// Construct the POST URL
-		deleteURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots/%d", serviceURL, proofSetID, rootID)
+		deleteURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces/%d", serviceURL, dataSetId, pieceId)
 		fmt.Printf("Delete URL: %s\n", deleteURL)
 
 		// Create the POST request
@@ -1484,11 +1502,265 @@ var removeRootsCmd = &cli.Command{
 
 		// Read and display the response
 		if resp.StatusCode == http.StatusNoContent {
-			fmt.Printf("Root %d scheduled for removal from proof set ID %d.\n", rootID, proofSetID)
+			fmt.Printf("Piece %d scheduled for removal from data set ID %d.\n", pieceId, dataSetId)
 		} else {
-			return fmt.Errorf("failed to add roots, status code %d", resp.StatusCode)
+			return fmt.Errorf("failed to remove piece, status code %d", resp.StatusCode)
 		}
 
+		return nil
+	},
+}
+
+var streamingPieceUploadCmd = &cli.Command{
+	Name:      "upload",
+	Usage:     "Upload a piece to a PDP service",
+	ArgsUsage: "<input-file>",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "jwt-token",
+			Usage: "JWT token for authentication (optional if --service-name is provided)",
+		},
+		&cli.StringFlag{
+			Name:  "service-name",
+			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
+		},
+		&cli.StringFlag{
+			Name:     "notify-url",
+			Usage:    "Notification URL",
+			Required: false,
+		},
+		&cli.StringFlag{
+			Name:  "hash-type",
+			Usage: "Hash type to use for verification (sha256 or commp)",
+			Value: "commp",
+		},
+		&cli.BoolFlag{
+			Name:  "local-notif-wait",
+			Usage: "Wait for server notification by spawning a temporary local HTTP server",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		inputFile := cctx.Args().Get(0)
+		if inputFile == "" {
+			return fmt.Errorf("input file is required")
+		}
+
+		serviceURL := cctx.String("service-url")
+		jwtToken := cctx.String("jwt-token")
+		notifyURL := cctx.String("notify-url")
+		serviceName := cctx.String("service-name")
+		hashType := cctx.String("hash-type")
+		localNotifWait := cctx.Bool("local-notif-wait")
+
+		if jwtToken == "" {
+			if serviceName == "" {
+				return fmt.Errorf("either --jwt-token or --service-name must be provided")
+			}
+			var err error
+			jwtToken, err = getJWTTokenForService(serviceName)
+			if err != nil {
+				return err
+			}
+		}
+
+		if hashType != "sha256" && hashType != "commp" {
+			return fmt.Errorf("invalid hash type: %s", hashType)
+		}
+
+		if localNotifWait && notifyURL != "" {
+			return fmt.Errorf("cannot specify both --notify-url and --local-notif-wait")
+		}
+
+		var notifyReceived chan struct{}
+		var err error
+
+		if localNotifWait {
+			notifyURL, notifyReceived, err = startLocalNotifyServer()
+			if err != nil {
+				return fmt.Errorf("failed to start local HTTP server: %v", err)
+			}
+		}
+
+		// Open the input file
+		file, err := os.Open(inputFile)
+		if err != nil {
+			return fmt.Errorf("failed to open input file: %v", err)
+		}
+		defer func() {
+			_ = file.Close()
+		}()
+
+		// Get the piece size
+		fi, err := file.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to stat input file: %v", err)
+		}
+		raw_size := fi.Size()
+
+		client := &http.Client{}
+
+		req, err := http.NewRequest("GET", serviceURL+"/pdp/piece/uploads", nil)
+		if err != nil {
+			return fmt.Errorf("failed to create upload request: %v", err)
+		}
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		if resp.StatusCode != http.StatusCreated {
+			ret, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to get upload URL, status code %d, failed to read body %s", resp.StatusCode, err.Error())
+			}
+			return fmt.Errorf("failed to create upload, status code %d: %s", resp.StatusCode, string(ret))
+		}
+
+		location := resp.Header.Get("Location")
+		if location == "" {
+			return fmt.Errorf("failed to get upload URL, status code %d, no Location header", resp.StatusCode)
+		}
+
+		cp := commp.Calc{}
+		defer cp.Reset()
+
+		pipeReader, pipeWriter := io.Pipe()
+
+		// Set up a MultiWriter to write to both cp and the pipe
+		multiWriter := io.MultiWriter(&cp, pipeWriter)
+
+		// Create an error group to handle goroutines
+		var g errgroup.Group
+
+		// Start goroutine to read the file and write to the MultiWriter
+		g.Go(func() error {
+			defer func() {
+				_ = pipeWriter.Close() // Ensure the pipeWriter is closed
+			}()
+			n, err := io.Copy(multiWriter, file)
+			if err != nil {
+				return fmt.Errorf("failed to copy data to multiwriter: %v", err)
+			}
+			if n != raw_size {
+				return fmt.Errorf("failed to copy all data to multiwriter, only copied %d/%d bytes", n, raw_size)
+			}
+			return nil
+		})
+
+		// Start a goroutine to handle the HTTP request
+		g.Go(func() error {
+			defer func() {
+				_ = pipeReader.Close() // Ensure the pipeReader is closed
+			}()
+			// Prepare the HTTP request for file upload
+			req, err := http.NewRequest("PUT", serviceURL+location, pipeReader)
+			if err != nil {
+				return fmt.Errorf("failed to create upload request: %v", err)
+			}
+			if jwtToken != "" {
+				req.Header.Set("Authorization", "Bearer "+jwtToken)
+			}
+			req.Header.Set("Content-Type", "application/octet-stream")
+
+			// Execute the request
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to send upload request: %v", err)
+			}
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
+			if resp.StatusCode != http.StatusNoContent {
+				ret, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return fmt.Errorf("failed to upload, status code %d, failed to read body %s", resp.StatusCode, err.Error())
+				}
+				return fmt.Errorf("upload failed, status code %d: %s", resp.StatusCode, string(ret))
+			}
+			return nil
+		})
+
+		// Wait for all goroutines to complete
+		if err := g.Wait(); err != nil {
+			return fmt.Errorf("upload process failed: %v", err)
+		}
+
+		digest, _, err := cp.Digest()
+		if err != nil {
+			return fmt.Errorf("failed to calculate digest: %v", err)
+		}
+
+		pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(raw_size))
+		if err != nil {
+			return fmt.Errorf("failed to compute piece CID: %v", err)
+		}
+
+		// At this point, the commp calculation is complete
+		fmt.Printf("CommP: %s\n", pcid2.String())
+
+		type finalize struct {
+			PieceCID string `json:"pieceCid"`
+			Notify   string `json:"notify,omitempty"`
+		}
+
+		bd := finalize{
+			PieceCID: pcid2.String(),
+		}
+
+		if notifyURL != "" {
+			bd.Notify = notifyURL
+		}
+
+		bodyBytes, err := json.Marshal(bd)
+		if err != nil {
+			return fmt.Errorf("failed to marshal finalize request body: %v", err)
+		}
+
+		req, err = http.NewRequest("POST", serviceURL+location, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			return fmt.Errorf("failed to create finalize request: %v", err)
+		}
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err = client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send finalize request: %v", err)
+		}
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		if resp.StatusCode != http.StatusOK {
+			ret, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to finalize, status code %d, failed to read body %s", resp.StatusCode, err.Error())
+			}
+			return fmt.Errorf("failed to finalize, status code %d: %s", resp.StatusCode, string(ret))
+		}
+
+		fmt.Printf("Piece CID: %s\n", pcid2.String())
+		fmt.Println("Piece uploaded successfully.")
+		if localNotifWait {
+			fmt.Println("Waiting for server notification...")
+			<-notifyReceived
+		}
 		return nil
 	},
 }

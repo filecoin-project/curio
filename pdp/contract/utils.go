@@ -3,14 +3,15 @@ package contract
 import (
 	"context"
 	"crypto/ecdsa"
-	"errors"
+	"encoding/hex"
 	"fmt"
 	mbig "math/big"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,7 +24,6 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
@@ -32,6 +32,116 @@ import (
 )
 
 var log = logging.Logger("pdp-contract")
+
+// Standard capability keys for PDP product type (must match ServiceProviderRegistry.sol REQUIRED_PDP_KEYS Bloom filter)
+const (
+	CapServiceURL       = "serviceURL"
+	CapMinPieceSize     = "minPieceSizeInBytes"
+	CapMaxPieceSize     = "maxPieceSizeInBytes"
+	CapIpniPiece        = "ipniPiece"  // Optional
+	CapIpniIpfs         = "ipniIpfs"   // Optional
+	CapIpniPeerID       = "ipniPeerId" // Optional, IPNI peer ID for discovery
+	CapStoragePrice     = "storagePricePerTibPerDay"
+	CapMinProvingPeriod = "minProvingPeriodInEpochs"
+	CapLocation         = "location"
+	CapPaymentToken     = "paymentTokenAddress"
+
+	// CapIpniPeerIDDeprecated is the old key for the IPNI peer ID. It was incorrectly cased
+	// and does not match the suggested key in the ServiceProviderRegistry contract. New
+	// registrations and updates write both keys for compatibility. This key will be removed
+	// in a future release.
+	CapIpniPeerIDDeprecated = "IPNIPeerID"
+)
+
+// PDPOfferingData converts a PDPOffering-like struct to capability key-value pairs
+type PDPOfferingData struct {
+	ServiceURL               string
+	MinPieceSizeInBytes      *mbig.Int
+	MaxPieceSizeInBytes      *mbig.Int
+	IpniPiece                bool
+	IpniIpfs                 bool
+	IpniPeerID               []byte
+	StoragePricePerTibPerDay *mbig.Int
+	MinProvingPeriodInEpochs *mbig.Int
+	Location                 string
+	PaymentTokenAddress      common.Address
+}
+
+func encodeBigIntCapability(i *mbig.Int) []byte {
+	if i == nil {
+		return nil
+	}
+	if i.Sign() == 0 {
+		return []byte{0x00}
+	}
+	return i.Bytes()
+}
+
+func OfferingToCapabilities(offering PDPOfferingData, additionalCaps map[string]string) ([]string, [][]byte, error) {
+	// Required PDP keys per REQUIRED_PDP_KEYS Bloom filter in ServiceProviderRegistry.sol
+	keys := []string{
+		CapServiceURL,
+		CapMinPieceSize,
+		CapMaxPieceSize,
+		CapStoragePrice,
+		CapMinProvingPeriod,
+		CapLocation,
+		CapPaymentToken,
+	}
+
+	values := [][]byte{
+		[]byte(offering.ServiceURL),
+		encodeBigIntCapability(offering.MinPieceSizeInBytes),
+		encodeBigIntCapability(offering.MaxPieceSizeInBytes),
+		encodeBigIntCapability(offering.StoragePricePerTibPerDay),
+		encodeBigIntCapability(offering.MinProvingPeriodInEpochs),
+		[]byte(offering.Location),
+		offering.PaymentTokenAddress.Bytes(),
+	}
+
+	// Add optional PDP keys if enabled
+	if offering.IpniPiece {
+		keys = append(keys, CapIpniPiece)
+		values = append(values, encodeBool(true))
+	}
+	if offering.IpniIpfs {
+		keys = append(keys, CapIpniIpfs)
+		values = append(values, encodeBool(true))
+	}
+	if offering.IpniIpfs || offering.IpniPiece {
+		if len(offering.IpniPeerID) == 0 {
+			return nil, nil, xerrors.Errorf("IpniPeerID is required if either IpniIpfs or IpniPiece is true")
+		}
+		// Write the correct key
+		keys = append(keys, CapIpniPeerID)
+		values = append(values, []byte(offering.IpniPeerID))
+		// Also write the deprecated key for compatibility with older SDK versions
+		keys = append(keys, CapIpniPeerIDDeprecated)
+		values = append(values, []byte(offering.IpniPeerID))
+	}
+
+	// Add custom capabilities
+	for k, v := range additionalCaps {
+		keys = append(keys, k)
+		// try hexadecimal
+		if len(v)%2 == 0 && len(v) > 3 && strings.HasPrefix(v, "0x") {
+			if decoded, err := hex.DecodeString(v[2:]); err == nil {
+				values = append(values, decoded)
+				continue
+			}
+		}
+		values = append(values, []byte(v))
+	}
+
+	return keys, values, nil
+}
+
+func encodeBool(b bool) []byte {
+	if b {
+		return []byte{0x01}
+	}
+	return []byte{0x00}
+}
 
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
@@ -63,163 +173,120 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 	return provingSchedule, nil
 }
 
-const ServiceRegistryMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const ServiceRegistryCalibnet = "0xA8a7e2130C27e4f39D1aEBb3D538D5937bCf8ddb"
+func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *mbig.Int, key string) (bool, string, error) {
+	metadataAddr := listenerAddr
 
-func ServiceRegistryAddress() (common.Address, error) {
-	switch build.BuildType {
-	case build.BuildCalibnet:
-		return common.HexToAddress(ServiceRegistryCalibnet), nil
-	case build.BuildMainnet:
-		return common.HexToAddress(ServiceRegistryMainnet), nil
-	default:
-		return common.Address{}, xerrors.Errorf("service registry address not set for this network %s", build.BuildTypeString()[1:])
+	// Check if the listener supports the viewContractAddress method
+	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
+	if err == nil {
+		viewAddr, err := listenerService.ViewContractAddress(nil)
+		if err == nil && viewAddr != (common.Address{}) {
+			metadataAddr = viewAddr
+		}
 	}
+
+	// Create a metadata service viewer.
+	mDataService, err := NewListenerServiceWithMetaData(metadataAddr, ethClient)
+	if err != nil {
+		log.Debugw("Failed to create a meta data service from listener, returning metadata not found", "error", err)
+		return false, "", nil
+	}
+
+	out, err := mDataService.GetDataSetMetadata(nil, dataSetId, key)
+	if err != nil {
+		return false, "", err
+	}
+	return out.Exists, out.Value, nil
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (uint64, error) {
+func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
 	if len(name) > 128 {
-		return 0, xerrors.Errorf("name is too long, max 128 characters allowed")
+		return xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
 
 	if name == "" {
-		return 0, xerrors.Errorf("name is required")
+		return xerrors.Errorf("name is required")
 	}
 
 	if len(description) > 128 {
-		return 0, xerrors.Errorf("description is too long, max 128 characters allowed")
+		return xerrors.Errorf("description is too long, max 128 characters allowed")
 	}
 
-	var keys, values []string
-	for k, v := range capabilities {
+	// Convert PDPOffering to capability keys/values
+	keys, values, err := OfferingToCapabilities(pdpOffering, capabilities)
+	if err != nil {
+		return xerrors.Errorf("failed to convert offering to capabilities: %w", err)
+	}
+
+	// Validate capabilities
+	for _, k := range keys {
 		if len(k) > 32 {
-			return 0, xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
+			return xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
 		}
+	}
+	for _, v := range values {
 		if len(v) > 128 {
-			return 0, xerrors.Errorf("capabilities value %s is too long, max 128 characters allowed", v)
+			return xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
 		}
-		keys = append(keys, k)
-		values = append(values, v)
+	}
+	if len(keys) > 32 {
+		return xerrors.Errorf("too many capabilities, max 32 allowed")
 	}
 
 	sender, fSender, privateKey, err := getSender(ctx, db)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get sender: %w", err)
+		return xerrors.Errorf("failed to get sender: %w", err)
 	}
 
 	ac, err := full.StateGetActor(ctx, fSender, types.EmptyTSK)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get actor: %w", err)
+		return xerrors.Errorf("failed to get actor: %w", err)
 	}
 
 	amount, err := types.ParseFIL("5 FIL")
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse 5 FIL: %w", err)
+		return fmt.Errorf("failed to parse 5 FIL: %w", err)
 	}
 
 	token := abi.NewTokenAmount(amount.Int64())
 
 	if ac.Balance.LessThan(big.NewInt(token.Int64())) {
-		return 0, xerrors.Errorf("wallet balance is too low")
+		return xerrors.Errorf("wallet balance is too low")
 	}
 
 	walletEvm, err := ethtypes.EthAddressFromFilecoinAddress(fSender)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to convert wallet address to Eth address: %w", err)
+		return xerrors.Errorf("failed to convert wallet address to Eth address: %w", err)
 	}
 
 	contractAddr, err := ServiceRegistryAddress()
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get service registry address: %w", err)
+		return xerrors.Errorf("failed to get service registry address: %w", err)
 	}
 
 	srAbi, err := ServiceProviderRegistryMetaData.GetAbi()
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get service registry ABI: %w", err)
+		return xerrors.Errorf("failed to get service registry ABI: %w", err)
 	}
 
-	registry, err := NewServiceProviderRegistry(contractAddr, ethClient)
+	// Prepare EVM calldata - registerProvider(address payee, string name, string description, ProductType productType, string[] capabilityKeys, bytes[] capabilityValues)
+	calldata, err := srAbi.Pack("registerProvider", common.Address(walletEvm), name, description, uint8(0), keys, values)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to create service registry: %w", err)
-	}
-
-	encodedPDP, err := registry.EncodePDPOffering(&bind.CallOpts{Context: ctx}, pdpOffering)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to encode PDP offering: %w", err)
-	}
-
-	if len(keys) > 10 {
-		return 0, xerrors.Errorf("too many capabilities, max 10 allowed")
-	}
-
-	// Prepare EVM calldata
-	calldata, err := srAbi.Pack("registerProvider", common.Address(walletEvm), name, description, uint8(0), encodedPDP, keys, values)
-	if err != nil {
-		return 0, fmt.Errorf("failed to serialize parameters for registerProvider: %w", err)
+		return fmt.Errorf("failed to serialize parameters for registerProvider: %w", err)
 	}
 
 	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, amount.Int, calldata)
 	if err != nil {
-		return 0, xerrors.Errorf("creating signed transaction: %w", err)
+		return xerrors.Errorf("creating signed transaction: %w", err)
 	}
 
 	err = ethClient.SendTransaction(ctx, signedTx)
 	if err != nil {
-		return 0, xerrors.Errorf("sending transaction: %w", err)
+		return xerrors.Errorf("sending transaction: %w", err)
 	}
 
 	log.Infof("Sent Register Service Provider transaction %s at %s", signedTx.Hash().String(), time.Now().Format(time.RFC3339Nano))
-
-	ctxCancel, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	for {
-		_, pending, err := ethClient.TransactionByHash(ctxCancel, signedTx.Hash())
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				return 0, xerrors.Errorf("timed out while waiting for transaction %s to be mined: %w", signedTx.Hash().String(), err)
-			}
-			if strings.Contains(err.Error(), "not found") {
-				time.Sleep(5 * time.Second)
-				continue
-			}
-			return 0, xerrors.Errorf("getting transaction %s status: %w", signedTx.Hash().String(), err)
-		}
-		if pending {
-			time.Sleep(5 * time.Second)
-			continue
-		}
-		break
-	}
-
-	receipt, err := ethClient.TransactionReceipt(ctx, signedTx.Hash())
-	if err != nil {
-		return 0, xerrors.Errorf("getting transaction receipt: %w", err)
-	}
-
-	event, exists := srAbi.Events["ProviderRegistered"]
-	if !exists {
-		return 0, xerrors.Errorf("ProviderRegistered event not found in ABI")
-	}
-
-	for _, vLog := range receipt.Logs {
-		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
-			if len(vLog.Topics) < 2 {
-				return 0, xerrors.Errorf("log does not contain providerId topic")
-			}
-
-			// Compare that event log contains the correct payee
-			payee := common.BytesToAddress(vLog.Topics[1].Bytes())
-			if payee != sender {
-				continue
-			}
-
-			setIdBigInt := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
-			return setIdBigInt.Uint64(), nil
-		}
-	}
-
-	return 0, xerrors.Errorf("ProviderRegistered event not found in receipt of transaction %s", signedTx.Hash().String())
+	return nil
 }
 
 func getSender(ctx context.Context, db *harmonydb.DB) (common.Address, address.Address, *ecdsa.PrivateKey, error) {
@@ -360,11 +427,26 @@ func FSUpdateProvider(ctx context.Context, name, description string, db *harmony
 	return signedTx.Hash().String(), nil
 }
 
-func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering ServiceProviderRegistryStoragePDPOffering, capabilities map[string]string) (string, error) {
-	var keys, values []string
-	for k, v := range capabilities {
-		keys = append(keys, k)
-		values = append(values, v)
+func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering PDPOfferingData, capabilities map[string]string) (string, error) {
+	// Convert PDPOffering to capability keys/values
+	keys, values, err := OfferingToCapabilities(pdpOffering, capabilities)
+	if err != nil {
+		return "", xerrors.Errorf("failed to convert offering to capabilities: %w", err)
+	}
+
+	// Validate capabilities
+	for _, k := range keys {
+		if len(k) > 32 {
+			return "", xerrors.Errorf("capabilities key %s is too long, max 32 characters allowed", k)
+		}
+	}
+	for _, v := range values {
+		if len(v) > 128 {
+			return "", xerrors.Errorf("capabilities value is too long, max 128 bytes allowed")
+		}
+	}
+	if len(keys) > 32 {
+		return "", xerrors.Errorf("too many capabilities, max 32 allowed")
 	}
 
 	sender, _, privateKey, err := getSender(ctx, db)
@@ -382,19 +464,10 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 		return "", xerrors.Errorf("failed to get service registry ABI: %w", err)
 	}
 
-	registry, err := NewServiceProviderRegistry(contractAddr, ethClient)
+	// Call updateProduct instead of updatePDPServiceWithCapabilities
+	calldata, err := srAbi.Pack("updateProduct", uint8(0), keys, values)
 	if err != nil {
-		return "", xerrors.Errorf("failed to create service registry: %w", err)
-	}
-
-	encodedPDP, err := registry.EncodePDPOffering(&bind.CallOpts{Context: ctx}, pdpOffering)
-	if err != nil {
-		return "", xerrors.Errorf("failed to encode PDP offering: %w", err)
-	}
-
-	calldata, err := srAbi.Pack("updatePDPServiceWithCapabilities", encodedPDP, keys, values)
-	if err != nil {
-		return "", xerrors.Errorf("failed to serialize parameters for updatePDPServiceWithCapabilities: %w", err)
+		return "", xerrors.Errorf("failed to serialize parameters for updateProduct: %w", err)
 	}
 
 	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, mbig.NewInt(0), calldata)
@@ -408,4 +481,87 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	}
 
 	return signedTx.Hash().String(), nil
+}
+
+func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) (string, error) {
+	sender, _, privateKey, err := getSender(ctx, db)
+	if err != nil {
+		return "", xerrors.Errorf("failed to get sender: %w", err)
+	}
+
+	contractAddr, err := ServiceRegistryAddress()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get service registry address: %w", err)
+	}
+
+	srAbi, err := ServiceProviderRegistryMetaData.GetAbi()
+	if err != nil {
+		return "", xerrors.Errorf("failed to get service registry ABI: %w", err)
+	}
+
+	calldata, err := srAbi.Pack("removeProvider")
+	if err != nil {
+		return "", xerrors.Errorf("failed to serialize parameters for removeProvider: %w", err)
+	}
+
+	signedTx, err := createSignedTransaction(ctx, ethClient, privateKey, sender, contractAddr, mbig.NewInt(0), calldata)
+	if err != nil {
+		return "", xerrors.Errorf("creating signed transaction: %w", err)
+	}
+
+	err = ethClient.SendTransaction(ctx, signedTx)
+	if err != nil {
+		return "", xerrors.Errorf("sending transaction: %w", err)
+	}
+
+	return signedTx.Hash().String(), nil
+}
+
+func DecodeAddressCapability(input []byte) common.Address {
+	// If input is longer than 32 bytes → return zero
+	if len(input) > 32 {
+		return common.Address{}
+	}
+
+	// 32-byte big-endian buffer
+	var buf [32]byte
+
+	if len(input) == 32 {
+		// Exact fit
+		copy(buf[:], input)
+	} else {
+		// Left pad if shorter
+		copy(buf[32-len(input):], input)
+	}
+
+	// Lowest 20 bytes are the address
+	return common.BytesToAddress(buf[12:])
+}
+
+// ShouldHexEncodeCapability reports whether a capability value needs hex-encoding
+// to safely round-trip through JSON and browser input fields. Returns true for
+// invalid UTF-8 or control characters; false for valid text (including CJK/emoji).
+// See https://pkg.go.dev/unicode/utf8#DecodeRune for RuneError semantics.
+func ShouldHexEncodeCapability(b []byte) bool {
+	for i := 0; i < len(b); {
+		r, size := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && size == 1 { // invalid UTF-8
+			return true
+		}
+		if unicode.IsControl(r) {
+			return true
+		}
+		i += size
+	}
+	return false
+}
+
+// EncodeCapabilityForDisplay returns a display string for a capability value.
+// Binary data gets "0x" hex prefix; valid UTF-8 text passes through as-is.
+// Pairs with hex-decoding in OfferingToCapabilities.
+func EncodeCapabilityForDisplay(b []byte) string {
+	if ShouldHexEncodeCapability(b) {
+		return "0x" + hex.EncodeToString(b)
+	}
+	return string(b)
 }
