@@ -49,9 +49,10 @@ type ProviderPollerSDR interface {
 }
 
 type SDRTask struct {
-	api SDRAPI
-	db  *harmonydb.DB
-	sp  *SealPoller
+	api   SDRAPI
+	ccAPI CCSchedulerAPI // optional, nil disables CC scheduling
+	db    *harmonydb.DB
+	sp    *SealPoller
 
 	sc *ffi2.SealCalls
 
@@ -62,8 +63,16 @@ type SDRTask struct {
 }
 
 func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR taskhelp.Limiter, minSDR int, provPoller ProviderPollerSDR) *SDRTask {
+	// If the API also satisfies CCSchedulerAPI, enable CC scheduling.
+	// This is the case when the full chain API is passed (normal operation).
+	var ccAPI CCSchedulerAPI
+	if ca, ok := api.(CCSchedulerAPI); ok {
+		ccAPI = ca
+	}
+
 	return &SDRTask{
 		api:        api,
+		ccAPI:      ccAPI,
 		db:         db,
 		sp:         sp,
 		sc:         sc,
@@ -222,6 +231,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 2,
 		Follows:     nil,
+		IAmBored:    s.newScheduleCCFunc(),
 	}
 
 	if IsDevnet {
