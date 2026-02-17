@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "cuzk-proto",
+    "cuzk-core",
+    "cuzk-server",
+    "cuzk-daemon",
+    "cuzk-bench",
+    # "cuzk-ffi",  # Future: C ABI for Go embedding
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/filecoin-project/curio"
+
+[workspace.dependencies]
+# Internal crates
+cuzk-proto = { path = "cuzk-proto" }
+cuzk-core = { path = "cuzk-core" }
+cuzk-server = { path = "cuzk-server" }
+
+# gRPC / async
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+base64 = "0.22"
+
+# Filecoin proving stack — Phase 0 uses these directly.
+# Activated with cuda-supraseal for best GPU performance.
+filecoin-proofs-api = { version = "19.0", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

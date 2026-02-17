@@ -1,0 +1,195 @@
+syntax = "proto3";
+package cuzk.v1;
+
+service ProvingEngine {
+  // Submit a proof request. Returns immediately with a job ID.
+  rpc SubmitProof(SubmitProofRequest) returns (SubmitProofResponse);
+
+  // Block until a submitted proof completes or is cancelled.
+  rpc AwaitProof(AwaitProofRequest) returns (AwaitProofResponse);
+
+  // Submit + Await in one call (convenience for synchronous clients).
+  rpc Prove(ProveRequest) returns (ProveResponse);
+
+  // Cancel a pending or in-progress proof.
+  rpc CancelProof(CancelProofRequest) returns (CancelProofResponse);
+
+  // Query daemon capabilities, loaded SRS, GPU status.
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+  // Prometheus-compatible metrics snapshot.
+  rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+
+  // Explicitly load an SRS into hot tier (pre-warm before proofs arrive).
+  rpc PreloadSRS(PreloadSrsRequest) returns (PreloadSrsResponse);
+
+  // Explicitly evict an SRS from hot tier.
+  rpc EvictSRS(EvictSrsRequest) returns (EvictSrsResponse);
+}
+
+// --- Proof Type ---
+
+enum ProofKind {
+  PROOF_KIND_UNSPECIFIED = 0;
+  POREP_SEAL_COMMIT = 1;
+  SNAP_DEALS_UPDATE = 2;
+  WINDOW_POST_PARTITION = 3;
+  WINNING_POST = 4;
+}
+
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  LOW = 1;
+  NORMAL = 2;
+  HIGH = 3;
+  CRITICAL = 4;  // WinningPoSt: must complete within epoch
+}
+
+// --- Submit ---
+
+message SubmitProofRequest {
+  string request_id = 1;         // caller-provided idempotency key
+  ProofKind proof_kind = 2;
+  uint64 sector_size = 3;        // e.g. 34359738368 for 32 GiB
+  uint64 registered_proof = 4;   // numeric RegisteredSealProof / RegisteredPoStProof
+  Priority priority = 5;
+
+  bytes vanilla_proof = 10;      // C1 output / vanilla proof (serialized JSON, ~50 MB for PoRep)
+
+  uint64 sector_number = 20;
+  uint64 miner_id = 21;
+  bytes randomness = 22;
+  uint32 partition_index = 23;   // for WindowPoSt per-partition
+
+  // For SnapDeals: old sealed CID, new sealed CID, new unsealed CID
+  bytes sector_key_cid = 30;
+  bytes new_sealed_cid = 31;
+  bytes new_unsealed_cid = 32;
+}
+
+message SubmitProofResponse {
+  string job_id = 1;
+  uint32 queue_position = 2;
+  string assigned_gpu = 3;       // empty if not yet assigned
+}
+
+// --- Await ---
+
+message AwaitProofRequest {
+  string job_id = 1;
+  uint64 timeout_ms = 2;         // 0 = wait forever
+}
+
+message AwaitProofResponse {
+  string job_id = 1;
+
+  enum Status {
+    UNKNOWN = 0;
+    COMPLETED = 1;
+    FAILED = 2;
+    CANCELLED = 3;
+    TIMEOUT = 4;
+  }
+  Status status = 2;
+
+  bytes proof = 3;               // serialized Groth16 proof bytes
+  string error_message = 4;
+
+  // Timing
+  uint64 queue_wait_ms = 10;
+  uint64 srs_load_ms = 11;
+  uint64 synthesis_ms = 12;
+  uint64 gpu_compute_ms = 13;
+  uint64 total_ms = 14;
+}
+
+// --- Prove (combined Submit + Await) ---
+
+message ProveRequest {
+  SubmitProofRequest submit = 1;
+}
+
+message ProveResponse {
+  AwaitProofResponse result = 1;
+}
+
+// --- Cancel ---
+
+message CancelProofRequest {
+  string job_id = 1;
+}
+
+message CancelProofResponse {
+  bool was_running = 1;
+}
+
+// --- Status ---
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  repeated GPUStatus gpus = 1;
+  repeated SRSStatus loaded_srs = 2;
+  repeated QueueStatus queues = 3;
+  uint64 total_proofs_completed = 4;
+  uint64 total_proofs_failed = 5;
+  uint64 uptime_seconds = 6;
+  uint64 pinned_memory_bytes = 7;
+  uint64 pinned_memory_limit_bytes = 8;
+}
+
+message GPUStatus {
+  uint32 ordinal = 1;
+  string name = 2;
+  uint64 vram_total_bytes = 3;
+  uint64 vram_free_bytes = 4;
+  string current_job_id = 5;
+  string current_proof_kind = 6;
+}
+
+message SRSStatus {
+  string circuit_id = 1;        // e.g. "porep-32g", "wpost-32g", "winning-32g", "snap-32g"
+
+  enum Tier {
+    HOT = 0;    // CUDA pinned, ready for proving
+    WARM = 1;   // mmap'd / page cache, needs re-pin
+    COLD = 2;   // on disk only
+  }
+  Tier tier = 2;
+  uint64 size_bytes = 3;
+  uint32 ref_count = 4;         // in-flight proofs using this SRS
+}
+
+message QueueStatus {
+  string proof_kind = 1;
+  uint32 pending = 2;
+  uint32 in_progress = 3;
+}
+
+// --- SRS Management ---
+
+message PreloadSrsRequest {
+  string circuit_id = 1;        // e.g. "porep-32g"
+}
+
+message PreloadSrsResponse {
+  bool already_loaded = 1;
+  uint64 load_time_ms = 2;
+}
+
+message EvictSrsRequest {
+  string circuit_id = 1;
+}
+
+message EvictSrsResponse {
+  bool was_loaded = 1;
+  uint64 freed_bytes = 2;
+}
+
+// --- Metrics ---
+
+message GetMetricsRequest {}
+
+message GetMetricsResponse {
+  string prometheus_text = 1;   // Prometheus exposition format
+}

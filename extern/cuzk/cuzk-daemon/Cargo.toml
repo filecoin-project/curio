@@ -1,0 +1,24 @@
+[package]
+name = "cuzk-daemon"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Standalone binary for the cuzk proving daemon"
+
+[[bin]]
+name = "cuzk-daemon"
+path = "src/main.rs"
+
+[dependencies]
+cuzk-core = { workspace = true }
+cuzk-proto = { workspace = true }
+cuzk-server = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }

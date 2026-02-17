@@ -1,0 +1,15 @@
+[package]
+name = "cuzk-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "gRPC server for the cuzk proving daemon"
+
+[dependencies]
+cuzk-proto = { workspace = true }
+cuzk-core = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
