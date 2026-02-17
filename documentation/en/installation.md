@@ -53,17 +53,15 @@ You will need the following software installed to install and run Curio.
 Building Curio requires some system dependencies, usually provided by your distribution.
 
 {% hint style="warning" %}
-**Note (batch sealing now builds by default on Linux):** Curio’s Linux build chain now always builds `extern/supraseal` as part of the normal `make deps/build` flow. This means **building Curio on Linux requires batch sealing build dependencies**, including:
+**Note (supraseal now builds by default on Linux):** Curio's Linux build now compiles `extern/supraseal` as part of the standard `make build` flow (needed for SnapDeals fast TreeR and batch sealing). This adds the following build requirements:
 
-- CUDA Toolkit **13.x or newer** (needs `nvcc`, even if you won’t run batch sealing at runtime)
-- GCC **13** toolchain (`gcc-13` / `g++-13`)
-- Python venv tooling (`python3-venv`) and common build tools (`autoconf`, `automake`, `libtool`, `nasm`, `xxd`, etc.)
+- **CUDA Toolkit 12.x or later** (`nvcc` must be in PATH)
+- **GCC 12 or 13** — pick the version your CUDA toolkit supports:
+  - CUDA 12.0–12.5 → `gcc-12`/`g++-12`
+  - CUDA 12.6+ or 13+ → `gcc-13`/`g++-13`
+- Python venv tooling (`python3-venv`) and build tools (`autoconf`, `automake`, `libtool`, `nasm`, `xxd`)
 
-If you’re troubleshooting whether your machine can run the **fast TreeR** path used by SnapDeals, run:
-
-```bash
-curio test supra system-info
-```
+To skip the supraseal build (e.g. if you don't have CUDA), use: `make build FFI_USE_OPENCL=1` or `make build DISABLE_SUPRASEAL=1`
 {% endhint %}
 
 Arch:
@@ -72,15 +70,14 @@ Arch:
 sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
 # For batch sealing builds (SnapDeals fast TreeR / batch sealing toolchain):
 sudo pacman -Syu cuda
-# GCC 13 may be required depending on your supraseal version; install via your distro/AUR as appropriate.
+# GCC 12 or 13 required — pick based on your CUDA version (see note above).
 ```
 
-Ubuntu 24.04 / Debian:
+Ubuntu/Debian:
 
 ```shell
 sudo apt install -y \
   mesa-opencl-icd ocl-icd-opencl-dev \
-  gcc-13 g++-13 \
   git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget \
   python3 python3-dev python3-pip python3-venv \
   autoconf automake libtool \
@@ -90,8 +87,14 @@ sudo apt install -y \
   libgmp-dev libconfig++-dev \
   && sudo apt upgrade -y
 
-# CUDA Toolkit (batch sealing build requirement; needs nvcc)
-# Install via NVIDIA’s CUDA repository packages for your distro, or use `cuda-toolkit` packages if available.
+# GCC 12 or 13 — pick based on your CUDA version:
+#   CUDA 12.0–12.5: sudo apt install gcc-12 g++-12
+#   CUDA 12.6+/13+: sudo apt install gcc-13 g++-13
+# On older Ubuntu (e.g. 20.04) you may need the toolchain PPA:
+#   sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y && sudo apt update
+
+# CUDA Toolkit (needed for GPU proving and supraseal build; nvcc must be in PATH)
+# Install via NVIDIA's CUDA repository for your distro.
 ```
 
 Fedora:
@@ -131,7 +134,7 @@ wget -c https://go.dev/dl/go1.24.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /us
 ```
 
 {% hint style="info" %}
-You’ll need to add `/usr/local/go/bin` to your path. For most Linux distributions you can run something like:
+You'll need to add `/usr/local/go/bin` to your path. For most Linux distributions you can run something like:
 
 ```shell
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc && source ~/.bashrc
@@ -258,13 +261,13 @@ This should output something like:
 /Library/Developer/CommandLineTools
 ```
 
-If this command returns a path, then you have Xcode already installed! You can [move on to installing dependencies with Homebrew](installation.md#homebrew). If the above command doesn’t return a path, install Xcode:
+If this command returns a path, then you have Xcode already installed! You can [move on to installing dependencies with Homebrew](installation.md#homebrew). If the above command doesn't return a path, install Xcode:
 
 ```shell
 xcode-select --install
 ```
 
-Next up is installing Curio’s dependencies using Homebrew.
+Next up is installing Curio's dependencies using Homebrew.
 
 ### **Homebrew**
 
