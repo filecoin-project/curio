@@ -7,7 +7,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/net/context"
+	"context"
 
 	"github.com/filecoin-project/go-jsonrpc"
 
