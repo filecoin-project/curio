@@ -53,6 +53,13 @@ cid = { version = "0.11", default-features = false, features = ["alloc"] }
 # Activated with cuda-supraseal for best GPU performance.
 filecoin-proofs-api = { version = "19.0", default-features = false }
 
+# Forked bellperson with split synthesis/GPU API (Phase 2).
+# The [patch.crates-io] below ensures ALL transitive deps use the fork.
+bellperson = { path = "../bellperson", default-features = false }
+
+[patch.crates-io]
+bellperson = { path = "../bellperson" }
+
 [profile.release]
 opt-level = 3
 lto = "thin"
