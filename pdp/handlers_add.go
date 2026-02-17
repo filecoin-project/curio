@@ -340,7 +340,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Step 4: Prepare piece information
-	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
+	pieceDataArray, subPieceInfoMap, _, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
 		logAdd.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
@@ -439,7 +439,11 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 		if mustIndex {
 			logAdd.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
-			if err := EnableIndexingForPiecesInTx(txdb, serviceLabel, subPieceCidList); err != nil {
+			subPieceRefIDs := make([]int64, 0, len(subPieceInfoMap))
+			for _, info := range subPieceInfoMap {
+				subPieceRefIDs = append(subPieceRefIDs, info.PDPPieceRefID)
+			}
+			if err := EnableIndexingForPiecesInTx(txdb, serviceLabel, subPieceRefIDs); err != nil {
 				return false, err
 			}
 		}

@@ -119,24 +119,24 @@ func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
 	return false, nil
 }
 
-// EnableIndexingForPiecesInTx marks the specified pieces as needing indexing within a transaction.
+// EnableIndexingForPiecesInTx marks the specified piecerefs as needing indexing within a transaction.
+// It takes specific pdp_piecerefs IDs rather than piece CIDs to avoid marking all refs sharing the
+// same piece_cid — which would create one redundant indexing task per duplicate upload.
 func EnableIndexingForPiecesInTx(
 	tx *harmonydb.Tx,
 	serviceLabel string,
-	subPieceCids []string,
+	subPieceRefIDs []int64,
 ) error {
 	log.Debugw("Marking subpieces as needing indexing (in transaction)",
 		"serviceLabel", serviceLabel,
-		"subPieceCount", len(subPieceCids))
+		"subPieceCount", len(subPieceRefIDs))
 
-	// Note: it's possible to update a duplicate piece that has already completed the indexing step
-	// but task_pdp_indexing handles pieces that have already been indexed smoothly
 	_, err := tx.Exec(`
 		UPDATE pdp_piecerefs
 		SET needs_indexing = TRUE
 		WHERE service = $1
-			AND piece_cid = ANY($2)
+			AND id = ANY($2)
 			AND needs_indexing = FALSE
-	`, serviceLabel, subPieceCids)
+	`, serviceLabel, subPieceRefIDs)
 	return err
 }
