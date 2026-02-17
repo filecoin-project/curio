@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/ux/task.mjs';
 
 class RSealPipelineElement extends LitElement {
   static properties = {
@@ -44,6 +45,13 @@ class RSealPipelineElement extends LitElement {
     return done
       ? html`<span class="badge bg-success">Done</span>`
       : html`<span class="badge bg-secondary">-</span>`;
+  }
+
+  renderTaskStage(taskId, done) {
+    if (taskId) {
+      return html`<task-status .taskId=${taskId}></task-status>`;
+    }
+    return this.renderStage(done);
   }
 
   render() {
@@ -111,7 +119,6 @@ class RSealPipelineElement extends LitElement {
                   <th>TreeC</th>
                   <th>TreeR</th>
                   <th>Fetch</th>
-                  <th>C1</th>
                   <th>Cleanup</th>
                   <th>Status</th>
                 </tr>
@@ -122,13 +129,12 @@ class RSealPipelineElement extends LitElement {
                     <td>f0${r.sp_id}</td>
                     <td>${r.sector_number}</td>
                     <td>${r.provider_name}</td>
-                    <td>${this.renderStage(r.after_sdr)}</td>
-                    <td>${this.renderStage(r.after_tree_d)}</td>
-                    <td>${this.renderStage(r.after_tree_c)}</td>
-                    <td>${this.renderStage(r.after_tree_r)}</td>
-                    <td>${this.renderStage(r.after_fetch)}</td>
-                    <td>${this.renderStage(r.after_c1_exchange)}</td>
-                    <td>${this.renderStage(r.after_cleanup)}</td>
+                    <td>${this.renderTaskStage(r.task_id_sdr, r.after_sdr)}</td>
+                    <td>${this.renderTaskStage(r.task_id_tree_d, r.after_tree_d)}</td>
+                    <td>${this.renderTaskStage(r.task_id_tree_c, r.after_tree_c)}</td>
+                    <td>${this.renderTaskStage(r.task_id_tree_r, r.after_tree_r)}</td>
+                    <td>${this.renderTaskStage(r.task_id_fetch, r.after_fetch)}</td>
+                    <td>${this.renderTaskStage(r.task_id_cleanup, r.after_cleanup)}</td>
                     <td>${r.failed ? html`<span class="badge bg-danger" title="${r.failed_reason_msg}">Failed</span>` : html`<span class="badge bg-info">Active</span>`}</td>
                   </tr>
                 `)}
