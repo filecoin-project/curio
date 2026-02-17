@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
-	"context"
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
