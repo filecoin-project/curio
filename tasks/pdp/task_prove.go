@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/dustin/go-humanize"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -23,8 +24,6 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
-
-	"github.com/dustin/go-humanize"
 
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
