@@ -51,8 +51,7 @@ func NewSectorMetadataTask(db *harmonydb.DB, bstore curiochain.CurioBlockstore, 
 	}
 }
 
-func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SectorMetadata) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Get last refresh info
 	var lastRefresh []struct {

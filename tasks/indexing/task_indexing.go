@@ -94,11 +94,9 @@ type itask struct {
 	IsRM        bool `db:"is_rm"`        // used less frequently
 }
 
-func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (i *IndexingTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var tasks []itask
-
-	ctx := context.Background()
 
 	err = i.db.Select(ctx, &tasks, `SELECT 
 										  p.uuid, 

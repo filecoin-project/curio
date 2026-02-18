@@ -71,8 +71,7 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 	}
 }
 
-func (c *CleanupPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *CleanupPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// select by cleanup_task_id
 	var pieceID int64

@@ -30,8 +30,7 @@ func NewCommDCheckTask(db *harmonydb.DB, sc *ffi.SealCalls) *ScrubCommDTask {
 	return &ScrubCommDTask{db: db, sc: sc}
 }
 
-func (c *ScrubCommDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *ScrubCommDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var checkReq []struct {
 		CheckID           int64  `db:"check_id"`

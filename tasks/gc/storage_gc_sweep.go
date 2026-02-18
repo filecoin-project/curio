@@ -32,8 +32,7 @@ func NewStorageGCSweep(db *harmonydb.DB, storage *paths.Remote, index paths.Sect
 	}
 }
 
-func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *StorageGCSweep) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	for {
 		// go file by file

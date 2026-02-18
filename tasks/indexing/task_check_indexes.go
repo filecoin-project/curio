@@ -41,8 +41,7 @@ func NewCheckIndexesTask(db *harmonydb.DB, indexStore *indexstore.IndexStore) *C
 	}
 }
 
-func (c *CheckIndexesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *CheckIndexesTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	{
 		/* if market_mk12_deal_pipeline_migration has entries don't run checks */

@@ -176,8 +176,7 @@ func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 }
 
 // Do implements harmonytask.TaskInterface.
-func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (b *BalanceMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// select task info
 	var id int64

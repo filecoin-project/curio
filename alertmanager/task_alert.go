@@ -100,9 +100,7 @@ func NewAlertTask(
 	}
 }
 
-func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	alMap := make(map[string]*alertOut)
 
 	altrs := &alerts{
