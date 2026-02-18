@@ -44,7 +44,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	"github.com/filecoin-project/curio/tasks/pay"
-	"github.com/filecoin-project/curio/tasks/pdp"
+	"github.com/filecoin-project/curio/tasks/pdpv0"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -295,22 +295,22 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewDataSetWatch(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewDataSetWatch(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pay.NewSettleWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewDataSetDeleteWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewPieceDeleteWatcher(&cfg.HTTP, db, must.One(dependencies.EthClient.Val()), chainSched, iStore)
+			pdpv0.NewDataSetDeleteWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewPieceDeleteWatcher(&cfg.HTTP, db, must.One(dependencies.EthClient.Val()), chainSched, iStore)
 
-			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
-			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
-			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
-			pdpNotifTask := pdp.NewPDPNotifyTask(ctx, db)
-			pdpPullPieceTask := pdp.NewPDPPullPieceTask(ctx, db, lstor, 4)
-			pdpIndexingTask := indexing.NewPDPIndexingTask(db, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-			pdpIpniTask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
-			pdpTerminate := pdp.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
-			pdpDelete := pdp.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
+			pdpProveTask := pdpv0.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
+			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpNotifTask := pdpv0.NewPDPNotifyTask(ctx, db)
+			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, lstor, 4)
+			pdpIndexingTask := indexing.NewPDPV0IndexingTask(db, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+			pdpIpniTask := indexing.NewPDPV0IPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+			pdpTerminate := pdpv0.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
+			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			payTask := pay.NewSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpIndexingTask, pdpIpniTask, pdpTerminate, pdpDelete, payTask)
 		}
