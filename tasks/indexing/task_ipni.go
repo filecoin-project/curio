@@ -58,8 +58,7 @@ func NewIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter
 	}
 }
 
-func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (I *IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var tasks []struct {
 		SPID     int64                   `db:"sp_id"`

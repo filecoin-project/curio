@@ -40,8 +40,7 @@ func NewPDPCommpTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) *PDPCommpTask
 	}
 }
 
-func (c *PDPCommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *PDPCommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		Pcid string `db:"piece_cid_v2"`

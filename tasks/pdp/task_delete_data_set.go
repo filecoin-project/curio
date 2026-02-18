@@ -38,8 +38,8 @@ func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethCli
 	}
 }
 
-func (p *PDPTaskDeleteDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskDeleteDataSet) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+
 	var pdeletes []struct {
 		SetID     int64  `db:"set_id"`
 		ExtraData []byte `db:"extra_data"`

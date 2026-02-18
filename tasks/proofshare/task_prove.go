@@ -144,8 +144,7 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskProvideSnark) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// fetch by compute_task_id
 	var tasks []struct {

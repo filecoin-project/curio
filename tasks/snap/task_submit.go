@@ -128,7 +128,7 @@ type updateCids struct {
 	unsealed cid.Cid
 }
 
-func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
@@ -143,8 +143,6 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 		Deadline uint64 `db:"deadline"`
 	}
-
-	ctx := context.Background()
 
 	err = s.db.Select(ctx, &tasks, `
 		SELECT snp.sp_id, snp.sector_number, snp.upgrade_proof, sm.reg_seal_proof, snp.update_sealed_cid, snp.update_unsealed_cid, snp.proof, sm.deadline
