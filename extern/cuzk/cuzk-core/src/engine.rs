@@ -23,6 +23,30 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, oneshot, watch, RwLock};
 use tracing::{error, info, info_span, warn, Instrument};
 
+// ─── Timeline Instrumentation ───────────────────────────────────────────────
+//
+// Records wall-clock events for waterfall visualization. All times are
+// millisecond offsets from a shared epoch (engine start time). Events are
+// emitted as structured log lines with target "timeline" so they can be
+// easily grepped from the daemon log:
+//
+//   grep "^TIMELINE" /tmp/cuzk-daemon.log | sort -t, -k2 -n
+//
+// Event format: TIMELINE,<offset_ms>,<event>,<job_id>,<detail>
+//
+// Events: SYNTH_START, SYNTH_END, CHAN_SEND, GPU_PICKUP, GPU_START, GPU_END
+
+/// Shared timeline epoch — set once at engine start.
+static TIMELINE_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// Emit a timeline event. Uses eprintln for guaranteed ordering (bypasses
+/// tracing buffering). The output goes to stderr which is captured in daemon logs.
+fn timeline_event(event: &str, job_id: &str, detail: &str) {
+    let epoch = TIMELINE_EPOCH.get().copied().unwrap_or_else(Instant::now);
+    let offset_ms = epoch.elapsed().as_millis();
+    eprintln!("TIMELINE,{},{},{},{}", offset_ms, event, job_id, detail);
+}
+
 use crate::config::Config;
 use crate::prover;
 use crate::scheduler::Scheduler;
@@ -190,6 +214,9 @@ impl Engine {
 
     /// Start the engine: preload SRS, spawn GPU worker(s).
     pub async fn start(&self) -> Result<()> {
+        // Initialize timeline epoch for waterfall instrumentation
+        let _ = TIMELINE_EPOCH.set(Instant::now());
+
         info!(
             pipeline_enabled = self.pipeline_enabled,
             "starting cuzk engine"
@@ -318,7 +345,25 @@ impl Engine {
                 "starting pipeline: synthesis task + GPU workers"
             );
 
-            // Spawn the synthesis task (Phase 3: with batch collection)
+            // Spawn the synthesis dispatcher task.
+            //
+            // When synthesis_concurrency > 1, multiple proofs can be synthesized
+            // in parallel. The dispatcher pulls from the scheduler, acquires a
+            // semaphore permit, and spawns each process_batch as an independent
+            // tokio task. The semaphore limits how many syntheses run concurrently.
+            // The bounded channel (synthesis_lookahead) still provides backpressure
+            // on the GPU side — completed syntheses block on channel send if the
+            // GPU hasn't consumed yet.
+            //
+            // This eliminates the GPU idle gap caused by sequential synthesis:
+            //   Before (synthesis_concurrency=1):
+            //     Synth: [====P1====]            [====P2====]
+            //     GPU:              [==P1==]idle             [==P2==]
+            //
+            //   After (synthesis_concurrency=2):
+            //     Synth A: [====P1====]  [====P3====]
+            //     Synth B:   [====P2====]  [====P4====]
+            //     GPU:              [P1][P2][P3][P4]  ← no idle gaps
             {
                 let scheduler = self.scheduler.clone();
                 let tracker = self.tracker.clone();
@@ -328,13 +373,19 @@ impl Engine {
                 let max_batch_size = self.config.scheduler.max_batch_size;
                 let max_batch_wait_ms = self.config.scheduler.max_batch_wait_ms;
                 let slot_size = self.config.pipeline.slot_size;
+                let synthesis_concurrency = self.config.pipeline.synthesis_concurrency.max(1) as usize;
+
+                // Semaphore limits concurrent synthesis tasks.
+                // With concurrency=1, behavior is identical to the old sequential loop.
+                let synth_semaphore = Arc::new(tokio::sync::Semaphore::new(synthesis_concurrency));
 
                 tokio::spawn(async move {
                     info!(
                         max_batch_size = max_batch_size,
                         max_batch_wait_ms = max_batch_wait_ms,
                         slot_size = slot_size,
-                        "synthesis task started (Phase 3 batch-aware, Phase 6 slotted)"
+                        synthesis_concurrency = synthesis_concurrency,
+                        "synthesis dispatcher started"
                     );
 
                     let mut batch_collector = crate::batch_collector::BatchCollector::new(
@@ -343,6 +394,47 @@ impl Engine {
                             max_batch_wait_ms,
                         },
                     );
+
+                    /// Helper: dispatch a batch for processing. If synthesis_concurrency > 1,
+                    /// spawns as a background task (non-blocking). If 1, awaits inline (old behavior).
+                    async fn dispatch_batch(
+                        batch: crate::batch_collector::ProofBatch,
+                        tracker: &Arc<Mutex<JobTracker>>,
+                        srs_manager: &Arc<Mutex<SrsManager>>,
+                        param_cache: &std::path::Path,
+                        synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
+                        slot_size: u32,
+                        semaphore: &Arc<tokio::sync::Semaphore>,
+                        concurrency: usize,
+                        span: tracing::Span,
+                    ) -> bool {
+                        if concurrency <= 1 {
+                            // Sequential mode: await inline (old behavior)
+                            process_batch(
+                                batch, tracker, srs_manager, param_cache, synth_tx, slot_size,
+                            ).instrument(span).await
+                        } else {
+                            // Parallel mode: acquire semaphore, spawn task
+                            let permit = match semaphore.clone().acquire_owned().await {
+                                Ok(p) => p,
+                                Err(_) => {
+                                    error!("synthesis semaphore closed");
+                                    return false;
+                                }
+                            };
+                            let tracker = tracker.clone();
+                            let srs_manager = srs_manager.clone();
+                            let param_cache = param_cache.to_owned();
+                            let synth_tx = synth_tx.clone();
+                            tokio::spawn(async move {
+                                let _permit = permit; // held until task completes
+                                process_batch(
+                                    batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                ).instrument(span).await;
+                            });
+                            true // always continue — errors handled inside the spawned task
+                        }
+                    }
 
                     loop {
                         // Determine if we should wait for scheduler or flush a timeout.
@@ -358,13 +450,14 @@ impl Engine {
                                 biased;
                                 _ = shutdown_rx.changed() => {
                                     if *shutdown_rx.borrow() {
-                                        info!("synthesis task received shutdown signal");
+                                        info!("synthesis dispatcher received shutdown signal");
                                         // Flush any pending batch before exiting
                                         if let Some(batch) = batch_collector.force_flush() {
                                             let span = info_span!("synth_shutdown_flush", batch_size = batch.len());
-                                            let _ = process_batch(
+                                            let _ = dispatch_batch(
                                                 batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                            ).instrument(span).await;
+                                                &synth_semaphore, synthesis_concurrency, span,
+                                            ).await;
                                         }
                                         break;
                                     }
@@ -374,9 +467,10 @@ impl Engine {
                                     // Timer expired — check timeout and flush
                                     if let Some(batch) = batch_collector.check_timeout() {
                                         let span = info_span!("synth_timeout_flush", batch_size = batch.len());
-                                        let ok = process_batch(
+                                        let ok = dispatch_batch(
                                             batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                        ).instrument(span).await;
+                                            &synth_semaphore, synthesis_concurrency, span,
+                                        ).await;
                                         if !ok { break; }
                                     }
                                     continue;
@@ -389,7 +483,7 @@ impl Engine {
                                 biased;
                                 _ = shutdown_rx.changed() => {
                                     if *shutdown_rx.borrow() {
-                                        info!("synthesis task received shutdown signal");
+                                        info!("synthesis dispatcher received shutdown signal");
                                         break;
                                     }
                                     continue;
@@ -414,9 +508,10 @@ impl Engine {
                                     batch_size = batch.len(),
                                     proof_kind = %batch.proof_kind,
                                 );
-                                let ok = process_batch(
+                                let ok = dispatch_batch(
                                     batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                ).instrument(span).await;
+                                    &synth_semaphore, synthesis_concurrency, span,
+                                ).await;
                                 if !ok { break; }
                             }
                         } else {
@@ -427,9 +522,10 @@ impl Engine {
                                     batch_size = pending_batch.len(),
                                     proof_kind = %pending_batch.proof_kind,
                                 );
-                                let ok = process_batch(
+                                let ok = dispatch_batch(
                                     pending_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                ).instrument(span).await;
+                                    &synth_semaphore, synthesis_concurrency, span,
+                                ).await;
                                 if !ok { break; }
                             }
 
@@ -442,13 +538,14 @@ impl Engine {
                             let span = info_span!("synth_single",
                                 proof_kind = %proof_kind,
                             );
-                            let ok = process_batch(
+                            let ok = dispatch_batch(
                                 single_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                            ).instrument(span).await;
+                                &synth_semaphore, synthesis_concurrency, span,
+                            ).await;
                             if !ok { break; }
                         }
                     }
-                    info!("synthesis task stopped");
+                    info!("synthesis dispatcher stopped");
                 });
             }
 
@@ -597,6 +694,8 @@ impl Engine {
 
                     // Standard path: synthesize, then send to GPU channel
                     let reqs = requests.clone();
+                    let synth_job_id = reqs[0].job_id.0.clone();
+                    timeline_event("SYNTH_START", &synth_job_id, &format!("kind={}", proof_kind));
                     let synth_result = tokio::task::spawn_blocking(move || -> Result<SynthesizedJob> {
                         std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);
 
@@ -667,6 +766,8 @@ impl Engine {
                     match synth_result {
                         Ok(Ok(job)) => {
                             let is_batched = !job.batch_requests.is_empty();
+                            let synth_job_id_str = job.request.job_id.0.clone();
+                            timeline_event("SYNTH_END", &synth_job_id_str, &format!("synth_ms={}", job.synth.synthesis_duration.as_millis()));
                             info!(
                                 synth_ms = job.synth.synthesis_duration.as_millis(),
                                 circuit_id = %job.circuit_id,
@@ -694,6 +795,7 @@ impl Engine {
                                 }
                             }
 
+                            timeline_event("CHAN_SEND", &synth_job_id_str, "");
                             if synth_tx.send(job).await.is_err() {
                                 error!("GPU channel closed, stopping synthesis task");
                                 return false;
@@ -802,6 +904,7 @@ impl Engine {
                         );
 
                         async {
+                            timeline_event("GPU_PICKUP", &job_id.0, &format!("worker={}", worker_id));
                             info!(
                                 batched = is_batched,
                                 "GPU worker picked up synthesized proof"
@@ -816,13 +919,18 @@ impl Engine {
                             }
 
                             let gpu_str = gpu_ordinal.to_string();
+                            let gpu_job_id = job_id.0.clone();
 
                             // Run GPU proving on blocking thread
                             #[cfg(feature = "cuda-supraseal")]
                             let result = {
+                                timeline_event("GPU_START", &gpu_job_id, &format!("worker={}", worker_id));
+                                let gpu_jid = gpu_job_id.clone();
+                                let gpu_wid = worker_id;
                                 tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
                                     std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
                                     let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params)?;
+                                    timeline_event("GPU_END", &gpu_jid, &format!("worker={},gpu_ms={}", gpu_wid, gpu_result.gpu_duration.as_millis()));
                                     Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
                                 }).await
                             };

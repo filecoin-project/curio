@@ -97,6 +97,20 @@ enabled = true
 # The synthesis task blocks when the channel is full, preventing OOM.
 synthesis_lookahead = 1
 
+# Number of concurrent CPU synthesis tasks.
+#
+# When synthesis takes longer than GPU proving (e.g. 39s synth vs 27s GPU),
+# the GPU idles for ~12s between proofs with a single synthesis task.
+# With 2 concurrent synthesis tasks, the GPU can be kept fully saturated.
+#
+#   1 = sequential synthesis (default, lower memory)
+#   2 = recommended for single-GPU machines with >=400 GiB RAM
+#   N = N concurrent syntheses (each PoRep 32G synth uses ~136 GiB)
+#
+# Setting this > 1 subsumes the benefit of cross-sector batching
+# (max_batch_size > 1) for throughput, while using the same total memory.
+synthesis_concurrency = 1
+
 [logging]
 # Log level: trace, debug, info, warn, error
 # Can also be overridden via RUST_LOG env var.

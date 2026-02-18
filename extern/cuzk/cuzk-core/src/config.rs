@@ -159,6 +159,23 @@ pub struct PipelineConfig {
     /// in-flight unit is one partition (~13.6 GiB), not the full proof.
     #[serde(default = "PipelineConfig::default_synthesis_lookahead")]
     pub synthesis_lookahead: u32,
+    /// Number of concurrent synthesis tasks.
+    ///
+    /// Controls how many proofs can be synthesized simultaneously on the CPU.
+    /// When synthesis takes longer than GPU proving (e.g. 39s synth vs 27s GPU),
+    /// the GPU idles for ~12s between proofs with a single synthesis task. With
+    /// 2 concurrent synthesis tasks, the GPU can be kept fully saturated.
+    ///
+    /// - 1 = sequential synthesis (default, lower memory)
+    /// - 2 = recommended for single-GPU machines with sufficient RAM (>400 GiB)
+    /// - N = N concurrent syntheses (memory: N × ~136 GiB for PoRep 32G)
+    ///
+    /// The synthesis_lookahead channel still provides backpressure — even with
+    /// N concurrent syntheses, only `synthesis_lookahead` completed proofs can
+    /// be queued waiting for the GPU.
+    #[serde(default = "PipelineConfig::default_synthesis_concurrency")]
+    pub synthesis_concurrency: u32,
+
     /// Pipelined partition proving (Phase 6).
     ///
     /// Controls how many synthesized partitions can be queued for the GPU
@@ -191,6 +208,9 @@ impl PipelineConfig {
     fn default_synthesis_lookahead() -> u32 {
         1
     }
+    fn default_synthesis_concurrency() -> u32 {
+        1 // sequential by default for backward compatibility
+    }
     fn default_slot_size() -> u32 {
         0 // disabled by default for backward compatibility
     }
@@ -201,6 +221,7 @@ impl Default for PipelineConfig {
         Self {
             enabled: Self::default_enabled(),
             synthesis_lookahead: Self::default_synthesis_lookahead(),
+            synthesis_concurrency: Self::default_synthesis_concurrency(),
             slot_size: Self::default_slot_size(),
         }
     }
