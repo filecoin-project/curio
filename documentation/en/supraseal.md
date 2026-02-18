@@ -139,7 +139,7 @@ CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x sy
     ```shell
     sudo apt install gcc-13 g++-13
     ```
-* In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+* In addition to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
@@ -478,7 +478,7 @@ To troubleshoot:
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
 
-### Slower than expeted NVMe speed
+### Slower than expected NVMe speed
 
 If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
 
