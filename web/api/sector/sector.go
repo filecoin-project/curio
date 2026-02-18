@@ -333,6 +333,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 			sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 		}
 	}
+	w.Header().Set("Content-Type", "application/json")
 	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(map[string]any{"data": sectors}))
 }
 

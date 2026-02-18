@@ -157,12 +157,14 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 	}
 	allOpt(sch)
 
+	w.Header().Set("Content-Type", "application/json")
 	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(sch))
 }
 
 func (c *cfg) getLayers(w http.ResponseWriter, r *http.Request) {
 	var layers []string
 	apihelper.OrHTTPFail(w, c.DB.Select(context.Background(), &layers, `SELECT title FROM harmony_config ORDER BY title`))
+	w.Header().Set("Content-Type", "application/json")
 	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(layers))
 }
 

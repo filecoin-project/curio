@@ -210,8 +210,7 @@ func taskFailureCheck(al *alerts) {
 	for name, count := range tmap {
 		if contains(sealingTasks, name) {
 			al.alertMap[Name].alertString += fmt.Sprintf("Task: %s, Failures: %d. ", name, count)
-		}
-		if count > 5 {
+		} else if count > 5 {
 			al.alertMap[Name].alertString += fmt.Sprintf("Task: %s, Failures: %d. ", name, count)
 		}
 	}
