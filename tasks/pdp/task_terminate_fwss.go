@@ -49,7 +49,11 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(sAddr, t.ethClient)
+	viewAddr, err := contract.ResolveViewAddress(sAddr, t.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get FWSS view address: %w", err)
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, t.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
 	}

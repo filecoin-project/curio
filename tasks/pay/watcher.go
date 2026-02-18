@@ -104,7 +104,11 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(serviceAddr, ethClient)
+	viewAddr, err := contract.ResolveViewAddress(serviceAddr, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to get FWSS view address: %w", err)
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, ethClient)
 	if err != nil {
 		return xerrors.Errorf("failed to create fwssv: %w", err)
 	}
