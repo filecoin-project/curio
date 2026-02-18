@@ -258,6 +258,17 @@ impl Engine {
             }
         }
 
+        // Preload PCE caches from disk (Phase 5/6)
+        #[cfg(feature = "cuda-supraseal")]
+        {
+            let param_cache = self.config.srs.param_cache.clone();
+            let loaded = tokio::task::spawn_blocking(move || {
+                crate::pipeline::preload_pce_from_disk(&param_cache)
+            })
+            .await?;
+            info!(loaded = loaded, "PCE disk preload complete");
+        }
+
         // Detect GPUs and create worker states
         let gpu_ordinals = detect_gpu_ordinals(&self.config);
         let num_workers = gpu_ordinals.len();
@@ -546,6 +557,26 @@ impl Engine {
                                 sectors = if is_batched { job.sector_boundaries.len() } else { 1 },
                                 "synthesis complete, sending to GPU"
                             );
+
+                            // Phase 5/6: Trigger background PCE extraction if not yet cached.
+                            // Uses the first request's C1 data to build an extraction circuit.
+                            // The extraction runs in a background thread so it doesn't block
+                            // the GPU from processing this proof.
+                            if pipeline::get_pce(&job.circuit_id).is_none() {
+                                if let ProofKind::PoRepSealCommit = proof_kind {
+                                    let c1_data = requests[0].vanilla_proof.clone();
+                                    let sn = requests[0].sector_number;
+                                    let mid = requests[0].miner_id;
+                                    std::thread::spawn(move || {
+                                        info!("background PCE extraction starting for PoRep 32G");
+                                        match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
+                                            Ok(()) => info!("background PCE extraction complete — next proof will use fast path"),
+                                            Err(e) => warn!(error = %e, "background PCE extraction failed (non-fatal)"),
+                                        }
+                                    });
+                                }
+                            }
+
                             if synth_tx.send(job).await.is_err() {
                                 error!("GPU channel closed, stopping synthesis task");
                                 return false;

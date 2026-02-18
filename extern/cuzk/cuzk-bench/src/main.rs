@@ -1208,7 +1208,37 @@ fn run_pce_bench(
 
     // Optionally save PCE to disk
     if let Some(path) = save_pce {
-        println!("\nSaving PCE is not yet implemented (would serialize to {})", path.display());
+        println!("\n--- Saving PCE to disk ---");
+        let pce_ref = cuzk_core::pipeline::get_pce(&cuzk_core::srs_manager::CircuitId::Porep32G)
+            .expect("PCE should be cached after extraction");
+        let save_start = Instant::now();
+        cuzk_pce::save_to_disk(pce_ref, &path)?;
+        let save_time = save_start.elapsed();
+        let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        println!(
+            "  saved to: {}  size={:.1} GiB  time={:.1}s  speed={:.1} GB/s",
+            path.display(),
+            file_size as f64 / (1024.0 * 1024.0 * 1024.0),
+            save_time.as_secs_f64(),
+            file_size as f64 / save_time.as_secs_f64() / 1e9,
+        );
+
+        // Test round-trip: load it back and verify dimensions
+        println!("\n--- Verifying round-trip load ---");
+        let load_start = Instant::now();
+        let loaded: cuzk_pce::PreCompiledCircuit<blstrs::Scalar> =
+            cuzk_pce::load_from_disk(&path)?;
+        let load_time = load_start.elapsed();
+        println!(
+            "  loaded in {:.1}s  speed={:.1} GB/s",
+            load_time.as_secs_f64(),
+            file_size as f64 / load_time.as_secs_f64() / 1e9,
+        );
+        assert_eq!(loaded.num_inputs, pce_ref.num_inputs);
+        assert_eq!(loaded.num_aux, pce_ref.num_aux);
+        assert_eq!(loaded.num_constraints, pce_ref.num_constraints);
+        assert_eq!(loaded.total_nnz(), pce_ref.total_nnz());
+        println!("  round-trip verification: PASS");
     }
 
     Ok(())

@@ -20,10 +20,12 @@
 
 pub mod csr;
 pub mod density;
+pub mod disk;
 pub mod eval;
 pub mod recording_cs;
 
 pub use csr::{CsrMatrix, PreCompiledCircuit};
 pub use density::PreComputedDensity;
+pub use disk::{load_from_disk, pce_filename, save_to_disk};
 pub use eval::evaluate_pce;
 pub use recording_cs::{extract_precompiled_circuit, RecordingCS};

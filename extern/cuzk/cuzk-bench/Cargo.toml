@@ -39,8 +39,11 @@ cuzk-pce = { workspace = true, optional = true }
 # For malloc_trim (RSS management in benchmarks)
 libc = "0.2"
 
+# BLS12-381 field types (for PCE round-trip verification)
+blstrs = { workspace = true, optional = true }
+
 [features]
 default = []
 gen-vanilla = ["filecoin-proofs-api", "cid"]
 synth-bench = ["cuzk-core"]
-pce-bench = ["cuzk-core", "cuzk-pce"]
+pce-bench = ["cuzk-core", "cuzk-pce", "blstrs"]

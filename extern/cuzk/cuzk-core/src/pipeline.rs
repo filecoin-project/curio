@@ -223,7 +223,7 @@ static SNAP_DEALS_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
 
 /// Get the cached PCE for a circuit type, if available.
 #[cfg(feature = "cuda-supraseal")]
-fn get_pce(circuit_id: &CircuitId) -> Option<&'static PreCompiledCircuit<Fr>> {
+pub fn get_pce(circuit_id: &CircuitId) -> Option<&'static PreCompiledCircuit<Fr>> {
     match circuit_id {
         CircuitId::Porep32G | CircuitId::Porep64G => POREP_32G_PCE.get(),
         CircuitId::WinningPost32G => WINNING_POST_PCE.get(),
@@ -243,13 +243,115 @@ fn get_pce_lock(circuit_id: &CircuitId) -> &'static OnceLock<PreCompiledCircuit<
     }
 }
 
+/// Map a CircuitId to the filename stem used for PCE disk persistence.
+fn circuit_id_pce_name(circuit_id: &CircuitId) -> &'static str {
+    match circuit_id {
+        CircuitId::Porep32G => "porep-32g",
+        CircuitId::Porep64G => "porep-64g",
+        CircuitId::WinningPost32G => "winning-post",
+        CircuitId::WindowPost32G => "window-post",
+        CircuitId::SnapDeals32G => "snap-deals-32g",
+        CircuitId::SnapDeals64G => "snap-deals-64g",
+    }
+}
+
+/// Get the disk path for a PCE file under the parameter cache directory.
+fn pce_disk_path(circuit_id: &CircuitId, param_cache: &std::path::Path) -> std::path::PathBuf {
+    param_cache.join(cuzk_pce::pce_filename(circuit_id_pce_name(circuit_id)))
+}
+
+/// Try to load a PCE from disk into the OnceLock cache.
+///
+/// Returns `Ok(true)` if loaded successfully, `Ok(false)` if file not found,
+/// or `Err` if the file exists but is corrupt/incompatible.
+#[cfg(feature = "cuda-supraseal")]
+pub fn load_pce_from_disk(
+    circuit_id: &CircuitId,
+    param_cache: &std::path::Path,
+) -> anyhow::Result<bool> {
+    // Already cached in memory — skip disk I/O
+    if get_pce(circuit_id).is_some() {
+        info!(circuit_id = %circuit_id, "PCE already in memory, skipping disk load");
+        return Ok(true);
+    }
+
+    let path = pce_disk_path(circuit_id, param_cache);
+    if !path.exists() {
+        info!(circuit_id = %circuit_id, path = %path.display(), "PCE file not found on disk");
+        return Ok(false);
+    }
+
+    let pce: PreCompiledCircuit<Fr> = cuzk_pce::load_from_disk(&path)?;
+
+    let lock = get_pce_lock(circuit_id);
+    let _ = lock.set(pce); // ignore if concurrently set
+    info!(circuit_id = %circuit_id, "PCE loaded from disk into cache");
+    Ok(true)
+}
+
+/// Preload PCE caches for all known circuit types from disk.
+///
+/// Call this at daemon startup. Loads whatever PCE files exist in the parameter
+/// cache directory. Returns the number of circuit types successfully loaded.
+#[cfg(feature = "cuda-supraseal")]
+pub fn preload_pce_from_disk(param_cache: &std::path::Path) -> usize {
+    let circuit_ids = [
+        CircuitId::Porep32G,
+        CircuitId::WinningPost32G,
+        CircuitId::WindowPost32G,
+        CircuitId::SnapDeals32G,
+    ];
+
+    let mut loaded = 0;
+    for cid in &circuit_ids {
+        match load_pce_from_disk(cid, param_cache) {
+            Ok(true) => {
+                loaded += 1;
+            }
+            Ok(false) => {
+                // File not found — will extract on first proof
+            }
+            Err(e) => {
+                tracing::warn!(
+                    circuit_id = %cid,
+                    error = %e,
+                    "failed to load PCE from disk — will re-extract on first proof"
+                );
+                // Delete the corrupt file so next extraction writes a fresh one
+                let path = pce_disk_path(cid, param_cache);
+                if let Err(rm_err) = std::fs::remove_file(&path) {
+                    tracing::warn!(
+                        path = %path.display(),
+                        error = %rm_err,
+                        "failed to remove corrupt PCE file"
+                    );
+                }
+            }
+        }
+    }
+
+    info!(
+        loaded = loaded,
+        total = circuit_ids.len(),
+        "PCE disk preload complete"
+    );
+    loaded
+}
+
 /// Extract a pre-compiled circuit from a circuit instance and cache it.
 ///
 /// This runs the circuit with `RecordingCS` to capture R1CS structure.
 /// It's called once per circuit type, typically from a background thread
 /// after the first proof completes.
+///
+/// If `param_cache` is provided, the extracted PCE is also saved to disk
+/// for instant loading on future daemon starts.
 #[cfg(feature = "cuda-supraseal")]
-pub fn extract_and_cache_pce<C>(circuit: C, circuit_id: &CircuitId) -> anyhow::Result<()>
+pub fn extract_and_cache_pce<C>(
+    circuit: C,
+    circuit_id: &CircuitId,
+    param_cache: Option<&std::path::Path>,
+) -> anyhow::Result<()>
 where
     C: bellperson::Circuit<Fr>,
 {
@@ -269,6 +371,30 @@ where
 
     let lock = get_pce_lock(circuit_id);
     let _ = lock.set(pce); // ignore if already set (concurrent race)
+
+    // Save to disk for future daemon starts
+    if let Some(cache_dir) = param_cache {
+        if let Some(pce_ref) = lock.get() {
+            let path = pce_disk_path(circuit_id, cache_dir);
+            match cuzk_pce::save_to_disk(pce_ref, &path) {
+                Ok(()) => {
+                    info!(
+                        circuit_id = %circuit_id,
+                        path = %path.display(),
+                        "PCE saved to disk for future daemon starts"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        circuit_id = %circuit_id,
+                        error = %e,
+                        "failed to save PCE to disk (non-fatal)"
+                    );
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -343,7 +469,11 @@ pub fn extract_and_cache_pce_from_c1(
         Some(0),
     )?;
 
-    extract_and_cache_pce(circuit, &CircuitId::Porep32G)
+    // Use param cache from environment if available (for disk persistence)
+    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .ok()
+        .map(std::path::PathBuf::from);
+    extract_and_cache_pce(circuit, &CircuitId::Porep32G, param_cache.as_deref())
 }
 
 /// Synthesize circuits using the PCE fast path.
