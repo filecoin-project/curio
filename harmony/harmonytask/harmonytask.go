@@ -20,12 +20,10 @@ import (
 )
 
 // Consts (except for unit test)
-const constPollRarely = time.Second * 30
-const constPollFrequently = time.Second * 3
+const POLL_RARELY = time.Second * 30
+const POLL_FREQUENTLY = time.Second * 3
 
-var POLL_DURATION = time.Second * 3             // Poll for Work this frequently
-var POLL_NEXT_DURATION = 100 * time.Millisecond // After scheduling a task, wait this long before scheduling another
-var CLEANUP_FREQUENCY = 5 * time.Minute         // Check for dead workers this often * everyone
+var CLEANUP_FREQUENCY = 5 * time.Minute // Check for dead workers this often * everyone
 
 var ExitStatusRestartRequest = 100
 
@@ -132,7 +130,6 @@ type TaskEngine struct {
 	grace       context.CancelFunc
 	taskMap     map[string]*taskTypeHandler
 	ownerID     int
-	follows     map[string][]followStruct
 	hostAndPort string
 
 	peering          *peering
@@ -142,15 +139,8 @@ type TaskEngine struct {
 	// runtime flags
 	yieldBackground atomic.Bool
 
-	// synchronous to the single-threaded poller
-	lastFollowTime time.Time
-	lastCleanup    atomic.Value
-	WorkOrigin     string
-}
-type followStruct struct {
-	f    func(TaskID, AddTaskFunc) (bool, error)
-	h    *taskTypeHandler
-	name string
+	lastCleanup atomic.Value
+	WorkOrigin  string
 }
 
 type TaskID int
@@ -176,11 +166,10 @@ func New(
 		reg:              reg,
 		ownerID:          reg.MachineID, // The current number representing "hostAndPort"
 		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
-		follows:          make(map[string][]followStruct),
 		hostAndPort:      hostnameAndPort,
 		schedulerChannel: make(chan schedulerEvent, 100),
 	}
-	e.pollDuration.Store(POLL_DURATION)
+	e.pollDuration.Store(POLL_RARELY)
 	e.peering = startPeering(e, peerConnector)
 	e.lastCleanup.Store(time.Now())
 
@@ -311,8 +300,8 @@ type task struct {
 	ReservedElsewhere bool
 }
 
-// pollerTryAllWork2 starts the next 1 task
-func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, eventEmitter eventEmitter) bool {
+// pollerTryAllWork attempts to start tasks from the given taskSource.
+func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, eventEmitter eventEmitter) {
 	for _, v := range e.handlers {
 		if !schedulable {
 			if v.SchedulingOverrides == nil {
@@ -334,7 +323,9 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 		}
 
 		if capacity, err := v.AssertMachineHasCapacity(); err != nil || capacity == 0 {
-			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
+			if err != nil {
+				log.Debugf("skipped scheduling %s type tasks due to %s", v.Name, err.Error())
+			}
 			continue
 		}
 
@@ -351,14 +342,14 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 		})
 
 		if len(unownedTasks) > 0 {
-			_ = v.considerWork(WorkSourcePoller, unownedTasks, eventEmitter)
-
-			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
+			if !v.considerWork(WorkSourcePoller, unownedTasks, eventEmitter) {
+				log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
+			}
 		}
 	}
 
 	if !schedulable {
-		return false
+		return
 	}
 
 	// if no work was accepted, are we bored? Then find work in priority order.
@@ -368,15 +359,8 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 			continue
 		}
 		if v.IAmBored != nil {
-			var added []TaskID
 			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
-				e.AddTaskByName(v.Name, func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-					b, err := extraInfo(tID, tx)
-					if err == nil && b {
-						added = append(added, tID)
-					}
-					return b, err
-				})
+				e.AddTaskByName(v.Name, extraInfo)
 			})
 			if err != nil {
 				log.Error("IAmBored failed: ", err)
@@ -384,8 +368,6 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 			}
 		}
 	}
-
-	return false
 }
 
 var rlog = logging.Logger("harmony-res")
@@ -521,10 +503,12 @@ retryAddTask:
 
 	// Can this node do this task?
 	if tID > 0 && nil != e.taskMap[name] {
-		e.schedulerChannel <- schedulerEvent{
-			TaskID:   tID,
-			TaskType: name,
-			Source:   schedulerSourceAdded,
-		}
+		go func() {
+			e.schedulerChannel <- schedulerEvent{
+				TaskID:   tID,
+				TaskType: name,
+				Source:   schedulerSourceAdded,
+			}
+		}()
 	}
 }

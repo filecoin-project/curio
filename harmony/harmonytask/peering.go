@@ -46,23 +46,23 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 		m:             make(map[string][]int),
 	}
 	p.peerConnector.SetOnConnect(p.handlePeer)
-	h.pollDuration.Store(constPollRarely)
+	h.pollDuration.Store(POLL_RARELY)
 	go func() {
 		var knownPeers []string
 		p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`)
 		for _, peer := range knownPeers {
-		if peer == p.h.hostAndPort {
-			continue // skip self
-		}
-		go func(peer string) {
-			conn, err := p.peerConnector.ConnectToPeer(peer)
-			if err != nil {
-				log.Warnw("failed to connect to peer", "peer", peer, "error", err)
-				h.pollDuration.Store(constPollFrequently)
-				return
+			if peer == p.h.hostAndPort {
+				continue // skip self
 			}
-			p.handlePeer(peer, conn)
-		}(peer)
+			go func(peer string) {
+				conn, err := p.peerConnector.ConnectToPeer(peer)
+				if err != nil {
+					log.Warnw("failed to connect to peer", "peer", peer, "error", err)
+					h.pollDuration.Store(POLL_FREQUENTLY)
+					return
+				}
+				p.handlePeer(peer, conn)
+			}(peer)
 		}
 	}()
 	return p
@@ -119,6 +119,25 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 		p.m[task] = append(p.m[task], themIndex)
 	}
 	p.peersLock.Unlock()
+
+	defer func() {
+		p.peersLock.Lock()
+		for taskName, indexes := range p.m {
+			filtered := indexes[:0]
+			for _, idx := range indexes {
+				if idx != themIndex {
+					filtered = append(filtered, idx)
+				}
+			}
+			if len(filtered) == 0 {
+				delete(p.m, taskName)
+			} else {
+				p.m[taskName] = filtered
+			}
+		}
+		p.peersLock.Unlock()
+		log.Infow("removed dead peer", "peer", peerAddr)
+	}()
 
 	for {
 		msg, err := conn.ReceiveMessage()

@@ -3,6 +3,7 @@ package harmonytask
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -27,7 +28,7 @@ const (
 	schedulerSourcePeerStarted
 	schedulerSourcePeerReserved // FUTURE PR: schedulerSourcePeerReserved
 	schedulerSourceTaskCompleted
-	schedulerSourceRetryTask
+	schedulerSourceTaskStarted
 )
 
 const chokePoint = 1000
@@ -37,7 +38,8 @@ type taskSchedule struct {
 	hasID  map[TaskID]task
 	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
 	// In this state, we try what we have, and go to DB if we need more.
-	reservedTask TaskID // This will be ran when resources are available. 0 for none.
+	reservedTask  TaskID // This will be ran when resources are available. 0 for none.
+	reserveAlways bool
 }
 
 func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
@@ -81,20 +83,35 @@ func (e *TaskEngine) startScheduler() {
 				switch event.Source {
 				case schedulerSourceAdded:
 					if _, ok := availableTasks[event.TaskType]; ok { // we maybe not run this task.
-						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: 0}
+						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 						bundleCollector(event.TaskType)
 					}
 					e.peering.TellOthers(messageTypeNewTask, event.TaskType, event.TaskID)
 				case schedulerSourcePeerNewTask:
-					t := availableTasks[event.TaskType]
+					t, ok := availableTasks[event.TaskType]
+					if !ok {
+						continue // we don't handle this task type
+					}
 					if len(t.hasID) > chokePoint {
 						t.choked = true
 						continue
 					}
-					availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
+					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 					bundleCollector(event.TaskType)
-				case schedulerSourcePeerStarted:
+				case schedulerSourceTaskStarted:
 					avail := availableTasks[event.TaskType]
+					delete(avail.hasID, event.TaskID)
+					if avail.reservedTask == event.TaskID && e.taskMap[event.TaskType].TimeSensitive { // FUTURE: "stress" reservations will not reserve the next task.
+						avail.ReserveNext(func(taskID TaskID) {
+							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
+						})
+					}
+					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
+				case schedulerSourcePeerStarted:
+					avail, ok := availableTasks[event.TaskType]
+					if !ok {
+						continue
+					}
 					delete(avail.hasID, event.TaskID)
 					if avail.reservedTask == event.TaskID {
 						avail.ReserveNext(func(taskID TaskID) {
@@ -108,7 +125,10 @@ func (e *TaskEngine) startScheduler() {
 						continue
 					}
 				case schedulerSourcePeerReserved: // FUTURE: apply and respect reservations for anti-starve common tasks.
-					avail := availableTasks[event.TaskType]
+					avail, ok := availableTasks[event.TaskType]
+					if !ok {
+						continue
+					}
 					if event.PeerID > int64(e.ownerID) && avail.reservedTask == event.TaskID {
 						t := avail.hasID[event.TaskID]
 						t.ReservedElsewhere = true
@@ -173,11 +193,6 @@ func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter)
 
 	e.yieldBackground.Store(!schedulable)
 
-	/* TODO
-	6. double-check where we receive events that source =0 works as us.
-	7. Tests
-	*/
-
 	if !schedulable {
 		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
 		return nil
@@ -237,7 +252,7 @@ func (ee eventEmitter) EmitTaskStarted(taskName string, taskID TaskID) {
 	ee.schedulerChannel <- schedulerEvent{
 		TaskID:   taskID,
 		TaskType: taskName,
-		Source:   0,
+		Source:   schedulerSourceTaskStarted,
 	}
 }
 
@@ -245,7 +260,7 @@ func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
 	ee.schedulerChannel <- schedulerEvent{
 		TaskID:   task.ID,
 		TaskType: taskName,
-		Source:   schedulerSourceRetryTask,
+		Source:   schedulerSourceAdded,
 		Retries:  task.Retries,
 	}
 }
@@ -297,14 +312,22 @@ const bundleCollectionTimeout = time.Millisecond * 10
 // expects single-threaded caller of
 func bundler() (bundler func(string), bundleSleep <-chan string) {
 	timers := make(map[string]*time.Timer)
+	timerMx := sync.Mutex{}
 	output := make(chan string)
 	return func(taskType string) {
+		timerMx.Lock()
 		t, ok := timers[taskType]
+		timerMx.Unlock()
 		if !ok {
 			t = time.NewTimer(bundleCollectionTimeout)
+			timerMx.Lock()
 			timers[taskType] = t
+			timerMx.Unlock()
 			go func() {
 				<-t.C
+				timerMx.Lock()
+				delete(timers, taskType)
+				timerMx.Unlock()
 				output <- taskType
 			}()
 		} else {
