@@ -1604,7 +1604,7 @@ var streamingPieceUploadCmd = &cli.Command{
 
 		client := &http.Client{}
 
-		req, err := http.NewRequest("GET", serviceURL+"/pdp/piece/uploads", nil)
+		req, err := http.NewRequest("POST", serviceURL+"/pdp/piece/uploads", nil)
 		if err != nil {
 			return fmt.Errorf("failed to create upload request: %v", err)
 		}
