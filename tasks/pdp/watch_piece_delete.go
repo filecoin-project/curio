@@ -115,7 +115,15 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 				return xerrors.Errorf("failed to check if piece is live: %w", err)
 			}
 			if live {
-				return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
+				log.Warnw("piece is live but not in scheduled removals despite successful delete tx; (possible chain reorg) clearing stale delete tracking",
+					"dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
+				_, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL
+                              WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`,
+					piece.DataSetID, piece.PieceID, piece.TxHash)
+				if err != nil {
+					return xerrors.Errorf("failed to clear stale rm_message_hash: %w", err)
+				}
+				continue
 			}
 			log.Infow("piece already removed on-chain, marking as removed in DB", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
 		} else {
