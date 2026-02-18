@@ -147,9 +147,6 @@ There are two paths for getting pieces into the system:
 6. Once `service_termination_epoch <= current_block` and `deletion_allowed = TRUE`, **PDPv0_DelDataSet** calls `PDPVerifier.deleteDataSet()`.
 7. When the delete transaction lands, **DataSetDeleteWatcher** verifies the dataset is no longer live on-chain and deletes the `pdp_data_sets` row (CASCADE removes pieces and prove tasks).
 
-**If a rail is fully settled/finalized:**
-3. SettleWatcher calls `ensureDataSetDeletion()`, which sets `deletion_allowed = TRUE` in `pdp_delete_data_set`. This is then picked up by **PDPv0_DelDataSet** at step 6 above.
-
 ## Piece Removal
 
 1. Client calls `removePieces()` via HTTP, which sends a `PDPVerifier.removePieces()` transaction.
