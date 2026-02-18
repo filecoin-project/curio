@@ -228,6 +228,8 @@ func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 		// This allows finalize to unblock move-storage and PoRep for multiple hours while the node is technically not schedulable,
 		// but is still finishing another batch. In most cases this behavior enables nearly zero-waste restarts of supraseal nodes.
 		SchedulingOverrides: batchTaskNameGrid(),
+
+		AllowOnCordoned: true, // always location-bound — safe to drain on cordon
 	}
 }
 

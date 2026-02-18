@@ -168,8 +168,9 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram:     ram,
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTSealed, storiface.FTCache, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
-		MaxFailures: 3,
-		Follows:     nil,
+		MaxFailures:     3,
+		Follows:         nil,
+		AllowOnCordoned: true, // always location-bound — safe to drain on cordon
 	}
 }
 

@@ -212,8 +212,9 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram:     ram,
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
-		MaxFailures: 5,
-		Follows:     nil,
+		MaxFailures:     5,
+		Follows:         nil,
+		AllowOnCordoned: true, // always location-bound — safe to drain on cordon
 	}
 
 	return res

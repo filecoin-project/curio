@@ -71,6 +71,13 @@ type TaskTypeDetails struct {
 	// other machines.
 	SchedulingOverrides map[string]bool
 
+	// AllowOnCordoned, when true, allows this task to be scheduled on cordoned
+	// (unschedulable) nodes. This is intended for location-bound pipeline tasks
+	// whose CanAccept already filters to tasks with local data — without this,
+	// cordoning a node blocks mid-pipeline sectors that can ONLY run where their
+	// data resides, leaving them stuck until uncordon.
+	AllowOnCordoned bool
+
 	// Should block shutdown until completion..
 	TimeSensitive bool
 }
@@ -371,30 +378,38 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 	}
 	for _, v := range e.handlers {
 		if !schedulable {
-			if v.SchedulingOverrides == nil {
-				continue
-			}
+			// AllowOnCordoned tasks (location-bound pipeline tasks) can always
+			// run on cordoned nodes — their CanAccept already filters to tasks
+			// whose sector data is on this machine, so this only drains
+			// in-progress pipelines, not new work.
+			if v.AllowOnCordoned {
+				log.Debugw("allowing cordoned scheduling for location-bound task", "name", v.Name)
+			} else {
+				if v.SchedulingOverrides == nil {
+					continue
+				}
 
-			// Override the schedulable flag if the task has any assigned overrides
-			var foundOverride bool
-			for relatedTaskName := range v.SchedulingOverrides {
-				var assignedOverrideTasks []int
-				err := e.db.Select(e.ctx, &assignedOverrideTasks, `SELECT id
-					FROM harmony_task
-					WHERE owner_id = $1 AND name=$2
-					ORDER BY update_time LIMIT 1`, e.ownerID, relatedTaskName)
-				if err != nil {
-					log.Error("Unable to read assigned overrides ", err)
-					break
+				// Override the schedulable flag if the task has any assigned overrides
+				var foundOverride bool
+				for relatedTaskName := range v.SchedulingOverrides {
+					var assignedOverrideTasks []int
+					err := e.db.Select(e.ctx, &assignedOverrideTasks, `SELECT id
+						FROM harmony_task
+						WHERE owner_id = $1 AND name=$2
+						ORDER BY update_time LIMIT 1`, e.ownerID, relatedTaskName)
+					if err != nil {
+						log.Error("Unable to read assigned overrides ", err)
+						break
+					}
+					if len(assignedOverrideTasks) > 0 {
+						log.Infow("found override, scheduling despite schedulable=false flag", "ownerID", e.ownerID, "relatedTaskName", relatedTaskName, "assignedOverrideTasks", assignedOverrideTasks)
+						foundOverride = true
+						break
+					}
 				}
-				if len(assignedOverrideTasks) > 0 {
-					log.Infow("found override, scheduling despite schedulable=false flag", "ownerID", e.ownerID, "relatedTaskName", relatedTaskName, "assignedOverrideTasks", assignedOverrideTasks)
-					foundOverride = true
-					break
+				if !foundOverride {
+					continue
 				}
-			}
-			if !foundOverride {
-				continue
 			}
 		}
 

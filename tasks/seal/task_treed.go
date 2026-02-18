@@ -83,8 +83,9 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu:     0,
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTNone, storiface.FTCache, ssize, storiface.PathSealing, 1.0),
 		},
-		MaxFailures: 3,
-		Follows:     nil,
+		MaxFailures:     3,
+		Follows:         nil,
+		AllowOnCordoned: t.bound, // when bound to node, CanAccept filters to local data — safe to drain on cordon
 	}
 }
 
