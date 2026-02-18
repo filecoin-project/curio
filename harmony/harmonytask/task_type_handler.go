@@ -43,51 +43,6 @@ const CAN_ACCEPT_CACHE_TTL = 60 * time.Second
 // Anti-hammering of storage claims.
 const STORAGE_FAILURE_TIMEOUT = 3 * time.Minute
 
-func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
-	var tID TaskID
-	retryWait := time.Millisecond * 100
-retryAddTask:
-	_, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// create taskID (from DB)
-		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
-          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id`, h.Name, h.TaskEngine.ownerID).Scan(&tID)
-		if err != nil {
-			return false, fmt.Errorf("could not insert into harmonyTask: %w", err)
-		}
-		return extra(tID, tx)
-	})
-
-	if err != nil {
-		if harmonydb.IsErrUniqueContraint(err) {
-			log.Debugf("addtask(%s) saw unique constraint, so it's added already.", h.Name)
-			return
-		}
-		if harmonydb.IsErrSerialization(err) {
-			time.Sleep(retryWait)
-			retryWait *= 2
-			goto retryAddTask
-		}
-		log.Errorw("Could not add task. AddTasFunc failed", "error", err, "type", h.Name)
-		return
-	}
-
-	err = stats.RecordWithTags(context.Background(), []tag.Mutator{
-		tag.Upsert(taskNameTag, h.Name),
-	}, TaskMeasures.AddedTasks.M(1))
-	if err != nil {
-		log.Errorw("Could not record added task", "error", err)
-	}
-
-	// Can this node do this task?
-	if tID > 0 && nil != h.TaskEngine.taskMap[h.Name] {
-		h.TaskEngine.schedulerChannel <- schedulerEvent{
-			TaskID:   tID,
-			TaskType: h.Name,
-			Source:   schedulerSourceAdded,
-		}
-	}
-}
-
 const (
 	WorkSourcePoller   = "poller"
 	WorkSourceRecover  = "recovered"
@@ -132,20 +87,21 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	ids := lo.Map(tasks, func(t task, _ int) TaskID {
 		return t.ID
 	})
-	// Were any accepted already?
-	if time.Since(h.lastAcceptedTime) < CAN_ACCEPT_CACHE_TTL {
-		h.acceptedTasks = []TaskID{}
+	// Were any accepted already? Clear stale cache.
+	if time.Since(h.lastAcceptedTime) > CAN_ACCEPT_CACHE_TTL {
+		h.acceptedTasks = nil
 	}
-	alreadyAccepted := lo.Filter(ids, func(tID TaskID, _ int) bool {
-		return !lo.Contains(h.acceptedTasks, tID)
-	})
-	tIDs := alreadyAccepted
 
 	// 3. What does the impl say?
-	if len(alreadyAccepted) == 0 {
-		tIDs, err = h.CanAccept(ids, h.TaskEngine)
+	var tIDs []TaskID
+	if len(h.acceptedTasks) > 0 {
+		// Use cached CanAccept results — filter for tasks still in this batch
+		tIDs = lo.Filter(h.acceptedTasks, func(tID TaskID, _ int) bool {
+			return lo.Contains(ids, tID)
+		})
+		h.acceptedTasks = nil // consume the cache; scheduler loop re-polls for fresh work
 	} else {
-		defer h.considerWork(from, tasks, eventEmitter) // try db only if we don't consume all slots with the cached accepts first.
+		tIDs, err = h.CanAccept(ids, h.TaskEngine)
 	}
 
 	h.TaskEngine.WorkOrigin = ""
@@ -360,7 +316,8 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	}
 
 retryRecordCompletion:
-	cm, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
+	// Use Background context: recordCompletion MUST finish even during graceful shutdown.
+	cm, err := h.TaskEngine.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
 		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)

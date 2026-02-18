@@ -148,6 +148,8 @@ type taskSource interface {
 }
 
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
+	_ = taskName // later: for a fast-path.
+
 	err := e.waterfall(taskSource, eventEmitter)
 	if err != nil {
 		log.Errorw("failed to try waterfall", "error", err)
@@ -264,7 +266,7 @@ type taskSourceDb struct {
 
 func (t taskSourceDb) GetTasks(taskName string) []task {
 	tasks := []task{}
-	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, retries FROM harmony_task WHERE task_type = $1 LIMIT $2`, taskName, chokePoint+1)
+	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, retries FROM harmony_task WHERE name = $1 AND owner_id IS NULL LIMIT $2`, taskName, chokePoint+1)
 	if err != nil {
 		log.Errorw("failed to get tasks from db", "error", err)
 		return nil
@@ -299,7 +301,8 @@ func bundler() (bundler func(string), bundleSleep <-chan string) {
 	return func(taskType string) {
 		t, ok := timers[taskType]
 		if !ok {
-			timers[taskType] = time.NewTimer(bundleCollectionTimeout)
+			t = time.NewTimer(bundleCollectionTimeout)
+			timers[taskType] = t
 			go func() {
 				<-t.C
 				output <- taskType

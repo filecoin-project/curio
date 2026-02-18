@@ -51,14 +51,18 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 		var knownPeers []string
 		p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`)
 		for _, peer := range knownPeers {
-			go func(peer string) {
-				conn, err := p.peerConnector.ConnectToPeer(peer)
-				if err != nil {
-					log.Warnw("failed to connect to peer", "peer", peer, "error", err)
-					h.pollDuration.Store(constPollFrequently)
-				}
-				p.handlePeer(peer, conn)
-			}(peer)
+		if peer == p.h.hostAndPort {
+			continue // skip self
+		}
+		go func(peer string) {
+			conn, err := p.peerConnector.ConnectToPeer(peer)
+			if err != nil {
+				log.Warnw("failed to connect to peer", "peer", peer, "error", err)
+				h.pollDuration.Store(constPollFrequently)
+				return
+			}
+			p.handlePeer(peer, conn)
+		}(peer)
 		}
 	}()
 	return p
@@ -98,7 +102,10 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 		ID    int64  `db:"id"`
 		Tasks string `db:"tasks"`
 	}
-	err = p.h.db.QueryRow(p.h.ctx, `SELECT id, tasks FROM harmony_machine_details WHERE machine_id = $1`, them.addr).Scan(&sql.ID, &sql.Tasks)
+	err = p.h.db.QueryRow(p.h.ctx,
+		`SELECT hm.id, hmd.tasks FROM harmony_machine_details hmd
+		 JOIN harmony_machines hm ON hm.id = hmd.machine_id
+		 WHERE hm.host_and_port = $1`, them.addr).Scan(&sql.ID, &sql.Tasks)
 	if err != nil {
 		log.Warnw("failed to get machine details from peer", "peer", peerAddr, "error", err)
 		return
@@ -128,52 +135,48 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 // handlePeerMessage processes a message received from a peer.
 // Override this method or extend it to handle specific message types.
 func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) error {
-	if bytes.HasPrefix(msg, []byte{byte(messageTypeNewTask), ':'}) {
-		parts := bytes.SplitN(msg, []byte(":"), 2)
-		if len(parts) != 2 {
-			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
-			return xerrors.Errorf("invalid message from peer")
+	// Wire format: <type_byte>:<task_name>:<binary_payload>
+	// Split into 3 parts so the binary payload (which may contain ':') stays intact.
+	parts := bytes.SplitN(msg, []byte(":"), 3)
+	if len(parts) < 3 || len(parts[2]) < 8 {
+		log.Warnw("received invalid message from peer", "peer", peerAddr, "message_len", len(msg))
+		return xerrors.Errorf("invalid message from peer: need 3 parts with >=8 byte payload")
+	}
+
+	taskType := string(parts[1])
+	taskID := TaskID(binary.BigEndian.Uint64(parts[2][:8]))
+
+	switch messageType(parts[0][0]) {
+	case messageTypeNewTask:
+		var retries int
+		if len(parts[2]) >= 10 {
+			retries = int(binary.BigEndian.Uint16(parts[2][8:10]))
 		}
-		taskID := TaskID(binary.BigEndian.Uint64(parts[1]))
-		reties := binary.BigEndian.Uint16(parts[1][8:])
 		p.h.schedulerChannel <- schedulerEvent{
 			TaskID:   taskID,
-			TaskType: string(parts[0]),
+			TaskType: taskType,
 			Source:   schedulerSourcePeerNewTask,
 			PeerID:   them.id,
-			Retries:  int(reties),
+			Retries:  retries,
 		}
-		return nil
-	}
-	if bytes.HasPrefix(msg, []byte{byte(messageTypeReserve), ':'}) {
-		parts := bytes.SplitN(msg, []byte(":"), 2)
-		if len(parts) != 2 {
-			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
-			return xerrors.Errorf("invalid message from peer")
-		}
+	case messageTypeReserve:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   TaskID(binary.BigEndian.Uint64(parts[1])),
-			TaskType: string(parts[0]),
+			TaskID:   taskID,
+			TaskType: taskType,
 			Source:   schedulerSourcePeerReserved,
 			PeerID:   them.id,
 		}
-		return nil
-	}
-	if bytes.HasPrefix(msg, []byte{byte(messageTypeStarted), ':'}) {
-		parts := bytes.SplitN(msg, []byte(":"), 2)
-		if len(parts) != 2 {
-			log.Warnw("received invalid message from peer", "peer", peerAddr, "message", string(msg))
-			return xerrors.Errorf("invalid message from peer")
-		}
+	case messageTypeStarted:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   TaskID(binary.BigEndian.Uint64(parts[1])),
-			TaskType: string(parts[0]),
+			TaskID:   taskID,
+			TaskType: taskType,
 			Source:   schedulerSourcePeerStarted,
 			PeerID:   them.id,
 		}
-		return nil
+	default:
+		return xerrors.Errorf("unknown message type from peer %s: %c", peerAddr, parts[0][0])
 	}
-	return xerrors.Errorf("invalid message from peer")
+	return nil
 }
 
 type messageType byte
@@ -185,7 +188,7 @@ const (
 )
 
 func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {
-	p.TellOthersMessage(task, messageRenderTaskSend{TaskType: task, TaskID: tID})
+	p.TellOthersMessage(task, messageRenderTaskSend{MessageType: messagetype, TaskType: task, TaskID: tID})
 }
 
 func (p *peering) TellOthersMessage(taskType string, r messageRenderer) {

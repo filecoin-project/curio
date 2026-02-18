@@ -240,7 +240,11 @@ func New(
 		}
 	}
 	for _, h := range e.handlers {
-		go h.Adder(h.AddTask)
+		go func(name string) {
+			h.Adder(func(extraInfo func(TaskID, *harmonydb.Tx) (bool, error)) {
+				e.AddTaskByName(name, extraInfo)
+			})
+		}(h.Name)
 	}
 	e.startScheduler()
 
@@ -366,7 +370,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 		if v.IAmBored != nil {
 			var added []TaskID
 			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
-				v.AddTask(func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+				e.AddTaskByName(v.Name, func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 					b, err := extraInfo(tID, tx)
 					if err == nil && b {
 						added = append(added, tID)
@@ -408,6 +412,12 @@ func (e *TaskEngine) Resources() resources.Resources {
 func (e *TaskEngine) Host() string {
 	return e.hostAndPort
 }
+
+// OwnerID returns the machine ID assigned to this TaskEngine.
+func (e *TaskEngine) OwnerID() int { return e.ownerID }
+
+// TestONLY_SetPollDuration overrides the DB polling interval (useful for tests).
+func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.pollDuration.Store(d) }
 
 func (e *TaskEngine) checkNodeFlags() (bool, error) {
 	var unschedulable bool
@@ -471,4 +481,50 @@ func Reg(t TaskInterface) bool {
 
 func (e *TaskEngine) RunningCount(name string) int {
 	return int(e.taskMap[name].Max.Active())
+}
+
+// AddTaskByName adds a task through the named handler.
+func (e *TaskEngine) AddTaskByName(name string, extra func(TaskID, *harmonydb.Tx) (bool, error)) {
+	var tID TaskID
+	retryWait := time.Millisecond * 100
+retryAddTask:
+	_, err := e.db.BeginTransaction(e.ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// create taskID (from DB)
+		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
+          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id`, name, e.ownerID).Scan(&tID)
+		if err != nil {
+			return false, fmt.Errorf("could not insert into harmonyTask: %w", err)
+		}
+		return extra(tID, tx)
+	})
+
+	if err != nil {
+		if harmonydb.IsErrUniqueContraint(err) {
+			log.Debugf("addtask(%s) saw unique constraint, so it's added already.", name)
+			return
+		}
+		if harmonydb.IsErrSerialization(err) {
+			time.Sleep(retryWait)
+			retryWait *= 2
+			goto retryAddTask
+		}
+		log.Errorw("Could not add task. AddTasFunc failed", "error", err, "type", name)
+		return
+	}
+
+	err = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(taskNameTag, name),
+	}, TaskMeasures.AddedTasks.M(1))
+	if err != nil {
+		log.Errorw("Could not record added task", "error", err)
+	}
+
+	// Can this node do this task?
+	if tID > 0 && nil != e.taskMap[name] {
+		e.schedulerChannel <- schedulerEvent{
+			TaskID:   tID,
+			TaskType: name,
+			Source:   schedulerSourceAdded,
+		}
+	}
 }
