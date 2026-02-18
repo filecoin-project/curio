@@ -64,7 +64,7 @@ private:
         static const int max_num_circuits = 30;
 
         static size_t get_num_threads() {
-            int total_threads = groth16_pool.size();
+            int total_threads = get_groth16_pool().size();
 
             // Assume that the CPU supports hyperthreading to be on the safe
             // side and ensure that there are at least max_num_circuits number
@@ -121,7 +121,7 @@ private:
             const byte (*srs)[p1_affine_size] =
                 reinterpret_cast<decltype(srs)>(srs_ptr);
 
-            groth16_pool.par_map(num_points, batch_size, [&](size_t i) {
+            get_groth16_pool().par_map(num_points, batch_size, [&](size_t i) {
                 (void)read_g1_point(const_cast<affine_t*>(&points[i]), srs[i]);
             }, get_num_threads());
         }
@@ -134,7 +134,7 @@ private:
             const byte (*srs)[p2_affine_size] =
                 reinterpret_cast<decltype(srs)>(srs_ptr);
 
-            groth16_pool.par_map(num_points, batch_size, [&](size_t i) {
+            get_groth16_pool().par_map(num_points, batch_size, [&](size_t i) {
                 (void)read_g2_point(const_cast<affine_fp2_t*>(&points[i]), srs[i]);
             }, get_num_threads());
         }

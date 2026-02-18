@@ -735,6 +735,7 @@ dependencies = [
  "cuzk-core",
  "cuzk-proto",
  "cuzk-server",
+ "rayon",
  "serde",
  "tokio",
  "tokio-stream",

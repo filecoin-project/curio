@@ -63,6 +63,57 @@ async fn main() -> Result<()> {
     info!("cuzk-daemon starting");
     info!(listen = %config.daemon.listen, "configuration loaded");
 
+    // ─── Thread pool isolation ──────────────────────────────────────────
+    //
+    // Two separate CPU thread pools compete for cores during parallel proving:
+    //
+    //   1. Rayon global pool — used by synthesis (bellperson, PCE SpMV)
+    //   2. C++ groth16_pool (sppark) — used by b_g2_msm and preprocessing
+    //      during GPU proving
+    //
+    // When synthesis_concurrency > 1, both pools run simultaneously and
+    // contend for CPU time. Partitioning threads between them eliminates
+    // contention and improves throughput.
+    //
+    // synthesis.threads → rayon global pool size (default: all CPUs)
+    // gpus.gpu_threads  → C++ groth16_pool size via CUZK_GPU_THREADS env
+    //                      (read at library load time, must be set early)
+
+    // Configure C++ GPU thread pool BEFORE any supraseal code runs.
+    // The static thread_pool_t in groth16_cuda.cu reads CUZK_GPU_THREADS
+    // at construction time (library load).
+    if config.gpus.gpu_threads > 0 {
+        std::env::set_var("CUZK_GPU_THREADS", config.gpus.gpu_threads.to_string());
+        info!(
+            gpu_threads = config.gpus.gpu_threads,
+            "set CUZK_GPU_THREADS for C++ groth16_pool"
+        );
+    }
+
+    // Configure rayon global thread pool for synthesis work.
+    // Must be called before any rayon::par_iter or rayon::join.
+    {
+        let rayon_threads = if config.synthesis.threads > 0 {
+            config.synthesis.threads as usize
+        } else {
+            // Default: all available CPUs (same as rayon default).
+            // When gpu_threads is set, the user should also set synthesis.threads
+            // to partition cores, but we don't enforce it.
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        };
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(rayon_threads)
+            .thread_name(|i| format!("rayon-synth-{}", i))
+            .build_global()
+            .expect("failed to configure rayon global thread pool (must be called before any rayon work)");
+        info!(
+            rayon_threads = rayon_threads,
+            "rayon global thread pool configured"
+        );
+    }
+
     // Create and start the engine
     let engine = Arc::new(Engine::new(config.clone()));
     engine.start().await?;

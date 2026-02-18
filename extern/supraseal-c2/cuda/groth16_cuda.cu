@@ -74,7 +74,28 @@ static void mult(point_t& ret, const affine_t point, const scalar_t& fr,
 #endif
 }
 
-static thread_pool_t groth16_pool;
+// GPU-side CPU thread pool for preprocessing + b_g2_msm.
+// Lazily initialized on first use so that the Rust caller has time to
+// set CUZK_GPU_THREADS before the pool is created.
+//
+// CUZK_GPU_THREADS env var controls pool size (0 or unset = all CPUs).
+// When running parallel synthesis alongside GPU proving, limit this to
+// avoid CPU contention (e.g. 32 threads on a 96-core machine).
+static thread_pool_t* groth16_pool_ptr = nullptr;
+static std::once_flag  groth16_pool_init_flag;
+
+static thread_pool_t& get_groth16_pool() {
+    std::call_once(groth16_pool_init_flag, []() {
+        unsigned int num_threads = 0;
+        const char* env = getenv("CUZK_GPU_THREADS");
+        if (env && env[0]) {
+            unsigned int n = (unsigned int)atoi(env);
+            if (n > 0) num_threads = n;
+        }
+        groth16_pool_ptr = new thread_pool_t(num_threads);
+    });
+    return *groth16_pool_ptr;
+}
 
 struct msm_results {
     std::vector<point_t> h;
@@ -175,7 +196,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         auto t_prep_start = std::chrono::steady_clock::now();
         // pre-processing step
         // mark inp and significant scalars in aux assignments
-        groth16_pool.par_map(num_circuits, [&](size_t c) {
+        get_groth16_pool().par_map(num_circuits, [&](size_t c) {
             auto& prover = provers[c];
             auto& l_bit_vector = split_vectors_l.bit_vector[c];
             auto& a_bit_vector = split_vectors_a.bit_vector[c];
@@ -323,7 +344,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         }
 
         // populate bitmaps for batch additions, bases and scalars for tail msms
-        groth16_pool.par_map(num_circuits, [&](size_t c) {
+        get_groth16_pool().par_map(num_circuits, [&](size_t c) {
             auto& prover = provers[c];
             auto& l_bit_vector = split_vectors_l.bit_vector[c];
             auto& a_bit_vector = split_vectors_a.bit_vector[c];
@@ -519,7 +540,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         auto t_bg2_start = std::chrono::steady_clock::now();
 #ifndef __CUDA_ARCH__
         if (num_circuits > 1) {
-            groth16_pool.par_map(num_circuits, [&](size_t c) {
+            get_groth16_pool().par_map(num_circuits, [&](size_t c) {
                 if (caught_exception)
                     return;
                 mult_pippenger<bucket_fp2_t>(results.b_g2[c],
@@ -535,7 +556,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                               points_b_g2.data(),
                 split_vectors_b.tail_msm_scalars[0].size(),
                 split_vectors_b.tail_msm_scalars[0].data(),
-                true, &groth16_pool);  // single circuit: use full thread pool
+                true, &get_groth16_pool());  // single circuit: use full thread pool
         }
 #endif
         auto t_bg2_end = std::chrono::steady_clock::now();

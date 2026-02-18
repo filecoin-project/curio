@@ -85,11 +85,27 @@ pub struct GpuConfig {
     /// GPU ordinals to use. Empty = auto-detect all.
     #[serde(default)]
     pub devices: Vec<u32>,
+    /// Number of CPU threads for the GPU-side thread pool (b_g2_msm,
+    /// preprocessing, bitmap population). 0 = auto-detect (all CPUs).
+    ///
+    /// When running parallel synthesis (synthesis_concurrency > 1), the
+    /// GPU's CPU work (b_g2_msm: ~25s) contends with synthesis for CPU
+    /// time. Setting this to ~1/3 of available cores reserves the rest
+    /// for synthesis, reducing contention.
+    ///
+    /// Example for a 96-core machine with synthesis_concurrency=2:
+    ///   gpu_threads = 32  (leaves 64 cores for 2 syntheses)
+    ///   synthesis.threads = 0  (rayon auto = remaining cores)
+    #[serde(default)]
+    pub gpu_threads: u32,
 }
 
 impl Default for GpuConfig {
     fn default() -> Self {
-        Self { devices: vec![] }
+        Self {
+            devices: vec![],
+            gpu_threads: 0,
+        }
     }
 }
 

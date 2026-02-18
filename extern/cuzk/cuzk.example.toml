@@ -35,6 +35,19 @@ working_memory_budget = "80GiB"
 # Example: [0, 1] to use only the first two GPUs.
 devices = []
 
+# CPU threads for the GPU-side work (b_g2_msm, preprocessing).
+# 0 = auto-detect (all CPUs).
+#
+# When using parallel synthesis (synthesis_concurrency > 1), this pool
+# contends with synthesis for CPU time. Partitioning threads helps:
+#
+# Example for 96-core machine with synthesis_concurrency=2:
+#   gpu_threads = 32       → GPU gets 32 cores for b_g2_msm
+#   [synthesis] threads = 64 → synthesis gets 64 cores (shared by 2 tasks)
+#
+# This prevents the ~25s b_g2_msm from inflating to 33s+ due to contention.
+gpu_threads = 0
+
 [scheduler]
 # Max proofs to batch into a single GPU invocation (same circuit type).
 #
@@ -70,8 +83,19 @@ max_batch_wait_ms = 10000
 sort_by_type = true
 
 [synthesis]
-# CPU threads for circuit synthesis. 0 = auto (num_cpus / 2).
-# PoRep 32G synthesis uses ~140+ threads effectively.
+# CPU threads for circuit synthesis (rayon global pool). 0 = auto (all CPUs).
+# Controls the rayon thread pool used by bellperson synthesis and PCE SpMV.
+#
+# When using parallel synthesis (synthesis_concurrency > 1), partition
+# CPU cores between synthesis and the GPU thread pool:
+#
+# Example for 96-core machine:
+#   threads = 64        → synthesis gets 64 rayon threads
+#   [gpus] gpu_threads = 32  → GPU b_g2_msm gets 32 threads
+#   [pipeline] synthesis_concurrency = 2  → 2 synthesis tasks share 64 threads
+#
+# With sequential synthesis (synthesis_concurrency=1), leave at 0 to let
+# both pools use all CPUs (no contention since they don't overlap).
 threads = 0
 
 [pipeline]
