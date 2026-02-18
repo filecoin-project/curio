@@ -61,6 +61,16 @@ func NewStorageGCMark(si paths.SectorIndex, remote *paths.Remote, db *harmonydb.
 func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
+	// Load configured miners from all harmony_config layers. Used to guard
+	// against marking sectors for miners that appear "not found" due to
+	// misconfiguration (wrong network build, missed upgrade) rather than
+	// actual deletion.
+	cfgMiners, err := configuredMiners(ctx, s.db)
+	if err != nil {
+		log.Warnw("failed to load configured miners for GC safety check, proceeding without", "error", err)
+		cfgMiners = make(map[address.Address]bool)
+	}
+
 	/*
 		CREATE TABLE storage_removal_marks (
 		    sp_id BIGINT NOT NULL,
@@ -124,10 +134,15 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				mact, err := s.api.StateGetActor(ctx, maddr, types.EmptyTSK)
 				if err != nil {
 					if isActorNotFoundErr(err) {
-						// Miner actor no longer exists on-chain. Sector files for this
-						// miner are orphaned — don't load state so that all its sectors
-						// remain in toRemove (no precommit/live/unproven subtraction).
-						log.Warnw("miner actor not found on-chain, treating sectors as orphaned for GC", "miner", maddr)
+						if cfgMiners[maddr] {
+							// Miner is in config but not found on-chain — likely wrong
+							// network build or missed upgrade. Do NOT mark for GC.
+							return false, xerrors.Errorf("miner %s is configured but not found on-chain — possible network mismatch, refusing to GC", maddr)
+						}
+						// Miner actor no longer exists on-chain and is not in any config
+						// layer. Sector files are truly orphaned — don't load state so
+						// that all its sectors remain in toRemove.
+						log.Warnw("miner actor not found on-chain and not in config, treating sectors as orphaned for GC", "miner", maddr)
 						toRemove[decl.Miner].Set(uint64(decl.Number))
 						continue
 					}
@@ -393,9 +408,10 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		mact, err := s.api.StateGetActor(ctx, maddr, finalityTipset.Key())
 		if err != nil {
 			if isActorNotFoundErr(err) {
-				// Miner actor no longer exists on-chain at finality height.
-				// Skip — snap sector key cleanup is irrelevant for a deleted miner.
-				log.Warnw("miner actor not found at finality height, skipping snap-key GC", "miner", maddr)
+				if cfgMiners[maddr] {
+					return false, xerrors.Errorf("miner %s is configured but not found on-chain at finality — possible network mismatch, refusing to GC", maddr)
+				}
+				log.Warnw("miner actor not found at finality height and not in config, skipping snap-key GC", "miner", maddr)
 				continue
 			}
 			return false, xerrors.Errorf("get miner actor %s at finality: %w", maddr, err)
@@ -527,4 +543,53 @@ func isActorNotFoundErr(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "actor not found")
+}
+
+// configuredMiners returns the set of miner addresses referenced in any
+// harmony_config layer. This is used as a safety check: if a miner appears
+// "not found" on-chain but is still in config, it's likely a misconfiguration
+// (wrong network build, missed upgrade) rather than a truly deleted miner.
+func configuredMiners(ctx context.Context, db *harmonydb.DB) (map[address.Address]bool, error) {
+	var configs []struct {
+		Config string `db:"config"`
+	}
+	err := db.Select(ctx, &configs, `SELECT config FROM harmony_config WHERE LENGTH(config) > 0`)
+	if err != nil {
+		return nil, xerrors.Errorf("querying harmony_config: %w", err)
+	}
+
+	result := make(map[address.Address]bool)
+	for _, c := range configs {
+		// MinerAddresses appear in TOML as:
+		//   MinerAddresses = ["f01234", "f05678"]
+		// Simple string scan is sufficient — we just need to detect presence.
+		for _, line := range strings.Split(c.Config, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "MinerAddresses") {
+				continue
+			}
+			// Extract addresses from the TOML array value
+			// e.g. MinerAddresses = ["f01234", "f05678"]
+			idx := strings.Index(line, "[")
+			if idx < 0 {
+				continue
+			}
+			arrStr := line[idx:]
+			arrStr = strings.Trim(arrStr, "[]")
+			for _, part := range strings.Split(arrStr, ",") {
+				part = strings.TrimSpace(part)
+				part = strings.Trim(part, `"' `)
+				if part == "" {
+					continue
+				}
+				addr, err := address.NewFromString(part)
+				if err != nil {
+					continue
+				}
+				result[addr] = true
+			}
+		}
+	}
+
+	return result, nil
 }
