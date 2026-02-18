@@ -220,6 +220,38 @@ enum Commands {
         compare_old: bool,
     },
 
+    /// Pipelined partition pipeline benchmark (requires 'pce-bench' feature).
+    ///
+    /// Runs the pipelined partition proving (Phase 6) which overlaps parallel
+    /// partition synthesis with per-partition GPU proving. Tests various
+    /// max_concurrent values vs batch-all (slot_size=10).
+    ///
+    /// Each partition is synthesized independently (num_circuits=1) and
+    /// all partitions run in parallel, bounded by max_concurrent.
+    /// GPU takes ~3s/partition (fast b_g2_msm), synth takes ~29s/partition.
+    SlottedBench {
+        /// Path to C1 output JSON.
+        #[arg(long)]
+        c1: PathBuf,
+
+        /// Sector number.
+        #[arg(long, default_value = "1")]
+        sector_num: u64,
+
+        /// Miner ID.
+        #[arg(long, default_value = "1000")]
+        miner_id: u64,
+
+        /// Max concurrent values to benchmark (comma-separated).
+        /// Use 10 for batch-all baseline. Default: 1,2,3,10.
+        #[arg(long, default_value = "1,2,3,10")]
+        slot_sizes: String,
+
+        /// Number of proofs per configuration.
+        #[arg(short, long, default_value = "1")]
+        num_proofs: u32,
+    },
+
     /// In-process synthesis microbenchmark (requires `synth-bench` feature).
     ///
     /// Runs only the CPU synthesis step (circuit construction + R1CS witness
@@ -695,6 +727,10 @@ async fn main() -> Result<()> {
 
         Commands::PcePipeline { c1, sector_num, miner_id, num_proofs, parallel, compare_old } => {
             run_pce_pipeline(c1, sector_num, miner_id, num_proofs, parallel, compare_old)?;
+        }
+
+        Commands::SlottedBench { c1, sector_num, miner_id, slot_sizes, num_proofs } => {
+            run_slotted_bench(c1, sector_num, miner_id, &slot_sizes, num_proofs)?;
         }
 
         Commands::SynthOnly { c1, sector_num, miner_id, iterations, partition } => {
@@ -1497,6 +1533,245 @@ fn run_pce_pipeline(
 ) -> Result<()> {
     anyhow::bail!(
         "pce-pipeline subcommand requires the 'pce-bench' feature.\n\
+         Rebuild with: cargo build --release -p cuzk-bench --features pce-bench --no-default-features"
+    );
+}
+
+#[cfg(feature = "pce-bench")]
+fn run_slotted_bench(
+    c1: PathBuf,
+    sector_num: u64,
+    miner_id: u64,
+    slot_sizes_str: &str,
+    num_proofs: u32,
+) -> Result<()> {
+    use std::time::Instant;
+
+    // Set FIL_PROOFS_PARAMETER_CACHE
+    if std::env::var("FIL_PROOFS_PARAMETER_CACHE").is_err() {
+        if std::path::Path::new("/data/zk/params").exists() {
+            unsafe { std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", "/data/zk/params") };
+        }
+    }
+
+    // Parse max_concurrent values (still called "slot_sizes" in CLI for compat)
+    let max_concurrents: Vec<usize> = slot_sizes_str
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    anyhow::ensure!(
+        !max_concurrents.is_empty(),
+        "no valid values provided (expected comma-separated integers)"
+    );
+
+    println!("=== Pipelined Partition Pipeline Benchmark (Phase 6) ===");
+    println!("c1:              {}", c1.display());
+    println!("sector:          {} (miner {})", sector_num, miner_id);
+    println!("max_concurrent:  {:?}", max_concurrents);
+    println!("num_proofs:      {} per configuration", num_proofs);
+    println!();
+
+    let c1_data = std::fs::read(&c1)
+        .with_context(|| format!("failed to read {}", c1.display()))?;
+    println!("c1 loaded: {} bytes", c1_data.len());
+    log_rss("after c1 load");
+
+    // Ensure PCE is extracted first (one-time cost)
+    println!("\n--- PCE Extraction (one-time) ---");
+    let extract_start = Instant::now();
+    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id)?;
+    let extract_time = extract_start.elapsed();
+    println!("  extract={:.1}s", extract_time.as_secs_f64());
+    log_rss("after PCE extraction");
+
+    // Load SRS parameters
+    println!("\n--- Loading SRS ---");
+    let srs_start = Instant::now();
+    let srs = {
+        let mut mgr = cuzk_core::srs_manager::SrsManager::new(
+            std::path::PathBuf::from(
+                std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+                    .unwrap_or_else(|_| "/data/zk/params".to_string()),
+            ),
+            50 * 1024 * 1024 * 1024, // 50 GiB budget
+        );
+        mgr.ensure_loaded(&cuzk_core::srs_manager::CircuitId::Porep32G)?
+    };
+    let srs_time = srs_start.elapsed();
+    println!("  SRS loaded in {:.1}s", srs_time.as_secs_f64());
+    log_rss("after SRS load");
+
+    // Results table
+    struct BenchResult {
+        max_concurrent: usize,
+        _proof_idx: u32,
+        total_s: f64,
+        synth_s: f64,
+        gpu_s: f64,
+        gpu_pct: f64,
+        peak_rss: f64,
+        proof_len: usize,
+    }
+    let mut all_results: Vec<BenchResult> = Vec::new();
+
+    for &max_concurrent in &max_concurrents {
+        println!(
+            "\n========== max_concurrent = {} {} ==========",
+            max_concurrent,
+            if max_concurrent >= 10 { "(batch-all)" } else { "" },
+        );
+
+        for proof_idx in 0..num_proofs {
+            println!(
+                "\n  proof {}/{} (max_concurrent={})",
+                proof_idx + 1,
+                num_proofs,
+                max_concurrent,
+            );
+            log_rss("before proof");
+
+            let proof_start = Instant::now();
+
+            // For max_concurrent >= 10, prove_porep_c2_slotted falls back to batch-all.
+            // For max_concurrent < 10, it uses prove_porep_c2_pipelined.
+            let (proof_bytes, timings) = cuzk_core::pipeline::prove_porep_c2_slotted(
+                &c1_data,
+                sector_num,
+                miner_id,
+                &srs,
+                max_concurrent,
+                &format!("pipe-bench-c{}-p{}", max_concurrent, proof_idx),
+            )?;
+
+            let total_time = proof_start.elapsed();
+            let peak_rss = rss_gib();
+            let gpu_pct = timings.gpu_compute.as_secs_f64() / total_time.as_secs_f64() * 100.0;
+            let overlap = (timings.synthesis.as_secs_f64() + timings.gpu_compute.as_secs_f64())
+                / total_time.as_secs_f64();
+
+            println!(
+                "    total={:.1}s  synth_sum={:.1}s  gpu_sum={:.1}s  gpu_active={:.0}%  proof={}B  overlap={:.2}x",
+                total_time.as_secs_f64(),
+                timings.synthesis.as_secs_f64(),
+                timings.gpu_compute.as_secs_f64(),
+                gpu_pct,
+                proof_bytes.len(),
+                overlap,
+            );
+            log_rss("after proof (before drop)");
+
+            all_results.push(BenchResult {
+                max_concurrent,
+                _proof_idx: proof_idx,
+                total_s: total_time.as_secs_f64(),
+                synth_s: timings.synthesis.as_secs_f64(),
+                gpu_s: timings.gpu_compute.as_secs_f64(),
+                gpu_pct,
+                peak_rss,
+                proof_len: proof_bytes.len(),
+            });
+
+            // Drop proof data and reclaim memory
+            drop(proof_bytes);
+            #[cfg(target_os = "linux")]
+            unsafe {
+                libc::malloc_trim(0);
+            }
+            log_rss("after drop + malloc_trim");
+        }
+    }
+
+    // Summary table
+    println!("\n========== Summary ==========");
+    println!(
+        "{:<12} {:>8} {:>10} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "max_concur", "total_s", "synth_sum", "gpu_sum", "gpu_%", "overlap", "peak_GiB", "proof_B"
+    );
+    println!("{}", "-".repeat(84));
+
+    // Group by max_concurrent and average
+    for &mc in &max_concurrents {
+        let entries: Vec<_> = all_results
+            .iter()
+            .filter(|r| r.max_concurrent == mc)
+            .collect();
+        if entries.is_empty() {
+            continue;
+        }
+        let n = entries.len() as f64;
+        let avg_total = entries.iter().map(|r| r.total_s).sum::<f64>() / n;
+        let avg_synth = entries.iter().map(|r| r.synth_s).sum::<f64>() / n;
+        let avg_gpu = entries.iter().map(|r| r.gpu_s).sum::<f64>() / n;
+        let avg_gpu_pct = entries.iter().map(|r| r.gpu_pct).sum::<f64>() / n;
+        let avg_overlap = (avg_synth + avg_gpu) / avg_total;
+        let peak_rss = entries
+            .iter()
+            .map(|r| r.peak_rss)
+            .fold(0.0f64, f64::max);
+        let proof_len = entries[0].proof_len;
+
+        println!(
+            "{:<12} {:>8.1} {:>10.1} {:>8.1} {:>7.0}% {:>7.2}x {:>8.1} {:>8}",
+            if mc >= 10 {
+                format!("{}(batch)", mc)
+            } else {
+                mc.to_string()
+            },
+            avg_total,
+            avg_synth,
+            avg_gpu,
+            avg_gpu_pct,
+            avg_overlap,
+            peak_rss,
+            proof_len,
+        );
+    }
+
+    // Comparison vs batch-all
+    if let Some(baseline) = all_results.iter().find(|r| r.max_concurrent >= 10) {
+        let baseline_total = baseline.total_s;
+        println!("\n--- Speedup vs batch-all ---");
+        for &mc in &max_concurrents {
+            if mc >= 10 {
+                continue;
+            }
+            let entries: Vec<_> = all_results
+                .iter()
+                .filter(|r| r.max_concurrent == mc)
+                .collect();
+            if entries.is_empty() {
+                continue;
+            }
+            let avg_total = entries.iter().map(|r| r.total_s).sum::<f64>() / entries.len() as f64;
+            let peak_rss = entries
+                .iter()
+                .map(|r| r.peak_rss)
+                .fold(0.0f64, f64::max);
+            println!(
+                "  max_concurrent={}: {:.1}s vs {:.1}s = {:.2}x, peak {:.1} GiB vs {:.1} GiB",
+                mc,
+                avg_total,
+                baseline_total,
+                baseline_total / avg_total,
+                peak_rss,
+                baseline.peak_rss,
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "pce-bench"))]
+fn run_slotted_bench(
+    _c1: PathBuf,
+    _sector_num: u64,
+    _miner_id: u64,
+    _slot_sizes: &str,
+    _num_proofs: u32,
+) -> Result<()> {
+    anyhow::bail!(
+        "slotted-bench subcommand requires the 'pce-bench' feature.\n\
          Rebuild with: cargo build --release -p cuzk-bench --features pce-bench --no-default-features"
     );
 }

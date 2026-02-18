@@ -43,6 +43,7 @@ filecoin-hashers = { workspace = true }
 bincode = { workspace = true }
 ec-gpu-gen = { workspace = true }
 bitvec = { workspace = true }
+libc = "0.2"
 
 [features]
 default = ["cuda-supraseal"]

@@ -18,6 +18,7 @@
 //! The pipeline allows CPU synthesis for job N+1 to overlap with GPU proving
 //! for job N, achieving ~1.5x throughput when there's a continuous workload.
 
+use std::ops::Range;
 #[cfg(feature = "cuda-supraseal")]
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1363,6 +1364,654 @@ pub fn prove_porep_c2_pipelined(
     );
 
     Ok((gpu_result.proof_bytes, timings))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pipelined Partition Pipeline (Phase 6)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// True producer-consumer pipeline with parallel synthesis.
+//
+// Architecture:
+//
+//   Synth Workers (parallel via std::thread::scope)
+//   ┌─────────────────────────────────────────┐
+//   │  partition 0 ─── synthesize_partition ───┤
+//   │  partition 1 ─── synthesize_partition ───┤──> sync_channel(max_concurrent)
+//   │  partition 2 ─── synthesize_partition ───┤     (backpressure bounds RAM)
+//   │  ...                                    │
+//   │  partition 9 ─── synthesize_partition ───┤
+//   └─────────────────────────────────────────┘
+//                                                  GPU Consumer (1 thread)
+//                                               ┌──────────────────────────┐
+//                                               │ for slot in rx {         │
+//                                          ──>  │   gpu_prove(slot)  ~3s   │
+//                                               │   assembler.insert()     │
+//                                               │ }                        │
+//                                               └──────────────────────────┘
+//
+// Each partition = 1 GPU call with num_circuits=1. This gives fast b_g2_msm
+// (~0.4s multi-threaded vs ~23s single-threaded for num_circuits>=2).
+//
+// The channel capacity (max_concurrent) bounds how many synthesized partitions
+// can be alive simultaneously. With capacity C, at most C+1 synthesized
+// partitions exist (C in the channel + 1 being GPU-proved). This limits
+// peak RAM to roughly (C+1) × ~13.6 GiB.
+//
+// Synthesis threads all run concurrently but are throttled by the channel:
+// once max_concurrent partitions are queued, synth threads block on send()
+// until the GPU consumes one. This creates natural backpressure.
+
+/// Accumulates per-partition proofs as they arrive (possibly out of order)
+/// and concatenates them in partition-index order when complete.
+pub struct ProofAssembler {
+    /// Total partitions expected (e.g., 10 for PoRep 32G).
+    total_partitions: usize,
+    /// Proof bytes indexed by partition number. None = not yet received.
+    partitions: Vec<Option<Vec<u8>>>,
+    /// Number of partitions inserted so far.
+    filled: usize,
+}
+
+impl ProofAssembler {
+    /// Create a new assembler for the given number of partitions.
+    pub fn new(total_partitions: usize) -> Self {
+        Self {
+            total_partitions,
+            partitions: (0..total_partitions).map(|_| None).collect(),
+            filled: 0,
+        }
+    }
+
+    /// Insert proof bytes for a single partition.
+    ///
+    /// `partition_idx` is the partition number (0-based).
+    /// `proof_bytes` must be exactly 192 bytes.
+    pub fn insert(&mut self, partition_idx: usize, proof_bytes: Vec<u8>) {
+        assert_eq!(
+            proof_bytes.len(),
+            GROTH_PROOF_BYTES,
+            "proof bytes length mismatch: got {} expected {} for partition {}",
+            proof_bytes.len(),
+            GROTH_PROOF_BYTES,
+            partition_idx,
+        );
+        assert!(
+            partition_idx < self.total_partitions,
+            "partition {} >= total {}",
+            partition_idx,
+            self.total_partitions,
+        );
+        assert!(
+            self.partitions[partition_idx].is_none(),
+            "partition {} already inserted",
+            partition_idx,
+        );
+
+        self.partitions[partition_idx] = Some(proof_bytes);
+        self.filled += 1;
+    }
+
+    /// Check if all partitions are complete.
+    pub fn is_complete(&self) -> bool {
+        self.filled == self.total_partitions
+    }
+
+    /// Assemble final proof bytes (concatenate in partition order).
+    ///
+    /// Panics if not all partitions are filled.
+    pub fn assemble(self) -> Vec<u8> {
+        assert!(
+            self.is_complete(),
+            "ProofAssembler: cannot assemble, {}/{} partitions filled",
+            self.filled,
+            self.total_partitions,
+        );
+
+        let mut result = Vec::with_capacity(self.total_partitions * GROTH_PROOF_BYTES);
+        for (i, slot) in self.partitions.into_iter().enumerate() {
+            result.extend_from_slice(&slot.unwrap_or_else(|| panic!("partition {} missing", i)));
+        }
+        result
+    }
+}
+
+/// Parsed and validated C1 output, ready for circuit construction.
+///
+/// This type holds the deserialized+validated fields from a PoRep C1 output
+/// so that the expensive JSON parse + base64 decode happens only once, then
+/// individual partition circuits can be built cheaply from the shared data.
+///
+/// The compound setup params are re-derived cheaply from the porep_config
+/// (CPU-only, <1ms) rather than stored, avoiding lifetime complexity.
+#[cfg(feature = "cuda-supraseal")]
+type TreeDomain =
+    <<SectorShape32GiB as storage_proofs_core::merkle::MerkleTreeTrait>::Hasher as Hasher>::Domain;
+
+#[cfg(feature = "cuda-supraseal")]
+struct ParsedC1Output {
+    porep_config: filecoin_proofs::types::PoRepConfig,
+    num_partitions: usize,
+    vanilla_proofs:
+        Vec<Vec<storage_proofs_porep::stacked::Proof<SectorShape32GiB, DefaultPieceHasher>>>,
+    replica_id: TreeDomain,
+    seed: [u8; 32],
+    comm_r: TreeDomain,
+    comm_d: DefaultPieceDomain,
+}
+
+/// Deserialize and validate a PoRep C1 JSON blob into reusable form.
+///
+/// This is the expensive part (~300ms for 51 MB C1): JSON parse, base64 decode,
+/// SealCommitPhase1Output deserialization, vanilla proof conversion.
+/// Call once, then build circuits from the result.
+#[cfg(feature = "cuda-supraseal")]
+fn parse_c1_output(vanilla_proof_json: &[u8]) -> Result<ParsedC1Output> {
+    let deser_start = Instant::now();
+
+    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+        .context("failed to parse C1 output wrapper JSON")?;
+    let phase1_json_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &wrapper.phase1_out,
+    )
+    .context("failed to decode base64 Phase1Output")?;
+    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+        .context("failed to deserialize SealCommitPhase1Output from JSON")?;
+
+    let porep_config = c1_output.registered_proof.as_v1_config();
+    let num_partitions = usize::from(porep_config.partitions);
+
+    let sector_size = u64::from(porep_config.sector_size);
+    anyhow::ensure!(
+        sector_size == SECTOR_SIZE_32_GIB,
+        "pipelined synthesis currently supports only 32 GiB sectors, got {} bytes",
+        sector_size,
+    );
+
+    type Tree = SectorShape32GiB;
+
+    let vanilla_proofs: Vec<Vec<storage_proofs_porep::stacked::Proof<Tree, DefaultPieceHasher>>> =
+        c1_output
+            .vanilla_proofs
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("failed to convert vanilla proofs: {:?}", e))?;
+
+    let comm_r_safe = as_safe_commitment(&c1_output.comm_r, "comm_r")?;
+    let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&c1_output.comm_d, "comm_d")?;
+
+    anyhow::ensure!(
+        c1_output.comm_d != [0; 32],
+        "Invalid all zero commitment (comm_d)"
+    );
+    anyhow::ensure!(
+        c1_output.comm_r != [0; 32],
+        "Invalid all zero commitment (comm_r)"
+    );
+    anyhow::ensure!(c1_output.seed != [0; 32], "Invalid porep challenge seed");
+
+    let deser_duration = deser_start.elapsed();
+    debug!(
+        deser_ms = deser_duration.as_millis(),
+        num_partitions = num_partitions,
+        num_vanilla_proofs = vanilla_proofs.len(),
+        "parsed C1 output"
+    );
+
+    Ok(ParsedC1Output {
+        porep_config,
+        num_partitions,
+        vanilla_proofs,
+        replica_id: c1_output.replica_id,
+        seed: c1_output.seed,
+        comm_r: comm_r_safe,
+        comm_d: comm_d_safe,
+    })
+}
+
+/// Build the circuit for a single partition from pre-parsed C1 output.
+///
+/// Uses the shared parsed data — no JSON re-parsing. The compound setup params
+/// are derived cheaply (<1ms) from the porep_config.
+#[cfg(feature = "cuda-supraseal")]
+fn build_partition_circuit_from_parsed(
+    parsed: &ParsedC1Output,
+    partition_idx: usize,
+) -> Result<impl bellperson::Circuit<Fr> + Send> {
+    type Tree = SectorShape32GiB;
+
+    use storage_proofs_porep::stacked::{PublicInputs, Tau};
+    let public_inputs = PublicInputs {
+        replica_id: parsed.replica_id,
+        tau: Some(Tau {
+            comm_d: parsed.comm_d,
+            comm_r: parsed.comm_r,
+        }),
+        k: None,
+        seed: Some(parsed.seed),
+    };
+
+    use storage_proofs_core::compound_proof::SetupParams;
+    let vanilla_setup = setup_params(&parsed.porep_config)?;
+    let compound_setup = SetupParams {
+        vanilla_params: vanilla_setup,
+        partitions: Some(parsed.num_partitions),
+        priority: false,
+    };
+    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::setup(&compound_setup)?;
+
+    anyhow::ensure!(
+        partition_idx < parsed.vanilla_proofs.len(),
+        "partition {} >= vanilla_proofs.len() {}",
+        partition_idx,
+        parsed.vanilla_proofs.len(),
+    );
+    let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::circuit(
+        &public_inputs,
+        Default::default(),
+        &parsed.vanilla_proofs[partition_idx],
+        &compound_public_params.vanilla_params,
+        Some(partition_idx),
+    )?;
+
+    Ok(circuit)
+}
+
+/// Build partition circuits from a pre-parsed C1 output.
+///
+/// Constructs circuits for partition indices `partition_range.start..partition_range.end`.
+/// Uses the shared parsed data — no JSON re-parsing. The compound setup params
+/// are derived cheaply (<1ms) from the porep_config.
+#[cfg(feature = "cuda-supraseal")]
+fn build_partition_circuits_from_parsed(
+    parsed: &ParsedC1Output,
+    partition_range: Range<usize>,
+) -> Result<Vec<impl bellperson::Circuit<Fr> + Send>> {
+    type Tree = SectorShape32GiB;
+
+    use storage_proofs_porep::stacked::{PublicInputs, Tau};
+    let public_inputs = PublicInputs {
+        replica_id: parsed.replica_id,
+        tau: Some(Tau {
+            comm_d: parsed.comm_d,
+            comm_r: parsed.comm_r,
+        }),
+        k: None,
+        seed: Some(parsed.seed),
+    };
+
+    use storage_proofs_core::compound_proof::SetupParams;
+    let vanilla_setup = setup_params(&parsed.porep_config)?;
+    let compound_setup = SetupParams {
+        vanilla_params: vanilla_setup,
+        partitions: Some(parsed.num_partitions),
+        priority: false,
+    };
+    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::setup(&compound_setup)?;
+
+    let circuits: Vec<_> = partition_range
+        .into_iter()
+        .map(|k| {
+            anyhow::ensure!(
+                k < parsed.vanilla_proofs.len(),
+                "partition {} >= vanilla_proofs.len() {}",
+                k,
+                parsed.vanilla_proofs.len(),
+            );
+            let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+                StackedDrg<'_, Tree, DefaultPieceHasher>,
+                _,
+            >>::circuit(
+                &public_inputs,
+                Default::default(),
+                &parsed.vanilla_proofs[k],
+                &compound_public_params.vanilla_params,
+                Some(k),
+            )?;
+            Ok(circuit)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(circuits)
+}
+
+/// Synthesize a single partition from pre-parsed C1 output.
+///
+/// Builds the circuit, runs synthesis (PCE fast path if available),
+/// and returns a `SynthesizedProof` with num_circuits=1 for GPU proving.
+#[cfg(feature = "cuda-supraseal")]
+fn synthesize_partition(
+    parsed: &ParsedC1Output,
+    partition_idx: usize,
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!(
+        "synthesize_partition",
+        job_id = job_id,
+        partition = partition_idx,
+    )
+    .entered();
+
+    let circuit = build_partition_circuit_from_parsed(parsed, partition_idx)?;
+
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_auto(vec![circuit], &CircuitId::Porep32G)?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        partition = partition_idx,
+        synth_ms = synthesis_duration.as_millis(),
+        "partition synthesis complete"
+    );
+
+    let mut rng = rand_core::OsRng;
+    let r_s: Vec<Fr> = vec![Fr::random(&mut rng)];
+    let s_s: Vec<Fr> = vec![Fr::random(&mut rng)];
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::Porep32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: Some(partition_idx),
+        total_partitions: parsed.num_partitions,
+    })
+}
+
+/// A synthesized single partition, ready for GPU proving.
+#[cfg(feature = "cuda-supraseal")]
+struct SynthesizedSlot {
+    /// The synthesized proof data for this partition.
+    synth: SynthesizedProof,
+    /// Which partition index this slot covers.
+    partition_idx: usize,
+}
+
+/// Pipelined partition proving for a single PoRep C2 proof.
+///
+/// Overlaps partition synthesis with GPU proving. All partitions are
+/// synthesized in parallel (bounded by channel capacity) and the GPU
+/// consumes them one at a time as they complete.
+///
+/// With num_circuits=1 per GPU call, the b_g2_msm uses the full CPU
+/// thread pool (~0.4s) instead of single-threaded (~23s for num_circuits>=2).
+/// GPU time per partition is ~3s, synthesis per partition is ~29s.
+/// With max_concurrent=3, the pipeline keeps the GPU always fed.
+///
+/// Memory: bounded to `(max_concurrent + 1) × ~13.6 GiB` — max_concurrent
+/// partitions buffered in the channel plus 1 being GPU-proved.
+#[cfg(feature = "cuda-supraseal")]
+pub fn prove_porep_c2_partitioned(
+    vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+    params: &SuprasealParameters<Bls12>,
+    max_concurrent: usize,
+    job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    let total_start = Instant::now();
+    let _span = info_span!(
+        "prove_porep_c2_partitioned",
+        job_id = job_id,
+        max_concurrent = max_concurrent,
+    )
+    .entered();
+
+    anyhow::ensure!(
+        max_concurrent >= 1,
+        "max_concurrent must be >= 1, got {}",
+        max_concurrent,
+    );
+
+    // Step 1: Parse C1 output once (shared across all partitions)
+    let parse_start = Instant::now();
+    let parsed = parse_c1_output(vanilla_proof_json)?;
+    let parse_duration = parse_start.elapsed();
+    let num_partitions = parsed.num_partitions;
+    info!(
+        parse_ms = parse_duration.as_millis(),
+        num_partitions = num_partitions,
+        max_concurrent = max_concurrent,
+        "C1 parsed, starting pipelined partition proving"
+    );
+
+    // Step 2: Run pipelined partition proving
+    //
+    // Channel capacity = max_concurrent: this is how many synthesized partitions
+    // can be queued waiting for the GPU. Combined with the 1 partition being
+    // GPU-proved, the total live synthesized data is (max_concurrent + 1) partitions.
+    //
+    // All partition synth threads are spawned simultaneously via std::thread::scope.
+    // The bounded channel provides backpressure: once max_concurrent partitions
+    // are queued, further synth threads block on send() until the GPU frees a slot.
+
+    let (synth_total, gpu_total, proof_bytes) =
+        std::thread::scope(|scope| -> Result<(Duration, Duration, Vec<u8>)> {
+            let (tx, rx) = std::sync::mpsc::sync_channel::<SynthesizedSlot>(max_concurrent);
+
+            // Spawn one synth thread per partition — they all start immediately
+            // but the channel backpressure limits how many can have completed
+            // work sitting in memory waiting for the GPU.
+            let parsed_ref = &parsed;
+            let synth_handles: Vec<_> = (0..num_partitions)
+                .map(|partition_idx| {
+                    let tx = tx.clone();
+                    let job_id_owned = job_id.to_string();
+                    scope.spawn(move || -> Result<Duration> {
+                        let part_job_id = format!("{}-part-{}", job_id_owned, partition_idx);
+                        let synth = synthesize_partition(parsed_ref, partition_idx, &part_job_id)?;
+                        let duration = synth.synthesis_duration;
+
+                        let slot = SynthesizedSlot {
+                            synth,
+                            partition_idx,
+                        };
+
+                        // Blocks if channel is full (backpressure)
+                        if tx.send(slot).is_err() {
+                            return Err(anyhow::anyhow!(
+                                "GPU thread exited early, partition {} orphaned",
+                                partition_idx,
+                            ));
+                        }
+
+                        Ok(duration)
+                    })
+                })
+                .collect();
+
+            // Drop our copy of tx so the channel closes when all synth threads finish
+            drop(tx);
+
+            // GPU thread: consumes partitions as they arrive, proves each
+            let params_ref = params;
+            let gpu_handle = scope.spawn(move || -> Result<(Duration, Vec<u8>)> {
+                let mut total_gpu = Duration::ZERO;
+                let mut assembler = ProofAssembler::new(num_partitions);
+                let mut slots_received = 0usize;
+
+                for slot in rx {
+                    slots_received += 1;
+                    let pidx = slot.partition_idx;
+                    info!(
+                        partition = pidx,
+                        queued = slots_received,
+                        total = num_partitions,
+                        "GPU received partition, starting prove"
+                    );
+
+                    let gpu_result = gpu_prove(slot.synth, params_ref)?;
+                    total_gpu += gpu_result.gpu_duration;
+
+                    info!(
+                        partition = pidx,
+                        gpu_ms = gpu_result.gpu_duration.as_millis(),
+                        "GPU partition prove complete"
+                    );
+
+                    assembler.insert(pidx, gpu_result.proof_bytes);
+
+                    // Force memory release after each partition to keep RSS bounded
+                    #[cfg(target_os = "linux")]
+                    unsafe {
+                        libc::malloc_trim(0);
+                    }
+                }
+
+                anyhow::ensure!(
+                    assembler.is_complete(),
+                    "ProofAssembler incomplete: {}/{} partitions",
+                    assembler.filled,
+                    num_partitions,
+                );
+                let proof_bytes = assembler.assemble();
+                Ok((total_gpu, proof_bytes))
+            });
+
+            // Join all synth threads and sum durations
+            let mut total_synth = Duration::ZERO;
+            for handle in synth_handles {
+                let dur = handle
+                    .join()
+                    .map_err(|e| anyhow::anyhow!("synth thread panicked: {:?}", e))??;
+                total_synth += dur;
+            }
+
+            // Join GPU thread
+            let (gpu_dur, proof_bytes) = gpu_handle
+                .join()
+                .map_err(|e| anyhow::anyhow!("GPU thread panicked: {:?}", e))??;
+
+            Ok((total_synth, gpu_dur, proof_bytes))
+        })?;
+
+    let timings = PipelinedTimings {
+        synthesis: synth_total,
+        gpu_compute: gpu_total,
+        total: total_start.elapsed(),
+    };
+
+    let overlap_ratio = if timings.total.as_secs_f64() > 0.0 {
+        (synth_total.as_secs_f64() + gpu_total.as_secs_f64()) / timings.total.as_secs_f64()
+    } else {
+        1.0
+    };
+
+    info!(
+        proof_len = proof_bytes.len(),
+        synth_ms = timings.synthesis.as_millis(),
+        gpu_ms = timings.gpu_compute.as_millis(),
+        total_ms = timings.total.as_millis(),
+        max_concurrent = max_concurrent,
+        overlap = format!("{:.2}x", overlap_ratio),
+        "pipelined PoRep C2 complete"
+    );
+
+    Ok((proof_bytes, timings))
+}
+
+/// Backward-compatible wrapper that dispatches to the pipelined path.
+///
+/// `slot_size` is reinterpreted:
+/// - 0 = disabled (should not reach here)
+/// - >= num_partitions = batch-all (no pipeline)
+/// - 1..num_partitions = pipelined with max_concurrent = slot_size
+#[cfg(feature = "cuda-supraseal")]
+pub fn prove_porep_c2_slotted(
+    vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+    params: &SuprasealParameters<Bls12>,
+    slot_size: usize,
+    job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    let total_start = Instant::now();
+
+    // Parse to check num_partitions for the batch-all fallback
+    let parsed = parse_c1_output(vanilla_proof_json)?;
+    let num_partitions = parsed.num_partitions;
+
+    // If slot_size >= num_partitions, use the batch-all path (no pipeline benefit)
+    if slot_size >= num_partitions {
+        info!("slot_size >= num_partitions, using batch-all path");
+        let circuits = build_partition_circuits_from_parsed(&parsed, 0..num_partitions)?;
+        let synth_start = Instant::now();
+        let (_start, provers, input_assignments, aux_assignments) =
+            synthesize_auto(circuits, &CircuitId::Porep32G)?;
+        let synthesis_duration = synth_start.elapsed();
+
+        let mut rng = rand_core::OsRng;
+        let r_s: Vec<Fr> = (0..num_partitions).map(|_| Fr::random(&mut rng)).collect();
+        let s_s: Vec<Fr> = (0..num_partitions).map(|_| Fr::random(&mut rng)).collect();
+
+        let synth = SynthesizedProof {
+            circuit_id: CircuitId::Porep32G,
+            provers,
+            input_assignments,
+            aux_assignments,
+            r_s,
+            s_s,
+            synthesis_duration,
+            partition_index: None,
+            total_partitions: num_partitions,
+        };
+
+        let gpu_result = gpu_prove(synth, params)?;
+
+        let timings = PipelinedTimings {
+            synthesis: synthesis_duration,
+            gpu_compute: gpu_result.gpu_duration,
+            total: total_start.elapsed(),
+        };
+        return Ok((gpu_result.proof_bytes, timings));
+    }
+
+    // Use partitioned path — slot_size is reinterpreted as max_concurrent
+    prove_porep_c2_partitioned(
+        vanilla_proof_json,
+        _sector_number,
+        _miner_id,
+        params,
+        slot_size,
+        job_id,
+    )
+}
+
+/// Non-CUDA stub for partitioned pipeline.
+#[cfg(not(feature = "cuda-supraseal"))]
+pub fn prove_porep_c2_partitioned(
+    _vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+    _max_concurrent: usize,
+    _job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    anyhow::bail!("partitioned pipeline requires cuda-supraseal feature")
+}
+
+/// Non-CUDA stub for slotted pipeline (backward compat).
+#[cfg(not(feature = "cuda-supraseal"))]
+pub fn prove_porep_c2_slotted(
+    _vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+    _slot_size: usize,
+    _job_id: &str,
+) -> Result<(Vec<u8>, PipelinedTimings)> {
+    anyhow::bail!("pipelined pipeline requires cuda-supraseal feature")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

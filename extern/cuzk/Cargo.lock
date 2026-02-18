@@ -710,6 +710,7 @@ dependencies = [
  "filecoin-hashers",
  "filecoin-proofs",
  "filecoin-proofs-api",
+ "libc",
  "rand_core",
  "rayon",
  "serde",

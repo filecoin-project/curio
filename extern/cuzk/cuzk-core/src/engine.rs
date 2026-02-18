@@ -327,12 +327,14 @@ impl Engine {
                 let mut shutdown_rx = self.shutdown_rx.clone();
                 let max_batch_size = self.config.scheduler.max_batch_size;
                 let max_batch_wait_ms = self.config.scheduler.max_batch_wait_ms;
+                let slot_size = self.config.pipeline.slot_size;
 
                 tokio::spawn(async move {
                     info!(
                         max_batch_size = max_batch_size,
                         max_batch_wait_ms = max_batch_wait_ms,
-                        "synthesis task started (Phase 3 batch-aware)"
+                        slot_size = slot_size,
+                        "synthesis task started (Phase 3 batch-aware, Phase 6 slotted)"
                     );
 
                     let mut batch_collector = crate::batch_collector::BatchCollector::new(
@@ -361,7 +363,7 @@ impl Engine {
                                         if let Some(batch) = batch_collector.force_flush() {
                                             let span = info_span!("synth_shutdown_flush", batch_size = batch.len());
                                             let _ = process_batch(
-                                                batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                                batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
                                             ).instrument(span).await;
                                         }
                                         break;
@@ -373,7 +375,7 @@ impl Engine {
                                     if let Some(batch) = batch_collector.check_timeout() {
                                         let span = info_span!("synth_timeout_flush", batch_size = batch.len());
                                         let ok = process_batch(
-                                            batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                            batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
                                         ).instrument(span).await;
                                         if !ok { break; }
                                     }
@@ -413,7 +415,7 @@ impl Engine {
                                     proof_kind = %batch.proof_kind,
                                 );
                                 let ok = process_batch(
-                                    batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                    batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
                                 ).instrument(span).await;
                                 if !ok { break; }
                             }
@@ -426,7 +428,7 @@ impl Engine {
                                     proof_kind = %pending_batch.proof_kind,
                                 );
                                 let ok = process_batch(
-                                    pending_batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                    pending_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
                                 ).instrument(span).await;
                                 if !ok { break; }
                             }
@@ -441,7 +443,7 @@ impl Engine {
                                 proof_kind = %proof_kind,
                             );
                             let ok = process_batch(
-                                single_batch, &tracker, &srs_manager, &param_cache, &synth_tx,
+                                single_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
                             ).instrument(span).await;
                             if !ok { break; }
                         }
@@ -453,6 +455,10 @@ impl Engine {
             /// Process a batch of proof requests: synthesize all circuits, load SRS,
             /// and send the synthesized job to the GPU channel.
             ///
+            /// For single-sector PoRep with `slot_size > 0`, runs the slotted partition
+            /// pipeline (Phase 6) which manages its own internal synth/GPU overlap and
+            /// directly completes the job — bypassing the engine-level GPU channel.
+            ///
             /// Returns `true` to continue, `false` to stop the synthesis task.
             async fn process_batch(
                 batch: crate::batch_collector::ProofBatch,
@@ -460,6 +466,7 @@ impl Engine {
                 srs_manager: &Arc<Mutex<SrsManager>>,
                 param_cache: &std::path::Path,
                 synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
+                slot_size: u32,
             ) -> bool {
                 let batch_size = batch.len();
                 let proof_kind = batch.proof_kind;
@@ -468,6 +475,7 @@ impl Engine {
                 info!(
                     batch_size = batch_size,
                     proof_kind = %proof_kind,
+                    slot_size = slot_size,
                     "processing batch"
                 );
 
@@ -479,6 +487,115 @@ impl Engine {
                 {
                     use crate::pipeline;
 
+                    // Phase 6: Pipelined partition proving for single-sector PoRep C2
+                    // When slot_size > 0, PoRep (single sector) uses prove_porep_c2_pipelined()
+                    // which runs parallel synth workers feeding a GPU consumer thread,
+                    // directly producing final proof bytes without the engine-level GPU channel.
+                    if proof_kind == ProofKind::PoRepSealCommit
+                        && requests.len() == 1
+                        && slot_size > 0
+                    {
+                        let req = requests[0].clone();
+                        let srs_mgr_clone = srs_mgr.clone();
+                        let _tracker_clone2 = tracker_clone.clone();
+                        let param_cache_owned = param_cache_str.clone();
+
+                        let slotted_result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, crate::pipeline::PipelinedTimings)> {
+                            std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_owned);
+
+                            // Load SRS
+                            let srs = {
+                                let mut mgr = srs_mgr_clone.blocking_lock();
+                                mgr.ensure_loaded(&CircuitId::Porep32G)?
+                            };
+
+                            pipeline::prove_porep_c2_partitioned(
+                                &req.vanilla_proof,
+                                req.sector_number,
+                                req.miner_id,
+                                &srs,
+                                slot_size as usize,
+                                &req.job_id.0,
+                            )
+                        }).await;
+
+                        // Trigger background PCE extraction if not yet cached
+                        if pipeline::get_pce(&CircuitId::Porep32G).is_none() {
+                            let c1_data = requests[0].vanilla_proof.clone();
+                            let sn = requests[0].sector_number;
+                            let mid = requests[0].miner_id;
+                            std::thread::spawn(move || {
+                                info!("background PCE extraction starting for PoRep 32G");
+                                match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
+                                    Ok(()) => info!("background PCE extraction complete"),
+                                    Err(e) => warn!(error = %e, "background PCE extraction failed"),
+                                }
+                            });
+                        }
+
+                        // Process result
+                        let mut t = tracker_clone.lock().await;
+                        match slotted_result {
+                            Ok(Ok((proof_bytes, timings))) => {
+                                let mut pt = ProofTimings::default();
+                                pt.synthesis = timings.synthesis;
+                                pt.gpu_compute = timings.gpu_compute;
+                                pt.proving = timings.total;
+                                pt.queue_wait = requests[0].submitted_at.elapsed().saturating_sub(pt.proving);
+                                pt.total = requests[0].submitted_at.elapsed();
+
+                                info!(
+                                    proof_len = proof_bytes.len(),
+                                    total_ms = pt.total.as_millis(),
+                                    synth_ms = pt.synthesis.as_millis(),
+                                    gpu_ms = pt.gpu_compute.as_millis(),
+                                    slot_size = slot_size,
+                                    "slotted PoRep C2 proof completed"
+                                );
+
+                                t.record_completion(proof_kind, pt.total);
+
+                                let status = JobStatus::Completed(ProofResult {
+                                    job_id: requests[0].job_id.clone(),
+                                    proof_kind,
+                                    proof_bytes,
+                                    timings: pt,
+                                });
+                                if let Some(senders) = t.pending.remove(&requests[0].job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(requests[0].job_id.clone(), status);
+                            }
+                            Ok(Err(e)) => {
+                                error!(error = %e, "slotted PoRep C2 proof failed");
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("slotted proof failed: {}", e));
+                                if let Some(senders) = t.pending.remove(&requests[0].job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(requests[0].job_id.clone(), status);
+                            }
+                            Err(e) => {
+                                error!(error = %e, "slotted PoRep C2 task panicked");
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("slotted proof panicked: {}", e));
+                                if let Some(senders) = t.pending.remove(&requests[0].job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(requests[0].job_id.clone(), status);
+                            }
+                        }
+
+                        return true;
+                    }
+
+                    // Standard path: synthesize, then send to GPU channel
                     let reqs = requests.clone();
                     let synth_result = tokio::task::spawn_blocking(move || -> Result<SynthesizedJob> {
                         std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);

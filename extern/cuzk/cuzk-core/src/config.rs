@@ -159,6 +159,29 @@ pub struct PipelineConfig {
     /// in-flight unit is one partition (~13.6 GiB), not the full proof.
     #[serde(default = "PipelineConfig::default_synthesis_lookahead")]
     pub synthesis_lookahead: u32,
+    /// Pipelined partition proving (Phase 6).
+    ///
+    /// Controls how many synthesized partitions can be queued for the GPU
+    /// simultaneously. Each partition is synthesized independently (1 circuit)
+    /// and all partitions run in parallel, throttled by this bound.
+    ///
+    /// - 0 = disabled (batch all partitions together, ~228 GiB for PoRep)
+    /// - 1 = sequential pipeline (one partition at a time, ~27 GiB)
+    /// - 2 = recommended for memory-constrained machines (~41 GiB)
+    /// - 3 = recommended default — keeps GPU fed (~54 GiB)
+    /// - >= num_partitions = batch-all (no pipeline, all partitions at once)
+    ///
+    /// Memory formula: (max_concurrent + 1) × ~13.6 GiB per partition.
+    /// The +1 accounts for the partition currently being GPU-proved.
+    ///
+    /// With num_circuits=1 per GPU call, the GPU takes ~3s per partition
+    /// (fast b_g2_msm). Synthesis takes ~29s per partition. So with
+    /// max_concurrent=3, the pipeline keeps the GPU continuously fed.
+    ///
+    /// Only applies to multi-partition proof types (PoRep, SnapDeals).
+    /// WinningPoSt and WindowPoSt are single-partition and bypass this.
+    #[serde(default = "PipelineConfig::default_slot_size")]
+    pub slot_size: u32,
 }
 
 impl PipelineConfig {
@@ -168,6 +191,9 @@ impl PipelineConfig {
     fn default_synthesis_lookahead() -> u32 {
         1
     }
+    fn default_slot_size() -> u32 {
+        0 // disabled by default for backward compatibility
+    }
 }
 
 impl Default for PipelineConfig {
@@ -175,6 +201,7 @@ impl Default for PipelineConfig {
         Self {
             enabled: Self::default_enabled(),
             synthesis_lookahead: Self::default_synthesis_lookahead(),
+            slot_size: Self::default_slot_size(),
         }
     }
 }
