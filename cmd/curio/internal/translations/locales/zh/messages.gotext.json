@@ -1439,9 +1439,9 @@
       "placeholder": null
     },
     {
-      "id": "Command separated list of hostnames for yugabyte cluster",
+      "id": "Comma-separated list of hostnames for yugabyte cluster",
       "translation": "Yugabyte 集群的主机名命令分隔列表",
-      "message": "Command separated list of hostnames for yugabyte cluster",
+      "message": "Comma-separated list of hostnames for yugabyte cluster",
       "placeholder": null
     },
     {

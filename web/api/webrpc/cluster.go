@@ -118,7 +118,7 @@ func (a *WebRPC) ClusterTaskHistory(ctx context.Context, limit, offset int) ([]T
 		var t TaskHistorySummary
 		var posted, start, end time.Time
 
-		if err := rows.Scan(&t.TaskID, &t.Name, &t.TaskID, &posted, &start, &end, &t.Result, &t.Err, &t.CompletedBy); err != nil {
+		if err := rows.Scan(new(int64), &t.Name, &t.TaskID, &posted, &start, &end, &t.Result, &t.Err, &t.CompletedBy); err != nil {
 			return nil, err // Handle error
 		}
 
