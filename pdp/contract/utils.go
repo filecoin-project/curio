@@ -143,28 +143,37 @@ func encodeBool(b bool) []byte {
 	return []byte{0x00}
 }
 
+// ResolveViewAddress resolves the view contract address for a service contract
+// that implements viewContractAddress(). Service contracts (like FWSS) use
+// separate view contracts for read-only operations that are not available on
+// the service proxy itself.
+// This function assumes that the service contract implements
+// viewContractAddress() and therefore returns an error if the view address
+// cannot be resolved.
+func ResolveViewAddress(serviceAddr common.Address, ethClient *ethclient.Client) (common.Address, error) {
+	svc, err := NewContractWithView(serviceAddr, ethClient)
+	if err != nil {
+		return common.Address{}, xerrors.Errorf("failed to bind to service at %s: %w", serviceAddr, err)
+	}
+	viewAddr, err := svc.ViewContractAddress(nil)
+	if err != nil {
+		return common.Address{}, xerrors.Errorf("failed to get view contract address: %w", err)
+	}
+	if viewAddr == (common.Address{}) {
+		return common.Address{}, xerrors.Errorf("view contract address is zero")
+	}
+	return viewAddr, nil
+}
+
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
 // It uses the view contract address if available, otherwise uses the listener address directly.
 func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethclient.Client) (*IPDPProvingSchedule, error) {
-	// Try to get the view contract address from the listener
 	provingScheduleAddr := listenerAddr
+	if viewAddr, err := ResolveViewAddress(listenerAddr, ethClient); err == nil {
+		provingScheduleAddr = viewAddr
+	} // else we'll assume that the listener contract itself implements IPDPProvingSchedule
 
-	// Check if the listener supports the viewContractAddress method
-	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
-	if err == nil {
-		// Try to get the view contract address
-		viewAddr, err := listenerService.ViewContractAddress(nil)
-		if err == nil && viewAddr != (common.Address{}) {
-			// Use the view contract for proving schedule operations
-			provingScheduleAddr = viewAddr
-		}
-	}
-
-	// Create and return the IPDPProvingSchedule binding
-	// This works whether provingScheduleAddr points to:
-	// - The view contract (which must implement IPDPProvingSchedule)
-	// - The listener itself (where listener must implement IPDPProvingSchedule)
 	provingSchedule, err := NewIPDPProvingSchedule(provingScheduleAddr, ethClient)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create proving schedule binding: %w", err)
@@ -175,15 +184,9 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 
 func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *mbig.Int, key string) (bool, string, error) {
 	metadataAddr := listenerAddr
-
-	// Check if the listener supports the viewContractAddress method
-	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
-	if err == nil {
-		viewAddr, err := listenerService.ViewContractAddress(nil)
-		if err == nil && viewAddr != (common.Address{}) {
-			metadataAddr = viewAddr
-		}
-	}
+	if viewAddr, err := ResolveViewAddress(listenerAddr, ethClient); err == nil {
+		metadataAddr = viewAddr
+	} // else we'll still try from the listener contract just in case
 
 	// Create a metadata service viewer.
 	mDataService, err := NewListenerServiceWithMetaData(metadataAddr, ethClient)
