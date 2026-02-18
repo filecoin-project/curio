@@ -1011,7 +1011,29 @@ The biggest single optimization. See `c2-optimization-proposal-5.md` for full de
 4. Coefficient-specialized MatVec: ±1 coefficients skip multiply, boolean witness fast-path
 5. Pre-sorted SRS topology for split MSM
 
-**Estimated impact:** 3-5x faster synthesis → ~10x total throughput over baseline.
+**Estimated impact (original):** 3-5x faster synthesis → ~10x total throughput over baseline.
+
+**Actual Wave 1 results (measured):**
+
+| Metric | Old Path | PCE Path | Notes |
+|---|---|---|---|
+| Synthesis (10 circuits) | 50.4s | 35.5s | **1.42x speedup** |
+| - Witness (WitnessCS) | (included) | 26.5s | 75% of PCE time — bottleneck |
+| - MatVec (10 circuits ∥) | (included) | 8.8s | 25% — memory-bandwidth bound |
+| PCE extraction (one-time) | N/A | 46.9s | Amortized to ~0 across proofs |
+| PCE static memory | 0 | 25.7 GiB | Shared across all pipelines |
+| Per-pipeline memory delta | ~21 GiB | ~21 GiB | Same (witness+a/b/c) |
+
+**Why 1.42x instead of 3-5x:** Phase 4 already eliminated 34% of enforce() overhead via
+LC pool recycling. The remaining enforce cost is ~24s, which PCE removes, but adds 8.8s
+MatVec. The witness generation (26.5s) is irreducible without SHA-256 SizedWitness.
+
+**Bug found and fixed:** `RecordingCS::enforce()` used `self.num_inputs` (non-final) as the
+aux column offset. Since `alloc_input()` and `enforce()` are interleaved during PoRep
+synthesis (via `inputize()` and `pack_into_inputs()`), early constraints got wrong offsets.
+Fixed with tagged column encoding (bit 31 = aux flag), remapped in `into_precompiled()`.
+
+**Correctness:** All 10 circuits × 130,278,869 constraints match bit-for-bit.
 
 ### Summary Timeline
 
@@ -1033,12 +1055,23 @@ Week 14-18: Phase 5 — Pre-compiled constraint evaluator
 | **Phase 2** | **1.27x** pipeline (measured) | 203 GiB | GPU pipelining (synth∥GPU overlap) |
 | **Phase 3** | **1.42x** batch=2 (measured) | 360 GiB | Cross-sector batching (62.3s/proof) |
 | **Phase 4** | **2-3x** (estimated) | ~200 GiB | Per-proof speedups |
-| **Phase 5** | **5-10x** (estimated) | ~100 GiB | PCE eliminates synthesis |
+| **Phase 5 W1** | **1.42x** synth (measured) | +25.7 GiB static | PCE: 50.4→35.5s synth |
+| **Phase 5 W1 j=2** | 1.45x wall (measured) | 407 GiB peak | 2 concurrent synths, 49s each |
 
 *Note: Phase 2/3 measured on RTX 5070 Ti. Pipeline overlap is modest (1.27x) because
 synthesis (55s) dominates GPU (34s) on this hardware. Phase 3 batch=2 amortizes synthesis
-across sectors, giving 1.42x. Larger batch sizes and Phase 4/5 synthesis reduction will
-compound significantly.*
+across sectors, giving 1.42x.*
+
+*Phase 5 Wave 1 measured 1.42x synthesis speedup (50.4→35.5s). Witness generation (26.5s)
+is now the bottleneck — irreducible without SHA-256 SizedWitness. PCE static memory is
+25.7 GiB (shared across all pipelines, amortized). Per-pipeline memory is unchanged.*
+
+*Phase 5 j=2 parallel: two concurrent syntheses complete in 49s wall (vs 71s sequential).
+Per-proof time degrades to 46–49s due to Zen4 memory bandwidth contention across 20
+circuits. Peak RSS 407 GiB reflects 2× working sets + PCE static + transient overhead.*
+
+*Remaining Phase 5 waves: Wave 2 (specialized MatVec) saves ~7s from MatVec but witness
+still dominates. Wave 3 (pre-sorted SRS) saves 15-25% on GPU MSM phase.*
 
 ---
 
@@ -1203,6 +1236,97 @@ Verifies that non-batchable proof types bypass the BatchCollector entirely.
 | Phase 2 baseline (batch=1) | 202.9 GiB | 45.0 GiB | 10 partitions |
 | Phase 3 batch=2 | ~360 GiB | 45.0 GiB | 20 circuits |
 | Phase 3 batch=2 + overlap | 420.3 GiB | 45.0 GiB | Batch + next proof synth |
+
+### Phase 5 Wave 1: PCE Synthesis Benchmark
+
+**Commit:** `a6f0e700` feat(cuzk): Phase 5 Wave 1 — Pre-Compiled Constraint Evaluator (PCE)
+
+#### PCE Extraction (one-time, per circuit topology)
+
+| Metric | Value |
+|---|---|
+| Extraction time | 46.9s |
+| num_inputs | 328 |
+| num_aux | 130,169,893 |
+| num_constraints | 130,278,869 |
+| A matrix nnz | 309,405,051 (avg 2.4/row) |
+| B matrix nnz | 130,327,340 (avg 1.0/row) |
+| C matrix nnz | 282,656,500 (avg 2.2/row) |
+| Total nnz | 722,388,891 |
+| PCE static memory | 25.7 GiB |
+| a_aux_density popcount | 129,753,292 / 130,169,893 (99.7%) |
+| b_input_density popcount | 1 / 328 (0.3%) |
+| b_aux_density popcount | 33,112,281 / 130,169,893 (25.4%) |
+
+#### Synthesis Comparison (10 circuits, batch=1)
+
+| Metric | Old Path | PCE Path | Delta |
+|---|---|---|---|
+| Total synthesis | 50.4s | 35.5s | **1.42x faster** |
+| Witness generation (WitnessCS) | (included) | 26.5s | 75% of PCE time |
+| MatVec (10 circuits parallel) | (included) | 8.8s | 25% of PCE time |
+| Correctness | reference | **PASS (all 10×130M match)** | bit-exact |
+
+#### Per-circuit MatVec breakdown
+
+| Config | Time | Notes |
+|---|---|---|
+| Sequential (10 circuits) | 34.0s (~3.2s each) | Memory-bandwidth bound |
+| Parallel (10 circuits, rayon) | 8.8s (~7.0s wall per circuit) | Bandwidth sharing, 3.9x faster |
+
+#### Perf stat (aggregate, both paths)
+
+| Counter | Value |
+|---|---|
+| IPC | 2.00 |
+| L1 dcache miss rate | 2.66% |
+| LLC miss rate | 1.59% |
+| Branch mispredict rate | 0.50% |
+
+#### Memory analysis (production, not benchmark)
+
+PCE adds 25.7 GiB static memory (shared across all pipelines via `OnceLock`).
+Per-pipeline working set is unchanged (~21 GiB: witness + a/b/c vectors).
+
+| Component | Size | Scaling |
+|---|---|---|
+| PCE static (CSR matrices + density) | 25.7 GiB | **Once per process** |
+| Per-pipeline working set | ~21 GiB | Per concurrent synthesis |
+| Temporary unified witness copy | ~4.2 GiB | Per concurrent synthesis (can be eliminated) |
+
+For an 8-GPU system with 2 pipelines per GPU (16 concurrent):
+- PCE static: 25.7 GiB (×1)
+- Per-pipeline: 21 GiB (×16) = 336 GiB
+- SRS pinned: 47 GiB (×8) = 376 GiB
+- **Total: ~738 GiB** (vs ~712 GiB without PCE — **+3.6%**)
+
+#### Parallel Pipeline Benchmark (j=2)
+
+Tested with `pce-pipeline --c1 /data/32gbench/c1.json --num-proofs 2 -j 2` to simulate
+two GPU pipelines needing synthesis results simultaneously.
+
+| Stage | RSS | Notes |
+|---|---|---|
+| After c1 load | 0.1 GiB | Minimal baseline |
+| After PCE extraction | 25.8 GiB | CSR matrices in OnceLock |
+| 2 concurrent syntheses held | 337.2 GiB | 20 circuits total (10 each × ~16 GiB) |
+| After drop | 25.9 → 26.0 GiB | Clean release, malloc_trim |
+| Peak RSS (`/usr/bin/time`) | 407 GiB | Includes transient rayon/alloc overhead |
+
+| Metric | j=1 (sequential) | j=2 (parallel) | Delta |
+|---|---|---|---|
+| Synthesis per proof | 35.5s | 46–49s | +30–38% slower (BW contention) |
+| Total wall time (2 proofs) | 71.0s | 49s | 1.45x faster wall |
+| Peak RSS | ~182 GiB | 407 GiB | 2.2x more memory |
+
+**Analysis:** With j=2, both syntheses share 96 Zen4 cores across 20 circuits (vs 10 for
+j=1). Memory bandwidth becomes the bottleneck — each proof's witness generation + MatVec
+competes for L3 and DRAM bandwidth. Per-proof time increases ~35%, but wall-clock throughput
+is still 1.45x better than sequential (two proofs overlap instead of running back-to-back).
+
+For production with GPU overlap, j=2 is the right setting: the GPU processes the previous
+proof while CPU synthesizes the next. The 49s synthesis time still exceeds the ~34s GPU
+phase on RTX 5070 Ti, so GPU utilization approaches 100%.
 
 ---
 

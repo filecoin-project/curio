@@ -36,6 +36,9 @@ cuzk-core = { workspace = true, optional = true }
 # Optional: for pce-bench subcommand (PCE extraction + evaluation benchmark)
 cuzk-pce = { workspace = true, optional = true }
 
+# For malloc_trim (RSS management in benchmarks)
+libc = "0.2"
+
 [features]
 default = []
 gen-vanilla = ["filecoin-proofs-api", "cid"]

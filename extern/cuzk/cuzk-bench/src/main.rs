@@ -185,6 +185,41 @@ enum Commands {
         validate: bool,
     },
 
+    /// PCE pipeline memory + performance benchmark (requires 'pce-bench' feature).
+    ///
+    /// Runs N sequential proofs through the PCE path, logging RSS at each stage.
+    /// First proof triggers PCE extraction; subsequent proofs reuse the cache.
+    /// Each proof's results are dropped before starting the next, demonstrating
+    /// production-like memory behavior. Designed to be run alongside cuzk-memmon.sh.
+    PcePipeline {
+        /// Path to C1 output JSON.
+        #[arg(long)]
+        c1: PathBuf,
+
+        /// Sector number.
+        #[arg(long, default_value = "1")]
+        sector_num: u64,
+
+        /// Miner ID.
+        #[arg(long, default_value = "1000")]
+        miner_id: u64,
+
+        /// Number of proofs to run.
+        #[arg(short, long, default_value = "3")]
+        num_proofs: u32,
+
+        /// Run N syntheses concurrently (simulates N GPU pipelines needing
+        /// synthesis results simultaneously). Shows peak memory under heavy
+        /// pipelining. Default 0 = sequential.
+        #[arg(short = 'j', long, default_value = "0")]
+        parallel: u32,
+
+        /// Also run the old-path synthesis for comparison (first iteration only).
+        /// Old-path results are dropped before PCE path runs.
+        #[arg(long)]
+        compare_old: bool,
+    },
+
     /// In-process synthesis microbenchmark (requires `synth-bench` feature).
     ///
     /// Runs only the CPU synthesis step (circuit construction + R1CS witness
@@ -656,6 +691,10 @@ async fn main() -> Result<()> {
 
         Commands::PceBench { c1, sector_num, miner_id, save_pce, validate } => {
             run_pce_bench(c1, sector_num, miner_id, save_pce, validate)?;
+        }
+
+        Commands::PcePipeline { c1, sector_num, miner_id, num_proofs, parallel, compare_old } => {
+            run_pce_pipeline(c1, sector_num, miner_id, num_proofs, parallel, compare_old)?;
         }
 
         Commands::SynthOnly { c1, sector_num, miner_id, iterations, partition } => {
@@ -1185,6 +1224,249 @@ fn run_pce_bench(
 ) -> Result<()> {
     anyhow::bail!(
         "pce-bench subcommand requires the 'pce-bench' feature.\n\
+         Rebuild with: cargo build --release -p cuzk-bench --features pce-bench --no-default-features"
+    );
+}
+
+/// Read current process RSS from /proc/self/status, return as GiB.
+fn rss_gib() -> f64 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    for line in status.lines() {
+        if line.starts_with("VmRSS:") {
+            let kb: f64 = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+            return kb / 1048576.0;
+        }
+    }
+    0.0
+}
+
+/// Print an RSS snapshot with a label.
+fn log_rss(label: &str) {
+    let rss = rss_gib();
+    println!("  [RSS] {:<40} {:>7.1} GiB", label, rss);
+}
+
+#[cfg(feature = "pce-bench")]
+fn run_pce_pipeline(
+    c1: PathBuf,
+    sector_num: u64,
+    miner_id: u64,
+    num_proofs: u32,
+    parallel: u32,
+    compare_old: bool,
+) -> Result<()> {
+    // Set FIL_PROOFS_PARAMETER_CACHE
+    if std::env::var("FIL_PROOFS_PARAMETER_CACHE").is_err() {
+        if std::path::Path::new("/data/zk/params").exists() {
+            unsafe { std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", "/data/zk/params") };
+        }
+    }
+
+    let parallel = if parallel == 0 { 1 } else { parallel };
+    let is_parallel = parallel > 1;
+
+    println!("=== PCE Pipeline Benchmark ===");
+    println!("c1:         {}", c1.display());
+    println!("sector:     {} (miner {})", sector_num, miner_id);
+    println!("num_proofs: {}", num_proofs);
+    println!("parallel:   {}{}", parallel, if is_parallel { " (concurrent pipelines)" } else { " (sequential)" });
+    println!("compare:    {}", if compare_old { "old + PCE" } else { "PCE only" });
+    println!();
+
+    let c1_data = std::fs::read(&c1)
+        .with_context(|| format!("failed to read {}", c1.display()))?;
+    println!("c1 loaded: {} bytes", c1_data.len());
+    log_rss("after c1 load");
+
+    // Optional: run old path first for comparison, then drop
+    if compare_old {
+        println!("\n--- Old-path synthesis (for comparison, will drop) ---");
+        let old_start = Instant::now();
+        let old_synth = cuzk_core::pipeline::synthesize_porep_c2_batch(
+            &c1_data, sector_num, miner_id, "pipeline-old",
+        )?;
+        let old_time = old_synth.synthesis_duration;
+        let old_circuits = old_synth.provers.len();
+        let old_constraints = if old_circuits > 0 { old_synth.provers[0].a.len() } else { 0 };
+        log_rss("old-path synthesis complete (held)");
+        println!(
+            "  old-path: synth={:.1}s  circuits={}  constraints={}  wall={:.1}s",
+            old_time.as_secs_f64(),
+            old_circuits,
+            old_constraints,
+            old_start.elapsed().as_secs_f64(),
+        );
+
+        // Drop old-path results to free memory
+        drop(old_synth);
+        #[cfg(target_os = "linux")]
+        unsafe { libc::malloc_trim(0); }
+        log_rss("old-path results DROPPED");
+    }
+
+    // Step 1: PCE extraction (first time only — cached in OnceLock)
+    println!("\n--- PCE Extraction (one-time) ---");
+    let extract_start = Instant::now();
+    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id)?;
+    let extract_time = extract_start.elapsed();
+    println!("  extract={:.1}s", extract_time.as_secs_f64());
+    log_rss("after PCE extraction (cached in OnceLock)");
+
+    if is_parallel {
+        // ── Parallel mode: launch `parallel` syntheses concurrently ──
+        // This simulates N GPU pipelines each needing a synthesis result
+        // at the same time. Peak memory = PCE static + N × per-pipeline.
+        println!(
+            "\n--- Parallel PCE proofs ({} proofs, {} concurrent) ---",
+            num_proofs, parallel,
+        );
+
+        // Process in waves of `parallel` concurrent proofs
+        let mut all_synth_times: Vec<std::time::Duration> = Vec::new();
+        let mut peak_rss_val: f64 = 0.0;
+        let mut wave = 0u32;
+        let mut remaining = num_proofs;
+
+        while remaining > 0 {
+            let batch = remaining.min(parallel);
+            remaining -= batch;
+            wave += 1;
+
+            println!("\n  wave {} ({} concurrent syntheses)", wave, batch);
+            let wave_start = Instant::now();
+
+            // Launch batch concurrent syntheses using scoped threads
+            let c1_ref = &c1_data;
+            let results: Vec<_> = std::thread::scope(|s| {
+                let handles: Vec<_> = (0..batch)
+                    .map(|j| {
+                        let job_id = format!("pipeline-pce-w{}-j{}", wave, j);
+                        s.spawn(move || {
+                            cuzk_core::pipeline::synthesize_porep_c2_batch(
+                                c1_ref, sector_num, miner_id, &job_id,
+                            )
+                        })
+                    })
+                    .collect();
+
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+
+            let wave_wall = wave_start.elapsed();
+            let current_rss = rss_gib();
+            if current_rss > peak_rss_val {
+                peak_rss_val = current_rss;
+            }
+            log_rss(&format!("wave {} all {} syntheses complete (held)", wave, batch));
+
+            // Log individual times
+            for (j, res) in results.iter().enumerate() {
+                match res {
+                    Ok(synth) => {
+                        let t = synth.synthesis_duration;
+                        println!(
+                            "    pipeline {}: synth={:.1}s  circuits={}",
+                            j, t.as_secs_f64(), synth.provers.len(),
+                        );
+                        all_synth_times.push(t);
+                    }
+                    Err(e) => {
+                        println!("    pipeline {}: FAILED: {:?}", j, e);
+                    }
+                }
+            }
+            println!("    wave wall={:.1}s", wave_wall.as_secs_f64());
+
+            // Drop all results (simulate GPU handoff)
+            drop(results);
+            #[cfg(target_os = "linux")]
+            unsafe { libc::malloc_trim(0); }
+            log_rss(&format!("wave {} results DROPPED", wave));
+        }
+
+        // Summary
+        println!("\n--- Summary (parallel, j={}) ---", parallel);
+        println!("PCE extraction:     {:.1}s (one-time)", extract_time.as_secs_f64());
+        println!("total proofs:       {}", all_synth_times.len());
+        if !all_synth_times.is_empty() {
+            let avg: f64 = all_synth_times.iter().map(|t| t.as_secs_f64()).sum::<f64>()
+                / all_synth_times.len() as f64;
+            let max = all_synth_times.iter().map(|t| t.as_secs_f64())
+                .max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(0.0);
+            println!("avg synth/proof:    {:.1}s", avg);
+            println!("max synth/proof:    {:.1}s", max);
+        }
+        println!("peak RSS:           {:.1} GiB", peak_rss_val);
+        log_rss("final (after all dropped)");
+    } else {
+        // ── Sequential mode ──
+        println!("\n--- Sequential PCE proofs ({} iterations) ---", num_proofs);
+        let mut synth_times = Vec::with_capacity(num_proofs as usize);
+        let mut peak_rss_val: f64 = 0.0;
+
+        for i in 0..num_proofs {
+            println!("\n  proof {}/{}", i + 1, num_proofs);
+
+            let proof_start = Instant::now();
+            let synth = cuzk_core::pipeline::synthesize_porep_c2_batch(
+                &c1_data, sector_num, miner_id, &format!("pipeline-pce-{}", i),
+            )?;
+            let synth_time = synth.synthesis_duration;
+            synth_times.push(synth_time);
+
+            let current_rss = rss_gib();
+            if current_rss > peak_rss_val {
+                peak_rss_val = current_rss;
+            }
+            println!(
+                "    synth={:.1}s  circuits={}  constraints={}  wall={:.1}s",
+                synth_time.as_secs_f64(),
+                synth.provers.len(),
+                if !synth.provers.is_empty() { synth.provers[0].a.len() } else { 0 },
+                proof_start.elapsed().as_secs_f64(),
+            );
+            log_rss(&format!("proof {} synthesis complete (held)", i + 1));
+
+            // Simulate GPU handoff: drop synthesis results
+            drop(synth);
+            #[cfg(target_os = "linux")]
+            unsafe { libc::malloc_trim(0); }
+            log_rss(&format!("proof {} results DROPPED (GPU handoff)", i + 1));
+        }
+
+        // Summary
+        println!("\n--- Summary (sequential) ---");
+        println!("PCE extraction:  {:.1}s (one-time, amortized)", extract_time.as_secs_f64());
+        for (i, t) in synth_times.iter().enumerate() {
+            println!("  proof {:>2} synth:  {:.1}s", i + 1, t.as_secs_f64());
+        }
+        if synth_times.len() > 1 {
+            let avg: f64 = synth_times.iter().map(|t| t.as_secs_f64()).sum::<f64>()
+                / synth_times.len() as f64;
+            println!("  average synth:  {:.1}s", avg);
+        }
+        println!("  peak RSS:       {:.1} GiB", peak_rss_val);
+        log_rss("final (after all proofs dropped)");
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "pce-bench"))]
+fn run_pce_pipeline(
+    _c1: PathBuf,
+    _sector_num: u64,
+    _miner_id: u64,
+    _num_proofs: u32,
+    _parallel: u32,
+    _compare_old: bool,
+) -> Result<()> {
+    anyhow::bail!(
+        "pce-pipeline subcommand requires the 'pce-bench' feature.\n\
          Rebuild with: cargo build --release -p cuzk-bench --features pce-bench --no-default-features"
     );
 }
