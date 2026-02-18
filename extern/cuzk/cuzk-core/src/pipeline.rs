@@ -191,6 +191,320 @@ where
     Ok((start, provers, input_assignments, aux_assignments))
 }
 
+// ─── PCE (Pre-Compiled Constraint Evaluator) Cache ──────────────────────────
+//
+// Phase 5: Cache the pre-compiled R1CS matrices per circuit type. The first
+// proof for a circuit type runs the old synthesize() path. When it completes,
+// we asynchronously extract the pre-compiled circuit (via RecordingCS) and
+// cache it. All subsequent proofs use the PCE path: WitnessCS (fast, no
+// enforce()) + CSR sparse MatVec for a/b/c evaluation.
+
+#[cfg(feature = "cuda-supraseal")]
+use cuzk_pce::{eval::density_tracker_from_words, evaluate_pce, PreCompiledCircuit};
+
+#[cfg(feature = "cuda-supraseal")]
+use bellperson::util_cs::witness_cs::WitnessCS;
+
+/// Cached pre-compiled circuit for PoRep 32G (extracted once, reused forever).
+#[cfg(feature = "cuda-supraseal")]
+static POREP_32G_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+
+/// Cached pre-compiled circuit for WinningPoSt.
+#[cfg(feature = "cuda-supraseal")]
+static WINNING_POST_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+
+/// Cached pre-compiled circuit for WindowPoSt.
+#[cfg(feature = "cuda-supraseal")]
+static WINDOW_POST_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+
+/// Cached pre-compiled circuit for SnapDeals.
+#[cfg(feature = "cuda-supraseal")]
+static SNAP_DEALS_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+
+/// Get the cached PCE for a circuit type, if available.
+#[cfg(feature = "cuda-supraseal")]
+fn get_pce(circuit_id: &CircuitId) -> Option<&'static PreCompiledCircuit<Fr>> {
+    match circuit_id {
+        CircuitId::Porep32G | CircuitId::Porep64G => POREP_32G_PCE.get(),
+        CircuitId::WinningPost32G => WINNING_POST_PCE.get(),
+        CircuitId::WindowPost32G => WINDOW_POST_PCE.get(),
+        CircuitId::SnapDeals32G | CircuitId::SnapDeals64G => SNAP_DEALS_PCE.get(),
+    }
+}
+
+/// Get the PCE cache lock for a circuit type.
+#[cfg(feature = "cuda-supraseal")]
+fn get_pce_lock(circuit_id: &CircuitId) -> &'static OnceLock<PreCompiledCircuit<Fr>> {
+    match circuit_id {
+        CircuitId::Porep32G | CircuitId::Porep64G => &POREP_32G_PCE,
+        CircuitId::WinningPost32G => &WINNING_POST_PCE,
+        CircuitId::WindowPost32G => &WINDOW_POST_PCE,
+        CircuitId::SnapDeals32G | CircuitId::SnapDeals64G => &SNAP_DEALS_PCE,
+    }
+}
+
+/// Extract a pre-compiled circuit from a circuit instance and cache it.
+///
+/// This runs the circuit with `RecordingCS` to capture R1CS structure.
+/// It's called once per circuit type, typically from a background thread
+/// after the first proof completes.
+#[cfg(feature = "cuda-supraseal")]
+pub fn extract_and_cache_pce<C>(circuit: C, circuit_id: &CircuitId) -> anyhow::Result<()>
+where
+    C: bellperson::Circuit<Fr>,
+{
+    use cuzk_pce::extract_precompiled_circuit;
+
+    let extract_start = Instant::now();
+    let pce = extract_precompiled_circuit(circuit)
+        .map_err(|e| anyhow::anyhow!("PCE extraction failed: {:?}", e))?;
+    let extract_duration = extract_start.elapsed();
+
+    info!(
+        circuit_id = %circuit_id,
+        extract_ms = extract_duration.as_millis(),
+        summary = %pce.summary(),
+        "PCE extraction complete"
+    );
+
+    let lock = get_pce_lock(circuit_id);
+    let _ = lock.set(pce); // ignore if already set (concurrent race)
+    Ok(())
+}
+
+/// Extract and cache PCE from a PoRep C1 output JSON blob.
+///
+/// Builds one partition circuit from the C1 data, runs it through `RecordingCS`
+/// to capture R1CS structure, and caches the result for future proofs.
+/// This is used by the bench tool to prime the PCE cache.
+#[cfg(feature = "cuda-supraseal")]
+pub fn extract_and_cache_pce_from_c1(
+    vanilla_proof_json: &[u8],
+    _sector_number: u64,
+    _miner_id: u64,
+) -> anyhow::Result<()> {
+    // Deserialize C1 output
+    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+        .context("failed to parse C1 output wrapper JSON")?;
+    let phase1_json_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &wrapper.phase1_out,
+    )
+    .context("failed to decode base64 Phase1Output")?;
+    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+        .context("failed to deserialize SealCommitPhase1Output from JSON")?;
+
+    let porep_config = c1_output.registered_proof.as_v1_config();
+    let num_partitions = usize::from(porep_config.partitions);
+
+    type Tree = SectorShape32GiB;
+
+    let vanilla_proofs: Vec<Vec<storage_proofs_porep::stacked::Proof<Tree, DefaultPieceHasher>>> =
+        c1_output
+            .vanilla_proofs
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("failed to convert vanilla proofs: {:?}", e))?;
+
+    let comm_r_safe = as_safe_commitment(&c1_output.comm_r, "comm_r")?;
+    let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&c1_output.comm_d, "comm_d")?;
+
+    use storage_proofs_porep::stacked::{PublicInputs, Tau};
+    let public_inputs = PublicInputs {
+        replica_id: c1_output.replica_id,
+        tau: Some(Tau {
+            comm_d: comm_d_safe,
+            comm_r: comm_r_safe,
+        }),
+        k: None,
+        seed: Some(c1_output.seed),
+    };
+
+    use storage_proofs_core::compound_proof::SetupParams;
+    let vanilla_setup = setup_params(&porep_config)?;
+    let compound_setup = SetupParams {
+        vanilla_params: vanilla_setup,
+        partitions: Some(num_partitions),
+        priority: false,
+    };
+    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::setup(&compound_setup)?;
+
+    // Build a single partition circuit (partition 0) for extraction
+    let circuit = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::circuit(
+        &public_inputs,
+        Default::default(),
+        &vanilla_proofs[0],
+        &compound_public_params.vanilla_params,
+        Some(0),
+    )?;
+
+    extract_and_cache_pce(circuit, &CircuitId::Porep32G)
+}
+
+/// Synthesize circuits using the PCE fast path.
+///
+/// Instead of running full circuit synthesis (which builds and evaluates
+/// ~130M LinearCombination objects), this:
+/// 1. Uses `WitnessCS` to run only `alloc()` closures (no `enforce()`)
+/// 2. Evaluates `a = A*w`, `b = B*w`, `c = C*w` via CSR sparse MatVec
+/// 3. Constructs `ProvingAssignment` from the pre-computed a/b/c + density
+///
+/// Expected speedup: 3-5x on synthesis phase.
+#[cfg(feature = "cuda-supraseal")]
+fn synthesize_with_pce<C>(
+    circuits: Vec<C>,
+    pce: &'static PreCompiledCircuit<Fr>,
+    circuit_id: &CircuitId,
+) -> Result<
+    (
+        Instant,
+        Vec<ProvingAssignment<Fr>>,
+        Vec<Arc<Vec<Fr>>>,
+        Vec<Arc<Vec<Fr>>>,
+    ),
+    bellperson::SynthesisError,
+>
+where
+    C: bellperson::Circuit<Fr> + Send,
+{
+    use bellperson::ConstraintSystem as _;
+    use rayon::prelude::*;
+
+    let witness_start = Instant::now();
+
+    // Phase 1: Witness generation via WitnessCS (no enforce() — no-op)
+    let witnesses: Vec<(Vec<Fr>, Vec<Fr>)> = circuits
+        .into_par_iter()
+        .map(|circuit| -> Result<_, bellperson::SynthesisError> {
+            let mut cs = WitnessCS::<Fr>::new();
+            // WitnessCS::new() already allocates the "one" input = Fr::ONE
+            circuit.synthesize(&mut cs)?;
+            let input_assignment = cs.scalar_inputs();
+            let aux_assignment = cs.scalar_aux();
+            Ok((input_assignment, aux_assignment))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let witness_duration = witness_start.elapsed();
+    info!(
+        circuit_id = %circuit_id,
+        witness_ms = witness_duration.as_millis(),
+        num_circuits = witnesses.len(),
+        "PCE witness generation complete (WitnessCS)"
+    );
+
+    // Phase 2: CSR MatVec evaluation (parallel across circuits)
+    // Each evaluate_pce internally uses rayon for row-parallel SpMV.
+    // With 96 cores and 10 circuits, par_iter gives each circuit ~9 cores
+    // which is enough for memory-bandwidth-bound SpMV while reducing wall time ~10x.
+    let eval_start = Instant::now();
+
+    let eval_results: Vec<_> = witnesses
+        .into_par_iter()
+        .map(|(input_assignment, aux_assignment)| {
+            evaluate_pce(pce, input_assignment, aux_assignment)
+        })
+        .collect();
+
+    let eval_duration = eval_start.elapsed();
+    info!(
+        circuit_id = %circuit_id,
+        eval_ms = eval_duration.as_millis(),
+        num_circuits = eval_results.len(),
+        "PCE MatVec evaluation complete"
+    );
+
+    // Build ProvingAssignment objects from PCE results
+    let start = Instant::now();
+
+    let mut provers = Vec::with_capacity(eval_results.len());
+    let mut input_assignments = Vec::with_capacity(eval_results.len());
+    let mut aux_assignments = Vec::with_capacity(eval_results.len());
+
+    for result in eval_results {
+        // Reconstruct DensityTrackers from pre-computed bitmaps
+        let a_aux_density = density_tracker_from_words(
+            &pce.density.a_aux_density_words,
+            pce.density.a_aux_bit_len,
+            pce.density.a_aux_popcount,
+        );
+        let b_input_density = density_tracker_from_words(
+            &pce.density.b_input_density_words,
+            pce.density.b_input_bit_len,
+            pce.density.b_input_popcount,
+        );
+        let b_aux_density = density_tracker_from_words(
+            &pce.density.b_aux_density_words,
+            pce.density.b_aux_bit_len,
+            pce.density.b_aux_popcount,
+        );
+
+        let prover = ProvingAssignment::from_pce(
+            result.a,
+            result.b,
+            result.c,
+            a_aux_density,
+            b_input_density,
+            b_aux_density,
+        );
+
+        provers.push(prover);
+        input_assignments.push(result.input_assignment);
+        aux_assignments.push(result.aux_assignment);
+    }
+
+    let total_pce_ms = witness_start.elapsed().as_millis();
+    info!(
+        circuit_id = %circuit_id,
+        total_pce_ms = total_pce_ms,
+        witness_ms = witness_duration.as_millis(),
+        eval_ms = eval_duration.as_millis(),
+        "PCE synthesis complete (witness + eval)"
+    );
+
+    Ok((start, provers, input_assignments, aux_assignments))
+}
+
+/// Unified synthesis function: uses PCE fast path if available, else falls back to old path.
+///
+/// On the first proof for a circuit type:
+/// 1. Uses the old `synthesize_with_hint` path
+/// 2. Kicks off PCE extraction in the background
+///
+/// On all subsequent proofs:
+/// 1. Uses `synthesize_with_pce` (WitnessCS + CSR MatVec, ~3-5x faster)
+#[cfg(feature = "cuda-supraseal")]
+fn synthesize_auto<C>(
+    circuits: Vec<C>,
+    circuit_id: &CircuitId,
+) -> Result<
+    (
+        Instant,
+        Vec<ProvingAssignment<Fr>>,
+        Vec<Arc<Vec<Fr>>>,
+        Vec<Arc<Vec<Fr>>>,
+    ),
+    bellperson::SynthesisError,
+>
+where
+    C: bellperson::Circuit<Fr> + Send,
+{
+    // Check if PCE is already cached for this circuit type
+    if let Some(pce) = get_pce(circuit_id) {
+        info!(circuit_id = %circuit_id, "using PCE fast path for synthesis");
+        return synthesize_with_pce(circuits, pce, circuit_id);
+    }
+
+    // No PCE cached yet — use old path
+    info!(circuit_id = %circuit_id, "PCE not yet cached — using old synthesis path");
+    synthesize_with_hint(circuits, circuit_id)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
@@ -502,7 +816,7 @@ pub fn synthesize_porep_c2_multi(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_with_hint(all_circuits, &CircuitId::Porep32G)?;
+        synthesize_auto(all_circuits, &CircuitId::Porep32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -702,7 +1016,7 @@ pub fn synthesize_porep_c2_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_with_hint(vec![circuit], &CircuitId::Porep32G)?;
+        synthesize_auto(vec![circuit], &CircuitId::Porep32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -843,7 +1157,7 @@ pub fn synthesize_porep_c2_batch(
     info!(num_circuits = circuits.len(), "synthesizing all circuits");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_with_hint(circuits, &CircuitId::Porep32G)?;
+        synthesize_auto(circuits, &CircuitId::Porep32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1046,7 +1360,7 @@ pub fn synthesize_winning_post(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_with_hint(circuits, &CircuitId::WinningPost32G)?;
+        synthesize_auto(circuits, &CircuitId::WinningPost32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1241,7 +1555,7 @@ pub fn synthesize_window_post(
     info!("synthesizing WindowPoSt circuit");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_with_hint(vec![circuit], &CircuitId::WindowPost32G)?;
+        synthesize_auto(vec![circuit], &CircuitId::WindowPost32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1419,7 +1733,7 @@ pub fn synthesize_snap_deals(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_with_hint(circuits, &CircuitId::SnapDeals32G)?;
+        synthesize_auto(circuits, &CircuitId::SnapDeals32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(

@@ -6,6 +6,7 @@ members = [
     "cuzk-server",
     "cuzk-daemon",
     "cuzk-bench",
+    "cuzk-pce",
     # "cuzk-ffi",  # Future: C ABI for Go embedding
 ]
 
@@ -18,6 +19,7 @@ repository = "https://github.com/filecoin-project/curio"
 # Internal crates
 cuzk-proto = { path = "cuzk-proto" }
 cuzk-core = { path = "cuzk-core" }
+cuzk-pce = { path = "cuzk-pce" }
 cuzk-server = { path = "cuzk-server" }
 
 # gRPC / async
@@ -74,6 +76,10 @@ bincode = "1.3"
 
 # Filecoin hashers (Domain trait, already transitive via filecoin-proofs)
 filecoin-hashers = { version = "14.0", default-features = false, features = ["poseidon", "sha256"] }
+
+# PCE dependencies
+ec-gpu-gen = { version = "0.7", default-features = false }
+bitvec = "1"
 
 [patch.crates-io]
 bellperson = { path = "../bellperson" }

@@ -675,6 +675,7 @@ dependencies = [
  "cid",
  "clap",
  "cuzk-core",
+ "cuzk-pce",
  "cuzk-proto",
  "filecoin-proofs-api",
  "hex",
@@ -697,9 +698,12 @@ dependencies = [
  "base64",
  "bellperson",
  "bincode",
+ "bitvec",
  "blstrs",
  "chrono",
+ "cuzk-pce",
  "cuzk-proto",
+ "ec-gpu-gen 0.7.1",
  "ff",
  "filecoin-hashers",
  "filecoin-proofs",
@@ -735,6 +739,23 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "cuzk-pce"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bellpepper-core",
+ "bellperson",
+ "bincode",
+ "bitvec",
+ "blstrs",
+ "ec-gpu-gen 0.7.1",
+ "ff",
+ "rayon",
+ "serde",
+ "tracing",
 ]
 
 [[package]]

@@ -123,6 +123,35 @@ impl<Scalar: PrimeField> PartialEq for ProvingAssignment<Scalar> {
 }
 
 impl<Scalar: PrimeField> ProvingAssignment<Scalar> {
+    /// Construct a ProvingAssignment from pre-computed components (PCE path).
+    ///
+    /// Used by the Pre-Compiled Constraint Evaluator (Phase 5) to bypass
+    /// circuit synthesis entirely. The a/b/c vectors and density trackers
+    /// are computed externally via CSR sparse MatVec, and the witness
+    /// assignments are produced by WitnessCS.
+    ///
+    /// The resulting ProvingAssignment is ready for `prove_from_assignments()`.
+    pub fn from_pce(
+        a: Vec<Scalar>,
+        b: Vec<Scalar>,
+        c: Vec<Scalar>,
+        a_aux_density: DensityTracker,
+        b_input_density: DensityTracker,
+        b_aux_density: DensityTracker,
+    ) -> Self {
+        Self {
+            a_aux_density,
+            b_input_density,
+            b_aux_density,
+            a,
+            b,
+            c,
+            input_assignment: Vec::new(), // extracted separately via std::mem::take pattern
+            aux_assignment: Vec::new(),   // extracted separately
+            lc_pool: LcVecPool::new(),
+        }
+    }
+
     /// Create a ProvingAssignment with pre-allocated vectors.
     ///
     /// The constraint count and aux variable count are deterministic for a

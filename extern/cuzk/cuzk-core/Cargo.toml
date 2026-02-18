@@ -23,6 +23,9 @@ base64 = { workspace = true }
 # Without it, bellperson's native prover is used.
 filecoin-proofs-api = { workspace = true }
 
+# Phase 5: Pre-Compiled Constraint Evaluator
+cuzk-pce = { workspace = true }
+
 # Phase 2: Direct circuit construction and pipelined proving.
 # These are already transitive deps via filecoin-proofs-api;
 # adding them as direct deps doesn't increase compile time or binary size.
@@ -38,6 +41,8 @@ rayon = { workspace = true }
 rand_core = { workspace = true }
 filecoin-hashers = { workspace = true }
 bincode = { workspace = true }
+ec-gpu-gen = { workspace = true }
+bitvec = { workspace = true }
 
 [features]
 default = ["cuda-supraseal"]

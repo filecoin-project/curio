@@ -33,7 +33,11 @@ cid = { workspace = true, optional = true }
 # Optional: for synth-bench subcommand (in-process synthesis microbenchmark)
 cuzk-core = { workspace = true, optional = true }
 
+# Optional: for pce-bench subcommand (PCE extraction + evaluation benchmark)
+cuzk-pce = { workspace = true, optional = true }
+
 [features]
 default = []
 gen-vanilla = ["filecoin-proofs-api", "cid"]
 synth-bench = ["cuzk-core"]
+pce-bench = ["cuzk-core", "cuzk-pce"]

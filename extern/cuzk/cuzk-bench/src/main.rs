@@ -158,6 +158,33 @@ enum Commands {
     #[command(subcommand)]
     GenVanilla(GenVanillaCommands),
 
+    /// PCE (Pre-Compiled Constraint Evaluator) extraction and benchmark.
+    ///
+    /// Extracts the R1CS constraint matrices from a circuit into CSR format,
+    /// then benchmarks the WitnessCS + MatVec pipeline against traditional
+    /// synthesis. Requires 'pce-bench' feature.
+    PceBench {
+        /// Path to C1 output JSON.
+        #[arg(long)]
+        c1: PathBuf,
+
+        /// Sector number.
+        #[arg(long, default_value = "1")]
+        sector_num: u64,
+
+        /// Miner ID.
+        #[arg(long, default_value = "1000")]
+        miner_id: u64,
+
+        /// Save extracted PCE to this path (bincode format).
+        #[arg(long)]
+        save_pce: Option<PathBuf>,
+
+        /// Validate PCE correctness: run both old and new paths and compare a/b/c.
+        #[arg(long, default_value = "true")]
+        validate: bool,
+    },
+
     /// In-process synthesis microbenchmark (requires `synth-bench` feature).
     ///
     /// Runs only the CPU synthesis step (circuit construction + R1CS witness
@@ -627,6 +654,10 @@ async fn main() -> Result<()> {
             run_gen_vanilla(subcmd)?;
         }
 
+        Commands::PceBench { c1, sector_num, miner_id, save_pce, validate } => {
+            run_pce_bench(c1, sector_num, miner_id, save_pce, validate)?;
+        }
+
         Commands::SynthOnly { c1, sector_num, miner_id, iterations, partition } => {
             run_synth_only(c1, sector_num, miner_id, iterations, partition)?;
         }
@@ -992,6 +1023,170 @@ fn run_synth_only(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "pce-bench")]
+fn run_pce_bench(
+    c1: PathBuf,
+    sector_num: u64,
+    miner_id: u64,
+    save_pce: Option<PathBuf>,
+    validate: bool,
+) -> Result<()> {
+    use std::time::Instant;
+
+    // Set FIL_PROOFS_PARAMETER_CACHE for proof type registration
+    if std::env::var("FIL_PROOFS_PARAMETER_CACHE").is_err() {
+        if std::path::Path::new("/data/zk/params").exists() {
+            unsafe { std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", "/data/zk/params") };
+        }
+    }
+
+    println!("=== PCE Benchmark ===");
+    println!("c1:       {}", c1.display());
+    println!("sector:   {} (miner {})", sector_num, miner_id);
+    println!();
+
+    let c1_data = std::fs::read(&c1)
+        .with_context(|| format!("failed to read {}", c1.display()))?;
+    println!("c1 loaded: {} bytes", c1_data.len());
+
+    // Step 1: Run traditional synthesis to get baseline timing and a/b/c vectors
+    println!("\n--- Step 1: Baseline synthesis (old path) ---");
+    let baseline_start = Instant::now();
+    let baseline_synth = cuzk_core::pipeline::synthesize_porep_c2_batch(
+        &c1_data, sector_num, miner_id, "pce-baseline",
+    )?;
+    let _baseline_time = baseline_start.elapsed();
+    let num_circuits = baseline_synth.provers.len();
+    let num_constraints = if num_circuits > 0 { baseline_synth.provers[0].a.len() } else { 0 };
+    println!(
+        "  synth={:.1}s  circuits={}  constraints={}",
+        baseline_synth.synthesis_duration.as_secs_f64(),
+        num_circuits,
+        num_constraints,
+    );
+
+    // Step 2: Extract PCE from a single circuit
+    println!("\n--- Step 2: PCE extraction (RecordingCS) ---");
+    let extract_start = Instant::now();
+    // Build one circuit with the same vanilla proof data for extraction
+    // We use extract_and_cache_pce which will cache it in the global OnceLock
+    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id)?;
+    let extract_time = extract_start.elapsed();
+    println!("  extract={:.1}s", extract_time.as_secs_f64());
+
+    // Step 3: Run PCE synthesis path
+    println!("\n--- Step 3: PCE synthesis (WitnessCS + MatVec) ---");
+    let pce_start = Instant::now();
+    let pce_synth = cuzk_core::pipeline::synthesize_porep_c2_batch(
+        &c1_data, sector_num, miner_id, "pce-fast",
+    )?;
+    let _pce_time = pce_start.elapsed();
+    println!(
+        "  synth={:.1}s  circuits={}  constraints={}",
+        pce_synth.synthesis_duration.as_secs_f64(),
+        pce_synth.provers.len(),
+        if !pce_synth.provers.is_empty() { pce_synth.provers[0].a.len() } else { 0 },
+    );
+
+    // Step 4: Compare timings
+    println!("\n--- Results ---");
+    let speedup = baseline_synth.synthesis_duration.as_secs_f64()
+        / pce_synth.synthesis_duration.as_secs_f64();
+    println!(
+        "baseline synth: {:.1}s",
+        baseline_synth.synthesis_duration.as_secs_f64(),
+    );
+    println!(
+        "PCE synth:      {:.1}s",
+        pce_synth.synthesis_duration.as_secs_f64(),
+    );
+    println!("speedup:        {:.2}x", speedup);
+    println!(
+        "PCE extract:    {:.1}s (one-time cost)",
+        extract_time.as_secs_f64(),
+    );
+
+    // Step 5: Validate correctness (compare a/b/c vectors)
+    if validate && !baseline_synth.provers.is_empty() && !pce_synth.provers.is_empty() {
+        println!("\n--- Correctness Validation ---");
+        let mut all_match = true;
+        let check_circuits = baseline_synth.provers.len().min(pce_synth.provers.len());
+
+        for c in 0..check_circuits {
+            let ba = &baseline_synth.provers[c].a;
+            let pa = &pce_synth.provers[c].a;
+            let bb = &baseline_synth.provers[c].b;
+            let pb_b = &pce_synth.provers[c].b;
+            let bc = &baseline_synth.provers[c].c;
+            let pc = &pce_synth.provers[c].c;
+
+            if ba.len() != pa.len() || bb.len() != pb_b.len() || bc.len() != pc.len() {
+                println!("  circuit {}: LENGTH MISMATCH (a: {} vs {}, b: {} vs {}, c: {} vs {})",
+                    c, ba.len(), pa.len(), bb.len(), pb_b.len(), bc.len(), pc.len());
+                all_match = false;
+                continue;
+            }
+
+            let mut a_mismatches = 0usize;
+            let mut b_mismatches = 0usize;
+            let mut c_mismatches = 0usize;
+            let mut first_a_mismatch = None;
+
+            for i in 0..ba.len() {
+                if ba[i] != pa[i] {
+                    a_mismatches += 1;
+                    if first_a_mismatch.is_none() {
+                        first_a_mismatch = Some(i);
+                    }
+                }
+                if bb[i] != pb_b[i] {
+                    b_mismatches += 1;
+                }
+                if bc[i] != pc[i] {
+                    c_mismatches += 1;
+                }
+            }
+
+            if a_mismatches == 0 && b_mismatches == 0 && c_mismatches == 0 {
+                println!("  circuit {}: PASS (all {} constraints match)", c, ba.len());
+            } else {
+                println!(
+                    "  circuit {}: FAIL (a: {} mismatches, b: {} mismatches, c: {} mismatches, first_a_at: {:?})",
+                    c, a_mismatches, b_mismatches, c_mismatches, first_a_mismatch
+                );
+                all_match = false;
+            }
+        }
+
+        if all_match {
+            println!("  ALL CIRCUITS MATCH — PCE is correct!");
+        } else {
+            println!("  VALIDATION FAILED — PCE output differs from baseline");
+        }
+    }
+
+    // Optionally save PCE to disk
+    if let Some(path) = save_pce {
+        println!("\nSaving PCE is not yet implemented (would serialize to {})", path.display());
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "pce-bench"))]
+fn run_pce_bench(
+    _c1: PathBuf,
+    _sector_num: u64,
+    _miner_id: u64,
+    _save_pce: Option<PathBuf>,
+    _validate: bool,
+) -> Result<()> {
+    anyhow::bail!(
+        "pce-bench subcommand requires the 'pce-bench' feature.\n\
+         Rebuild with: cargo build --release -p cuzk-bench --features pce-bench --no-default-features"
+    );
 }
 
 #[cfg(not(feature = "synth-bench"))]
