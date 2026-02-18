@@ -59,6 +59,123 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
+        /* History sidebar */
+        #historySidebar {
+            position: fixed;
+            top: 60px;
+            right: 0;
+            width: 300px;
+            height: calc(100vh - 60px);
+            background-color: #1a1a2e;
+            border-left: 1px solid #333;
+            z-index: 90;
+            overflow-y: auto;
+            display: none;
+            padding: 0;
+        }
+
+        #historySidebar.open {
+            display: block;
+        }
+
+        #historySidebar .sidebar-header {
+            padding: 12px 15px;
+            border-bottom: 1px solid #333;
+            font-weight: bold;
+            font-size: 14px;
+            color: #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            background-color: #1a1a2e;
+            z-index: 1;
+        }
+
+        .history-entry {
+            padding: 10px 15px;
+            border-bottom: 1px solid #2a2a3e;
+            cursor: pointer;
+            font-size: 13px;
+            color: #8b949e;
+            transition: background-color 0.15s;
+        }
+
+        .history-entry:hover {
+            background-color: #2a2a3e;
+        }
+
+        .history-entry.active {
+            background-color: #30304a;
+            border-left: 3px solid #58a6ff;
+        }
+
+        .history-entry .entry-time {
+            color: #6e7681;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        #historyToggle {
+            position: fixed;
+            top: 70px;
+            right: 15px;
+            z-index: 99;
+            font-size: 13px;
+            border: 1px solid #444;
+            background-color: #1a1a2e;
+            color: #ccc;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }
+
+        #historyToggle:hover {
+            background-color: #2a2a3e;
+        }
+
+        /* Diff view */
+        #diffPanel {
+            display: none;
+            margin-top: 20px;
+        }
+
+        #diffPanel .diff-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .diff-container {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 12px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .diff-line-add {
+            background-color: rgba(46, 160, 67, 0.15);
+            color: #3fb950;
+        }
+
+        .diff-line-remove {
+            background-color: rgba(248, 81, 73, 0.15);
+            color: #f85149;
+        }
+
+        .diff-line-context {
+            color: #8b949e;
+        }
+
         .hidden {
             display: none;
         }
@@ -101,6 +218,29 @@
                 <div class="col-md-8">
                     <div>
                         <button id="saveButton" class="saveButton">Save</button>
+                    </div>
+
+                    <!-- Diff panel (shown below editor when a history entry is selected) -->
+                    <div id="diffPanel">
+                        <div class="diff-header">
+                            <h6 id="diffTitle" class="text-muted mb-0"></h6>
+                            <button class="btn btn-sm btn-outline-secondary" id="closeDiff">&times; Close</button>
+                        </div>
+                        <div class="diff-container" id="diffOutput"></div>
+                    </div>
+
+                    <!-- History sidebar toggle -->
+                    <button id="historyToggle">&#9776; History</button>
+
+                    <!-- History sidebar -->
+                    <div id="historySidebar">
+                        <div class="sidebar-header">
+                            <span>&#128337; Change History</span>
+                            <button class="btn btn-sm btn-outline-secondary py-0 px-1" id="closeSidebar">&times;</button>
+                        </div>
+                        <div id="historyList">
+                            <p class="text-muted p-3" style="font-size:13px;">Loading...</p>
+                        </div>
                     </div>
 
                     <div class="help-button">
@@ -223,6 +363,140 @@
                                             });
                                     }
                                 });
+
+                                // History sidebar feature
+                                var sidebar = document.getElementById('historySidebar');
+                                var historyList = document.getElementById('historyList');
+                                var historyToggle = document.getElementById('historyToggle');
+                                var diffPanel = document.getElementById('diffPanel');
+                                var diffOutput = document.getElementById('diffOutput');
+                                var diffTitle = document.getElementById('diffTitle');
+
+                                if (layer === 'default') {
+                                    historyToggle.style.display = 'none';
+                                }
+
+                                historyToggle.addEventListener('click', function() {
+                                    sidebar.classList.toggle('open');
+                                    if (sidebar.classList.contains('open')) {
+                                        loadHistory();
+                                    }
+                                });
+
+                                document.getElementById('closeSidebar').addEventListener('click', function() {
+                                    sidebar.classList.remove('open');
+                                });
+
+                                document.getElementById('closeDiff').addEventListener('click', function() {
+                                    diffPanel.style.display = 'none';
+                                    // Deselect active entry
+                                    var active = historyList.querySelector('.history-entry.active');
+                                    if (active) active.classList.remove('active');
+                                });
+
+                                function loadHistory() {
+                                    historyList.innerHTML = '<p class="text-muted p-3" style="font-size:13px;">Loading...</p>';
+                                    axios.get('/api/config/history/' + layer)
+                                        .then(function(resp) {
+                                            var entries = resp.data;
+                                            if (!entries || entries.length === 0) {
+                                                historyList.innerHTML = '<p class="text-muted p-3" style="font-size:13px;">No changes recorded yet.</p>';
+                                                return;
+                                            }
+                                            var html = '';
+                                            entries.forEach(function(entry, idx) {
+                                                var dt = new Date(entry.changed_at);
+                                                var dateStr = dt.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+                                                var timeStr = dt.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
+                                                html += '<div class="history-entry" data-id="' + entry.id + '">';
+                                                html += '<div class="entry-time">' + dateStr + ' ' + timeStr + '</div>';
+                                                html += '</div>';
+                                            });
+                                            historyList.innerHTML = html;
+
+                                            historyList.querySelectorAll('.history-entry').forEach(function(el) {
+                                                el.addEventListener('click', function() {
+                                                    // Mark active
+                                                    historyList.querySelectorAll('.history-entry').forEach(function(e) { e.classList.remove('active'); });
+                                                    this.classList.add('active');
+                                                    loadDiff(this.getAttribute('data-id'));
+                                                });
+                                            });
+                                        })
+                                        .catch(function(err) {
+                                            historyList.innerHTML = '<p class="text-danger p-3" style="font-size:13px;">Failed to load history.</p>';
+                                        });
+                                }
+
+                                function loadDiff(entryId) {
+                                    diffPanel.style.display = 'block';
+                                    diffOutput.textContent = 'Loading...';
+                                    diffTitle.textContent = '';
+
+                                    axios.get('/api/config/history/' + layer + '/' + entryId)
+                                        .then(function(resp) {
+                                            var entry = resp.data;
+                                            var dt = new Date(entry.changed_at);
+                                            diffTitle.textContent = dt.toLocaleString() + ' → current';
+                                            diffOutput.innerHTML = computeDiff(entry.old_config, entry.new_config);
+                                        })
+                                        .catch(function(err) {
+                                            diffOutput.innerHTML = '<span class="text-danger">Failed to load diff.</span>';
+                                        });
+                                }
+
+                                function computeDiff(oldText, newText) {
+                                    var oldLines = oldText.split('\n');
+                                    var newLines = newText.split('\n');
+                                    var html = '';
+                                    var m = oldLines.length;
+                                    var n = newLines.length;
+
+                                    var dp = [];
+                                    for (var i = 0; i <= m; i++) {
+                                        dp[i] = [];
+                                        for (var j = 0; j <= n; j++) {
+                                            if (i === 0 || j === 0) {
+                                                dp[i][j] = 0;
+                                            } else if (oldLines[i - 1] === newLines[j - 1]) {
+                                                dp[i][j] = dp[i - 1][j - 1] + 1;
+                                            } else {
+                                                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                                            }
+                                        }
+                                    }
+
+                                    var result = [];
+                                    var i = m, j = n;
+                                    while (i > 0 || j > 0) {
+                                        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+                                            result.unshift({ type: 'context', text: oldLines[i - 1] });
+                                            i--; j--;
+                                        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                                            result.unshift({ type: 'add', text: newLines[j - 1] });
+                                            j--;
+                                        } else {
+                                            result.unshift({ type: 'remove', text: oldLines[i - 1] });
+                                            i--;
+                                        }
+                                    }
+
+                                    result.forEach(function(line) {
+                                        var escaped = line.text
+                                            .replace(/&/g, '&amp;')
+                                            .replace(/</g, '&lt;')
+                                            .replace(/>/g, '&gt;');
+                                        if (line.type === 'add') {
+                                            html += '<div class="diff-line-add">+ ' + escaped + '</div>';
+                                        } else if (line.type === 'remove') {
+                                            html += '<div class="diff-line-remove">- ' + escaped + '</div>';
+                                        } else {
+                                            html += '<div class="diff-line-context">  ' + escaped + '</div>';
+                                        }
+                                    });
+
+                                    return html || '<span class="text-muted">No differences found.</span>';
+                                }
                             })
                             .catch(error => {
                                 console.error('Error fetching data:', error);

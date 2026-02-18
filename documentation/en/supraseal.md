@@ -7,7 +7,7 @@ description: This page explains how to set up Curio batch sealing (extern/supras
 {% hint style="danger" %}
 **Disclaimer:** Batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Some additional manual system configuration is required.
 
-Batch sealing only supports **CC sectors** at the moment.
+Batch sealing only supports **CC sectors** at the moment. The recommended workflow for onboarding deal data is to batch-seal CC sectors and then upgrade them with SnapDeals.
 
 If you enable batch sealing on a node but do **not** enable SnapDeals in the cluster, deals may be routed into the CC/batch pipeline which will seal empty sectors (discarding deal data). Make sure SnapDeals are enabled if you intend to onboard real data deals.
 {% endhint %}
@@ -17,7 +17,7 @@ If you enable batch sealing on a node but do **not** enable SnapDeals in the clu
 Curio includes a **CC Scheduler** UI and DB table (`sectors_cc_scheduler`) used to decide how many CC sectors to queue for batch sealing per SP.
 
 - The **CC Scheduler is only used for batch sealing**.
-- Do not enable or rely on it for deals/SnapDeals.
+- Do not enable or rely on it for deals.
 
 Curio’s web UI exposes this as the **CC Scheduler** page/tab.
 
@@ -545,3 +545,30 @@ Device Information                     :       IOPS      MiB/s    Average       
 PCIE (0000:c1:00.0) NSID 1 from core  0:  721383.71    2817.91      88.68      11.20     591.51  ## before
 PCIE (0000:86:00.0) NSID 1 from core  0: 1205271.62    4708.09      53.07      11.87     446.84  ## after
 ```
+
+
+---
+
+## Troubleshooting batch commit / all-or-nothing failures
+
+Support frequently sees failures of the form:
+- `all-or-nothing: Batch successes 67/68, Batch failing: [code=.. at idx=..] ...`
+
+What it means:
+- Some batch operations are **atomic**: a single failing entry can cause the whole batch to fail.
+
+How to debug (operator workflow):
+1) In the Curio UI, locate the failing **CommitBatch / PreCommitBatch** task and open its details.
+2) Correlate the batch failure with the per-sector tasks immediately before it (often the underlying failure is earlier).
+3) Check chain/message errors: many failures are actually wallet funding, fee, or chain state errors.
+4) Collect:
+   - `sp_id`
+   - the task ID(s)
+   - the full error message including the `idx=...`
+
+How to recover safely:
+- If you suspect one “bad” sector is poisoning the batch, temporarily reduce batching (batch size / concurrency) to isolate.
+- Avoid manual DB edits unless you know exactly what you are doing (take a backup first).
+
+If you’re stuck:
+- follow `documentation/en/troubleshooting/collect-debug-info.md` and include the task IDs.

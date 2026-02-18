@@ -6,35 +6,71 @@ description: >-
 
 # Indexing
 
-Curio uses a local index store to manage the mapping of multihashes to content pieces. This system allows efficient retrieval of content across multiple nodes in the Curio cluster. The index store does not interact with IPNI directly but may be used to create and serve advertisements for the IPNI network when needed.
+Curio uses a local index store to manage the mapping of multihashes to content pieces. This system allows efficient retrieval of content across multiple nodes in the Curio cluster.
 
-### Key Components:
+The index store does not interact with IPNI directly, but Curio may use index data to create and serve advertisements for the IPNI network when enabled.
 
-* **Local Index Store**: The core of Curio's indexing system is a local Cassandra-based database that stores mappings of multihashes to piece CIDs along with offsets and sizes for retrieval purposes.
-* **Concurrency & Batching**: The index store uses concurrent processes and batching for adding or removing entries to ensure efficient handling of large-scale indexing tasks.
-* **Piece Mapping**: The system maps multihashes to pieces and provides the necessary offset and size data for locating content within a piece. This mapping is key for retrieval operations, especially when multiple pieces share common multihashes.
-* **Integration with Retrievals**: The indexing system works hand-in-hand with Curio's retrieval system to ensure content can be efficiently located and served. By maintaining an accurate and up-to-date index, retrieval times are optimized.
-* **Task-Based Indexing**: Indexing operations are carried out in the background through task-based processing for each deal.
+## Key Components
+
+* **Local Index Store**: A Cassandra-based local store that maps multihashes → piece CIDs + offsets/sizes.
+* **Concurrency & Batching**: Configurable concurrency and batch sizing for index inserts.
+* **Integration with Retrievals**: Retrieval performance depends on correct, timely indexing.
+* **Task-Based Indexing**: Indexing work is performed asynchronously via tasks.
 
 ## Index Store
 
-Curio’s indexing mechanism relies on a Cassandra-based storage system. The local copy of the indexes allows efficient lookups for retrieval operations, independent of any interaction with IPNI (Interplanetary Network Indexer). However, when needed, this index can serve as a base for generating advertisements for IPNI.
+Curio’s indexing mechanism relies on a Cassandra-based storage system. The local copy of the indexes allows efficient lookups for retrieval operations.
 
 The IndexStore component handles all interactions with the underlying Cassandra database, including creating, adding, and removing index entries, and querying pieces by multihashes.
 
 ### Concurrency and Batching
 
-The IndexStore allows configurable concurrency and batching for operations. It uses multiple workers to process index entries, enabling parallel indexing to scale with the size of the dataset. These operations are critical for large datasets where inserting and managing millions of records can become a bottleneck without proper concurrency control.
+The IndexStore allows configurable concurrency and batching for operations. It uses multiple workers to process index entries, enabling parallel indexing to scale with the size of the dataset.
 
 ### Configuration
 
-The `IndexingConfig` struct defines two key configuration parameters that control how indexing operations are performed in Curio:
+The `IndexingConfig` struct defines parameters that control how indexing operations are performed:
 
-* **InsertBatchSize**: Specifies the number of records that will be grouped and inserted into the database in a single batch. This helps optimize performance by reducing the number of individual insert operations.
-* **InsertConcurrency**: Defines how many concurrent workers will be used to handle the insertion of records into the index. This allows for parallel processing and improved performance, particularly when dealing with large-scale indexing tasks.
+* **InsertBatchSize**: number of records per batch insert.
+* **InsertConcurrency**: number of concurrent insert workers.
 
 ## Task-Based Indexing
 
-To handle large indexing jobs efficiently, Curio leverages a task-based approach. Indexing tasks are created and executed asynchronously, allowing the system to manage and prioritize indexing operations without blocking other processes.
+Indexing tasks are created and executed asynchronously, allowing Curio to manage indexing without blocking other subsystems.
 
-Tasks are assigned to individual nodes within the Curio cluster, and each node executes its indexing tasks based on the available system resources and the availability of the local copy of unsealed sector containing the deal. The results of these tasks are committed to the index store, ensuring that the data is available for retrieval.
+Tasks are assigned to nodes within the Curio cluster, and each node executes indexing tasks based on the available system resources and the availability of the local copy of unsealed sector containing the deal.
+
+---
+
+## How “CheckIndex” works (and why it fails)
+
+Operators frequently see errors on a task called **CheckIndex** and aren’t sure what it does.
+
+What it does (high level):
+- Periodically scans for indexing and announcement work that should exist (or be retried).
+- Schedules follow-up tasks when it finds missing/failed items.
+
+Code reference:
+- `tasks/indexing/task_check_indexes.go` implements the `CheckIndex` task.
+
+### Common failure mode: DB health/latency
+
+If Yugabyte is slow/unhealthy, downstream tasks (including market/indexing workflows) can appear broken.
+
+Before chasing indexing logic:
+- run the DB connectivity check from the Curio host
+- check tserver logs for FATALs
+
+See: [Yugabyte troubleshooting](../administration/yugabyte-troubleshooting.md)
+
+### Common failure mode: duplicate key (SQLSTATE 23505)
+
+You may see:
+- `duplicate key value violates unique constraint ... (SQLSTATE 23505)`
+
+This often indicates concurrency/retries inserting the same identity row.
+
+What to do:
+- Determine whether the pipeline is still progressing.
+- If tasks are stuck, collect deal UUID + piece CID + failing task IDs and consult:
+  - [Curio Market troubleshooting](troubleshooting.md)

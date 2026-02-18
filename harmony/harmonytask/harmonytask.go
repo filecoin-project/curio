@@ -64,6 +64,9 @@ type TaskTypeDetails struct {
 	// task would block a short-running task from being scheduled, blocking other related pipelines on
 	// other machines.
 	SchedulingOverrides map[string]bool
+
+	// Should block shutdown until completion..
+	TimeSensitive bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -253,43 +256,17 @@ func (e *TaskEngine) GracefullyTerminate() {
 	// If there are any Post tasks then wait till Timeout and check again
 	// When no Post tasks are active, break out of loop  and call the shutdown function
 	for {
-		timeout := time.Millisecond
+		var waited bool
 		for _, h := range e.handlers {
-			if h.Name == "WinPost" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
-				continue
-			}
-			if h.Name == "WdPost" && h.Max.Active() > 0 {
-				timeout = time.Second * 3
-				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
-				continue
-			}
-
-			if h.Name == "WdPostSubmit" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
-				continue
-			}
-
-			if h.Name == "WdPostRecover" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
-				continue
-			}
-
-			// Test tasks for itest
-			if h.Name == "ThingOne" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
-				continue
+			if h.TimeSensitive && h.Max.Active() > 0 {
+				log.Infof("node shutdown deferred due to running %s task", h.Name)
+				time.Sleep(time.Second * 3)
+				waited = true
 			}
 		}
-		if timeout > time.Millisecond {
-			time.Sleep(timeout)
-			continue
+		if !waited {
+			break
 		}
-		break
 	}
 }
 
@@ -379,7 +356,12 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 		ct := t.Max.ActiveThis()
 		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
-		tmp.Ram -= uint64(ct) * t.Cost.Ram
+		ramUsed := uint64(ct) * t.Cost.Ram
+		if ramUsed >= tmp.Ram {
+			tmp.Ram = 0
+		} else {
+			tmp.Ram -= ramUsed
+		}
 		rlog.Debugw("Per task type", "Name", t.Name, "Count", ct, "CPU", ct*t.Cost.Cpu, "RAM", uint64(ct)*t.Cost.Ram, "GPU", float64(ct)*t.Cost.Gpu)
 	}
 	rlog.Debugw("Total", "CPU", tmp.Cpu, "RAM", tmp.Ram, "GPU", tmp.Gpu)

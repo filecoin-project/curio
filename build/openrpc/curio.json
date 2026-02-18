@@ -2,7 +2,7 @@
     "openrpc": "1.2.6",
     "info": {
         "title": "Curio RPC API",
-        "version": "1.27.2"
+        "version": "1.27.3-rc1"
     },
     "methods": [
         {
@@ -312,7 +312,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L340"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L236"
             }
         },
         {
@@ -335,7 +335,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L351"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L247"
             }
         },
         {
@@ -400,7 +400,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L362"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L258"
             }
         },
         {
@@ -544,7 +544,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L373"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L269"
             }
         },
         {
@@ -580,7 +580,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L384"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L280"
             }
         },
         {
@@ -634,7 +634,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L395"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L291"
             }
         },
         {
@@ -657,7 +657,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L406"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L302"
             }
         },
         {
@@ -696,7 +696,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L417"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L313"
             }
         },
         {
@@ -735,7 +735,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L428"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L324"
             }
         },
         {
@@ -929,7 +929,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L439"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L335"
             }
         },
         {
@@ -990,7 +990,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L450"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L346"
             }
         },
         {
@@ -1122,7 +1122,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L461"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L357"
             }
         },
         {
@@ -1256,7 +1256,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L472"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L368"
             }
         },
         {
@@ -1310,7 +1310,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L483"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L379"
             }
         },
         {
@@ -1344,7 +1344,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L494"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L390"
             }
         },
         {
@@ -1398,7 +1398,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L505"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L401"
             }
         },
         {
@@ -1475,7 +1475,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L516"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L412"
             }
         },
         {
@@ -1498,7 +1498,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L527"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L423"
             }
         },
         {
@@ -1536,7 +1536,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L538"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L434"
             }
         }
     ]

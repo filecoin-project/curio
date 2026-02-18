@@ -194,7 +194,7 @@ func (t *TaskUnsealDecode) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			SectorNumber int64 `db:"sector_number"`
 		}
 
-		err := t.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = TRUE AND after_decode_sector = FALSE AND task_id_decode_sector IS NULL`)
+		err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = TRUE AND after_decode_sector = FALSE AND task_id_decode_sector IS NULL`)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}

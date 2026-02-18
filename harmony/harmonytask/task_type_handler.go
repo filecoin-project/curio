@@ -421,9 +421,11 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 	if h.Cost.Ram > r.Ram {
 		return 0, xerrors.Errorf("Did not accept %s task: out of RAM: required %d available %d)", h.Name, h.Cost.Ram, r.Ram)
 	}
-	ramHeadroom := r.Ram / h.Cost.Ram
-	if ramHeadroom < uint64(headroom) {
-		headroom = int(ramHeadroom)
+	if h.Cost.Ram > 0 {
+		ramHeadroom := r.Ram / h.Cost.Ram
+		if ramHeadroom < uint64(headroom) {
+			headroom = int(ramHeadroom)
+		}
 	}
 	if r.Gpu-h.Cost.Gpu < 0 {
 		return 0, xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)

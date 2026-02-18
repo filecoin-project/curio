@@ -100,26 +100,26 @@ The Curio HTTP Server can be customized using the `HTTPConfig` structure, which 
 
 ### **HTTPConfig**
 
-* **Enable**: This boolean flag enables or disables the HTTP server. Default: `true`.
-* **DomainName**: The domain name used by the server to handle HTTP requests. It must be a valid domain name and cannot be an IP address. A correct `DomainName` is required for Let's Encrypt to issue SSL certificates, enabling HTTPS.\
-  Default: `""` (empty), meaning no domain is specified. This needs to be set for production environments using HTTPS.
-* **ListenAddress**: Defines the IP address and port on which the server listens for incoming requests.\
-  Default: `"0.0.0.0:12310"` — This binds the server to all available network interfaces on port 12310.
-* **DelegateTLS: It** allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve HTTP and the reverse proxy will handle TLS termination.
-* **ReadTimeout**: This sets the maximum duration to read a full request from the client, including the request body.\
-  Default: `10 seconds` — A reasonable timeout for handling most requests. Reducing this value can prevent slow clients from hanging the server, while increasing it might help in cases where the request size is larger or the connection is slower.
-* **WriteTimeout**: The maximum time allowed for writing the response to the client.\
-  Default: `10 seconds` — Ensures that the server does not take too long to send responses, especially useful for API calls or small files. For large files or slower clients, you may need to increase this value.
-* **IdleTimeout**: The duration after which an idle connection is closed if no activity is detected.\
-  Default: `2 minutes` — Prevents resources from being consumed by idle connections. If your application expects longer periods of inactivity, such as in long polling or WebSocket connections, this value should be adjusted accordingly.
-* **ReadHeaderTimeout**: The time allowed to read the request headers from the client.\
-  Default: `5 seconds` — Prevents slow clients from keeping connections open without sending complete headers. For standard web traffic, this value is sufficient, but it may need adjustment for certain client environments.
-* **CORSOrigins**: Specifies the allowed origins for CORS requests. If empty, CORS is disabled.\
-  Default: `[]` (empty array) — This disables CORS by default for security. To enable CORS, specify the allowed origins (e.g., `["https://example.com", "https://app.example.com"]`). This is required for third-party UI servers.
-* **CompressionLevels**: Defines the compression levels for GZIP, Brotli, and Deflate, which are used to optimize the response size. The defaults balance performance and bandwidth savings:
-  * **GzipLevel**: Default: `6` — A moderate compression level that balances speed and compression ratio, suitable for general-purpose use.
-  * **BrotliLevel**: Default: `4` — A moderate Brotli compression level, which provides better compression than GZIP but is more CPU-intensive. This level is good for text-heavy responses like HTML or JSON.
-  * **DeflateLevel**: Default: `6` — Similar to GZIP in terms of performance and compression, this default level provides a good balance for most responses.
+The list below is aligned with the actual `HTTPConfig` struct in `deps/config/types.go`.
+
+* **Enable**: Enables/disables the HTTP server on this node.
+* **DomainName**: DNS name used for requests and (when Curio terminates TLS) certificate issuance. Must be a real domain (not an IP).
+  Default: `""`.
+* **ListenAddress**: IP:port to bind.
+  Default: `"0.0.0.0:12310"`.
+* **DelegateTLS**: When `true`, Curio serves **plain HTTP** on `ListenAddress` and expects a reverse proxy to terminate TLS.
+* **ReadTimeout**: Max time to read request body.
+  Default: `10s`.
+* **IdleTimeout**: Max keep-alive idle time.
+  Default: `1h`.
+* **ReadHeaderTimeout**: Max time to read headers.
+  Default: `5s`.
+* **CORSOrigins**: Allowed origins; empty disables CORS.
+  Default: `[]`.
+* **CSP**: Content Security Policy mode for `/piece/` content. Values: `off`, `self`, `inline`.
+  Default: `inline`.
+* **CompressionLevels**: Response compression tuning.
+  Defaults: gzip=6, brotli=4, deflate=6.
 
 ### **Impact of Compression Levels**
 
@@ -129,3 +129,69 @@ The compression levels directly affect server performance and bandwidth usage:
 * Lower levels (e.g., `GzipLevel 1`) are faster but provide less compression, meaning higher bandwidth usage but reduced server load.
 
 For most applications, the default values of `6` for GZIP and Deflate, and `4` for Brotli provide a good trade-off between compression efficiency and CPU load, especially for responses that contain text or JSON.
+
+
+---
+
+## HTTPS setup (Let’s Encrypt / autocert) — operational guide
+
+Curio can terminate TLS itself (autocert / Let’s Encrypt) or you can terminate TLS in a reverse proxy.
+
+### Prerequisites (both modes)
+
+- You must use a real **domain name** (not an IP) in `HTTPConfig.DomainName`.
+- DNS must point your domain to the host that will receive traffic.
+- Inbound access must be allowed for:
+  - **80/tcp** (ACME HTTP-01) and
+  - **443/tcp** (HTTPS)
+
+If ports 80/443 are blocked (cloud firewall, NAT, or corporate network), Let’s Encrypt cannot validate your domain.
+
+### Mode A: Curio terminates TLS (DelegateTLS = false)
+
+Use this when you want Curio to handle certificates directly.
+
+Checklist:
+- `DomainName` is set and resolvable publicly.
+- Curio must be reachable from the internet on 80/443.
+
+Operational notes:
+- If your OS restricts binding to privileged ports, you may need one of:
+  - run the Curio HTTP service with permissions to bind 80/443, or
+  - terminate TLS in a reverse proxy (Mode B), or
+  - forward 80/443 to Curio’s listen port via firewall/NAT.
+
+### Mode B: Reverse proxy terminates TLS (DelegateTLS = true)
+
+Use this when you already run Nginx/Caddy/Traefik or cannot (or do not want to) expose Curio directly.
+
+In this mode:
+- Curio serves **plain HTTP** internally.
+- Your reverse proxy handles TLS + Let’s Encrypt.
+
+Minimal Nginx example:
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name example.com;
+
+  # TLS config here (certbot/caddy/managed)
+
+  location / {
+    proxy_pass http://127.0.0.1:12310;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $remote_addr;
+  }
+}
+```
+
+### Troubleshooting HTTPS
+
+If `curl https://<domain>` fails:
+- Confirm DNS A/AAAA is correct.
+- Confirm ports 80/443 are reachable externally.
+- Confirm `DomainName` matches the hostname you’re curling.
+- Confirm you didn’t enable `DelegateTLS=true` without actually configuring a reverse proxy.
+- Check Curio logs around certificate issuance / autocert.

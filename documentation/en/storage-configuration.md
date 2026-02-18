@@ -44,6 +44,37 @@ This command must be run locally from the Curio node where you want to attach th
 
 The storage location used by `lotus-miner` or `lotus-worker` can be reused by the Curio cluster. It can be attached once the migrated `lotus-miner` or `lotus-worker` is already running a Curio service.
 
+## Common errors (from support)
+
+### `permission denied` when attaching storage
+
+Example error:
+
+- `mkdir '<path>/key': permission denied`
+
+Plain-English meaning:
+- Curio writes small metadata into the storage path when attaching/initializing it (for example `sectorstorage.json` and a `key/` directory). If Curio can’t write there, attach will fail.
+
+Fix checklist:
+1) Confirm the filesystem is mounted **read-write**.
+2) Ensure the Curio service user owns (or can write to) the directory.
+3) If you use `curio cli --machine ... storage attach ...`, the operation is executed on the *remote machine*, so permissions must be correct there.
+
+### Stale/ghost storage endpoints in `storage list`
+
+Symptom:
+- `curio cli storage list` shows IDs/paths with errors like “all endpoints failed for remote storage <uuid>”.
+
+Meaning:
+- Curio still remembers a storage entry, but the endpoint is no longer reachable (retired node, IP change, firewall).
+
+Safe cleanup options:
+- Preferred: run `curio cli storage detach --really-do-it <path>` on the machine where that path was attached.
+- If the path is gone and detach can’t work: last resort is editing `~/.curio/storage.json` (or `$CURIO_REPO_PATH/storage.json`).
+
+Warning:
+- Removing the wrong entry can make sectors look “missing” until you re-attach the correct storage path.
+
 ```sh
 curio cli storage attach <PATH_FOR_LONG_TERM_STORAGE>
 

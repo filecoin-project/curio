@@ -69,22 +69,34 @@ func NowCheck(al *alerts) {
 		al.alertMap[Name].err = xerrors.Errorf("getting now alerts: %w", err)
 		return
 	}
-	defer func() {
-		if err == nil {
-			ids := lo.Map(nowAlerts, func(n NowType, _ int) int {
-				return n.ID
-			})
-			_, err = al.db.Exec(al.ctx, "DELETE FROM alerts where id = ANY($1)", ids)
-			if err != nil {
-				log.Errorf("Failed to delete alerts: %s", err)
-			}
-		}
-	}()
-	if len(nowAlerts) > 0 {
-		al.alertMap[Name].alertString = strings.Join(lo.Map(nowAlerts, func(n NowType, _ int) string {
-			return fmt.Sprintf("Machine %s: %s", n.Name, n.Message)
-		}), " ")
+
+	if len(nowAlerts) == 0 {
+		return
 	}
+
+	// Migrate alerts from old 'alerts' table to 'alert_history' and delete from 'alerts'
+	for _, na := range nowAlerts {
+		// Insert into alert_history
+		_, insertErr := al.db.Exec(al.ctx, `
+			INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
+			VALUES ($1, $2, $3, FALSE, NOW())
+		`, Name, na.Message, na.Name)
+		if insertErr != nil {
+			log.Errorf("Failed to migrate alert to history: %s", insertErr)
+			continue
+		}
+
+		// Delete from old alerts table
+		_, delErr := al.db.Exec(al.ctx, "DELETE FROM alerts WHERE id = $1", na.ID)
+		if delErr != nil {
+			log.Errorf("Failed to delete migrated alert: %s", delErr)
+		}
+	}
+
+	// Build alert string for external notification
+	al.alertMap[Name].alertString = strings.Join(lo.Map(nowAlerts, func(n NowType, _ int) string {
+		return fmt.Sprintf("Machine %s: %s", n.Name, n.Message)
+	}), " ")
 }
 
 // balanceCheck retrieves the machine details from the database and performs balance checks on unique addresses.
@@ -130,7 +142,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			ret += fmt.Sprintf("Balance for wallet %s (%s) is below 5 Fil. ", addr, keyAddr)
+			ret += fmt.Sprintf("Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
 	if ret != "" {
@@ -205,7 +217,7 @@ func taskFailureCheck(al *alerts) {
 	}
 
 	// Alert if a machine failed more than 5 tasks
-	for name, count := range tmap {
+	for name, count := range mmap {
 		if count > 5 {
 			al.alertMap[Name].alertString += fmt.Sprintf("Machine: %s, Failures: %d. ", name, count)
 		}
@@ -277,9 +289,10 @@ func permanentStorageCheck(al *alerts) {
 		sectorMap[key] = false
 
 		for _, strg := range storages {
-			if space > strg.Available {
+			if space <= strg.Available {
 				strg.Available -= space
 				sectorMap[key] = true
+				break
 			}
 		}
 	}
@@ -451,8 +464,14 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	// Map[Miner Address]Map[DeadlineIdx][]Partitions
-	msgCheck := make(map[address.Address]map[uint64][]bool)
+	// Map[Miner Address]Map[DeadlineIdx]deadlinePartitionInfo
+	type deadlinePartitionInfo struct {
+		partitions     []bool // true if proof submitted
+		closeEpoch     abi.ChainEpoch
+		periodStart    abi.ChainEpoch
+		deadlineClosed bool
+	}
+	msgCheck := make(map[address.Address]map[uint64]*deadlinePartitionInfo)
 
 	// Walk back all tipset from current height to from height and find all deadlines and their partitions
 	for h.Height() >= from {
@@ -468,11 +487,16 @@ func wdPostCheck(al *alerts) {
 				return
 			}
 			if _, ok := msgCheck[maddr]; !ok {
-				msgCheck[maddr] = make(map[uint64][]bool)
+				msgCheck[maddr] = make(map[uint64]*deadlinePartitionInfo)
 			}
 			if _, ok := msgCheck[maddr][deadlineInfo.Index]; !ok {
 				ps := make([]bool, len(partitions))
-				msgCheck[maddr][deadlineInfo.Index] = ps
+				msgCheck[maddr][deadlineInfo.Index] = &deadlinePartitionInfo{
+					partitions:     ps,
+					closeEpoch:     deadlineInfo.Close,
+					periodStart:    deadlineInfo.PeriodStart,
+					deadlineClosed: head.Height() > deadlineInfo.Close,
+				}
 			}
 		}
 		h, err = al.api.ChainGetTipSet(al.ctx, h.Parents())
@@ -500,10 +524,6 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	if len(wdDetails) < 1 {
-		return
-	}
-
 	// For all tasks between from and head, match how many we posted successfully
 	for _, detail := range wdDetails {
 		addr, err := address.NewIDAddress(uint64(detail.Miner))
@@ -511,13 +531,18 @@ func wdPostCheck(al *alerts) {
 			al.alertMap[Name].err = xerrors.Errorf("getting miner address: %w", err)
 			return
 		}
-		if _, ok := msgCheck[addr][uint64(detail.Deadline)]; !ok {
-			al.alertMap[Name].alertString += fmt.Sprintf("unknown WindowPost jobs for miner %s deadline %d partition %d found. ", addr.String(), detail.Deadline, detail.Partition)
+		dlInfo, ok := msgCheck[addr][uint64(detail.Deadline)]
+		if !ok {
+			// Don't alert for unknown deadlines - may be from a previous period
 			continue
 		}
 
+		if int(detail.Partition) >= len(dlInfo.partitions) {
+			continue // partition index out of range, skip
+		}
+
 		// If entry for a partition is found we should mark it as processed
-		msgCheck[addr][uint64(detail.Deadline)][detail.Partition] = true
+		dlInfo.partitions[detail.Partition] = true
 
 		// Check if we skipped any sectors
 		var postOut miner.SubmitWindowedPoStParams
@@ -534,17 +559,57 @@ func wdPostCheck(al *alerts) {
 				return
 			}
 			if c > 0 {
-				al.alertMap[Name].alertString += fmt.Sprintf("Skipped %d sectors in deadline %d partition %d. ", c, postOut.Deadline, postOut.Partitions[i].Index)
+				al.alertMap[Name].alertString += fmt.Sprintf("Miner %s skipped %d sectors in deadline %d partition %d. ", addr.String(), c, postOut.Deadline, postOut.Partitions[i].Index)
 			}
 		}
 	}
 
-	// Check if we missed any deadline/partitions
+	// Check if we missed any deadline/partitions - ONLY for deadlines that have CLOSED
 	for maddr, deadlines := range msgCheck {
-		for deadlineIndex, ps := range deadlines {
-			for idx := range ps {
-				if !ps[idx] {
-					al.alertMap[Name].alertString += fmt.Sprintf("No WindowPost jobs found for miner %s deadline %d paritions %d. ", maddr.String(), deadlineIndex, idx)
+		for deadlineIndex, dlInfo := range deadlines {
+			// Only alert for closed deadlines - open deadlines may not have proofs yet
+			if !dlInfo.deadlineClosed {
+				continue
+			}
+			for idx, submitted := range dlInfo.partitions {
+				if !submitted {
+					al.alertMap[Name].alertString += fmt.Sprintf("No WindowPost proof found for miner %s deadline %d partition %d (deadline closed at epoch %d). ", maddr.String(), deadlineIndex, idx, dlInfo.closeEpoch)
+				}
+			}
+		}
+	}
+
+	// Check for new faults in deadlines that recently closed
+	for _, maddr := range miners {
+		deadlineInfo, err := al.api.StateMinerProvingDeadline(al.ctx, maddr, head.Key())
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting miner deadline for fault check: %w", err)
+			return
+		}
+
+		// Check the deadline that just closed (current - 1)
+		prevDeadline := (deadlineInfo.Index + 47) % 48 // wrap around
+		partitions, err := al.api.StateMinerPartitions(al.ctx, maddr, prevDeadline, head.Key())
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting partitions for fault check: %w", err)
+			return
+		}
+
+		for pidx, partition := range partitions {
+			faultyCount, err := partition.FaultySectors.Count()
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("counting faulty sectors: %w", err)
+				return
+			}
+			if faultyCount > 0 {
+				recoveringCount, err := partition.RecoveringSectors.Count()
+				if err != nil {
+					al.alertMap[Name].err = xerrors.Errorf("counting recovering sectors: %w", err)
+					return
+				}
+				unrecovered := faultyCount - recoveringCount
+				if unrecovered > 0 {
+					al.alertMap[Name].alertString += fmt.Sprintf("Miner %s deadline %d partition %d has %d faulty sectors (%d not recovering). ", maddr.String(), prevDeadline, pidx, faultyCount, unrecovered)
 				}
 			}
 		}
@@ -570,12 +635,13 @@ func wnPostCheck(al *alerts) {
 		Miner    int64          `db:"sp_id"`
 		Block    string         `db:"mined_cid"`
 		Epoch    abi.ChainEpoch `db:"epoch"`
-		Included bool           `db:"included"`
+		Included *bool          `db:"included"` // pointer to handle NULL
 	}
 
 	// Get all DB entries where we won the election in last AlertMangerInterval
+	// Only get entries where inclusion has been checked (included IS NOT NULL)
 	err = al.db.Select(al.ctx, &wnDetails, `
-			SELECT sp_id, mined_cid, epoch 
+			SELECT sp_id, mined_cid, epoch, included 
 			FROM mining_tasks 
 			WHERE epoch > $1 AND won = TRUE 
 			ORDER BY epoch;`, from)
@@ -626,9 +692,20 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	// Repost any block which we submitted but was not included in the chain
+	// Report any block which we submitted but was not included in the chain
+	// Only report if inclusion has actually been checked (included != NULL) and is false
+	// Also only report for blocks that are old enough to have been checked (>= MinInclusionEpochs old)
+	const minInclusionEpochs = 5 // same as in inclusion_check_task.go
 	for _, wn := range wnDetails {
-		if !wn.Included {
+		// Skip if inclusion hasn't been checked yet
+		if wn.Included == nil {
+			continue
+		}
+		// Skip if block is too recent to have been checked reliably
+		if int64(head.Height())-int64(wn.Epoch) < minInclusionEpochs+3 {
+			continue
+		}
+		if !*wn.Included {
 			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s. ", wn.Epoch, wn.Block)
 		}
 	}

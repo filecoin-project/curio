@@ -240,6 +240,10 @@ func (r *robustHttpResponse) startReq() error {
 	}
 
 	req.Header = r.headers.Clone()
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
+
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", r.atOff, r.dataSize-1))
 
 	log.Debugw("Before sending HTTP request", "url", r.url, "cr", fmt.Sprintf("bytes=%d-%d", r.atOff, r.dataSize))
