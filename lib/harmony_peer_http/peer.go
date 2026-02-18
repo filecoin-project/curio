@@ -58,7 +58,7 @@ func (p *PeerHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	peerAddr := r.Header.Get("X-Peer-ID")
 	if peerAddr == "" {
@@ -164,7 +164,7 @@ func (pc *peerHTTPConnection) SendMessage(message []byte) error {
 		pc.parent.dropPeer(pc.peerAddr, pc)
 		return fmt.Errorf("failed to send to peer %s (dropping): %w", pc.peerAddr, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

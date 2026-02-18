@@ -63,7 +63,7 @@ func dropAllItestSchemas() {
 		fmt.Fprintf(os.Stderr, "itest cleanup: cannot connect to DB (skipping): %v\n", err)
 		return
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'itest_%'`)
 	if err != nil {

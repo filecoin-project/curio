@@ -6,10 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/samber/lo"
 	"go.opencensus.io/stats"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/resources"
 )
 
 type schedulerEvent struct {
@@ -38,8 +39,7 @@ type taskSchedule struct {
 	hasID  map[TaskID]task
 	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
 	// In this state, we try what we have, and go to DB if we need more.
-	reservedTask  TaskID // This will be ran when resources are available. 0 for none.
-	reserveAlways bool
+	reservedTask TaskID // This will be ran when resources are available. 0 for none.
 }
 
 func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
@@ -187,7 +187,7 @@ func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter)
 	// Check if the machine is schedulable
 	schedulable, err := e.checkNodeFlags()
 	if err != nil {
-		return fmt.Errorf("Unable to check schedulable status: %w", err)
+		return fmt.Errorf("unable to check schedulable status: %w", err)
 
 	}
 

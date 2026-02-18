@@ -40,7 +40,7 @@ func startPeerHTTP(t *testing.T, name string) (*PeerHTTP, string) {
 	}()
 
 	t.Cleanup(func() {
-		srv.Close()
+		_ = srv.Close()
 	})
 
 	return p, addr

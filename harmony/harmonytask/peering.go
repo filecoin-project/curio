@@ -49,7 +49,10 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 	h.pollDuration.Store(POLL_RARELY)
 	go func() {
 		var knownPeers []string
-		p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`)
+		if err := p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`); err != nil {
+			log.Warnw("failed to list peers", "error", err)
+			return
+		}
 		for _, peer := range knownPeers {
 			if peer == p.h.hostAndPort {
 				continue // skip self
@@ -146,8 +149,9 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 			return
 		}
 
-		// Process incoming message from peer
-		p.handlePeerMessage(peerAddr, them, msg)
+		if err := p.handlePeerMessage(peerAddr, them, msg); err != nil {
+			log.Warnw("error handling peer message", "peer", peerAddr, "error", err)
+		}
 	}
 }
 
