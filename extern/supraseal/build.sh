@@ -3,7 +3,6 @@
 # Copyright Supranational LLC
 
 set -e
-set -x
 
 SECTOR_SIZE="" # Compile for all sector sizes
 while getopts r flag
@@ -13,38 +12,57 @@ do
     esac
 done
 
-# Function to check GCC version - enforces GCC 13 for compatibility
+# Function to check GCC version - requires GCC 12 or 13 for C++17 compatibility.
+# The supraseal codebase uses C++17 features supported by both GCC 12 and 13.
+# CUDA toolkit compatibility determines which GCC version works with nvcc:
+#   - CUDA 12.0–12.5: supports GCC up to 12.x (nvcc rejects GCC 13)
+#   - CUDA 12.6+:     supports GCC up to 13.2
+#   - CUDA 13.0+:     supports GCC 13+
+# We accept both and let nvcc validate the pairing via -ccbin.
 check_gcc_version() {
     local gcc_version=$(gcc -dumpversion | cut -d. -f1)
-    local target_gcc_version=13
-    
-    # Check if default GCC is version 13
-    if [ "$gcc_version" -eq "$target_gcc_version" ]; then
+
+    # Accept system GCC 12 or 13 directly
+    if [ "$gcc_version" -ge 12 ] && [ "$gcc_version" -le 13 ]; then
         echo "Using GCC $gcc_version"
         return 0
     fi
-    
-    # If not GCC 13, try to find and use gcc-13
-    if command -v gcc-13 &> /dev/null && command -v g++-13 &> /dev/null; then
-        echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC 13 for compatibility."
-        export CC=gcc-13
-        export CXX=g++-13
-        export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-13"
-        return 0
-    fi
-    
-    # GCC 13 not found
-    echo "Error: GCC 13 is required but not found."
-    echo "Current GCC version: $gcc_version"
-    echo "Please install GCC 13:"
-    echo "  On Ubuntu/Debian: sudo apt-get install gcc-13 g++-13"
-    echo "  On Fedora: sudo dnf install gcc-13 gcc-c++-13"
+
+    # System GCC is outside 12-13 range; try to find gcc-13 or gcc-12
+    for v in 13 12; do
+        if command -v gcc-$v &> /dev/null && command -v g++-$v &> /dev/null; then
+            echo "Setting CC, CXX, and NVCC_PREPEND_FLAGS to use GCC $v."
+            export CC=gcc-$v
+            export CXX=g++-$v
+            export NVCC_PREPEND_FLAGS="-ccbin /usr/bin/g++-$v"
+            return 0
+        fi
+    done
+
+    # Neither found
+    echo ""
+    echo "=========================================="
+    echo "ERROR: GCC 12 or 13 is required but not found."
+    echo "=========================================="
+    echo ""
+    echo "  Current GCC version: $gcc_version"
+    echo ""
+    echo "  Please install GCC 12 or 13:"
+    echo "    Ubuntu/Debian:  sudo apt-get install gcc-13 g++-13"
+    echo "                or: sudo apt-get install gcc-12 g++-12"
+    echo "    Fedora:         sudo dnf install gcc-13 gcc-c++-13"
+    echo "                or: sudo dnf install gcc-12 gcc-c++-12"
+    echo ""
+    echo "  On older Ubuntu (e.g. 20.04), you may need the toolchain PPA first:"
+    echo "    sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y && sudo apt update"
+    echo ""
     exit 1
 }
 
 # Call the function to check GCC version
 check_gcc_version
 
+# Enable trace logging after the GCC check so error messages are readable
 set -x
 
 CC=${CC:-cc}
@@ -79,13 +97,16 @@ VENV_DIR="$(pwd)/.venv"
 if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then
     echo "Creating Python virtual environment..."
     if ! python3 -m venv "$VENV_DIR"; then
-        echo "Error: python3-venv is required but not available."
-        echo "Please install it:"
-        echo "  On Ubuntu/Debian: sudo apt-get install python3-venv"
-        echo "  On Fedora: sudo dnf install python3-virtualenv"
+        PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3")
         echo ""
-        echo "Or if you prefer, you can install dependencies manually:"
-        echo "  pip3 install --user meson ninja pyelftools"
+        echo "=========================================="
+        echo "ERROR: python3-venv is required but not available."
+        echo "=========================================="
+        echo ""
+        echo "  Ubuntu/Debian:  sudo apt-get install python3-venv"
+        echo "                  (on older Ubuntu, use: sudo apt-get install python${PY_VER}-venv)"
+        echo "  Fedora:         sudo dnf install python3-virtualenv"
+        echo ""
         exit 1
     fi
 fi

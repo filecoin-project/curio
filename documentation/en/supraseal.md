@@ -34,7 +34,7 @@ Curio’s web UI exposes this as the **CC Scheduler** page/tab.
 * NVMe drives with high IOPS (10-20M total IOPS recommended)
 * GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
 * 1GB hugepages configured (minimum 36 pages)
-* Ubuntu or compatible Linux distribution (**gcc-13 required**, doesn't need to be system-wide)
+* Ubuntu or compatible Linux distribution (**GCC 12 or 13 required**, doesn't need to be system-wide)
 * At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
   * Without **all** memory channels populated sealing **performance will suffer drastically**
 * NUMA-Per-Socket (NPS) set to 1
@@ -132,11 +132,23 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 
 ### Dependencies
 
-CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x system-wide or `gcc-13`/`g++-13` installed locally.
+CUDA 12.x or later is required (11.x won't work). The build process requires **GCC 12 or 13** — system-wide or as `gcc-12`/`g++-12` (or `gcc-13`/`g++-13`) installed locally.
 
-* On Arch install GCC 13 via your distro/AUR as appropriate
-* On Ubuntu/Debian install `gcc-13` and `g++-13` packages
+{% hint style="warning" %}
+**CUDA / GCC compatibility:** Your CUDA toolkit version determines which GCC it supports as a host compiler:
+* **CUDA 12.0–12.5:** supports GCC up to 12.x only → use `gcc-12`/`g++-12`
+* **CUDA 12.6+:** supports GCC up to 13.2 → either GCC 12 or 13 works
+* **CUDA 13.0+:** supports GCC 13+ → use `gcc-13`/`g++-13`
+
+If you get nvcc errors about unsupported compiler versions, check your CUDA/GCC pairing.
+{% endhint %}
+
+* On Arch install GCC 12 or 13 via your distro/AUR as appropriate
+* On Ubuntu/Debian install `gcc-12` and `g++-12` (or `gcc-13`/`g++-13`)
     ```shell
+    # For CUDA 12.0–12.5:
+    sudo apt install gcc-12 g++-12
+    # For CUDA 12.6+ or CUDA 13+:
     sudo apt install gcc-13 g++-13
     ```
 * In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
