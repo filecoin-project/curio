@@ -151,7 +151,7 @@ func encodeBool(b bool) []byte {
 // viewContractAddress() and therefore returns an error if the view address
 // cannot be resolved.
 func ResolveViewAddress(serviceAddr common.Address, ethClient *ethclient.Client) (common.Address, error) {
-	svc, err := NewListenerServiceWithViewContract(serviceAddr, ethClient)
+	svc, err := NewContractWithView(serviceAddr, ethClient)
 	if err != nil {
 		return common.Address{}, xerrors.Errorf("failed to bind to service at %s: %w", serviceAddr, err)
 	}
