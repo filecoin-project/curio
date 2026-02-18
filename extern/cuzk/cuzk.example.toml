@@ -98,6 +98,25 @@ sort_by_type = true
 # both pools use all CPUs (no contention since they don't overlap).
 threads = 0
 
+# Number of concurrent partition synthesis workers (Phase 7).
+#
+# Each worker processes one PoRep partition at a time (~29s each, mostly
+# single-threaded witness generation). With 20 workers and 10 partitions
+# per sector, 2 sectors can be synthesized simultaneously, keeping the
+# GPU continuously fed with zero idle gaps between sectors.
+#
+# The workers feed individual partitions to the GPU channel. Each GPU call
+# uses num_circuits=1, making b_g2_msm 0.4s instead of 25s (62x speedup
+# on this step alone).
+#
+# Recommended based on available RAM:
+#   754 GiB → 20 workers (~430 GiB peak, 235 GiB headroom)
+#   512 GiB → 15 workers (~332 GiB peak)
+#   256 GiB → 5 workers (~100 GiB peak, GPU will idle between sectors)
+#
+# 0 = disabled — falls back to batch-all or Phase 6 slotted pipeline.
+partition_workers = 20
+
 [pipeline]
 # Enable pipelined synthesis → GPU proving (Phase 2).
 # When enabled, a dedicated synthesis task pre-synthesizes proofs on CPU

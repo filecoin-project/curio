@@ -150,11 +150,36 @@ pub struct SynthesisConfig {
     /// CPU threads for circuit synthesis. 0 = auto (num_cpus / 2).
     #[serde(default)]
     pub threads: u32,
+
+    /// Number of concurrent partition synthesis workers (Phase 7).
+    ///
+    /// Each worker processes one PoRep partition at a time (~29s each).
+    /// With 20 workers and 10 partitions per sector, 2 sectors can be
+    /// synthesized simultaneously, keeping the GPU continuously fed.
+    ///
+    /// Recommended: 20 (fits in 754 GiB with ~235 GiB headroom).
+    /// Minimum for full GPU utilization: 10 (one sector in flight).
+    /// Set lower on machines with less RAM:
+    ///   512 GiB → 15 workers (~332 GiB peak)
+    ///   256 GiB → 5 workers (~100 GiB peak, GPU will idle)
+    ///
+    /// 0 = disabled (use legacy batch-all or Phase 6 slotted pipeline).
+    #[serde(default = "SynthesisConfig::default_partition_workers")]
+    pub partition_workers: u32,
+}
+
+impl SynthesisConfig {
+    fn default_partition_workers() -> u32 {
+        20
+    }
 }
 
 impl Default for SynthesisConfig {
     fn default() -> Self {
-        Self { threads: 0 }
+        Self {
+            threads: 0,
+            partition_workers: Self::default_partition_workers(),
+        }
     }
 }
 

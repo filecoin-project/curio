@@ -1489,15 +1489,15 @@ type TreeDomain =
     <<SectorShape32GiB as storage_proofs_core::merkle::MerkleTreeTrait>::Hasher as Hasher>::Domain;
 
 #[cfg(feature = "cuda-supraseal")]
-struct ParsedC1Output {
-    porep_config: filecoin_proofs::types::PoRepConfig,
-    num_partitions: usize,
-    vanilla_proofs:
+pub struct ParsedC1Output {
+    pub(crate) porep_config: filecoin_proofs::types::PoRepConfig,
+    pub num_partitions: usize,
+    pub(crate) vanilla_proofs:
         Vec<Vec<storage_proofs_porep::stacked::Proof<SectorShape32GiB, DefaultPieceHasher>>>,
-    replica_id: TreeDomain,
-    seed: [u8; 32],
-    comm_r: TreeDomain,
-    comm_d: DefaultPieceDomain,
+    pub(crate) replica_id: TreeDomain,
+    pub(crate) seed: [u8; 32],
+    pub(crate) comm_r: TreeDomain,
+    pub(crate) comm_d: DefaultPieceDomain,
 }
 
 /// Deserialize and validate a PoRep C1 JSON blob into reusable form.
@@ -1506,7 +1506,7 @@ struct ParsedC1Output {
 /// SealCommitPhase1Output deserialization, vanilla proof conversion.
 /// Call once, then build circuits from the result.
 #[cfg(feature = "cuda-supraseal")]
-fn parse_c1_output(vanilla_proof_json: &[u8]) -> Result<ParsedC1Output> {
+pub fn parse_c1_output(vanilla_proof_json: &[u8]) -> Result<ParsedC1Output> {
     let deser_start = Instant::now();
 
     let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
@@ -1689,7 +1689,7 @@ fn build_partition_circuits_from_parsed(
 /// Builds the circuit, runs synthesis (PCE fast path if available),
 /// and returns a `SynthesizedProof` with num_circuits=1 for GPU proving.
 #[cfg(feature = "cuda-supraseal")]
-fn synthesize_partition(
+pub fn synthesize_partition(
     parsed: &ParsedC1Output,
     partition_idx: usize,
     job_id: &str,

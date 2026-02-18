@@ -83,6 +83,8 @@ struct JobTracker {
     /// Recent proof durations (ring buffer for histogram approximation).
     /// Stores (proof_kind, total_duration). Max 1000 entries.
     recent_durations: Vec<(ProofKind, Duration)>,
+    /// Phase 7: Per-job partition assemblers for in-progress partitioned proofs.
+    assemblers: HashMap<JobId, PartitionedJobState>,
 }
 
 impl JobTracker {
@@ -96,6 +98,7 @@ impl JobTracker {
             completed_by_kind: HashMap::new(),
             failed_by_kind: HashMap::new(),
             recent_durations: Vec::with_capacity(1000),
+            assemblers: HashMap::new(),
         }
     }
 
@@ -141,6 +144,58 @@ pub(crate) struct SynthesizedJob {
     /// Used by GPU worker to split proof output back into per-sector groups.
     /// Empty for single-sector proofs.
     pub sector_boundaries: Vec<usize>,
+
+    // ── Phase 7: Per-partition dispatch fields ──
+
+    /// Partition index within the sector (0-9 for PoRep 32G).
+    /// None = monolithic job (legacy, non-partitioned).
+    pub partition_index: Option<usize>,
+    /// Total partitions for this proof (10 for PoRep 32G).
+    pub total_partitions: Option<usize>,
+    /// The original job_id that this partition belongs to.
+    /// Used to route GPU results to the correct ProofAssembler.
+    pub parent_job_id: Option<JobId>,
+}
+
+/// Phase 7: Tracks in-progress partitioned proof assembly.
+///
+/// Created when a partitioned PoRep dispatch begins, removed when all
+/// partitions have been GPU-proved and assembled into the final proof.
+struct PartitionedJobState {
+    /// Collects per-partition proof bytes in order.
+    assembler: crate::pipeline::ProofAssembler,
+    /// Original request (for metadata in final proof result).
+    request: ProofRequest,
+    /// The proof kind (for stats recording).
+    proof_kind: ProofKind,
+    /// Accumulated synthesis duration across all partitions.
+    total_synth_duration: Duration,
+    /// Accumulated GPU duration across all partitions.
+    total_gpu_duration: Duration,
+    /// When dispatch began (for total elapsed time).
+    start_time: Instant,
+    /// Set to true if any partition synthesis or GPU prove fails.
+    /// Subsequent partitions check this and skip work.
+    failed: bool,
+}
+
+/// Phase 7: Work item for the partition synthesis worker pool.
+#[cfg(feature = "cuda-supraseal")]
+struct PartitionWorkItem {
+    /// Shared parsed C1 output (Arc for zero-copy sharing across workers).
+    parsed: Arc<crate::pipeline::ParsedC1Output>,
+    /// Which partition to synthesize (0..num_partitions).
+    partition_idx: usize,
+    /// The parent job ID this partition belongs to.
+    job_id: JobId,
+    /// Lightweight request clone for metadata.
+    request: ProofRequest,
+    /// SRS parameters (shared across all partitions).
+    params: Arc<bellperson::groth16::SuprasealParameters<blstrs::Bls12>>,
+    /// Circuit ID for SRS affinity.
+    circuit_id: CircuitId,
+    /// Total partitions in this proof.
+    num_partitions: usize,
 }
 
 /// The cuzk proving engine.
@@ -374,10 +429,17 @@ impl Engine {
                 let max_batch_wait_ms = self.config.scheduler.max_batch_wait_ms;
                 let slot_size = self.config.pipeline.slot_size;
                 let synthesis_concurrency = self.config.pipeline.synthesis_concurrency.max(1) as usize;
+                let partition_workers = self.config.synthesis.partition_workers;
 
                 // Semaphore limits concurrent synthesis tasks.
                 // With concurrency=1, behavior is identical to the old sequential loop.
                 let synth_semaphore = Arc::new(tokio::sync::Semaphore::new(synthesis_concurrency));
+
+                // Phase 7: Semaphore limits concurrent partition synthesis workers.
+                // Each worker processes one partition (~29s, mostly single-threaded).
+                let partition_semaphore = Arc::new(tokio::sync::Semaphore::new(
+                    if partition_workers > 0 { partition_workers as usize } else { 1 },
+                ));
 
                 tokio::spawn(async move {
                     info!(
@@ -385,6 +447,7 @@ impl Engine {
                         max_batch_wait_ms = max_batch_wait_ms,
                         slot_size = slot_size,
                         synthesis_concurrency = synthesis_concurrency,
+                        partition_workers = partition_workers,
                         "synthesis dispatcher started"
                     );
 
@@ -404,6 +467,8 @@ impl Engine {
                         param_cache: &std::path::Path,
                         synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
                         slot_size: u32,
+                        partition_workers: u32,
+                        partition_semaphore: &Arc<tokio::sync::Semaphore>,
                         semaphore: &Arc<tokio::sync::Semaphore>,
                         concurrency: usize,
                         span: tracing::Span,
@@ -412,6 +477,7 @@ impl Engine {
                             // Sequential mode: await inline (old behavior)
                             process_batch(
                                 batch, tracker, srs_manager, param_cache, synth_tx, slot_size,
+                                partition_workers, partition_semaphore,
                             ).instrument(span).await
                         } else {
                             // Parallel mode: acquire semaphore, spawn task
@@ -426,10 +492,12 @@ impl Engine {
                             let srs_manager = srs_manager.clone();
                             let param_cache = param_cache.to_owned();
                             let synth_tx = synth_tx.clone();
+                            let partition_semaphore = partition_semaphore.clone();
                             tokio::spawn(async move {
                                 let _permit = permit; // held until task completes
                                 process_batch(
                                     batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                    partition_workers, &partition_semaphore,
                                 ).instrument(span).await;
                             });
                             true // always continue — errors handled inside the spawned task
@@ -456,6 +524,7 @@ impl Engine {
                                             let span = info_span!("synth_shutdown_flush", batch_size = batch.len());
                                             let _ = dispatch_batch(
                                                 batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                                partition_workers, &partition_semaphore,
                                                 &synth_semaphore, synthesis_concurrency, span,
                                             ).await;
                                         }
@@ -469,6 +538,7 @@ impl Engine {
                                         let span = info_span!("synth_timeout_flush", batch_size = batch.len());
                                         let ok = dispatch_batch(
                                             batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                            partition_workers, &partition_semaphore,
                                             &synth_semaphore, synthesis_concurrency, span,
                                         ).await;
                                         if !ok { break; }
@@ -510,6 +580,7 @@ impl Engine {
                                 );
                                 let ok = dispatch_batch(
                                     batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                    partition_workers, &partition_semaphore,
                                     &synth_semaphore, synthesis_concurrency, span,
                                 ).await;
                                 if !ok { break; }
@@ -524,6 +595,7 @@ impl Engine {
                                 );
                                 let ok = dispatch_batch(
                                     pending_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                    partition_workers, &partition_semaphore,
                                     &synth_semaphore, synthesis_concurrency, span,
                                 ).await;
                                 if !ok { break; }
@@ -540,6 +612,7 @@ impl Engine {
                             );
                             let ok = dispatch_batch(
                                 single_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
+                                partition_workers, &partition_semaphore,
                                 &synth_semaphore, synthesis_concurrency, span,
                             ).await;
                             if !ok { break; }
@@ -552,9 +625,14 @@ impl Engine {
             /// Process a batch of proof requests: synthesize all circuits, load SRS,
             /// and send the synthesized job to the GPU channel.
             ///
-            /// For single-sector PoRep with `slot_size > 0`, runs the slotted partition
-            /// pipeline (Phase 6) which manages its own internal synth/GPU overlap and
-            /// directly completes the job — bypassing the engine-level GPU channel.
+            /// Phase 7: When `partition_workers > 0` and the request is single-sector
+            /// PoRep C2, dispatches individual partitions as independent work units
+            /// through the engine's synthesis→GPU pipeline. Each partition is synthesized
+            /// by a `spawn_blocking` worker gated by `partition_semaphore`, then sent to
+            /// `synth_tx` as a `SynthesizedJob` with `partition_index` set.
+            ///
+            /// Falls back to Phase 6 slotted pipeline when `slot_size > 0` and
+            /// `partition_workers == 0`, or to batch-all when both are 0.
             ///
             /// Returns `true` to continue, `false` to stop the synthesis task.
             async fn process_batch(
@@ -564,6 +642,8 @@ impl Engine {
                 param_cache: &std::path::Path,
                 synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
                 slot_size: u32,
+                partition_workers: u32,
+                partition_semaphore: &Arc<tokio::sync::Semaphore>,
             ) -> bool {
                 let batch_size = batch.len();
                 let proof_kind = batch.proof_kind;
@@ -584,10 +664,263 @@ impl Engine {
                 {
                     use crate::pipeline;
 
-                    // Phase 6: Pipelined partition proving for single-sector PoRep C2
-                    // When slot_size > 0, PoRep (single sector) uses prove_porep_c2_pipelined()
-                    // which runs parallel synth workers feeding a GPU consumer thread,
-                    // directly producing final proof bytes without the engine-level GPU channel.
+                    // ── Phase 7: Engine-level per-partition dispatch ─────────────────
+                    //
+                    // When partition_workers > 0, single-sector PoRep C2 is dispatched
+                    // as 10 independent partition work items through the engine's
+                    // synthesis→GPU pipeline. Each partition is synthesized by a
+                    // spawn_blocking worker (gated by partition_semaphore), then sent
+                    // to synth_tx as a SynthesizedJob with partition_index set.
+                    //
+                    // The GPU worker routes partition results to a ProofAssembler
+                    // (registered in tracker.assemblers) and delivers the final proof
+                    // when all partitions are complete.
+                    //
+                    // This eliminates the thundering-herd pattern: partitions from
+                    // different sectors interleave on the GPU, achieving zero idle gaps.
+                    if proof_kind == ProofKind::PoRepSealCommit
+                        && requests.len() == 1
+                        && partition_workers > 0
+                    {
+                        let req = requests[0].clone();
+                        let job_id = req.job_id.clone();
+                        let srs_mgr_clone = srs_mgr.clone();
+                        let param_cache_owned = param_cache_str.clone();
+
+                        // 1. Parse C1 once (blocking) and load SRS
+                        let parse_result = tokio::task::spawn_blocking({
+                            let vanilla_proof = req.vanilla_proof.clone();
+                            let srs_mgr = srs_mgr_clone.clone();
+                            move || -> Result<(Arc<pipeline::ParsedC1Output>, Arc<bellperson::groth16::SuprasealParameters<blstrs::Bls12>>)> {
+                                std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_owned);
+                                let parsed = pipeline::parse_c1_output(&vanilla_proof)?;
+                                let srs = {
+                                    let mut mgr = srs_mgr.blocking_lock();
+                                    mgr.ensure_loaded(&CircuitId::Porep32G)?
+                                };
+                                Ok((Arc::new(parsed), srs))
+                            }
+                        }).await;
+
+                        let (parsed, srs) = match parse_result {
+                            Ok(Ok(v)) => v,
+                            Ok(Err(e)) => {
+                                error!(error = %e, "Phase 7: C1 parse/SRS load failed");
+                                let mut t = tracker_clone.lock().await;
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("C1 parse failed: {}", e));
+                                if let Some(senders) = t.pending.remove(&job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(job_id, status);
+                                return true;
+                            }
+                            Err(e) => {
+                                error!(error = %e, "Phase 7: C1 parse task panicked");
+                                let mut t = tracker_clone.lock().await;
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("C1 parse panicked: {}", e));
+                                if let Some(senders) = t.pending.remove(&job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(job_id, status);
+                                return true;
+                            }
+                        };
+
+                        let num_partitions = parsed.num_partitions;
+
+                        // 2. Register ProofAssembler in JobTracker
+                        {
+                            let mut t = tracker_clone.lock().await;
+                            t.assemblers.insert(job_id.clone(), PartitionedJobState {
+                                assembler: pipeline::ProofAssembler::new(num_partitions),
+                                request: req.clone(),
+                                proof_kind,
+                                total_synth_duration: Duration::ZERO,
+                                total_gpu_duration: Duration::ZERO,
+                                start_time: Instant::now(),
+                                failed: false,
+                            });
+                        }
+
+                        info!(
+                            job_id = %job_id,
+                            num_partitions = num_partitions,
+                            partition_workers = partition_workers,
+                            "Phase 7: dispatching per-partition synthesis"
+                        );
+
+                        // 3. Trigger background PCE extraction if not yet cached
+                        if pipeline::get_pce(&CircuitId::Porep32G).is_none() {
+                            let c1_data = req.vanilla_proof.clone();
+                            let sn = req.sector_number;
+                            let mid = req.miner_id;
+                            std::thread::spawn(move || {
+                                info!("background PCE extraction starting for PoRep 32G");
+                                match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
+                                    Ok(()) => info!("background PCE extraction complete"),
+                                    Err(e) => warn!(error = %e, "background PCE extraction failed"),
+                                }
+                            });
+                        }
+
+                        // 4. Dispatch each partition to spawn_blocking workers
+                        for partition_idx in 0..num_partitions {
+                            let item = PartitionWorkItem {
+                                parsed: parsed.clone(),
+                                partition_idx,
+                                job_id: job_id.clone(),
+                                request: req.clone(),
+                                params: srs.clone(),
+                                circuit_id: CircuitId::Porep32G,
+                                num_partitions,
+                            };
+                            let synth_tx = synth_tx.clone();
+                            let tracker_for_err = tracker_clone.clone();
+                            let partition_sem = partition_semaphore.clone();
+
+                            tokio::spawn(async move {
+                                // Acquire partition worker permit (backpressure)
+                                let permit = match partition_sem.acquire_owned().await {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        error!("partition semaphore closed");
+                                        return;
+                                    }
+                                };
+
+                                let p_idx = item.partition_idx;
+                                let p_job_id = item.job_id.clone();
+                                let _p_num_partitions = item.num_partitions;
+
+                                // Check if job is already failed before starting synthesis
+                                {
+                                    let t = tracker_for_err.lock().await;
+                                    if let Some(state) = t.assemblers.get(&p_job_id) {
+                                        if state.failed {
+                                            info!(
+                                                job_id = %p_job_id,
+                                                partition = p_idx,
+                                                "skipping synthesis for failed job"
+                                            );
+                                            drop(permit);
+                                            return;
+                                        }
+                                    }
+                                }
+
+                                timeline_event(
+                                    "SYNTH_START",
+                                    &p_job_id.0,
+                                    &format!("partition={}", p_idx),
+                                );
+
+                                // Run synthesis on blocking thread
+                                let synth_result = tokio::task::spawn_blocking(move || {
+                                    let _permit = permit; // held until synth complete
+                                    let result = pipeline::synthesize_partition(
+                                        &item.parsed,
+                                        item.partition_idx,
+                                        &item.job_id.0,
+                                    );
+
+                                    result.map(|synth| SynthesizedJob {
+                                        request: item.request,
+                                        synth,
+                                        params: item.params,
+                                        circuit_id: item.circuit_id,
+                                        batch_requests: vec![],
+                                        sector_boundaries: vec![],
+                                        partition_index: Some(item.partition_idx),
+                                        total_partitions: Some(item.num_partitions),
+                                        parent_job_id: Some(item.job_id),
+                                    })
+                                }).await;
+
+                                match synth_result {
+                                    Ok(Ok(job)) => {
+                                        timeline_event(
+                                            "SYNTH_END",
+                                            &p_job_id.0,
+                                            &format!("partition={},synth_ms={}", p_idx, job.synth.synthesis_duration.as_millis()),
+                                        );
+                                        info!(
+                                            job_id = %p_job_id,
+                                            partition = p_idx,
+                                            synth_ms = job.synth.synthesis_duration.as_millis(),
+                                            "partition synthesis complete, sending to GPU"
+                                        );
+                                        timeline_event("CHAN_SEND", &p_job_id.0, &format!("partition={}", p_idx));
+                                        if synth_tx.send(job).await.is_err() {
+                                            error!("GPU channel closed during partition dispatch");
+                                        }
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!(
+                                            error = %e,
+                                            job_id = %p_job_id,
+                                            partition = p_idx,
+                                            "partition synthesis failed"
+                                        );
+                                        // Mark assembler as failed and notify callers
+                                        let mut t = tracker_for_err.lock().await;
+                                        if let Some(state) = t.assemblers.get_mut(&p_job_id) {
+                                            if !state.failed {
+                                                state.failed = true;
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(
+                                                    format!("partition {} synthesis failed: {}", p_idx, e)
+                                                );
+                                                if let Some(senders) = t.pending.remove(&p_job_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(p_job_id, status);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            error = %e,
+                                            job_id = %p_job_id,
+                                            partition = p_idx,
+                                            "partition synthesis task panicked"
+                                        );
+                                        let mut t = tracker_for_err.lock().await;
+                                        if let Some(state) = t.assemblers.get_mut(&p_job_id) {
+                                            if !state.failed {
+                                                state.failed = true;
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(
+                                                    format!("partition {} synthesis panicked: {}", p_idx, e)
+                                                );
+                                                if let Some(senders) = t.pending.remove(&p_job_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(p_job_id, status);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        // process_batch() returns immediately — completion is signaled
+                        // asynchronously by the GPU worker when ProofAssembler collects
+                        // all partitions.
+                        return true;
+                    }
+
+                    // Phase 6 fallback: Slotted partition pipeline (self-contained)
+                    // Used when partition_workers=0 and slot_size > 0.
                     if proof_kind == ProofKind::PoRepSealCommit
                         && requests.len() == 1
                         && slot_size > 0
@@ -760,6 +1093,9 @@ impl Engine {
                             circuit_id,
                             batch_requests: if reqs.len() > 1 { reqs } else { vec![] },
                             sector_boundaries,
+                            partition_index: None,
+                            total_partitions: None,
+                            parent_job_id: None,
                         })
                     }).await;
 
@@ -895,26 +1231,55 @@ impl Engine {
                         let is_batched = !synth_job.batch_requests.is_empty();
                         let batch_requests = synth_job.batch_requests.clone();
                         let sector_boundaries = synth_job.sector_boundaries.clone();
+                        // Phase 7: Extract partition metadata before moving synth_job
+                        let partition_index = synth_job.partition_index;
+                        let _total_partitions = synth_job.total_partitions;
+                        let parent_job_id = synth_job.parent_job_id.clone();
+                        let is_partitioned = parent_job_id.is_some();
                         let span = info_span!("gpu_worker",
                             worker_id = worker_id,
                             gpu = gpu_ordinal,
                             job_id = %job_id,
                             proof_kind = %proof_kind,
                             batch_size = if is_batched { batch_requests.len() } else { 1 },
+                            partition = ?partition_index,
                         );
 
                         async {
-                            timeline_event("GPU_PICKUP", &job_id.0, &format!("worker={}", worker_id));
+                            timeline_event("GPU_PICKUP", &job_id.0, &format!(
+                                "worker={}{}", worker_id,
+                                if let Some(pi) = partition_index { format!(",partition={}", pi) } else { String::new() }
+                            ));
                             info!(
                                 batched = is_batched,
+                                partitioned = is_partitioned,
+                                partition = ?partition_index,
                                 "GPU worker picked up synthesized proof"
                             );
+
+                            // Phase 7: Check if partitioned job is already failed — skip GPU proving
+                            if let Some(ref pid) = parent_job_id {
+                                let t = tracker.lock().await;
+                                if let Some(state) = t.assemblers.get(pid) {
+                                    if state.failed {
+                                        info!(
+                                            job_id = %pid,
+                                            partition = ?partition_index,
+                                            "skipping GPU prove for failed partitioned job"
+                                        );
+                                        return; // skip this partition entirely
+                                    }
+                                }
+                            }
 
                             // Mark as running on this GPU worker
                             {
                                 let mut t = tracker.lock().await;
                                 if let Some(w) = t.workers.get_mut(worker_id as usize) {
-                                    w.current_job = Some((job_id.clone(), proof_kind));
+                                    w.current_job = Some((
+                                        parent_job_id.as_ref().unwrap_or(&job_id).clone(),
+                                        proof_kind,
+                                    ));
                                 }
                             }
 
@@ -924,13 +1289,24 @@ impl Engine {
                             // Run GPU proving on blocking thread
                             #[cfg(feature = "cuda-supraseal")]
                             let result = {
-                                timeline_event("GPU_START", &gpu_job_id, &format!("worker={}", worker_id));
+                                let partition_detail = if let Some(pi) = partition_index {
+                                    format!("worker={},partition={}", worker_id, pi)
+                                } else {
+                                    format!("worker={}", worker_id)
+                                };
+                                timeline_event("GPU_START", &gpu_job_id, &partition_detail);
                                 let gpu_jid = gpu_job_id.clone();
                                 let gpu_wid = worker_id;
+                                let gpu_pi = partition_index;
                                 tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
                                     std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
                                     let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params)?;
-                                    timeline_event("GPU_END", &gpu_jid, &format!("worker={},gpu_ms={}", gpu_wid, gpu_result.gpu_duration.as_millis()));
+                                    let detail = if let Some(pi) = gpu_pi {
+                                        format!("worker={},partition={},gpu_ms={}", gpu_wid, pi, gpu_result.gpu_duration.as_millis())
+                                    } else {
+                                        format!("worker={},gpu_ms={}", gpu_wid, gpu_result.gpu_duration.as_millis())
+                                    };
+                                    timeline_event("GPU_END", &gpu_jid, &detail);
                                     Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
                                 }).await
                             };
@@ -949,6 +1325,142 @@ impl Engine {
                                 w.current_job = None;
                             }
 
+                            // ── Phase 7: Partition-aware result routing ──────────────
+                            if let Some(ref parent_id) = parent_job_id {
+                                let p_idx = partition_index.unwrap();
+                                match result {
+                                    Ok(Ok((proof_bytes, gpu_duration))) => {
+                                        // Check if assembler still exists and isn't failed
+                                        if let Some(state) = t.assemblers.get_mut(parent_id) {
+                                            if state.failed {
+                                                info!(
+                                                    job_id = %parent_id,
+                                                    partition = p_idx,
+                                                    "discarding GPU result for failed job"
+                                                );
+                                                // Release partition memory
+                                                #[cfg(target_os = "linux")]
+                                                unsafe { libc::malloc_trim(0); }
+                                                return;
+                                            }
+
+                                            state.assembler.insert(p_idx, proof_bytes);
+                                            state.total_gpu_duration += gpu_duration;
+                                            state.total_synth_duration += synth_duration;
+
+                                            info!(
+                                                job_id = %parent_id,
+                                                partition = p_idx,
+                                                gpu_ms = gpu_duration.as_millis(),
+                                                filled = state.assembler.is_complete() as u8,
+                                                "partition GPU prove complete"
+                                            );
+
+                                            // Release partition memory back to OS
+                                            #[cfg(target_os = "linux")]
+                                            unsafe { libc::malloc_trim(0); }
+
+                                            if state.assembler.is_complete() {
+                                                // All partitions done — assemble final proof
+                                                let state = t.assemblers.remove(parent_id).unwrap();
+                                                let final_proof = state.assembler.assemble();
+                                                let total_elapsed = state.start_time.elapsed();
+
+                                                let mut timings = ProofTimings::default();
+                                                timings.synthesis = state.total_synth_duration;
+                                                timings.gpu_compute = state.total_gpu_duration;
+                                                timings.proving = total_elapsed;
+                                                timings.queue_wait = state.request.submitted_at.elapsed().saturating_sub(total_elapsed);
+                                                timings.total = state.request.submitted_at.elapsed();
+
+                                                info!(
+                                                    job_id = %parent_id,
+                                                    proof_len = final_proof.len(),
+                                                    total_ms = timings.total.as_millis(),
+                                                    synth_ms = timings.synthesis.as_millis(),
+                                                    gpu_ms = timings.gpu_compute.as_millis(),
+                                                    "Phase 7: all partitions complete, proof assembled"
+                                                );
+
+                                                if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                                    w.last_circuit_id = Some(circuit_id_str.clone());
+                                                }
+                                                t.record_completion(state.proof_kind, timings.total);
+
+                                                let status = JobStatus::Completed(ProofResult {
+                                                    job_id: parent_id.clone(),
+                                                    proof_kind: state.proof_kind,
+                                                    proof_bytes: final_proof,
+                                                    timings,
+                                                });
+                                                if let Some(senders) = t.pending.remove(parent_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(parent_id.clone(), status);
+                                            }
+                                        } else {
+                                            // Assembler removed (job already completed or failed elsewhere)
+                                            warn!(
+                                                job_id = %parent_id,
+                                                partition = p_idx,
+                                                "assembler not found, discarding partition result"
+                                            );
+                                        }
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!(
+                                            error = %e,
+                                            job_id = %parent_id,
+                                            partition = p_idx,
+                                            "partition GPU proving failed"
+                                        );
+                                        // Mark assembler as failed and notify callers
+                                        if let Some(state) = t.assemblers.get_mut(parent_id) {
+                                            if !state.failed {
+                                                state.failed = true;
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(
+                                                    format!("partition {} GPU prove failed: {}", p_idx, e)
+                                                );
+                                                if let Some(senders) = t.pending.remove(parent_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(parent_id.clone(), status);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            error = %e,
+                                            job_id = %parent_id,
+                                            partition = p_idx,
+                                            "partition GPU proving task panicked"
+                                        );
+                                        if let Some(state) = t.assemblers.get_mut(parent_id) {
+                                            if !state.failed {
+                                                state.failed = true;
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(
+                                                    format!("partition {} GPU task panicked: {}", p_idx, e)
+                                                );
+                                                if let Some(senders) = t.pending.remove(parent_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(parent_id.clone(), status);
+                                            }
+                                        }
+                                    }
+                                }
+                                return; // Partitioned path handled — skip monolithic delivery
+                            }
+
+                            // ── Monolithic result delivery (existing paths) ─────────
                             match result {
                                 Ok(Ok((proof_bytes, gpu_duration))) if is_batched => {
                                     // Phase 3: Split batched proof output back into per-sector groups
