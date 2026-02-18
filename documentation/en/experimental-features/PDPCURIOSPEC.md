@@ -69,18 +69,30 @@ TODO: focus on transitions between this and next proving period not the proving 
 
 All PDP-related functionality is implemented as harmony tasks and chain-handler watchers. Tasks implement the `TaskInterface` and are scheduled by the harmony task engine. Chain-handler watchers are registered via `chainsched.AddHandler` and fire on every new chain head.
 
+### Scheduling Mechanisms
+
+Harmony tasks are created through three trigger mechanisms:
+
+- **Chain handlers** — Registered via `chainsched.AddHandler`, these callbacks fire on every chain head change. They inspect on-chain state (e.g. transaction receipts, epoch thresholds) and call `AddTask` to insert work into the harmony_task queue when conditions are met. The proving-cycle tasks (InitPP, ProvPeriod, Prove) use this mechanism so they respond immediately to new tipsets.
+- **IAmBored** — An optional callback in `TaskTypeDetails` that the task engine invokes when a machine has spare capacity and no queued work exists for that task type. A `passcall.Every(duration, ...)` wrapper rate-limits invocations. Tasks like TerminateFWSS (1 min), DeleteDataSet (1 hour), and Settle (12 hours) use IAmBored because they generate work opportunistically rather than in response to chain events.
+- **Polling** — Some tasks use a dedicated poller goroutine that periodically queries the database for pending work and calls `AddTask`. The Notify (2s) and PullPiece (10s) tasks use this pattern because their triggers are purely database-driven (new uploads or pull requests) with no chain dependency.
+
+All three mechanisms funnel through `harmonytask.AddTask()`, which atomically inserts a task record. The main poller loop (every 3s) then discovers unowned tasks and assigns them to machines with available resources.
+
 ## Registered Tasks
 
-| Task Name | Struct | File | Trigger | Description |
-|-----------|--------|------|---------|-------------|
-| `PDPv0_InitPP` | `InitProvingPeriodTask` | `tasks/pdp/task_init_pp.go` | Chain handler | Initializes the first proving period for a dataset by calling `PDPVerifier.nextProvingPeriod()`. Picks up datasets where `init_ready=TRUE` and `prove_at_epoch IS NULL`. |
-| `PDPv0_ProvPeriod` | `NextProvingPeriodTask` | `tasks/pdp/task_next_pp.go` | Chain handler | Schedules subsequent proving periods after each challenge window completes. Fires when `prove_at_epoch + challenge_window <= current_height`. Detects `ProvingPeriodNotInitialized` errors and resets dataset back to init state. |
-| `PDPv0_Prove` | `ProveTask` | `tasks/pdp/task_prove.go` | Chain handler | Generates SHA-256 Merkle tree proofs and submits them via `PDPVerifier.provePossession()`. Scheduled when the `challenge_request_msg_hash` transaction lands on-chain and `prove_at_epoch` is reached. Most resource-intensive task (2GB RAM for memtree). |
-| `PDPv0_Notify` | `PDPNotifyTask` | `tasks/pdp/notify_task.go` | Polling (2s) | Finalizes completed piece uploads by sending an optional HTTP callback to `notify_url` and moving the piece reference from temporary `pdp_piece_uploads` to permanent `pdp_piecerefs`. |
-| `PDPv0_PullPiece` | `PDPPullPieceTask` | `tasks/pdp/task_pull_piece.go` | Polling (10s) | Downloads pieces from external URLs, streams data while computing CommP, verifies against expected piece CID, and stores in `parked_pieces` for long-term storage. |
-| `PDPv0_TermFWSS` | `TerminateFWSSTask` | `tasks/pdp/task_terminate_fwss.go` | IAmBored (1 min) | Calls `FWSS.terminateService()` for datasets pending service termination. Retrieves `PdpEndEpoch` from the FWSS contract. |
-| `PDPv0_DelDataSet` | `DeleteDataSetTask` | `tasks/pdp/task_delete_data_set.go` | IAmBored (1 hour) | Calls `PDPVerifier.deleteDataSet()` for datasets where `service_termination_epoch <= current_block` and `deletion_allowed=TRUE`. |
-| `Settle` | `SettleTask` | `tasks/pay/settle_task.go` | IAmBored (12 hours) | Settles the FWSS lockup period for the PDP operator. Calls `filecoinpayment.SettleLockupPeriod()` with the operator and payee addresses. |
+| Task Name | Struct | File | Trigger |
+|-----------|--------|------|---------|
+| `PDPv0_InitPP` | `InitProvingPeriodTask` | `tasks/pdp/task_init_pp.go` | Chain handler |
+| `PDPv0_ProvPeriod` | `NextProvingPeriodTask` | `tasks/pdp/task_next_pp.go` | Chain handler |
+| `PDPv0_Prove` | `ProveTask` | `tasks/pdp/task_prove.go` | Chain handler |
+| `PDPv0_Notify` | `PDPNotifyTask` | `tasks/pdp/notify_task.go` | Polling (2s) |
+| `PDPv0_PullPiece` | `PDPPullPieceTask` | `tasks/pdp/task_pull_piece.go` | Polling (10s) |
+| `PDPv0_Indexing` | `PDPIndexingTask` | `tasks/indexing/task_pdp_indexing.go` | IAmBored (3s) |
+| `PDPv0_IPNI` | `PDPIPNITask` | `tasks/indexing/task_pdp_ipni.go` | IAmBored (30s) |
+| `PDPv0_TermFWSS` | `TerminateFWSSTask` | `tasks/pdp/task_terminate_fwss.go` | IAmBored (1 min) |
+| `PDPv0_DelDataSet` | `DeleteDataSetTask` | `tasks/pdp/task_delete_data_set.go` | IAmBored (1 hour) |
+| `Settle` | `SettleTask` | `tasks/pay/settle_task.go` | IAmBored (12 hours) |
 
 ## Chain-Handler Watchers
 
@@ -96,130 +108,60 @@ These are not harmony tasks but chain-event handlers registered via `chainsched.
 
 # Task Dependency Tree
 
-The following diagrams show how tasks and watchers connect to form the PDP lifecycle. Arrows represent causal dependencies: the source produces a database state or on-chain event that the target consumes.
+The sections below describe how tasks and watchers connect to form the PDP lifecycle. Each step produces a database state or on-chain event that the next step consumes.
 
 ## Piece Ingestion
 
-```
-HTTP Upload                        HTTP Pull Request
-     │                                    │
-     ▼                                    ▼
-parked_pieces                     pdp_piece_pull_items
-(upload in progress)                      │
-     │                                    ▼
-     │                            PDPv0_PullPiece (10s poll)
-     │                            ── downloads piece
-     │                            ── verifies CommP
-     │                                    │
-     │                                    ▼
-     │                            parked_pieces + pdp_piecerefs
-     │
-     ▼
-parked_pieces.complete=TRUE
-     │
-     ▼
-PDPv0_Notify (2s poll)
-── sends callback to notify_url
-── moves pdp_piece_uploads → pdp_piecerefs
-```
+There are two paths for getting pieces into the system:
+
+**Direct upload path:**
+1. Client uploads piece data via HTTP. The data is written to `parked_pieces`.
+2. When the upload completes (`parked_pieces.complete = TRUE`), **PDPv0_Notify** picks it up, sends an HTTP callback to `notify_url` if configured, and moves the reference from `pdp_piece_uploads` to `pdp_piecerefs`.
+
+**Pull path:**
+1. Client submits a pull request via HTTP, creating a row in `pdp_piece_pull_items`.
+2. **PDPv0_PullPiece** downloads the piece from the external URL, computes and verifies CommP, and stores the result in `parked_pieces` + `pdp_piecerefs`.
+
+**Indexing and IPNI advertisement (both paths):**
+1. Once a piece is in `pdp_piecerefs` with `needs_indexing = TRUE`, **PDPv0_Indexing** reads the piece data as a CAR, builds a block-level index in the index store, and sets `needs_ipni = TRUE`.
+2. **PDPv0_IPNI** then creates an IPNI advertisement (signed ad chain entry with chunked multihash blocks) and publishes it so the piece is discoverable via IPNI.
 
 ## Dataset Creation and Proving Cycle
 
-```
-HTTP: createDataSet()
-     │
-     ▼
-pdp_data_set_creates (create_message_hash)
-     │
-     ▼  on-chain tx lands
-DataSetWatch (chain handler)
-── processPendingDataSetCreates: extracts dataSetId from receipt
-── processPendingDataSetPieceAdds: extracts pieceIds, sets init_ready=TRUE
-     │
-     ▼  init_ready=TRUE, prove_at_epoch IS NULL
-PDPv0_InitPP (chain handler)
-── calls PDPVerifier.nextProvingPeriod()
-── sets prove_at_epoch, challenge_request_msg_hash
-     │
-     ▼  challenge_request_msg_hash tx lands, prove_at_epoch reached
-PDPv0_Prove (chain handler)
-── builds Merkle tree proofs
-── calls PDPVerifier.provePossession()
-── resets challenge_request_msg_hash to NULL
-     │
-     ▼  prove_at_epoch + challenge_window <= current_height
-PDPv0_ProvPeriod (chain handler)
-── calls PDPVerifier.nextProvingPeriod()
-── sets new prove_at_epoch, challenge_request_msg_hash
-     │
-     └──────► loops back to PDPv0_Prove
-```
+1. Client calls `createDataSet()` via HTTP. This sends an on-chain transaction and records the hash in `pdp_data_set_creates`.
+2. When the transaction lands, **DataSetWatch** extracts the `DataSetCreated` event from the receipt, records the `dataSetId`, then processes any pending piece additions and sets `init_ready = TRUE`.
+3. **PDPv0_InitPP** picks up datasets where `init_ready = TRUE` and `prove_at_epoch IS NULL`. It calls `PDPVerifier.nextProvingPeriod()` and records the resulting `prove_at_epoch` and `challenge_request_msg_hash`.
+4. Once the challenge request transaction lands and `prove_at_epoch` is reached, **PDPv0_Prove** builds SHA-256 Merkle tree proofs and submits them via `PDPVerifier.provePossession()`. It then resets `challenge_request_msg_hash` to NULL.
+5. After the challenge window closes (`prove_at_epoch + challenge_window <= current_height`), **PDPv0_ProvPeriod** calls `PDPVerifier.nextProvingPeriod()` to start the next cycle, setting new `prove_at_epoch` and `challenge_request_msg_hash` values.
+6. Steps 4-5 repeat indefinitely for each dataset.
 
 ## Payment Settlement and Termination
 
-```
-Settle (every 12 hours)
-── calls filecoinpayment.SettleLockupPeriod()
-── writes tx to filecoin_payment_transactions + message_waits_eth
-     │
-     ▼  tx lands
-SettleWatcher (chain handler)
-── verifies settlement on-chain
-── detects terminated/defaulting rails
-     │
-     ├──► pdp.EnsureServiceTermination()     (rail terminated or near default)
-     │         │
-     │         ▼  pdp_delete_data_set row created
-     │    PDPv0_TermFWSS (every 1 min)
-     │    ── calls FWSS.terminateService()
-     │         │
-     │         ▼  tx lands
-     │    TerminateServiceWatcher (chain handler)
-     │    ── retrieves PdpEndEpoch from FWSS
-     │    ── sets service_termination_epoch
-     │         │
-     │         ▼  service_termination_epoch <= current_block, deletion_allowed=TRUE
-     │    PDPv0_DelDataSet (every 1 hour)
-     │    ── calls PDPVerifier.deleteDataSet()
-     │         │
-     │         ▼  tx lands
-     │    DataSetDeleteWatcher (chain handler)
-     │    ── verifies dataset no longer live
-     │    ── deletes pdp_data_sets (CASCADE)
-     │
-     └──► ensureDataSetDeletion()             (rail fully settled/finalized)
-               sets deletion_allowed=TRUE in pdp_delete_data_set
-               picked up by PDPv0_DelDataSet above
-```
+1. **Settle** periodically calls `filecoinpayment.SettleLockupPeriod()` and writes the transaction to `filecoin_payment_transactions` + `message_waits_eth`.
+2. When the transaction lands, **SettleWatcher** verifies settlement on-chain and inspects each rail's status.
+
+**If a rail is terminated or near default:**
+3. SettleWatcher calls `pdp.EnsureServiceTermination()`, which creates a `pdp_delete_data_set` row.
+4. **PDPv0_TermFWSS** picks it up, calls `FWSS.terminateService()`.
+5. When that transaction lands, **TerminateServiceWatcher** retrieves `PdpEndEpoch` from the FWSS contract and sets `service_termination_epoch`.
+6. Once `service_termination_epoch <= current_block` and `deletion_allowed = TRUE`, **PDPv0_DelDataSet** calls `PDPVerifier.deleteDataSet()`.
+7. When the delete transaction lands, **DataSetDeleteWatcher** verifies the dataset is no longer live on-chain and deletes the `pdp_data_sets` row (CASCADE removes pieces and prove tasks).
+
+**If a rail is fully settled/finalized:**
+3. SettleWatcher calls `ensureDataSetDeletion()`, which sets `deletion_allowed = TRUE` in `pdp_delete_data_set`. This is then picked up by **PDPv0_DelDataSet** at step 6 above.
 
 ## Piece Removal
 
-```
-HTTP: removePieces()
-── sends PDPVerifier.removePieces() tx
-     │
-     ▼  tx lands
-PieceDeleteWatcher (chain handler)
-── marks pdp_data_set_pieces.removed=TRUE
-── after 24h grace: cleans up pdp_piecerefs, parked_piece_refs
-── publishes IPNI removal advertisements
-```
+1. Client calls `removePieces()` via HTTP, which sends a `PDPVerifier.removePieces()` transaction.
+2. When the transaction lands, **PieceDeleteWatcher** marks the pieces as `removed = TRUE` in `pdp_data_set_pieces`.
+3. After a 24-hour grace period, the watcher cleans up `pdp_piecerefs` and `parked_piece_refs`, and publishes IPNI removal advertisements.
 
 ## Error Recovery
 
-```
-PDPv0_Prove failure
-     │
-     ├── Transient error ──► harmony retry (up to 5 attempts)
-     │
-     ├── Contract revert ──► exponential backoff
-     │   (100 blocks * 2^(failures-1), max 28800 blocks)
-     │   after 5 consecutive failures ──► unrecoverable
-     │
-     └── Unrecoverable error ──► sets unrecoverable_proving_failure_epoch
-                                  dataset stops proving
+**PDPv0_Prove failures:**
+- **Transient errors** — Harmony retries the task automatically (up to 5 attempts).
+- **Contract reverts** — Exponential backoff: 100 blocks * 2^(failures-1), capped at 28800 blocks. After 5 consecutive failures the error is marked unrecoverable.
+- **Unrecoverable errors** — Sets `unrecoverable_proving_failure_epoch` and the dataset stops proving.
 
-PDPv0_ProvPeriod detects ProvingPeriodNotInitialized
-     └──► resets dataset to init state (init_ready=TRUE, prove_at_epoch=NULL)
-          picked up by PDPv0_InitPP
-```
+**PDPv0_ProvPeriod recovery:**
+- If `ProvingPeriodNotInitialized` is detected, the dataset is reset to init state (`init_ready = TRUE`, `prove_at_epoch = NULL`) and picked up again by **PDPv0_InitPP**.
