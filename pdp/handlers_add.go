@@ -52,33 +52,32 @@ type SubPieceInfo struct {
 
 var logAdd = logger.Logger("pdp/add")
 
-// returns PieceData, SubPieceInfo, and a list of subPieceCids
-func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel string, pieces []AddPieceRequest) ([]PieceData, map[string]*SubPieceInfo, []string, error) {
+func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel string, pieces []AddPieceRequest) ([]PieceData, map[string]*SubPieceInfo, error) {
 	// Collect all subPieceCids to fetch their info in a batch
 	subPieceCidSet := make(map[string]struct{})
 	for _, addPieceReq := range pieces {
 		if addPieceReq.PieceCID == "" {
-			return nil, nil, nil, errors.New("PieceCID is required for each piece")
+			return nil, nil, errors.New("PieceCID is required for each piece")
 		}
 
 		if len(addPieceReq.SubPieces) == 0 {
-			return nil, nil, nil, errors.New("at least one subPiece is required per piece")
+			return nil, nil, errors.New("at least one subPiece is required per piece")
 		}
 
 		for i, subPieceEntry := range addPieceReq.SubPieces {
 			if subPieceEntry.SubPieceCID == "" {
-				return nil, nil, nil, errors.New("subPieceCid is required for each subPiece")
+				return nil, nil, errors.New("subPieceCid is required for each subPiece")
 			}
 			info, err := ParsePieceCid(subPieceEntry.SubPieceCID)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("invalid SubPiece: %w", err)
+				return nil, nil, fmt.Errorf("invalid SubPiece: %w", err)
 			}
 			pieceCidString := info.CidV1.String()
 
 			addPieceReq.SubPieces[i].subPieceCIDv1 = pieceCidString // save it for to query subPieceInfoMap later
 
 			if _, exists := subPieceCidSet[pieceCidString]; exists {
-				return nil, nil, nil, errors.New("duplicate subPieceCid in request")
+				return nil, nil, errors.New("duplicate subPieceCid in request")
 			}
 
 			subPieceCidSet[pieceCidString] = struct{}{}
@@ -192,7 +191,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to validate subPieces: %w", err)
+		return nil, nil, fmt.Errorf("failed to validate subPieces: %w", err)
 	}
 
 	// Prepare PieceData array for Ethereum transaction
@@ -203,18 +202,18 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		// Convert PieceCid to bytes
 		pieceCidV2, err := cid.Decode(addPieceReq.PieceCID)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("invalid PieceCid: %w", err)
+			return nil, nil, fmt.Errorf("invalid PieceCid: %w", err)
 		}
 		_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("invalid CommPv2: %w", err)
+			return nil, nil, fmt.Errorf("invalid CommPv2: %w", err)
 		}
 		height, _, err := commcid.PayloadSizeToV1TreeHeightAndPadding(rawSize)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("computing height and padding: %w", err)
+			return nil, nil, fmt.Errorf("computing height and padding: %w", err)
 		}
 		if height > 50 {
-			return nil, nil, nil, errors.New("invalid height")
+			return nil, nil, errors.New("invalid height")
 		}
 
 		// Get raw size by summing up the sizes of subPieces
@@ -223,7 +222,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		for i, subPieceEntry := range addPieceReq.SubPieces {
 			subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
 			if subPieceInfo.PaddedSize > prevSubPieceSize {
-				return nil, nil, nil, fmt.Errorf("subPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s",
+				return nil, nil, fmt.Errorf("subPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s",
 					i, subPieceEntry.SubPieceCID, addPieceReq.SubPieces[i-1].SubPieceCID)
 			}
 
@@ -232,7 +231,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		}
 		// sanity check that the rawSize in the CommPv2 matches the totalSize of the subPieces
 		if rawSize != totalSize {
-			return nil, nil, nil, fmt.Errorf("raw size miss-match: expected %d, got %d", totalSize, rawSize)
+			return nil, nil, fmt.Errorf("raw size miss-match: expected %d, got %d", totalSize, rawSize)
 		}
 
 		/* TODO: this doesn't work, do we need it?
@@ -250,7 +249,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 
 		pieceDataArray = append(pieceDataArray, pieceData)
 	}
-	return pieceDataArray, subPieceInfoMap, subPieceCidList, nil
+	return pieceDataArray, subPieceInfoMap, nil
 }
 
 func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +339,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Step 4: Prepare piece information
-	pieceDataArray, subPieceInfoMap, _, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
+	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
 		logAdd.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
