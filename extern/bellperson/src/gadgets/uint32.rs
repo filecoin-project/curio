@@ -349,7 +349,7 @@ impl UInt32 {
             // the linear combination
             let mut coeff = Scalar::ONE;
             for bit in &op.bits {
-                lc = lc + &bit.lc(CS::one(), coeff);
+                lc = bit.add_to_lc(lc, CS::one(), coeff);
 
                 all_constants &= bit.is_constant();
 

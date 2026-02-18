@@ -5,7 +5,7 @@ use ff::PrimeField;
 use super::boolean::Boolean;
 use super::num::{AllocatedNum, Num};
 use super::*;
-use bellpepper_core::ConstraintSystem;
+use bellpepper_core::{ConstraintSystem, LinearCombination};
 
 // Synthesize the constants for each base pattern.
 fn synth<'a, Scalar: PrimeField, I>(window_size: usize, constants: I, assignment: &mut [Scalar])
@@ -81,36 +81,34 @@ where
     cs.enforce(
         || "x-coordinate lookup",
         |lc| {
-            lc + (x_coeffs[0b001], one)
-                + &bits[1].lc::<Scalar>(one, x_coeffs[0b011])
-                + &bits[2].lc::<Scalar>(one, x_coeffs[0b101])
-                + &precomp.lc::<Scalar>(one, x_coeffs[0b111])
+            let lc = lc + (x_coeffs[0b001], one);
+            let lc = bits[1].add_to_lc(lc, one, x_coeffs[0b011]);
+            let lc = bits[2].add_to_lc(lc, one, x_coeffs[0b101]);
+            precomp.add_to_lc(lc, one, x_coeffs[0b111])
         },
-        |lc| lc + &bits[0].lc::<Scalar>(one, Scalar::ONE),
+        |lc| bits[0].add_to_lc(lc, one, Scalar::ONE),
         |lc| {
-            lc + res_x.get_variable()
-                - (x_coeffs[0b000], one)
-                - &bits[1].lc::<Scalar>(one, x_coeffs[0b010])
-                - &bits[2].lc::<Scalar>(one, x_coeffs[0b100])
-                - &precomp.lc::<Scalar>(one, x_coeffs[0b110])
+            let lc = lc + res_x.get_variable() - (x_coeffs[0b000], one);
+            let lc = bits[1].sub_from_lc(lc, one, x_coeffs[0b010]);
+            let lc = bits[2].sub_from_lc(lc, one, x_coeffs[0b100]);
+            precomp.sub_from_lc(lc, one, x_coeffs[0b110])
         },
     );
 
     cs.enforce(
         || "y-coordinate lookup",
         |lc| {
-            lc + (y_coeffs[0b001], one)
-                + &bits[1].lc::<Scalar>(one, y_coeffs[0b011])
-                + &bits[2].lc::<Scalar>(one, y_coeffs[0b101])
-                + &precomp.lc::<Scalar>(one, y_coeffs[0b111])
+            let lc = lc + (y_coeffs[0b001], one);
+            let lc = bits[1].add_to_lc(lc, one, y_coeffs[0b011]);
+            let lc = bits[2].add_to_lc(lc, one, y_coeffs[0b101]);
+            precomp.add_to_lc(lc, one, y_coeffs[0b111])
         },
-        |lc| lc + &bits[0].lc::<Scalar>(one, Scalar::ONE),
+        |lc| bits[0].add_to_lc(lc, one, Scalar::ONE),
         |lc| {
-            lc + res_y.get_variable()
-                - (y_coeffs[0b000], one)
-                - &bits[1].lc::<Scalar>(one, y_coeffs[0b010])
-                - &bits[2].lc::<Scalar>(one, y_coeffs[0b100])
-                - &precomp.lc::<Scalar>(one, y_coeffs[0b110])
+            let lc = lc + res_y.get_variable() - (y_coeffs[0b000], one);
+            let lc = bits[1].sub_from_lc(lc, one, y_coeffs[0b010]);
+            let lc = bits[2].sub_from_lc(lc, one, y_coeffs[0b100]);
+            precomp.sub_from_lc(lc, one, y_coeffs[0b110])
         },
     );
 
@@ -171,15 +169,16 @@ where
         .add_bool_with_coeff(one, &bits[1], x_coeffs[0b10])
         .add_bool_with_coeff(one, &precomp, x_coeffs[0b11]);
 
-    let y_lc = precomp.lc::<Scalar>(one, y_coeffs[0b11])
-        + &bits[1].lc::<Scalar>(one, y_coeffs[0b10])
-        + &bits[0].lc::<Scalar>(one, y_coeffs[0b01])
-        + (y_coeffs[0b00], one);
+    // Build y_lc without temporary LC allocations from Boolean::lc.
+    let mut y_lc = LinearCombination::<Scalar>::zero() + (y_coeffs[0b00], one);
+    y_lc = precomp.add_to_lc(y_lc, one, y_coeffs[0b11]);
+    y_lc = bits[1].add_to_lc(y_lc, one, y_coeffs[0b10]);
+    y_lc = bits[0].add_to_lc(y_lc, one, y_coeffs[0b01]);
 
     cs.enforce(
         || "y-coordinate lookup",
         |lc| lc + &y_lc + &y_lc,
-        |lc| lc + &bits[2].lc::<Scalar>(one, Scalar::ONE),
+        |lc| bits[2].add_to_lc(lc, one, Scalar::ONE),
         |lc| lc + &y_lc - y.get_variable(),
     );
 

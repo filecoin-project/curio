@@ -157,6 +157,34 @@ enum Commands {
     /// proof bytes, suitable for use with the `--vanilla` flag of single/batch.
     #[command(subcommand)]
     GenVanilla(GenVanillaCommands),
+
+    /// In-process synthesis microbenchmark (requires `synth-bench` feature).
+    ///
+    /// Runs only the CPU synthesis step (circuit construction + R1CS witness
+    /// generation) without daemon, GPU, or SRS. Useful for A/B testing
+    /// bellpepper-core / bellperson changes.
+    SynthOnly {
+        /// Path to C1 output JSON.
+        #[arg(long)]
+        c1: PathBuf,
+
+        /// Sector number.
+        #[arg(long, default_value = "1")]
+        sector_num: u64,
+
+        /// Miner ID.
+        #[arg(long, default_value = "1000")]
+        miner_id: u64,
+
+        /// Number of iterations (synthesis runs). Each run drops the result
+        /// before starting the next, so only one partition set is live at a time.
+        #[arg(short, long, default_value = "1")]
+        iterations: u32,
+
+        /// Synthesize only a single partition (0-9) instead of all 10.
+        #[arg(long)]
+        partition: Option<usize>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -598,6 +626,10 @@ async fn main() -> Result<()> {
         Commands::GenVanilla(subcmd) => {
             run_gen_vanilla(subcmd)?;
         }
+
+        Commands::SynthOnly { c1, sector_num, miner_id, iterations, partition } => {
+            run_synth_only(c1, sector_num, miner_id, iterations, partition)?;
+        }
     }
 
     Ok(())
@@ -882,6 +914,98 @@ fn status_label(status: i32) -> &'static str {
         4 => "TIMEOUT",
         _ => "UNKNOWN",
     }
+}
+
+#[cfg(feature = "synth-bench")]
+fn run_synth_only(
+    c1: PathBuf,
+    sector_num: u64,
+    miner_id: u64,
+    iterations: u32,
+    partition: Option<usize>,
+) -> Result<()> {
+    use std::time::Instant;
+
+    // Set FIL_PROOFS_PARAMETER_CACHE for proof type registration
+    if std::env::var("FIL_PROOFS_PARAMETER_CACHE").is_err() {
+        if std::path::Path::new("/data/zk/params").exists() {
+            unsafe { std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", "/data/zk/params") };
+        }
+    }
+
+    println!("=== Synthesis Microbenchmark ===");
+    println!("c1:         {}", c1.display());
+    println!("sector:     {} (miner {})", sector_num, miner_id);
+    println!("partition:  {}", partition.map_or("all".to_string(), |p| p.to_string()));
+    println!("iterations: {}", iterations);
+    println!();
+
+    let c1_data = std::fs::read(&c1)
+        .with_context(|| format!("failed to read {}", c1.display()))?;
+    println!("c1 loaded:  {} bytes", c1_data.len());
+
+    let mut times = Vec::with_capacity(iterations as usize);
+
+    for i in 0..iterations {
+        let wall_start = Instant::now();
+
+        let synth = if let Some(part_idx) = partition {
+            cuzk_core::pipeline::synthesize_porep_c2_partition(
+                &c1_data, sector_num, miner_id, part_idx,
+                &format!("synth-bench-{}", i),
+            )?
+        } else {
+            cuzk_core::pipeline::synthesize_porep_c2_batch(
+                &c1_data, sector_num, miner_id,
+                &format!("synth-bench-{}", i),
+            )?
+        };
+
+        let wall_time = wall_start.elapsed();
+        let synth_time = synth.synthesis_duration;
+        let num_circuits = synth.provers.len();
+        let num_constraints = if !synth.provers.is_empty() { synth.provers[0].a.len() } else { 0 };
+
+        // Drop the heavy data before next iteration
+        drop(synth);
+
+        println!(
+            "  [{}] wall={:.1}s  synth={:.1}s  circuits={}  constraints={}",
+            i + 1,
+            wall_time.as_secs_f64(),
+            synth_time.as_secs_f64(),
+            num_circuits,
+            num_constraints,
+        );
+        times.push((wall_time, synth_time));
+    }
+
+    if iterations > 1 {
+        let wall_avg = times.iter().map(|(w, _)| w.as_secs_f64()).sum::<f64>() / times.len() as f64;
+        let synth_avg = times.iter().map(|(_, s)| s.as_secs_f64()).sum::<f64>() / times.len() as f64;
+        let wall_min = times.iter().map(|(w, _)| w.as_secs_f64()).fold(f64::INFINITY, f64::min);
+        let synth_min = times.iter().map(|(_, s)| s.as_secs_f64()).fold(f64::INFINITY, f64::min);
+        println!();
+        println!("=== Summary ({} iterations) ===", iterations);
+        println!("wall:   avg={:.1}s  min={:.1}s", wall_avg, wall_min);
+        println!("synth:  avg={:.1}s  min={:.1}s", synth_avg, synth_min);
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "synth-bench"))]
+fn run_synth_only(
+    _c1: PathBuf,
+    _sector_num: u64,
+    _miner_id: u64,
+    _iterations: u32,
+    _partition: Option<usize>,
+) -> Result<()> {
+    anyhow::bail!(
+        "synth-only subcommand requires the 'synth-bench' feature.\n\
+         Rebuild with: cargo build --release -p cuzk-bench --features synth-bench"
+    );
 }
 
 fn print_result(resp: &pb::AwaitProofResponse, wall_time: std::time::Duration) {

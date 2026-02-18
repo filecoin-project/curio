@@ -126,9 +126,44 @@ where
     Ok(proofs)
 }
 
+/// Capacity hints for pre-sizing ProvingAssignment vectors during synthesis.
+///
+/// Providing accurate hints eliminates ~27 reallocation cycles per vector
+/// and avoids ~32 GiB of redundant memory copies for 32 GiB PoRep C2.
+#[derive(Clone, Copy, Debug)]
+pub struct SynthesisCapacityHint {
+    /// Expected number of R1CS constraints (e.g., ~130M for 32G PoRep).
+    pub num_constraints: usize,
+    /// Expected number of auxiliary (witness) variables.
+    pub num_aux: usize,
+    /// Expected number of input (public) variables.
+    pub num_inputs: usize,
+}
+
 #[allow(clippy::type_complexity)]
 pub fn synthesize_circuits_batch<Scalar, C>(
     circuits: Vec<C>,
+) -> Result<
+    (
+        Instant,
+        std::vec::Vec<ProvingAssignment<Scalar>>,
+        std::vec::Vec<std::sync::Arc<std::vec::Vec<Scalar>>>,
+        std::vec::Vec<std::sync::Arc<std::vec::Vec<Scalar>>>,
+    ),
+    SynthesisError,
+>
+where
+    Scalar: PrimeField,
+    C: Circuit<Scalar> + Send,
+{
+    synthesize_circuits_batch_with_hint(circuits, None)
+}
+
+/// Like `synthesize_circuits_batch`, but with optional pre-sizing hints.
+#[allow(clippy::type_complexity)]
+pub fn synthesize_circuits_batch_with_hint<Scalar, C>(
+    circuits: Vec<C>,
+    capacity_hint: Option<SynthesisCapacityHint>,
 ) -> Result<
     (
         Instant,
@@ -147,7 +182,15 @@ where
     let mut provers = circuits
         .into_par_iter()
         .map(|circuit| -> Result<_, SynthesisError> {
-            let mut prover = ProvingAssignment::new();
+            let mut prover = if let Some(hint) = capacity_hint {
+                ProvingAssignment::new_with_capacity(
+                    hint.num_constraints,
+                    hint.num_aux,
+                    hint.num_inputs,
+                )
+            } else {
+                ProvingAssignment::new()
+            };
 
             prover.alloc_input(|| "", || Ok(Scalar::ONE))?;
 
@@ -309,6 +352,19 @@ where
 
     let proof_time = start.elapsed();
     info!("GPU prove time: {:?}", proof_time);
+
+    // Move large synthesis data (~130 GB for 10 circuits of 32 GiB PoRep)
+    // into a background thread for deallocation, so the caller gets results
+    // immediately. Each ProvingAssignment holds a/b/c Vec<Scalar> of ~4.17 GB
+    // each, plus aux_assignment (~0.74 GB). Dropping synchronously adds ~10s
+    // of munmap() overhead on Zen4.
+    std::thread::spawn(move || {
+        drop(provers);
+        drop(input_assignments);
+        drop(aux_assignments);
+        drop(r_s);
+        drop(s_s);
+    });
 
     Ok(proofs)
 }

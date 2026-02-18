@@ -30,7 +30,10 @@ pub use self::mapped_params::*;
 pub use self::params::*;
 pub use self::proof::*;
 #[cfg(feature = "cuda-supraseal")]
-pub use self::prover::supraseal::{prove_from_assignments, synthesize_circuits_batch};
+pub use self::prover::supraseal::{
+    prove_from_assignments, synthesize_circuits_batch, synthesize_circuits_batch_with_hint,
+    SynthesisCapacityHint,
+};
 #[cfg(feature = "cuda-supraseal")]
 pub use self::prover::ProvingAssignment;
 #[cfg(feature = "cuda-supraseal")]

@@ -20,6 +20,39 @@ use self::supraseal as prover;
 use super::{ParameterSource, Proof};
 use crate::{gpu::GpuName, lc};
 
+/// Pool of pre-allocated Vec buffers for recycling `LinearCombination` temporaries.
+///
+/// Each `enforce` call creates 3 `LinearCombination`s, each with 2 `Indexer`s
+/// (inputs + aux), totaling 6 Vec allocations per constraint. With ~130M constraints,
+/// this amounts to ~780M malloc/free calls — roughly 34% of synthesis time.
+///
+/// This pool recycles those buffers: after eval, the Vecs are cleared (retaining
+/// their heap capacity) and returned to the pool for the next constraint.
+struct LcVecPool<Scalar> {
+    /// Recycled buffers for Indexer values. We need 6 per enforce call
+    /// (3 LCs × 2 Indexers each: inputs + aux).
+    bufs: Vec<Vec<(usize, Scalar)>>,
+}
+
+impl<Scalar> LcVecPool<Scalar> {
+    fn new() -> Self {
+        Self { bufs: Vec::new() }
+    }
+
+    /// Take a cleared buffer from the pool, or allocate a new one if empty.
+    #[inline]
+    fn take(&mut self) -> Vec<(usize, Scalar)> {
+        self.bufs.pop().unwrap_or_default()
+    }
+
+    /// Return a cleared buffer to the pool.
+    #[inline]
+    fn give(&mut self, mut buf: Vec<(usize, Scalar)>) {
+        buf.clear();
+        self.bufs.push(buf);
+    }
+}
+
 pub struct ProvingAssignment<Scalar: PrimeField> {
     // Density of queries
     pub a_aux_density: DensityTracker,
@@ -34,6 +67,9 @@ pub struct ProvingAssignment<Scalar: PrimeField> {
     // Assignments of variables
     pub input_assignment: Vec<Scalar>,
     pub aux_assignment: Vec<Scalar>,
+
+    // Recycling pool for LC temporary buffers (avoids malloc/free per constraint)
+    lc_pool: LcVecPool<Scalar>,
 }
 
 impl<Scalar: PrimeField> fmt::Debug for ProvingAssignment<Scalar> {
@@ -68,6 +104,7 @@ impl<Scalar: PrimeField> fmt::Debug for ProvingAssignment<Scalar> {
             )
             .field("input_assignment", &self.input_assignment)
             .field("aux_assignment", &self.aux_assignment)
+            .field("lc_pool_bufs", &self.lc_pool.bufs.len())
             .finish()
     }
 }
@@ -85,6 +122,38 @@ impl<Scalar: PrimeField> PartialEq for ProvingAssignment<Scalar> {
     }
 }
 
+impl<Scalar: PrimeField> ProvingAssignment<Scalar> {
+    /// Create a ProvingAssignment with pre-allocated vectors.
+    ///
+    /// The constraint count and aux variable count are deterministic for a
+    /// given circuit topology (e.g., always ~130M for 32 GiB PoRep).
+    /// Pre-sizing eliminates ~27 reallocation cycles per vector and avoids
+    /// ~32 GiB of redundant memory copies during synthesis.
+    pub fn new_with_capacity(num_constraints: usize, num_aux: usize, num_inputs: usize) -> Self {
+        use bitvec::prelude::*;
+        Self {
+            a_aux_density: DensityTracker {
+                bv: BitVec::<usize, Lsb0>::with_capacity(num_aux),
+                total_density: 0,
+            },
+            b_input_density: DensityTracker {
+                bv: BitVec::<usize, Lsb0>::with_capacity(num_inputs),
+                total_density: 0,
+            },
+            b_aux_density: DensityTracker {
+                bv: BitVec::<usize, Lsb0>::with_capacity(num_aux),
+                total_density: 0,
+            },
+            a: Vec::with_capacity(num_constraints),
+            b: Vec::with_capacity(num_constraints),
+            c: Vec::with_capacity(num_constraints),
+            input_assignment: Vec::with_capacity(num_inputs),
+            aux_assignment: Vec::with_capacity(num_aux),
+            lc_pool: LcVecPool::new(),
+        }
+    }
+}
+
 impl<Scalar: PrimeField> ConstraintSystem<Scalar> for ProvingAssignment<Scalar> {
     type Root = Self;
 
@@ -98,6 +167,7 @@ impl<Scalar: PrimeField> ConstraintSystem<Scalar> for ProvingAssignment<Scalar> 
             c: vec![],
             input_assignment: vec![],
             aux_assignment: vec![],
+            lc_pool: LcVecPool::new(),
         }
     }
 
@@ -134,21 +204,28 @@ impl<Scalar: PrimeField> ConstraintSystem<Scalar> for ProvingAssignment<Scalar> 
         LB: FnOnce(LinearCombination<Scalar>) -> LinearCombination<Scalar>,
         LC: FnOnce(LinearCombination<Scalar>) -> LinearCombination<Scalar>,
     {
-        let a = a(LinearCombination::zero());
-        let b = b(LinearCombination::zero());
-        let c = c(LinearCombination::zero());
+        // Take 6 recycled buffers from the pool (3 LCs × 2 Indexers each).
+        // After eval, the cleared buffers go back to the pool.
+        let a_inp = self.lc_pool.take();
+        let a_aux = self.lc_pool.take();
+        let b_inp = self.lc_pool.take();
+        let b_aux = self.lc_pool.take();
+        let c_inp = self.lc_pool.take();
+        let c_aux = self.lc_pool.take();
+
+        let a = a(LinearCombination::zero_recycled(a_inp, a_aux));
+        let b = b(LinearCombination::zero_recycled(b_inp, b_aux));
+        let c = c(LinearCombination::zero_recycled(c_inp, c_aux));
 
         let input_assignment = &self.input_assignment;
         let aux_assignment = &self.aux_assignment;
+
         let a_aux_density = &mut self.a_aux_density;
         let b_input_density = &mut self.b_input_density;
         let b_aux_density = &mut self.b_aux_density;
 
         let a_res = lc::eval_with_trackers(
             &a,
-            // Inputs have full density in the A query
-            // because there are constraints of the
-            // form x * 0 = 0 for each input.
             None,
             Some(a_aux_density),
             input_assignment,
@@ -163,15 +240,22 @@ impl<Scalar: PrimeField> ConstraintSystem<Scalar> for ProvingAssignment<Scalar> 
             aux_assignment,
         );
 
-        // There is no C polynomial query,
-        // though there is an (beta)A + (alpha)B + C
-        // query for all aux variables.
-        // However, that query has full density.
         let c_res = c.eval(input_assignment, aux_assignment);
 
         self.a.push(a_res);
         self.b.push(b_res);
         self.c.push(c_res);
+
+        // Recycle the LC buffers back into the pool.
+        let (ai, aa) = a.recycle();
+        let (bi, ba) = b.recycle();
+        let (ci, ca) = c.recycle();
+        self.lc_pool.give(ai);
+        self.lc_pool.give(aa);
+        self.lc_pool.give(bi);
+        self.lc_pool.give(ba);
+        self.lc_pool.give(ci);
+        self.lc_pool.give(ca);
     }
 
     fn push_namespace<NR, N>(&mut self, _: N)

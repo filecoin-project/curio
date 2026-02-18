@@ -77,6 +77,8 @@ filecoin-hashers = { version = "14.0", default-features = false, features = ["po
 
 [patch.crates-io]
 bellperson = { path = "../bellperson" }
+bellpepper-core = { path = "../bellpepper-core" }
+supraseal-c2 = { path = "../supraseal-c2" }
 
 [profile.release]
 opt-level = 3

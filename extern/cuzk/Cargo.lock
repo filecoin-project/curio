@@ -233,8 +233,6 @@ dependencies = [
 [[package]]
 name = "bellpepper-core"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2c9a1b2f748c59938bc72165ebdf34efffeecee9cfbe0bb7d6b01aea21cd523"
 dependencies = [
  "blake2s_simd 1.0.4",
  "byteorder",
@@ -249,6 +247,7 @@ version = "0.26.0"
 dependencies = [
  "bellpepper-core",
  "bincode",
+ "bitvec",
  "blake2s_simd 1.0.4",
  "blstrs",
  "byteorder",
@@ -675,6 +674,7 @@ dependencies = [
  "chrono",
  "cid",
  "clap",
+ "cuzk-core",
  "cuzk-proto",
  "filecoin-proofs-api",
  "hex",
@@ -2465,8 +2465,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "supraseal-c2"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea1b727b012f4a4ca34b3a7a90eb5cb8cca9ba614769bc6d6933094fc2be51d2"
 dependencies = [
  "blst",
  "cc",
