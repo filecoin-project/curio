@@ -120,7 +120,6 @@ func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
 }
 
 // EnableIndexingForPiecesInTx marks the specified piecerefs as needing indexing within a transaction.
-// same piece_cid — which would create one redundant indexing task per duplicate upload.
 func EnableIndexingForPiecesInTx(
 	tx *harmonydb.Tx,
 	serviceLabel string,
