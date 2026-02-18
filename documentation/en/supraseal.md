@@ -151,7 +151,7 @@ If you get nvcc errors about unsupported compiler versions, check your CUDA/GCC 
     # For CUDA 12.6+ or CUDA 13+:
     sudo apt install gcc-13 g++-13
     ```
-* In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+* In addition to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
@@ -490,7 +490,7 @@ To troubleshoot:
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
 
-### Slower than expeted NVMe speed
+### Slower than expected NVMe speed
 
 If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
 
