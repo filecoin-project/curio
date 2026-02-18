@@ -39,6 +39,10 @@ class PipelineFailedSectors extends LitElement {
             font-weight: bold;
             color: #ff6b6b;
         }
+        .count-header .count-stuck {
+            font-weight: bold;
+            color: #e0a040;
+        }
         .success-message {
             background: rgba(75, 181, 67, 0.15);
             border: 1px solid rgba(75, 181, 67, 0.4);
@@ -48,11 +52,25 @@ class PipelineFailedSectors extends LitElement {
             font-size: 1.3em;
             color: #4BB543;
         }
-        .row-recent {
-            background-color: rgba(180, 40, 40, 0.3) !important;
+        .section-label {
+            font-size: 1.1em;
+            font-weight: 600;
+            margin: 1.5em 0 0.5em 0;
+            padding: 4px 0;
         }
-        .row-day {
-            background-color: rgba(180, 120, 40, 0.2) !important;
+        .section-label.terminal {
+            color: #ff6b6b;
+            border-bottom: 1px solid rgba(255, 107, 107, 0.3);
+        }
+        .section-label.stuck {
+            color: #e0a040;
+            border-bottom: 1px solid rgba(224, 160, 64, 0.3);
+        }
+        .row-terminal {
+            background-color: rgba(180, 40, 40, 0.25) !important;
+        }
+        .row-stuck {
+            background-color: rgba(180, 120, 40, 0.15) !important;
         }
         .stage-badge {
             display: inline-block;
@@ -63,8 +81,23 @@ class PipelineFailedSectors extends LitElement {
             background: #444;
             color: #eee;
         }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        .status-badge.terminal {
+            background: rgba(255, 107, 107, 0.3);
+            color: #ff6b6b;
+        }
+        .status-badge.stuck {
+            background: rgba(224, 160, 64, 0.3);
+            color: #e0a040;
+        }
         .details-cell {
-            max-width: 200px;
+            max-width: 250px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -76,20 +109,33 @@ class PipelineFailedSectors extends LitElement {
         }
     `;
 
+    stageNames() {
+        return [
+            ['AfterSDR', 'SDR'],
+            ['AfterTreeD', 'TreeD'],
+            ['AfterTreeC', 'TreeC'],
+            ['AfterTreeR', 'TreeR'],
+            ['AfterSynth', 'Synth'],
+            ['AfterPrecommitMsg', 'PrecommitMsg'],
+            ['AfterPrecommitMsgSuccess', 'PrecommitMsgSuccess'],
+            ['AfterPorep', 'PoRep'],
+            ['AfterFinalize', 'Finalize'],
+            ['AfterMoveStorage', 'MoveStorage'],
+            ['AfterCommitMsg', 'CommitMsg'],
+            ['AfterCommitMsgSuccess', 'CommitMsgSuccess'],
+        ];
+    }
+
     computeStage(sector) {
-        // Return the LAST completed stage
-        if (sector.AfterCommitMsgSuccess) return 'CommitMsgSuccess';
-        if (sector.AfterCommitMsg) return 'CommitMsg';
-        if (sector.AfterMoveStorage) return 'MoveStorage';
-        if (sector.AfterFinalize) return 'Finalize';
-        if (sector.AfterPorep) return 'PoRep';
-        if (sector.AfterPrecommitMsgSuccess) return 'PrecommitMsgSuccess';
-        if (sector.AfterPrecommitMsg) return 'PrecommitMsg';
-        if (sector.AfterTreeR) return 'TreeR';
-        if (sector.AfterTreeC) return 'TreeC';
-        if (sector.AfterTreeD) return 'TreeD';
-        if (sector.AfterSDR) return 'SDR';
+        const stages = this.stageNames();
+        for (let i = stages.length - 1; i >= 0; i--) {
+            if (sector[stages[i][0]]) return stages[i][1];
+        }
         return 'New';
+    }
+
+    isStuck(sector) {
+        return !sector.Failed && sector.MissingTasks && sector.MissingTasks.length > 0;
     }
 
     formatAge(dateStr) {
@@ -118,15 +164,6 @@ class PipelineFailedSectors extends LitElement {
         return date.toLocaleString();
     }
 
-    getRowClass(sector) {
-        const failedAt = new Date(sector.FailedAt);
-        if (isNaN(failedAt.getTime()) || failedAt.getFullYear() < 2000) return '';
-        const diff = Date.now() - failedAt.getTime();
-        if (diff < 3600000) return 'row-recent';     // <1h
-        if (diff < 86400000) return 'row-day';       // <24h
-        return '';
-    }
-
     truncate(str, len) {
         if (!str) return '';
         if (str.length <= len) return str;
@@ -146,42 +183,85 @@ class PipelineFailedSectors extends LitElement {
             `;
         }
 
+        const terminal = this.data.filter(s => s.Failed);
+        const stuck = this.data.filter(s => this.isStuck(s));
+        const totalCount = this.data.length;
+
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             <div class="count-header">
-                <span class="count">${this.data.length}</span> Failed Sector${this.data.length !== 1 ? 's' : ''}
+                ${terminal.length > 0 ? html`<span class="count">${terminal.length}</span> failed` : ''}
+                ${terminal.length > 0 && stuck.length > 0 ? html` · ` : ''}
+                ${stuck.length > 0 ? html`<span class="count-stuck">${stuck.length}</span> stuck (missing tasks)` : ''}
+                <span style="color: #888; font-size: 0.85em; margin-left: 0.5em">${totalCount} total</span>
             </div>
 
+            ${terminal.length > 0 ? html`
+                <div class="section-label terminal">⛔ Terminally Failed</div>
+                ${this.renderTable(terminal, true)}
+            ` : ''}
+
+            ${stuck.length > 0 ? html`
+                <div class="section-label stuck">⚠️ Stuck — Missing Tasks</div>
+                ${this.renderTable(stuck, false)}
+            ` : ''}
+        `;
+    }
+
+    renderTable(sectors, isTerminal) {
+        return html`
             <table class="table table-dark table-hover">
                 <thead>
                     <tr>
                         <th>Miner</th>
                         <th>Sector #</th>
-                        <th>Failed At</th>
-                        <th>Stage</th>
-                        <th>Reason</th>
-                        <th>Details</th>
-                        <th>Age</th>
+                        <th>Status</th>
+                        <th>Last Stage</th>
+                        ${isTerminal ? html`
+                            <th>Failed At</th>
+                            <th>Reason</th>
+                            <th>Details</th>
+                        ` : html`
+                            <th>Details</th>
+                        `}
+                        <th>Created</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${this.data.map(sector => this.renderRow(sector))}
+                    ${sectors.map(s => isTerminal ? this.renderTerminalRow(s) : this.renderStuckRow(s))}
                 </tbody>
             </table>
         `;
     }
 
-    renderRow(sector) {
+    renderTerminalRow(sector) {
         return html`
-            <tr class="${this.getRowClass(sector)}">
+            <tr class="row-terminal">
                 <td>f0${sector.SpID}</td>
                 <td>${sector.SectorNumber}</td>
-                <td style="white-space: nowrap">${this.formatTimestamp(sector.FailedAt)}</td>
+                <td><span class="status-badge terminal">FAILED</span></td>
                 <td><span class="stage-badge">${this.computeStage(sector)}</span></td>
+                <td style="white-space: nowrap">${this.formatTimestamp(sector.FailedAt)}</td>
                 <td class="reason-cell">${sector.FailedReason || '--'}</td>
                 <td class="details-cell" title="${sector.FailedReasonMsg || ''}">${this.truncate(sector.FailedReasonMsg, 100) || '--'}</td>
+                <td style="white-space: nowrap">${this.formatAge(sector.CreateTime)}</td>
+            </tr>
+        `;
+    }
+
+    renderStuckRow(sector) {
+        const missingCount = sector.MissingTasks ? sector.MissingTasks.length : 0;
+        return html`
+            <tr class="row-stuck">
+                <td>f0${sector.SpID}</td>
+                <td>${sector.SectorNumber}</td>
+                <td><span class="status-badge stuck">STUCK</span></td>
+                <td><span class="stage-badge">${this.computeStage(sector)}</span></td>
+                <td class="details-cell" title="Task IDs: ${(sector.MissingTasks || []).join(', ')}">
+                    ${missingCount} missing task${missingCount !== 1 ? 's' : ''} — sector needs restart
+                </td>
                 <td style="white-space: nowrap">${this.formatAge(sector.CreateTime)}</td>
             </tr>
         `;
