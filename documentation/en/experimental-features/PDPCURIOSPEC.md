@@ -64,3 +64,16 @@ TODO: focus on transitions between this and next proving period not the proving 
 ## TODO: more categories
 
 # Payment Settlement
+
+Curio provides automated settlement of payments made to a storage providers' addresses on the filecoin-pay payment system.  It accomplishes this through the coordinated efforts of two components: the `Settle` task and the `SettleWatcher` curio chain schedule callback.
+
+Because the full settlement of payments is an important precondition for the full termination of an FWSS managed PDP data set this subsystem interacts closely with the PDP data set termination pipeline.
+
+## Settle Task 
+
+The settle task is scheduled twice a day through the IAmBored entrypoint.  Upon waking up the settle task queries the `eth_keys` table for the first keys it finds with role == `pdp`.  The task then queries the provider registry to learn the PDP service address which it this key is providing for.  In all cases today this should be the FWSS contract address on whichever filecoin network (main/calib) this curio node is running on.  `Settle` task then delegates to the `filecoinpayment` library method `SettleLockupPeriod` to attempt to settle all rails in need of settlement that are paying out to the provider's key and using the appropriate FWSS contract as the rail's operator contract.
+
+`SettleLockupPeriod` uses eth call methods on the filecoin-pay contract to lookup all rails operator and payee.  The method's intention is to settle rails that have any possibility of client default between this run of the task and the next expected run in 12 hours.  To determine this condition each rail's `settledUpTo` and `lockupPeriod` value is inspected.  When a rail has not been settled for over one `lockupPeriod` the client can be in default.  `SettleLockuPerod` settles all rails that are within one day of meeting this condition.  Additionally all termianted rails in the process of finishing out their last `lockupPeriod` of life are marked for settlement.
+
+Using `multicall.Multicall3Call` the task settles rails in batches of 10 and atomically adds the tx hashes to `message_waits_eth` and the settlement tracking table `filecoin_payment_transactions`. 
+
