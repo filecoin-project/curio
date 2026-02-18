@@ -32,8 +32,8 @@ use crate::srs_manager::CircuitId;
 
 #[cfg(feature = "cuda-supraseal")]
 use bellperson::groth16::{
-    prove_from_assignments, synthesize_circuits_batch, Proof, ProvingAssignment,
-    SuprasealParameters,
+    prove_from_assignments, synthesize_circuits_batch_with_hint, Proof, ProvingAssignment,
+    SuprasealParameters, SynthesisCapacityHint,
 };
 #[cfg(feature = "cuda-supraseal")]
 use blstrs::{Bls12, Scalar as Fr};
@@ -81,6 +81,115 @@ use filecoin_hashers::Hasher;
 
 /// Number of Groth16 proof bytes per partition (2 × G1 + 1 × G2 compressed).
 const GROTH_PROOF_BYTES: usize = 192;
+
+// ─── Capacity Hint Cache ────────────────────────────────────────────────────
+//
+// After the first synthesis for a circuit type, we cache the actual Vec sizes
+// (num_constraints, num_aux, num_inputs) so subsequent syntheses can pre-allocate
+// to full capacity. This eliminates ~27 reallocation cycles per Vec and ~250 GB
+// of redundant memcpy for 10-circuit 32 GiB PoRep C2 batches.
+
+#[cfg(feature = "cuda-supraseal")]
+use std::sync::OnceLock;
+
+/// Cached hint for PoRep 32G circuits (~130M constraints, ~23M aux, ~1 input).
+#[cfg(feature = "cuda-supraseal")]
+static POREP_32G_HINT: OnceLock<SynthesisCapacityHint> = OnceLock::new();
+
+/// Cached hint for WinningPoSt circuits (~3.5M constraints).
+#[cfg(feature = "cuda-supraseal")]
+static WINNING_POST_HINT: OnceLock<SynthesisCapacityHint> = OnceLock::new();
+
+/// Cached hint for WindowPoSt circuits (~125M constraints).
+#[cfg(feature = "cuda-supraseal")]
+static WINDOW_POST_HINT: OnceLock<SynthesisCapacityHint> = OnceLock::new();
+
+/// Cached hint for SnapDeals circuits (~81M constraints).
+#[cfg(feature = "cuda-supraseal")]
+static SNAP_DEALS_HINT: OnceLock<SynthesisCapacityHint> = OnceLock::new();
+
+/// Get the cached hint for a circuit type, if available.
+#[cfg(feature = "cuda-supraseal")]
+fn get_hint(circuit_id: &CircuitId) -> Option<SynthesisCapacityHint> {
+    match circuit_id {
+        CircuitId::Porep32G | CircuitId::Porep64G => POREP_32G_HINT.get().copied(),
+        CircuitId::WinningPost32G => WINNING_POST_HINT.get().copied(),
+        CircuitId::WindowPost32G => WINDOW_POST_HINT.get().copied(),
+        CircuitId::SnapDeals32G | CircuitId::SnapDeals64G => SNAP_DEALS_HINT.get().copied(),
+    }
+}
+
+/// Cache the capacity hint after a successful synthesis.
+///
+/// Called after `synthesize_circuits_batch_with_hint` returns successfully.
+/// On the first call, the `aux_assignment` and `input_assignment` have already
+/// been moved out via `std::mem::take()`, so we get sizes from the `a` Vec
+/// (constraints) and the DensityTracker BitVec lengths (which match the original
+/// aux/input counts, since each `alloc()` pushes one bit).
+#[cfg(feature = "cuda-supraseal")]
+fn cache_hint(circuit_id: &CircuitId, provers: &[ProvingAssignment<Fr>]) {
+    if provers.is_empty() {
+        return;
+    }
+    // a_aux_density.bv has exactly one bit per aux variable (pushed in alloc())
+    // b_input_density.bv has exactly one bit per input variable (pushed in alloc_input())
+    let hint = SynthesisCapacityHint {
+        num_constraints: provers[0].a.len(),
+        num_aux: provers[0].a_aux_density.bv.len(),
+        num_inputs: provers[0].b_input_density.bv.len(),
+    };
+    let lock = match circuit_id {
+        CircuitId::Porep32G | CircuitId::Porep64G => &POREP_32G_HINT,
+        CircuitId::WinningPost32G => &WINNING_POST_HINT,
+        CircuitId::WindowPost32G => &WINDOW_POST_HINT,
+        CircuitId::SnapDeals32G | CircuitId::SnapDeals64G => &SNAP_DEALS_HINT,
+    };
+    let _ = lock.set(hint); // ignore if already set
+    info!(
+        circuit_id = %circuit_id,
+        num_constraints = hint.num_constraints,
+        num_aux = hint.num_aux,
+        num_inputs = hint.num_inputs,
+        "cached synthesis capacity hint"
+    );
+}
+
+/// Synthesize circuits with automatic capacity hinting.
+///
+/// Uses cached hints from previous runs (if available) to pre-allocate Vecs
+/// to full capacity, eliminating ~27 reallocation cycles per Vec.
+/// After the first synthesis (no hint), caches the actual sizes for next time.
+#[cfg(feature = "cuda-supraseal")]
+fn synthesize_with_hint<C>(
+    circuits: Vec<C>,
+    circuit_id: &CircuitId,
+) -> Result<
+    (
+        Instant,
+        Vec<ProvingAssignment<Fr>>,
+        Vec<Arc<Vec<Fr>>>,
+        Vec<Arc<Vec<Fr>>>,
+    ),
+    bellperson::SynthesisError,
+>
+where
+    C: bellperson::Circuit<Fr> + Send,
+{
+    let hint = get_hint(circuit_id);
+    if hint.is_some() {
+        info!(circuit_id = %circuit_id, "using cached capacity hint for synthesis");
+    } else {
+        info!(circuit_id = %circuit_id, "no capacity hint cached — first synthesis will grow organically");
+    }
+
+    let (start, provers, input_assignments, aux_assignments) =
+        synthesize_circuits_batch_with_hint(circuits, hint)?;
+
+    // Cache hint for subsequent syntheses
+    cache_hint(circuit_id, &provers);
+
+    Ok((start, provers, input_assignments, aux_assignments))
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -393,7 +502,7 @@ pub fn synthesize_porep_c2_multi(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(all_circuits)?;
+        synthesize_with_hint(all_circuits, &CircuitId::Porep32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -593,7 +702,7 @@ pub fn synthesize_porep_c2_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(vec![circuit])?;
+        synthesize_with_hint(vec![circuit], &CircuitId::Porep32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -734,7 +843,7 @@ pub fn synthesize_porep_c2_batch(
     info!(num_circuits = circuits.len(), "synthesizing all circuits");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(circuits)?;
+        synthesize_with_hint(circuits, &CircuitId::Porep32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -937,7 +1046,7 @@ pub fn synthesize_winning_post(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(circuits)?;
+        synthesize_with_hint(circuits, &CircuitId::WinningPost32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1132,7 +1241,7 @@ pub fn synthesize_window_post(
     info!("synthesizing WindowPoSt circuit");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(vec![circuit])?;
+        synthesize_with_hint(vec![circuit], &CircuitId::WindowPost32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1310,7 +1419,7 @@ pub fn synthesize_snap_deals(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch(circuits)?;
+        synthesize_with_hint(circuits, &CircuitId::SnapDeals32G)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
