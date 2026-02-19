@@ -31,12 +31,17 @@ import (
 
 func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched, idx *indexstore.IndexStore) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingCleanup(ctx, db, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process pending piece cleanup: %s", err)
-		}
+		// Zen: processPendingCleanup is currently disabled because we want to debug an observation
+		// that removed pieces cause unexpected proving failures. Rather than just comment out the
+		// DB delete we comment out the whole function call because otherwise the PDPVerifier liveness
+		// checks have been observed to cripple the curio lotus ETH RPC connection
 
-		err = processIndexingAndIPNICleanup(ctx, db, cfg, idx)
+		// err := processPendingCleanup(ctx, db, ethClient)
+		// if err != nil {
+		// 	log.Warnf("Failed to process pending piece cleanup: %s", err)
+		// }
+
+		err := processIndexingAndIPNICleanup(ctx, db, cfg, idx)
 		if err != nil {
 			log.Warnf("Failed to process indexing and IPNI cleanup: %s", err)
 		}
@@ -47,7 +52,8 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *
 	}
 }
 
-func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+//nolint:unused // TODO: reinstate after debugging
+func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	var pieces []struct {
 		DataSetID int64 `db:"data_set"`
 		PieceID   int64 `db:"piece_id"`
