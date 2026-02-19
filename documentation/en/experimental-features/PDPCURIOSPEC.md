@@ -50,12 +50,57 @@ TODO: constructing and submitting proofs
 
 # Proof Clock
 
-## Initial Proving Period Task
+The PDP protocol requires periodic proofs at a fixed frequency from a storage provider to demonstrate that data is provably stored.  To achieve this the PDPVerifier contract accepts proof messages on the `provePossession` endpoint.  The contract also needs input from the storage provider to roll the "proof clock" forward into the next proving period.  The PDPVerifier endpoint that achieves this is `nextProvingPeriod`.  Across the FWSS and PDPVerifier contracts `nextProvingPeriod` is responsible for completing piece deletions, registering faults and resetting the new challenge epoch used to generate the next challenge window's proofs.
+
+Curio needs to manage this clock and update the proving period in a sensible way that synchronizes with proving.  It achieves this with state in the `pdp_data_sets` table and scheduling logic in three tasks: `PDPv0_InitPP` `PDPv0_Prove` and `PDPv0_ProvPeriod`.
+
+The majority of the fields of the `pdp_data_sets` table are relevant to understand the proving clock:
+
+```sql 
+CREATE TABLE pdp_data_sets (
+    ...
+    challenge_request_task_id BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
+    challenge_request_msg_hash TEXT,
+    proving_period BIGINT,
+    challenge_window BIGINT,
+    prove_at_epoch BIGINT,
+    init_ready BOOLEAN NOT NULL DEFAULT FALSE,
+    unrecoverable_proving_failure_epoch BIGINT,
+    next_prove_attempt_at BIGINT,
+    consecutive_prove_failures INT NOT NULL DEFAULT 0,
+    ...
+);
+```
+
+## Proving Task
+
+The `ProveTask` (named `PDPv0_Prove` in the database) executes the actual merkle inclusion proof generation and submission to the `provePossession` endpoint of the PDPVerifier.  They are scheduled as soon as two conditions are met: the dataset's latest `challenge_request_msg_hash` is confirmed as successful in `message_waits_eth` and the `prove_at_epoch` is in the past.  These conditions indicate that the PDPVerifier is ready for a new proof.
+
+There is one subtle issue with this scheduling.  It may be the case that the proving task is backed up in the curio task scheduling queue either because the node was shut down and restarted or because other tasks are overloading the system.  Proving tasks can be scheduled, wake up, and actually be too late to execute in time.  To handle this case gracefully, immediately upon executing within their `Do()` function, prove tasks check that the chain is currently within an active challenge window and if not gracefully stop work.
+
 
 ## Next Proving Period Task
 
-## Proving Task
-TODO: focus on transitions between this and next proving period not the proving logic
+The `NextProvingPeriodTask` (named `PDPv0_ProvPeriod` in the database) is triggered for scheduling as soon as a proving challenge window is complete.  In particular these tasks wait for dataset table entries to satisfy the condition that `prove_at_epoch + challenge_window` is in the past.  
+
+Whether or not the proof has been submitted or is still in the process of being submitted is irrelevant to these tasks.  They greedily reschedule the next periods proving window as soon as there is no benefit to wait any longer.  Note that proving and next proving period tasks do not share any task id locking logic and run independently.
+
+After a data set is picked up for next proving period scheduling the `challenge_request_task_id` field is then assigned to this task in the usual atomic fashion to lock the dataset to this harmony task.  The task then calls the `nextProvingPeriod` method on the PDPVerifier contract.
+
+One important value must be determined to be passed as an argument to `nextProvingPeriod` -- the `challengeEpoch`.  This is the epoch at which the next proof can be generated.  Processing `nextProvingPeriod` sets this value in the state of `PDPVerifier` effectively ticking the clock forward.  The challenge epoch is computed by referencing the service contract's (FWSS) proving schedule abstraction (its implementation of `PDPVerifier`'s `IPDPProvingSchedule` interface) which includes a `nextPDPChallengeWindowStart(id)` method.  This value is both sent to the chain via `nextProvingPeriod` AND stored in the dataset's table entry as the `prove_at_epoch`.  The `prove_at_epoch` update is stored atomically alongside the insertion of the `challenge_request_msg_hash`, i.e. the tx hash of the newly sent `nextProvingPeriod` message, into the `message_waits_eth` table.  This completes the circle setting up the condition for proving tasks to wait on a dataset only in the case where `nextProvingPeriod` has been called and confirmed and updated the challenge epoch on chain to match the local `prove_at_epoch` state.
+
+## Initial Proving Period Task
+
+From the PDPVerifier's perspective when PDP datasets are initialized they are not immediately registered as ready for proving.  The storage provider must make an initial call into the `nextProvingPeriod` method.  Curio handles this special case with `InitProvingPeriodTask` (named `PDPv0_InitPP` in the database).  
+
+Curio waits for the `init_ready` flag to be set for a data set table entry.  This is triggered via the `DataSetWatch` chain scheduler callback when the first piece is added to the dataset.  Then the task executes essentially the same logic as that described above in the _Next Proving Period Task_ section.  The only significant difference is the init task's reference to the `initChallengeWindowStart` parameter in service contract's `getPDPConfig()` return type (as per `PDPVerifier`'s `IPDPProvingSchedule` interface).
+
+## Retries and unrecoverable errors 
+
+Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  This threshold is reached after `MaxConsecutiveFailures = 5` retries.  The pdp_data_set table counts successive backoff attempts with the consecutive_prove_failures variable.  When this value is too high and a failure of one of the proving tasks occurs the data set is marked as unrecoverably failed and scheduled for deletion.  
+
+To ensure that this retry behavior is achieved scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
+
 
 # Dataset Termination
 
