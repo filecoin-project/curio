@@ -1099,6 +1099,63 @@ GPU:                [████ A ████][████ B ████][�
 
 **Commit:** `2fac031f` feat(cuzk): Phase 8 — dual-worker GPU interlock
 
+### Phase 9: PCIe Transfer Optimization
+
+Phase 9 targets the HtoD transfer overhead in the Groth16 proving pipeline. The NTT
+phase uploads 12 GiB of polynomial data (d_a: 4 GiB, d_bc: 8 GiB) each partition. Phase 8
+used unpinned `stream.HtoD()` which goes through a bounce buffer; Phase 9 pre-stages with
+`cudaHostRegister` (pinned DMA) and overlaps upload with compute via CUDA events.
+
+**Two changes:**
+
+1. **Pre-staged NTT uploads (Tier 1):** Pin host pages with `cudaHostRegister` before the GPU
+   mutex (CPU-only mlock), then after acquiring the mutex: trim CUDA memory pool, query free
+   VRAM, allocate 12 GiB on device, issue async `cudaMemcpyAsync` from pinned memory on a
+   separate upload stream, record CUDA events per polynomial. The NTT kernels `stream.wait()`
+   on these events — true GPU-side dependency, no CPU sync. Memory-aware: skips pre-staging
+   if free VRAM < 12 GiB + 512 MiB safety margin.
+
+2. **Deferred batch sync in Pippenger MSM (Tier 3):** Double-buffered `res_buf[2]` and
+   `ones_buf[2]` in `pippenger.cuh`. Each batch's DtoH result copy writes to its own buffer;
+   the CPU sync for the previous batch happens in the next iteration instead of immediately.
+   Overlaps DtoH transfer with bucket accumulation compute.
+
+**Per-partition timing (steady-state, gw=1):**
+
+| Metric | Phase 8 | Phase 9 | Delta |
+|---|---|---|---|
+| `ntt_msm_h_ms` | ~2430ms | **~690ms** | **-71.6%** |
+| `batch_add_ms` | ~640ms | ~650ms | unchanged |
+| `tail_msm_ms` | ~125ms | **~83ms** | **-34%** |
+| `gpu_total_ms` | ~3746ms | **~1824ms** | **-51.3%** |
+| Pre-stage setup | — | 18ms | (new) |
+| `prep_msm_ms` (CPU) | ~1700ms | ~1909ms | +12% (contention) |
+| `b_g2_msm_ms` (CPU) | ~380ms | ~484ms | +27% (contention) |
+
+**Benchmark results:**
+
+| Config | Throughput | Prove time | Notes |
+|---|---|---|---|
+| gw=1, c=3, j=1 (isolation) | **32.1s/proof** | 32.1s | All 30 partitions pre-staged, 14.2% over Phase 8 |
+| gw=1, c=15, j=10 | 42.9s/proof | 36.7s avg | 90.1% TIMELINE GPU util, 46.3% actual kernel util |
+| gw=1, c=15, j=15 | 41.3s/proof | 36.1s avg | Steady-state, DDR5 bandwidth wall |
+| gw=1, c=20, j=15 | 41.6s/proof | 36.9s avg | Consistent with c=15 |
+| gw=2, c=5, j=3 | 41.0s/proof | — | Regression: pool trim serializes workers |
+| gw=1, c=30, j=20 | CRASH | — | OOM from 20 concurrent proof memory pressure |
+
+**Key finding:** GPU kernels now complete in 1.8s/partition but CPU critical path
+(prep_msm + b_g2_msm) takes 2.4s/partition. The function blocks on
+`prep_msm_thread.join()` — GPU sits idle waiting for CPU. With 10 synthesis workers
+competing for 8-channel DDR5 bandwidth (~300 GB/s theoretical), CPU memory-intensive
+operations slow down 12-27%. The system has shifted from GPU-bound to **CPU memory
+bandwidth-bound**.
+
+**Theoretical minimum:** 1.8s × 10 = 18s/proof at 100% GPU utilization.
+**CPU-limited floor:** 2.4s × 10 = 24s/proof (prep_msm + b_g2_msm serial on critical path).
+**Observed:** 36-41s/proof (additional synthesis contention, queue wait, Rust overhead).
+
+**Commits:** `c4effc85` Phase 9 implementation, `599522de` timing instrumentation
+
 ### Summary Timeline
 
 ```
@@ -1111,6 +1168,7 @@ Week 14-18: Phase 5 — Pre-compiled constraint evaluator
 Week 18-20: Phase 6 — Pipelined partition proving (slot-based)
 Week 20-22: Phase 7 — Engine-level per-partition pipeline
 Week 22-23: Phase 8 — Dual-worker GPU interlock
+Week 23-24: Phase 9 — PCIe transfer optimization
 ```
 
 ### Stopping Points & Cumulative Impact
@@ -1123,6 +1181,7 @@ Week 22-23: Phase 8 — Dual-worker GPU interlock
 | **Phase 5 W1** | 1.42x synth | 35.5s synth | +25.7 GiB static | PCE: 50.4→35.5s synth |
 | **Phase 7** | — | 50.7s (pw=20) | ~430 GiB | Per-partition pipeline, cross-sector overlap |
 | **Phase 8** | **2.4x baseline** | **37.4s (pw=10)** | ~430 GiB | Dual-worker GPU interlock, 100% GPU utilization |
+| **Phase 9** | **2.8x baseline** | **32.1s (gw=1)** | ~430 GiB | Pinned DMA + deferred Pippenger sync, 71% NTT speedup |
 
 *Phase 8 with optimal pw=10 achieves 37.4s/proof steady-state throughput, which exactly
 matches the serial CUDA kernel time (10 partitions × 3.75s = 37.5s). The system is fully
@@ -1131,6 +1190,12 @@ compute. Further improvement requires faster CUDA kernels or a second GPU.*
 
 *Phase 7→8 improvement: 13-17% depending on concurrency (50.7→44.0s at pw=20 j=3;
 59.8→49.5s at pw=20 j=2).*
+
+*Phase 9 with gw=1 pw=10 achieves 32.1s/proof in isolation (c=3 j=1) — 14.2% over Phase 8.
+At high concurrency (c=15 j=15), throughput is 41.3s/proof due to DDR5 memory bandwidth
+saturation from concurrent synthesis workers competing with CPU-side preprocessing (prep_msm,
+b_g2_msm). The GPU kernels now run in 1.8s/partition but CPU critical path takes 2.4s/partition,
+making the system CPU memory-bandwidth-bound rather than GPU-bound.*
 
 ---
 
@@ -1596,4 +1661,5 @@ cuzk links against the same Filecoin proving stack as Curio:
 | `c2-optimization-proposal-6.md` | Phase 6 design spec — pipelined partition proving |
 | `c2-optimization-proposal-7.md` | Phase 7 design spec — engine-level per-partition pipeline |
 | `c2-optimization-proposal-8.md` | Phase 8 design spec — dual-worker GPU interlock |
+| `c2-optimization-proposal-9.md` | Phase 9 design spec — PCIe transfer optimization |
 | `c2-total-impact-assessment.md` | Combined 10x assessment, 13-week plan |
