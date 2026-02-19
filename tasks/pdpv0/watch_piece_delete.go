@@ -177,12 +177,11 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *eth
 		}
 
 		if !live {
-			// XXX(Kubuxu): commented out as this has lead to proving failures
-			//_, err := db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2`, piece.DataSetID, piece.PieceID)
-			err = nil
+			_, err = db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2 AND removed = TRUE`, piece.DataSetID, piece.PieceID)
 			if err != nil {
 				return xerrors.Errorf("failed to delete piece %d: %w", piece.PieceID, err)
 			}
+			log.Infow("deleted confirmed-removed piece from DB", "dataSetId", piece.DataSetID, "pieceId", piece.PieceID)
 		}
 	}
 
