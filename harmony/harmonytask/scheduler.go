@@ -30,6 +30,7 @@ const (
 	schedulerSourcePeerReserved // FUTURE PR: schedulerSourcePeerReserved
 	schedulerSourceTaskCompleted
 	schedulerSourceTaskStarted
+	schedulerSourceInitialPoll
 )
 
 const chokePoint = 1000
@@ -137,8 +138,13 @@ func (e *TaskEngine) startScheduler() {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
+				case schedulerSourceInitialPoll:
+					err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
+					if err != nil {
+						log.Errorw("failed initial poll waterfall", "error", err)
+					}
 				default:
-					log.Warnw("unknown scheduler source", "source", event.Source)
+					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
 			case taskName := <-bundleSleep:
 				shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})

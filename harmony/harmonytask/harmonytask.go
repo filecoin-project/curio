@@ -239,6 +239,7 @@ func New(
 		}(h.Name)
 	}
 	e.startScheduler()
+	e.schedulerChannel <- schedulerEvent{Source: schedulerSourceInitialPoll}
 
 	return e, nil
 }
