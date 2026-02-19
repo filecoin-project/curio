@@ -91,7 +91,7 @@ One important value must be determined to be passed as an argument to `nextProvi
 
 ## Initial Proving Period Task
 
-From the PDPVerifier's perspective when PDP datasets are initialized they are not immediately registered as ready for proving.  The storage provider must make an initial into the `nextProvingPeriod` method.  Curio handles this special case with `InitProvingPeriodTask` (named `PDPv0_InitPP` in the database).  
+From the PDPVerifier's perspective when PDP datasets are initialized they are not immediately registered as ready for proving.  The storage provider must make an initial call into the `nextProvingPeriod` method.  Curio handles this special case with `InitProvingPeriodTask` (named `PDPv0_InitPP` in the database).  
 
 Curio waits for the `init_ready` flag to be set for a data set table entry.  This is triggered via the `DataSetWatch` chain scheduler callback when the first piece is added to the dataset.  Then the task executes essentially the same logic as that described above in the _Next Proving Period Task_ section.  The only significant difference is the init task's reference to the `initChallengeWindowStart` parameter in service contract's `getPDPConfig()` return type (as per `PDPVerifier`'s `IPDPProvingSchedule` interface).
 
