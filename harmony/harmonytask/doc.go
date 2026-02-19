@@ -7,6 +7,22 @@ work by hardware, parallelizabilty, reliability, or any other reason.
 Workers will be Greedy: vaccuuming up their favorite jobs from a list.
 Once 1 task is accepted, harmonydb tries to get other task runner
 machines to accept work (round robin) before trying again to accept.
+
+The task system is designed to first take "any" work we are capable of doing,
+up to the limit of our resources. Then as work queues, it will reserve
+resources for tasks it soft-claims (reserves) so high-priority tasks can run
+and not be starved. This allows clusters to respect the run order of tasks.
+Order priority may starve lower priority tasks, so within a priority class,
+we should prefer the oldest tasks first.
+
+	ex: prio: prio.P0 |  prio.LessThan(‘x’, ‘y’,’z’) | prio.PipelineOrder(‘a1’,’b2’,’c3’)
+
+As this requires tasks to start serially, we also do not use mutexes for
+CanAccept() / tryWork().
+
+Polling is too db-heavy, so nodes contact each other to share work, reserve,
+and announce acceptance of work. The actual claim happens in the database.
+
 *
 Mental Model:
 

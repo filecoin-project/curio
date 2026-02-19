@@ -239,7 +239,6 @@ func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 20,
 		},
 		MaxFailures: 1000,
-		Follows:     nil,
 	}
 }
 

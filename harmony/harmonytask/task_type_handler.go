@@ -32,51 +32,22 @@ type taskTypeHandler struct {
 	TaskTypeDetails
 	TaskEngine      *TaskEngine
 	storageFailures map[TaskID]time.Time
+
+	// for caching CanAccept() results to db unnecessarily.
+	acceptedTasks    []TaskID
+	lastAcceptedTime time.Time
 }
+
+const CAN_ACCEPT_CACHE_TTL = 60 * time.Second
 
 // Anti-hammering of storage claims.
 const STORAGE_FAILURE_TIMEOUT = 3 * time.Minute
-
-func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
-	var tID TaskID
-	retryWait := time.Millisecond * 100
-retryAddTask:
-	_, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// create taskID (from DB)
-		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
-          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id`, h.Name, h.TaskEngine.ownerID).Scan(&tID)
-		if err != nil {
-			return false, fmt.Errorf("could not insert into harmonyTask: %w", err)
-		}
-		return extra(tID, tx)
-	})
-
-	if err != nil {
-		if harmonydb.IsErrUniqueContraint(err) {
-			log.Debugf("addtask(%s) saw unique constraint, so it's added already.", h.Name)
-			return
-		}
-		if harmonydb.IsErrSerialization(err) {
-			time.Sleep(retryWait)
-			retryWait *= 2
-			goto retryAddTask
-		}
-		log.Errorw("Could not add task. AddTasFunc failed", "error", err, "type", h.Name)
-		return
-	}
-
-	err = stats.RecordWithTags(context.Background(), []tag.Mutator{
-		tag.Upsert(taskNameTag, h.Name),
-	}, TaskMeasures.AddedTasks.M(1))
-	if err != nil {
-		log.Errorw("Could not record added task", "error", err)
-	}
-}
 
 const (
 	WorkSourcePoller   = "poller"
 	WorkSourceRecover  = "recovered"
 	WorkSourceIAmBored = "bored"
+	WorkSourceAdded    = "added"
 )
 
 // considerWork is called to attempt to start work on a task-id of this task type.
@@ -90,8 +61,8 @@ const (
 // The headroom (maxes, resources) becomes a SQL LIMIT so we can get work anywhere in the list.
 // Avoids caching CanAccept() results as priority may change
 // Disk resources are claimed AFTER taking the tasks because they may have different storage paths so they can't update.
-func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
-	if len(ids) == 0 {
+func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter eventEmitter) (workAccepted bool) {
+	if len(tasks) == 0 {
 		return true // stop looking for takers
 	}
 
@@ -113,8 +84,25 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 
 	h.TaskEngine.WorkOrigin = from
 
+	ids := lo.Map(tasks, func(t task, _ int) TaskID {
+		return t.ID
+	})
+	// Were any accepted already? Clear stale cache.
+	if time.Since(h.lastAcceptedTime) > CAN_ACCEPT_CACHE_TTL {
+		h.acceptedTasks = nil
+	}
+
 	// 3. What does the impl say?
-	tIDs, err := h.CanAccept(ids, h.TaskEngine)
+	var tIDs []TaskID
+	if len(h.acceptedTasks) > 0 {
+		// Use cached CanAccept results — filter for tasks still in this batch
+		tIDs = lo.Filter(h.acceptedTasks, func(tID TaskID, _ int) bool {
+			return lo.Contains(ids, tID)
+		})
+		h.acceptedTasks = nil // consume the cache; scheduler loop re-polls for fresh work
+	} else {
+		tIDs, err = h.CanAccept(ids, h.TaskEngine)
+	}
 
 	h.TaskEngine.WorkOrigin = ""
 
@@ -168,7 +156,6 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 
 		if err != nil {
 			log.Error(err)
-
 			return false
 		}
 		if len(tasksAccepted) == 0 {
@@ -177,6 +164,10 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 			return false
 		}
 		if len(tasksAccepted) != len(tIDs) {
+			h.acceptedTasks = lo.Filter(tIDs, func(tID TaskID, _ int) bool {
+				return !lo.Contains(tasksAccepted, tID)
+			})
+			h.lastAcceptedTime = time.Now()
 			tIDs = tasksAccepted // update tIDs to the accepted tasks
 		}
 	}
@@ -233,6 +224,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	i := 0
 	for _, tID := range tIDs {
 		go func(tID TaskID, releaseStorage func()) {
+			eventEmitter.EmitTaskStarted(h.Name, tID)
 			var done bool
 			var doErr error
 			workStart := time.Now()
@@ -261,10 +253,11 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 					releaseStorage()
 				}
 				h.recordCompletion(tID, sectorID, workStart, done, doErr)
-				if done {
-					for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
-						if _, err := fs.f(tID, fs.h.AddTask); err != nil {
-							log.Error("Could not follow", "error", err, "from", h.Name, "to", fs.name)
+				eventEmitter.EmitTaskCompleted(h.Name)
+				if !done { // it was a failure, so we need to retry
+					for _, t := range tasks {
+						if t.ID == tID {
+							eventEmitter.EmitTaskNew(h.Name, t)
 						}
 					}
 				}
@@ -323,7 +316,8 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	}
 
 retryRecordCompletion:
-	cm, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
+	// Use Background context: recordCompletion MUST finish even during graceful shutdown.
+	cm, err := h.TaskEngine.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
 		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)
