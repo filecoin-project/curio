@@ -59,28 +59,15 @@ The majority of the fields of the `pdp_data_sets` table are relevant to understa
 ```sql 
 CREATE TABLE pdp_data_sets (
     ...
-    -- task invoking nextProvingPeriod, the task should be spawned any time prove_at_epoch+challenge_window is in the past
     challenge_request_task_id BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
-
-    -- nextProvingPeriod message hash, when the message lands prove_task_id will be spawned and
-    -- this value will be set to NULL
     challenge_request_msg_hash TEXT,
-
-    -- the proving period for this proofset and the challenge window duration
     proving_period BIGINT,
     challenge_window BIGINT,
-
-    -- the epoch at which the next challenge window starts and proofs can be submitted
-    -- initialized to NULL indicating a special proving period init task handles challenge generation
     prove_at_epoch BIGINT,
-
-    -- flag indicating that the proving period is ready for init.  Currently set after first add
-    -- Set to true after first root add
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
-
-
     unrecoverable_proving_failure_epoch BIGINT,
     next_prove_attempt_at BIGINT,
+    consecutive_prove_failures,
     ...
 );
 ```
@@ -110,7 +97,7 @@ Curio waits for the `init_ready` flag to be set for a data set table entry.  Thi
 
 ## Retries and unrecoverable errors 
 
-Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  At that point the data set is marked as unrecoverably failed and scheduled for deletion.  
+Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  This threshold is reached after `MaxConsecutiveFailures = 5` retries.  The pdp_data_set table counts successive backoff attempts with the consecutive_prove_failures variable.  When this value is too high and a failure of one of the proving tasks occurs the data set is marked as unrecoverably failed and scheduled for deletion.  
 
 To ensure that this retry behavior is acheived scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
 
