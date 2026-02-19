@@ -4,9 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"math/big"
-	"net/url"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -21,10 +19,10 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -320,16 +318,9 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 			}
 
 			{
-				u, err := url.Parse(fmt.Sprintf("https://%s:443", cfg.DomainName))
+				u, err := urlhelper.GetExternalURL(cfg)
 				if err != nil {
-					return false, xerrors.Errorf("parsing announce address domain: %w", err)
-				}
-				if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-					ls := strings.Split(cfg.ListenAddress, ":")
-					u, err = url.Parse(fmt.Sprintf("http://%s:%s", cfg.DomainName, ls[1]))
-					if err != nil {
-						return false, xerrors.Errorf("parsing announce address domain: %w", err)
-					}
+					return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
 				}
 
 				addr, err := maurl.FromURL(u)

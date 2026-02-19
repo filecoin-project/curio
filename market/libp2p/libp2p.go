@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -219,36 +220,18 @@ func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, m
 	ret.ListenAddr = append(ret.ListenAddr, must.One(multiaddr.NewMultiaddr("/ip4/0.0.0.0/tcp/0/ws")))
 
 	{
-		publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/wss", httpConf.DomainName, 443))
+		publicAddr, err := urlhelper.GetExternalLibp2pAddr(&httpConf)
 		if err != nil {
-			return nil, xerrors.Errorf("creating public address: %w", err)
-		}
-
-		// Switch to pain HTTP for devnets
-		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-			ls := strings.Split(httpConf.ListenAddress, ":")
-			publicAddr, err = multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%s/ws", httpConf.DomainName, ls[1]))
-			if err != nil {
-				return nil, xerrors.Errorf("creating public address: %w", err)
-			}
+			return nil, xerrors.Errorf("getting external libp2p address: %w", err)
 		}
 
 		ret.AnnounceAddr = publicAddr
 	}
 
 	{
-		publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/https", httpConf.DomainName, 443))
+		publicAddr, err := urlhelper.GetExternalHTTPAddr(&httpConf)
 		if err != nil {
-			return nil, xerrors.Errorf("creating public address: %w", err)
-		}
-
-		// Switch to pain HTTP for devnets
-		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-			ls := strings.Split(httpConf.ListenAddress, ":")
-			publicAddr, err = multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%s/http", httpConf.DomainName, ls[1]))
-			if err != nil {
-				return nil, xerrors.Errorf("creating public address: %w", err)
-			}
+			return nil, xerrors.Errorf("getting external HTTP address: %w", err)
 		}
 
 		ret.HttpAddr = publicAddr

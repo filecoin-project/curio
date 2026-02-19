@@ -38,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -164,17 +165,9 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	httpServerAddresses := map[string]multiaddr.Multiaddr{}
 
 	{
-		u, err := url.Parse(fmt.Sprintf("https://%s", d.Cfg.HTTP.DomainName))
+		u, err := urlhelper.GetExternalURL(&d.Cfg.HTTP)
 		if err != nil {
-			return nil, xerrors.Errorf("parsing announce address domain: %w", err)
-		}
-
-		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-			ls := strings.Split(d.Cfg.HTTP.ListenAddress, ":")
-			u, err = url.Parse(fmt.Sprintf("http://%s:%s", d.Cfg.HTTP.DomainName, ls[1]))
-			if err != nil {
-				return nil, xerrors.Errorf("parsing announce address domain: %w", err)
-			}
+			return nil, xerrors.Errorf("getting external URL for IPNI: %w", err)
 		}
 
 		u.Path = path.Join(u.Path, IPNIRoutePath)
