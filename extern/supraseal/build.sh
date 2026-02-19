@@ -179,9 +179,11 @@ export PATH=$CUDA/bin:$PATH
 
 echo "Found CUDA $CUDA_VERSION at: $CUDA"
 SPDK="deps/spdk-v24.05"
-# CUDA 13 architectures - removed compute_70 (Volta) as it's no longer supported in CUDA 13+
+# CUDA architectures — include all supported generations.
+# CUDA 13 dropped Volta (sm_70) but still supports Turing (sm_75).
+# sm_75: Turing (GTX 1650/1660, RTX 2060-2080, T4)
 # sm_80: Ampere (A100), sm_86: Ampere (RTX 30xx), sm_89: Ada Lovelace (RTX 40xx, L40), sm_90: Hopper (H100)
-CUDA_ARCH="-arch=sm_80 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90 -t0"
+CUDA_ARCH="-arch=sm_75 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90 -t0"
 CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
         awk '{ if($2=="__cplusplus" && $3<"2017") print "-std=c++17"; }'`
 
