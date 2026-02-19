@@ -1156,6 +1156,50 @@ bandwidth-bound**.
 
 **Commits:** `c4effc85` Phase 9 implementation, `599522de` timing instrumentation
 
+### Phase 10: Two-Lock GPU Interlock (Explored, Abandoned)
+
+Phase 10 attempted to split the single `std::mutex* gpu_mtx` into `compute_mtx` (GPU
+kernel execution) and `mem_mtx` (VRAM allocation) so 3 workers could overlap CPU work
+with GPU kernels. Implementation was completed and tested but **abandoned** due to
+fundamental design flaws:
+
+1. **OOM at c=3 j=3**: Pre-staged buffers (~12 GiB) from Worker A cause
+   `cudaMalloc` failure when Worker B enters `compute_mtx` — 16 GiB VRAM cannot
+   hold two workers' buffers simultaneously.
+2. **CUDA APIs are device-global**: `cudaDeviceSynchronize`, `cudaMemPoolTrimTo`
+   block all streams on the device, serializing with any running kernels.
+3. **No overlap opportunity**: Phase 9 already releases the lock before
+   `prep_msm_thread.join()`, hiding b_g2_msm behind the next worker's GPU kernels.
+
+Code reverted to Phase 9 single-lock state. See `c2-optimization-proposal-11.md`
+Appendix for full post-mortem.
+
+### Phase 11: Memory-Bandwidth-Aware Pipeline Scheduling
+
+**Design spec:** `c2-optimization-proposal-11.md`
+
+Phase 11 targets the three identified sources of throughput degradation at high
+concurrency (32.1s isolation → 38.0s at c=20 j=15):
+
+**Intervention 1 — Bound async_dealloc (TLB shootdown elimination):**
+Add `static std::mutex dealloc_mtx` in C++ and `static Mutex<()>` in Rust around
+the detached dealloc threads. Serializes `munmap()` to 1 C++ + 1 Rust thread max.
+Expected: 2-5% improvement.
+
+**Intervention 2 — Reduce groth16_pool to 32 threads:**
+Config-only change (`gpu_threads = 32`). With `num_circuits=1`, prep_msm uses only
+1 thread regardless (par_map(1,...)), so this only affects b_g2_msm's Pippenger.
+Reduces bucket RAM from ~1.1 GiB to ~192 MB, cuts L3 cache interference with
+synthesis. b_g2_msm slows 0.4→0.6s but runs outside GPU lock. Expected: 3-5%.
+
+**Intervention 3 — Memory-bandwidth throttle during b_g2_msm:**
+Extend `gpu_mtx` to `gpu_resources` struct with `std::atomic<int> membw_throttle`.
+C++ sets flag before b_g2_msm, clears after. Rust SpMV checks flag every 64 chunks
+and calls `yield_now()`. Reduces synthesis memory pressure during Pippenger's 0.5s
+window. Expected: 2-4% additional.
+
+**Combined target:** 38.0s → ~34.0s/proof at c=20 j=15 (~11% improvement).
+
 ### Summary Timeline
 
 ```
@@ -1169,6 +1213,8 @@ Week 18-20: Phase 6 — Pipelined partition proving (slot-based)
 Week 20-22: Phase 7 — Engine-level per-partition pipeline
 Week 22-23: Phase 8 — Dual-worker GPU interlock
 Week 23-24: Phase 9 — PCIe transfer optimization
+Week 24:    Phase 10 — Two-lock GPU interlock (explored, abandoned — VRAM too small)
+Week 24-25: Phase 11 — Memory-bandwidth-aware pipeline scheduling
 ```
 
 ### Stopping Points & Cumulative Impact
@@ -1182,6 +1228,8 @@ Week 23-24: Phase 9 — PCIe transfer optimization
 | **Phase 7** | — | 50.7s (pw=20) | ~430 GiB | Per-partition pipeline, cross-sector overlap |
 | **Phase 8** | **2.4x baseline** | **37.4s (pw=10)** | ~430 GiB | Dual-worker GPU interlock, 100% GPU utilization |
 | **Phase 9** | **2.8x baseline** | **32.1s (gw=1)** | ~430 GiB | Pinned DMA + deferred Pippenger sync, 71% NTT speedup |
+| *Phase 10* | *abandoned* | *—* | *—* | *Two-lock GPU interlock: 16 GB VRAM too small, CUDA APIs device-global* |
+| **Phase 11** | **target: ~3.1x** | **target: ~34s** | ~430 GiB | Dealloc serialization + pool sizing + mem-BW throttle |
 
 *Phase 8 with optimal pw=10 achieves 37.4s/proof steady-state throughput, which exactly
 matches the serial CUDA kernel time (10 partitions × 3.75s = 37.5s). The system is fully
@@ -1196,6 +1244,17 @@ At high concurrency (c=15 j=15), throughput is 41.3s/proof due to DDR5 memory ba
 saturation from concurrent synthesis workers competing with CPU-side preprocessing (prep_msm,
 b_g2_msm). The GPU kernels now run in 1.8s/partition but CPU critical path takes 2.4s/partition,
 making the system CPU memory-bandwidth-bound rather than GPU-bound.*
+
+*Phase 10 (two-lock GPU interlock with 3 workers) was explored and abandoned. OOM crashes
+at c=3 j=3: 16 GB VRAM cannot hold two workers' pre-staged buffers simultaneously. CUDA
+memory APIs (`cudaDeviceSynchronize`, `cudaMemPoolTrimTo`) are device-global, defeating
+the two-lock purpose. See `c2-optimization-proposal-11.md` Appendix for full post-mortem.*
+
+*Phase 9 throughput sweep (gw=2, pw=10): c=5/41.4s, c=10/38.7s, c=15/38.2s, c=20/38.0s.
+GPU utilization 85-91%, with 3-11s idle gaps between proofs from synthesis lead time.
+GPU per-partition inflates 4.9→7.5s under load (DDR5 BW + TLB contention).
+Phase 11 targets the three identified interference sources: unbounded async_dealloc
+TLB shootdowns, b_g2_msm thread pool thrashing (192 threads), and aggregate TLB pressure.*
 
 ---
 
@@ -1662,4 +1721,6 @@ cuzk links against the same Filecoin proving stack as Curio:
 | `c2-optimization-proposal-7.md` | Phase 7 design spec — engine-level per-partition pipeline |
 | `c2-optimization-proposal-8.md` | Phase 8 design spec — dual-worker GPU interlock |
 | `c2-optimization-proposal-9.md` | Phase 9 design spec — PCIe transfer optimization |
+| `c2-optimization-proposal-10.md` | Phase 10 design spec — two-lock GPU interlock (abandoned) |
+| `c2-optimization-proposal-11.md` | Phase 11 design spec — memory-BW-aware pipeline scheduling |
 | `c2-total-impact-assessment.md` | Combined 10x assessment, 13-week plan |

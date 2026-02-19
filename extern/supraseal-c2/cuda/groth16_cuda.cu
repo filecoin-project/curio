@@ -648,8 +648,6 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
     // pipeline (MSM, batch_add, tail MSMs) also needs device memory, so
     // we must not consume everything.
     if (num_circuits == 1 && (host_a_registered && host_b_registered && host_c_registered)) {
-        auto t_ps0 = std::chrono::steady_clock::now();
-
         size_t npoints = points_h.size();
         prestage_lg_domain = lg2(npoints - 1) + 1;
         prestage_domain_size = (size_t)1 << prestage_lg_domain;
@@ -664,14 +662,12 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         // (used by gpu_t::Dfree/stream_t::Dfree), leaving memory cached in
         // the async pool — invisible to cudaMalloc.
         cudaDeviceSynchronize();
-        auto t_ps1 = std::chrono::steady_clock::now();
         {
             cudaMemPool_t pool = nullptr;
             if (cudaDeviceGetDefaultMemPool(&pool, gpu0.cid()) == cudaSuccess && pool) {
                 cudaMemPoolTrimTo(pool, 0);
             }
         }
-        auto t_ps2 = std::chrono::steady_clock::now();
 
         size_t free_bytes = 0, total_bytes = 0;
         cudaMemGetInfo(&free_bytes, &total_bytes);
@@ -701,7 +697,6 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
             fprintf(stderr, "CUZK_TIMING: prestage_setup=skip_vram\n");
             err = cudaErrorMemoryAllocation;  // force fallback
         }
-        auto t_ps3 = std::chrono::steady_clock::now();
 
         // Create upload stream and events
         if (err == cudaSuccess)
@@ -748,21 +743,11 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
             if (err == cudaSuccess)
                 err = cudaEventRecord(ev_c, upload_stream);
         }
-        auto t_ps4 = std::chrono::steady_clock::now();
 
         if (err == cudaSuccess) {
             prestage_ok = true;
-            auto sync_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_ps1 - t_ps0).count();
-            auto trim_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_ps2 - t_ps1).count();
-            auto alloc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_ps3 - t_ps2).count();
-            auto upload_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_ps4 - t_ps3).count();
-            auto total_ps_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_ps4 - t_ps0).count();
-            fprintf(stderr, "CUZK_TIMING: prestage_setup=ok domain=%zu lot_of_memory=%d "
-                    "sync_ms=%lld trim_ms=%lld alloc_ms=%lld upload_ms=%lld total_ps_ms=%lld\n",
-                    prestage_domain_size, (int)prestage_lot_of_memory,
-                    (long long)sync_ms, (long long)trim_ms,
-                    (long long)alloc_ms, (long long)upload_ms,
-                    (long long)total_ps_ms);
+            fprintf(stderr, "CUZK_TIMING: prestage_setup=ok domain=%zu lot_of_memory=%d\n",
+                    prestage_domain_size, (int)prestage_lot_of_memory);
         } else {
             // Cleanup partial state and fall back to original path
             if (err != cudaErrorMemoryAllocation)
