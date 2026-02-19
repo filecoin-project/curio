@@ -28,8 +28,7 @@ type PDPTaskDeletePiece struct {
 	ethClient *ethclient.Client
 }
 
-func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskDeletePiece) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var rdeletes []struct {
 		ID        string  `db:"id"`

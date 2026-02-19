@@ -45,8 +45,7 @@ func NewAggregateTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.Seal
 	}
 }
 
-func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (a *AggregateDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		Pcid        string `db:"piece_cid"`

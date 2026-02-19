@@ -46,9 +46,8 @@ func (t *TaskClientUpload) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *TaskClientUpload) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
-	ctx := context.Background()
 	var clientRequest ClientRequest
 	err = t.db.QueryRow(ctx, `
 		SELECT sp_id, sector_num, request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done, request_partition_cost, request_type

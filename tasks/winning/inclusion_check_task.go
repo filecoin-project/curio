@@ -36,8 +36,7 @@ func NewInclusionCheckTask(db *harmonydb.DB, api InclusionCheckNodeApi) *Inclusi
 	return &InclusionCheckTask{db: db, api: api}
 }
 
-func (i *InclusionCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (i *InclusionCheckTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var toCheck []struct {
 		SpID     uint64 `db:"sp_id"`

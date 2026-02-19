@@ -112,8 +112,7 @@ func (s *SubmitCommitTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.Sec
 
 var _ = harmonytask.Reg(&SubmitCommitTask{})
 
-func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SubmitCommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`

@@ -118,8 +118,7 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 	}
 }
 
-func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *ParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Fetch piece data
 	var piecesData []struct {

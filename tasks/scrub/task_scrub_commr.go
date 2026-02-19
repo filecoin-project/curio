@@ -37,8 +37,7 @@ func CanRunSupraTreeR() bool {
 	return supraffi.HasAMD64v4() && supraffi.HasUsableCUDAGPU()
 }
 
-func (c *ScrubCommRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *ScrubCommRTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var checkReq []struct {
 		CheckID      int64  `db:"check_id"`

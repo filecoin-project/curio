@@ -24,7 +24,7 @@ func NewPipelineGC(db *harmonydb.DB) *PipelineGC {
 	}
 }
 
-func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (s *PipelineGC) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if err := s.cleanupSealed(); err != nil {
 		return false, xerrors.Errorf("cleanupSealed: %w", err)
 	}

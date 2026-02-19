@@ -270,7 +270,10 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 				}
 			}()
 
-			done, doErr = h.Do(tID, func() bool {
+			taskCtx, taskCancel := context.WithCancel(h.TaskEngine.ctx)
+			defer taskCancel()
+
+			done, doErr = h.Do(taskCtx, tID, func() bool {
 				if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
 					if h.TaskEngine.yieldBackground.Load() {
 						log.Infow("yielding background task", "name", h.Name, "id", tID)
@@ -279,8 +282,8 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 				}
 
 				var owner int
-				// Background here because we don't want GracefulRestart to block this save.
-				err := h.TaskEngine.db.QueryRow(context.Background(),
+				// Keep ownership checks tied to the same task context used by Do().
+				err := h.TaskEngine.db.QueryRow(taskCtx,
 					`SELECT owner_id FROM harmony_task WHERE id=$1`, tID).Scan(&owner)
 				if err != nil {
 					log.Error("Cannot determine ownership: ", err)
