@@ -123,15 +123,31 @@ struct groth16_proof {
 #define __builtin_popcountll(x) __popcnt64(x)
 #endif
 
+// Phase 8: Allocate/free a std::mutex on the C++ heap, returned as an
+// opaque pointer for Rust to hold. This ensures correct C++ ABI alignment
+// and constructor/destructor semantics.
+extern "C" void* create_gpu_mutex() {
+    return static_cast<void*>(new std::mutex());
+}
+
+extern "C" void destroy_gpu_mutex(void* mtx) {
+    delete static_cast<std::mutex*>(mtx);
+}
+
 extern "C"
 RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                                               size_t num_circuits,
                                               const fr_t r_s[], const fr_t s_s[],
-                                              groth16_proof proofs[], SRS& srs)
+                                              groth16_proof proofs[], SRS& srs,
+                                              std::mutex* gpu_mtx)
 {
-    // Mutex to serialize execution of this subroutine
-    static std::mutex mtx;
-    std::lock_guard<std::mutex> lock(mtx);
+    // Phase 8: The caller passes a per-GPU mutex pointer. The lock is acquired
+    // at a narrow scope around the CUDA kernel region only (see below), allowing
+    // CPU preprocessing and b_g2_msm to overlap with another worker's GPU work.
+    // If gpu_mtx is nullptr, fall back to a function-local static mutex for
+    // backward compatibility (non-engine callers).
+    static std::mutex fallback_mtx;
+    std::mutex* mtx_ptr = gpu_mtx ? gpu_mtx : &fallback_mtx;
 
     auto t_entry = std::chrono::steady_clock::now();
 
@@ -568,6 +584,11 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
     std::vector<std::thread> per_gpu;
     RustError ret{cudaSuccess};
 
+    // Phase 8: Acquire GPU mutex — serializes CUDA kernel region only.
+    // CPU preprocessing (prep_msm_thread) is already running concurrently.
+    // Another worker's CPU work can overlap with our GPU kernels.
+    std::unique_lock<std::mutex> gpu_lock(*mtx_ptr);
+
     for (size_t tid = 0; tid < n_gpus; tid++) {
         per_gpu.emplace_back(std::thread([&, tid, n_gpus](size_t num_circuits)
         {
@@ -714,9 +735,19 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         }, num_circuits));
     }
 
-    prep_msm_thread.join();
+    // Phase 8: Wait for GPU threads first (CUDA kernel region ends here),
+    // then release the GPU lock so another worker can start its kernels.
+    // prep_msm_thread's b_g2_msm (CPU-only) may still be running — that's
+    // fine, it doesn't need the GPU.
     for (auto& tid : per_gpu)
         tid.join();
+
+    // Release GPU lock — another worker can now launch CUDA kernels
+    // while we finish b_g2_msm + epilogue on CPU.
+    gpu_lock.unlock();
+
+    // Wait for b_g2_msm to complete (CPU only, GPU lock not held)
+    prep_msm_thread.join();
 
     if (caught_exception)
         return ret;

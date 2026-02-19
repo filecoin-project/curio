@@ -48,6 +48,23 @@ devices = []
 # This prevents the ~25s b_g2_msm from inflating to 33s+ due to contention.
 gpu_threads = 0
 
+# Number of GPU worker tasks per physical GPU (Phase 8: dual-worker interlock).
+#
+# With 2 workers, one worker's CPU preprocessing overlaps with the other's
+# CUDA kernel execution on the same GPU. Only the CUDA kernel region is
+# serialized by a per-GPU mutex — CPU work (preprocessing, b_g2_msm,
+# proof assembly, Rust bookkeeping) runs freely in parallel.
+#
+# This eliminates the 10-200ms GPU idle gaps between partition proves:
+#   Worker A: [CPU prep][══ CUDA ══][b_g2+epilogue][CPU prep][══ CUDA ══]
+#   Worker B:           [CPU prep──][══ CUDA ══][b_g2+epilogue][CPU prep]
+#   GPU:                [████ A ████][████ B ████][████ A ████][████ B ██]
+#
+#   1 = single worker (Phase 7 behavior)
+#   2 = dual-worker interlock (recommended)
+#   3+ = diminishing returns (CPU ~1.3s < CUDA ~2.1s, so 2 workers suffice)
+gpu_workers_per_device = 2
+
 [scheduler]
 # Max proofs to batch into a single GPU invocation (same circuit type).
 #

@@ -33,8 +33,8 @@ use crate::srs_manager::CircuitId;
 
 #[cfg(feature = "cuda-supraseal")]
 use bellperson::groth16::{
-    prove_from_assignments, synthesize_circuits_batch_with_hint, Proof, ProvingAssignment,
-    SuprasealParameters, SynthesisCapacityHint,
+    prove_from_assignments, synthesize_circuits_batch_with_hint, GpuMutexPtr, Proof,
+    ProvingAssignment, SuprasealParameters, SynthesisCapacityHint,
 };
 #[cfg(feature = "cuda-supraseal")]
 use blstrs::{Bls12, Scalar as Fr};
@@ -717,10 +717,16 @@ pub struct PipelinedTimings {
 /// Takes a `SynthesizedProof` (output of any synthesis function) and SRS
 /// parameters, runs NTT + MSM on the GPU via the SupraSeal C++ backend,
 /// and returns the raw Groth16 proof bytes.
+///
+/// Phase 8: `gpu_mutex` is an optional pointer to a `std::mutex` (C++ side)
+/// that serializes only the CUDA kernel region, allowing CPU preprocessing
+/// and b_g2_msm to overlap with another worker's GPU work. Pass `null` for
+/// backward-compatible behavior (uses C++ internal fallback mutex).
 #[cfg(feature = "cuda-supraseal")]
 pub fn gpu_prove(
     synth: SynthesizedProof,
     params: &SuprasealParameters<Bls12>,
+    gpu_mutex: GpuMutexPtr,
 ) -> Result<GpuProveResult> {
     let _span = info_span!("gpu_prove",
         circuit_id = %synth.circuit_id,
@@ -737,6 +743,7 @@ pub fn gpu_prove(
         params,
         synth.r_s,
         synth.s_s,
+        gpu_mutex,
     )
     .map_err(|e| anyhow::anyhow!("GPU prove failed: {:?}", e))?;
 
@@ -1347,7 +1354,7 @@ pub fn prove_porep_c2_pipelined(
     let synth_duration = synth.synthesis_duration;
 
     // GPU prove: all partitions in one call
-    let gpu_result = gpu_prove(synth, params)?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
@@ -1853,7 +1860,7 @@ pub fn prove_porep_c2_partitioned(
                         "GPU received partition, starting prove"
                     );
 
-                    let gpu_result = gpu_prove(slot.synth, params_ref)?;
+                    let gpu_result = gpu_prove(slot.synth, params_ref, std::ptr::null_mut())?;
                     total_gpu += gpu_result.gpu_duration;
 
                     info!(
@@ -1969,7 +1976,7 @@ pub fn prove_porep_c2_slotted(
             total_partitions: num_partitions,
         };
 
-        let gpu_result = gpu_prove(synth, params)?;
+        let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
 
         let timings = PipelinedTimings {
             synthesis: synthesis_duration,
@@ -2186,7 +2193,7 @@ pub fn prove_winning_post_pipelined(
     )?;
     let synth_duration = synth.synthesis_duration;
 
-    let gpu_result = gpu_prove(synth, params)?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
@@ -2383,7 +2390,7 @@ pub fn prove_window_post_pipelined(
     )?;
     let synth_duration = synth.synthesis_duration;
 
-    let gpu_result = gpu_prove(synth, params)?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
@@ -2562,7 +2569,7 @@ pub fn prove_snap_deals_pipelined(
     )?;
     let synth_duration = synth.synthesis_duration;
 
-    let gpu_result = gpu_prove(synth, params)?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,

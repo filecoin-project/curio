@@ -118,6 +118,7 @@ where
         s_s.as_slice(),
         proofs.as_mut_slice(),
         srs,
+        core::ptr::null_mut(), // no external mutex — uses C++ fallback
     );
 
     let proof_time = start.elapsed();
@@ -252,6 +253,40 @@ where
 ///
 /// # Panics
 /// Panics if circuits have different constraint counts or density profiles.
+/// Phase 8: Raw pointer to an opaque GPU mutex (`std::mutex` on the C++ side).
+///
+/// The engine creates one C++ `std::mutex` per GPU via `alloc_gpu_mutex()`,
+/// then passes its address as a `*mut c_void` through FFI into the C++
+/// `generate_groth16_proofs_c`, which casts it to `std::mutex*` and uses
+/// it to serialize only the CUDA kernel region.
+///
+/// A null pointer is safe — the C++ side falls back to a function-local static mutex.
+pub type GpuMutexPtr = *mut std::ffi::c_void;
+
+/// Marker: GpuMutexPtr is `Send` because it points to a heap-allocated
+/// C++ std::mutex that outlives all workers.
+#[derive(Clone, Copy)]
+pub struct SendableGpuMutex(pub GpuMutexPtr);
+unsafe impl Send for SendableGpuMutex {}
+unsafe impl Sync for SendableGpuMutex {}
+
+/// Allocate a C++ `std::mutex` on the heap. Returns an opaque pointer
+/// for passing as `gpu_mtx` to proving functions.
+///
+/// The caller must call `free_gpu_mutex` when done to avoid leaking.
+pub fn alloc_gpu_mutex() -> GpuMutexPtr {
+    supraseal_c2::alloc_gpu_mutex()
+}
+
+/// Free a C++ `std::mutex` previously created by `alloc_gpu_mutex`.
+///
+/// # Safety
+/// `ptr` must be a pointer returned by `alloc_gpu_mutex` and must not
+/// have been freed already.
+pub unsafe fn free_gpu_mutex(ptr: GpuMutexPtr) {
+    supraseal_c2::free_gpu_mutex(ptr);
+}
+
 #[allow(clippy::type_complexity)]
 pub fn prove_from_assignments<E, P: ParameterSource<E>>(
     provers: Vec<ProvingAssignment<E::Fr>>,
@@ -260,6 +295,7 @@ pub fn prove_from_assignments<E, P: ParameterSource<E>>(
     params: P,
     r_s: Vec<E::Fr>,
     s_s: Vec<E::Fr>,
+    gpu_mtx: GpuMutexPtr,
 ) -> Result<Vec<Proof<E>>, SynthesisError>
 where
     E: MultiMillerLoop,
@@ -348,6 +384,7 @@ where
         s_s.as_slice(),
         proofs.as_mut_slice(),
         srs,
+        gpu_mtx,
     );
 
     let proof_time = start.elapsed();

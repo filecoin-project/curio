@@ -98,6 +98,26 @@ pub struct GpuConfig {
     ///   synthesis.threads = 0  (rayon auto = remaining cores)
     #[serde(default)]
     pub gpu_threads: u32,
+
+    /// Number of GPU worker tasks per physical GPU (Phase 8: dual-worker interlock).
+    ///
+    /// With 2 workers per GPU, one worker's CPU preprocessing (pointer setup,
+    /// bitmap population, b_g2_msm) overlaps with the other worker's CUDA
+    /// kernel execution. The CUDA kernel region is serialized by a per-GPU
+    /// mutex, but CPU work runs freely — eliminating GPU idle gaps between
+    /// partition proves.
+    ///
+    /// - 1 = single worker per GPU (Phase 7 behavior, no interlock)
+    /// - 2 = recommended — dual-worker interlock (Phase 8)
+    /// - 3+ = diminishing returns (CPU work ~1.3s < CUDA ~2.1s, so 2 suffices)
+    #[serde(default = "GpuConfig::default_gpu_workers_per_device")]
+    pub gpu_workers_per_device: u32,
+}
+
+impl GpuConfig {
+    fn default_gpu_workers_per_device() -> u32 {
+        2
+    }
 }
 
 impl Default for GpuConfig {
@@ -105,6 +125,7 @@ impl Default for GpuConfig {
         Self {
             devices: vec![],
             gpu_threads: 0,
+            gpu_workers_per_device: Self::default_gpu_workers_per_device(),
         }
     }
 }

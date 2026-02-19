@@ -353,9 +353,22 @@ impl Engine {
 
         // Detect GPUs and create worker states
         let gpu_ordinals = detect_gpu_ordinals(&self.config);
-        let num_workers = gpu_ordinals.len();
-        info!(num_workers = num_workers, gpus = ?gpu_ordinals, "initializing GPU workers");
+        let gpu_workers_per_device = if self.pipeline_enabled {
+            self.config.gpus.gpu_workers_per_device.max(1) as usize
+        } else {
+            1 // monolithic mode: one worker per GPU
+        };
+        let num_workers = gpu_ordinals.len() * gpu_workers_per_device;
+        info!(
+            num_gpus = gpu_ordinals.len(),
+            gpu_workers_per_device = gpu_workers_per_device,
+            total_workers = num_workers,
+            gpus = ?gpu_ordinals,
+            "initializing GPU workers"
+        );
 
+        // For pipeline mode, worker_states tracks per-GPU (not per-worker) for
+        // internal iteration. The tracker gets the expanded per-worker list.
         let worker_states: Vec<WorkerState> = gpu_ordinals
             .iter()
             .enumerate()
@@ -367,10 +380,25 @@ impl Engine {
             })
             .collect();
 
+        // Phase 8: Expanded tracker worker list (one entry per actual worker)
+        let tracker_worker_states: Vec<WorkerState> = gpu_ordinals
+            .iter()
+            .flat_map(|&ordinal| {
+                (0..gpu_workers_per_device).map(move |_| WorkerState {
+                    worker_id: 0, // will be re-assigned below
+                    gpu_ordinal: ordinal,
+                    last_circuit_id: None,
+                    current_job: None,
+                })
+            })
+            .enumerate()
+            .map(|(i, mut ws)| { ws.worker_id = i as u32; ws })
+            .collect();
+
         // Store worker states in tracker
         {
             let mut tracker = self.tracker.lock().await;
-            tracker.workers = worker_states.clone();
+            tracker.workers = tracker_worker_states;
         }
 
         if self.pipeline_enabled {
@@ -1188,16 +1216,43 @@ impl Engine {
                 true
             }
 
-            // Spawn GPU worker tasks — one per GPU, all pulling from shared channel
-            for state in &worker_states {
-                let worker_id = state.worker_id;
+            // Phase 8: Spawn multiple GPU worker tasks per GPU for dual-worker
+            // interlock. Each GPU gets its own C++ std::mutex, shared by all
+            // workers on that GPU. Workers acquire the mutex only during CUDA
+            // kernel execution, allowing CPU preprocessing to overlap.
+            let gpu_workers_per_device = self.config.gpus.gpu_workers_per_device.max(1) as usize;
+            info!(
+                gpu_workers_per_device = gpu_workers_per_device,
+                "spawning GPU workers with Phase 8 dual-worker interlock"
+            );
+
+            // Create one C++ mutex per GPU
+            #[cfg(feature = "cuda-supraseal")]
+            let gpu_mutexes: Vec<bellperson::groth16::SendableGpuMutex> = gpu_ordinals
+                .iter()
+                .map(|_| {
+                    let ptr = bellperson::groth16::alloc_gpu_mutex();
+                    bellperson::groth16::SendableGpuMutex(ptr)
+                })
+                .collect();
+
+            let mut global_worker_id = 0u32;
+            for (gpu_idx, state) in worker_states.iter().enumerate() {
+                for worker_sub_id in 0..gpu_workers_per_device {
+                let worker_id = global_worker_id;
+                global_worker_id += 1;
                 let gpu_ordinal = state.gpu_ordinal;
                 let tracker = self.tracker.clone();
                 let synth_rx = synth_rx.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
+                // Phase 8: Convert GPU mutex pointer to usize for Send safety.
+                // Raw pointers aren't Send, but the underlying C++ mutex lives
+                // for the engine's lifetime, so the address is always valid.
+                #[cfg(feature = "cuda-supraseal")]
+                let gpu_mutex_addr: usize = gpu_mutexes[gpu_idx].0 as usize;
 
                 tokio::spawn(async move {
-                    info!(worker_id = worker_id, gpu = gpu_ordinal, "pipeline GPU worker started");
+                    info!(worker_id = worker_id, gpu = gpu_ordinal, sub_id = worker_sub_id, "pipeline GPU worker started");
                     loop {
                         // Pull next synthesized job from channel
                         let synth_job = {
@@ -1300,7 +1355,9 @@ impl Engine {
                                 let gpu_pi = partition_index;
                                 tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
                                     std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
-                                    let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params)?;
+                                    // Phase 8: Reconstruct GPU mutex pointer from address
+                                    let gpu_mtx_ptr = gpu_mutex_addr as *mut std::ffi::c_void;
+                                    let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params, gpu_mtx_ptr)?;
                                     let detail = if let Some(pi) = gpu_pi {
                                         format!("worker={},partition={},gpu_ms={}", gpu_wid, pi, gpu_result.gpu_duration.as_millis())
                                     } else {
@@ -1618,7 +1675,8 @@ impl Engine {
                     }
                     info!(worker_id = worker_id, "pipeline GPU worker stopped");
                 });
-            }
+                } // for worker_sub_id
+            } // for gpu_idx
         } else {
             // ─── Phase 1: Monolithic workers ───────────────────────────────
             //
