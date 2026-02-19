@@ -131,7 +131,7 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 						INNER JOIN market_piece_deal mpd ON f.id = mpd.id
 						INNER JOIN sector_location l ON mpd.sp_id = mpd.miner_id AND mpd.sector_number = l.sector_num AND l.sector_filetype = 4
 						INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
-						WHERE f.task_id = ANY($1::[]bigint)  AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
+						WHERE f.task_id = ANY($1::bigint[])  AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
