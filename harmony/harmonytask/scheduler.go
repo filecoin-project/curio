@@ -75,6 +75,17 @@ func (e *TaskEngine) startScheduler() {
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
+		tryStartNow := func(taskName string) {
+			shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
+			if err != nil {
+				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
+				return
+			}
+			if shouldReserve != 0 {
+				availableTasks[taskName].reservedTask = shouldReserve
+				e.peering.TellOthers(messageTypeReserve, taskName, shouldReserve)
+			}
+		}
 		for {
 			select {
 			case <-e.ctx.Done():
@@ -85,7 +96,11 @@ func (e *TaskEngine) startScheduler() {
 				case schedulerSourceAdded:
 					if _, ok := availableTasks[event.TaskType]; ok { // we maybe not run this task.
 						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
-						bundleCollector(event.TaskType)
+						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
+							tryStartNow(event.TaskType)
+						} else {
+							bundleCollector(event.TaskType)
+						}
 					}
 					e.peering.TellOthers(messageTypeNewTask, event.TaskType, event.TaskID)
 				case schedulerSourcePeerNewTask:
@@ -98,7 +113,11 @@ func (e *TaskEngine) startScheduler() {
 						continue
 					}
 					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
-					bundleCollector(event.TaskType)
+					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
+						tryStartNow(event.TaskType)
+					} else {
+						bundleCollector(event.TaskType)
+					}
 				case schedulerSourceTaskStarted:
 					avail := availableTasks[event.TaskType]
 					delete(avail.hasID, event.TaskID)
@@ -147,15 +166,7 @@ func (e *TaskEngine) startScheduler() {
 					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
 			case taskName := <-bundleSleep:
-				shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
-				if err != nil {
-					log.Errorw("failed to try waterfall", "error", err)
-					continue
-				}
-				if shouldReserve != 0 {
-					availableTasks[taskName].reservedTask = shouldReserve
-					e.peering.TellOthers(messageTypeReserve, taskName, shouldReserve)
-				}
+				tryStartNow(taskName)
 			case <-time.After(e.pollDuration.Load().(time.Duration)): // fast life & early-gather at Go_1.26
 				err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
 				if err != nil {
