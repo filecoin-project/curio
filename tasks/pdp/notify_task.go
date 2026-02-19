@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/curiostorage/harmonyquery"
 	logger "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -97,7 +98,7 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 
 		return true, nil
-	})
+	}, harmonyquery.OptionRetry())
 	if err != nil {
 		return false, fmt.Errorf("failed to move upload to piecerefs: %w", err)
 	}
