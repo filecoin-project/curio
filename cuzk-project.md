@@ -1035,6 +1035,70 @@ Fixed with tagged column encoding (bit 31 = aux flag), remapped in `into_precomp
 
 **Correctness:** All 10 circuits × 130,278,869 constraints match bit-for-bit.
 
+### Phase 6: Pipelined Partition Proving
+
+**"Synthesize and prove individual partitions, not whole sectors at once."**
+
+Phase 6 breaks the monolithic 10-partition synthesis into individual partition-level
+pipelining. Each partition (1 circuit, ~13.6 GiB) is synthesized independently and sent
+to the GPU via a bounded channel. This:
+
+1. **Reduces working memory** from ~136 GiB (10 circuits at once) to ~27-54 GiB
+2. **Reduces b_g2_msm** from ~25s (10 circuits) to ~0.4s (1 circuit) — 62x speedup
+3. **Overlaps synthesis and GPU** at partition granularity (GPU processes partition N
+   while CPU synthesizes partition N+1)
+
+**Key implementation:** `slot_size` config controls max partitions queued for GPU.
+With `slot_size=3` and synthesis at ~29s vs GPU at ~3.3s per partition, the GPU
+stays continuously fed within a sector.
+
+**Commit:** `3f08cbe9` feat(cuzk): Phase 6 — pipelined partition proving with parallel synthesis
+
+### Phase 7: Engine-Level Per-Partition Pipeline
+
+**"Feed individual partitions from multiple sectors through a shared GPU channel."**
+
+Phase 7 lifts partition-level pipelining from the bellperson layer into the engine.
+Instead of synthesizing all 10 partitions of a sector and then proving them, the engine
+spawns `partition_workers` concurrent synthesis tasks that produce individual partitions
+and feed them into a shared GPU channel. This enables:
+
+1. **Cross-sector overlap:** While the GPU proves sector N's last partitions, workers
+   can already synthesize sector N+1's first partitions
+2. **Memory proportional to workers:** Each worker holds one partition (~13.6 GiB) at
+   a time, total = `partition_workers × 13.6 GiB`
+3. **Configurable parallelism:** `partition_workers=20` fits 754 GiB; `pw=10` suffices
+   for full GPU utilization
+
+**Commit:** `f5bfb669` feat(cuzk): Phase 7 — engine-level per-partition pipeline
+
+### Phase 8: Dual-Worker GPU Interlock
+
+**"Eliminate GPU idle gaps by overlapping CPU prep with CUDA kernels."**
+
+Inside `generate_groth16_proofs_c`, each partition prove has ~1.3s of CPU preprocessing
+(pointer setup, bitmap population) before ~3.3s of CUDA kernels (NTT, MSM, batch add,
+tail MSM), followed by ~0.7s of CPU epilogue (b_g2_msm, proof assembly). Phase 8
+narrows the C++ `static std::mutex` to cover only the CUDA kernel region and runs two
+GPU workers per physical GPU:
+
+```
+Worker A: [CPU prep][══ CUDA ══][b_g2+epilogue][CPU prep][══ CUDA ══]
+Worker B:           [CPU prep──][══ CUDA ══][b_g2+epilogue][CPU prep]
+GPU:                [████ A ████][████ B ████][████ A ████][████ B ██]
+```
+
+**Implementation details:**
+- C++ `std::mutex` allocated on heap via `create_gpu_mutex()` / `destroy_gpu_mutex()`
+  (in `groth16_cuda.cu`), passed through FFI as `*mut c_void`
+- Mutex scope: acquired before per-GPU thread launch, released after per-GPU join but
+  before `prep_msm_thread.join()` — b_g2_msm + epilogue run outside lock
+- Fallback: if `gpu_mtx` is null, falls back to function-local `static std::mutex`
+  (backward compatible for non-engine callers)
+- Config: `gpus.gpu_workers_per_device` (default 2)
+
+**Commit:** `2fac031f` feat(cuzk): Phase 8 — dual-worker GPU interlock
+
 ### Summary Timeline
 
 ```
@@ -1044,34 +1108,29 @@ Week  5-8:  Phase 2 — Pipelined synthesis || GPU (bellperson fork)
 Week  8-11: Phase 3 — Cross-sector batching
 Week 11-14: Phase 4 — Compute quick wins
 Week 14-18: Phase 5 — Pre-compiled constraint evaluator
+Week 18-20: Phase 6 — Pipelined partition proving (slot-based)
+Week 20-22: Phase 7 — Engine-level per-partition pipeline
+Week 22-23: Phase 8 — Dual-worker GPU interlock
 ```
 
 ### Stopping Points & Cumulative Impact
 
-| After Phase | Throughput vs Baseline | Peak RAM | Key Win |
-|---|---|---|---|
-| **Phase 0** | **1.3x** (measured) | 203 GiB | SRS residency, daemon scaffold |
-| **Phase 1** | **1.3x** (+ scheduling) | 203 GiB | All proof types, priority |
-| **Phase 2** | **1.27x** pipeline (measured) | 203 GiB | GPU pipelining (synth∥GPU overlap) |
-| **Phase 3** | **1.42x** batch=2 (measured) | 360 GiB | Cross-sector batching (62.3s/proof) |
-| **Phase 4** | **2-3x** (estimated) | ~200 GiB | Per-proof speedups |
-| **Phase 5 W1** | **1.42x** synth (measured) | +25.7 GiB static | PCE: 50.4→35.5s synth |
-| **Phase 5 W1 j=2** | 1.45x wall (measured) | 407 GiB peak | 2 concurrent synths, 49s each |
+| After Phase | Throughput | Per-proof | Peak RAM | Key Win |
+|---|---|---|---|---|
+| **Phase 0** | 1.3x baseline | ~89s | 203 GiB | SRS residency |
+| **Phase 2** | 1.27x pipeline | ~71s | 203 GiB | Synth∥GPU overlap |
+| **Phase 3** | 1.42x batch=2 | 62.3s | 360 GiB | Cross-sector batching |
+| **Phase 5 W1** | 1.42x synth | 35.5s synth | +25.7 GiB static | PCE: 50.4→35.5s synth |
+| **Phase 7** | — | 50.7s (pw=20) | ~430 GiB | Per-partition pipeline, cross-sector overlap |
+| **Phase 8** | **2.4x baseline** | **37.4s (pw=10)** | ~430 GiB | Dual-worker GPU interlock, 100% GPU utilization |
 
-*Note: Phase 2/3 measured on RTX 5070 Ti. Pipeline overlap is modest (1.27x) because
-synthesis (55s) dominates GPU (34s) on this hardware. Phase 3 batch=2 amortizes synthesis
-across sectors, giving 1.42x.*
+*Phase 8 with optimal pw=10 achieves 37.4s/proof steady-state throughput, which exactly
+matches the serial CUDA kernel time (10 partitions × 3.75s = 37.5s). The system is fully
+GPU-bound — all CPU overhead (synthesis, preprocessing, b_g2_msm) is hidden behind GPU
+compute. Further improvement requires faster CUDA kernels or a second GPU.*
 
-*Phase 5 Wave 1 measured 1.42x synthesis speedup (50.4→35.5s). Witness generation (26.5s)
-is now the bottleneck — irreducible without SHA-256 SizedWitness. PCE static memory is
-25.7 GiB (shared across all pipelines, amortized). Per-pipeline memory is unchanged.*
-
-*Phase 5 j=2 parallel: two concurrent syntheses complete in 49s wall (vs 71s sequential).
-Per-proof time degrades to 46–49s due to Zen4 memory bandwidth contention across 20
-circuits. Peak RSS 407 GiB reflects 2× working sets + PCE static + transient overhead.*
-
-*Remaining Phase 5 waves: Wave 2 (specialized MatVec) saves ~7s from MatVec but witness
-still dominates. Wave 3 (pre-sorted SRS) saves 15-25% on GPU MSM phase.*
+*Phase 7→8 improvement: 13-17% depending on concurrency (50.7→44.0s at pw=20 j=3;
+59.8→49.5s at pw=20 j=2).*
 
 ---
 
@@ -1328,6 +1387,87 @@ For production with GPU overlap, j=2 is the right setting: the GPU processes the
 proof while CPU synthesizes the next. The 49s synthesis time still exceeds the ~34s GPU
 phase on RTX 5070 Ti, so GPU utilization approaches 100%.
 
+### Phase 7+8: Per-Partition Pipeline + Dual-Worker Interlock
+
+**Commits:** `f5bfb669` (Phase 7), `2fac031f` (Phase 8)
+
+These phases combine per-partition synthesis (Phase 7) with dual-worker GPU interlock
+(Phase 8) to achieve maximum GPU utilization. Instead of synthesizing all 10 partitions
+of a sector as a batch, the engine spawns concurrent partition workers that feed
+individual partitions to the GPU. Two GPU workers per device alternate CUDA execution,
+hiding all CPU overhead.
+
+#### Partition Workers Sweep (c=5, j=3, gpu_workers_per_device=2)
+
+| partition_workers | throughput (s/proof) | total_time (5 proofs) | notes |
+|---|---|---|---|
+| **10** | **43.5** | 217.5s | optimal |
+| **12** | **43.5** | 217.5s | equivalent to pw=10 |
+| 15 | 44.8 | 223.9s | slight regression |
+| 18 | 43.8 | 219.1s | near-optimal |
+| 20 | 44.9 | 224.3s | default config |
+| 30 | 60.4 | 302.0s | CPU contention, severe regression |
+
+**Key finding:** pw=10-12 is the sweet spot on this 96-core machine. Higher pw wastes
+cores on synthesis that the GPU can't consume fast enough, and pw=30 causes severe CPU
+contention that starves GPU preprocessing.
+
+#### Phase 8 vs Phase 7 Comparison (pw=20)
+
+| Config | Phase 7 | Phase 8 | Improvement |
+|---|---|---|---|
+| c=5 j=3 pw=20 | 50.7s/proof | 44.0s/proof | 13.2% |
+| c=5 j=2 pw=20 | 59.8s/proof | 49.5s/proof | 17.2% |
+
+#### Single-Proof Detail (pw=20, gpu_workers_per_device=2)
+
+| Metric | Value |
+|---|---|
+| Total wall | 69.3s |
+| GPU time | 65.7s |
+| GPU efficiency | **100.0%** (zero idle time) |
+| Cross-worker turnaround | 12-22ms per switch (hidden by interleaving) |
+| Reported GPU time per partition | 6.4-6.7s (includes CPU preprocessing behind mutex) |
+| True CUDA kernel time per partition | ~3.3s (NTT+MSM: 2.4s, batch_add: 0.6s, tail_MSM: 0.13s) |
+
+#### TIMELINE Analysis (pw=10, 5 sectors, steady-state)
+
+Deep analysis of the pw=10 run reveals the system is perfectly GPU-bound:
+
+| Metric | Value |
+|---|---|
+| Avg CUDA kernel time per partition | 3746ms |
+| Serial CUDA time per sector (10 partitions) | 37.5s |
+| Actual measured throughput | **37.4s/proof** |
+| GPU efficiency (merged intervals) | **100.0%** |
+| Cross-sector GPU idle gaps | **0ms** (both workers idle simultaneously: never) |
+
+**Cross-sector transition detail:**
+
+| Transition | 2nd-to-last GPU_END → next sector GPU_START | Overlap with prev last partition |
+|---|---|---|
+| Sector 0→1 | 4490ms (cold start) | 761ms |
+| Sector 1→2 | 21ms | 4048ms |
+| Sector 2→3 | 244ms | 4834ms |
+| Sector 3→4 | 45ms | 3916ms |
+
+After warmup, the cross-sector transition is essentially seamless: when one worker
+finishes sector N's second-to-last partition, the other worker immediately picks up
+sector N+1's first partition (which was already synthesized and waiting in the channel).
+The last partition of sector N is processed in parallel by the other worker.
+
+**Synthesis timing:** With pw=10, all 10 partitions of a sector are synthesized
+concurrently. Average partition synthesis: ~36.5s. The first partition of sector N+1
+is ready well before the GPU finishes sector N (synthesis starts as workers free up
+from sector N). This means `synthesis_concurrency > 1` provides no benefit — the
+bottleneck is purely GPU CUDA kernel speed.
+
+**Bottleneck:** The 37.4s throughput is the theoretical minimum for this GPU with the
+current CUDA kernels. Further improvement requires:
+1. Faster CUDA kernels (NTT, MSM algorithm improvements)
+2. A second GPU (linear scaling expected)
+3. Smaller proof circuits (protocol-level change)
+
 ---
 
 ## 15. Open Questions
@@ -1408,20 +1548,30 @@ cuzk links against the same Filecoin proving stack as Curio:
 
 | File | Purpose |
 |---|---|
-| `extern/supra_seal/c2/src/lib.rs` | Rust FFI: `SRS`, `Assignment`, `generate_groth16_proof[s]` |
-| `extern/supra_seal/c2/cuda/groth16_cuda.cu:104-108` | C++ entry: `generate_groth16_proofs_c()` |
-| `extern/supra_seal/c2/cuda/groth16_cuda.cu:111-112` | Static mutex (serializes all proving) |
-| `extern/supra_seal/c2/cuda/groth16_srs.cuh:62` | `max_num_circuits = 10` (must bump for batching) |
-| `extern/supra_seal/c2/cuda/groth16_srs.cuh:450-462` | `create_SRS` C FFI with LRU cache |
+| `extern/supraseal-c2/src/lib.rs` | Rust FFI: `SRS`, `Assignment`, `generate_groth16_proof[s]`, `create_gpu_mutex`/`free_gpu_mutex` (Phase 8) |
+| `extern/supraseal-c2/cuda/groth16_cuda.cu` | C++ entry: `generate_groth16_proofs_c()`, `create_gpu_mutex()`/`destroy_gpu_mutex()` (Phase 8) |
+| `extern/supraseal-c2/cuda/groth16_srs.cuh:62` | `max_num_circuits = 10` (must bump for batching) |
+| `extern/supraseal-c2/cuda/groth16_srs.cuh:450-462` | `create_SRS` C FFI with LRU cache |
 
-### Bellperson (in ~/.cargo/registry/src/)
+### Bellperson (local fork: extern/bellperson/)
 
 | File | Purpose |
 |---|---|
-| `bellperson-0.26.0/src/groth16/prover/mod.rs:1-4` | Conditional: native vs supraseal prover |
-| `bellperson-0.26.0/src/groth16/prover/supraseal.rs` | Supraseal prover: synthesize + prove |
-| `bellperson-0.26.0/src/groth16/supraseal_params.rs` | `SuprasealParameters` wrapping `SRS` |
-| `bellperson-0.26.0/src/groth16/prover/mod.rs:130` | `ProvingAssignment::enforce()` |
+| `extern/bellperson/src/groth16/prover/mod.rs` | Conditional: native vs supraseal prover |
+| `extern/bellperson/src/groth16/prover/supraseal.rs` | Supraseal prover: `prove_from_assignments()` with `GpuMutexPtr`, `SendableGpuMutex` (Phase 8) |
+| `extern/bellperson/src/groth16/supraseal_params.rs` | `SuprasealParameters` wrapping `SRS` |
+| `extern/bellperson/src/groth16/mod.rs` | Re-exports `alloc_gpu_mutex`, `free_gpu_mutex`, `GpuMutexPtr`, `SendableGpuMutex` (Phase 8) |
+
+### cuzk Engine
+
+| File | Purpose |
+|---|---|
+| `extern/cuzk/cuzk-core/src/engine.rs` | Main engine: partition workers, GPU worker pool, per-GPU C++ mutexes (Phase 8) |
+| `extern/cuzk/cuzk-core/src/config.rs` | All config structs: `partition_workers`, `gpu_workers_per_device`, `synthesis_concurrency` |
+| `extern/cuzk/cuzk-core/src/pipeline.rs` | `gpu_prove()` with `GpuMutexPtr`, PCE synthesis, partition synthesis |
+| `extern/cuzk/cuzk-daemon/src/main.rs` | Daemon binary: thread pool config, rayon init |
+| `extern/cuzk/cuzk-bench/src/main.rs` | Bench CLI: `batch -t porep --c1 ... -c 5 -j 3` |
+| `extern/cuzk/cuzk.example.toml` | Documented config with ASCII art timeline diagrams |
 
 ### filecoin-proofs (in ~/.cargo/registry/src/)
 
@@ -1443,4 +1593,7 @@ cuzk links against the same Filecoin proving stack as Curio:
 | `c2-optimization-proposal-3.md` | Cross-sector batching |
 | `c2-optimization-proposal-4.md` | 18 compute-level optimizations |
 | `c2-optimization-proposal-5.md` | PCE + SnarkPack transpositions |
+| `c2-optimization-proposal-6.md` | Phase 6 design spec — pipelined partition proving |
+| `c2-optimization-proposal-7.md` | Phase 7 design spec — engine-level per-partition pipeline |
+| `c2-optimization-proposal-8.md` | Phase 8 design spec — dual-worker GPU interlock |
 | `c2-total-impact-assessment.md` | Combined 10x assessment, 13-week plan |
