@@ -127,6 +127,19 @@ Code reference (for maintainers): `tasks/piece/task_park_piece.go`.
 
 ---
 
+### Pipeline
+
+#### Sectors stuck mid-pipeline after cordoning a node
+
+What it means:
+- Cordoning blocks all new task scheduling, including location-bound pipeline stages (TreeD, TreeRC, SyntheticProofs, Finalize). If sector data lives on the cordoned node's local storage, no other node can pick up those tasks.
+
+What to do:
+- Uncordon the node to let pipelines resume, or attach storage to another node.
+- See: [Node Maintenance & Cordoning](../administration/node-maintenance.md) for recommended workflows.
+
+---
+
 ### Batch sealing
 
 #### `panic: SupraSealInit: supraseal build tag not enabled`

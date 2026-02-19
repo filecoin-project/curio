@@ -44,6 +44,7 @@
 * [Garbage Collection](garbage-collection.md)
 * [Best Practices](best-practices.md)
 * [Administration](administration/README.md)
+  * [Node Maintenance & Cordoning](administration/node-maintenance.md)
   * [YugabyteDB Backup](administration/yugabyte-backup.md)
   * [YugabyteDB troubleshooting](administration/yugabyte-troubleshooting.md)
   * [Indexing & CheckIndex troubleshooting](administration/indexing-checkindex-troubleshooting.md)
