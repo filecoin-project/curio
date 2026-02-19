@@ -446,6 +446,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				return false, err
 			}
 		}
+
 		// Return true to commit the transaction
 		return true, nil
 	}, harmonydb.OptionRetry())

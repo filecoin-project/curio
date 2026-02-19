@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/dustin/go-humanize"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -35,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
 
@@ -50,6 +53,7 @@ type ProveTask struct {
 	sender    *message.SenderETH
 	cpr       *cachedreader.CachedPieceReader
 	fil       ProveTaskChainApi
+	idx       *indexstore.IndexStore
 
 	head atomic.Pointer[chainTypes.TipSet]
 
@@ -61,13 +65,14 @@ type ProveTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)                                                                              //perm:read
 }
 
-func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader) *ProveTask {
+func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
 		cpr:       cpr,
 		fil:       fil,
+		idx:       idx,
 	}
 
 	// ProveTasks are created on pdp_data_sets entries where
@@ -570,6 +575,110 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }
 
+// proveSubPieceCached generates a merkle proof using a cached middle layer instead of building the full memtree.
+// Returns nil proof (not error) if no cache is available, so the caller can fall back to the full memtree approach.
+func (p *ProveTask) proveSubPieceCached(ctx context.Context, subPieceCidV1 cid.Cid, pcidV2 cid.Cid, subPieceSize abi.PaddedPieceSize, challengedLeaf int64) (*proof.RawMerkleProof, error) {
+	has, layerIdx, err := p.idx.GetPDPLayerIndex(ctx, pcidV2)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to check PDP layer: %w", err)
+	}
+	if !has {
+		return nil, nil // no cache available, caller should fall back
+	}
+
+	leavesPerNode := int64(1) << layerIdx
+	snapshotNodeIndex := challengedLeaf >> layerIdx
+	startLeaf := snapshotNodeIndex << layerIdx
+
+	has, node, err := p.idx.GetPDPNode(ctx, pcidV2, layerIdx, snapshotNodeIndex)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get cached node: %w", err)
+	}
+	if !has {
+		return nil, nil // cache incomplete, caller should fall back
+	}
+
+	log.Debugw("proveSubPieceCached", "challengedLeaf", challengedLeaf, "layerIdx", layerIdx,
+		"snapshotNodeIndex", snapshotNodeIndex, "startLeaf", startLeaf, "leavesPerNode", leavesPerNode)
+
+	// Convert tree-based leaf range to file-based offset/length
+	offset := int64(abi.PaddedPieceSize(startLeaf * LeafSize).Unpadded())
+	length := int64(abi.PaddedPieceSize(leavesPerNode * LeafSize).Unpadded())
+
+	// Compute padded size for the sub-section memtree
+	subrootSize := padreader.PaddedSize(uint64(length)).Padded()
+
+	// Get file reader
+	reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidV1)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get reader: %w", err)
+	}
+	defer func() {
+		_ = reader.Close()
+	}()
+
+	// Read only the section covering the challenged snapshot node
+	dataReader := io.NewSectionReader(reader, offset, length)
+	fileRemaining := int64(reportedSize) - offset
+
+	var data io.Reader
+	if fileRemaining < length {
+		data = io.MultiReader(dataReader, nullreader.NewNullReader(abi.UnpaddedPieceSize(int64(subrootSize.Unpadded())-fileRemaining)))
+	} else {
+		data = dataReader
+	}
+
+	memtree, err := proof.BuildSha254Memtree(data, subrootSize.Unpadded())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to build section memtree: %w", err)
+	}
+	defer pool.Put(memtree)
+
+	// Get proof within the small section memtree
+	subTreeChallenge := challengedLeaf - startLeaf
+	subTreeProof, err := proof.MemtreeProof(memtree, subTreeChallenge)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to generate section proof: %w", err)
+	}
+
+	// Verify the section root matches the cached node
+	if subTreeProof.Root != node.Hash {
+		return nil, xerrors.Errorf("section root mismatch with cached node: %x != %x", subTreeProof.Root, node.Hash)
+	}
+
+	// Fetch full cached layer and build tree from snapshot to root
+	layerNodes, err := p.idx.GetPDPLayer(ctx, pcidV2, layerIdx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get cached layer nodes: %w", err)
+	}
+
+	var layerBytes []byte
+	for _, n := range layerNodes {
+		layerBytes = append(layerBytes, n.Hash[:]...)
+	}
+	log.Debugw("proveSubPieceCached layerBytes", "humanSize", humanize.Bytes(uint64(len(layerBytes))),
+		"size", len(layerBytes), "numNodes", len(layerNodes))
+
+	mtree, err := proof.BuildSha254MemtreeFromSnapshot(layerBytes)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
+	}
+	defer pool.Put(mtree)
+
+	// Generate proof from snapshot node to sub-piece root
+	snapshotProof, err := proof.MemtreeProof(mtree, snapshotNodeIndex)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to generate snapshot-to-root proof: %w", err)
+	}
+
+	// Combine: leaf→snapshot + snapshot→root
+	return &proof.RawMerkleProof{
+		Leaf:  subTreeProof.Leaf,
+		Proof: append(subTreeProof.Proof, snapshotProof.Proof...),
+		Root:  snapshotProof.Root,
+	}, nil
+}
+
 func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
 	const arity = 2
 
@@ -582,15 +691,20 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		SubPieceOffset int64  `db:"sub_piece_offset"` // padded offset
 		SubPieceSize   int64  `db:"sub_piece_size"`   // padded piece size
 		Removed        bool   `db:"removed"`
+		PieceRawSize   uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
 	}
 
 	var subPieces []subPieceMeta
 
 	err := p.db.Select(context.Background(), &subPieces, `
-			SELECT piece, sub_piece, sub_piece_offset, sub_piece_size, removed
-			FROM pdp_data_set_pieces
-			WHERE data_set = $1 AND piece_id = $2
-			ORDER BY sub_piece_offset ASC
+			SELECT dsp.piece, dsp.sub_piece, dsp.sub_piece_offset, dsp.sub_piece_size, dsp.removed,
+			       pp.piece_raw_size
+			FROM pdp_data_set_pieces dsp
+			JOIN pdp_piecerefs ppr ON ppr.id = dsp.pdp_pieceref
+			JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+			JOIN parked_pieces pp ON pp.id = pprf.piece_id
+			WHERE dsp.data_set = $1 AND dsp.piece_id = $2
+			ORDER BY dsp.sub_piece_offset ASC
 		`, dataSetId, pieceId)
 	if err != nil {
 		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
@@ -607,26 +721,42 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		log.Errorw("using removed piece", "dataSetId", dataSetId, "pieceId", pieceId)
 	}
 
-	// build subpiece memtree
-	memtree, err := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
-	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", err)
-	}
-
 	subPieceChallengedLeaf := challengedLeaf - (challSubPiece.SubPieceOffset / LeafSize)
 	log.Debugw("subPieceChallengedLeaf", "subPieceChallengedLeaf", subPieceChallengedLeaf, "challengedLeaf", challengedLeaf, "subPieceOffsetLs", challSubPiece.SubPieceOffset/LeafSize)
 
-	/*
-		type RawMerkleProof struct {
-			Leaf  [32]byte
-			Proof [][32]byte
-			Piece  [32]byte
+	var subPieceProof *proof.RawMerkleProof
+
+	// Try cached approach for large sub-pieces
+	if p.idx != nil && challSubPiece.SubPieceSize >= int64(MinSizeForCache) && challSubPiece.PieceRawSize > 0 {
+		subPieceCidV1, parseErr := cid.Parse(challSubPiece.SubPiece)
+		if parseErr != nil {
+			log.Warnw("failed to parse sub-piece CID for cache lookup", "error", parseErr)
+		} else {
+			pcidV2, v2Err := commcid.PieceCidV2FromV1(subPieceCidV1, challSubPiece.PieceRawSize)
+			if v2Err != nil {
+				log.Warnw("failed to construct v2 CID, falling back to memtree", "error", v2Err)
+			} else {
+				cachedProof, cacheErr := p.proveSubPieceCached(ctx, subPieceCidV1, pcidV2, abi.PaddedPieceSize(challSubPiece.SubPieceSize), subPieceChallengedLeaf)
+				if cacheErr != nil {
+					log.Warnw("cached proof generation failed, falling back to memtree", "error", cacheErr)
+				} else if cachedProof != nil {
+					subPieceProof = cachedProof
+				}
+			}
 		}
-	*/
-	subPieceProof, err := proof.MemtreeProof(memtree, subPieceChallengedLeaf)
-	pool.Put(memtree)
-	if err != nil {
-		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
+	}
+
+	// Fall back to full memtree if cached approach wasn't used
+	if subPieceProof == nil {
+		memtree, memErr := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
+		if memErr != nil {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", memErr)
+		}
+		subPieceProof, err = proof.MemtreeProof(memtree, subPieceChallengedLeaf)
+		pool.Put(memtree)
+		if err != nil {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
+		}
 	}
 	log.Debugw("subPieceProof", "subPieceProof", subPieceProof)
 
