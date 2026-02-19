@@ -72,7 +72,8 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 												FROM pdp_data_set_pieces psp
 												LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
 												WHERE psp.rm_message_hash IS NOT NULL
-												  AND psp.removed = FALSE`)
+												  AND psp.removed = FALSE
+												  AND mwe.tx_status = 'confirmed'`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
@@ -90,13 +91,21 @@ func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient
 
 	for _, piece := range pendingDeletes {
 		if !piece.TxSuccess.Valid {
-			log.Debugf("for piece ($d:$d) tx %s not found in message_waits_eth", piece.DataSetID, piece.PieceID, piece.TxHash)
+			log.Errorf("invalid message_waits_eth state for piece ($d:$d) tx %s neither successful or unsuccessful", piece.DataSetID, piece.PieceID, piece.TxHash)
+			_, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`, piece.DataSetID, piece.PieceID, piece.TxHash)
+			if err != nil {
+				return xerrors.Errorf("failed to clear stuck rm_message_hash %s: %w", piece.TxHash, err)
+			}
 			continue
 		}
 
-		// NOTE(Kubuxu): this is a bit fragile, as one failing piece will stop processing of the rest of deleted pieces
 		if !piece.TxSuccess.Bool {
-			return xerrors.Errorf("failed to process pending piece delete as transaction %s failed: %w", piece.TxHash, err)
+			log.Errorf("failed to process pending piece delete as transaction %s failed", piece.TxHash)
+			_, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`, piece.DataSetID, piece.PieceID, piece.TxHash)
+			if err != nil {
+				return xerrors.Errorf("failed to clear stuck rm_message_hash %s: %w", piece.TxHash, err)
+			}
+			continue
 		}
 
 		removals, err := verifier.GetScheduledRemovals(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID))
