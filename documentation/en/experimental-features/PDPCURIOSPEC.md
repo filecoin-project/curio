@@ -67,7 +67,7 @@ CREATE TABLE pdp_data_sets (
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
     unrecoverable_proving_failure_epoch BIGINT,
     next_prove_attempt_at BIGINT,
-    consecutive_prove_failures,
+    consecutive_prove_failures INT NOT NULL DEFAULT 0,
     ...
 );
 ```
