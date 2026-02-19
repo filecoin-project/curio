@@ -134,6 +134,10 @@ extern "C" void destroy_gpu_mutex(void* mtx) {
     delete static_cast<std::mutex*>(mtx);
 }
 
+// Phase 11 Intervention 3: Declared in Rust (cuzk-pce/src/eval.rs).
+// Sets the memory-bandwidth throttle flag checked by synthesis SpMV threads.
+extern "C" void set_membw_throttle(int value);
+
 extern "C"
 RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                                               size_t num_circuits,
@@ -554,6 +558,13 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         // With batch_size=N, running N single-threaded Pippengers in parallel
         // is much faster than running N sequential thread-pooled Pippengers.
         auto t_bg2_start = std::chrono::steady_clock::now();
+
+        // Phase 11 Intervention 3: Signal synthesis SpMV threads to yield
+        // during b_g2_msm's memory-intensive Pippenger computation.
+        // This reduces L3 cache contention between Pippenger bucket arrays
+        // and SpMV's scattered CSR matrix accesses.
+        set_membw_throttle(1);
+
 #ifndef __CUDA_ARCH__
         if (num_circuits > 1) {
             get_groth16_pool().par_map(num_circuits, [&](size_t c) {
@@ -575,6 +586,8 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                 true, &get_groth16_pool());  // single circuit: use full thread pool
         }
 #endif
+        set_membw_throttle(0);
+
         auto t_bg2_end = std::chrono::steady_clock::now();
         auto bg2_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_bg2_end - t_bg2_start).count();
         fprintf(stderr, "CUZK_TIMING: b_g2_msm_ms=%ld num_circuits=%zu\n", bg2_ms, num_circuits);
@@ -1034,13 +1047,17 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                 epilogue_ms, pre_destr_ms);
     }
 
-    // Move large allocations (~37 GB) into a detached thread so destructors
-    // don't block the caller. The vectors are no longer needed after proof
-    // assembly, and freeing them synchronously takes ~10 seconds on Zen4.
     // Move large allocations (~37 GB total: split_vectors contain per-circuit
     // bit_vectors and tail_msm_scalars; tail_msm_*_bases hold copied affine
     // points) into a detached thread so destructors don't block the caller.
     // Freeing them synchronously takes ~10 seconds due to munmap() overhead.
+    //
+    // Phase 11 Intervention 1: Serialize dealloc threads to prevent concurrent
+    // munmap() TLB shootdown storms. At most 1 C++ dealloc thread active at a
+    // time. The mutex is static so it persists across calls. Waiting on the
+    // mutex just delays memory reclamation — the caller already has its proof.
+    static std::mutex dealloc_mtx;
+
     std::thread([
         sv_l = std::move(split_vectors_l),
         sv_a = std::move(split_vectors_a),
@@ -1050,6 +1067,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         tb = std::move(tail_msm_b_g1_bases),
         tb2 = std::move(tail_msm_b_g2_bases)
     ]() mutable {
+        std::lock_guard<std::mutex> lk(dealloc_mtx);
         struct timeval tv_start, tv_end;
         gettimeofday(&tv_start, NULL);
         // Explicit deallocation — captures are destroyed when lambda exits

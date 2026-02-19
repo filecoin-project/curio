@@ -8,6 +8,7 @@
 //!   w[0..num_inputs] = input_assignment
 //!   w[num_inputs..num_inputs+num_aux] = aux_assignment
 
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -17,6 +18,25 @@ use rayon::prelude::*;
 use tracing::info;
 
 use crate::csr::{CsrMatrix, PreCompiledCircuit};
+
+// Phase 11 Intervention 3: Global memory-bandwidth throttle flag.
+// When > 0, synthesis SpMV threads should yield periodically to reduce
+// L3 cache contention with b_g2_msm (CPU Pippenger MSM).
+//
+// Set by C++ via `set_membw_throttle(1)` before b_g2_msm, cleared after.
+// Checked by `spmv_parallel()` every 64 chunks (~524K rows).
+// Cost when throttle==0: one relaxed atomic load per 64 chunks (~1ns per 500µs).
+static MEMBW_THROTTLE: AtomicI32 = AtomicI32::new(0);
+
+/// FFI entry point for C++ to set the memory-bandwidth throttle flag.
+/// Called from `groth16_cuda.cu` before/after b_g2_msm.
+///
+/// # Safety
+/// Thread-safe (atomic). Can be called from any thread.
+#[no_mangle]
+pub extern "C" fn set_membw_throttle(value: i32) {
+    MEMBW_THROTTLE.store(value, Ordering::Release);
+}
 
 /// Result of PCE evaluation for one circuit.
 ///
@@ -58,6 +78,14 @@ fn spmv_parallel<Scalar: PrimeField>(
         .par_chunks_mut(chunk_size)
         .enumerate()
         .for_each(|(chunk_idx, out_chunk)| {
+            // Phase 11 Intervention 3: Yield briefly if b_g2_msm is active.
+            // Check every 64 chunks (~524K rows) to limit overhead.
+            // yield_now() is a hint — returns immediately if no other thread
+            // is waiting. Cost when throttle==0: one atomic load (~1ns).
+            if chunk_idx % 64 == 0 && MEMBW_THROTTLE.load(Ordering::Relaxed) > 0 {
+                std::thread::yield_now();
+            }
+
             let row_start = chunk_idx * chunk_size;
             for (local_i, out) in out_chunk.iter_mut().enumerate() {
                 let row = row_start + local_i;

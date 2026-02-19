@@ -1,6 +1,9 @@
 //! Prover implementation implemented using SupraSeal (C++).
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use bellpepper_core::{Circuit, ConstraintSystem, Index, SynthesisError, Variable};
 use ff::{Field, PrimeField};
@@ -395,7 +398,14 @@ where
     // immediately. Each ProvingAssignment holds a/b/c Vec<Scalar> of ~4.17 GB
     // each, plus aux_assignment (~0.74 GB). Dropping synchronously adds ~10s
     // of munmap() overhead on Zen4.
+    //
+    // Phase 11 Intervention 1: Serialize Rust-side dealloc threads to prevent
+    // concurrent munmap() TLB shootdown storms. At most 1 Rust dealloc thread
+    // active at a time. Waiting on the mutex just delays memory reclamation.
+    static DEALLOC_MTX: Mutex<()> = Mutex::new(());
+
     std::thread::spawn(move || {
+        let _guard = DEALLOC_MTX.lock().unwrap();
         drop(provers);
         drop(input_assignments);
         drop(aux_assignments);

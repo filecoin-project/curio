@@ -1200,6 +1200,23 @@ window. Expected: 2-4% additional.
 
 **Combined target:** 38.0s → ~34.0s/proof at c=20 j=15 (~11% improvement).
 
+**Phase 11 Benchmark Results (c=20 j=15, pw=10):**
+
+| Configuration | Throughput | Avg Prove | Notes |
+|---|---|---|---|
+| Phase 9 baseline (gw=2) | 38.0s/proof | 60.0s | — |
+| Int1 only (dealloc_mtx, gw=2) | 37.9s/proof | 60.4s | TLB serialization alone: negligible |
+| Int1+Int2 (gw=2, gt=32) | **36.7s/proof** | 57.4s | **Best: 3.4% gain** |
+| Int1+Int2+Int3 (gw=2, gt=32) | 36.8s/proof | 60.3s | Throttle adds no additional gain |
+| Int1+Int2+Int3 (gw=3, gt=32) | 37.2s/proof | 83.0s | 3rd worker: CPU contention dominates |
+| Int1+Int2+Int3 (gw=4, gt=32) | 37.4s/proof | 104.9s | 4th worker: worse, prove times 2x |
+
+**Optimal config:** gw=2, pw=10, gpu_threads=32. The dominant improvement comes from
+reducing the groth16_pool from 192 to 32 threads, cutting b_g2_msm's L3 cache footprint
+from ~1.1 GiB to ~192 MB. b_g2_msm slows from 0.5s to 1.7s but runs outside the GPU
+lock so this doesn't affect GPU throughput. Intervention 3 (membw_throttle) shows no
+additional benefit because Int2 already reduced L3 contention sufficiently.
+
 ### Summary Timeline
 
 ```
@@ -1229,7 +1246,7 @@ Week 24-25: Phase 11 — Memory-bandwidth-aware pipeline scheduling
 | **Phase 8** | **2.4x baseline** | **37.4s (pw=10)** | ~430 GiB | Dual-worker GPU interlock, 100% GPU utilization |
 | **Phase 9** | **2.8x baseline** | **32.1s (gw=1)** | ~430 GiB | Pinned DMA + deferred Pippenger sync, 71% NTT speedup |
 | *Phase 10* | *abandoned* | *—* | *—* | *Two-lock GPU interlock: 16 GB VRAM too small, CUDA APIs device-global* |
-| **Phase 11** | **target: ~3.1x** | **target: ~34s** | ~430 GiB | Dealloc serialization + pool sizing + mem-BW throttle |
+| **Phase 11** | **2.9x baseline** | **36.7s (gw=2, gt=32)** | ~430 GiB | Dealloc serialization + pool sizing (3.4% over Phase 9) |
 
 *Phase 8 with optimal pw=10 achieves 37.4s/proof steady-state throughput, which exactly
 matches the serial CUDA kernel time (10 partitions × 3.75s = 37.5s). The system is fully
