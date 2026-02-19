@@ -584,13 +584,185 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
     std::vector<std::thread> per_gpu;
     RustError ret{cudaSuccess};
 
+    // Phase 9: Pre-stage state — set up after acquiring the GPU mutex.
+    // The pre-staging allocates device buffers and issues async HtoD
+    // transfers from pinned host memory. Even though the uploads happen
+    // while we hold the mutex, the key gains are:
+    // 1. cudaHostRegister enables DMA (full PCIe bandwidth, no bounce buffer)
+    // 2. cudaMemcpyAsync from pinned memory is truly async — CPU thread
+    //    isn't blocked, NTT compute starts as soon as each upload finishes
+    //    (via CUDA events), overlapping upload and compute on the same GPU.
+    //
+    // Host page pinning is done BEFORE the mutex (it's a CPU-only operation
+    // that doesn't touch the GPU) so it overlaps with the other worker's
+    // CUDA kernels.
+
+    bool prestage_ok = false;
+    cudaStream_t upload_stream = nullptr;
+    cudaEvent_t ev_a = nullptr, ev_b = nullptr, ev_c = nullptr;
+    fr_t* d_a_prestaged = nullptr;
+    fr_t* d_bc_prestaged = nullptr;
+    size_t prestage_lg_domain = 0;
+    size_t prestage_domain_size = 0;
+    bool prestage_lot_of_memory = false;
+    bool host_a_registered = false, host_b_registered = false, host_c_registered = false;
+
+    // Phase 9: Pin host pages BEFORE the mutex — this is a CPU-only
+    // operation (mlock() syscall) that doesn't touch the GPU. Pinning
+    // takes ~1-5ms per 2 GiB buffer and enables DMA without bounce buffer.
+    if (num_circuits == 1) {
+        size_t actual_size = provers[0].abc_size;
+        size_t abc_bytes = actual_size * sizeof(fr_t);
+        cudaError_t err;
+
+        err = cudaHostRegister((void*)provers[0].a, abc_bytes, cudaHostRegisterDefault);
+        if (err == cudaSuccess) {
+            host_a_registered = true;
+            err = cudaHostRegister((void*)provers[0].b, abc_bytes, cudaHostRegisterDefault);
+        }
+        if (err == cudaSuccess) {
+            host_b_registered = true;
+            err = cudaHostRegister((void*)provers[0].c, abc_bytes, cudaHostRegisterDefault);
+        }
+        if (err == cudaSuccess) {
+            host_c_registered = true;
+        }
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUZK_TIMING: host_register=fallback err=%d\n", (int)err);
+            if (host_c_registered) { cudaHostUnregister((void*)provers[0].c); host_c_registered = false; }
+            if (host_b_registered) { cudaHostUnregister((void*)provers[0].b); host_b_registered = false; }
+            if (host_a_registered) { cudaHostUnregister((void*)provers[0].a); host_a_registered = false; }
+        }
+    }
+
     // Phase 8: Acquire GPU mutex — serializes CUDA kernel region only.
     // CPU preprocessing (prep_msm_thread) is already running concurrently.
     // Another worker's CPU work can overlap with our GPU kernels.
     std::unique_lock<std::mutex> gpu_lock(*mtx_ptr);
 
+    // Phase 9: Now that we hold the mutex (no other worker on this GPU),
+    // allocate device buffers and issue async uploads from pinned memory.
+    //
+    // Memory-aware allocation: query actual free VRAM and only pre-stage
+    // what fits with a 512 MiB safety margin. The rest of the proving
+    // pipeline (MSM, batch_add, tail MSMs) also needs device memory, so
+    // we must not consume everything.
+    if (num_circuits == 1 && (host_a_registered && host_b_registered && host_c_registered)) {
+        size_t npoints = points_h.size();
+        prestage_lg_domain = lg2(npoints - 1) + 1;
+        prestage_domain_size = (size_t)1 << prestage_lg_domain;
+        size_t actual_size = provers[0].abc_size;
+
+        const gpu_t& gpu0 = select_gpu(0);
+        prestage_lot_of_memory = 3 * prestage_domain_size * sizeof(fr_t) <
+                                 gpu0.props().totalGlobalMem - ((size_t)1 << 30);
+
+        // Drain CUDA async memory pools so cudaMemGetInfo reports accurate
+        // free memory. Previous partitions may have freed via cudaFreeAsync
+        // (used by gpu_t::Dfree/stream_t::Dfree), leaving memory cached in
+        // the async pool — invisible to cudaMalloc.
+        cudaDeviceSynchronize();
+        {
+            cudaMemPool_t pool = nullptr;
+            if (cudaDeviceGetDefaultMemPool(&pool, gpu0.cid()) == cudaSuccess && pool) {
+                cudaMemPoolTrimTo(pool, 0);
+            }
+        }
+
+        size_t free_bytes = 0, total_bytes = 0;
+        cudaMemGetInfo(&free_bytes, &total_bytes);
+
+        const size_t SAFETY_MARGIN = (size_t)512 << 20;  // 512 MiB
+        size_t usable = free_bytes > SAFETY_MARGIN ? free_bytes - SAFETY_MARGIN : 0;
+
+        size_t d_a_bytes = prestage_domain_size * sizeof(fr_t);
+        size_t d_bc_elems = prestage_domain_size * (prestage_lot_of_memory + 1);
+        size_t d_bc_bytes = d_bc_elems * sizeof(fr_t);
+        size_t total_needed = d_a_bytes + d_bc_bytes;
+
+        fprintf(stderr, "CUZK_TIMING: prestage_vram free_mib=%zu usable_mib=%zu "
+                "need_da_mib=%zu need_dbc_mib=%zu total_mib=%zu\n",
+                free_bytes >> 20, usable >> 20,
+                d_a_bytes >> 20, d_bc_bytes >> 20, total_needed >> 20);
+
+        cudaError_t err = cudaSuccess;
+
+        if (usable >= total_needed) {
+            // Enough VRAM: pre-stage d_a + d_bc
+            err = cudaMalloc(&d_a_prestaged, d_a_bytes);
+            if (err == cudaSuccess)
+                err = cudaMalloc(&d_bc_prestaged, d_bc_bytes);
+        } else {
+            // Not enough: skip pre-staging entirely
+            fprintf(stderr, "CUZK_TIMING: prestage_setup=skip_vram\n");
+            err = cudaErrorMemoryAllocation;  // force fallback
+        }
+
+        // Create upload stream and events
+        if (err == cudaSuccess)
+            err = cudaStreamCreateWithFlags(&upload_stream, cudaStreamNonBlocking);
+        if (err == cudaSuccess)
+            err = cudaEventCreateWithFlags(&ev_a, cudaEventDisableTiming);
+        if (err == cudaSuccess)
+            err = cudaEventCreateWithFlags(&ev_b, cudaEventDisableTiming);
+        if (err == cudaSuccess)
+            err = cudaEventCreateWithFlags(&ev_c, cudaEventDisableTiming);
+
+        // Issue async uploads + zero-pad + record events
+        if (err == cudaSuccess) {
+            size_t pad_elems = prestage_domain_size - actual_size;
+            fr_t* d_b = d_bc_prestaged;
+            fr_t* d_c = &d_bc_prestaged[prestage_domain_size * prestage_lot_of_memory];
+
+            err = cudaMemcpyAsync(d_a_prestaged, provers[0].a,
+                                  actual_size * sizeof(fr_t),
+                                  cudaMemcpyHostToDevice, upload_stream);
+            if (err == cudaSuccess && pad_elems > 0)
+                err = cudaMemsetAsync(&d_a_prestaged[actual_size], 0,
+                                      pad_elems * sizeof(fr_t), upload_stream);
+            if (err == cudaSuccess)
+                err = cudaEventRecord(ev_a, upload_stream);
+
+            if (err == cudaSuccess)
+                err = cudaMemcpyAsync(d_b, provers[0].b,
+                                      actual_size * sizeof(fr_t),
+                                      cudaMemcpyHostToDevice, upload_stream);
+            if (err == cudaSuccess && pad_elems > 0)
+                err = cudaMemsetAsync(&d_b[actual_size], 0,
+                                      pad_elems * sizeof(fr_t), upload_stream);
+            if (err == cudaSuccess)
+                err = cudaEventRecord(ev_b, upload_stream);
+
+            if (err == cudaSuccess)
+                err = cudaMemcpyAsync(d_c, provers[0].c,
+                                      actual_size * sizeof(fr_t),
+                                      cudaMemcpyHostToDevice, upload_stream);
+            if (err == cudaSuccess && pad_elems > 0)
+                err = cudaMemsetAsync(&d_c[actual_size], 0,
+                                      pad_elems * sizeof(fr_t), upload_stream);
+            if (err == cudaSuccess)
+                err = cudaEventRecord(ev_c, upload_stream);
+        }
+
+        if (err == cudaSuccess) {
+            prestage_ok = true;
+            fprintf(stderr, "CUZK_TIMING: prestage_setup=ok domain=%zu lot_of_memory=%d\n",
+                    prestage_domain_size, (int)prestage_lot_of_memory);
+        } else {
+            // Cleanup partial state and fall back to original path
+            if (err != cudaErrorMemoryAllocation)
+                fprintf(stderr, "CUZK_TIMING: prestage_setup=fallback err=%d\n", (int)err);
+            if (ev_c) { cudaEventDestroy(ev_c); ev_c = nullptr; }
+            if (ev_b) { cudaEventDestroy(ev_b); ev_b = nullptr; }
+            if (ev_a) { cudaEventDestroy(ev_a); ev_a = nullptr; }
+            if (upload_stream) { cudaStreamDestroy(upload_stream); upload_stream = nullptr; }
+            if (d_bc_prestaged) { cudaFree(d_bc_prestaged); d_bc_prestaged = nullptr; }
+            if (d_a_prestaged) { cudaFree(d_a_prestaged); d_a_prestaged = nullptr; }
+        }
+    }
+
     for (size_t tid = 0; tid < n_gpus; tid++) {
-        per_gpu.emplace_back(std::thread([&, tid, n_gpus](size_t num_circuits)
+        per_gpu.emplace_back(std::thread([&, tid, n_gpus, prestage_ok](size_t num_circuits)
         {
             const gpu_t& gpu = select_gpu(tid);
 
@@ -604,17 +776,46 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
             try {
                 auto t_gpu_start = std::chrono::steady_clock::now();
                 {
-                    size_t d_a_sz = sizeof(fr_t) << (lg2(points_h.size() - 1) + 1);
-                    gpu_ptr_t<fr_t> d_a{(scalar_t*)gpu.Dmalloc(d_a_sz)};
+                    if (prestage_ok) {
+                        // Phase 9: Use pre-staged device buffers — no HtoD inside mutex
+                        gpu_ptr_t<fr_t> d_a{d_a_prestaged};
 
-                    for (size_t c = circuit0; c < circuit0 + num_circuits; c++) {
+                        for (size_t c = circuit0; c < circuit0 + num_circuits; c++) {
 #ifndef __CUDA_ARCH__
-                        ntt_msm_h::execute_ntt_msm_h(gpu, d_a, provers[c],
-                                                     points_h,
-                                                     results.h[c]);
+                            ntt_msm_h::execute_ntt_msm_h_prestaged(
+                                gpu, d_a, d_bc_prestaged,
+                                prestage_lg_domain, prestage_domain_size,
+                                prestage_lot_of_memory,
+                                ev_a, ev_b, ev_c,
+                                points_h, results.h[c]);
 #endif
-                        if (caught_exception)
-                            return;
+                            if (caught_exception)
+                                return;
+                        }
+                        // Phase 9: Free d_bc immediately — NTT phase is done,
+                        // the b/c data was consumed by coeff_wise_mult and
+                        // sub_mult_with_constant. Freeing 8 GiB here is
+                        // critical for VRAM headroom during batch_add + tail MSM.
+                        if (d_bc_prestaged) {
+                            cudaFree(d_bc_prestaged);
+                            d_bc_prestaged = nullptr;
+                        }
+                        // d_a ownership transferred to gpu_ptr_t — freed
+                        // by destructor after H MSM when scope exits below.
+                    } else {
+                        // Original path (fallback or multi-circuit)
+                        size_t d_a_sz = sizeof(fr_t) << (lg2(points_h.size() - 1) + 1);
+                        gpu_ptr_t<fr_t> d_a{(scalar_t*)gpu.Dmalloc(d_a_sz)};
+
+                        for (size_t c = circuit0; c < circuit0 + num_circuits; c++) {
+#ifndef __CUDA_ARCH__
+                            ntt_msm_h::execute_ntt_msm_h(gpu, d_a, provers[c],
+                                                         points_h,
+                                                         results.h[c]);
+#endif
+                            if (caught_exception)
+                                return;
+                        }
                     }
                 }
                 auto t_ntt_h_end = std::chrono::steady_clock::now();
@@ -742,9 +943,27 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
     for (auto& tid : per_gpu)
         tid.join();
 
+    // Phase 9: Free GPU resources BEFORE releasing the mutex, so the next
+    // worker doesn't OOM when trying to pre-stage its own buffers.
+    // d_a was handed to gpu_ptr_t (already freed when per_gpu scope exited).
+    // d_bc, events, and stream must be freed while we still hold the lock.
+    if (prestage_ok) {
+        if (d_bc_prestaged) { cudaFree(d_bc_prestaged); d_bc_prestaged = nullptr; }
+        if (ev_c) { cudaEventDestroy(ev_c); ev_c = nullptr; }
+        if (ev_b) { cudaEventDestroy(ev_b); ev_b = nullptr; }
+        if (ev_a) { cudaEventDestroy(ev_a); ev_a = nullptr; }
+        if (upload_stream) { cudaStreamDestroy(upload_stream); upload_stream = nullptr; }
+    }
+
     // Release GPU lock — another worker can now launch CUDA kernels
     // while we finish b_g2_msm + epilogue on CPU.
     gpu_lock.unlock();
+
+    // Phase 9: Unregister host pages AFTER releasing the lock — this is a
+    // CPU-only operation (munlock syscall) and doesn't need GPU exclusivity.
+    if (host_c_registered) { cudaHostUnregister((void*)provers[0].c); host_c_registered = false; }
+    if (host_b_registered) { cudaHostUnregister((void*)provers[0].b); host_b_registered = false; }
+    if (host_a_registered) { cudaHostUnregister((void*)provers[0].a); host_a_registered = false; }
 
     // Wait for b_g2_msm to complete (CPU only, GPU lock not held)
     prep_msm_thread.join();
