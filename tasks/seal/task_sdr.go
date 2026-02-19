@@ -197,7 +197,6 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
-		Follows:     nil,
 	}
 
 	if IsDevnet {

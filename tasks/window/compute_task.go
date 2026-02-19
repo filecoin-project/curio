@@ -429,7 +429,6 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:           taskhelp.Max(t.max),
 		MaxFailures:   5,
 		TimeSensitive: true,
-		Follows:       nil,
 		Cost: resources.Resources{
 			Cpu: 1,
 
