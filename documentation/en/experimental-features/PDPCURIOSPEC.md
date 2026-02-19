@@ -99,7 +99,7 @@ Curio waits for the `init_ready` flag to be set for a data set table entry.  Thi
 
 Curio has some robustness against failures of `provePossession` and `nextProvingPeriod` calls.  The strategy is to retry with exponential backoff any failures in these "proving clock methods" until a certain threshold of failure is reached.  This threshold is reached after `MaxConsecutiveFailures = 5` retries.  The pdp_data_set table counts successive backoff attempts with the consecutive_prove_failures variable.  When this value is too high and a failure of one of the proving tasks occurs the data set is marked as unrecoverably failed and scheduled for deletion.  
 
-To ensure that this retry behavior is acheived scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
+To ensure that this retry behavior is achieved scheduling of the three tasks under discussion involves checking the associated retry state for data set table entries.  In particular all three tasks ensure that the `unrecoverable_proving_failure_epoch` is unset and the `next_prove_attempt_at` is either NULL or in the past in addition to the other scheduling conditions already discussed.
 
 
 # Dataset Termination
