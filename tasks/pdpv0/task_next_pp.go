@@ -161,6 +161,13 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
+
+	// In case of contract migration update db schema with latest proving schedule
+	err = n.refreshProvingPeriod(ctx, dataSetId, provingSchedule)
+	if err != nil {
+		return false, xerrors.Errorf("failed to refresh proving period: %w", err)
+	}
+
 	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetId))
 	if err != nil {
 		// not my favourite way to handle this but pragmatic
@@ -370,6 +377,20 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context, 
 	}
 
 	return nil
+}
+
+func (n *NextProvingPeriodTask) refreshProvingPeriod(ctx context.Context, dataSetId int64, provingSchedule *contract.IPDPProvingSchedule) error {
+	config, err := provingSchedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return xerrors.Errorf("failed to GetPDPConfig: %w", err)
+	}
+
+	_, err = n.db.Exec(ctx, `UPDATE pdp_data_sets
+								SET proving_period = $1,
+									challenge_window = $2
+								WHERE id = $3
+								  AND (proving_period IS DISTINCT FROM $1 OR challenge_window IS DISTINCT FROM $2)`, config.MaxProvingPeriod, config.ChallengeWindow.Uint64(), dataSetId)
+	return err
 }
 
 func (n *NextProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
