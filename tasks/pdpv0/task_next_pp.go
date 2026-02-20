@@ -379,6 +379,7 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context, 
 	return nil
 }
 
+// Note: this function needs revisiting if we are ever *shrinking* proving period or challenge window values
 func (n *NextProvingPeriodTask) refreshProvingPeriod(ctx context.Context, dataSetId int64, provingSchedule *contract.IPDPProvingSchedule) error {
 	config, err := provingSchedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
 	if err != nil {
