@@ -31,8 +31,9 @@ pub use self::params::*;
 pub use self::proof::*;
 #[cfg(feature = "cuda-supraseal")]
 pub use self::prover::supraseal::{
-    alloc_gpu_mutex, free_gpu_mutex, prove_from_assignments, synthesize_circuits_batch,
-    synthesize_circuits_batch_with_hint, GpuMutexPtr, SendableGpuMutex, SynthesisCapacityHint,
+    alloc_gpu_mutex, finish_pending_proof, free_gpu_mutex, prove_from_assignments, prove_start,
+    synthesize_circuits_batch, synthesize_circuits_batch_with_hint, GpuMutexPtr,
+    PendingProofHandle, SendableGpuMutex, SynthesisCapacityHint,
 };
 #[cfg(feature = "cuda-supraseal")]
 pub use self::prover::ProvingAssignment;

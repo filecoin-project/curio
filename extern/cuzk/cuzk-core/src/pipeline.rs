@@ -33,13 +33,20 @@ use crate::srs_manager::CircuitId;
 
 #[cfg(feature = "cuda-supraseal")]
 use bellperson::groth16::{
-    prove_from_assignments, synthesize_circuits_batch_with_hint, GpuMutexPtr, Proof,
-    ProvingAssignment, SuprasealParameters, SynthesisCapacityHint,
+    finish_pending_proof, prove_from_assignments, prove_start, synthesize_circuits_batch_with_hint,
+    GpuMutexPtr, PendingProofHandle, Proof, ProvingAssignment, SuprasealParameters,
+    SynthesisCapacityHint,
 };
 #[cfg(feature = "cuda-supraseal")]
 use blstrs::{Bls12, Scalar as Fr};
 #[cfg(feature = "cuda-supraseal")]
 use ff::Field;
+
+/// Phase 12: Type alias for the pending GPU proof tuple returned by
+/// `gpu_prove_start`. Contains the pending handle, optional partition index,
+/// and the GPU start instant (for timing).
+#[cfg(feature = "cuda-supraseal")]
+pub type PendingGpuProof = (PendingProofHandle<Bls12>, Option<usize>, Instant);
 
 // ─── Filecoin proving stack (direct circuit construction) ───────────────────
 
@@ -768,6 +775,66 @@ pub fn gpu_prove(
         proof_bytes,
         gpu_duration,
         partition_index: synth.partition_index,
+    })
+}
+
+/// Phase 12: Start GPU proving — returns a pending handle after GPU lock
+/// release. b_g2_msm continues in the background.
+///
+/// The GPU worker gets back ~1.7s faster than `gpu_prove()`.
+#[cfg(feature = "cuda-supraseal")]
+pub fn gpu_prove_start(
+    synth: SynthesizedProof,
+    params: &SuprasealParameters<Bls12>,
+    gpu_mutex: GpuMutexPtr,
+) -> Result<(PendingProofHandle<Bls12>, Option<usize>, Instant)> {
+    let gpu_start = Instant::now();
+    let partition_index = synth.partition_index;
+
+    let pending = prove_start(
+        synth.provers,
+        synth.input_assignments,
+        synth.aux_assignments,
+        params,
+        synth.r_s,
+        synth.s_s,
+        gpu_mutex,
+    )
+    .map_err(|e| anyhow::anyhow!("GPU prove start failed: {:?}", e))?;
+
+    Ok((pending, partition_index, gpu_start))
+}
+
+/// Phase 12: Finalize a pending proof — join b_g2_msm, assemble, serialize.
+#[cfg(feature = "cuda-supraseal")]
+pub fn gpu_prove_finish(
+    pending: PendingProofHandle<Bls12>,
+    partition_index: Option<usize>,
+    gpu_start: Instant,
+) -> Result<GpuProveResult> {
+    let proofs = finish_pending_proof(pending)
+        .map_err(|e| anyhow::anyhow!("GPU prove finish failed: {:?}", e))?;
+
+    let gpu_duration = gpu_start.elapsed();
+
+    let mut proof_bytes = Vec::with_capacity(proofs.len() * GROTH_PROOF_BYTES);
+    for proof in &proofs {
+        proof
+            .write(&mut proof_bytes)
+            .context("failed to serialize groth16 proof")?;
+    }
+
+    info!(
+        proof_count = proofs.len(),
+        proof_bytes = proof_bytes.len(),
+        gpu_ms = gpu_duration.as_millis(),
+        "GPU prove complete (split)"
+    );
+
+    Ok(GpuProveResult {
+        proof_bytes,
+        gpu_duration,
+        partition_index,
     })
 }
 

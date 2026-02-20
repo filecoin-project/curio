@@ -117,6 +117,314 @@ impl JobTracker {
     }
 }
 
+// ─── Phase 12: Result-processing helpers ─────────────────────────────────────
+//
+// Extracted from the GPU worker loop so they can be called from both the
+// inline fallback path (non-supraseal) and the spawned finalizer task
+// (Phase 12 split API).
+
+/// Process a partition GPU result: route proof bytes to the assembler,
+/// deliver the final assembled proof when all partitions are complete.
+pub(crate) fn process_partition_result(
+    t: &mut JobTracker,
+    result: Result<Result<(Vec<u8>, Duration)>, tokio::task::JoinError>,
+    parent_id: &JobId,
+    p_idx: usize,
+    synth_duration: Duration,
+    proof_kind: ProofKind,
+    worker_id: u32,
+    circuit_id_str: &str,
+    _submitted_at: Instant,
+) {
+    match result {
+        Ok(Ok((proof_bytes, gpu_duration))) => {
+            // Check if assembler still exists and isn't failed
+            if let Some(state) = t.assemblers.get_mut(parent_id) {
+                if state.failed {
+                    info!(
+                        job_id = %parent_id,
+                        partition = p_idx,
+                        "discarding GPU result for failed job"
+                    );
+                    #[cfg(target_os = "linux")]
+                    unsafe { libc::malloc_trim(0); }
+                    return;
+                }
+
+                state.assembler.insert(p_idx, proof_bytes);
+                state.total_gpu_duration += gpu_duration;
+                state.total_synth_duration += synth_duration;
+
+                info!(
+                    job_id = %parent_id,
+                    partition = p_idx,
+                    gpu_ms = gpu_duration.as_millis(),
+                    filled = state.assembler.is_complete() as u8,
+                    "partition GPU prove complete"
+                );
+
+                #[cfg(target_os = "linux")]
+                unsafe { libc::malloc_trim(0); }
+
+                if state.assembler.is_complete() {
+                    let state = t.assemblers.remove(parent_id).unwrap();
+                    let final_proof = state.assembler.assemble();
+                    let total_elapsed = state.start_time.elapsed();
+
+                    let mut timings = ProofTimings::default();
+                    timings.synthesis = state.total_synth_duration;
+                    timings.gpu_compute = state.total_gpu_duration;
+                    timings.proving = total_elapsed;
+                    timings.queue_wait = state.request.submitted_at.elapsed().saturating_sub(total_elapsed);
+                    timings.total = state.request.submitted_at.elapsed();
+
+                    info!(
+                        job_id = %parent_id,
+                        proof_len = final_proof.len(),
+                        total_ms = timings.total.as_millis(),
+                        synth_ms = timings.synthesis.as_millis(),
+                        gpu_ms = timings.gpu_compute.as_millis(),
+                        "Phase 7: all partitions complete, proof assembled"
+                    );
+
+                    if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                        w.last_circuit_id = Some(circuit_id_str.to_string());
+                    }
+                    t.record_completion(state.proof_kind, timings.total);
+
+                    let status = JobStatus::Completed(ProofResult {
+                        job_id: parent_id.clone(),
+                        proof_kind: state.proof_kind,
+                        proof_bytes: final_proof,
+                        timings,
+                    });
+                    if let Some(senders) = t.pending.remove(parent_id) {
+                        for sender in senders {
+                            let _ = sender.send(status.clone());
+                        }
+                    }
+                    t.completed.insert(parent_id.clone(), status);
+                }
+            } else {
+                warn!(
+                    job_id = %parent_id,
+                    partition = p_idx,
+                    "assembler not found, discarding partition result"
+                );
+            }
+        }
+        Ok(Err(e)) => {
+            error!(
+                error = %e,
+                job_id = %parent_id,
+                partition = p_idx,
+                "partition GPU proving failed"
+            );
+            if let Some(state) = t.assemblers.get_mut(parent_id) {
+                if !state.failed {
+                    state.failed = true;
+                    t.record_failure(proof_kind);
+                    let status = JobStatus::Failed(
+                        format!("partition {} GPU prove failed: {}", p_idx, e)
+                    );
+                    if let Some(senders) = t.pending.remove(parent_id) {
+                        for sender in senders {
+                            let _ = sender.send(status.clone());
+                        }
+                    }
+                    t.completed.insert(parent_id.clone(), status);
+                }
+            }
+        }
+        Err(e) => {
+            error!(
+                error = %e,
+                job_id = %parent_id,
+                partition = p_idx,
+                "partition GPU proving task panicked"
+            );
+            if let Some(state) = t.assemblers.get_mut(parent_id) {
+                if !state.failed {
+                    state.failed = true;
+                    t.record_failure(proof_kind);
+                    let status = JobStatus::Failed(
+                        format!("partition {} GPU task panicked: {}", p_idx, e)
+                    );
+                    if let Some(senders) = t.pending.remove(parent_id) {
+                        for sender in senders {
+                            let _ = sender.send(status.clone());
+                        }
+                    }
+                    t.completed.insert(parent_id.clone(), status);
+                }
+            }
+        }
+    }
+}
+
+/// Process a monolithic (non-partitioned) GPU result: deliver single or
+/// batched proof results to callers.
+pub(crate) fn process_monolithic_result(
+    t: &mut JobTracker,
+    result: Result<Result<(Vec<u8>, Duration)>, tokio::task::JoinError>,
+    job_id: &JobId,
+    proof_kind: ProofKind,
+    worker_id: u32,
+    circuit_id_str: &str,
+    synth_duration: Duration,
+    submitted_at: Instant,
+    is_batched: bool,
+    batch_requests: &[ProofRequest],
+    sector_boundaries: &[usize],
+) {
+    match result {
+        Ok(Ok((proof_bytes, gpu_duration))) if is_batched => {
+            // Phase 3: Split batched proof output back into per-sector groups
+            match crate::pipeline::split_batched_proofs(&proof_bytes, sector_boundaries) {
+                Ok(per_sector_proofs) => {
+                    info!(
+                        total_proof_bytes = proof_bytes.len(),
+                        num_sectors = per_sector_proofs.len(),
+                        synth_ms = synth_duration.as_millis(),
+                        gpu_ms = gpu_duration.as_millis(),
+                        "batched proof completed — splitting results"
+                    );
+
+                    if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                        w.last_circuit_id = Some(circuit_id_str.to_string());
+                    }
+
+                    for (i, (sector_proof, req)) in per_sector_proofs.into_iter()
+                        .zip(batch_requests.iter())
+                        .enumerate()
+                    {
+                        let mut timings = ProofTimings::default();
+                        timings.synthesis = synth_duration;
+                        timings.gpu_compute = gpu_duration;
+                        timings.proving = synth_duration + gpu_duration;
+                        timings.queue_wait = req.submitted_at.elapsed().saturating_sub(timings.proving);
+                        timings.total = req.submitted_at.elapsed();
+
+                        info!(
+                            sector_idx = i,
+                            job_id = %req.job_id,
+                            proof_len = sector_proof.len(),
+                            total_ms = timings.total.as_millis(),
+                            "sector proof delivered from batch"
+                        );
+
+                        t.record_completion(proof_kind, timings.total);
+
+                        let status = JobStatus::Completed(ProofResult {
+                            job_id: req.job_id.clone(),
+                            proof_kind,
+                            proof_bytes: sector_proof,
+                            timings,
+                        });
+
+                        if let Some(senders) = t.pending.remove(&req.job_id) {
+                            for sender in senders {
+                                let _ = sender.send(status.clone());
+                            }
+                        }
+                        t.completed.insert(req.job_id.clone(), status);
+                    }
+                }
+                Err(e) => {
+                    error!(error = %e, "failed to split batched proofs");
+                    for req in batch_requests {
+                        t.record_failure(proof_kind);
+                        let status = JobStatus::Failed(format!("proof split failed: {}", e));
+                        if let Some(senders) = t.pending.remove(&req.job_id) {
+                            for sender in senders {
+                                let _ = sender.send(status.clone());
+                            }
+                        }
+                        t.completed.insert(req.job_id.clone(), status);
+                    }
+                }
+            }
+        }
+        Ok(Ok((proof_bytes, gpu_duration))) => {
+            // Single-sector proof (Phase 2 path)
+            let mut timings = ProofTimings::default();
+            timings.synthesis = synth_duration;
+            timings.gpu_compute = gpu_duration;
+            timings.proving = synth_duration + gpu_duration;
+            timings.queue_wait = submitted_at.elapsed().saturating_sub(timings.proving);
+            timings.total = submitted_at.elapsed();
+            info!(
+                proof_len = proof_bytes.len(),
+                total_ms = timings.total.as_millis(),
+                queue_ms = timings.queue_wait.as_millis(),
+                synth_ms = timings.synthesis.as_millis(),
+                gpu_ms = timings.gpu_compute.as_millis(),
+                "proof completed successfully (pipeline)"
+            );
+
+            if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                w.last_circuit_id = Some(circuit_id_str.to_string());
+            }
+            t.record_completion(proof_kind, timings.total);
+
+            let status = JobStatus::Completed(ProofResult {
+                job_id: job_id.clone(),
+                proof_kind,
+                proof_bytes,
+                timings,
+            });
+            if let Some(senders) = t.pending.remove(job_id) {
+                for sender in senders {
+                    let _ = sender.send(status.clone());
+                }
+            }
+            t.completed.insert(job_id.clone(), status);
+        }
+        Ok(Err(e)) => {
+            error!(error = %e, "GPU proving failed");
+            let all_requests = if is_batched {
+                batch_requests.to_vec()
+            } else {
+                vec![ProofRequest {
+                    job_id: job_id.clone(),
+                    ..Default::default()
+                }]
+            };
+            for req in &all_requests {
+                t.record_failure(proof_kind);
+                let status = JobStatus::Failed(e.to_string());
+                if let Some(senders) = t.pending.remove(&req.job_id) {
+                    for sender in senders {
+                        let _ = sender.send(status.clone());
+                    }
+                }
+                t.completed.insert(req.job_id.clone(), status);
+            }
+        }
+        Err(e) => {
+            error!(error = %e, "GPU proving task panicked");
+            let all_requests = if is_batched {
+                batch_requests.to_vec()
+            } else {
+                vec![ProofRequest {
+                    job_id: job_id.clone(),
+                    ..Default::default()
+                }]
+            };
+            for req in &all_requests {
+                t.record_failure(proof_kind);
+                let status = JobStatus::Failed(format!("GPU task panicked: {}", e));
+                if let Some(senders) = t.pending.remove(&req.job_id) {
+                    for sender in senders {
+                        let _ = sender.send(status.clone());
+                    }
+                }
+                t.completed.insert(req.job_id.clone(), status);
+            }
+        }
+    }
+}
+
 /// A synthesized proof bundled with its job metadata, ready for GPU proving.
 ///
 /// This is the message type sent through the pipeline channel from the
@@ -1341,40 +1649,132 @@ impl Engine {
                             let gpu_str = gpu_ordinal.to_string();
                             let gpu_job_id = job_id.0.clone();
 
-                            // Run GPU proving on blocking thread
+                            // Phase 12: Split GPU proving — start returns quickly
+                            // after GPU lock release, with b_g2_msm still running.
+                            // Finalization runs in a separate tokio task.
                             #[cfg(feature = "cuda-supraseal")]
-                            let result = {
+                            let start_result = {
                                 let partition_detail = if let Some(pi) = partition_index {
                                     format!("worker={},partition={}", worker_id, pi)
                                 } else {
                                     format!("worker={}", worker_id)
                                 };
                                 timeline_event("GPU_START", &gpu_job_id, &partition_detail);
-                                let gpu_jid = gpu_job_id.clone();
-                                let gpu_wid = worker_id;
-                                let gpu_pi = partition_index;
-                                tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
-                                    std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
-                                    // Phase 8: Reconstruct GPU mutex pointer from address
+                                let gpu_str2 = gpu_str.clone();
+                                tokio::task::spawn_blocking(move || -> Result<(crate::pipeline::PendingGpuProof, String)> {
+                                    std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str2);
                                     let gpu_mtx_ptr = gpu_mutex_addr as *mut std::ffi::c_void;
-                                    let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params, gpu_mtx_ptr)?;
-                                    let detail = if let Some(pi) = gpu_pi {
-                                        format!("worker={},partition={},gpu_ms={}", gpu_wid, pi, gpu_result.gpu_duration.as_millis())
-                                    } else {
-                                        format!("worker={},gpu_ms={}", gpu_wid, gpu_result.gpu_duration.as_millis())
-                                    };
-                                    timeline_event("GPU_END", &gpu_jid, &detail);
-                                    Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
+                                    let pending = crate::pipeline::gpu_prove_start(synth_job.synth, &synth_job.params, gpu_mtx_ptr)?;
+                                    Ok((pending, gpu_str2))
                                 }).await
                             };
 
+                            #[cfg(feature = "cuda-supraseal")]
+                            match start_result {
+                                Ok(Ok(((pending_handle, pending_pi, gpu_start), _gpu_str_ret))) => {
+                                    // Spawn finalizer task — GPU worker loops immediately
+                                    let fin_tracker = tracker.clone();
+                                    let fin_job_id = job_id.clone();
+                                    let fin_parent_job_id = parent_job_id.clone();
+                                    let fin_circuit_id_str = circuit_id_str.clone();
+                                    let fin_batch_requests = batch_requests.clone();
+                                    let fin_sector_boundaries = sector_boundaries.clone();
+                                    let fin_gpu_job_id = gpu_job_id.clone();
+                                    tokio::spawn(async move {
+                                        // Finalize on a blocking thread (joins b_g2_msm)
+                                        let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
+                                            let gpu_result = crate::pipeline::gpu_prove_finish(pending_handle, pending_pi, gpu_start)?;
+                                            let detail = if let Some(pi) = gpu_result.partition_index {
+                                                format!("worker={},partition={},gpu_ms={}", worker_id, pi, gpu_result.gpu_duration.as_millis())
+                                            } else {
+                                                format!("worker={},gpu_ms={}", worker_id, gpu_result.gpu_duration.as_millis())
+                                            };
+                                            timeline_event("GPU_END", &fin_gpu_job_id, &detail);
+                                            Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
+                                        }).await;
+
+                                        // Process result (same logic as before)
+                                        let mut t = fin_tracker.lock().await;
+
+                                        // Clear current job from worker
+                                        if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                            w.current_job = None;
+                                        }
+
+                                        // Alias variables for the result-processing block
+                                        let job_id = fin_job_id;
+                                        let parent_job_id = fin_parent_job_id;
+                                        let circuit_id_str = fin_circuit_id_str;
+                                        let batch_requests = fin_batch_requests;
+                                        let sector_boundaries = fin_sector_boundaries;
+
+                                        // --- Begin result processing (same as monolithic path) ---
+                                        if let Some(ref parent_id) = parent_job_id {
+                                            let p_idx = partition_index.unwrap();
+                                            crate::engine::process_partition_result(
+                                                &mut t, result, parent_id, p_idx,
+                                                synth_duration, proof_kind, worker_id,
+                                                &circuit_id_str, submitted_at,
+                                            );
+                                            return;
+                                        }
+
+                                        crate::engine::process_monolithic_result(
+                                            &mut t, result, &job_id, proof_kind, worker_id,
+                                            &circuit_id_str, synth_duration, submitted_at,
+                                            is_batched, &batch_requests, &sector_boundaries,
+                                        );
+                                    });
+
+                                    // GPU worker continues — don't process result here
+                                    return;
+                                }
+                                Ok(Err(e)) => {
+                                    // gpu_prove_start itself failed (before GPU kernels)
+                                    error!(error = %e, "GPU prove start failed");
+                                    let mut t = tracker.lock().await;
+                                    if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                        w.current_job = None;
+                                    }
+                                    t.record_failure(proof_kind);
+                                    let status = JobStatus::Failed(e.to_string());
+                                    let target_id = parent_job_id.as_ref().unwrap_or(&job_id);
+                                    if let Some(senders) = t.pending.remove(target_id) {
+                                        for sender in senders {
+                                            let _ = sender.send(status.clone());
+                                        }
+                                    }
+                                    t.completed.insert(target_id.clone(), status);
+                                    return;
+                                }
+                                Err(e) => {
+                                    // spawn_blocking panicked
+                                    error!(error = %e, "GPU prove start task panicked");
+                                    let mut t = tracker.lock().await;
+                                    if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                        w.current_job = None;
+                                    }
+                                    t.record_failure(proof_kind);
+                                    let status = JobStatus::Failed(format!("GPU start panicked: {}", e));
+                                    let target_id = parent_job_id.as_ref().unwrap_or(&job_id);
+                                    if let Some(senders) = t.pending.remove(target_id) {
+                                        for sender in senders {
+                                            let _ = sender.send(status.clone());
+                                        }
+                                    }
+                                    t.completed.insert(target_id.clone(), status);
+                                    return;
+                                }
+                            }
+
                             #[cfg(not(feature = "cuda-supraseal"))]
+                            {
                             let result: Result<Result<(Vec<u8>, Duration)>, tokio::task::JoinError> = {
                                 let _ = (gpu_str, synth_job);
                                 Ok(Err(anyhow::anyhow!("GPU proving requires cuda-supraseal feature")))
                             };
 
-                            // Process result and notify callers
+                            // Process result and notify callers (non-supraseal fallback)
                             let mut t = tracker.lock().await;
 
                             // Clear current job from worker
@@ -1385,292 +1785,21 @@ impl Engine {
                             // ── Phase 7: Partition-aware result routing ──────────────
                             if let Some(ref parent_id) = parent_job_id {
                                 let p_idx = partition_index.unwrap();
-                                match result {
-                                    Ok(Ok((proof_bytes, gpu_duration))) => {
-                                        // Check if assembler still exists and isn't failed
-                                        if let Some(state) = t.assemblers.get_mut(parent_id) {
-                                            if state.failed {
-                                                info!(
-                                                    job_id = %parent_id,
-                                                    partition = p_idx,
-                                                    "discarding GPU result for failed job"
-                                                );
-                                                // Release partition memory
-                                                #[cfg(target_os = "linux")]
-                                                unsafe { libc::malloc_trim(0); }
-                                                return;
-                                            }
-
-                                            state.assembler.insert(p_idx, proof_bytes);
-                                            state.total_gpu_duration += gpu_duration;
-                                            state.total_synth_duration += synth_duration;
-
-                                            info!(
-                                                job_id = %parent_id,
-                                                partition = p_idx,
-                                                gpu_ms = gpu_duration.as_millis(),
-                                                filled = state.assembler.is_complete() as u8,
-                                                "partition GPU prove complete"
-                                            );
-
-                                            // Release partition memory back to OS
-                                            #[cfg(target_os = "linux")]
-                                            unsafe { libc::malloc_trim(0); }
-
-                                            if state.assembler.is_complete() {
-                                                // All partitions done — assemble final proof
-                                                let state = t.assemblers.remove(parent_id).unwrap();
-                                                let final_proof = state.assembler.assemble();
-                                                let total_elapsed = state.start_time.elapsed();
-
-                                                let mut timings = ProofTimings::default();
-                                                timings.synthesis = state.total_synth_duration;
-                                                timings.gpu_compute = state.total_gpu_duration;
-                                                timings.proving = total_elapsed;
-                                                timings.queue_wait = state.request.submitted_at.elapsed().saturating_sub(total_elapsed);
-                                                timings.total = state.request.submitted_at.elapsed();
-
-                                                info!(
-                                                    job_id = %parent_id,
-                                                    proof_len = final_proof.len(),
-                                                    total_ms = timings.total.as_millis(),
-                                                    synth_ms = timings.synthesis.as_millis(),
-                                                    gpu_ms = timings.gpu_compute.as_millis(),
-                                                    "Phase 7: all partitions complete, proof assembled"
-                                                );
-
-                                                if let Some(w) = t.workers.get_mut(worker_id as usize) {
-                                                    w.last_circuit_id = Some(circuit_id_str.clone());
-                                                }
-                                                t.record_completion(state.proof_kind, timings.total);
-
-                                                let status = JobStatus::Completed(ProofResult {
-                                                    job_id: parent_id.clone(),
-                                                    proof_kind: state.proof_kind,
-                                                    proof_bytes: final_proof,
-                                                    timings,
-                                                });
-                                                if let Some(senders) = t.pending.remove(parent_id) {
-                                                    for sender in senders {
-                                                        let _ = sender.send(status.clone());
-                                                    }
-                                                }
-                                                t.completed.insert(parent_id.clone(), status);
-                                            }
-                                        } else {
-                                            // Assembler removed (job already completed or failed elsewhere)
-                                            warn!(
-                                                job_id = %parent_id,
-                                                partition = p_idx,
-                                                "assembler not found, discarding partition result"
-                                            );
-                                        }
-                                    }
-                                    Ok(Err(e)) => {
-                                        error!(
-                                            error = %e,
-                                            job_id = %parent_id,
-                                            partition = p_idx,
-                                            "partition GPU proving failed"
-                                        );
-                                        // Mark assembler as failed and notify callers
-                                        if let Some(state) = t.assemblers.get_mut(parent_id) {
-                                            if !state.failed {
-                                                state.failed = true;
-                                                t.record_failure(proof_kind);
-                                                let status = JobStatus::Failed(
-                                                    format!("partition {} GPU prove failed: {}", p_idx, e)
-                                                );
-                                                if let Some(senders) = t.pending.remove(parent_id) {
-                                                    for sender in senders {
-                                                        let _ = sender.send(status.clone());
-                                                    }
-                                                }
-                                                t.completed.insert(parent_id.clone(), status);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            error = %e,
-                                            job_id = %parent_id,
-                                            partition = p_idx,
-                                            "partition GPU proving task panicked"
-                                        );
-                                        if let Some(state) = t.assemblers.get_mut(parent_id) {
-                                            if !state.failed {
-                                                state.failed = true;
-                                                t.record_failure(proof_kind);
-                                                let status = JobStatus::Failed(
-                                                    format!("partition {} GPU task panicked: {}", p_idx, e)
-                                                );
-                                                if let Some(senders) = t.pending.remove(parent_id) {
-                                                    for sender in senders {
-                                                        let _ = sender.send(status.clone());
-                                                    }
-                                                }
-                                                t.completed.insert(parent_id.clone(), status);
-                                            }
-                                        }
-                                    }
-                                }
-                                return; // Partitioned path handled — skip monolithic delivery
+                                process_partition_result(
+                                    &mut t, result, parent_id, p_idx,
+                                    synth_duration, proof_kind, worker_id,
+                                    &circuit_id_str, submitted_at,
+                                );
+                                return;
                             }
 
-                            // ── Monolithic result delivery (existing paths) ─────────
-                            match result {
-                                Ok(Ok((proof_bytes, gpu_duration))) if is_batched => {
-                                    // Phase 3: Split batched proof output back into per-sector groups
-                                    match crate::pipeline::split_batched_proofs(&proof_bytes, &sector_boundaries) {
-                                        Ok(per_sector_proofs) => {
-                                            info!(
-                                                total_proof_bytes = proof_bytes.len(),
-                                                num_sectors = per_sector_proofs.len(),
-                                                synth_ms = synth_duration.as_millis(),
-                                                gpu_ms = gpu_duration.as_millis(),
-                                                "batched proof completed — splitting results"
-                                            );
-
-                                            if let Some(w) = t.workers.get_mut(worker_id as usize) {
-                                                w.last_circuit_id = Some(circuit_id_str.clone());
-                                            }
-
-                                            // Deliver results to each sector's caller
-                                            for (i, (sector_proof, req)) in per_sector_proofs.into_iter()
-                                                .zip(batch_requests.iter())
-                                                .enumerate()
-                                            {
-                                                let mut timings = ProofTimings::default();
-                                                timings.synthesis = synth_duration;
-                                                timings.gpu_compute = gpu_duration;
-                                                timings.proving = synth_duration + gpu_duration;
-                                                timings.queue_wait = req.submitted_at.elapsed().saturating_sub(timings.proving);
-                                                timings.total = req.submitted_at.elapsed();
-
-                                                info!(
-                                                    sector_idx = i,
-                                                    job_id = %req.job_id,
-                                                    proof_len = sector_proof.len(),
-                                                    total_ms = timings.total.as_millis(),
-                                                    "sector proof delivered from batch"
-                                                );
-
-                                                t.record_completion(proof_kind, timings.total);
-
-                                                let status = JobStatus::Completed(ProofResult {
-                                                    job_id: req.job_id.clone(),
-                                                    proof_kind,
-                                                    proof_bytes: sector_proof,
-                                                    timings,
-                                                });
-
-                                                if let Some(senders) = t.pending.remove(&req.job_id) {
-                                                    for sender in senders {
-                                                        let _ = sender.send(status.clone());
-                                                    }
-                                                }
-                                                t.completed.insert(req.job_id.clone(), status);
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!(error = %e, "failed to split batched proofs");
-                                            // Fail all requests in the batch
-                                            for req in &batch_requests {
-                                                t.record_failure(proof_kind);
-                                                let status = JobStatus::Failed(format!("proof split failed: {}", e));
-                                                if let Some(senders) = t.pending.remove(&req.job_id) {
-                                                    for sender in senders {
-                                                        let _ = sender.send(status.clone());
-                                                    }
-                                                }
-                                                t.completed.insert(req.job_id.clone(), status);
-                                            }
-                                        }
-                                    }
-                                }
-                                Ok(Ok((proof_bytes, gpu_duration))) => {
-                                    // Single-sector proof (Phase 2 path)
-                                    let mut timings = ProofTimings::default();
-                                    timings.synthesis = synth_duration;
-                                    timings.gpu_compute = gpu_duration;
-                                    timings.proving = synth_duration + gpu_duration;
-                                    timings.queue_wait = submitted_at.elapsed().saturating_sub(timings.proving);
-                                    timings.total = submitted_at.elapsed();
-                                    info!(
-                                        proof_len = proof_bytes.len(),
-                                        total_ms = timings.total.as_millis(),
-                                        queue_ms = timings.queue_wait.as_millis(),
-                                        synth_ms = timings.synthesis.as_millis(),
-                                        gpu_ms = timings.gpu_compute.as_millis(),
-                                        "proof completed successfully (pipeline)"
-                                    );
-
-                                    if let Some(w) = t.workers.get_mut(worker_id as usize) {
-                                        w.last_circuit_id = Some(circuit_id_str.clone());
-                                    }
-                                    t.record_completion(proof_kind, timings.total);
-
-                                    let status = JobStatus::Completed(ProofResult {
-                                        job_id: job_id.clone(),
-                                        proof_kind,
-                                        proof_bytes,
-                                        timings,
-                                    });
-                                    if let Some(senders) = t.pending.remove(&job_id) {
-                                        for sender in senders {
-                                            let _ = sender.send(status.clone());
-                                        }
-                                    }
-                                    t.completed.insert(job_id.clone(), status);
-                                }
-                                Ok(Err(e)) => {
-                                    error!(error = %e, "GPU proving failed");
-                                    // Fail all requests (batched or single)
-                                    let all_requests = if is_batched {
-                                        batch_requests.clone()
-                                    } else {
-                                        vec![ProofRequest {
-                                            job_id: job_id.clone(),
-                                            ..Default::default()
-                                        }]
-                                    };
-                                    for req in &all_requests {
-                                        t.record_failure(proof_kind);
-                                        let status = JobStatus::Failed(e.to_string());
-                                        if let Some(senders) = t.pending.remove(&req.job_id) {
-                                            for sender in senders {
-                                                let _ = sender.send(status.clone());
-                                            }
-                                        }
-                                        t.completed.insert(req.job_id.clone(), status);
-                                    }
-                                    // For single-sector, also notify via primary job_id
-                                    if !is_batched {
-                                        // Already handled above
-                                    }
-                                }
-                                Err(e) => {
-                                    error!(error = %e, "GPU proving task panicked");
-                                    let all_requests = if is_batched {
-                                        batch_requests.clone()
-                                    } else {
-                                        vec![ProofRequest {
-                                            job_id: job_id.clone(),
-                                            ..Default::default()
-                                        }]
-                                    };
-                                    for req in &all_requests {
-                                        t.record_failure(proof_kind);
-                                        let status = JobStatus::Failed(format!("GPU task panicked: {}", e));
-                                        if let Some(senders) = t.pending.remove(&req.job_id) {
-                                            for sender in senders {
-                                                let _ = sender.send(status.clone());
-                                            }
-                                        }
-                                        t.completed.insert(req.job_id.clone(), status);
-                                    }
-                                }
-                            }
+                            // ── Monolithic result delivery ─────────
+                            process_monolithic_result(
+                                &mut t, result, &job_id, proof_kind, worker_id,
+                                &circuit_id_str, synth_duration, submitted_at,
+                                is_batched, &batch_requests, &sector_boundaries,
+                            );
+                            } // #[cfg(not(feature = "cuda-supraseal"))]
                         }.instrument(span).await;
                     }
                     info!(worker_id = worker_id, "pipeline GPU worker stopped");

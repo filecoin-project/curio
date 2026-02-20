@@ -134,16 +134,203 @@ extern "C" void destroy_gpu_mutex(void* mtx) {
     delete static_cast<std::mutex*>(mtx);
 }
 
+// Phase 12: Pending proof handle for split (async) API.
+// Holds everything needed to finalize a proof after the GPU worker returns.
+// The b_g2_msm thread runs in the background; finalize() joins it and
+// assembles the final proof points.
+struct groth16_pending_proof {
+    std::thread prep_msm_thread;  // b_g2_msm still running
+    msm_results results;
+    batch_add_results batch_add_res;
+    const verifying_key* vk;
+    bool l_split_msm, a_split_msm, b_split_msm;
+    size_t num_circuits;
+    std::vector<fr_t> r_s_owned;  // copy of randomness
+    std::vector<fr_t> s_s_owned;
+    std::atomic<bool> caught_exception;
+    struct timeval tv_func_entry;
+
+    // Owned copy of the Assignment structs. The prep_msm_thread reads
+    // prover fields (inp/aux_assignment_data, density bitmaps) after the
+    // C function returns, so we must keep a stable copy in the handle.
+    // The Assignment struct only contains pointers+sizes — the underlying
+    // Rust data is kept alive by the Rust PendingProofHandle.
+    std::vector<Assignment<fr_t>> provers_owned;
+
+    // Dealloc data — moved here so we can free them in the finalizer
+    split_vectors sv_l, sv_a, sv_b;
+    std::vector<affine_t> tail_l, tail_a, tail_b_g1;
+    std::vector<affine_fp2_t> tail_b_g2;
+
+    groth16_pending_proof(size_t nc)
+        : results(nc), batch_add_res(nc), vk(nullptr),
+          l_split_msm(false), a_split_msm(false), b_split_msm(false),
+          num_circuits(nc), caught_exception(false),
+          sv_l(0, 0), sv_a(0, 0), sv_b(0, 0) {}
+};
+
+// Phase 12: Finalize a pending proof — join b_g2_msm, run epilogue, write proofs.
+extern "C"
+RustError::by_value finalize_groth16_proof_c(void* handle, groth16_proof proofs[]) {
+    auto* pp = static_cast<groth16_pending_proof*>(handle);
+
+    // Wait for b_g2_msm to complete
+    pp->prep_msm_thread.join();
+
+    if (pp->caught_exception.load()) {
+        // Clean up via dealloc thread, same as normal path
+        static std::mutex dealloc_mtx;
+        std::thread([
+            sv_l = std::move(pp->sv_l),
+            sv_a = std::move(pp->sv_a),
+            sv_b = std::move(pp->sv_b),
+            tl = std::move(pp->tail_l),
+            ta = std::move(pp->tail_a),
+            tb = std::move(pp->tail_b_g1),
+            tb2 = std::move(pp->tail_b_g2)
+        ]() mutable {
+            std::lock_guard<std::mutex> lk(dealloc_mtx);
+            { auto tmp = std::move(sv_l); }
+            { auto tmp = std::move(sv_a); }
+            { auto tmp = std::move(sv_b); }
+            { auto tmp = std::move(tl); }
+            { auto tmp = std::move(ta); }
+            { auto tmp = std::move(tb); }
+            { auto tmp = std::move(tb2); }
+        }).detach();
+        delete pp;
+        return RustError{1, "b_g2_msm caught exception"};
+    }
+
+    // Epilogue — assemble final proof points
+    for (size_t circuit = 0; circuit < pp->num_circuits; circuit++) {
+        if (pp->l_split_msm)
+            pp->results.l[circuit].add(pp->batch_add_res.l[circuit]);
+        if (pp->a_split_msm)
+            pp->results.a[circuit].add(pp->batch_add_res.a[circuit]);
+        if (pp->b_split_msm) {
+            pp->results.b_g1[circuit].add(pp->batch_add_res.b_g1[circuit]);
+            pp->results.b_g2[circuit].add(pp->batch_add_res.b_g2[circuit]);
+        }
+
+        fr_t r = pp->r_s_owned[circuit], s = pp->s_s_owned[circuit];
+        fr_t rs = r * s;
+
+        point_t g_a, g_c, a_answer, b1_answer, vk_delta_g1_rs, vk_alpha_g1_s,
+                vk_beta_g1_r;
+        point_fp2_t g_b;
+
+        mult(vk_delta_g1_rs, pp->vk->delta_g1, rs);
+        mult(vk_alpha_g1_s, pp->vk->alpha_g1, s);
+        mult(vk_beta_g1_r, pp->vk->beta_g1, r);
+
+        mult(b1_answer, pp->results.b_g1[circuit], r);
+
+        // A
+        mult(g_a, pp->vk->delta_g1, r);
+        g_a.add(pp->vk->alpha_g1);
+        g_a.add(pp->results.a[circuit]);
+
+        // B
+        mult(g_b, pp->vk->delta_g2, s);
+        g_b.add(pp->vk->beta_g2);
+        g_b.add(pp->results.b_g2[circuit]);
+
+        // C
+        mult(g_c, pp->results.a[circuit], s);
+        g_c.add(b1_answer);
+        g_c.add(vk_delta_g1_rs);
+        g_c.add(vk_alpha_g1_s);
+        g_c.add(vk_beta_g1_r);
+        g_c.add(pp->results.h[circuit]);
+        g_c.add(pp->results.l[circuit]);
+
+        // to affine
+        proofs[circuit].a = g_a;
+        proofs[circuit].b = g_b;
+        proofs[circuit].c = g_c;
+    }
+
+    // Async dealloc of large buffers
+    static std::mutex dealloc_mtx;
+    std::thread([
+        sv_l = std::move(pp->sv_l),
+        sv_a = std::move(pp->sv_a),
+        sv_b = std::move(pp->sv_b),
+        tl = std::move(pp->tail_l),
+        ta = std::move(pp->tail_a),
+        tb = std::move(pp->tail_b_g1),
+        tb2 = std::move(pp->tail_b_g2)
+    ]() mutable {
+        std::lock_guard<std::mutex> lk(dealloc_mtx);
+        struct timeval tv_start, tv_end;
+        gettimeofday(&tv_start, NULL);
+        { auto tmp = std::move(sv_l); }
+        { auto tmp = std::move(sv_a); }
+        { auto tmp = std::move(sv_b); }
+        { auto tmp = std::move(tl); }
+        { auto tmp = std::move(ta); }
+        { auto tmp = std::move(tb); }
+        { auto tmp = std::move(tb2); }
+        gettimeofday(&tv_end, NULL);
+        long destr_ms = (tv_end.tv_sec - tv_start.tv_sec) * 1000
+                      + (tv_end.tv_usec - tv_start.tv_usec) / 1000;
+        fprintf(stderr, "CUZK_TIMING: async_dealloc_ms=%ld\n", destr_ms);
+    }).detach();
+
+    delete pp;
+    return RustError{cudaSuccess};
+}
+
+// Phase 12: Destroy a pending proof handle without finalizing (cleanup on error).
+extern "C"
+void destroy_pending_proof(void* handle) {
+    auto* pp = static_cast<groth16_pending_proof*>(handle);
+    if (pp->prep_msm_thread.joinable())
+        pp->prep_msm_thread.join();
+    delete pp;
+}
+
 // Phase 11 Intervention 3: Declared in Rust (cuzk-pce/src/eval.rs).
 // Sets the memory-bandwidth throttle flag checked by synthesis SpMV threads.
 extern "C" void set_membw_throttle(int value);
 
+// Phase 12: Async entry point — returns a pending proof handle instead of
+// blocking on b_g2_msm + epilogue. The GPU worker can loop immediately.
+// Call finalize_groth16_proof_c(handle, proofs) later to complete.
+extern "C"
+RustError::by_value generate_groth16_proofs_start_c(
+    const Assignment<fr_t> provers[],
+    size_t num_circuits,
+    const fr_t r_s[], const fr_t s_s[],
+    SRS& srs, std::mutex* gpu_mtx,
+    void** pending_out);
+
+// Main sync entry point — delegates to the core with pending_out=nullptr.
 extern "C"
 RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                                               size_t num_circuits,
                                               const fr_t r_s[], const fr_t s_s[],
                                               groth16_proof proofs[], SRS& srs,
                                               std::mutex* gpu_mtx)
+{
+    // Sync path: run everything including b_g2_msm + epilogue.
+    // We call start then finish inline.
+    void* pending = nullptr;
+    auto err = generate_groth16_proofs_start_c(provers, num_circuits, r_s, s_s,
+                                               srs, gpu_mtx, &pending);
+    if (err.code != 0)
+        return err;
+    return finalize_groth16_proof_c(pending, proofs);
+}
+
+extern "C"
+RustError::by_value generate_groth16_proofs_start_c(
+    const Assignment<fr_t> provers[],
+    size_t num_circuits,
+    const fr_t r_s[], const fr_t s_s[],
+    SRS& srs, std::mutex* gpu_mtx,
+    void** pending_out)
 {
     // Phase 8: The caller passes a per-GPU mutex pointer. The lock is acquired
     // at a narrow scope around the CUDA kernel region only (see below), allowing
@@ -181,15 +368,33 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         assert(p.b_inp_bit_len == p.inp_assignment_size);
     }
 
-    bool l_split_msm = true, a_split_msm = true,
-         b_split_msm = true;
+    // Phase 12: Allocate the pending proof handle early and construct
+    // all shared state directly in it, so threads can reference the
+    // handle's fields by address (stable, heap-allocated).
+    auto* pp = new groth16_pending_proof(num_circuits);
+    pp->vk = vk;
+    pp->tv_func_entry = tv_func_entry;
+
+    // Copy the Assignment structs into the handle so the prep_msm_thread
+    // and post-unlock code can safely read them after this function returns.
+    // Assignment is a trivial POD (pointers+sizes) — the underlying Rust
+    // data is kept alive by PendingProofHandle on the Rust side.
+    pp->provers_owned.assign(provers, provers + num_circuits);
+
+    // Split MSM flags — set during prep_msm, read by GPU threads + epilogue.
+    pp->l_split_msm = true;
+    pp->a_split_msm = true;
+    pp->b_split_msm = true;
+    bool& l_split_msm = pp->l_split_msm;
+    bool& a_split_msm = pp->a_split_msm;
+    bool& b_split_msm = pp->b_split_msm;
     size_t l_popcount = 0, a_popcount = 0, b_popcount = 0;
 
     struct timeval tv_split_start, tv_split_end;
     gettimeofday(&tv_split_start, NULL);
-    split_vectors split_vectors_l{num_circuits, points_l.size()};
-    split_vectors split_vectors_a{num_circuits, points_a.size()};
-    split_vectors split_vectors_b{num_circuits, points_b_g1.size()};
+    pp->sv_l = split_vectors{num_circuits, points_l.size()};
+    pp->sv_a = split_vectors{num_circuits, points_a.size()};
+    pp->sv_b = split_vectors{num_circuits, points_b_g1.size()};
     gettimeofday(&tv_split_end, NULL);
     {
         long split_ms = (tv_split_end.tv_sec - tv_split_start.tv_sec) * 1000
@@ -200,16 +405,25 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                 split_ms, setup_ms);
     }
 
-    std::vector<affine_t> tail_msm_l_bases,
-                          tail_msm_a_bases,
-                          tail_msm_b_g1_bases;
-    std::vector<affine_fp2_t> tail_msm_b_g2_bases;
-
-    msm_results results{num_circuits};
+    // Aliases for readability — these point into the heap-allocated handle.
+    // All threads capture these references; the handle outlives all threads.
+    auto& split_vectors_l = pp->sv_l;
+    auto& split_vectors_a = pp->sv_a;
+    auto& split_vectors_b = pp->sv_b;
+    auto& tail_msm_l_bases = pp->tail_l;
+    auto& tail_msm_a_bases = pp->tail_a;
+    auto& tail_msm_b_g1_bases = pp->tail_b_g1;
+    auto& tail_msm_b_g2_bases = pp->tail_b_g2;
+    auto& results = pp->results;
 
     semaphore_t barrier;
-    std::atomic<bool> caught_exception{false};
+    auto& caught_exception = pp->caught_exception;
     size_t n_gpus = std::min(ngpus(), num_circuits);
+
+    // Alias for the heap-owned provers copy. The prep_msm_thread captures
+    // this reference (which resolves to pp->provers_owned, heap-allocated)
+    // instead of the function parameter (which is on the stack).
+    auto& provers_safe = pp->provers_owned;
 
     std::thread prep_msm_thread([&, num_circuits]
     {
@@ -217,7 +431,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         // pre-processing step
         // mark inp and significant scalars in aux assignments
         get_groth16_pool().par_map(num_circuits, [&](size_t c) {
-            auto& prover = provers[c];
+            auto& prover = provers_safe[c];
             auto& l_bit_vector = split_vectors_l.bit_vector[c];
             auto& a_bit_vector = split_vectors_a.bit_vector[c];
             auto& b_bit_vector = split_vectors_b.bit_vector[c];
@@ -365,7 +579,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
 
         // populate bitmaps for batch additions, bases and scalars for tail msms
         get_groth16_pool().par_map(num_circuits, [&](size_t c) {
-            auto& prover = provers[c];
+            auto& prover = provers_safe[c];
             auto& l_bit_vector = split_vectors_l.bit_vector[c];
             auto& a_bit_vector = split_vectors_a.bit_vector[c];
             auto& b_bit_vector = split_vectors_b.bit_vector[c];
@@ -570,17 +784,19 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
             get_groth16_pool().par_map(num_circuits, [&](size_t c) {
                 if (caught_exception)
                     return;
+                const affine_fp2_t* bg2_bases = b_split_msm
+                    ? tail_msm_b_g2_bases.data() : points_b_g2.data();
                 mult_pippenger<bucket_fp2_t>(results.b_g2[c],
-                    b_split_msm ? tail_msm_b_g2_bases.data() :
-                                  points_b_g2.data(),
+                    bg2_bases,
                     split_vectors_b.tail_msm_scalars[c].size(),
                     split_vectors_b.tail_msm_scalars[c].data(),
                     true, nullptr);  // nullptr = single-threaded per circuit
                 });
         } else {
+            const affine_fp2_t* bg2_bases = b_split_msm
+                ? tail_msm_b_g2_bases.data() : points_b_g2.data();
             mult_pippenger<bucket_fp2_t>(results.b_g2[0],
-                b_split_msm ? tail_msm_b_g2_bases.data() :
-                              points_b_g2.data(),
+                bg2_bases,
                 split_vectors_b.tail_msm_scalars[0].size(),
                 split_vectors_b.tail_msm_scalars[0].data(),
                 true, &get_groth16_pool());  // single circuit: use full thread pool
@@ -593,7 +809,7 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
         fprintf(stderr, "CUZK_TIMING: b_g2_msm_ms=%ld num_circuits=%zu\n", bg2_ms, num_circuits);
     });
 
-    batch_add_results batch_add_res{num_circuits};
+    auto& batch_add_res = pp->batch_add_res;
     std::vector<std::thread> per_gpu;
     RustError ret{cudaSuccess};
 
@@ -978,112 +1194,16 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
     if (host_b_registered) { cudaHostUnregister((void*)provers[0].b); host_b_registered = false; }
     if (host_a_registered) { cudaHostUnregister((void*)provers[0].a); host_a_registered = false; }
 
-    // Wait for b_g2_msm to complete (CPU only, GPU lock not held)
-    prep_msm_thread.join();
+    // Phase 12: All data is already in the handle (results, batch_add_res,
+    // split_vectors, tail_msm_bases are aliases to pp->fields).
+    // Just store the thread and copy randomness.
+    pp->prep_msm_thread = std::move(prep_msm_thread);
 
-    if (caught_exception)
-        return ret;
+    // Copy randomness — the caller's r_s/s_s may be freed before finalize
+    pp->r_s_owned.assign(r_s, r_s + num_circuits);
+    pp->s_s_owned.assign(s_s, s_s + num_circuits);
 
-    struct timeval tv_epilogue_start, tv_epilogue_end;
-    gettimeofday(&tv_epilogue_start, NULL);
-
-    for (size_t circuit = 0; circuit < num_circuits; circuit++) {
-        if (l_split_msm)
-            results.l[circuit].add(batch_add_res.l[circuit]);
-        if (a_split_msm)
-            results.a[circuit].add(batch_add_res.a[circuit]);
-        if (b_split_msm) {
-            results.b_g1[circuit].add(batch_add_res.b_g1[circuit]);
-            results.b_g2[circuit].add(batch_add_res.b_g2[circuit]);
-        }
-
-        fr_t r = r_s[circuit], s = s_s[circuit];
-        fr_t rs = r * s;
-        // we want the scalars to be in Montomery form when passing them to
-        // "mult" routine
-
-        point_t g_a, g_c, a_answer, b1_answer, vk_delta_g1_rs, vk_alpha_g1_s,
-                vk_beta_g1_r;
-        point_fp2_t g_b;
-
-        mult(vk_delta_g1_rs, vk->delta_g1, rs);
-        mult(vk_alpha_g1_s, vk->alpha_g1, s);
-        mult(vk_beta_g1_r, vk->beta_g1, r);
-
-        mult(b1_answer, results.b_g1[circuit], r);
-
-        // A
-        mult(g_a, vk->delta_g1, r);
-        g_a.add(vk->alpha_g1);
-        g_a.add(results.a[circuit]);
-
-        // B
-        mult(g_b, vk->delta_g2, s);
-        g_b.add(vk->beta_g2);
-        g_b.add(results.b_g2[circuit]);
-
-        // C
-        mult(g_c, results.a[circuit], s);
-        g_c.add(b1_answer);
-        g_c.add(vk_delta_g1_rs);
-        g_c.add(vk_alpha_g1_s);
-        g_c.add(vk_beta_g1_r);
-        g_c.add(results.h[circuit]);
-        g_c.add(results.l[circuit]);
-
-        // to affine
-        proofs[circuit].a = g_a;
-        proofs[circuit].b = g_b;
-        proofs[circuit].c = g_c;
-    }
-
-    gettimeofday(&tv_epilogue_end, NULL);
-    {
-        long epilogue_ms = (tv_epilogue_end.tv_sec - tv_epilogue_start.tv_sec) * 1000
-                         + (tv_epilogue_end.tv_usec - tv_epilogue_start.tv_usec) / 1000;
-        long pre_destr_ms = (tv_epilogue_end.tv_sec - tv_func_entry.tv_sec) * 1000
-                          + (tv_epilogue_end.tv_usec - tv_func_entry.tv_usec) / 1000;
-        fprintf(stderr, "CUZK_TIMING: epilogue_ms=%ld pre_destructor_ms=%ld\n",
-                epilogue_ms, pre_destr_ms);
-    }
-
-    // Move large allocations (~37 GB total: split_vectors contain per-circuit
-    // bit_vectors and tail_msm_scalars; tail_msm_*_bases hold copied affine
-    // points) into a detached thread so destructors don't block the caller.
-    // Freeing them synchronously takes ~10 seconds due to munmap() overhead.
-    //
-    // Phase 11 Intervention 1: Serialize dealloc threads to prevent concurrent
-    // munmap() TLB shootdown storms. At most 1 C++ dealloc thread active at a
-    // time. The mutex is static so it persists across calls. Waiting on the
-    // mutex just delays memory reclamation — the caller already has its proof.
-    static std::mutex dealloc_mtx;
-
-    std::thread([
-        sv_l = std::move(split_vectors_l),
-        sv_a = std::move(split_vectors_a),
-        sv_b = std::move(split_vectors_b),
-        tl = std::move(tail_msm_l_bases),
-        ta = std::move(tail_msm_a_bases),
-        tb = std::move(tail_msm_b_g1_bases),
-        tb2 = std::move(tail_msm_b_g2_bases)
-    ]() mutable {
-        std::lock_guard<std::mutex> lk(dealloc_mtx);
-        struct timeval tv_start, tv_end;
-        gettimeofday(&tv_start, NULL);
-        // Explicit deallocation — captures are destroyed when lambda exits
-        // but we want to time the actual free() calls.
-        { auto tmp = std::move(sv_l); }
-        { auto tmp = std::move(sv_a); }
-        { auto tmp = std::move(sv_b); }
-        { auto tmp = std::move(tl); }
-        { auto tmp = std::move(ta); }
-        { auto tmp = std::move(tb); }
-        { auto tmp = std::move(tb2); }
-        gettimeofday(&tv_end, NULL);
-        long destr_ms = (tv_end.tv_sec - tv_start.tv_sec) * 1000
-                      + (tv_end.tv_usec - tv_start.tv_usec) / 1000;
-        fprintf(stderr, "CUZK_TIMING: async_dealloc_ms=%ld\n", destr_ms);
-    }).detach();
+    *pending_out = static_cast<void*>(pp);
 
     return ret;
 }

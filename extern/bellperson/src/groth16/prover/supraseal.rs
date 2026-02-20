@@ -130,18 +130,147 @@ where
     Ok(proofs)
 }
 
-/// Capacity hints for pre-sizing ProvingAssignment vectors during synthesis.
+// Phase 12: Pending proof handle — holds the C++ handle and all Rust-side
+// data that must stay alive until finalization.
+pub struct PendingProofHandle<E: MultiMillerLoop> {
+    /// Opaque C++ pending proof handle
+    handle: *mut std::ffi::c_void,
+    /// Number of circuits (proofs) in this batch
+    num_circuits: usize,
+    /// Rust-side data kept alive until finalize (async dealloc after)
+    provers: Vec<ProvingAssignment<E::Fr>>,
+    input_assignments: Vec<Arc<Vec<E::Fr>>>,
+    aux_assignments: Vec<Arc<Vec<E::Fr>>>,
+    r_s: Vec<E::Fr>,
+    s_s: Vec<E::Fr>,
+}
+
+// Safety: The C++ handle is thread-safe (it owns its data and the
+// b_g2_msm thread). The Rust data is moved exclusively into the handle.
+unsafe impl<E: MultiMillerLoop> Send for PendingProofHandle<E> {}
+
+impl<E: MultiMillerLoop> Drop for PendingProofHandle<E> {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            unsafe { supraseal_c2::drop_pending_proof(self.handle) };
+            self.handle = std::ptr::null_mut();
+        }
+    }
+}
+
+/// Phase 12: Start GPU proving — returns after GPU lock release with
+/// b_g2_msm still running in the background.
 ///
-/// Providing accurate hints eliminates ~27 reallocation cycles per vector
-/// and avoids ~32 GiB of redundant memory copies for 32 GiB PoRep C2.
-#[derive(Clone, Copy, Debug)]
-pub struct SynthesisCapacityHint {
-    /// Expected number of R1CS constraints (e.g., ~130M for 32G PoRep).
-    pub num_constraints: usize,
-    /// Expected number of auxiliary (witness) variables.
-    pub num_aux: usize,
-    /// Expected number of input (public) variables.
-    pub num_inputs: usize,
+/// The GPU worker can immediately loop back for the next job.
+/// Call `finish_pending_proof` to join b_g2_msm and get final proofs.
+#[allow(clippy::type_complexity)]
+pub fn prove_start<E, P: ParameterSource<E>>(
+    provers: Vec<ProvingAssignment<E::Fr>>,
+    input_assignments: Vec<Arc<Vec<E::Fr>>>,
+    aux_assignments: Vec<Arc<Vec<E::Fr>>>,
+    params: P,
+    r_s: Vec<E::Fr>,
+    s_s: Vec<E::Fr>,
+    gpu_mtx: GpuMutexPtr,
+) -> Result<PendingProofHandle<E>, SynthesisError>
+where
+    E: MultiMillerLoop,
+    E::Fr: GpuName,
+    E::G1Affine: GpuName,
+    E::G2Affine: GpuName,
+{
+    let input_assignment_len = input_assignments[0].len();
+    let aux_assignment_len = aux_assignments[0].len();
+    let a_aux_density_total = provers[0].a_aux_density.get_total_density();
+    let b_input_density_total = provers[0].b_input_density.get_total_density();
+    let b_aux_density_total = provers[0].b_aux_density.get_total_density();
+    let num_circuits = provers.len();
+
+    let mut input_assignments_ref: Vec<_> = input_assignments.iter().map(|v| v.as_ptr()).collect();
+    let mut aux_assignments_ref: Vec<_> = aux_assignments.iter().map(|v| v.as_ptr()).collect();
+    let a_ref: Vec<_> = provers.iter().map(|p| p.a.as_ptr()).collect();
+    let b_ref: Vec<_> = provers.iter().map(|p| p.b.as_ptr()).collect();
+    let c_ref: Vec<_> = provers.iter().map(|p| p.c.as_ptr()).collect();
+
+    let srs = params.get_supraseal_srs().ok_or_else(|| {
+        log::error!("SupraSeal SRS wasn't allocated correctly");
+        SynthesisError::MalformedSrs
+    })?;
+
+    let handle = supraseal_c2::start_groth16_proof(
+        a_ref.as_slice(),
+        b_ref.as_slice(),
+        c_ref.as_slice(),
+        provers[0].a.len(),
+        input_assignments_ref.as_mut_slice(),
+        aux_assignments_ref.as_mut_slice(),
+        input_assignment_len,
+        aux_assignment_len,
+        provers[0].a_aux_density.bv.as_raw_slice(),
+        provers[0].b_input_density.bv.as_raw_slice(),
+        provers[0].b_aux_density.bv.as_raw_slice(),
+        a_aux_density_total,
+        b_input_density_total,
+        b_aux_density_total,
+        num_circuits,
+        r_s.as_slice(),
+        s_s.as_slice(),
+        srs,
+        gpu_mtx,
+    );
+
+    Ok(PendingProofHandle {
+        handle,
+        num_circuits,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+    })
+}
+
+/// Phase 12: Finalize a pending proof — join b_g2_msm, run epilogue.
+///
+/// Returns the completed proofs. Consumes the pending handle.
+pub fn finish_pending_proof<E>(
+    mut pending: PendingProofHandle<E>,
+) -> Result<Vec<Proof<E>>, SynthesisError>
+where
+    E: MultiMillerLoop,
+    E::Fr: GpuName,
+    E::G1Affine: GpuName,
+    E::G2Affine: GpuName,
+{
+    let mut proofs: Vec<Proof<E>> = Vec::with_capacity(pending.num_circuits);
+    #[allow(clippy::uninit_vec)]
+    unsafe {
+        proofs.set_len(pending.num_circuits);
+    }
+
+    supraseal_c2::finish_groth16_proof(pending.handle, proofs.as_mut_slice());
+
+    // Mark handle as consumed so Drop doesn't call destroy_pending_proof
+    pending.handle = std::ptr::null_mut();
+
+    // Async dealloc of Rust-side synthesis data
+    static DEALLOC_MTX: Mutex<()> = Mutex::new(());
+    let provers = std::mem::take(&mut pending.provers);
+    let input_assignments = std::mem::take(&mut pending.input_assignments);
+    let aux_assignments = std::mem::take(&mut pending.aux_assignments);
+    let r_s = std::mem::take(&mut pending.r_s);
+    let s_s = std::mem::take(&mut pending.s_s);
+
+    std::thread::spawn(move || {
+        let _guard = DEALLOC_MTX.lock().unwrap();
+        drop(provers);
+        drop(input_assignments);
+        drop(aux_assignments);
+        drop(r_s);
+        drop(s_s);
+    });
+
+    Ok(proofs)
 }
 
 #[allow(clippy::type_complexity)]
@@ -272,6 +401,18 @@ pub type GpuMutexPtr = *mut std::ffi::c_void;
 pub struct SendableGpuMutex(pub GpuMutexPtr);
 unsafe impl Send for SendableGpuMutex {}
 unsafe impl Sync for SendableGpuMutex {}
+
+/// Pre-sizing hints for circuit synthesis (Phase 5/6 PCE).
+///
+/// When available, these let `synthesize_circuits_batch_with_hint`
+/// pre-allocate ProvingAssignment vectors to the exact size needed,
+/// eliminating re-allocation during constraint generation.
+#[derive(Debug, Clone, Copy)]
+pub struct SynthesisCapacityHint {
+    pub num_constraints: usize,
+    pub num_aux: usize,
+    pub num_inputs: usize,
+}
 
 /// Allocate a C++ `std::mutex` on the heap. Returns an opaque pointer
 /// for passing as `gpu_mtx` to proving functions.
