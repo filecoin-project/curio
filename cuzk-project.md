@@ -1217,6 +1217,133 @@ from ~1.1 GiB to ~192 MB. b_g2_msm slows from 0.5s to 1.7s but runs outside the 
 lock so this doesn't affect GPU throughput. Intervention 3 (membw_throttle) shows no
 additional benefit because Int2 already reduced L3 contention sufficiently.
 
+### Phase 12: Split (Async) GPU Proving API
+
+**"Decouple b_g2_msm from the GPU worker loop — let the GPU pick up the next partition ~1.7s faster."**
+
+**Commits:** `99c31c2c` (split API), `98a52b33` (memory backpressure)
+
+Phase 12 splits the monolithic `generate_groth16_proofs_c()` call into two halves:
+`generate_groth16_proofs_start_c()` (GPU kernels only) and `finalize_groth16_proof_c()`
+(b_g2_msm + proof assembly). This allows the GPU worker to release the GPU lock ~1.7s
+earlier per partition (the time spent in b_g2_msm), immediately picking up the next
+synthesized partition while b_g2_msm runs on CPU in a spawned finalizer task.
+
+**Pipeline diagram:**
+
+```
+Before (Phase 11):
+  GPU Worker: [══ CUDA ══][b_g2_msm][══ CUDA ══][b_g2_msm]
+  GPU:        [████████████][idle 1.7s][████████████][idle 1.7s]
+
+After (Phase 12):
+  GPU Worker: [══ CUDA ══][══ CUDA ══][══ CUDA ══]
+  Finalizer:        [b_g2_msm]  [b_g2_msm]  [b_g2_msm]
+  GPU:        [████████████][████████████][████████████]
+```
+
+#### Part 1: Split API Implementation (`99c31c2c`)
+
+**C++ changes (`groth16_cuda.cu`):**
+
+- New `groth16_pending_proof` struct: heap-allocated handle containing `provers_owned`
+  (copied `Assignment<fr_t>` array), `sv_l/a/b` scratch vectors, `tail_*` MSM data,
+  `results`, `batch_add_res`, `r_s_owned/s_s_owned`, and `caught_exception` flag.
+- `generate_groth16_proofs_start_c()`: main entry point. Allocates `pp` early, copies
+  provers to `pp->provers_owned` (heap), creates `provers_safe` alias for the
+  `prep_msm_thread`. Runs all GPU kernels (NTT, MSM, batch_add, tail_msm), then releases
+  the GPU lock. Returns the pending handle while `prep_msm_thread` continues on CPU.
+- `finalize_groth16_proof_c()`: joins `prep_msm_thread`, runs the proof epilogue
+  (point additions, proof assembly), triggers async dealloc.
+- `destroy_pending_proof()`: cleanup if finalize is never called (error path).
+
+**Critical bug found and fixed — use-after-free:**
+
+The C++ `prep_msm_thread` captured `provers` (a function parameter pointer on the stack)
+by reference via `[&, num_circuits]`. After `generate_groth16_proofs_start_c()` returns,
+that stack variable is gone — dangling reference. Fixed by copying the `Assignment<fr_t>`
+array into `pp->provers_owned` (heap-allocated in the pending proof struct) and using a
+`provers_safe` pointer alias inside the thread closure.
+
+**Rust FFI (`supraseal-c2/src/lib.rs`):**
+
+- `start_groth16_proof()`: calls C++ start, returns opaque `*mut c_void` handle.
+- `finish_groth16_proof()`: calls C++ finalize, returns proof results.
+- `drop_pending_proof()`: calls C++ destroy (error path cleanup).
+
+**Bellperson (`prover/supraseal.rs`):**
+
+- `PendingProofHandle<E>`: holds C++ handle + Rust dealloc data (assignment vectors).
+- `prove_start()`: calls C++ start, then **immediately clears `prover.a/b/c`** to empty
+  Vecs (early free of ~12 GiB per partition), drops `r_s`/`s_s`.
+- `finish_pending_proof()`: joins b_g2_msm via C++ finalize, async dealloc with
+  `DEALLOC_MTX`, logs via `log::debug!`.
+
+**Engine (`engine.rs`):**
+
+- GPU worker loop restructured: calls `gpu_prove_start()` via `spawn_blocking`, then
+  spawns a finalizer task for `gpu_prove_finish()`. GPU worker immediately loops to pick
+  up next partition.
+- `PendingGpuProof` type alias for the opaque handle flowing between start and finish.
+
+#### Part 2: Memory Backpressure (`98a52b33`)
+
+With the split API enabling higher throughput, more partitions pile up in the pipeline.
+At pw=12 j=15, up to 28 synthesized `ProvingAssignment` sets accumulated in the channel
+(~448 GiB), causing OOM. Three fixes:
+
+**1. Early a/b/c free:**
+
+After `prove_start()` returns, the GPU is done with `prover.a/b/c` (NTT evaluation
+vectors, ~12 GiB per partition). These are cleared to empty Vecs immediately, saving
+~12 GiB per pending partition. The `prep_msm_thread` only needs density bitvecs +
+`inp/aux_assignment_data`.
+
+**2. Channel capacity auto-scaling:**
+
+The `synth_tx`/`synth_rx` channel capacity is auto-scaled to
+`max(synthesis_lookahead, partition_workers)` when in partition mode. This allows
+completed syntheses to drain into the channel buffer without blocking.
+
+**3. Partition permit held through send:**
+
+The partition semaphore permit is now held until AFTER `synth_tx.send()` succeeds.
+With channel capacity = pw, sends are non-blocking (channel always has room), so this
+adds zero latency but bounds total in-flight synthesis outputs to exactly
+`partition_workers`.
+
+**Buffer flight counters:**
+
+Atomic counters (`PROVERS_IN_FLIGHT`, `AUX_IN_FLIGHT`, `SYNTH_IN_FLIGHT`,
+`PROVERS_SHELL_IN_FLIGHT`, `PENDING_HANDLES`) track memory at each pipeline stage.
+Output via `tracing::debug`. Note: `buf_dealloc_done()` is never called from bellperson
+(cross-crate boundary) so `AUX_IN_FLIGHT` counter only goes up — this is a known
+counter bug, not a memory bug.
+
+#### Memory Budget Analysis (755 GiB total)
+
+| Component | Size | Notes |
+|---|---|---|
+| SRS + PCE + runtime baseline | ~70 GiB | Fixed per process |
+| Per partition synthesis output | ~16 GiB | 12 GiB a/b/c + 4 GiB aux |
+| Per partition after prove_start | ~4 GiB | a/b/c freed, only aux + density remain |
+
+#### Phase 12 Benchmark Results (20 proofs, j=20, gw=2, gt=32)
+
+| pw | s/proof | Peak RSS | Notes |
+|----|---------|----------|-------|
+| 10 | 38.5 | 321 GiB | Down from 367 GiB pre-fix |
+| **12** | **37.7** | **400 GiB** | **Was OOM at 668 GiB — fixed!** |
+| 14 | 37.8 | 457 GiB | Similar throughput, more memory |
+| 16 | 38.4 | 510 GiB | Slower — DDR5 bandwidth pressure |
+
+**Optimal config:** gw=2, pw=12, gpu_threads=32 → **37.7s/proof**.
+
+The improvement over Phase 11 (36.7s at pw=10) is modest in throughput but the real
+win is memory efficiency: pw=12 now works within 400 GiB (was OOM at 668 GiB before
+the backpressure fixes), and the split API architecture enables future optimizations
+that overlap more CPU work with GPU execution.
+
 ### Summary Timeline
 
 ```
@@ -1232,6 +1359,7 @@ Week 22-23: Phase 8 — Dual-worker GPU interlock
 Week 23-24: Phase 9 — PCIe transfer optimization
 Week 24:    Phase 10 — Two-lock GPU interlock (explored, abandoned — VRAM too small)
 Week 24-25: Phase 11 — Memory-bandwidth-aware pipeline scheduling
+Week 25-26: Phase 12 — Split (async) GPU proving API + memory backpressure
 ```
 
 ### Stopping Points & Cumulative Impact
@@ -1247,11 +1375,23 @@ Week 24-25: Phase 11 — Memory-bandwidth-aware pipeline scheduling
 | **Phase 9** | **2.8x baseline** | **32.1s (gw=1)** | ~430 GiB | Pinned DMA + deferred Pippenger sync, 71% NTT speedup |
 | *Phase 10* | *abandoned* | *—* | *—* | *Two-lock GPU interlock: 16 GB VRAM too small, CUDA APIs device-global* |
 | **Phase 11** | **2.9x baseline** | **36.7s (gw=2, gt=32)** | ~430 GiB | Dealloc serialization + pool sizing (3.4% over Phase 9) |
+| **Phase 12** | **2.8x baseline** | **37.7s (pw=12, gw=2, gt=32)** | 400 GiB | Split async GPU API, early a/b/c free, memory backpressure (pw=12 feasible, was OOM) |
 
 *Phase 8 with optimal pw=10 achieves 37.4s/proof steady-state throughput, which exactly
 matches the serial CUDA kernel time (10 partitions × 3.75s = 37.5s). The system is fully
 GPU-bound — all CPU overhead (synthesis, preprocessing, b_g2_msm) is hidden behind GPU
 compute. Further improvement requires faster CUDA kernels or a second GPU.*
+
+*Phase 12 trades ~1s/proof throughput (37.7 vs 36.7) for significantly better memory
+efficiency: pw=12 now fits within 400 GiB (was OOM at 668 GiB pre-fix). The split API
+decouples b_g2_msm from the GPU lock, enabling the GPU to pick up the next partition
+~1.7s faster. The main throughput benefit is architectural — future optimizations can
+overlap more CPU work with GPU execution without blocking the GPU worker loop.*
+
+*Low-memory sweep (5 proofs, j=5): Memory scales linearly as ~69 + pw×20 GiB. A 128 GiB
+system runs at pw=2 gw=1 (110 GiB peak, 152s/proof). A 256 GiB system runs at pw=7 gw=1
+(208 GiB peak, 53s/proof). gw=2 adds no benefit below pw=10 — the GPU is synthesis-starved
+and the second worker has nothing to do. At pw>=10, gw=2 provides ~6% throughput gain.*
 
 *Phase 7→8 improvement: 13-17% depending on concurrency (50.7→44.0s at pw=20 j=3;
 59.8→49.5s at pw=20 j=2).*
@@ -1609,6 +1749,107 @@ current CUDA kernels. Further improvement requires:
 2. A second GPU (linear scaling expected)
 3. Smaller proof circuits (protocol-level change)
 
+### Phase 12: Split API + Memory Backpressure
+
+**Commits:** `99c31c2c` (split API), `98a52b33` (memory backpressure)
+
+Phase 12 decouples b_g2_msm from the GPU worker loop via an async split API, and
+fixes memory backpressure to enable higher partition worker counts without OOM.
+
+#### Memory Backpressure Fix
+
+Before Phase 12, pw=12 at j=15 caused OOM (668 GiB peak RSS) because up to 28
+synthesized `ProvingAssignment` sets piled up in the channel. The partition semaphore
+released after synthesis completed but BEFORE `synth_tx.send()` was accepted, allowing
+unlimited synthesis outputs to accumulate.
+
+Three fixes applied:
+1. **Early a/b/c free:** Clear `prover.a/b/c` after `prove_start()` returns (~12 GiB/partition saved)
+2. **Channel capacity auto-scaling:** `max(synthesis_lookahead, partition_workers)`
+3. **Permit held through send:** Partition semaphore held until after channel send succeeds
+
+#### Partition Workers Sweep (20 proofs, j=20, gw=2, gt=32)
+
+| pw | s/proof | Peak RSS | Notes |
+|----|---------|----------|-------|
+| 10 | 38.5 | 321 GiB | Down from 367 GiB pre-fix |
+| **12** | **37.7** | **400 GiB** | **Best throughput. Was OOM at 668 GiB — fixed!** |
+| 14 | 37.8 | 457 GiB | Similar throughput, more memory |
+| 16 | 38.4 | 510 GiB | Slower — DDR5 bandwidth pressure |
+
+**Optimal config:** gw=2, pw=12, gpu_threads=32 → **37.7s/proof**.
+
+#### Memory Per-Partition Analysis (755 GiB machine)
+
+| Pipeline stage | Per-partition memory | Notes |
+|---|---|---|
+| After synthesis (a/b/c + aux) | ~16 GiB | 12 GiB a/b/c + 4 GiB aux |
+| After prove_start (a/b/c freed) | ~4 GiB | Only aux + density bitvecs remain |
+| Pending finalize | ~4 GiB | Held by finalizer task until dealloc |
+
+With pw=12 and early a/b/c free, peak in-flight memory is bounded:
+- 12 partitions × 16 GiB (synthesis) = 192 GiB worst case
+- In practice ~140 GiB (some already freed by prove_start)
+- Plus ~70 GiB baseline (SRS + PCE + runtime) = ~400 GiB total (measured)
+
+#### Low-Memory Configuration Sweep (5 proofs, j=5, gt=32)
+
+Systematic benchmark across partition worker counts and GPU worker counts to determine
+minimum RAM requirements for different machine classes.
+
+| pw | gw | Throughput (s/proof) | Avg Prove (s) | Peak RSS (GiB) | Notes |
+|----|----|--------------------|--------------|----------------|-------|
+| 1 | 1 | ~290 | 33.2 | **104** | Serial synthesis, GPU starved |
+| 2 | 1 | 152.0 | 33.7 | **110** | Still heavily synthesis-bound |
+| 5 | 1 | 68.4 | 34.0 | **170** | Good balance for 256 GiB systems |
+| 5 | 2 | 68.6 | 58.2 | **170** | gw=2 no benefit at low pw |
+| 7 | 1 | 53.3 | 34.0 | **208** | Sweet spot for 256-384 GiB |
+| 7 | 2 | 51.2 | 59.2 | **204** | gw=2 marginal 4% gain |
+| 10 | 1 | 45.4 | 39.5 | **310** | Starting to saturate DDR5 BW |
+| 10 | 2 | 42.5 | 68.1 | **271** | gw=2 helps 6% throughput |
+| 12 | 2 | 42.5 | 69.8 | **373** | Reference (best throughput) |
+
+**Memory scaling formula:**
+
+Baseline (idle) is 69 GiB (SRS 44 GiB + PCE 25.7 GiB). Each active partition worker
+adds ~16-20 GiB peak RSS during synthesis. Approximate formula:
+
+```
+Peak RSS ≈ 69 + (pw × 20) GiB
+```
+
+Validation: pw=5 → 69+100=169 (measured 170), pw=7 → 69+140=209 (measured 208),
+pw=10 → 69+200=269 (measured 271-310 depending on gw and concurrency).
+
+**Key findings:**
+
+1. **gw=2 adds no memory at low pw.** At pw=5 and pw=7, gw=1 and gw=2 produce
+   identical peak RSS (~170 and ~204 GiB respectively). The second GPU worker doesn't
+   hold extra partitions because the channel is already drained by the time the worker
+   loops back.
+
+2. **gw=2 adds no throughput at pw<=5.** The GPU is starved for work — synthesis
+   can't produce partitions fast enough to keep two workers busy. The dual worker
+   interlock only helps when pw>=10 and synthesis can keep the channel saturated.
+
+3. **gw=1 has lower prove times.** With a single GPU worker, there's no CPU contention
+   from the second worker's preprocessing. Avg prove drops from 58-69s (gw=2) to
+   32-40s (gw=1). But gw=2 still wins on throughput at pw>=10 because it eliminates
+   GPU idle gaps between partitions.
+
+**RAM tier recommendations:**
+
+| System RAM | Recommended Config | Throughput | Peak RSS | Headroom |
+|---|---|---|---|---|
+| **128 GiB** | pw=2, gw=1 | 152s/proof | 110 GiB | 18 GiB |
+| **256 GiB** | pw=7, gw=1 | 53.3s/proof | 208 GiB | 48 GiB |
+| **384 GiB** | pw=10, gw=2 | 42.5s/proof | 271 GiB | 113 GiB |
+| **512 GiB** | pw=12, gw=2 | 42.5s/proof | 373 GiB | 139 GiB |
+| **768 GiB** | pw=12, gw=2 | 37.7s/proof* | 400 GiB | 368 GiB |
+
+*Higher throughput at 768 GiB is from running j=20 (20 queued proofs), which keeps the
+pipeline more saturated. At j=5, pw=12 and pw=10 deliver identical 42.5s/proof.
+
 ---
 
 ## 15. Open Questions
@@ -1689,8 +1930,8 @@ cuzk links against the same Filecoin proving stack as Curio:
 
 | File | Purpose |
 |---|---|
-| `extern/supraseal-c2/src/lib.rs` | Rust FFI: `SRS`, `Assignment`, `generate_groth16_proof[s]`, `create_gpu_mutex`/`free_gpu_mutex` (Phase 8) |
-| `extern/supraseal-c2/cuda/groth16_cuda.cu` | C++ entry: `generate_groth16_proofs_c()`, `create_gpu_mutex()`/`destroy_gpu_mutex()` (Phase 8) |
+| `extern/supraseal-c2/src/lib.rs` | Rust FFI: `SRS`, `Assignment`, `generate_groth16_proof[s]`, `create_gpu_mutex`/`free_gpu_mutex` (Phase 8), `start_groth16_proof`/`finish_groth16_proof`/`drop_pending_proof` (Phase 12) |
+| `extern/supraseal-c2/cuda/groth16_cuda.cu` | C++ entry: `generate_groth16_proofs_c()`, `generate_groth16_proofs_start_c()`/`finalize_groth16_proof_c()`/`destroy_pending_proof()` (Phase 12), `groth16_pending_proof` struct, `create_gpu_mutex()`/`destroy_gpu_mutex()` (Phase 8) |
 | `extern/supraseal-c2/cuda/groth16_srs.cuh:62` | `max_num_circuits = 10` (must bump for batching) |
 | `extern/supraseal-c2/cuda/groth16_srs.cuh:450-462` | `create_SRS` C FFI with LRU cache |
 
@@ -1699,17 +1940,17 @@ cuzk links against the same Filecoin proving stack as Curio:
 | File | Purpose |
 |---|---|
 | `extern/bellperson/src/groth16/prover/mod.rs` | Conditional: native vs supraseal prover |
-| `extern/bellperson/src/groth16/prover/supraseal.rs` | Supraseal prover: `prove_from_assignments()` with `GpuMutexPtr`, `SendableGpuMutex` (Phase 8) |
+| `extern/bellperson/src/groth16/prover/supraseal.rs` | Supraseal prover: `prove_from_assignments()` (Phase 8), `PendingProofHandle<E>`, `prove_start()`, `finish_pending_proof()`, `SynthesisCapacityHint` (Phase 12) |
 | `extern/bellperson/src/groth16/supraseal_params.rs` | `SuprasealParameters` wrapping `SRS` |
-| `extern/bellperson/src/groth16/mod.rs` | Re-exports `alloc_gpu_mutex`, `free_gpu_mutex`, `GpuMutexPtr`, `SendableGpuMutex` (Phase 8) |
+| `extern/bellperson/src/groth16/mod.rs` | Re-exports: `GpuMutexPtr`, `SendableGpuMutex` (Phase 8), `PendingProofHandle` (Phase 12) |
 
 ### cuzk Engine
 
 | File | Purpose |
 |---|---|
-| `extern/cuzk/cuzk-core/src/engine.rs` | Main engine: partition workers, GPU worker pool, per-GPU C++ mutexes (Phase 8) |
-| `extern/cuzk/cuzk-core/src/config.rs` | All config structs: `partition_workers`, `gpu_workers_per_device`, `synthesis_concurrency` |
-| `extern/cuzk/cuzk-core/src/pipeline.rs` | `gpu_prove()` with `GpuMutexPtr`, PCE synthesis, partition synthesis |
+| `extern/cuzk/cuzk-core/src/engine.rs` | Main engine: partition workers, GPU worker pool, per-GPU C++ mutexes (Phase 8), channel capacity auto-scaling, permit-through-send (Phase 12) |
+| `extern/cuzk/cuzk-core/src/config.rs` | All config structs: `partition_workers`, `gpu_workers_per_device`, `synthesis_concurrency`, `gpu_threads` |
+| `extern/cuzk/cuzk-core/src/pipeline.rs` | `gpu_prove_start()`/`gpu_prove_finish()`, `PendingGpuProof` type alias, buffer flight counters (Phase 12), PCE synthesis, partition synthesis |
 | `extern/cuzk/cuzk-daemon/src/main.rs` | Daemon binary: thread pool config, rayon init |
 | `extern/cuzk/cuzk-bench/src/main.rs` | Bench CLI: `batch -t porep --c1 ... -c 5 -j 3` |
 | `extern/cuzk/cuzk.example.toml` | Documented config with ASCII art timeline diagrams |

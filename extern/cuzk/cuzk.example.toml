@@ -38,15 +38,17 @@ devices = []
 # CPU threads for the GPU-side work (b_g2_msm, preprocessing).
 # 0 = auto-detect (all CPUs).
 #
-# When using parallel synthesis (synthesis_concurrency > 1), this pool
-# contends with synthesis for CPU time. Partitioning threads helps:
+# With partition-level pipelining (partition_workers > 0), synthesis workers
+# and b_g2_msm compete for DDR5 bandwidth and L3 cache. Reducing the pool
+# from all-cores to 32 threads cuts b_g2_msm's bucket RAM from ~1.1 GiB to
+# ~192 MB, dramatically reducing L3 cache interference with synthesis.
 #
-# Example for 96-core machine with synthesis_concurrency=2:
-#   gpu_threads = 32       → GPU gets 32 cores for b_g2_msm
-#   [synthesis] threads = 64 → synthesis gets 64 cores (shared by 2 tasks)
+# b_g2_msm slows from ~0.5s to ~1.7s but runs outside the GPU lock (Phase 12
+# split API), so this does NOT affect GPU throughput.
 #
-# This prevents the ~25s b_g2_msm from inflating to 33s+ due to contention.
-gpu_threads = 0
+# Recommended: 32 for machines with partition_workers >= 10.
+# Use 0 (auto) only for low-concurrency or single-proof workloads.
+gpu_threads = 32
 
 # Number of GPU worker tasks per physical GPU (Phase 8: dual-worker interlock).
 #
@@ -60,8 +62,10 @@ gpu_threads = 0
 #   Worker B:           [CPU prep──][══ CUDA ══][b_g2+epilogue][CPU prep]
 #   GPU:                [████ A ████][████ B ████][████ A ████][████ B ██]
 #
-#   1 = single worker (Phase 7 behavior)
-#   2 = dual-worker interlock (recommended)
+#   1 = single worker — use on low-memory systems (pw <= 7) where the GPU
+#       is already synthesis-starved. Adds no memory overhead.
+#   2 = dual-worker interlock — recommended when pw >= 10 and synthesis can
+#       keep the GPU channel saturated. ~6% throughput gain over gw=1 at pw=10.
 #   3+ = diminishing returns (CPU ~1.3s < CUDA ~2.1s, so 2 workers suffice)
 gpu_workers_per_device = 2
 
@@ -126,13 +130,26 @@ threads = 0
 # uses num_circuits=1, making b_g2_msm 0.4s instead of 25s (62x speedup
 # on this step alone).
 #
-# Recommended based on available RAM:
-#   754 GiB → 20 workers (~430 GiB peak, 235 GiB headroom)
-#   512 GiB → 15 workers (~332 GiB peak)
-#   256 GiB → 5 workers (~100 GiB peak, GPU will idle between sectors)
+# Memory formula: Peak RSS ≈ 69 + (pw × 20) GiB
+#   (69 GiB baseline = SRS 44 GiB + PCE 26 GiB)
+#
+# Recommended configs by system RAM (measured, gt=32):
+#
+#   RAM       pw   gw   Peak RSS   Throughput    Notes
+#   -------   --   --   --------   ----------    -----
+#   128 GiB    2    1    110 GiB   152 s/proof   Minimum viable
+#   256 GiB    7    1    208 GiB    53 s/proof   Best value
+#   384 GiB   10    2    271 GiB    43 s/proof   Near-optimal
+#   512 GiB   12    2    373 GiB    43 s/proof   Same throughput, more headroom
+#   768 GiB   12    2    400 GiB    38 s/proof   Full pipeline (j=20)
+#
+# At pw <= 7, gw=2 adds no benefit — set gw=1 instead.
+# At pw >= 10, gw=2 gives ~6% throughput gain.
+# pw > 12 uses more RAM with no throughput gain.
+# pw > 16 regresses due to DDR5 bandwidth saturation.
 #
 # 0 = disabled — falls back to batch-all or Phase 6 slotted pipeline.
-partition_workers = 20
+partition_workers = 12
 
 [pipeline]
 # Enable pipelined synthesis → GPU proving (Phase 2).
