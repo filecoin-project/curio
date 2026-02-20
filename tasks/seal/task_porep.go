@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -36,11 +37,13 @@ type PoRepTask struct {
 	sc          *ffi.SealCalls
 	paramsReady func() (bool, error)
 
+	cuzkClient *cuzk.Client
+
 	max                int
 	enableRemoteProofs bool
 }
 
-func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int) *PoRepTask {
+func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int, cuzkClient *cuzk.Client) *PoRepTask {
 	return &PoRepTask{
 		db:                 db,
 		api:                api,
@@ -49,6 +52,7 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 		paramsReady:        paramck,
 		max:                maxPoRep,
 		enableRemoteProofs: enableRemoteProofs,
+		cuzkClient:         cuzkClient,
 	}
 }
 
@@ -118,17 +122,13 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// COMPUTE THE PROOF!
 
-	proof, err := p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+	var proof []byte
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		proof, err = p.sc.PoRepSnarkCuzk(ctx, p.cuzkClient, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+	} else {
+		proof, err = p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+	}
 	if err != nil {
-		//end, rerr := p.recoverErrors(ctx, sectorParams.SpID, sectorParams.SectorNumber, err)
-		//if rerr != nil {
-		//	return false, xerrors.Errorf("recover errors: %w", rerr)
-		//}
-		//if end {
-		//	// done, but the error handling has stored a different than success state
-		//	return true, nil
-		//}
-
 		return false, xerrors.Errorf("failed to compute seal proof: %w", err)
 	}
 
@@ -160,6 +160,23 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 		return []harmonytask.TaskID{}, nil
 	}
 
+	// When cuzk is enabled, delegate capacity checks to the daemon instead of local params
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		capacity, err := p.cuzkClient.HasCapacity(context.Background(), cuzk.ProofKind_POREP_SEAL_COMMIT)
+		if err != nil {
+			log.Warnw("PoRepTask.CanAccept() cuzk capacity check failed, rejecting", "error", err)
+			return []harmonytask.TaskID{}, nil
+		}
+		if capacity == 0 {
+			log.Debugw("PoRepTask.CanAccept() cuzk pipeline full, backpressuring")
+			return []harmonytask.TaskID{}, nil
+		}
+		if capacity < len(ids) {
+			return ids[:capacity], nil
+		}
+		return ids, nil
+	}
+
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
@@ -177,6 +194,13 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
 	mem := uint64(128 << 30) // for GPU sealing. 160 for CPU sealing, which we pretend nobody uses.
 	if IsDevnet {
+		gpu = 0
+		mem = 1 << 30
+	}
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		// When cuzk handles SNARK computation, the local node only needs to
+		// generate vanilla proofs (CPU-only) and submit via gRPC.
+		// GPU and large RAM are not needed locally.
 		gpu = 0
 		mem = 1 << 30
 	}

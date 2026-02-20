@@ -59,3 +59,4 @@
   * [Snark Market](experimental-features/Snark-Market.md)
   * [Market 2.0 API](experimental-features/market-2.0-api.md)
   * [Wallet Exporter](experimental-features/Wallet-Exporter.md)
+  * [cuzk Proving Daemon](experimental-features/cuzk-proving-daemon.md)

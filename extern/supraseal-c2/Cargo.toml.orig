@@ -1,0 +1,25 @@
+[package]
+name = "supraseal-c2"
+version = "0.1.2"
+edition = "2021"
+license = "Apache-2.0"
+description = "CUDA Groth16 proof generator for Filecoin"
+repository = "https://github.com/supranational/supra_seal"
+
+[dependencies]
+blst = "^0.3.11"
+sppark = { version = "^0.1.13", features = ["cuda"] }
+
+[features]
+default = []
+# Compile in portable mode, without ISA extensions.
+# Binary can be executed on all systems.
+portable = [ "blst/portable" ]
+# Enable ADX even if the host CPU doesn't support it.
+# Binary can be executed on Broadwell+ and Ryzen+ systems.
+force-adx = [ "blst/force-adx" ]
+quiet = []
+
+[build-dependencies]
+cc = { version = "^1.0.70", features = ["parallel"] }
+sppark = { version = "^0.1.13", features = ["build"] }

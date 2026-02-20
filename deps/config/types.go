@@ -126,6 +126,10 @@ func DefaultCurioConfig() *CurioConfig {
 				},
 			},
 		},
+		Cuzk: CuzkConfig{
+			MaxPending:   10,
+			ProveTimeout: 30 * time.Minute,
+		},
 		HTTP: HTTPConfig{
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
@@ -188,6 +192,11 @@ type CurioConfig struct {
 
 	// Batching represents the batching configuration for pre-commit, commit, and update operations.
 	Batching CurioBatchingConfig
+
+	// Cuzk configures integration with the cuzk proving daemon.
+	// When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+	// to an external cuzk daemon over gRPC instead of using local GPU resources.
+	Cuzk CuzkConfig
 }
 
 type BatchFeeConfig struct {
@@ -531,6 +540,29 @@ type CurioProvingConfig struct {
 	// WARNING: Setting this value too high risks missing PoSt deadline in case IO operations related to this partition are
 	// blocked or slow. Time duration string (e.g., "1h2m3s") in TOML format.  (Default: "20m0s")
 	PartitionCheckTimeout time.Duration
+}
+
+// CuzkConfig configures integration with an external cuzk proving daemon.
+// The cuzk daemon is a persistent GPU-resident SNARK proving engine that keeps SRS parameters
+// loaded in memory across proofs, eliminating the 30-90s SRS loading overhead per proof.
+// When enabled, Curio delegates SNARK computations to cuzk over gRPC and uses pipeline
+// backpressure (via GetStatus) instead of local GPU/RAM resource accounting.
+type CuzkConfig struct {
+	// Address of the cuzk daemon gRPC endpoint.
+	// Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+	// Empty string disables cuzk integration. (Default: "")
+	Address string
+
+	// MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+	// before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+	// queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+	// (Default: 10)
+	MaxPending int
+
+	// ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+	// If the proof is not completed within this duration, the task will be retried.
+	// Time duration string (e.g., "30m", "1h"). (Default: "30m")
+	ProveTimeout time.Duration
 }
 
 type CurioIngestConfig struct {

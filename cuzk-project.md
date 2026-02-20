@@ -1360,6 +1360,7 @@ Week 23-24: Phase 9 — PCIe transfer optimization
 Week 24:    Phase 10 — Two-lock GPU interlock (explored, abandoned — VRAM too small)
 Week 24-25: Phase 11 — Memory-bandwidth-aware pipeline scheduling
 Week 25-26: Phase 12 — Split (async) GPU proving API + memory backpressure
+Week 26-27: Phase 13 — Curio task scheduler integration (Go-side gRPC client)
 ```
 
 ### Stopping Points & Cumulative Impact
@@ -1376,6 +1377,7 @@ Week 25-26: Phase 12 — Split (async) GPU proving API + memory backpressure
 | *Phase 10* | *abandoned* | *—* | *—* | *Two-lock GPU interlock: 16 GB VRAM too small, CUDA APIs device-global* |
 | **Phase 11** | **2.9x baseline** | **36.7s (gw=2, gt=32)** | ~430 GiB | Dealloc serialization + pool sizing (3.4% over Phase 9) |
 | **Phase 12** | **2.8x baseline** | **37.7s (pw=12, gw=2, gt=32)** | 400 GiB | Split async GPU API, early a/b/c free, memory backpressure (pw=12 feasible, was OOM) |
+| **Phase 13** | — | — | — | Curio integration: gRPC client, backpressure via GetStatus, PoRep/Snap/PSProve wired |
 
 *Phase 8 with optimal pw=10 achieves 37.4s/proof steady-state throughput, which exactly
 matches the serial CUDA kernel time (10 partitions × 3.75s = 37.5s). The system is fully
@@ -1850,6 +1852,68 @@ pw=10 → 69+200=269 (measured 271-310 depending on gw and concurrency).
 *Higher throughput at 768 GiB is from running j=20 (20 queued proofs), which keeps the
 pipeline more saturated. At j=5, pw=12 and pw=10 deliver identical 42.5s/proof.
 
+### Phase 13: Curio Task Scheduler Integration
+
+Phase 13 wires the cuzk daemon into Curio's Go-side task scheduler. This is pure Go
+code — no Rust changes. Curio becomes a gRPC client of the cuzk daemon.
+
+#### Design Principles
+
+1. **cuzk stays independent** — not embedded in Curio. Connected via gRPC (unix socket or TCP).
+2. **No local GPU/RAM accounting** — when cuzk is enabled, `TypeDetails()` zeroes out GPU and
+   large RAM requirements. The scheduler no longer gates on local GPU availability.
+3. **Backpressure via GetStatus** — `CanAccept()` queries the cuzk daemon's pending queue count
+   and limits accepted tasks based on `MaxPending` config.
+4. **Vanilla proofs stay local** — `Do()` generates vanilla proofs locally (needs sector data on
+   disk), then sends them to cuzk for SNARK computation, then verifies the returned proof locally.
+
+#### Task Integration
+
+Three task types are wired:
+
+| Task | File | Constructor | Proof Kind |
+|---|---|---|---|
+| PoRep C2 | `tasks/seal/task_porep.go` | `NewPoRepTask(..., cuzkClient)` | `POREP_SEAL_COMMIT` |
+| SnapDeals Prove | `tasks/snap/task_prove.go` | `NewProveTask(..., cuzkClient)` | `SNAP_DEALS_UPDATE` |
+| PSProve | `tasks/proofshare/task_prove.go` | `NewTaskProvideSnark(..., cuzkClient)` | Both (dispatch by request type) |
+
+#### Files Created
+
+| File | Purpose |
+|---|---|
+| `lib/cuzk/proving.pb.go` | Generated protobuf Go types from `proving.proto` |
+| `lib/cuzk/proving_grpc.pb.go` | Generated gRPC client/server stubs |
+| `lib/cuzk/client.go` | `Client` wrapper: `NewClient`, `Prove`, `GetStatus`, `HasCapacity`, `Close`, `Enabled` |
+| `lib/ffi/cuzk_funcs.go` | `SealCalls` methods: `PoRepSnarkCuzk` (vanilla→cuzk→verify), `ProveUpdateCuzk` |
+
+#### Files Modified
+
+| File | Change |
+|---|---|
+| `deps/config/types.go` | Added `CuzkConfig` struct (Address, MaxPending, ProveTimeout), added `Cuzk` field to `CurioConfig` |
+| `tasks/seal/task_porep.go` | Added `cuzkClient` field, branch in `Do()`, backpressure in `CanAccept()`, zero GPU in `TypeDetails()` |
+| `tasks/snap/task_prove.go` | Same pattern as PoRep |
+| `tasks/proofshare/task_prove.go` | Same pattern; threaded `cuzkClient` through `computeProof`→`computePoRep`/`computeSnap` |
+| `cmd/curio/tasks/tasks.go` | Creates `cuzk.Client` from config, passes to all three constructors |
+
+#### Configuration
+
+```toml
+[Cuzk]
+  # gRPC endpoint — empty disables cuzk
+  Address = "unix:///run/curio/cuzk.sock"
+  # or TCP: Address = "127.0.0.1:9820"
+
+  # Max pending proofs before backpressure kicks in
+  MaxPending = 10
+
+  # Timeout for a single Prove RPC call
+  ProveTimeout = "30m"
+```
+
+When `Address` is empty (default), all three tasks behave exactly as before — local
+GPU proving via ffiselect. No behavioral change for existing deployments.
+
 ---
 
 ## 15. Open Questions
@@ -1917,6 +1981,17 @@ cuzk links against the same Filecoin proving stack as Curio:
 | `tasks/snap/task_prove.go:138-156` | SnapDeals proving |
 | `tasks/proofshare/task_prove.go:203-221` | Remote proof service (PoRep + Snap) |
 | `cmd/curio/main.go:208-229` | `fetch-params` CLI command |
+
+### Curio (Go) — Phase 13 (cuzk integration)
+
+| File | Purpose |
+|---|---|
+| `lib/cuzk/client.go` | gRPC client wrapper: NewClient, Prove, GetStatus, HasCapacity, Close, Enabled |
+| `lib/cuzk/proving.pb.go` | Generated protobuf Go types |
+| `lib/cuzk/proving_grpc.pb.go` | Generated gRPC client/server stubs |
+| `lib/ffi/cuzk_funcs.go` | SealCalls methods: PoRepSnarkCuzk, ProveUpdateCuzk |
+| `deps/config/types.go` | CuzkConfig struct (Address, MaxPending, ProveTimeout) |
+| `cmd/curio/tasks/tasks.go` | cuzk.Client creation + wiring to task constructors |
 
 ### FFI Layer (Rust/CGO)
 

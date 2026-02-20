@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
@@ -391,6 +392,14 @@ func addSealingTasks(
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
 	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
 	var activeTasks []harmonytask.TaskInterface
+
+	// Initialize cuzk client if configured
+	var cuzkClient *cuzk.Client
+	if cfg.Cuzk.Address != "" {
+		cuzkClient = cuzk.NewClient(cfg.Cuzk.Address, cfg.Cuzk.MaxPending, cfg.Cuzk.ProveTimeout)
+		log.Infow("cuzk proving daemon enabled", "addr", cfg.Cuzk.Address, "maxPending", cfg.Cuzk.MaxPending, "proveTimeout", cfg.Cuzk.ProveTimeout)
+	}
+
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
@@ -454,7 +463,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, precommitTask)
 	}
 	if cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableRemoteProofs {
-		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks)
+		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, porepTask)
 	}
 	if cfg.Subsystems.EnableMoveStorage {
@@ -495,7 +504,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, scrubCommRTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
-		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
@@ -505,7 +514,7 @@ func addSealingTasks(
 
 	if cfg.Subsystems.EnableProofShare {
 		requestProofsTask := proofshare.NewTaskRequestProofs(db, full, asyncParams())
-		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
+		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks, cuzkClient)
 		submitTask := proofshare.NewTaskSubmit(db, full)
 		autosettleTask := proofshare.NewTaskAutosettle(db, full, sender)
 		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask, autosettleTask)

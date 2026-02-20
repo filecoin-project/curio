@@ -17,3 +17,7 @@ Current experimental features are listed below.
 {% content-ref url="gpu-over-provisioning.md" %}
 [gpu-over-provisioning.md](gpu-over-provisioning.md)
 {% endcontent-ref %}
+
+{% content-ref url="cuzk-proving-daemon.md" %}
+[cuzk-proving-daemon.md](cuzk-proving-daemon.md)
+{% endcontent-ref %}
