@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/xerrors"
 )
@@ -196,6 +197,27 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			Source:   schedulerSourcePeerStarted,
 			PeerID:   them.id,
 		}
+	case messageTypePreemptCost:
+		if len(parts[2]) < 16 {
+			return xerrors.Errorf("preempt cost message too short from peer %s", peerAddr)
+		}
+		peerCost := time.Duration(binary.BigEndian.Uint64(parts[2][8:16]))
+		resp := preemptCostResponse{PeerID: them.id, Cost: peerCost}
+
+		p.h.preemptCostMu.Lock()
+		ch := p.h.preemptCostChs[taskID]
+		if ch != nil {
+			select {
+			case ch <- resp:
+			default:
+			}
+		} else {
+			if p.h.preemptCostPending == nil {
+				p.h.preemptCostPending = make(map[TaskID][]preemptCostResponse)
+			}
+			p.h.preemptCostPending[taskID] = append(p.h.preemptCostPending[taskID], resp)
+		}
+		p.h.preemptCostMu.Unlock()
 	default:
 		return xerrors.Errorf("unknown message type from peer %s: %c", peerAddr, parts[0][0])
 	}
@@ -205,9 +227,10 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 type messageType byte
 
 const (
-	messageTypeReserve messageType = 'r'
-	messageTypeNewTask messageType = 't'
-	messageTypeStarted messageType = 's'
+	messageTypeReserve     messageType = 'r'
+	messageTypeNewTask     messageType = 't'
+	messageTypeStarted     messageType = 's'
+	messageTypePreemptCost messageType = 'c'
 )
 
 func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {

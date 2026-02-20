@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -144,6 +145,12 @@ type TaskEngine struct {
 
 	lastCleanup atomic.Value
 	WorkOrigin  string
+
+	// Preemption cost exchange: keyed by the specific TaskID being negotiated.
+	// Set during preemptForTimeSensitive, read by peering handler.
+	preemptCostMu      sync.Mutex
+	preemptCostChs     map[TaskID]chan preemptCostResponse
+	preemptCostPending map[TaskID][]preemptCostResponse // buffered until channel registered
 }
 
 type TaskID int
@@ -182,6 +189,7 @@ func New(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 			storageFailures: make(map[TaskID]time.Time),
+			runningTasks:    make(map[TaskID]*runningTaskInfo),
 		}
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)

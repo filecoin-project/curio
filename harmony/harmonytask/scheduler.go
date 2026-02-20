@@ -19,6 +19,7 @@ type schedulerEvent struct {
 	Source   schedulerSource
 	PeerID   int64
 	Retries  int
+	Success  bool // for schedulerSourceTaskCompleted: true = done, false = cancelled/failed
 }
 
 type schedulerSource byte
@@ -31,6 +32,7 @@ const (
 	schedulerSourceTaskCompleted
 	schedulerSourceTaskStarted
 	schedulerSourceInitialPoll
+	schedulerSourceStartTimeSensitive
 )
 
 const chokePoint = 1000
@@ -157,6 +159,21 @@ func (e *TaskEngine) startScheduler() {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
+				case schedulerSourceStartTimeSensitive:
+					h := e.taskMap[event.TaskType]
+					if h == nil {
+						continue
+					}
+					plan := e.computePreemptionPlan(h.Cost)
+					if plan == nil {
+						log.Debugw("preemption plan no longer viable", "task", event.TaskType, "taskID", event.TaskID)
+						continue
+					}
+					e.executePreemption(plan)
+					tasks := taskSourceLocal{availableTasks, e.peering}.GetTasks(event.TaskType)
+					if len(tasks) > 0 {
+						h.considerWork(WorkSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
+					}
 				case schedulerSourceInitialPoll:
 					err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
 					if err != nil {
@@ -185,12 +202,22 @@ type taskSource interface {
 }
 
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
-	_ = taskName // later: for a fast-path.
 
-	err := e.waterfall(taskSource, eventEmitter)
-	if err != nil {
-		log.Errorw("failed to try waterfall", "error", err)
-		return 0, err
+	h := e.taskMap[taskName]
+	if h != nil && h.TimeSensitive {
+		if _, capErr := h.AssertMachineHasCapacity(); capErr != nil {
+			if tasks := taskSource.GetTasks(taskName); len(tasks) > 0 {
+				for _, t := range tasks {
+					go e.preemptForTimeSensitive(h, t.ID)
+				}
+			}
+		}
+	} else {
+		err := e.waterfall(taskSource, eventEmitter)
+		if err != nil {
+			log.Errorw("failed to try waterfall", "error", err)
+			return 0, err
+		}
 	}
 
 	return 0, nil
@@ -282,10 +309,11 @@ func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
 	}
 }
 
-func (ee eventEmitter) EmitTaskCompleted(taskName string) {
+func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
 	ee.schedulerChannel <- schedulerEvent{
 		TaskType: taskName,
 		Source:   schedulerSourceTaskCompleted,
+		Success:  success,
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -27,11 +29,21 @@ type PipelineTask interface {
 	GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error)
 }
 
+type runningTaskInfo struct {
+	startTime time.Time
+	cancel    context.CancelFunc
+	preempted atomic.Bool
+	done      chan struct{} // closed when task goroutine exits
+}
+
 type taskTypeHandler struct {
 	TaskInterface
 	TaskTypeDetails
 	TaskEngine      *TaskEngine
 	storageFailures map[TaskID]time.Time
+
+	runningTasks map[TaskID]*runningTaskInfo
+	runningLk    sync.Mutex
 
 	// for caching CanAccept() results to db unnecessarily.
 	acceptedTasks    []TaskID
@@ -48,6 +60,7 @@ const (
 	WorkSourceRecover  = "recovered"
 	WorkSourceIAmBored = "bored"
 	WorkSourceAdded    = "added"
+	WorkSourcePreempt  = "preempt"
 )
 
 // considerWork is called to attempt to start work on a task-id of this task type.
@@ -223,11 +236,21 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 
 	i := 0
 	for _, tID := range tIDs {
-		go func(tID TaskID, releaseStorage func()) {
+		taskCtx, taskCancel := context.WithCancel(h.TaskEngine.ctx)
+		info := &runningTaskInfo{
+			startTime: time.Now(),
+			cancel:    taskCancel,
+			done:      make(chan struct{}),
+		}
+		h.runningLk.Lock()
+		h.runningTasks[tID] = info
+		h.runningLk.Unlock()
+
+		go func(tID TaskID, releaseStorage func(), info *runningTaskInfo) {
 			eventEmitter.EmitTaskStarted(h.Name, tID)
 			var done bool
 			var doErr error
-			workStart := time.Now()
+			workStart := info.startTime
 
 			var sectorID *abi.SectorID
 			if ht, ok := h.TaskInterface.(PipelineTask); ok {
@@ -247,14 +270,21 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 						"while processing "+h.Name+" task "+strconv.Itoa(int(tID))+": ", r,
 						" Stack: ", string(stackSlice[:sz]))
 				}
+				taskCancel()
+
+				h.runningLk.Lock()
+				delete(h.runningTasks, tID)
+				h.runningLk.Unlock()
+				close(info.done)
+
 				h.Max.Add(-1)
 
 				if releaseStorage != nil {
 					releaseStorage()
 				}
-				h.recordCompletion(tID, sectorID, workStart, done, doErr)
-				eventEmitter.EmitTaskCompleted(h.Name)
-				if !done { // it was a failure, so we need to retry
+				h.recordCompletion(tID, sectorID, workStart, done, doErr, info.preempted.Load())
+				eventEmitter.EmitTaskCompleted(h.Name, done)
+				if !done {
 					for _, t := range tasks {
 						if t.ID == tID {
 							eventEmitter.EmitTaskNew(h.Name, t)
@@ -263,10 +293,11 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 				}
 			}()
 
-			taskCtx, taskCancel := context.WithCancel(h.TaskEngine.ctx)
-			defer taskCancel()
-
 			done, doErr = h.Do(taskCtx, tID, func() bool {
+				if taskCtx.Err() != nil {
+					return false
+				}
+
 				if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
 					if h.TaskEngine.yieldBackground.Load() {
 						log.Infow("yielding background task", "name", h.Name, "id", tID)
@@ -275,8 +306,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 				}
 
 				var owner int
-				// Keep ownership checks tied to the same task context used by Do().
-				err := h.TaskEngine.db.QueryRow(taskCtx,
+				err := h.TaskEngine.db.QueryRow(context.Background(),
 					`SELECT owner_id FROM harmony_task WHERE id=$1`, tID).Scan(&owner)
 				if err != nil {
 					log.Error("Cannot determine ownership: ", err)
@@ -287,19 +317,17 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 			if doErr != nil {
 				log.Errorw("Do() returned error", "type", h.Name, "id", strconv.Itoa(int(tID)), "error", doErr)
 			}
-		}(tID, releaseStorage[i])
+		}(tID, releaseStorage[i], info)
 		i++
 	}
 	return true
 }
 
-func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error) {
+func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error, preempted bool) {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
 
 	{
-		// metrics
-
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 			tag.Upsert(taskNameTag, h.Name),
 		}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
@@ -311,7 +339,7 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 				tag.Upsert(taskNameTag, h.Name),
 			}, TaskMeasures.TasksCompleted.M(1))
-		} else {
+		} else if !preempted {
 			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 				tag.Upsert(taskNameTag, h.Name),
 			}, TaskMeasures.TasksFailed.M(1))
@@ -319,7 +347,6 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	}
 
 retryRecordCompletion:
-	// Use Background context: recordCompletion MUST finish even during graceful shutdown.
 	cm, err := h.TaskEngine.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
@@ -327,18 +354,26 @@ retryRecordCompletion:
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
-		result := "unspecified error"
-		if done {
+
+		var result string
+		switch {
+		case done:
 			_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
 			if err != nil {
-
 				return false, fmt.Errorf("could not log completion: %w", err)
 			}
 			result = ""
 			if doErr != nil {
 				result = "non-failing error: " + doErr.Error()
 			}
-		} else {
+		case preempted:
+			_, err = tx.Exec(`UPDATE harmony_task SET owner_id=NULL, update_time=CURRENT_TIMESTAMP WHERE id=$1`, tID)
+			if err != nil {
+				return false, fmt.Errorf("could not release preempted task: %v %v", tID, err)
+			}
+			result = "preempted"
+		default:
+			result = "unspecified error"
 			if doErr != nil {
 				result = "error: " + doErr.Error()
 			}
@@ -351,9 +386,8 @@ retryRecordCompletion:
 				if err != nil {
 					return false, fmt.Errorf("could not delete failed job: %w", err)
 				}
-				// Note: Extra Info is left laying around for later review & clean-up
 			} else {
-				_, err := tx.Exec(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP  WHERE id=$2`, retries+1, tID)
+				_, err = tx.Exec(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP WHERE id=$2`, retries+1, tID)
 				if err != nil {
 					return false, fmt.Errorf("could not disown failed task: %v %v", tID, err)
 				}
@@ -376,7 +410,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 
 		return true, nil
 	})
-	// This MUST complete or keep getting retried until it does. If restarted, it will be cleaned-up, so no need for alt persistence.
 	if err != nil || !cm {
 		time.Sleep(retryWait)
 		retryWait *= 2
