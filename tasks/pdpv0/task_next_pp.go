@@ -307,7 +307,7 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context) 
 
 	for _, piece := range pendingDeletes {
 		if !piece.TxSuccess.Valid {
-			log.Errorf("invalid message_waits_eth state for piece ($d:$d) tx %s neither successful or unsuccessful", piece.DataSetID, piece.PieceID, piece.TxHash)
+			log.Errorf("invalid message_waits_eth state for piece (%d:%d) tx %s neither successful or unsuccessful", piece.DataSetID, piece.PieceID, piece.TxHash)
 			_, err := n.db.Exec(ctx, `UPDATE pdp_data_set_pieces SET rm_message_hash = NULL WHERE data_set = $1 AND piece_id = $2 AND rm_message_hash = $3`, piece.DataSetID, piece.PieceID, piece.TxHash)
 			if err != nil {
 				return xerrors.Errorf("failed to clear stuck rm_message_hash %s: %w", piece.TxHash, err)
@@ -366,7 +366,7 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context) 
 		}
 
 		if m != 1 {
-			return xerrors.Errorf("expected to update 1 row but updated %d", n)
+			return xerrors.Errorf("expected to update 1 row but updated %d", m)
 		}
 	}
 
