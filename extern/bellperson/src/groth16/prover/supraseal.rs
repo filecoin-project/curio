@@ -219,14 +219,31 @@ where
         gpu_mtx,
     );
 
+    // The GPU kernels (NTT + MSM) are done and cudaHostUnregister has run.
+    // The a/b/c evaluation vectors (~12 GiB per partition) are no longer
+    // needed — only the density bitvecs and assignment data are still
+    // referenced by the background prep_msm/b_g2_msm thread.
+    // Free them now to reduce peak memory by ~12 GiB per pending partition.
+    let mut provers = provers;
+    for prover in &mut provers {
+        prover.a = Vec::new();
+        prover.b = Vec::new();
+        prover.c = Vec::new();
+    }
+
+    // r_s/s_s are already copied into the C++ handle (pp->r_s_owned/s_s_owned).
+    // Drop the Rust copies now — they're small but no reason to keep them.
+    drop(r_s);
+    drop(s_s);
+
     Ok(PendingProofHandle {
         handle,
         num_circuits,
         provers,
         input_assignments,
         aux_assignments,
-        r_s,
-        s_s,
+        r_s: Vec::new(),
+        s_s: Vec::new(),
     })
 }
 
@@ -268,6 +285,7 @@ where
         drop(aux_assignments);
         drop(r_s);
         drop(s_s);
+        log::debug!("BUFFERS[rust_dealloc_finish]: pending proof dealloc done");
     });
 
     Ok(proofs)

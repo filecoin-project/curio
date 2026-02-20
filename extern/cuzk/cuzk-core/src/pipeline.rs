@@ -29,6 +29,81 @@ use tracing::{debug, info, info_span};
 use crate::prover::C1OutputWrapper;
 use crate::srs_manager::CircuitId;
 
+// ─── Phase 12: Large buffer flight counters ─────────────────────────────────
+//
+// Global atomic counters tracking how many large buffers are alive at each
+// pipeline stage. Printed at key events to diagnose memory pressure.
+
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+/// Number of ProvingAssignment sets in-flight (each has a/b/c ~12 GiB + density ~48 MB).
+/// Incremented after synthesis, decremented after dealloc thread completes.
+static PROVERS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of aux_assignment buffers in-flight (~4 GiB each).
+/// Incremented after synthesis, decremented after dealloc.
+static AUX_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of a/b/c-cleared provers (density bitvecs only, ~48 MB each).
+/// After prove_start, a/b/c are freed but density is kept for b_g2_msm.
+static PROVERS_SHELL_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of pending proof handles (C++ side: split_vectors + tails).
+static PENDING_HANDLES: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of partitions currently synthesizing.
+static SYNTH_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Log current buffer flight counts at a named event.
+/// Uses tracing::debug so it's only emitted when RUST_LOG includes debug for this crate.
+pub fn log_buffers(event: &str) {
+    let provers = PROVERS_IN_FLIGHT.load(Relaxed);
+    let aux = AUX_IN_FLIGHT.load(Relaxed);
+    let shells = PROVERS_SHELL_IN_FLIGHT.load(Relaxed);
+    let pending = PENDING_HANDLES.load(Relaxed);
+    let synth = SYNTH_IN_FLIGHT.load(Relaxed);
+    // Rough estimate: provers ~12 GiB, aux ~4 GiB, shells ~0.05 GiB, pending ~2 GiB
+    let est_gib = (provers as f64 * 12.0)
+        + (aux as f64 * 4.0)
+        + (shells as f64 * 0.05)
+        + (pending as f64 * 2.0);
+    debug!(
+        event,
+        synth,
+        provers,
+        aux,
+        shells,
+        pending,
+        est_gib = est_gib as u64,
+        "buffer flight counters"
+    );
+}
+
+/// Notify: synthesis produced a new set of provers + assignments.
+pub fn buf_synth_start() {
+    SYNTH_IN_FLIGHT.fetch_add(1, Relaxed);
+}
+pub fn buf_synth_done() {
+    SYNTH_IN_FLIGHT.fetch_sub(1, Relaxed);
+    PROVERS_IN_FLIGHT.fetch_add(1, Relaxed);
+    AUX_IN_FLIGHT.fetch_add(1, Relaxed);
+}
+/// Notify: prove_start freed a/b/c, prover becomes a shell.
+pub fn buf_abc_freed() {
+    PROVERS_IN_FLIGHT.fetch_sub(1, Relaxed);
+    PROVERS_SHELL_IN_FLIGHT.fetch_add(1, Relaxed);
+    PENDING_HANDLES.fetch_add(1, Relaxed);
+}
+/// Notify: finalize done, pending handle consumed.
+pub fn buf_finalize_done() {
+    PENDING_HANDLES.fetch_sub(1, Relaxed);
+}
+/// Notify: Rust-side dealloc thread completed (provers shell + aux freed).
+pub fn buf_dealloc_done() {
+    PROVERS_SHELL_IN_FLIGHT.fetch_sub(1, Relaxed);
+    AUX_IN_FLIGHT.fetch_sub(1, Relaxed);
+}
+
 // ─── Bellperson split API (only with cuda-supraseal) ────────────────────────
 
 #[cfg(feature = "cuda-supraseal")]
@@ -802,6 +877,9 @@ pub fn gpu_prove_start(
     )
     .map_err(|e| anyhow::anyhow!("GPU prove start failed: {:?}", e))?;
 
+    buf_abc_freed();
+    log_buffers("prove_start");
+
     Ok((pending, partition_index, gpu_start))
 }
 
@@ -814,6 +892,9 @@ pub fn gpu_prove_finish(
 ) -> Result<GpuProveResult> {
     let proofs = finish_pending_proof(pending)
         .map_err(|e| anyhow::anyhow!("GPU prove finish failed: {:?}", e))?;
+
+    buf_finalize_done();
+    log_buffers("finalize");
 
     let gpu_duration = gpu_start.elapsed();
 

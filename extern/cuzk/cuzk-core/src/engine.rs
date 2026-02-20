@@ -726,12 +726,34 @@ impl Engine {
             //   steady-state = max(synth_time, gpu_time) per proof
             //   For PoRep 32G: ~55s/proof (synthesis-bound) vs ~91s sequential
 
-            let lookahead = self.config.pipeline.synthesis_lookahead.max(1) as usize;
+            // Channel capacity sizing:
+            //
+            // In partition mode (partition_workers > 0), up to `pw` partitions
+            // complete synthesis concurrently. If the channel is too small,
+            // completed syntheses block on send() while still holding their
+            // full memory allocation (~16 GiB each pre-a/b/c-free, ~4 GiB after).
+            // This caused OOM at pw=12 with channel capacity=1 (28 provers piled up).
+            //
+            // We auto-scale the channel to max(synthesis_lookahead, partition_workers)
+            // so completed partitions can drain into the channel buffer without
+            // blocking the synthesis tasks. The GPU worker pulls one at a time,
+            // and once the channel is full, backpressure kicks in naturally.
+            //
+            // In non-partition mode, synthesis_lookahead (default 1) still applies.
+            let configured_lookahead = self.config.pipeline.synthesis_lookahead.max(1) as usize;
+            let pw = self.config.synthesis.partition_workers as usize;
+            let lookahead = if pw > 0 {
+                configured_lookahead.max(pw)
+            } else {
+                configured_lookahead
+            };
             let (synth_tx, synth_rx) = tokio::sync::mpsc::channel::<SynthesizedJob>(lookahead);
             let synth_rx = Arc::new(Mutex::new(synth_rx));
 
             info!(
-                lookahead = lookahead,
+                configured_lookahead = configured_lookahead,
+                partition_workers = pw,
+                effective_lookahead = lookahead,
                 num_gpus = num_workers,
                 "starting pipeline: synthesis task + GPU workers"
             );
@@ -1150,15 +1172,24 @@ impl Engine {
                                     }
                                 }
 
+                                crate::pipeline::buf_synth_start();
+                                crate::pipeline::log_buffers("synth_start");
                                 timeline_event(
                                     "SYNTH_START",
                                     &p_job_id.0,
                                     &format!("partition={}", p_idx),
                                 );
 
-                                // Run synthesis on blocking thread
+                                // Run synthesis on blocking thread.
+                                // The partition permit is held across both synthesis AND
+                                // the channel send. This bounds total in-flight synthesis
+                                // outputs to `partition_workers` — preventing unbounded
+                                // memory growth when synthesis is faster than GPU consumption.
+                                //
+                                // With channel capacity = partition_workers, the send()
+                                // is non-blocking (channel always has room), so holding the
+                                // permit through the send adds no latency.
                                 let synth_result = tokio::task::spawn_blocking(move || {
-                                    let _permit = permit; // held until synth complete
                                     let result = pipeline::synthesize_partition(
                                         &item.parsed,
                                         item.partition_idx,
@@ -1185,6 +1216,8 @@ impl Engine {
                                             &p_job_id.0,
                                             &format!("partition={},synth_ms={}", p_idx, job.synth.synthesis_duration.as_millis()),
                                         );
+                                        crate::pipeline::buf_synth_done();
+                                        crate::pipeline::log_buffers("synth_done");
                                         info!(
                                             job_id = %p_job_id,
                                             partition = p_idx,
@@ -1195,6 +1228,8 @@ impl Engine {
                                         if synth_tx.send(job).await.is_err() {
                                             error!("GPU channel closed during partition dispatch");
                                         }
+                                        // Drop permit AFTER send succeeds — bounds in-flight outputs
+                                        drop(permit);
                                     }
                                     Ok(Err(e)) => {
                                         error!(
@@ -1467,6 +1502,8 @@ impl Engine {
                                 }
                             }
 
+                            crate::pipeline::buf_synth_done();
+                            crate::pipeline::log_buffers("synth_done_mono");
                             timeline_event("CHAN_SEND", &synth_job_id_str, "");
                             if synth_tx.send(job).await.is_err() {
                                 error!("GPU channel closed, stopping synthesis task");
