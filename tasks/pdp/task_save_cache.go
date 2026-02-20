@@ -61,6 +61,16 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	task := tasks[0]
 
+	n, err := t.db.Exec(ctx, `UPDATE pdp_piecerefs SET caching_task_started = NOW() WHERE id = $1 AND needs_save_cache = TRUE`, task.ID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to mark caching task as started: %w", err)
+	}
+	if n == 0 {
+		return false, xerrors.Errorf("piece ref %d no longer needs save cache", task.ID)
+	}
+
+	log.Debugw("PDPv0_SaveCache starting", "taskID", taskID, "pieceCID", task.PieceCID, "rawSize", task.RawSize)
+
 	pcidV1, err := cid.Parse(task.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
@@ -74,13 +84,20 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	// Build the merkle tree and save a middle layer for fast proving
 	// Only for pieces larger than 100 MiB
+	if task.RawSize <= MinSizeForCache {
+		log.Debugw("PDPv0_SaveCache: piece below cache threshold, skipping layer build", "pieceCID", task.PieceCID, "rawSize", task.RawSize, "threshold", MinSizeForCache)
+	}
 	if task.RawSize > MinSizeForCache {
 		has, _, err := t.idx.GetPDPLayerIndex(ctx, pcidV2)
 		if err != nil {
 			return false, xerrors.Errorf("failed to check if piece has PDP layer: %w", err)
 		}
 
+		if has {
+			log.Debugw("PDPv0_SaveCache: PDP layer already cached, skipping build", "pieceCID", task.PieceCID, "pcidV2", pcidV2)
+		}
 		if !has {
+			log.Debugw("PDPv0_SaveCache: building PDP layer cache", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "rawSize", task.RawSize)
 			cp := savecache.NewCommPWithSize(task.RawSize)
 			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcidV1)
 			if err != nil {
@@ -125,11 +142,14 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			if err != nil {
 				return false, xerrors.Errorf("failed to add PDP layer cache: %w", err)
 			}
+			log.Debugw("PDPv0_SaveCache: PDP layer cache saved", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "layerIdx", lidx, "leafCount", len(leafs))
 		}
 	}
 
+	log.Debugw("PDPv0_SaveCache: marking task complete in DB", "taskID", taskID, "pieceCID", task.PieceCID)
+
 	// Mark task as completed
-	n, err := t.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE, save_cache_task_id = NULL
+	n, err = t.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE, save_cache_task_id = NULL, caching_task_completed = NOW()
 								WHERE id = $1 AND save_cache_task_id = $2`, task.ID, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to update pdp_piecerefs: %w", err)
@@ -139,6 +159,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("failed to update pdp_piecerefs: expected 1 row but %d rows updated", n)
 	}
 
+	log.Debugw("PDPv0_SaveCache complete", "taskID", taskID, "pieceCID", task.PieceCID)
 	return true, nil
 }
 

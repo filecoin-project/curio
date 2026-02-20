@@ -206,6 +206,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get task details: %w", err)
 	}
 
+	log.Debugw("PDPv0_Prove starting", "taskID", taskID, "dataSetId", dataSetId)
+
 	defer func() {
 		if err != nil {
 			log.Errorw("Proof submission failed", "dataSetId", dataSetId, "error", err)
@@ -307,6 +309,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get chain randomness from beacon for pdp prove: %w", err)
 	}
+
+	log.Debugw("PDPv0_Prove: generating proofs", "dataSetId", dataSetId, "challengeEpoch", challengeEpoch, "totalLeaves", totalLeaves, "numChallenges", contract.NumChallenges)
 
 	proofs, err := p.GenerateProofs(ctx, pdpVerifier, dataSetId, seed, totalLeaves, contract.NumChallenges)
 	if err != nil {
@@ -464,6 +468,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, totalLeaves uint64, numChallenges int) ([]contract.IPDPTypesProof, error) {
 	proofs := make([]contract.IPDPTypesProof, numChallenges)
 
+	log.Debugw("GenerateProofs starting", "dataSetId", dataSetId, "numChallenges", numChallenges, "totalLeaves", totalLeaves)
+
 	callOpts := &bind.CallOpts{
 		Context: ctx,
 	}
@@ -471,6 +477,8 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	challenges := lo.Times(numChallenges, func(i int) int64 {
 		return generateChallengeIndex(seed, dataSetId, i, totalLeaves)
 	})
+
+	log.Debugw("GenerateProofs: challenge indices computed", "dataSetId", dataSetId, "challenges", challenges)
 
 	pieceId, err := pdpService.FindPieceIds(callOpts, big.NewInt(dataSetId), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
 	if err != nil {
@@ -480,14 +488,18 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	for i := 0; i < numChallenges; i++ {
 		piece := pieceId[i]
 
+		log.Debugw("GenerateProofs: proving piece", "challengeIdx", i, "dataSetId", dataSetId, "pieceId", piece.PieceId, "offset", piece.Offset)
+
 		proof, err := p.provePiece(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to prove piece %d (%d, %d, %d): %w", i, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64(), err)
 		}
 
+		log.Debugw("GenerateProofs: piece proved", "challengeIdx", i, "dataSetId", dataSetId, "pieceId", piece.PieceId)
 		proofs[i] = proof
 	}
 
+	log.Debugw("GenerateProofs complete", "dataSetId", dataSetId, "proofCount", len(proofs))
 	return proofs, nil
 }
 
