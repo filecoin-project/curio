@@ -52,7 +52,7 @@ type TaskTypeDetails struct {
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
-	// This is starved on busy machines, so use it togather "above and beyond" work only.
+	// This is starved on busy machines, so use it together "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
 	// CanYield is true if the task should yield when the node is not schedulable.
@@ -279,7 +279,41 @@ type task struct {
 }
 
 // pollerTryAllWork attempts to start tasks from the given taskSource.
-func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, eventEmitter eventEmitter) {
+func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
+	// Check if the machine is schedulable
+	schedulable, err := e.checkNodeFlags()
+	if err != nil {
+		return fmt.Errorf("unable to check schedulable status: %w", err)
+
+	}
+
+	e.yieldBackground.Store(!schedulable)
+
+	if !schedulable {
+		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
+		return nil
+	}
+
+	defer func() {
+		// update resource usage
+		availableResources := e.ResourcesAvailable()
+		totalResources := e.Resources()
+
+		cpuUsage := 1 - float64(availableResources.Cpu)/float64(totalResources.Cpu)
+		stats.Record(context.Background(), TaskMeasures.CpuUsage.M(cpuUsage*100))
+
+		if totalResources.Gpu > 0 {
+			gpuUsage := 1 - availableResources.Gpu/totalResources.Gpu
+			stats.Record(context.Background(), TaskMeasures.GpuUsage.M(gpuUsage*100))
+		}
+
+		ramUsage := 1.0
+		if totalResources.Ram > 0 {
+			ramUsage = 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
+		}
+		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
+
+	}()
 	for _, v := range e.handlers {
 		if !schedulable {
 			if v.SchedulingOverrides == nil {
@@ -327,7 +361,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 	}
 
 	if !schedulable {
-		return
+		return nil
 	}
 
 	// if no work was accepted, are we bored? Then find work in priority order.
@@ -346,6 +380,7 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool, taskSource taskSource, e
 			}
 		}
 	}
+	return nil
 }
 
 var rlog = logging.Logger("harmony-res")

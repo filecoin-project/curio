@@ -2,12 +2,10 @@ package harmonytask
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/samber/lo"
-	"go.opencensus.io/stats"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -139,7 +137,7 @@ func (e *TaskEngine) startScheduler() {
 						})
 					}
 				case schedulerSourceTaskCompleted:
-					err := e.waterfall(taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
+					err := e.pollerTryAllWork(taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
 					if err != nil {
 						log.Errorw("failed to full waterfall", "error", err)
 						continue
@@ -158,7 +156,7 @@ func (e *TaskEngine) startScheduler() {
 						})
 					}
 				case schedulerSourceInitialPoll:
-					err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
+					err := e.pollerTryAllWork(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
 					if err != nil {
 						log.Errorw("failed initial poll waterfall", "error", err)
 					}
@@ -168,7 +166,7 @@ func (e *TaskEngine) startScheduler() {
 			case taskName := <-bundleSleep:
 				tryStartNow(taskName)
 			case <-time.After(e.pollDuration.Load().(time.Duration)): // fast life & early-gather at Go_1.26
-				err := e.waterfall(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
+				err := e.pollerTryAllWork(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
 				if err != nil {
 					log.Errorw("failed to full waterfall", "error", err)
 					continue
@@ -187,52 +185,13 @@ type taskSource interface {
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
 	_ = taskName // later: for a fast-path.
 
-	err := e.waterfall(taskSource, eventEmitter)
+	err := e.pollerTryAllWork(taskSource, eventEmitter)
 	if err != nil {
 		log.Errorw("failed to try waterfall", "error", err)
 		return 0, err
 	}
 
 	return 0, nil
-}
-
-// Waterfall is the main function that will start tasks.
-// It will start tasks from the taskSource and reserve tasks as we go.
-// It must be called only by the scheduler.
-func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter) error {
-
-	// Check if the machine is schedulable
-	schedulable, err := e.checkNodeFlags()
-	if err != nil {
-		return fmt.Errorf("unable to check schedulable status: %w", err)
-
-	}
-
-	e.yieldBackground.Store(!schedulable)
-
-	if !schedulable {
-		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
-		return nil
-	}
-
-	e.pollerTryAllWork(schedulable, taskSource, eventEmitter)
-
-	// update resource usage
-	availableResources := e.ResourcesAvailable()
-	totalResources := e.Resources()
-
-	cpuUsage := 1 - float64(availableResources.Cpu)/float64(totalResources.Cpu)
-	stats.Record(context.Background(), TaskMeasures.CpuUsage.M(cpuUsage*100))
-
-	if totalResources.Gpu > 0 {
-		gpuUsage := 1 - availableResources.Gpu/totalResources.Gpu
-		stats.Record(context.Background(), TaskMeasures.GpuUsage.M(gpuUsage*100))
-	}
-
-	ramUsage := 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
-	stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
-
-	return nil
 }
 
 type taskSourceLocal struct {

@@ -156,7 +156,7 @@ func (pc *peerHTTPConnection) SendMessage(message []byte) error {
 		return fmt.Errorf("failed to create request to peer %s: %w", pc.peerAddr, err)
 	}
 
-	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Peer-ID", pc.parent.localAddr)
 
 	resp, err := http.DefaultClient.Do(req)

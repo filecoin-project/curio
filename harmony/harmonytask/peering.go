@@ -1,13 +1,39 @@
 package harmonytask
 
 import (
-	"bytes"
-	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 
 	"golang.org/x/xerrors"
+)
+
+// PeerMessage is the JSON envelope for all peer-to-peer messages.
+// Verb identifies the message kind; TaskID is set for task-related verbs;
+// Other carries verb-specific payload decoded lazily by the receiver.
+type PeerMessage struct {
+	Verb   string          `json:"verb"`
+	TaskID TaskID          `json:"taskID,omitempty"`
+	Other  json.RawMessage `json:"other,omitempty"`
+}
+
+type identityOther struct {
+	HostAndPort string `json:"hostAndPort"`
+}
+
+type taskOther struct {
+	TaskType string `json:"taskType"`
+	Retries  int    `json:"retries,omitempty"`
+}
+
+type messageType string
+
+const (
+	messageTypeIdentity messageType = "identity" // sent to alert other nodes we exist.
+	messageTypeNewTask  messageType = "newTask"  // sent when a task is available to run.
+	messageTypeReserve  messageType = "reserve"  // FUTURE: unclear
+	messageTypeStarted  messageType = "started"  // sent when a task is started.
 )
 
 type PeerConnectorInterface interface {
@@ -39,6 +65,8 @@ type peering struct {
 	m         map[string][]int // task name -> peer indexes that can run it
 }
 
+// startPeering builds a relationship between all nodes in the network as they
+// do not know we exist yet.
 func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering {
 	p := &peering{
 		h:             h,
@@ -46,7 +74,6 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 		m:             make(map[string][]int),
 	}
 	p.peerConnector.SetOnConnect(p.handlePeer)
-	h.pollDuration.Store(POLL_RARELY)
 	go func() {
 		var knownPeers []string
 		if err := p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`); err != nil {
@@ -82,42 +109,39 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 
 	log.Infow("handling peer connection", "peer", peerAddr)
 
-	// Send our identity to the peer. Get theirs.
-	if err := conn.SendMessage([]byte("i:" + p.h.hostAndPort)); err != nil {
+	// Announce ourselves so the remote peer knows we exist.
+	idMsg, err := marshalPeerMessage(messageTypeIdentity, 0, identityOther{HostAndPort: p.h.hostAndPort})
+	if err != nil {
+		log.Warnw("failed to marshal identity", "peer", peerAddr, "error", err)
+		return
+	}
+	if err := conn.SendMessage(idMsg); err != nil {
 		log.Warnw("failed to send identity to peer", "peer", peerAddr, "error", err)
 		return
 	}
-	msg, err := conn.ReceiveMessage()
-	if err != nil {
-		log.Warnw("failed to receive message from peer", "peer", peerAddr, "error", err)
-		return
-	}
-	if !bytes.HasPrefix(msg, []byte("i:")) {
-		log.Warnw("received unexpected message from peer", "peer", peerAddr, "message", string(msg))
-		return
-	}
+
 	them := peer{
-		addr:  strings.TrimPrefix(string(msg), "i:"),
+		addr:  peerAddr,
 		conn:  conn,
 		tasks: make(map[string]bool),
 	}
-	var sql struct {
+	var machineDetails struct {
 		ID    int64  `db:"id"`
 		Tasks string `db:"tasks"`
 	}
 	err = p.h.db.QueryRow(p.h.ctx,
 		`SELECT hm.id, hmd.tasks FROM harmony_machine_details hmd
 		 JOIN harmony_machines hm ON hm.id = hmd.machine_id
-		 WHERE hm.host_and_port = $1`, them.addr).Scan(&sql.ID, &sql.Tasks)
+		 WHERE hm.host_and_port = $1`, them.addr).Scan(&machineDetails.ID, &machineDetails.Tasks)
 	if err != nil {
 		log.Warnw("failed to get machine details from peer", "peer", peerAddr, "error", err)
 		return
 	}
-	them.id = sql.ID
+	them.id = machineDetails.ID
 	p.peersLock.Lock()
 	p.peers = append(p.peers, them)
 	themIndex := len(p.peers) - 1
-	for _, task := range strings.Split(sql.Tasks, ",") {
+	for _, task := range strings.Split(machineDetails.Tasks, ",") {
 		them.tasks[task] = true
 		p.m[task] = append(p.m[task], themIndex)
 	}
@@ -155,101 +179,80 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 	}
 }
 
-// handlePeerMessage processes a message received from a peer.
-// Override this method or extend it to handle specific message types.
+// handlePeerMessage processes a JSON message received from a peer.
 func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) error {
-	// Wire format: <type_byte>:<task_name>:<binary_payload>
-	// Split into 3 parts so the binary payload (which may contain ':') stays intact.
-	parts := bytes.SplitN(msg, []byte(":"), 3)
-	if len(parts) < 3 || len(parts[2]) < 8 {
-		log.Warnw("received invalid message from peer", "peer", peerAddr, "message_len", len(msg))
-		return xerrors.Errorf("invalid message from peer: need 3 parts with >=8 byte payload")
+	var envelope PeerMessage
+	if err := json.Unmarshal(msg, &envelope); err != nil {
+		log.Warnw("received invalid JSON from peer", "peer", peerAddr, "error", err)
+		return xerrors.Errorf("invalid JSON message from peer: %w", err)
 	}
 
-	taskType := string(parts[1])
-	taskID := TaskID(binary.BigEndian.Uint64(parts[2][:8]))
-
-	switch messageType(parts[0][0]) {
-	case messageTypeNewTask:
-		var retries int
-		if len(parts[2]) >= 10 {
-			retries = int(binary.BigEndian.Uint16(parts[2][8:10]))
+	var other taskOther
+	if len(envelope.Other) > 0 {
+		if err := json.Unmarshal(envelope.Other, &other); err != nil {
+			return xerrors.Errorf("failed to unmarshal task other from peer %s: %w", peerAddr, err)
 		}
+	}
+
+	switch messageType(envelope.Verb) {
+	case messageTypeNewTask:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   taskID,
-			TaskType: taskType,
+			TaskID:   envelope.TaskID,
+			TaskType: other.TaskType,
 			Source:   schedulerSourcePeerNewTask,
 			PeerID:   them.id,
-			Retries:  retries,
+			Retries:  other.Retries,
 		}
 	case messageTypeReserve:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   taskID,
-			TaskType: taskType,
+			TaskID:   envelope.TaskID,
+			TaskType: other.TaskType,
 			Source:   schedulerSourcePeerReserved,
 			PeerID:   them.id,
 		}
 	case messageTypeStarted:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   taskID,
-			TaskType: taskType,
+			TaskID:   envelope.TaskID,
+			TaskType: other.TaskType,
 			Source:   schedulerSourcePeerStarted,
 			PeerID:   them.id,
 		}
 	default:
-		return xerrors.Errorf("unknown message type from peer %s: %c", peerAddr, parts[0][0])
+		return xerrors.Errorf("unknown message verb from peer %s: %q", peerAddr, envelope.Verb)
 	}
 	return nil
 }
 
-type messageType byte
-
-const (
-	messageTypeReserve messageType = 'r'
-	messageTypeNewTask messageType = 't'
-	messageTypeStarted messageType = 's'
-)
-
-func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {
-	p.TellOthersMessage(task, messageRenderTaskSend{MessageType: messagetype, TaskType: task, TaskID: tID})
+func marshalPeerMessage(verb messageType, taskID TaskID, other any) ([]byte, error) {
+	otherBytes, err := json.Marshal(other)
+	if err != nil {
+		return nil, fmt.Errorf("marshal other: %w", err)
+	}
+	return json.Marshal(PeerMessage{
+		Verb:   string(verb),
+		TaskID: taskID,
+		Other:  otherBytes,
+	})
 }
 
-func (p *peering) TellOthersMessage(taskType string, r messageRenderer) {
+func (p *peering) TellOthers(verb messageType, taskType string, tID TaskID) {
+	msg, err := marshalPeerMessage(verb, tID, taskOther{TaskType: taskType})
+	if err != nil {
+		log.Errorw("failed to marshal peer message", "verb", verb, "error", err)
+		return
+	}
+	p.tellOtherBytes(taskType, msg)
+}
+
+func (p *peering) tellOtherBytes(taskType string, msg []byte) {
 	p.peersLock.RLock()
 	for _, peerIndex := range p.m[taskType] {
 		conn := p.peers[peerIndex].conn
 		go func() {
-			err := conn.SendMessage(r.Render())
-			if err != nil {
+			if err := conn.SendMessage(msg); err != nil {
 				log.Warnw("failed to send message to peer", "peer", p.peers[peerIndex].addr, "error", err)
 			}
 		}()
 	}
 	p.peersLock.RUnlock()
-}
-
-type messageRenderer interface {
-	Render() []byte
-}
-
-type messageRenderNewTask struct {
-	TaskType string
-	TaskID   TaskID
-	Retries  int
-}
-
-func (m messageRenderNewTask) Render() []byte {
-	return binary.BigEndian.AppendUint16(
-		binary.BigEndian.AppendUint64(
-			[]byte(fmt.Sprintf("%c:%s:", messageTypeNewTask, m.TaskType)), uint64(m.TaskID)), uint16(m.Retries))
-}
-
-type messageRenderTaskSend struct {
-	MessageType messageType
-	TaskType    string
-	TaskID      TaskID
-}
-
-func (m messageRenderTaskSend) Render() []byte {
-	return binary.BigEndian.AppendUint64([]byte(fmt.Sprintf("%c:%s:", m.MessageType, m.TaskType)), uint64(m.TaskID))
 }
