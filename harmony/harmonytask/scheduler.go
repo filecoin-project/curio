@@ -7,7 +7,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
 )
 
@@ -17,6 +16,7 @@ type schedulerEvent struct {
 	Source   schedulerSource
 	PeerID   int64
 	Retries  int
+	DBTasks  map[string][]task // only set for schedulerSourceDBPoll
 }
 
 type schedulerSource byte
@@ -28,7 +28,7 @@ const (
 	schedulerSourcePeerReserved // FUTURE PR: schedulerSourcePeerReserved
 	schedulerSourceTaskCompleted
 	schedulerSourceTaskStarted
-	schedulerSourceInitialPoll
+	schedulerSourceDBPoll
 )
 
 const chokePoint = 1000
@@ -67,23 +67,34 @@ func (e *TaskEngine) startScheduler() {
 		}
 	}()
 
+	// Background DB poller: queries all task types off the scheduler thread,
+	// then signals the scheduler if anything is new.
+	go func() {
+		timer := time.NewTimer(0) // fire immediately for initial poll
+		defer timer.Stop()
+		for {
+			select {
+			case <-e.ctx.Done():
+				return
+			case <-timer.C:
+				dbTasks := e.pollAllTaskTypes()
+				e.schedulerChannel <- schedulerEvent{
+					Source:  schedulerSourceDBPoll,
+					DBTasks: dbTasks,
+				}
+				timer.Reset(e.pollDuration.Load().(time.Duration))
+			}
+		}
+	}()
+
 	go func() {
 		bundleCollector, bundleSleep := bundler()
 		availableTasks := map[string]*taskSchedule{} // TaskType -> TaskID -> bool FUTURE PR: mem savings.
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
-		tryStartNow := func(taskName string) {
-			shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
-			if err != nil {
-				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
-				return
-			}
-			if shouldReserve != 0 {
-				availableTasks[taskName].reservedTask = shouldReserve
-				e.peering.TellOthers(messageTypeReserve, taskName, shouldReserve)
-			}
-		}
+		ts := taskSourceLocal{availableTasks, e.peering}
+		ee := eventEmitter{e.schedulerChannel}
 		for {
 			select {
 			case <-e.ctx.Done():
@@ -91,11 +102,48 @@ func (e *TaskEngine) startScheduler() {
 				return
 			case event := <-e.schedulerChannel:
 				switch event.Source {
+				case schedulerSourceDBPoll:
+					hasNew := false
+					for taskName, tasks := range event.DBTasks {
+						sched := availableTasks[taskName]
+						if sched == nil {
+							continue
+						}
+						prevReserved := sched.reservedTask
+						newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
+							return t.ID, t
+						})
+						for id := range newHas {
+							if _, exists := sched.hasID[id]; !exists {
+								hasNew = true
+							}
+						}
+						newSched := &taskSchedule{
+							hasID:        newHas,
+							choked:       len(tasks) > chokePoint,
+							reservedTask: prevReserved,
+						}
+						if prevReserved != 0 {
+							if _, ok := newHas[prevReserved]; !ok {
+								newSched.ReserveNext(func(taskID TaskID) {
+									e.peering.TellOthers(messageTypeReserve, taskName, taskID)
+								})
+							}
+						}
+						availableTasks[taskName] = newSched
+					}
+					if hasNew {
+						if err := e.pollerTryAllWork(ts, ee); err != nil {
+							log.Errorw("failed waterfall", "error", err)
+						}
+					}
 				case schedulerSourceAdded:
-					if _, ok := availableTasks[event.TaskType]; ok { // we maybe not run this task.
+					if _, ok := availableTasks[event.TaskType]; ok {
 						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-							tryStartNow(event.TaskType)
+							if err := e.pollerTryAllWork(ts, ee); err != nil {
+								log.Errorw("failed waterfall", "error", err)
+							}
 						} else {
 							bundleCollector(event.TaskType)
 						}
@@ -112,7 +160,9 @@ func (e *TaskEngine) startScheduler() {
 					}
 					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-						tryStartNow(event.TaskType)
+						if err := e.pollerTryAllWork(ts, ee); err != nil {
+							log.Errorw("failed waterfall", "error", err)
+						}
 					} else {
 						bundleCollector(event.TaskType)
 					}
@@ -137,10 +187,8 @@ func (e *TaskEngine) startScheduler() {
 						})
 					}
 				case schedulerSourceTaskCompleted:
-					err := e.pollerTryAllWork(taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
-					if err != nil {
-						log.Errorw("failed to full waterfall", "error", err)
-						continue
+					if err := e.pollerTryAllWork(ts, ee); err != nil {
+						log.Errorw("failed waterfall", "error", err)
 					}
 				case schedulerSourcePeerReserved: // FUTURE: apply and respect reservations for anti-starve common tasks.
 					avail, ok := availableTasks[event.TaskType]
@@ -155,21 +203,12 @@ func (e *TaskEngine) startScheduler() {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
-				case schedulerSourceInitialPoll:
-					err := e.pollerTryAllWork(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
-					if err != nil {
-						log.Errorw("failed initial poll waterfall", "error", err)
-					}
 				default:
 					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
-			case taskName := <-bundleSleep:
-				tryStartNow(taskName)
-			case <-time.After(e.pollDuration.Load().(time.Duration)): // fast life & early-gather at Go_1.26
-				err := e.pollerTryAllWork(taskSourceDb{e.db, availableTasks, e.peering, taskSourceLocal{availableTasks, e.peering}}, eventEmitter{e.schedulerChannel})
-				if err != nil {
-					log.Errorw("failed to full waterfall", "error", err)
-					continue
+			case <-bundleSleep:
+				if err := e.pollerTryAllWork(ts, ee); err != nil {
+					log.Errorw("failed waterfall", "error", err)
 				}
 			}
 			// FUTURE: RetryWait could start timers.
@@ -248,39 +287,45 @@ func (ee eventEmitter) EmitTaskCompleted(taskName string) {
 	}
 }
 
-type taskSourceDb struct {
-	db             *harmonydb.DB
-	availableTasks map[string]*taskSchedule
-	peering        *peering
-	taskSourceLocal
-}
-
-func (t taskSourceDb) GetTasks(taskName string) []task {
-	tasks := []task{}
-	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, retries FROM harmony_task WHERE name = $1 AND owner_id IS NULL LIMIT $2`, taskName, chokePoint+1)
+// pollAllTaskTypes queries the DB for all unowned tasks in a single round-trip.
+// Runs off the scheduler thread on the background poller goroutine.
+// Returns nil on error so the scheduler preserves existing state and reservations.
+func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
+	var rows []struct {
+		ID         TaskID    `db:"id"`
+		Name       string    `db:"name"`
+		UpdateTime time.Time `db:"update_time"`
+		Retries    int       `db:"retries"`
+	}
+	names := make([]string, len(e.handlers))
+	for i, h := range e.handlers {
+		names[i] = h.Name
+	}
+	err := e.db.Select(context.Background(), &rows,
+		`SELECT id, name, update_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
 	if err != nil {
-		log.Errorw("failed to get tasks from db", "error", err)
+		log.Errorw("failed to poll tasks from db", "error", err)
 		return nil
 	}
-	previousReservedTask := t.availableTasks[taskName].reservedTask
-	newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
-		return t.ID, t
-	})
-	if _, ok := newHas[previousReservedTask]; !ok {
-		previousReservedTask = 0
-	}
-	t.availableTasks[taskName] = &taskSchedule{
-		hasID:        newHas,
-		choked:       len(tasks) > chokePoint,
-		reservedTask: previousReservedTask,
-	}
 
-	return tasks
-}
-
-func (t taskSourceDb) ReserveTask(taskName string, taskID TaskID) {
-	t.availableTasks[taskName].reservedTask = taskID
-	t.peering.TellOthers(messageTypeReserve, taskName, taskID)
+	result := make(map[string][]task, len(e.handlers))
+	for _, h := range e.handlers {
+		result[h.Name] = nil
+	}
+	for _, r := range rows {
+		if _, ok := result[r.Name]; !ok {
+			continue
+		}
+		if len(result[r.Name]) > chokePoint {
+			continue
+		}
+		result[r.Name] = append(result[r.Name], task{
+			ID:         r.ID,
+			UpdateTime: r.UpdateTime,
+			Retries:    r.Retries,
+		})
+	}
+	return result
 }
 
 const bundleCollectionTimeout = time.Millisecond * 10
