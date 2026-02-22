@@ -720,6 +720,11 @@ type PreCommitBatchingConfig struct {
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
 	Slack time.Duration
+
+	// Maximum number of sectors per precommit batch message. The batch will be submitted
+	// immediately when this many sectors are ready, without waiting for the timeout.
+	// 0 = use the protocol maximum. (Default: 0)
+	MaxBatch int
 }
 
 type CommitBatchingConfig struct {
@@ -734,6 +739,11 @@ type CommitBatchingConfig struct {
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
 	Slack time.Duration
+
+	// Maximum number of sectors per commit batch message. The batch will be submitted
+	// immediately when this many sectors are ready, without waiting for the timeout.
+	// 0 = use the protocol maximum. (Default: 0)
+	MaxBatch int
 }
 
 type UpdateBatchingConfig struct {
