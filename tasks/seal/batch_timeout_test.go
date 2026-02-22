@@ -61,7 +61,7 @@ func TestSlackEpochs(t *testing.T) {
 func TestEvalBatchTimeout_FullCondition(t *testing.T) {
 	now := time.Now()
 	recentReady := now.Add(-1 * time.Minute) // not timed out
-	farFuture := int64(999999)                // slack won't fire
+	farFuture := int64(999999)               // slack won't fire
 	currentHeight := int64(1000)
 
 	tests := []struct {
@@ -113,7 +113,7 @@ func TestEvalBatchTimeout_FullCondition(t *testing.T) {
 func TestEvalBatchTimeout_FullTakesPriority(t *testing.T) {
 	now := time.Now()
 	oldReady := now.Add(-5 * time.Hour) // timeout would fire
-	lowStartEpoch := int64(100)          // slack would fire
+	lowStartEpoch := int64(100)         // slack would fire
 
 	result := EvalBatchTimeout(
 		oldReady, 4*time.Hour,
