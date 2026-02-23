@@ -481,11 +481,31 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			// If drop_claims=false, we already filtered these out at query time
 			// If drop_claims=true, check if we need to process individual claims
 			if !cfg.DropClaims {
-				// This shouldn't happen due to query filtering, but just in case
-				log.Warnw("sector with short claims in non-drop-claims mode",
-					"sector", sn,
-					"min_claim_epoch", dbSector.MinClaim,
-					"target_expiration", bucketBelowEpoch)
+				// Check if claims are actually short (MaxClaim < bucketBelowEpoch)
+				// The SQL query filters on min_claim_epoch, but sectors with all claims
+				// long enough can still reach here with non-nil claim fields.
+				// Only skip if the max claim is actually shorter than the target.
+				if dbSector.MaxClaim != nil && abi.ChainEpoch(*dbSector.MaxClaim) < bucketBelowEpoch {
+					log.Warnw("sector with short claims in non-drop-claims mode, skipping",
+						"sector", sn,
+						"max_claim_epoch", *dbSector.MaxClaim,
+						"target_expiration", bucketBelowEpoch)
+					continue
+				}
+
+				// All claims live long enough, maintain all
+				claimIds := claimIdsBySector[sn]
+				if len(claimIds) > 0 {
+					sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
+						SectorNumber:   sn,
+						MaintainClaims: claimIds,
+						DropClaims:     []verifreg.ClaimId{},
+					})
+				} else {
+					sectorsWithoutClaims.Set(uint64(sn))
+				}
+				numbersToExtend = append(numbersToExtend, sn)
+				totalSectors++
 				continue
 			}
 
