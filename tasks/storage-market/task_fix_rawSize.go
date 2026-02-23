@@ -179,6 +179,12 @@ func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			err = tx.Select(&tasks, `SELECT mpd.id FROM market_piece_deal mpd
           									WHERE mpd.raw_size = 0 
           									  AND mpd.piece_offset IS NOT NULL 
+          									  AND EXISTS (
+          									  	SELECT 1 FROM sector_location sl
+          									  	WHERE sl.miner_id = mpd.sp_id
+          									  	  AND sl.sector_num = mpd.sector_num
+          									  	  AND sl.sector_filetype = 1
+          									  )
           									  AND NOT EXISTS(SELECT 1 FROM market_fix_raw_size f WHERE f.id = mpd.id) 
           									      LIMIT 1`)
 			if err != nil {
