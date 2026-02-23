@@ -131,24 +131,31 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 	var have, missing int64
 
 	for p, cents := range toCheck {
-		pieceCid, err := commcid.PieceCidV2FromV1(p.PieceCID, uint64(cents[0].RawSize))
-		if err != nil {
-			return xerrors.Errorf("getting piece commP: %w", err)
-		}
+		pieceCid := p.PieceCID
+		if cents[0].RawSize > 0 {
+			pcid2, err := commcid.PieceCidV2FromV1(p.PieceCID, uint64(cents[0].RawSize))
+			if err != nil {
+				log.Warnw("failed to generate piece cid v2, falling back to piece cid v1",
+					"piece", p.PieceCID, "raw_size", cents[0].RawSize, "err", err)
+				return xerrors.Errorf("failed to generate piece cid v2: %w", err)
+			}
 
-		// Check if the pieceV2 is present in the index store
-		hasEnt, err := c.indexStore.CheckHasPiece(ctx, pieceCid)
-		if err != nil {
-			return xerrors.Errorf("getting piece hash range: %w", err)
-		}
+			// Check if the pieceV2 is present in the index store
+			hasEnt, err := c.indexStore.CheckHasPiece(ctx, pcid2)
+			if err != nil {
+				return xerrors.Errorf("getting piece hash range: %w", err)
+			}
 
-		if hasEnt {
-			have++
-			continue
+			if hasEnt {
+				have++
+				continue
+			}
+		} else {
+			log.Warnw("raw_size unavailable, using piece cid v1", "piece", p.PieceCID, "raw_size", cents[0].RawSize)
 		}
 
 		// Check if the pieceV1 is present in the index store
-		hasEnt, err = c.indexStore.CheckHasPiece(ctx, p.PieceCID)
+		hasEnt, err := c.indexStore.CheckHasPiece(ctx, p.PieceCID)
 		if err != nil {
 			return xerrors.Errorf("getting piece hash range: %w", err)
 		}

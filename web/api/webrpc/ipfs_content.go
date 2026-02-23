@@ -2,12 +2,13 @@ package webrpc
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/commcidv2"
 )
@@ -89,28 +90,30 @@ func (a *WebRPC) maybeUpgradePieceCid(ctx context.Context, c cid.Cid) (bool, cid
 		return false, c, nil
 	}
 
-	// Lookup piece_cid in market_piece_deal (always v1), get raw_size and piece_length
-
-	// raw_size = if mpd.raw_size == 0, then Padded(piece_length).Unpadded() else mpd.raw_size
+	// Lookup piece_cid in market_piece_deal (always v1), get raw_size.
+	// If raw_size is unavailable we keep using v1.
 	var rawSize uint64
-	var pieceLength uint64
 
 	err := a.deps.DB.QueryRow(ctx, `
-		SELECT COALESCE(raw_size, 0), piece_length 
-		FROM market_piece_deal 
-		WHERE piece_cid = $1
-	`, c.String()).Scan(&rawSize, &pieceLength)
+			SELECT COALESCE(raw_size, 0)
+			FROM market_piece_deal 
+			WHERE piece_cid = $1
+			LIMIT 1
+		`, c.String()).Scan(&rawSize)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, c, nil
+		}
 		return false, c, xerrors.Errorf("failed to lookup piece info: %w", err)
 	}
 
-	if rawSize == 0 {
-		rawSize = uint64(abi.PaddedPieceSize(pieceLength).Unpadded())
+	if rawSize < 127 {
+		return false, c, nil
 	}
 
 	pcid2, err := commcid.PieceCidV2FromV1(c, rawSize)
 	if err != nil {
-		return false, c, err
+		return false, c, nil
 	}
 
 	return true, pcid2, nil
