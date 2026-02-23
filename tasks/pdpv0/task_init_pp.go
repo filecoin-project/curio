@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
@@ -130,7 +129,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// Check if the data set has any leaves (pieces) before attempting to initialize proving period
-	leafCount, err := pdpVerifier.GetDataSetLeafCount(nil, big.NewInt(dataSetId))
+	leafCount, err := pdpVerifier.GetDataSetLeafCount(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get leaf count for data set %d: %w", dataSetId, err)
 	}
@@ -151,18 +150,18 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return true, nil
 	}
 
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
-	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ipp.ethClient)
+	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ipp.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
 
-	config, err := provingSchedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
+	config, err := provingSchedule.GetPDPConfig(contract.EthCallOpts(ctx))
 	if err != nil {
 		return false, xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}
@@ -198,7 +197,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, nil
 	}
 
-	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(nil, big.NewInt(dataSetId))
+	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get default sender address: %w", err)
 	}

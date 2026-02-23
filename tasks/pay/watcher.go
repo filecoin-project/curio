@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
@@ -104,7 +103,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	serviceAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	viewAddr, err := contract.ResolveViewAddress(serviceAddr, ethClient)
+	viewAddr, err := contract.ResolveViewAddress(ctx, serviceAddr, ethClient)
 	if err != nil {
 		return xerrors.Errorf("failed to get FWSS view address: %w", err)
 	}
@@ -140,13 +139,13 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 	}
 
 	for _, railId := range settle.Rails {
-		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
+		view, err := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
 		if err != nil {
 			log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", err)
 			continue
 		}
 
-		dataSet, err := fwssv.RailToDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(railId))
+		dataSet, err := fwssv.RailToDataSet(contract.EthCallOpts(ctx), big.NewInt(railId))
 		if err != nil {
 			log.Errorw("failed to get rail to data set, skipping termination checks", "railId", railId, "error", err)
 			continue

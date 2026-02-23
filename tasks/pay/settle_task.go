@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
@@ -62,7 +61,7 @@ func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, fmt.Errorf("failed to create service registry: %w", err)
 	}
 
-	registered, err := registry.IsRegisteredProvider(&bind.CallOpts{Context: ctx}, opAddr)
+	registered, err := registry.IsRegisteredProvider(contract.EthCallOpts(ctx), opAddr)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if provider is registered: %w", err)
 	}
@@ -71,7 +70,7 @@ func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("provider is not registered")
 	}
 
-	provider, err := registry.GetProviderByAddress(&bind.CallOpts{Context: ctx}, opAddr)
+	provider, err := registry.GetProviderByAddress(contract.EthCallOpts(ctx), opAddr)
 	if err != nil {
 		return false, fmt.Errorf("failed to get provider: %w", err)
 	}

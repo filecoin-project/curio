@@ -12,7 +12,6 @@ import (
 	"sort"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -262,9 +261,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpVerifierAddress.Hex(), err)
 	}
 
-	callOpts := &bind.CallOpts{
-		Context: ctx,
-	}
+	callOpts := contract.EthCallOpts(ctx)
 
 	// Proof parameters
 	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(callOpts, big.NewInt(dataSetId))
@@ -459,15 +456,11 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, totalLeaves uint64, numChallenges int) ([]contract.IPDPTypesProof, error) {
 	proofs := make([]contract.IPDPTypesProof, numChallenges)
 
-	callOpts := &bind.CallOpts{
-		Context: ctx,
-	}
-
 	challenges := lo.Times(numChallenges, func(i int) int64 {
 		return generateChallengeIndex(seed, dataSetId, i, totalLeaves)
 	})
 
-	pieceId, err := pdpService.FindPieceIds(callOpts, big.NewInt(dataSetId), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
+	pieceId, err := pdpService.FindPieceIds(contract.EthCallOpts(ctx), big.NewInt(dataSetId), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find piece IDs: %w", err)
 	}

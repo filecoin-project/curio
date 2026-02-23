@@ -380,7 +380,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	)
 
 	// Step 8: Check for indexing requirements
-	mustIndex, err := CheckIfIndexingNeeded(p.ethClient, dataSetIdUint64)
+	mustIndex, err := CheckIfIndexingNeeded(ctx, p.ethClient, dataSetIdUint64)
 	if err != nil {
 		logAdd.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

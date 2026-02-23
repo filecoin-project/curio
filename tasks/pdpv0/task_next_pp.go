@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/samber/lo"
@@ -151,13 +150,13 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
-	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, n.ethClient)
+	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, n.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
@@ -168,7 +167,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to refresh proving period: %w", err)
 	}
 
-	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetId))
+	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		// not my favourite way to handle this but pragmatic
 		// for some reason we are in a proving loop running but it is not initialized
@@ -211,7 +210,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, nil
 	}
 
-	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(nil, big.NewInt(dataSetId))
+	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get default sender address: %w", err)
 	}
@@ -311,7 +310,7 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context, 
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	removals, err := verifier.GetScheduledRemovals(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetId))
+	removals, err := verifier.GetScheduledRemovals(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return xerrors.Errorf("failed to get scheduled removals: %w", err)
 	}
@@ -341,7 +340,7 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context, 
 		})
 		if !contains {
 			// Check for the case where next proving period has run and piece deletions fully processed
-			live, err := verifier.PieceLive(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetId), pieceID)
+			live, err := verifier.PieceLive(contract.EthCallOpts(ctx), big.NewInt(dataSetId), pieceID)
 			if err != nil {
 				return xerrors.Errorf("failed to check if piece is live: %w", err)
 			}
@@ -381,7 +380,7 @@ func (n *NextProvingPeriodTask) processPendingPieceDeletes(ctx context.Context, 
 
 // Note: this function needs revisiting if we are ever *shrinking* proving period or challenge window values
 func (n *NextProvingPeriodTask) refreshProvingPeriod(ctx context.Context, dataSetId int64, provingSchedule *contract.IPDPProvingSchedule) error {
-	config, err := provingSchedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
+	config, err := provingSchedule.GetPDPConfig(contract.EthCallOpts(ctx))
 	if err != nil {
 		return xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}
