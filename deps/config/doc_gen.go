@@ -778,6 +778,14 @@ NOTE: This definitely is not safe on PoSt nodes.`,
 only need to be run on a single machine in the cluster. (Default: false)`,
 		},
 		{
+			Name: "WebInstanceColorHue",
+			Type: "uint8",
+
+			Comment: `WebInstanceColorHue sets a hue value (0-255) to visually identify this cluster instance in the web GUI.
+When set, the UI displays a 3px right border with a pastel desaturated color of the specified hue.
+Examples: 0=LightCoral, 60=Khaki, 120=LightGreen, 240=LightSteelBlue`,
+		},
+		{
 			Name: "GuiAddress",
 			Type: "string",
 

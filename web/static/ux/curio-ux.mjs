@@ -4,6 +4,7 @@ import RPCCall from '/lib/jsonrpc.mjs';
 class CurioUX extends LitElement {
   static properties = {
     alertCount: { type: Number },
+    instanceColor: { type: Number },
   };
   static styles = css`
     .curio-slot {
@@ -142,6 +143,7 @@ class CurioUX extends LitElement {
   constructor() {
     super();
     this.alertCount = 0;
+    this.instanceColor = null;
   }
 
   connectedCallback() {
@@ -163,6 +165,22 @@ class CurioUX extends LitElement {
 
     // Load alert status
     this.loadAlertStatus();
+    
+    // Load instance color
+    this.loadInstanceColor();
+  }
+
+  async loadInstanceColor() {
+    try {
+      const color = await RPCCall('InstanceColor');
+      if (color > 0) {
+        this.instanceColor = color;
+        this.requestUpdate();
+      }
+    } catch (e) {
+      // Silently fail - color endpoint may not exist
+      this.instanceColor = null;
+    }
   }
 
   async loadAlertStatus() {
@@ -211,8 +229,11 @@ class CurioUX extends LitElement {
   }
 
   renderMenu(active) {
+    const menuStyle = this.instanceColor !== null 
+      ? `width: 240px; min-height:100vh; margin-right: 1rem; background-color: #2a2a2e; border-right: 3px solid hsl(${this.instanceColor}, 35%, 45%);` 
+      : 'width: 240px; min-height:100vh; margin-right: 1rem; background-color: #2a2a2e;';
     return html`
-       <div class="d-flex flex-column flex-shrink-0 p-3 text-white" style="width: 240px; min-height:100vh; margin-right: 1rem; background-color: #2a2a2e;">
+       <div class="d-flex flex-column flex-shrink-0 p-3 text-white" style="${menuStyle}">
           <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
           <img src="/favicon.svg" width="40" height="32" class="d-inline-block align-top me-2" alt="">
           <span class="fs-4">Curio</span>

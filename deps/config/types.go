@@ -377,6 +377,11 @@ type CurioSubsystemsConfig struct {
 	// only need to be run on a single machine in the cluster. (Default: false)
 	EnableWebGui bool
 
+	// WebInstanceColorHue sets a hue value (0-255) to visually identify this cluster instance in the web GUI.
+	// When set, the UI displays a 3px right border with a pastel desaturated color of the specified hue.
+	// Examples: 0=LightCoral, 60=Khaki, 120=LightGreen, 240=LightSteelBlue
+	WebInstanceColorHue uint8
+
 	// The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:4701)
 	GuiAddress string
 
