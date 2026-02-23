@@ -166,8 +166,15 @@ func init() {
 // that implements viewContractAddress(). Service contracts (like FWSS) use
 // separate view contracts for read-only operations that are not available on
 // the service proxy itself.
-// Results are cached for 1 hour to avoid repeated eth_call RPCs for a value
-// that rarely changes.
+//
+// Results are cached for 1 hour to avoid repeated eth_call RPCs. The view
+// address can be changed by the contract owner via setViewContract() (in FWSS
+// at least) but this is expected to be infrequent (deployment or maintenance
+// operations).
+// A stale cache is safe: view contracts are intended to be read-only lenses
+// over the same underlying storage, so an old view address still returns valid
+// data. At worst, staleness delays visibility of newly added view functions,
+// which would also require a Curio code update to consume.
 func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClient *ethclient.Client) (common.Address, error) {
 	key := strings.ToLower(serviceAddr.Hex())
 	if cached, err := viewAddressCache.Get(key); err == nil {
