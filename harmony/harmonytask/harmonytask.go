@@ -279,17 +279,7 @@ type task struct {
 
 // pollerTryAllWork attempts to start tasks from the given taskSource.
 func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
-	// Check if the machine is schedulable
-	schedulable, err := e.checkNodeFlags()
-	if err != nil {
-		return fmt.Errorf("unable to check schedulable status: %w", err)
-
-	}
-
-	e.yieldBackground.Store(!schedulable)
-
-	if !schedulable {
-		log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
+	if e.yieldBackground.Load() {
 		return nil
 	}
 
@@ -314,25 +304,6 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 
 	}()
 	for _, v := range e.handlers {
-		if !schedulable {
-			if v.SchedulingOverrides == nil {
-				continue
-			}
-
-			// Override the schedulable flag if the task has any assigned overrides
-			var foundOverride bool
-			for relatedTaskName := range v.SchedulingOverrides {
-				assignedTasks := taskSource.GetTasks(relatedTaskName)
-				if len(assignedTasks) > 0 {
-					foundOverride = true
-					break
-				}
-			}
-			if !foundOverride {
-				continue
-			}
-		}
-
 		if capacity, err := v.AssertMachineHasCapacity(); err != nil || capacity == 0 {
 			if err != nil {
 				log.Debugf("skipped scheduling %s type tasks due to %s", v.Name, err.Error())
@@ -359,10 +330,6 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		}
 	}
 
-	if !schedulable {
-		return nil
-	}
-
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
 		v := v
@@ -370,13 +337,14 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 			continue
 		}
 		if v.IAmBored != nil {
-			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
-				e.AddTaskByName(v.Name, extraInfo)
-			})
-			if err != nil {
-				log.Error("IAmBored failed: ", err)
-				continue
-			}
+			go func() { // no db work on the main thread
+				err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
+					e.AddTaskByName(v.Name, extraInfo)
+				})
+				if err != nil {
+					log.Error("IAmBored failed: ", err)
+				}
+			}()
 		}
 	}
 	return nil

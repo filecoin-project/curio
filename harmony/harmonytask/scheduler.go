@@ -12,13 +12,17 @@ import (
 
 type schedulerEvent struct {
 	TaskID
-	TaskType string
-	Source   schedulerSource
-	PeerID   int64
-	Retries  int
-	DBTasks  map[string][]task // only set for schedulerSourceDBPoll
+	TaskType    string
+	Source      schedulerSource
+	PeerID      int64
+	Retries     int
+	DBTasks     map[string][]task   // only set for schedulerSourceDBPoll
+	PreAccepted map[string][]TaskID // CanAccept results from background poller
 }
 
+// schedulerSource is the source of the scheduler event.
+// The scheduler starts tasks tasks based on events (from this & other nodes)
+// The differences inform how the scheduler takes care of its internal state.
 type schedulerSource byte
 
 const (
@@ -54,6 +58,14 @@ func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
 	}
 }
 
+// The scheduler is a single-threaded event loop that reads from the schedulerChannel.
+// It is responsible for scheduling tasks and notifying other nodes about new tasks,
+// reservations, and work starts.
+// For performace, it has minimal DB interactions (just claiming tasks) & no network wait.
+// All network work is done by the peering layer.
+// All DB retrievals (tasks & cordon) are done by the background poller.
+// CanAccept is done by the batcher with main-thread fallback.
+// All task completion is done by that task's goroutine.
 func (e *TaskEngine) startScheduler() {
 	go func() {
 		for {
@@ -78,9 +90,37 @@ func (e *TaskEngine) startScheduler() {
 				return
 			case <-timer.C:
 				dbTasks := e.pollAllTaskTypes()
+				if schedulable, err := e.checkNodeFlags(); err != nil {
+					log.Errorw("failed to check node flags", "error", err)
+				} else {
+					e.yieldBackground.Store(!schedulable)
+				}
+				var preAccepted map[string][]TaskID
+				if dbTasks != nil && !e.yieldBackground.Load() {
+					preAccepted = make(map[string][]TaskID, len(e.handlers))
+					for _, h := range e.handlers {
+						tasks := dbTasks[h.Name]
+						if len(tasks) == 0 {
+							continue
+						}
+						ids := make([]TaskID, len(tasks))
+						for i, t := range tasks {
+							ids[i] = t.ID
+						}
+						accepted, err := h.CanAccept(ids, e)
+						if err != nil {
+							log.Errorw("CanAccept pre-check failed", "taskType", h.Name, "error", err)
+							continue
+						}
+						if len(accepted) > 0 {
+							preAccepted[h.Name] = accepted
+						}
+					}
+				}
 				e.schedulerChannel <- schedulerEvent{
-					Source:  schedulerSourceDBPoll,
-					DBTasks: dbTasks,
+					Source:      schedulerSourceDBPoll,
+					DBTasks:     dbTasks,
+					PreAccepted: preAccepted,
 				}
 				timer.Reset(e.pollDuration.Load().(time.Duration))
 			}
@@ -132,9 +172,15 @@ func (e *TaskEngine) startScheduler() {
 						}
 						availableTasks[taskName] = newSched
 					}
+					for taskName, accepted := range event.PreAccepted {
+						if h := e.taskMap[taskName]; h != nil {
+							h.acceptedTasks = append(h.acceptedTasks, accepted...)
+							h.lastAcceptedTime = time.Now()
+						}
+					}
 					if hasNew {
 						if err := e.pollerTryAllWork(ts, ee); err != nil {
-							log.Errorw("failed waterfall", "error", err)
+							log.Errorw("failed tryAllWork", "error", err)
 						}
 					}
 				case schedulerSourceAdded:
@@ -142,7 +188,7 @@ func (e *TaskEngine) startScheduler() {
 						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 							if err := e.pollerTryAllWork(ts, ee); err != nil {
-								log.Errorw("failed waterfall", "error", err)
+								log.Errorw("failed tryAllWork", "error", err)
 							}
 						} else {
 							bundleCollector(event.TaskType)
@@ -161,7 +207,7 @@ func (e *TaskEngine) startScheduler() {
 					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 						if err := e.pollerTryAllWork(ts, ee); err != nil {
-							log.Errorw("failed waterfall", "error", err)
+							log.Errorw("failed tryAllWork", "error", err)
 						}
 					} else {
 						bundleCollector(event.TaskType)
@@ -188,7 +234,7 @@ func (e *TaskEngine) startScheduler() {
 					}
 				case schedulerSourceTaskCompleted:
 					if err := e.pollerTryAllWork(ts, ee); err != nil {
-						log.Errorw("failed waterfall", "error", err)
+						log.Errorw("failed tryAllWork", "error", err)
 					}
 				case schedulerSourcePeerReserved: // FUTURE: apply and respect reservations for anti-starve common tasks.
 					avail, ok := availableTasks[event.TaskType]
@@ -208,7 +254,7 @@ func (e *TaskEngine) startScheduler() {
 				}
 			case <-bundleSleep:
 				if err := e.pollerTryAllWork(ts, ee); err != nil {
-					log.Errorw("failed waterfall", "error", err)
+					log.Errorw("failed tryAllWork", "error", err)
 				}
 			}
 			// FUTURE: RetryWait could start timers.
@@ -226,7 +272,7 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 
 	err := e.pollerTryAllWork(taskSource, eventEmitter)
 	if err != nil {
-		log.Errorw("failed to try waterfall", "error", err)
+		log.Errorw("failed to try tryAllWork", "error", err)
 		return 0, err
 	}
 
