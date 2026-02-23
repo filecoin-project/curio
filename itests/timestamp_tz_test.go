@@ -45,9 +45,9 @@ func TestTimestampTimezoneHandling(t *testing.T) {
 
 	timezones := []string{
 		"UTC",
-		"America/New_York",  // UTC-5 (EST) / UTC-4 (EDT)
-		"Asia/Kolkata",      // UTC+5:30 (fixed, no DST)
-		"Pacific/Auckland",  // UTC+12 (NZST) / UTC+13 (NZDT)
+		"America/New_York", // UTC-5 (EST) / UTC-4 (EDT)
+		"Asia/Kolkata",     // UTC+5:30 (fixed, no DST)
+		"Pacific/Auckland", // UTC+12 (NZST) / UTC+13 (NZDT)
 	}
 
 	for _, tz := range timezones {
