@@ -326,24 +326,18 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("removing sector: %w", err)
 		}
 
-		// get ticket
-		if t.Pipeline == "remote" && t.TicketEpoch.Valid {
-			// Remote sectors already have tickets from the client
-			ticketEpochs[i] = abi.ChainEpoch(t.TicketEpoch.Int64)
-			tickets[i] = abi.SealRandomness(t.TicketValue)
-		} else {
-			maddr, err := address.NewIDAddress(uint64(t.SpID))
-			if err != nil {
-				return false, xerrors.Errorf("getting miner address: %w", err)
-			}
-
-			ticket, ticketEpoch, err := seal.GetTicket(ctx, s.api, maddr)
-			if err != nil {
-				return false, xerrors.Errorf("getting ticket: %w", err)
-			}
-			ticketEpochs[i] = ticketEpoch
-			tickets[i] = ticket
+		maddr, err := address.NewIDAddress(uint64(t.SpID))
+		if err != nil {
+			return false, xerrors.Errorf("getting miner address: %w", err)
 		}
+
+		ticket, ticketEpoch, err := seal.GetTicket(ctx, s.api, maddr)
+		if err != nil {
+			return false, xerrors.Errorf("getting ticket: %w", err)
+		}
+		ticketEpochs[i] = ticketEpoch
+		tickets[i] = ticket
+
 
 		spt := abi.RegisteredSealProof(t.RegSealProof)
 		replicaIDs[i], err = spt.ReplicaId(abi.ActorID(t.SpID), abi.SectorNumber(t.SectorNumber), tickets[i], commd)
@@ -614,7 +608,7 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 			UNION ALL
 			(SELECT sp_id, sector_number, task_id_sdr, 'remote' as pipeline FROM rseal_provider_pipeline
 			 LEFT JOIN harmony_task ht on rseal_provider_pipeline.task_id_sdr = ht.id
-			 WHERE after_sdr = FALSE AND ticket_epoch IS NOT NULL AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1)
+			 WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1)
 			LIMIT $1`, s.sectors)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
