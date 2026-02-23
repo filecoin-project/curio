@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
@@ -58,7 +57,7 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	live, err := verifier.DataSetLive(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetId))
+	live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to check if data set is live: %w", err)
 	}

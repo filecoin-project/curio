@@ -6,7 +6,6 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
@@ -71,7 +70,7 @@ func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *eth
 			return xerrors.Errorf("data set delete tx %s failed for data set %d", detail.TxHash, detail.ID)
 		}
 
-		live, err := verifier.DataSetLive(&bind.CallOpts{Context: ctx}, big.NewInt(detail.ID))
+		live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(detail.ID))
 		if err != nil {
 			return xerrors.Errorf("failed to check if data set is live: %w", err)
 		}

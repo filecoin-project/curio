@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"context"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -14,6 +15,7 @@ import (
 // Returns true if indexing is needed, false otherwise.
 // This is a read-only check that can be done outside a transaction for existing datasets.
 func CheckIfIndexingNeeded(
+	ctx context.Context,
 	ethClient *ethclient.Client,
 	dataSetId uint64,
 ) (bool, error) {
@@ -25,14 +27,14 @@ func CheckIfIndexingNeeded(
 	}
 
 	// Get the listener (record keeper) address for this data set
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, new(big.Int).SetUint64(dataSetId))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), new(big.Int).SetUint64(dataSetId))
 	if err != nil {
 		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
 		return false, err
 	}
 
 	// Check if the withIPFSIndexing metadata exists
-	mustIndex, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, ethClient, new(big.Int).SetUint64(dataSetId), "withIPFSIndexing")
+	mustIndex, _, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, new(big.Int).SetUint64(dataSetId), "withIPFSIndexing")
 	if err != nil {
 		// Hard to differentiate between unsupported listener type OR internal error
 		// So we log and skip indexing attempt

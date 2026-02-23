@@ -150,12 +150,12 @@ func encodeBool(b bool) []byte {
 // This function assumes that the service contract implements
 // viewContractAddress() and therefore returns an error if the view address
 // cannot be resolved.
-func ResolveViewAddress(serviceAddr common.Address, ethClient *ethclient.Client) (common.Address, error) {
+func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClient *ethclient.Client) (common.Address, error) {
 	svc, err := NewContractWithView(serviceAddr, ethClient)
 	if err != nil {
 		return common.Address{}, xerrors.Errorf("failed to bind to service at %s: %w", serviceAddr, err)
 	}
-	viewAddr, err := svc.ViewContractAddress(nil)
+	viewAddr, err := svc.ViewContractAddress(EthCallOpts(ctx))
 	if err != nil {
 		return common.Address{}, xerrors.Errorf("failed to get view contract address: %w", err)
 	}
@@ -168,9 +168,9 @@ func ResolveViewAddress(serviceAddr common.Address, ethClient *ethclient.Client)
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
 // It uses the view contract address if available, otherwise uses the listener address directly.
-func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethclient.Client) (*IPDPProvingSchedule, error) {
+func GetProvingScheduleFromListener(ctx context.Context, listenerAddr common.Address, ethClient *ethclient.Client) (*IPDPProvingSchedule, error) {
 	provingScheduleAddr := listenerAddr
-	if viewAddr, err := ResolveViewAddress(listenerAddr, ethClient); err == nil {
+	if viewAddr, err := ResolveViewAddress(ctx, listenerAddr, ethClient); err == nil {
 		provingScheduleAddr = viewAddr
 	} // else we'll assume that the listener contract itself implements IPDPProvingSchedule
 
@@ -182,9 +182,9 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 	return provingSchedule, nil
 }
 
-func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *mbig.Int, key string) (bool, string, error) {
+func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *mbig.Int, key string) (bool, string, error) {
 	metadataAddr := listenerAddr
-	if viewAddr, err := ResolveViewAddress(listenerAddr, ethClient); err == nil {
+	if viewAddr, err := ResolveViewAddress(ctx, listenerAddr, ethClient); err == nil {
 		metadataAddr = viewAddr
 	} // else we'll still try from the listener contract just in case
 
@@ -195,7 +195,7 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 		return false, "", nil
 	}
 
-	out, err := mDataService.GetDataSetMetadata(nil, dataSetId, key)
+	out, err := mDataService.GetDataSetMetadata(EthCallOpts(ctx), dataSetId, key)
 	if err != nil {
 		return false, "", err
 	}

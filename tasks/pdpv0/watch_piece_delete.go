@@ -76,7 +76,7 @@ func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *et
 	}
 
 	for _, piece := range pieces {
-		live, err := verifier.PieceLive(nil, big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
+		live, err := verifier.PieceLive(contract.EthCallOpts(ctx), big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
 		if err != nil {
 			return xerrors.Errorf("failed to check if piece is live: %w", err)
 		}
