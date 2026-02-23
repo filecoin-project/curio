@@ -48,13 +48,21 @@ type RSealProvPipelineRow struct {
 	SectorNumber int64  `db:"sector_number" json:"sector_number"`
 	PartnerName  string `db:"partner_name" json:"partner_name"`
 
-	AfterSDR        bool   `db:"after_sdr" json:"after_sdr"`
-	AfterTreeD      bool   `db:"after_tree_d" json:"after_tree_d"`
-	AfterTreeC      bool   `db:"after_tree_c" json:"after_tree_c"`
-	AfterTreeR      bool   `db:"after_tree_r" json:"after_tree_r"`
+	TaskIDSDR   *int64 `db:"task_id_sdr" json:"task_id_sdr"`
+	AfterSDR    bool   `db:"after_sdr" json:"after_sdr"`
+	TaskIDTreeD *int64 `db:"task_id_tree_d" json:"task_id_tree_d"`
+	AfterTreeD  bool   `db:"after_tree_d" json:"after_tree_d"`
+	TaskIDTreeC *int64 `db:"task_id_tree_c" json:"task_id_tree_c"`
+	AfterTreeC  bool   `db:"after_tree_c" json:"after_tree_c"`
+	TaskIDTreeR *int64 `db:"task_id_tree_r" json:"task_id_tree_r"`
+	AfterTreeR  bool   `db:"after_tree_r" json:"after_tree_r"`
+
+	TaskIDNotify    *int64 `db:"task_id_notify_client" json:"task_id_notify_client"`
 	AfterNotify     bool   `db:"after_notify_client" json:"after_notify_client"`
+	TaskIDFinalize  *int64 `db:"task_id_finalize" json:"task_id_finalize"`
 	AfterC1         bool   `db:"after_c1_supplied" json:"after_c1_supplied"`
 	AfterFinalize   bool   `db:"after_finalize" json:"after_finalize"`
+	TaskIDCleanup   *int64 `db:"task_id_cleanup" json:"task_id_cleanup"`
 	AfterCleanup    bool   `db:"after_cleanup" json:"after_cleanup"`
 	Failed          bool   `db:"failed" json:"failed"`
 	FailedReasonMsg string `db:"failed_reason_msg" json:"failed_reason_msg"`
@@ -361,11 +369,14 @@ func (a *WebRPC) RSealCheckProviderAvailability(ctx context.Context) ([]RSealPro
 func (a *WebRPC) RSealProviderPipeline(ctx context.Context) ([]RSealProvPipelineRow, error) {
 	var rows []RSealProvPipelineRow
 	err := a.deps.DB.Select(ctx, &rows, `SELECT p.sp_id, p.sector_number, d.partner_name,
-		p.after_sdr, p.after_tree_d, p.after_tree_c, p.after_tree_r,
-		p.after_notify_client, p.after_c1_supplied, p.after_finalize, p.after_cleanup,
+		p.task_id_sdr, p.after_sdr, p.task_id_tree_d, p.after_tree_d,
+		p.task_id_tree_c, p.after_tree_c, p.task_id_tree_r, p.after_tree_r,
+		p.task_id_notify_client, p.after_notify_client, p.after_c1_supplied,
+		p.task_id_finalize, p.after_finalize, p.task_id_cleanup, p.after_cleanup,
 		p.failed, p.failed_reason_msg, p.create_time
 		FROM rseal_provider_pipeline p
 		JOIN rseal_delegated_partners d ON p.partner_id = d.id
+		WHERE p.after_cleanup = FALSE
 		ORDER BY p.create_time DESC
 		LIMIT 100`)
 	if err != nil {
@@ -390,6 +401,7 @@ func (a *WebRPC) RSealClientPipeline(ctx context.Context) ([]RSealClientPipeline
 		c.failed, c.failed_reason_msg, c.create_time
 		FROM rseal_client_pipeline c
 		JOIN rseal_client_providers p ON c.provider_id = p.id
+		WHERE c.after_cleanup = FALSE
 		ORDER BY c.create_time DESC
 		LIMIT 100`)
 	if err != nil {
@@ -399,4 +411,218 @@ func (a *WebRPC) RSealClientPipeline(ctx context.Context) ([]RSealClientPipeline
 		rows = []RSealClientPipelineRow{}
 	}
 	return rows, nil
+}
+
+// RSealProviderStats returns aggregate statistics for the remote seal provider pipeline.
+func (a *WebRPC) RSealProviderStats(ctx context.Context) (*PipelineStats, error) {
+	var out PipelineStats
+
+	const query = `
+WITH pipeline_data AS (
+    SELECT p.*,
+           sdr.owner_id AS sdr_owner,
+           td.owner_id AS tree_d_owner,
+           tc.owner_id AS tree_c_owner,
+           tr.owner_id AS tree_r_owner,
+           notify.owner_id AS notify_owner,
+           fin.owner_id AS finalize_owner,
+           clean.owner_id AS cleanup_owner
+    FROM rseal_provider_pipeline p
+    LEFT JOIN harmony_task sdr ON sdr.id = p.task_id_sdr
+    LEFT JOIN harmony_task td ON td.id = p.task_id_tree_d
+    LEFT JOIN harmony_task tc ON tc.id = p.task_id_tree_c
+    LEFT JOIN harmony_task tr ON tr.id = p.task_id_tree_r
+    LEFT JOIN harmony_task notify ON notify.id = p.task_id_notify_client
+    LEFT JOIN harmony_task fin ON fin.id = p.task_id_finalize
+    LEFT JOIN harmony_task clean ON clean.id = p.task_id_cleanup
+    WHERE p.after_cleanup = FALSE AND p.failed = FALSE
+)
+SELECT
+    COUNT(*) AS total,
+
+    -- SDR stage
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NULL) AS sdr_pending,
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NOT NULL) AS sdr_running,
+
+    -- TreeD stage
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NULL) AS treed_pending,
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NOT NULL) AS treed_running,
+
+    -- TreeC stage
+    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NULL) AS treec_pending,
+    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NOT NULL) AS treec_running,
+
+    -- TreeR stage
+    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NULL) AS treer_pending,
+    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NOT NULL) AS treer_running,
+
+    -- Notify stage
+    COUNT(*) FILTER (WHERE after_tree_r = true AND after_notify_client = false AND task_id_notify_client IS NOT NULL AND notify_owner IS NULL) AS notify_pending,
+    COUNT(*) FILTER (WHERE after_tree_r = true AND after_notify_client = false AND task_id_notify_client IS NOT NULL AND notify_owner IS NOT NULL) AS notify_running,
+
+    -- Finalize stage
+    COUNT(*) FILTER (WHERE after_c1_supplied = true AND after_finalize = false AND task_id_finalize IS NOT NULL AND finalize_owner IS NULL) AS finalize_pending,
+    COUNT(*) FILTER (WHERE after_c1_supplied = true AND after_finalize = false AND task_id_finalize IS NOT NULL AND finalize_owner IS NOT NULL) AS finalize_running,
+
+    -- Cleanup stage
+    COUNT(*) FILTER (WHERE after_finalize = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NULL) AS cleanup_pending,
+    COUNT(*) FILTER (WHERE after_finalize = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NOT NULL) AS cleanup_running
+FROM pipeline_data
+`
+
+	var cts []struct {
+		Total int64 `db:"total"`
+
+		SDRPending      int64 `db:"sdr_pending"`
+		SDRRunning      int64 `db:"sdr_running"`
+		TreeDPending    int64 `db:"treed_pending"`
+		TreeDRunning    int64 `db:"treed_running"`
+		TreeCPending    int64 `db:"treec_pending"`
+		TreeCRunning    int64 `db:"treec_running"`
+		TreeRPending    int64 `db:"treer_pending"`
+		TreeRRunning    int64 `db:"treer_running"`
+		NotifyPending   int64 `db:"notify_pending"`
+		NotifyRunning   int64 `db:"notify_running"`
+		FinalizePending int64 `db:"finalize_pending"`
+		FinalizeRunning int64 `db:"finalize_running"`
+		CleanupPending  int64 `db:"cleanup_pending"`
+		CleanupRunning  int64 `db:"cleanup_running"`
+	}
+
+	err := a.deps.DB.Select(ctx, &cts, query)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to run remote seal provider stats query: %w", err)
+	}
+
+	if len(cts) == 0 {
+		return &PipelineStats{
+			Total: 0,
+			Stages: []PipelineStage{
+				{Name: "SDR", Pending: 0, Running: 0},
+				{Name: "TreeD", Pending: 0, Running: 0},
+				{Name: "TreeC", Pending: 0, Running: 0},
+				{Name: "TreeR", Pending: 0, Running: 0},
+				{Name: "Notify", Pending: 0, Running: 0},
+				{Name: "Finalize", Pending: 0, Running: 0},
+				{Name: "Cleanup", Pending: 0, Running: 0},
+			},
+		}, nil
+	}
+
+	counts := cts[0]
+
+	out.Total = counts.Total
+	out.Stages = []PipelineStage{
+		{Name: "SDR", Pending: counts.SDRPending, Running: counts.SDRRunning},
+		{Name: "TreeD", Pending: counts.TreeDPending, Running: counts.TreeDRunning},
+		{Name: "TreeC", Pending: counts.TreeCPending, Running: counts.TreeCRunning},
+		{Name: "TreeR", Pending: counts.TreeRPending, Running: counts.TreeRRunning},
+		{Name: "Notify", Pending: counts.NotifyPending, Running: counts.NotifyRunning},
+		{Name: "Finalize", Pending: counts.FinalizePending, Running: counts.FinalizeRunning},
+		{Name: "Cleanup", Pending: counts.CleanupPending, Running: counts.CleanupRunning},
+	}
+
+	return &out, nil
+}
+
+// RSealClientStats returns aggregate statistics for the remote seal client pipeline.
+func (a *WebRPC) RSealClientStats(ctx context.Context) (*PipelineStats, error) {
+	var out PipelineStats
+
+	const query = `
+WITH pipeline_data AS (
+    SELECT c.*,
+           sdr.owner_id AS sdr_owner,
+           td.owner_id AS tree_d_owner,
+           tc.owner_id AS tree_c_owner,
+           tr.owner_id AS tree_r_owner,
+           fetch.owner_id AS fetch_owner,
+           clean.owner_id AS cleanup_owner
+    FROM rseal_client_pipeline c
+    LEFT JOIN harmony_task sdr ON sdr.id = c.task_id_sdr
+    LEFT JOIN harmony_task td ON td.id = c.task_id_tree_d
+    LEFT JOIN harmony_task tc ON tc.id = c.task_id_tree_c
+    LEFT JOIN harmony_task tr ON tr.id = c.task_id_tree_r
+    LEFT JOIN harmony_task fetch ON fetch.id = c.task_id_fetch
+    LEFT JOIN harmony_task clean ON clean.id = c.task_id_cleanup
+    WHERE c.after_cleanup = FALSE AND c.failed = FALSE
+)
+SELECT
+    COUNT(*) AS total,
+
+    -- SDR stage
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NULL) AS sdr_pending,
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NOT NULL) AS sdr_running,
+
+    -- TreeD stage
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NULL) AS treed_pending,
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NOT NULL) AS treed_running,
+
+    -- TreeC stage
+    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NULL) AS treec_pending,
+    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NOT NULL) AS treec_running,
+
+    -- TreeR stage
+    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NULL) AS treer_pending,
+    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NOT NULL) AS treer_running,
+
+    -- Fetch stage
+    COUNT(*) FILTER (WHERE after_tree_r = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NULL) AS fetch_pending,
+    COUNT(*) FILTER (WHERE after_tree_r = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NOT NULL) AS fetch_running,
+
+    -- Cleanup stage
+    COUNT(*) FILTER (WHERE after_fetch = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NULL) AS cleanup_pending,
+    COUNT(*) FILTER (WHERE after_fetch = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NOT NULL) AS cleanup_running
+FROM pipeline_data
+`
+
+	var cts []struct {
+		Total int64 `db:"total"`
+
+		SDRPending     int64 `db:"sdr_pending"`
+		SDRRunning     int64 `db:"sdr_running"`
+		TreeDPending   int64 `db:"treed_pending"`
+		TreeDRunning   int64 `db:"treed_running"`
+		TreeCPending   int64 `db:"treec_pending"`
+		TreeCRunning   int64 `db:"treec_running"`
+		TreeRPending   int64 `db:"treer_pending"`
+		TreeRRunning   int64 `db:"treer_running"`
+		FetchPending   int64 `db:"fetch_pending"`
+		FetchRunning   int64 `db:"fetch_running"`
+		CleanupPending int64 `db:"cleanup_pending"`
+		CleanupRunning int64 `db:"cleanup_running"`
+	}
+
+	err := a.deps.DB.Select(ctx, &cts, query)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to run remote seal client stats query: %w", err)
+	}
+
+	if len(cts) == 0 {
+		return &PipelineStats{
+			Total: 0,
+			Stages: []PipelineStage{
+				{Name: "SDR", Pending: 0, Running: 0},
+				{Name: "TreeD", Pending: 0, Running: 0},
+				{Name: "TreeC", Pending: 0, Running: 0},
+				{Name: "TreeR", Pending: 0, Running: 0},
+				{Name: "Fetch", Pending: 0, Running: 0},
+				{Name: "Cleanup", Pending: 0, Running: 0},
+			},
+		}, nil
+	}
+
+	counts := cts[0]
+
+	out.Total = counts.Total
+	out.Stages = []PipelineStage{
+		{Name: "SDR", Pending: counts.SDRPending, Running: counts.SDRRunning},
+		{Name: "TreeD", Pending: counts.TreeDPending, Running: counts.TreeDRunning},
+		{Name: "TreeC", Pending: counts.TreeCPending, Running: counts.TreeCRunning},
+		{Name: "TreeR", Pending: counts.TreeRPending, Running: counts.TreeRRunning},
+		{Name: "Fetch", Pending: counts.FetchPending, Running: counts.FetchRunning},
+		{Name: "Cleanup", Pending: counts.CleanupPending, Running: counts.CleanupRunning},
+	}
+
+	return &out, nil
 }
