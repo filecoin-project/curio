@@ -7,7 +7,7 @@ description: This page explains how to set up Curio batch sealing (extern/supras
 {% hint style="danger" %}
 **Disclaimer:** Batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Some additional manual system configuration is required.
 
-Batch sealing only supports **CC sectors** at the moment.
+Batch sealing only supports **CC sectors** at the moment. The recommended workflow for onboarding deal data is to batch-seal CC sectors and then upgrade them with SnapDeals.
 
 If you enable batch sealing on a node but do **not** enable SnapDeals in the cluster, deals may be routed into the CC/batch pipeline which will seal empty sectors (discarding deal data). Make sure SnapDeals are enabled if you intend to onboard real data deals.
 {% endhint %}
@@ -17,7 +17,7 @@ If you enable batch sealing on a node but do **not** enable SnapDeals in the clu
 Curio includes a **CC Scheduler** UI and DB table (`sectors_cc_scheduler`) used to decide how many CC sectors to queue for batch sealing per SP.
 
 - The **CC Scheduler is only used for batch sealing**.
-- Do not enable or rely on it for deals/SnapDeals.
+- Do not enable or rely on it for deals.
 
 Curio’s web UI exposes this as the **CC Scheduler** page/tab.
 
@@ -34,7 +34,7 @@ Curio’s web UI exposes this as the **CC Scheduler** page/tab.
 * NVMe drives with high IOPS (10-20M total IOPS recommended)
 * GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
 * 1GB hugepages configured (minimum 36 pages)
-* Ubuntu or compatible Linux distribution (**gcc-13 required**, doesn't need to be system-wide)
+* Ubuntu or compatible Linux distribution (**GCC 12 or 13 required**, doesn't need to be system-wide)
 * At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
   * Without **all** memory channels populated sealing **performance will suffer drastically**
 * NUMA-Per-Socket (NPS) set to 1
@@ -132,14 +132,26 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 
 ### Dependencies
 
-CUDA 12.x is required, 11.x won't work. The build process depends on GCC 13.x system-wide or `gcc-13`/`g++-13` installed locally.
+CUDA 12.x or later is required (11.x won't work). The build process requires **GCC 12 or 13** — system-wide or as `gcc-12`/`g++-12` (or `gcc-13`/`g++-13`) installed locally.
 
-* On Arch install GCC 13 via your distro/AUR as appropriate
-* On Ubuntu/Debian install `gcc-13` and `g++-13` packages
+{% hint style="warning" %}
+**CUDA / GCC compatibility:** Your CUDA toolkit version determines which GCC it supports as a host compiler:
+* **CUDA 12.0–12.5:** supports GCC up to 12.x only → use `gcc-12`/`g++-12`
+* **CUDA 12.6+:** supports GCC up to 13.2 → either GCC 12 or 13 works
+* **CUDA 13.0+:** supports GCC 13+ → use `gcc-13`/`g++-13`
+
+If you get nvcc errors about unsupported compiler versions, check your CUDA/GCC pairing.
+{% endhint %}
+
+* On Arch install GCC 12 or 13 via your distro/AUR as appropriate
+* On Ubuntu/Debian install `gcc-12` and `g++-12` (or `gcc-13`/`g++-13`)
     ```shell
+    # For CUDA 12.0–12.5:
+    sudo apt install gcc-12 g++-12
+    # For CUDA 12.6+ or CUDA 13+:
     sudo apt install gcc-13 g++-13
     ```
-* In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+* In addition to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
     ```shell
     sudo apt install libgmp-dev libconfig++-dev
     ```
@@ -478,7 +490,7 @@ To troubleshoot:
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
 
-### Slower than expeted NVMe speed
+### Slower than expected NVMe speed
 
 If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
 

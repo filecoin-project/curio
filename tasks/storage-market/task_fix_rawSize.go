@@ -127,9 +127,9 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 	var acceptedIDs []harmonytask.TaskID
 
 	err := f.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id), '{}')::bigint[] AS task_ids FROM (
-						SELECT f.task_id FROM market_fix_raw_size f
-						INNER JOIN market_piece_deal mpd ON f.id = mpd.id
-						INNER JOIN sector_location l ON mpd.sp_id = l.miner_id AND mpd.sector_num = l.sector_num AND l.sector_filetype = 4
+					SELECT f.task_id FROM market_fix_raw_size f
+					INNER JOIN market_piece_deal mpd ON f.id = mpd.id
+					INNER JOIN sector_location l ON mpd.sp_id = l.miner_id AND mpd.sector_num = l.sector_num AND l.sector_filetype = 1
 						INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
 						WHERE f.task_id = ANY($1::bigint[])  AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
@@ -179,6 +179,12 @@ func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			err = tx.Select(&tasks, `SELECT mpd.id FROM market_piece_deal mpd
           									WHERE mpd.raw_size = 0 
           									  AND mpd.piece_offset IS NOT NULL 
+          									  AND EXISTS (
+          									  	SELECT 1 FROM sector_location sl
+          									  	WHERE sl.miner_id = mpd.sp_id
+          									  	  AND sl.sector_num = mpd.sector_num
+          									  	  AND sl.sector_filetype = 1
+          									  )
           									  AND NOT EXISTS(SELECT 1 FROM market_fix_raw_size f WHERE f.id = mpd.id) 
           									      LIMIT 1`)
 			if err != nil {

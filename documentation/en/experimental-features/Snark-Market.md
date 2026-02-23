@@ -44,7 +44,7 @@ Before enabling the Snark Market on your node:
 * 70GB base system RAM + ~220 GB Per GPU
   * Lower amount is acceptable, but you won't be able to use the much faster CUDA C2 feature (batch sealing toolchain)\
     Meaning ~10mins/proof instead of 2.
-* Curio from `main` branch (Snark Market support is not yet part of a release)
+* Curio **v1.27.0 or later** (Snark Market is included in official releases)
 * FIL balance on Mainnet
 
 ***
@@ -70,10 +70,10 @@ sudo apt update
 sudo apt install -y build-essential pkg-config libssl-dev curl git clang cmake golang
 ```
 
-Then, build Curio from the Main branch:
+Then, build Curio (for CUDA C2 support, build from source):
 
 ```bash
-git pull
+git checkout v1.27.2  # or latest release tag
 git submodule update
 make clean
 RUSTFLAGS="-C target-cpu=native -g" FFI_BUILD_FROM_SOURCE=1 FFI_USE_CUDA_SUPRASEAL=1 make clean build all

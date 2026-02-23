@@ -81,7 +81,7 @@ var messageKeyToIndex = map[string]int{
 	"Client actor address":              38,
 	"Client sender address":             39,
 	"Collection of debugging utilities": 40,
-	"Command separated list of hostnames for yugabyte cluster": 41,
+	"Comma-separated list of hostnames for yugabyte cluster": 41,
 	"Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.": 42,
 	"Complete a pending client withdrawal after the withdrawal window elapses":                                                                               43,
 	"Complete a pending service withdrawal after the withdrawal window elapses":                                                                              44,
@@ -446,108 +446,108 @@ var enIndex = []uint32{ // 392 elements
 	// Entry 20 - 3F
 	0x000005d7, 0x00000602, 0x0000062e, 0x00000649,
 	0x00000692, 0x000006c0, 0x000006cd, 0x000006e2,
-	0x000006f8, 0x0000071a, 0x00000753, 0x000007f0,
-	0x00000839, 0x00000883, 0x000008c1, 0x000008f4,
-	0x00000968, 0x000009b6, 0x000009f7, 0x00000a56,
-	0x00000a7b, 0x00000a91, 0x00000abb, 0x00000ae2,
-	0x00000b21, 0x00000b4e, 0x00000b8e, 0x00000bdf,
-	0x00000c87, 0x00000c9f, 0x00000cb2, 0x00000ce3,
+	0x000006f8, 0x0000071a, 0x00000751, 0x000007ee,
+	0x00000837, 0x00000881, 0x000008bf, 0x000008f2,
+	0x00000966, 0x000009b4, 0x000009f5, 0x00000a54,
+	0x00000a79, 0x00000a8f, 0x00000ab9, 0x00000ae0,
+	0x00000b1f, 0x00000b4c, 0x00000b8c, 0x00000bdd,
+	0x00000c85, 0x00000c9d, 0x00000cb0, 0x00000ce1,
 	// Entry 40 - 5F
-	0x00000cfd, 0x00000d28, 0x00000d4c, 0x00000d67,
-	0x00000d7f, 0x00000dae, 0x00000def, 0x00000dff,
-	0x00000e0c, 0x00000e3a, 0x00000e6d, 0x00000e81,
-	0x00000ec0, 0x00000f19, 0x00000f6b, 0x00000f7f,
-	0x00000f99, 0x00000fbb, 0x00000fdf, 0x00001041,
-	0x00001066, 0x0000107e, 0x000010ba, 0x000010f0,
-	0x00001123, 0x00001150, 0x00001179, 0x00001195,
-	0x000011b8, 0x000011d1, 0x000011f5, 0x00001210,
+	0x00000cfb, 0x00000d26, 0x00000d4a, 0x00000d65,
+	0x00000d7d, 0x00000dac, 0x00000ded, 0x00000dfd,
+	0x00000e0a, 0x00000e38, 0x00000e6b, 0x00000e7f,
+	0x00000ebe, 0x00000f17, 0x00000f69, 0x00000f7d,
+	0x00000f97, 0x00000fb9, 0x00000fdd, 0x0000103f,
+	0x00001064, 0x0000107c, 0x000010b8, 0x000010ee,
+	0x00001121, 0x0000114e, 0x00001177, 0x00001193,
+	0x000011b6, 0x000011cf, 0x000011f3, 0x0000120e,
 	// Entry 60 - 7F
-	0x00001239, 0x00001258, 0x00001290, 0x000012aa,
-	0x000012cc, 0x000012e9, 0x000012fe, 0x00001321,
-	0x00001349, 0x0000136d, 0x00001396, 0x000013c8,
-	0x000013f3, 0x00001413, 0x0000144b, 0x00001478,
-	0x000014a8, 0x000014cb, 0x000014ee, 0x00001511,
-	0x00001539, 0x00001552, 0x0000157b, 0x000015ab,
-	0x000015c9, 0x00001604, 0x00001645, 0x00001659,
-	0x000016b9, 0x00001730, 0x00001754, 0x00001864,
+	0x00001237, 0x00001256, 0x0000128e, 0x000012a8,
+	0x000012ca, 0x000012e7, 0x000012fc, 0x0000131f,
+	0x00001347, 0x0000136b, 0x00001394, 0x000013c6,
+	0x000013f1, 0x00001411, 0x00001449, 0x00001476,
+	0x000014a6, 0x000014c9, 0x000014ec, 0x0000150f,
+	0x00001537, 0x00001550, 0x00001579, 0x000015a9,
+	0x000015c7, 0x00001602, 0x00001643, 0x00001657,
+	0x000016b7, 0x0000172e, 0x00001752, 0x00001862,
 	// Entry 80 - 9F
-	0x00001878, 0x000018cd, 0x000018f1, 0x000018f9,
-	0x00001905, 0x00001924, 0x00001943, 0x0000194e,
-	0x000019fe, 0x00001a25, 0x00001a49, 0x00001ac0,
-	0x00001ae0, 0x00001b18, 0x00001b4c, 0x00001ba6,
-	0x00001bc1, 0x00001bdb, 0x00001bfd, 0x00001c23,
-	0x00001c66, 0x00001c77, 0x00001c8c, 0x00001cab,
-	0x00001ccc, 0x00001cec, 0x00001d35, 0x00001d55,
-	0x00001d64, 0x00001dbd, 0x00001de3, 0x00001dff,
+	0x00001876, 0x000018cb, 0x000018ef, 0x000018f7,
+	0x00001903, 0x00001922, 0x00001941, 0x0000194c,
+	0x000019fc, 0x00001a23, 0x00001a47, 0x00001abe,
+	0x00001ade, 0x00001b16, 0x00001b4a, 0x00001ba4,
+	0x00001bbf, 0x00001bd9, 0x00001bfb, 0x00001c21,
+	0x00001c64, 0x00001c75, 0x00001c8a, 0x00001ca9,
+	0x00001cca, 0x00001cea, 0x00001d33, 0x00001d53,
+	0x00001d62, 0x00001dbb, 0x00001de1, 0x00001dfd,
 	// Entry A0 - BF
-	0x00001e14, 0x00001e1f, 0x00001e32, 0x00001e54,
-	0x00001e9a, 0x00001ec0, 0x00001ee1, 0x00001f0b,
-	0x00001f30, 0x00001f43, 0x00001f99, 0x00001fcb,
-	0x00001fee, 0x00002008, 0x00002014, 0x00002028,
-	0x00002058, 0x00002069, 0x0000207a, 0x000020a6,
-	0x000020be, 0x000020d0, 0x000020da, 0x000020e6,
-	0x0000210c, 0x0000213e, 0x0000215d, 0x00002229,
-	0x0000224e, 0x00002269, 0x000022ba, 0x000022f9,
+	0x00001e12, 0x00001e1d, 0x00001e30, 0x00001e52,
+	0x00001e98, 0x00001ebe, 0x00001edf, 0x00001f09,
+	0x00001f2e, 0x00001f41, 0x00001f97, 0x00001fc9,
+	0x00001fec, 0x00002006, 0x00002012, 0x00002026,
+	0x00002056, 0x00002067, 0x00002078, 0x000020a4,
+	0x000020bc, 0x000020ce, 0x000020d8, 0x000020e4,
+	0x0000210a, 0x0000213c, 0x0000215b, 0x00002227,
+	0x0000224c, 0x00002267, 0x000022b8, 0x000022f7,
 	// Entry C0 - DF
-	0x000022ff, 0x00002322, 0x00002336, 0x0000233a,
-	0x00002367, 0x00002387, 0x000023bc, 0x000023d0,
-	0x000023e6, 0x000023fa, 0x0000241c, 0x00002461,
-	0x00002471, 0x00002485, 0x00002498, 0x0000252f,
-	0x000025a5, 0x000025e7, 0x00002628, 0x00002634,
-	0x00002656, 0x00002670, 0x0000267c, 0x00002698,
-	0x000026b4, 0x000026c3, 0x000026da, 0x000026f2,
-	0x00002722, 0x0000273a, 0x00002756, 0x00002774,
+	0x000022fd, 0x00002320, 0x00002334, 0x00002338,
+	0x00002365, 0x00002385, 0x000023ba, 0x000023ce,
+	0x000023e4, 0x000023f8, 0x0000241a, 0x0000245f,
+	0x0000246f, 0x00002483, 0x00002496, 0x0000252d,
+	0x000025a3, 0x000025e5, 0x00002626, 0x00002632,
+	0x00002654, 0x0000266e, 0x0000267a, 0x00002696,
+	0x000026b2, 0x000026c1, 0x000026d8, 0x000026f0,
+	0x00002720, 0x00002738, 0x00002754, 0x00002772,
 	// Entry E0 - FF
-	0x00002786, 0x0000279b, 0x000027ab, 0x000027d2,
-	0x000027fc, 0x00002844, 0x00002861, 0x00002897,
-	0x000028b7, 0x000028e2, 0x000028f5, 0x00002919,
-	0x00002a3c, 0x00002a53, 0x00002a8d, 0x00002aa2,
-	0x00002ab1, 0x00002ace, 0x00002ae4, 0x00002afb,
-	0x00002b3c, 0x00002b4a, 0x00002d48, 0x00002d71,
-	0x000030f7, 0x00003110, 0x0000315b, 0x0000325b,
-	0x0000327e, 0x000032e5, 0x000032f4, 0x00003308,
+	0x00002784, 0x00002799, 0x000027a9, 0x000027d0,
+	0x000027fa, 0x00002842, 0x0000285f, 0x00002895,
+	0x000028b5, 0x000028e0, 0x000028f3, 0x00002917,
+	0x00002a3a, 0x00002a51, 0x00002a8b, 0x00002aa0,
+	0x00002aaf, 0x00002acc, 0x00002ae2, 0x00002af9,
+	0x00002b3a, 0x00002b48, 0x00002d46, 0x00002d6f,
+	0x000030f5, 0x0000310e, 0x00003159, 0x00003259,
+	0x0000327c, 0x000032e3, 0x000032f2, 0x00003306,
 	// Entry 100 - 11F
-	0x00003322, 0x00003345, 0x00003378, 0x000033a6,
-	0x000033c0, 0x000033d6, 0x00003455, 0x0000347b,
-	0x00003498, 0x000034d3, 0x000034ed, 0x0000350a,
-	0x00003512, 0x00003528, 0x000037d8, 0x0000384c,
-	0x0000387a, 0x0000388d, 0x000038a2, 0x000038c1,
-	0x000038ff, 0x00003916, 0x00003943, 0x00003963,
-	0x00003984, 0x000039a6, 0x00003a2b, 0x00003a96,
-	0x00003af8, 0x00003b3a, 0x00003ba9, 0x00003c6c,
+	0x00003320, 0x00003343, 0x00003376, 0x000033a4,
+	0x000033be, 0x000033d4, 0x00003453, 0x00003479,
+	0x00003496, 0x000034d1, 0x000034eb, 0x00003508,
+	0x00003510, 0x00003526, 0x000037d6, 0x0000384a,
+	0x00003878, 0x0000388b, 0x000038a0, 0x000038bf,
+	0x000038fd, 0x00003914, 0x00003941, 0x00003961,
+	0x00003982, 0x000039a4, 0x00003a29, 0x00003a94,
+	0x00003af6, 0x00003b38, 0x00003ba7, 0x00003c6a,
 	// Entry 120 - 13F
-	0x00003ca7, 0x00003ce0, 0x00003d40, 0x00003d66,
-	0x00003da2, 0x00003def, 0x00003e0d, 0x00003e45,
-	0x00003e58, 0x00003e7e, 0x00003e9a, 0x00003ec0,
-	0x00003ef5, 0x00003f1c, 0x00003f51, 0x00003f73,
-	0x00003f87, 0x00003fbc, 0x00004001, 0x00004011,
-	0x00004036, 0x00004054, 0x00004078, 0x0000409e,
-	0x000040ac, 0x000040c4, 0x000040e6, 0x00004116,
-	0x00004131, 0x00004146, 0x00004188, 0x00004196,
+	0x00003ca5, 0x00003cde, 0x00003d3e, 0x00003d64,
+	0x00003da0, 0x00003ded, 0x00003e0b, 0x00003e43,
+	0x00003e56, 0x00003e7c, 0x00003e98, 0x00003ebe,
+	0x00003ef3, 0x00003f1a, 0x00003f4f, 0x00003f71,
+	0x00003f85, 0x00003fba, 0x00003fff, 0x0000400f,
+	0x00004034, 0x00004052, 0x00004076, 0x0000409c,
+	0x000040aa, 0x000040c2, 0x000040e4, 0x00004114,
+	0x0000412f, 0x00004144, 0x00004186, 0x00004194,
 	// Entry 140 - 15F
-	0x000041a5, 0x000041e5, 0x00004218, 0x00004255,
-	0x000042a6, 0x000042e1, 0x0000431f, 0x00004355,
-	0x000043a1, 0x000043b7, 0x000043c8, 0x000043d5,
-	0x000043dd, 0x000043fd, 0x00004404, 0x00004411,
-	0x0000442e, 0x00004442, 0x00004479, 0x000044ba,
-	0x000044d4, 0x000044fc, 0x0000454f, 0x0000457a,
-	0x00004595, 0x000045a6, 0x000045ce, 0x000045ec,
-	0x00004606, 0x00004624, 0x00004646, 0x00004663,
+	0x000041a3, 0x000041e3, 0x00004216, 0x00004253,
+	0x000042a4, 0x000042df, 0x0000431d, 0x00004353,
+	0x0000439f, 0x000043b5, 0x000043c6, 0x000043d3,
+	0x000043db, 0x000043fb, 0x00004402, 0x0000440f,
+	0x0000442c, 0x00004440, 0x00004477, 0x000044b8,
+	0x000044d2, 0x000044fa, 0x0000454d, 0x00004578,
+	0x00004593, 0x000045a4, 0x000045cc, 0x000045ea,
+	0x00004604, 0x00004622, 0x00004644, 0x00004661,
 	// Entry 160 - 17F
-	0x0000467e, 0x00004692, 0x000046a0, 0x000046d8,
-	0x000046fa, 0x0000471b, 0x0000473f, 0x0000476c,
-	0x000047a0, 0x000047de, 0x000047f8, 0x00004803,
-	0x00004817, 0x00004830, 0x00004870, 0x0000488a,
-	0x000048e5, 0x00004900, 0x0000492f, 0x00004946,
-	0x0000495c, 0x00004997, 0x000049b5, 0x000049d0,
-	0x000049e6, 0x00004a0a, 0x00004a1b, 0x00004a68,
-	0x00004a72, 0x00004a9c, 0x00004ad4, 0x00004ae8,
+	0x0000467c, 0x00004690, 0x0000469e, 0x000046d6,
+	0x000046f8, 0x00004719, 0x0000473d, 0x0000476a,
+	0x0000479e, 0x000047dc, 0x000047f6, 0x00004801,
+	0x00004815, 0x0000482e, 0x0000486e, 0x00004888,
+	0x000048e3, 0x000048fe, 0x0000492d, 0x00004944,
+	0x0000495a, 0x00004995, 0x000049b3, 0x000049ce,
+	0x000049e4, 0x00004a08, 0x00004a19, 0x00004a66,
+	0x00004a70, 0x00004a9a, 0x00004ad2, 0x00004ae6,
 	// Entry 180 - 19F
-	0x00004b46, 0x00004b68, 0x00004b94, 0x00004bac,
-	0x00004bc8, 0x00004c0d, 0x00004c55, 0x00004c9d,
+	0x00004b44, 0x00004b66, 0x00004b92, 0x00004baa,
+	0x00004bc6, 0x00004c0b, 0x00004c53, 0x00004c9b,
 } // Size: 1592 bytes
 
-const enData string = "" + // Size: 19613 bytes
+const enData string = "" + // Size: 19611 bytes
 	"\x04\x03   \x00\x22\x02Then export its private key with:\x02(debug tool)" +
 	" Copy LM sector metadata into Curio DB\x02(for init) limit storage space" +
 	" for sectors (expensive for very large paths!)\x02(for init) path weight" +
@@ -575,31 +575,31 @@ const enData string = "" + // Size: 19613 bytes
 	"B: %[1]s\x02Cannot read the config.toml file in the provided directory, " +
 	"Error: %[1]s\x02Check data integrity in unsealed sector files\x02Client " +
 	"actor\x02Client actor address\x02Client sender address\x02Collection of " +
-	"debugging utilities\x02Command separated list of hostnames for yugabyte " +
-	"cluster\x02Compare the configurations %[1]s to %[2]s. Changes between th" +
-	"e miner IDs other than wallet addreses should be a new, minimal layer fo" +
-	"r runners that need it.\x02Complete a pending client withdrawal after th" +
-	"e withdrawal window elapses\x02Complete a pending service withdrawal aft" +
-	"er the withdrawal window elapses\x02Compute WindowPoSt for performance a" +
-	"nd configuration testing.\x02Compute WindowPoSt vanilla proofs and verif" +
-	"y them.\x02Compute a proof-of-spacetime for a sector (requires the secto" +
-	"r to be pre-sealed). These will not send to the chain.\x02Configuration " +
-	"'base' was created to resemble this lotus-miner's config.toml .\x02Confi" +
-	"guration 'base' was updated to include this miner's address\x02Configura" +
-	"tion 'base' was updated to include this miner's address (%[1]s) and its " +
-	"wallet setup.\x02Configuring HTTP settings for PDP...\x02Connected to Yu" +
-	"gabyte\x02Connected to Yugabyte. Schema is current.\x02Continue to conne" +
-	"ct and update schema.\x02Continue to verify the addresses and create a n" +
-	"ew miner actor.\x02Cordon a machine, set it to maintenance mode\x02Could" +
-	" not create repo from directory: %[1]s. Aborting migration\x02Could not " +
-	"lock miner repo. Your miner must be stopped: %[1]s\x0a Aborting migratio" +
-	"n\x02Create a check task for a specific sector, wait for its completion," +
-	" and output the result.\x0a   <miner-id>: The storage provider ID\x0a   " +
-	"<sector-number>: The sector number\x02Create a client voucher\x02Create " +
-	"a new miner\x02Create a new offline verified DDO deal for Curio\x02Creat" +
-	"e a provider voucher\x02Create new configuration for a new cluster\x02Cr" +
-	"eating PDP configuration layer...\x02Ctrl+C pressed in Terminal\x02Cumul" +
-	"ative amount (FIL)\x02Custom `HEADER` to include in the HTTP request\x04" +
+	"debugging utilities\x02Comma-separated list of hostnames for yugabyte cl" +
+	"uster\x02Compare the configurations %[1]s to %[2]s. Changes between the " +
+	"miner IDs other than wallet addreses should be a new, minimal layer for " +
+	"runners that need it.\x02Complete a pending client withdrawal after the " +
+	"withdrawal window elapses\x02Complete a pending service withdrawal after" +
+	" the withdrawal window elapses\x02Compute WindowPoSt for performance and" +
+	" configuration testing.\x02Compute WindowPoSt vanilla proofs and verify " +
+	"them.\x02Compute a proof-of-spacetime for a sector (requires the sector " +
+	"to be pre-sealed). These will not send to the chain.\x02Configuration 'b" +
+	"ase' was created to resemble this lotus-miner's config.toml .\x02Configu" +
+	"ration 'base' was updated to include this miner's address\x02Configurati" +
+	"on 'base' was updated to include this miner's address (%[1]s) and its wa" +
+	"llet setup.\x02Configuring HTTP settings for PDP...\x02Connected to Yuga" +
+	"byte\x02Connected to Yugabyte. Schema is current.\x02Continue to connect" +
+	" and update schema.\x02Continue to verify the addresses and create a new" +
+	" miner actor.\x02Cordon a machine, set it to maintenance mode\x02Could n" +
+	"ot create repo from directory: %[1]s. Aborting migration\x02Could not lo" +
+	"ck miner repo. Your miner must be stopped: %[1]s\x0a Aborting migration" +
+	"\x02Create a check task for a specific sector, wait for its completion, " +
+	"and output the result.\x0a   <miner-id>: The storage provider ID\x0a   <" +
+	"sector-number>: The sector number\x02Create a client voucher\x02Create a" +
+	" new miner\x02Create a new offline verified DDO deal for Curio\x02Create" +
+	" a provider voucher\x02Create new configuration for a new cluster\x02Cre" +
+	"ating PDP configuration layer...\x02Ctrl+C pressed in Terminal\x02Cumula" +
+	"tive amount (FIL)\x02Custom `HEADER` to include in the HTTP request\x04" +
 	"\x00\x01 <\x02Database config error occurred, abandoning migration: %[1]" +
 	"s\x02Database: %[1]s\x02Delete %[1]s\x02Deposit FIL into the Router cont" +
 	"ract (client)\x02Deposit funds into the service pool (service role)\x04" +
@@ -1076,4 +1076,4 @@ var zhIndex = []uint32{ // 392 elements
 
 const zhData string = ""
 
-// Total table size 24389 bytes (23KiB); checksum: 70693276
+// Total table size 24387 bytes (23KiB); checksum: 44831AFB

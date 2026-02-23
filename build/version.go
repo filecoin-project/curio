@@ -44,7 +44,7 @@ func BuildTypeString() string {
 var BuildVersionArray = [3]int{1, 27, 3}
 
 // RC
-var BuildVersionRC = 1
+var BuildVersionRC = 2
 
 // Ex: "1.2.3" or "1.2.3-rcX"
 var BuildVersion string
