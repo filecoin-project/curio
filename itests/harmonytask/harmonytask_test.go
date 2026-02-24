@@ -12,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/harmonytask/pipetest"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
@@ -541,7 +542,7 @@ func TestSchedulerSharedTask(t *testing.T) {
 //	eB receives the notification and picks up the task.
 func TestPeeringEndToEnd(t *testing.T) {
 	db := getDB(t)
-	net := harmonytask.NewPipeNetwork()
+	net := pipetest.NewPipeNetwork()
 
 	// tRejecter handles the task type on eA so AddTaskByName triggers the
 	// scheduler (and therefore TellOthers), but CanAccept always rejects so
@@ -602,7 +603,7 @@ func TestPeeringEndToEnd(t *testing.T) {
 // any engine are routed to the correct handler via peering.
 func TestPeeringThreeNodeRouting(t *testing.T) {
 	db := getDB(t)
-	net := harmonytask.NewPipeNetwork()
+	net := pipetest.NewPipeNetwork()
 
 	tA := newTestTask("PRingA", 5)
 	tB := newTestTask("PRingB", 5)

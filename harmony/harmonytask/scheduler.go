@@ -10,41 +10,70 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 )
 
+// schedulerEvent is the message type flowing through the scheduler channel.
+// Every scheduling decision is triggered by an event. The Source field
+// determines how the scheduler updates its internal state before attempting
+// work. Events are lightweight value types — heavy data (DB results,
+// pre-computed CanAccept results) is attached only to DB poll events.
 type schedulerEvent struct {
 	TaskID
-	TaskType    string
-	Source      schedulerSource
-	PeerID      int64
-	Retries     int
-	DBTasks     map[string][]task   // only set for schedulerSourceDBPoll
-	PreAccepted map[string][]TaskID // CanAccept results from background poller
+	TaskType string
+	Source   schedulerSource
+	PeerID   int64 // set for peer-originated events; used for resource-reservation tie-breaking
+	Retries  int
+
+	// DBTasks is populated only for schedulerSourceDBPoll events. It contains
+	// the complete snapshot of unowned tasks from the DB, keyed by task type.
+	// This replaces the scheduler's in-memory available task map, ensuring
+	// stale entries (claimed by others, deleted) are garbage-collected.
+	DBTasks map[string][]task
+
 }
 
-// schedulerSource is the source of the scheduler event.
-// The scheduler starts tasks tasks based on events (from this & other nodes)
-// The differences inform how the scheduler takes care of its internal state.
+// schedulerSource identifies the origin of a scheduler event. Each source
+// triggers different state-management logic in the scheduler event loop:
+//   - Added/PeerNewTask: add to available tasks, trigger scheduling
+//   - TaskStarted/PeerStarted: remove from available tasks, update reservations
+//   - TaskCompleted: trigger scheduling (freed resources may allow new work)
+//   - DBPoll: wholesale replacement of the available task map
+//   - PeerReserved: mark task as reserved by another node (resource hold)
 type schedulerSource byte
 
 const (
-	schedulerSourceAdded schedulerSource = iota
-	schedulerSourcePeerNewTask
-	schedulerSourcePeerStarted
-	schedulerSourcePeerReserved // FUTURE PR: schedulerSourcePeerReserved
-	schedulerSourceTaskCompleted
-	schedulerSourceTaskStarted
-	schedulerSourceDBPoll
+	schedulerSourceAdded         schedulerSource = iota // this node added a task via AddTaskByName
+	schedulerSourcePeerNewTask                          // a peer notified us about a new task
+	schedulerSourcePeerStarted                          // a peer claimed and started a task
+	schedulerSourcePeerReserved                         // a peer reserved a task (resource hold; protocol incomplete)
+	schedulerSourceTaskCompleted                        // a local task goroutine finished (success or failure)
+	schedulerSourceTaskStarted                          // a local task goroutine began execution
+	schedulerSourceDBPoll                               // background poller delivered fresh DB state
 )
 
+// chokePoint caps the number of task IDs held in memory per task type.
+// Beyond this limit, the scheduler enters "choked" mode: it works with
+// whatever IDs it has and relies on the next DB poll to fetch more.
+// This prevents unbounded memory growth when thousands of tasks queue up
+// (e.g., during bulk sector onboarding).
 const chokePoint = 1000
 
-// taskSchedule is a collection of available tasks of one type that are to be scheduled.
+// taskSchedule tracks the available (unowned) tasks of a single type
+// within the scheduler's in-memory state. It supports reservations:
+// a node can earmark the next task it intends to run, holding resources
+// aside so the task can start immediately when capacity frees up.
+// NOTE: cluster-wide reservation coordination is incomplete — see doc.go.
 type taskSchedule struct {
-	hasID  map[TaskID]task
-	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
-	// In this state, we try what we have, and go to DB if we need more.
-	reservedTask TaskID // This will be ran when resources are available. 0 for none.
+	hasID        map[TaskID]task
+	choked       bool   // true when we hit chokePoint; rely on DB poll to refill
+	reservedTask TaskID // the next task this node intends to claim; 0 = none
 }
 
+// ReserveNext picks a task from the available set that isn't reserved by
+// another peer and broadcasts the reservation. If no eligible task exists,
+// reservedTask is cleared. Called after a task starts (the old reservation
+// is consumed) to maintain pipeline throughput for TimeSensitive types.
+// TODO: cluster-wide over-reservation — every node reserving independently
+// wastes resources. Needs cross-node coordination so only the right number
+// of nodes hold resources aside.
 func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
 	sched.reservedTask = 0
 	if len(sched.hasID) > 0 {
@@ -58,15 +87,47 @@ func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
 	}
 }
 
-// The scheduler is a single-threaded event loop that reads from the schedulerChannel.
-// It is responsible for scheduling tasks and notifying other nodes about new tasks,
-// reservations, and work starts.
-// For performace, it has minimal DB interactions (just claiming tasks) & no network wait.
-// All network work is done by the peering layer.
-// All DB retrievals (tasks & cordon) are done by the background poller.
-// CanAccept is done by the batcher with main-thread fallback.
-// All task completion is done by that task's goroutine.
+// startScheduler launches three long-running goroutines that form the heart
+// of the event-driven scheduling system:
+//
+//  1. **Cleanup goroutine**: periodically removes stale machine entries from
+//     the DB (dead nodes whose heartbeats have expired).
+//
+//  2. **Background DB poller**: queries unowned tasks and node flags at the
+//     configured poll interval. This runs off the scheduler thread to avoid
+//     blocking the event loop with DB round-trips. It also pre-computes
+//     CanAccept() for each task type so the scheduler can skip that
+//     potentially expensive call. Results are sent as a single
+//     schedulerSourceDBPoll event.
+//
+//  3. **Scheduler event loop**: the single-threaded core that reads events
+//     from schedulerChannel, maintains the in-memory available-tasks map,
+//     and decides when to attempt work via pollerTryAllWork. By design,
+//     this goroutine performs no DB reads, no network waits, and no blocking
+//     I/O — only channel reads, map updates, and function calls to
+//     considerWork (which does a single fast SQL UPDATE for claiming).
+//
+// The event loop handles each source differently:
+//   - DBPoll: replaces the entire available-tasks map with fresh DB state,
+//     preserves valid reservations, and triggers scheduling if new tasks
+//     appeared.
+//   - Added: inserts the task into the local map, broadcasts to peers.
+//     TimeSensitive tasks trigger immediate scheduling; others are bundled.
+//   - PeerNewTask: same as Added but from a remote node (no broadcast).
+//   - TaskStarted: removes the task from available, advances resource
+//     reservations, broadcasts "started" to peers.
+//   - PeerStarted: same as TaskStarted but from a remote node.
+//   - TaskCompleted: triggers scheduling since freed resources may allow
+//     new work to start.
+//   - PeerReserved: a peer is holding resources for this task. If they
+//     have a higher machine ID (deterministic tie-break), we yield and
+//     reserve a different task. (Protocol is incomplete — see doc.go.)
+//
+// The bundler coalesces rapid-fire non-TimeSensitive events (e.g., batch
+// Adder calls producing many tasks) into a single scheduling attempt after
+// a 10ms quiet period, reducing redundant CanAccept + DB claim cycles.
 func (e *TaskEngine) startScheduler() {
+	// Goroutine 1: periodic dead-machine cleanup
 	go func() {
 		for {
 			select {
@@ -79,8 +140,9 @@ func (e *TaskEngine) startScheduler() {
 		}
 	}()
 
-	// Background DB poller: queries all task types off the scheduler thread,
-	// then signals the scheduler if anything is new.
+	// Goroutine 2: background DB poller.
+	// Runs CanAccept off the scheduler thread so the event loop stays fast.
+	// Checks node flags (cordon/restart) and delivers a complete task snapshot.
 	go func() {
 		timer := time.NewTimer(0) // fire immediately for initial poll
 		defer timer.Stop()
@@ -90,14 +152,21 @@ func (e *TaskEngine) startScheduler() {
 				return
 			case <-timer.C:
 				dbTasks := e.pollAllTaskTypes()
+
+				// Node flags are checked here (poller thread) rather than on
+				// the scheduler thread to keep DB latency off the hot path.
 				if schedulable, err := e.checkNodeFlags(); err != nil {
 					log.Errorw("failed to check node flags", "error", err)
 				} else {
 					e.yieldBackground.Store(!schedulable)
 				}
-				var preAccepted map[string][]TaskID
+
+				// Pre-compute CanAccept for all task types and write results
+				// directly into each handler's cache. This avoids calling
+				// CanAccept (which may check disk paths, SP config, etc.)
+				// on the scheduler event loop. The handler's acceptMu
+				// protects against concurrent reads from the scheduler.
 				if dbTasks != nil && !e.yieldBackground.Load() {
-					preAccepted = make(map[string][]TaskID, len(e.handlers))
 					for _, h := range e.handlers {
 						tasks := dbTasks[h.Name]
 						if len(tasks) == 0 {
@@ -113,36 +182,56 @@ func (e *TaskEngine) startScheduler() {
 							continue
 						}
 						if len(accepted) > 0 {
-							preAccepted[h.Name] = accepted
+							h.SetAcceptCache(accepted)
 						}
 					}
 				}
+
 				e.schedulerChannel <- schedulerEvent{
-					Source:      schedulerSourceDBPoll,
-					DBTasks:     dbTasks,
-					PreAccepted: preAccepted,
+					Source:  schedulerSourceDBPoll,
+					DBTasks: dbTasks,
 				}
+
+				// Self-heal the poll rate: if we degraded to POLL_FREQUENTLY
+				// because peers were unreachable at startup, restore to
+				// POLL_RARELY once peering is healthy again.
+				if e.pollDuration.Load().(time.Duration) == POLL_FREQUENTLY && e.peering.HasPeers() {
+					log.Infow("peering restored, switching to rare polling")
+					e.pollDuration.Store(POLL_RARELY)
+				}
+
 				timer.Reset(e.pollDuration.Load().(time.Duration))
 			}
 		}
 	}()
 
+	// Goroutine 3: the scheduler event loop (single-threaded, no blocking I/O).
 	go func() {
 		bundleCollector, bundleSleep := bundler()
-		availableTasks := map[string]*taskSchedule{} // TaskType -> TaskID -> bool FUTURE PR: mem savings.
+
+		// availableTasks is the scheduler's authoritative view of unowned work.
+		// Populated by DB polls and incrementally updated by events.
+		// Only accessed from this goroutine — no locks needed.
+		availableTasks := map[string]*taskSchedule{}
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
 		ts := taskSourceLocal{availableTasks, e.peering}
 		ee := eventEmitter{e.schedulerChannel}
+
 		for {
 			select {
 			case <-e.ctx.Done():
 				log.Infof("scheduler stopped")
 				return
+
 			case event := <-e.schedulerChannel:
 				switch event.Source {
+
 				case schedulerSourceDBPoll:
+					// Replace the entire available-tasks map with the DB snapshot.
+					// This garbage-collects stale entries (tasks claimed/deleted by
+					// others) while preserving reservations that are still valid.
 					hasNew := false
 					for taskName, tasks := range event.DBTasks {
 						sched := availableTasks[taskName]
@@ -163,6 +252,8 @@ func (e *TaskEngine) startScheduler() {
 							choked:       len(tasks) > chokePoint,
 							reservedTask: prevReserved,
 						}
+						// If our previously reserved task was claimed by someone else
+						// (no longer in DB results), pick a new reservation.
 						if prevReserved != 0 {
 							if _, ok := newHas[prevReserved]; !ok {
 								newSched.ReserveNext(func(taskID TaskID) {
@@ -172,18 +263,17 @@ func (e *TaskEngine) startScheduler() {
 						}
 						availableTasks[taskName] = newSched
 					}
-					for taskName, accepted := range event.PreAccepted {
-						if h := e.taskMap[taskName]; h != nil {
-							h.acceptedTasks = append(h.acceptedTasks, accepted...)
-							h.lastAcceptedTime = time.Now()
-						}
-					}
+
 					if hasNew {
 						if err := e.pollerTryAllWork(ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
 						}
 					}
+
 				case schedulerSourceAdded:
+					// Local task addition: insert into available set, broadcast to peers.
+					// TimeSensitive tasks (e.g., WindowPost) skip bundling for
+					// immediate scheduling.
 					if _, ok := availableTasks[event.TaskType]; ok {
 						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
@@ -195,10 +285,14 @@ func (e *TaskEngine) startScheduler() {
 						}
 					}
 					e.peering.TellOthers(messageTypeNewTask, event.TaskType, event.TaskID)
+
 				case schedulerSourcePeerNewTask:
+					// A peer added a task. Insert into our available set (if we
+					// handle this type) and schedule. Respects chokePoint to
+					// bound memory.
 					t, ok := availableTasks[event.TaskType]
 					if !ok {
-						continue // we don't handle this task type
+						continue
 					}
 					if len(t.hasID) > chokePoint {
 						t.choked = true
@@ -212,16 +306,24 @@ func (e *TaskEngine) startScheduler() {
 					} else {
 						bundleCollector(event.TaskType)
 					}
+
 				case schedulerSourceTaskStarted:
+					// A local goroutine claimed and started a task. Remove from
+					// available set and advance the resource reservation for
+					// TimeSensitive types to keep the next task ready to go.
 					avail := availableTasks[event.TaskType]
 					delete(avail.hasID, event.TaskID)
-					if avail.reservedTask == event.TaskID && e.taskMap[event.TaskType].TimeSensitive { // FUTURE: "stress" reservations will not reserve the next task.
+					if avail.reservedTask == event.TaskID && e.taskMap[event.TaskType].TimeSensitive {
 						avail.ReserveNext(func(taskID TaskID) {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
 					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
+
 				case schedulerSourcePeerStarted:
+					// A peer started a task. Remove from our available set so we
+					// don't try to claim it. If it was our reserved task, pick
+					// a new one to hold resources for.
 					avail, ok := availableTasks[event.TaskType]
 					if !ok {
 						continue
@@ -232,11 +334,20 @@ func (e *TaskEngine) startScheduler() {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
+
 				case schedulerSourceTaskCompleted:
+					// A local task finished (success or failure). Freed resources
+					// may allow previously blocked work to start.
 					if err := e.pollerTryAllWork(ts, ee); err != nil {
 						log.Errorw("failed tryAllWork", "error", err)
 					}
-				case schedulerSourcePeerReserved: // FUTURE: apply and respect reservations for anti-starve common tasks.
+
+				case schedulerSourcePeerReserved:
+					// A peer is holding resources for the same task we are.
+					// Deterministic tie-break: higher machine ID wins. We yield
+					// and pick a different task to hold resources for.
+					// TODO: this per-node independent reservation can over-reserve
+					// cluster-wide — needs coordinated reservation protocol.
 					avail, ok := availableTasks[event.TaskType]
 					if !ok {
 						continue
@@ -249,26 +360,32 @@ func (e *TaskEngine) startScheduler() {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
+
 				default:
 					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
+
 			case <-bundleSleep:
+				// The bundler's quiet-period timer fired. All rapid-fire events
+				// for the same task type have been coalesced; now attempt scheduling.
 				if err := e.pollerTryAllWork(ts, ee); err != nil {
 					log.Errorw("failed tryAllWork", "error", err)
 				}
 			}
-			// FUTURE: RetryWait could start timers.
 		}
 	}()
-} // FUTURE Move all harmony_task writers to taskEngine.AddTask() to transmit over the RPC.
+}
 
+// taskSource abstracts where the scheduler gets its list of available tasks.
+// The local implementation reads from the in-memory map; a DB-backed
+// implementation could be used for fallback scenarios.
 type taskSource interface {
 	GetTasks(taskName string) []task
 	ReserveTask(taskName string, taskID TaskID)
 }
 
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
-	_ = taskName // later: for a fast-path.
+	_ = taskName // reserved for future fast-path optimization
 
 	err := e.pollerTryAllWork(taskSource, eventEmitter)
 	if err != nil {
@@ -279,6 +396,10 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 	return 0, nil
 }
 
+// taskSourceLocal serves tasks from the scheduler's in-memory available-tasks
+// map. GetTasks returns the reserved task first (the one this node is holding
+// resources for), then all remaining tasks. This ordering ensures the
+// resource-reserved task gets first shot at CanAccept and claiming.
 type taskSourceLocal struct {
 	availableTasks map[string]*taskSchedule
 	peering        *peering
@@ -287,6 +408,7 @@ type taskSourceLocal struct {
 func (t taskSourceLocal) GetTasks(taskName string) []task {
 	taskObject := t.availableTasks[taskName]
 	tasks := []task{}
+	// Put the resource-reserved task first so considerWork tries it before others.
 	if taskObject.reservedTask != 0 {
 		tasks = append(tasks, taskObject.hasID[taskObject.reservedTask])
 	}
@@ -304,7 +426,15 @@ func (t taskSourceLocal) ReserveTask(taskName string, taskID TaskID) {
 	t.peering.TellOthers(messageTypeReserve, taskName, taskID)
 }
 
-// Emits are called from other threads, so we cannot change t.availableTasks.
+// eventEmitter is the feedback channel from task goroutines back to the
+// scheduler. Because task goroutines run concurrently with the scheduler,
+// they cannot modify the scheduler's in-memory state directly. Instead,
+// they emit events that the scheduler processes on its own thread.
+//
+// This pattern keeps the scheduler single-threaded (no locks on
+// availableTasks) while allowing concurrent task execution to communicate
+// state changes: a task starting (remove from available), completing
+// (re-evaluate capacity), or failing with retry (re-add to available).
 type eventEmitter struct {
 	schedulerChannel chan schedulerEvent
 }
@@ -333,9 +463,14 @@ func (ee eventEmitter) EmitTaskCompleted(taskName string) {
 	}
 }
 
-// pollAllTaskTypes queries the DB for all unowned tasks in a single round-trip.
-// Runs off the scheduler thread on the background poller goroutine.
-// Returns nil on error so the scheduler preserves existing state and reservations.
+// pollAllTaskTypes queries the DB for all unowned tasks across all registered
+// task types in a single round-trip. This is the only DB read in the
+// scheduling hot path, and it runs on the background poller goroutine — never
+// on the scheduler thread.
+//
+// Returns nil on error so the scheduler preserves its existing in-memory state
+// and reservations rather than replacing them with an empty/partial snapshot.
+// Tasks beyond chokePoint per type are dropped to bound memory.
 func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 	var rows []struct {
 		ID         TaskID    `db:"id"`
@@ -374,9 +509,21 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 	return result
 }
 
+// bundleCollectionTimeout is the quiet period the bundler waits before firing.
+// When a burst of events arrives (e.g., 50 tasks added in rapid succession),
+// the bundler resets this timer on each event. Once 10ms passes with no new
+// events for a task type, it fires a single scheduling attempt that considers
+// all accumulated tasks at once. This dramatically reduces redundant
+// CanAccept + DB claim round-trips during batch operations.
 const bundleCollectionTimeout = time.Millisecond * 10
 
-// expects single-threaded caller of
+// bundler creates a coalescing timer system for non-TimeSensitive events.
+// The returned bundler func is called from the scheduler thread to register
+// an event; the returned channel fires when the quiet period expires.
+//
+// Thread safety: the bundler func is called from the scheduler goroutine
+// (single-threaded), but the timer goroutines access the timers map
+// concurrently, hence the mutex.
 func bundler() (bundler func(string), bundleSleep <-chan string) {
 	timers := make(map[string]*time.Timer)
 	timerMx := sync.Mutex{}
