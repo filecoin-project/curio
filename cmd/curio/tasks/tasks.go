@@ -302,7 +302,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpv0.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdpv0.NewPieceDeleteWatcher(&cfg.HTTP, db, must.One(dependencies.EthClient.Val()), chainSched, iStore)
 
-			pdpProveTask := pdpv0.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
+			pdpProveTask := pdpv0.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
 			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdpv0.NewPDPNotifyTask(ctx, db)
@@ -312,7 +312,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpTerminate := pdpv0.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
 			payTask := pay.NewSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth)
-			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpIndexingTask, pdpIpniTask, pdpTerminate, pdpDelete, payTask)
+			pdpSaveCacheTask := pdpv0.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
+			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpIndexingTask, pdpIpniTask, pdpTerminate, pdpDelete, payTask, pdpSaveCacheTask)
 		}
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
