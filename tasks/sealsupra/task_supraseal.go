@@ -494,10 +494,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			pipelineSource := "local"
 			if sector.Pipeline == "remote" {
 				pipelineSource = "remote"
-				// Remote sectors already have ticket from the client; update SDR/tree results only
 				_, err = tx.Exec(`UPDATE rseal_provider_pipeline SET after_sdr = TRUE, after_tree_c = TRUE, after_tree_r = TRUE, after_tree_d = TRUE,
-                                tree_d_cid = $3, tree_r_cid = $4, task_id_sdr = NULL, task_id_tree_r = NULL, task_id_tree_c = NULL, task_id_tree_d = NULL
-                            WHERE sp_id = $1 AND sector_number = $2`, sector.SpID, sector.SectorNumber, unsealedCID.String(), sealedCID)
+                                ticket_epoch = $3, ticket_value = $4, tree_d_cid = $5, tree_r_cid = $6,
+                                task_id_sdr = NULL, task_id_tree_r = NULL, task_id_tree_c = NULL, task_id_tree_d = NULL
+                            WHERE sp_id = $1 AND sector_number = $2`, sector.SpID, sector.SectorNumber, ticketEpochs[i], tickets[i], unsealedCID.String(), sealedCID)
 			} else {
 				_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET after_sdr = TRUE, after_tree_c = TRUE, after_tree_r = TRUE, after_tree_d = TRUE, after_synth = TRUE,
                                 ticket_epoch = $3, ticket_value = $4, tree_d_cid = $5, tree_r_cid = $6, task_id_sdr = NULL, task_id_tree_r = NULL, task_id_tree_c = NULL, task_id_tree_d = NULL
