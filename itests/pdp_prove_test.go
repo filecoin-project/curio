@@ -20,7 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/curio/tasks/pdp"
+	pdp "github.com/filecoin-project/curio/tasks/pdpv0"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
