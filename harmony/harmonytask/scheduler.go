@@ -27,7 +27,6 @@ type schedulerEvent struct {
 	// This replaces the scheduler's in-memory available task map, ensuring
 	// stale entries (claimed by others, deleted) are garbage-collected.
 	DBTasks map[string][]task
-
 }
 
 // schedulerSource identifies the origin of a scheduler event. Each source
@@ -277,7 +276,7 @@ func (e *TaskEngine) startScheduler() {
 					if _, ok := availableTasks[event.TaskType]; ok {
 						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-							if err := e.pollerTryAllWork(ts, ee); err != nil {
+							if _, err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 								log.Errorw("failed tryAllWork", "error", err)
 							}
 						} else {
@@ -300,7 +299,7 @@ func (e *TaskEngine) startScheduler() {
 					}
 					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-						if err := e.pollerTryAllWork(ts, ee); err != nil {
+						if _, err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
 						}
 					} else {
