@@ -320,11 +320,11 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	totalSectors := 0
 
 	for dlPart, sectorNums := range sectorsByDlPart {
-		if totalSectors >= MaxExtendsPerMessage {
+		if totalSectors >= MaxExtendsPerRound {
 			log.Warnw("hit max sectors per message limit",
 				"preset", cfg.Name,
 				"sp_id", cfg.SpID,
-				"limit", MaxExtendsPerMessage)
+				"limit", MaxExtendsPerRound)
 			break
 		}
 
@@ -378,7 +378,7 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 		numbersToExtend := make([]abi.SectorNumber, 0, len(sectorNums))
 
 		for _, sn := range sectorNums {
-			if totalSectors >= MaxExtendsPerMessage {
+			if totalSectors >= MaxExtendsPerRound {
 				break
 			}
 
@@ -643,16 +643,20 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 	for i, msg := range msgs {
 		msgCid, err := e.sender.Send(ctx, msg, mss, fmt.Sprintf("expmgr-top-up-%s", cfg.Name))
 		if err != nil {
+			if len(sentCids) > 0 {
+				log.Errorw("failed to send message, proceeding with already sent messages",
+					"preset", cfg.Name,
+					"sp_id", cfg.SpID,
+					"failed_index", i,
+					"total_messages", len(msgs),
+					"sent_so_far", len(sentCids),
+					"error", err)
+				break
+			}
 			return false, xerrors.Errorf("sending message %d: %w", i, err)
 		}
 
 		sentCids = append(sentCids, msgCid)
-
-		// Insert into message_waits
-		_, err = e.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, msgCid.String())
-		if err != nil {
-			return false, xerrors.Errorf("inserting message %d into message_waits: %w", i, err)
-		}
 
 		log.Infow("sent top-up message",
 			"preset", cfg.Name,
@@ -664,22 +668,32 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			"miner", maddr)
 	}
 
-	// Update the database with the first message CID (trigger will update last_message_landed_at when it lands)
+	trackedCid := sentCids[len(sentCids)-1]
+
+	// Update the database with the last message CID before inserting into message_waits,
+	// so the landing trigger can't race-miss the update.
 	_, err = e.db.Exec(ctx, `
 		UPDATE sectors_exp_manager_sp
 		SET last_message_cid = $2,
 		    last_run_at = CURRENT_TIMESTAMP
 		WHERE sp_id = $1 AND preset_name = $3
-	`, cfg.SpID, sentCids[0].String(), cfg.Name)
+	`, cfg.SpID, trackedCid.String(), cfg.Name)
 	if err != nil {
 		return false, xerrors.Errorf("updating sectors_exp_manager_sp: %w", err)
+	}
+
+	for i, sc := range sentCids {
+		_, err = e.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, sc.String())
+		if err != nil {
+			return false, xerrors.Errorf("inserting message %d into message_waits: %w", i, err)
+		}
 	}
 
 	log.Infow("completed top-up action",
 		"preset", cfg.Name,
 		"sp_id", cfg.SpID,
 		"total_messages_sent", len(sentCids),
-		"tracked_message_cid", sentCids[0].String())
+		"tracked_message_cid", trackedCid.String())
 
 	return true, nil
 }
