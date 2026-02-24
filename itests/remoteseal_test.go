@@ -64,7 +64,7 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	sharedITestID := harmonydb.ITestNewID()
 	t.Logf("sharedITestID: %s", sharedITestID)
 
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
 	require.NoError(t, err)
 	defer db.ITestDeleteAll()
 

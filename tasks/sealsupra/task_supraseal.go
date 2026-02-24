@@ -338,7 +338,6 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		ticketEpochs[i] = ticketEpoch
 		tickets[i] = ticket
 
-
 		spt := abi.RegisteredSealProof(t.RegSealProof)
 		replicaIDs[i], err = spt.ReplicaId(abi.ActorID(t.SpID), abi.SectorNumber(t.SectorNumber), tickets[i], commd)
 		if err != nil {
