@@ -261,10 +261,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpVerifierAddress.Hex(), err)
 	}
 
-	callOpts := contract.EthCallOpts(ctx)
-
 	// Proof parameters
-	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(callOpts, big.NewInt(dataSetId))
+	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
 	}
@@ -278,7 +276,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return true, nil
 	}
 
-	totalLeafCount, err := pdpVerifier.GetChallengeRange(callOpts, big.NewInt(dataSetId))
+	totalLeafCount, err := pdpVerifier.GetChallengeRange(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get data set leaf count: %w", err)
 	}
@@ -339,7 +337,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
 
 	calcProofFeeResult := make([]any, 0)
-	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetId))
+	err = pdpVerifierRaw.Call(contract.EthCallOpts(ctx), &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
@@ -359,7 +357,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
 
 	// Get the sender address for this data set
-	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, big.NewInt(dataSetId))
+	owner, _, err := pdpVerifier.GetDataSetStorageProvider(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get owner: %w", err)
 	}
