@@ -396,7 +396,7 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 	}
 
 	if len(hashes) == 0 {
-		if commcidv2.IsPieceCidV2(piecev2){
+		if commcidv2.IsPieceCidV2(piecev2) {
 			pcid1, _, err := commcid.PieceCidV1FromV2(piecev2)
 			if err != nil {
 				return nil, xerrors.Errorf("getting piece cid v1 from v2: %w", err)
