@@ -166,7 +166,8 @@ CREATE TABLE IF NOT EXISTS rseal_provider_pipeline (
 -- batch_sector_refs has a FK to sectors_sdr_pipeline, but SupraSeal batches can now
 -- include remote sectors from rseal_provider_pipeline. Drop the FK and add a pipeline
 -- source column so the slot manager knows which table to reference.
-ALTER TABLE batch_sector_refs DROP CONSTRAINT IF EXISTS batch_sector_refs_sp_id_sector_number_fkey;
+ALTER TABLE batch_sector_refs DROP CONSTRAINT IF EXISTS batch_sector_refs_sp_id_sector_number_fkey; -- PG naming
+ALTER TABLE batch_sector_refs DROP CONSTRAINT IF EXISTS batch_sector_refs_sp_id_fkey; -- YugabyteDB naming
 ALTER TABLE batch_sector_refs ADD COLUMN IF NOT EXISTS pipeline_source TEXT NOT NULL DEFAULT 'local';
 -- pipeline_source: 'local' = sectors_sdr_pipeline, 'remote' = rseal_provider_pipeline
 
