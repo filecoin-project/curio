@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -261,7 +262,9 @@ func GetDealStatus(ctx context.Context, db *harmonydb.DB, req DealStatusRequest,
 									uuid = $1;`, req.DealUUID)
 
 	if err != nil {
-		return errResp(fmt.Sprintf("failed to query the db for deal status: %s", err))
+		eid := uuid.New()
+		reqLog.Errorw("failed to query the db for deal status", "err", err, "eid", eid)
+		return errResp(fmt.Sprintf("failed to query the db for deal status [eid: %s]", eid))
 	}
 
 	if len(pdeals) > 1 {

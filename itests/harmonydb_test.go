@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
@@ -18,7 +20,7 @@ func TestCrud(t *testing.T) {
 	defer cancel()
 
 	sharedITestID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, false)
 	require.NoError(t, err)
 
 	//cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
@@ -50,19 +52,33 @@ func TestTransaction(t *testing.T) {
 	defer cancel()
 
 	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
 	require.NoError(t, err)
+	wait := make(chan struct{})
+	result := make(chan int)
+	var sideError error
+	go func() {
+		<-wait
+		var sum1 int
+		if sideError = cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); sideError != nil {
+			close(result)
+			return
+		}
+		result <- sum1
+	}()
 	_, err = cdb.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		if _, err = tx.Exec("INSERT INTO itest_scratch (some_int) VALUES (7), (8), (9)"); err != nil {
 			return false, err
 		}
 
+		wait <- struct{}{}
 		// sum1 is read from OUTSIDE the transaction so it's the old value
-		var sum1 int
-		if err := cdb.QueryRow(ctx, "SELECT SUM(some_int) FROM itest_scratch").Scan(&sum1); err != nil {
-			t.Fatal("E2", err)
+
+		sum1, ok := <-result
+		if !ok {
+			return false, sideError
 		}
 		if sum1 != 4+5+6 {
 			return false, xerrors.Errorf("Expected 15, got %d", sum1)
@@ -100,7 +116,7 @@ func TestPartialWalk(t *testing.T) {
 	defer cancel()
 
 	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, `
 			INSERT INTO 
@@ -138,4 +154,37 @@ func TestPartialWalk(t *testing.T) {
 		}
 	}
 	require.True(t, done)
+}
+
+func TestDowngradeTo(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testID := harmonydb.ITestNewID()
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
+	require.NoError(t, err)
+
+	// The setup: lets make revert files going forward in time, but ignore the past.
+	rowCt, err := cdb.Exec(ctx, "UPDATE base SET applied = applied - INTERVAL '10 DAY' WHERE TO_DATE(entry, 'YYYYMMDD') < DATE '2025-08-15'")
+	require.NoError(t, err)
+
+	if rowCt == 0 {
+		t.Fatal("no rows in save set")
+	}
+	n, _ := strconv.Atoi(time.Now().AddDate(0, 0, -1).Format("20060102"))
+	err = cdb.DowngradeTo(ctx, n)
+	require.NoError(t, err, "error reverting. All sql entries need a revert file.")
+
+	var shouldBeReverted []string
+	err = cdb.Select(ctx, &shouldBeReverted, "SELECT entry FROM base WHERE entry > '20250815'")
+	require.NoError(t, err)
+	require.Len(t, shouldBeReverted, 0, "expected no entries to be reverted. Got ", len(shouldBeReverted))
+
+	var rowCt2 int
+	err = cdb.QueryRow(ctx, "SELECT COUNT(*) FROM base WHERE entry < '20250815'").Scan(&rowCt2)
+	require.NoError(t, err)
+	require.Equal(t, rowCt2, rowCt, "expected no older entries to be reverted. Got ", rowCt2-rowCt)
+
+	_, err = cdb.Exec(ctx, "UPDATE base SET applied = applied + INTERVAL '2 DAY' WHERE entry < '20250815'")
+	require.NoError(t, err)
 }
