@@ -46,6 +46,12 @@ import (
 
 const LeafSize = proof.NODE_SIZE
 
+// The number of times we will attempt to rehydrate cache
+// and regenerate a proof using the cache after a failure,
+// before we give up on using the cache for that piece, and
+// generate via the full memtree instead.
+const MaxCachedProofgenFailures = 3
+
 type ProveTask struct {
 	db        *harmonydb.DB
 	ethClient *ethclient.Client
@@ -689,18 +695,21 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	// Retrieve the piece and subpiece
 	type subPieceMeta struct {
-		Piece          string `db:"piece"`
-		SubPiece       string `db:"sub_piece"`
-		SubPieceOffset int64  `db:"sub_piece_offset"` // padded offset
-		SubPieceSize   int64  `db:"sub_piece_size"`   // padded piece size
-		Removed        bool   `db:"removed"`
-		PieceRawSize   uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
+		PieceRefId                 int64  `db:"pieceref_id"`
+		CachedProofgenFailureCount int64  `db:"cached_proofgen_failure_count"` // The number of consecutive times cached proofgen has failed for this subpiece, used to determine when to stop attempting cached proofgen, and start doing full memtree instead
+		Piece                      string `db:"piece"`
+		SubPiece                   string `db:"sub_piece"`
+		SubPieceOffset             int64  `db:"sub_piece_offset"` // padded offset
+		SubPieceSize               int64  `db:"sub_piece_size"`   // padded piece size
+		Removed                    bool   `db:"removed"`
+		PieceRawSize               uint64 `db:"piece_raw_size"` // raw size from parked_pieces, for constructing v2 CID
 	}
 
 	var subPieces []subPieceMeta
 
 	err := p.db.Select(context.Background(), &subPieces, `
-			SELECT dsp.piece, dsp.sub_piece, dsp.sub_piece_offset, dsp.sub_piece_size, dsp.removed,
+			SELECT ppr.id as pieceref_id, ppr.cached_proofgen_failure_count as cached_proofgen_failure_count,
+				   dsp.piece, dsp.sub_piece, dsp.sub_piece_offset, dsp.sub_piece_size, dsp.removed,
 			       pp.piece_raw_size
 			FROM pdp_data_set_pieces dsp
 			JOIN pdp_piecerefs ppr ON ppr.id = dsp.pdp_pieceref
@@ -729,28 +738,46 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	var subPieceProof *proof.RawMerkleProof
 
+	isIdxNotNull := p.idx != nil
+	isLargeSubPiece := challSubPiece.SubPieceSize >= int64(MinSizeForCache) && challSubPiece.PieceRawSize > 0
+	isUsingCachedProof := isIdxNotNull && isLargeSubPiece
+
 	// Try cached approach for large sub-pieces
-	if p.idx != nil && challSubPiece.SubPieceSize >= int64(MinSizeForCache) && challSubPiece.PieceRawSize > 0 {
-		subPieceCidV1, parseErr := cid.Parse(challSubPiece.SubPiece)
-		if parseErr != nil {
-			log.Warnw("failed to parse sub-piece CID for cache lookup", "error", parseErr)
-		} else {
-			pcidV2, v2Err := commcid.PieceCidV2FromV1(subPieceCidV1, challSubPiece.PieceRawSize)
-			if v2Err != nil {
-				log.Warnw("failed to construct v2 CID, falling back to memtree", "error", v2Err)
-			} else {
-				cachedProof, cacheErr := p.proveSubPieceCached(ctx, subPieceCidV1, pcidV2, abi.PaddedPieceSize(challSubPiece.SubPieceSize), subPieceChallengedLeaf)
-				if cacheErr != nil {
-					log.Warnw("cached proof generation failed, falling back to memtree", "error", cacheErr)
-				} else if cachedProof != nil {
-					subPieceProof = cachedProof
-				}
+	if isUsingCachedProof {
+		log.Debugw("attempting cached proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize)
+		var subpieceCidV1, subpieceCidV2 cid.Cid
+		var isPieceCidsExtracted bool = false
+		var isCachedProofRetrieved bool = false
+
+		// First, let's extract the CIDs
+		if spCidV1, parseErr := cid.Parse(challSubPiece.SubPiece); parseErr == nil {
+			if spCidV2, v2Err := commcid.PieceCidV2FromV1(spCidV1, challSubPiece.PieceRawSize); v2Err == nil {
+				subpieceCidV1 = spCidV1
+				subpieceCidV2 = spCidV2
+				isPieceCidsExtracted = true
 			}
+		}
+
+		// Second, check we can get proofs through a subPieceCached setup
+		if isPieceCidsExtracted {
+			cachedProof, cacheErr := p.proveSubPieceCached(ctx, subpieceCidV1, subpieceCidV2, abi.PaddedPieceSize(challSubPiece.SubPieceSize), subPieceChallengedLeaf)
+			if cacheErr == nil && cachedProof != nil {
+				subPieceProof = cachedProof
+				isCachedProofRetrieved = true
+			}
+		}
+
+		if !isPieceCidsExtracted || !isCachedProofRetrieved {
+			isSubPieceProofNil := subPieceProof == nil
+			log.Warnw("cached pdp proof not used, may require fallback to full memtree", "isPieceCidsExtracted", isPieceCidsExtracted, "isCachedProofRetrieved", isCachedProofRetrieved, "isSubPieceProofNil", isSubPieceProofNil, "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCidV1", subpieceCidV1, "subPieceCidV2", subpieceCidV2)
+		} else {
+			log.Debugw("cached pdp proof used successfully", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCidV1", subpieceCidV1, "subPieceCidV2", subpieceCidV2)
 		}
 	}
 
-	// Fall back to full memtree if cached approach wasn't used
-	if subPieceProof == nil {
+	// If cached proof isn't available, generate the full memtree and proof for the sub-piece
+	if subPieceProof == nil && !isLargeSubPiece {
+		log.Debugw("sub-piece proof (size too small), generating full memtree", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceSize", challSubPiece.SubPieceSize, "rawSize", challSubPiece.PieceRawSize)
 		memtree, memErr := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
 		if memErr != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", memErr)
@@ -760,8 +787,49 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
 		}
+	} else if subPieceProof == nil && isLargeSubPiece {
+		// Now we are in a precarious state where we expected to be able to generate a proof via the cache,
+		// but we couldn't. This could be due to a number of reasons - the cache was never generated,
+		// the cache was generated but is incomplete, or there is some other issue with the caching layer.
+		// In any case, we want to attempt to recover from this situation by rehydrating the cache,
+		// but we will miss this proving period and likely get a fault for this piece.
+		//
+		// However, even rehydration should only be attempted a capped number of times, as if the cache is
+		// consistently failing to generate, we don't want to keep trying and keep missing proving periods indefinitely.
+		// After a certain number of failures, we should just give up on using the cache for this piece and
+		// generate the full memtree proof instead, even for large pieces.
+		log.Warnw("sub-piece proof should be generated via cache but it failed. This may indicate an issue with the pdp caching layer", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceSize", challSubPiece.SubPieceSize, "rawSize", challSubPiece.PieceRawSize)
+		if challSubPiece.CachedProofgenFailureCount < MaxCachedProofgenFailures {
+			log.Debugw("attempting cache rehydration for sub-piece, skipping proof", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceSize", challSubPiece.SubPieceSize, "rawSize", challSubPiece.PieceRawSize, "cachedProofgenFailureCount", challSubPiece.CachedProofgenFailureCount)
+			_, err := p.db.Exec(ctx, `
+			UPDATE pdp_piecerefs
+			SET needs_save_cache = TRUE, caching_task_started = NULL, caching_task_completed = NULL, cached_proofgen_failure_count = $1
+			WHERE id = $2`, challSubPiece.CachedProofgenFailureCount+1, challSubPiece.PieceRefId)
+			if err != nil {
+				log.Warnw("failed to reset cache for pieceref", "error", err, "pieceRefId", challSubPiece.PieceRefId, "dataSetId", dataSetId)
+			}
+		} else {
+			// NOTICE: You do not want to be found here if the pdp cache system is working well
+			// This is just so that SPs do not fail proving indefinitely due to cache issues.
+			log.Warnw("sub-piece has exceeded max cached proofgen failures, falling back to full memtree proof generation for this piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceSize", challSubPiece.SubPieceSize, "rawSize", challSubPiece.PieceRawSize, "cachedProofgenFailureCount", challSubPiece.CachedProofgenFailureCount)
+			memtree, memErr := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
+			if memErr != nil {
+				return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", memErr)
+			}
+			subPieceProof, err = proof.MemtreeProof(memtree, subPieceChallengedLeaf)
+			pool.Put(memtree)
+			if err != nil {
+				return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
+			}
+		}
+	} else if subPieceProof != nil && isLargeSubPiece {
+		log.Debugw("sub-piece proof successfully generated via cache", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceSize", challSubPiece.SubPieceSize, "rawSize", challSubPiece.PieceRawSize)
 	}
-	log.Debugw("subPieceProof", "subPieceProof", subPieceProof)
+
+	log.Debugw("subPieceProof", "subPieceProof", subPieceProof, "isLargeSubPiece", isLargeSubPiece, "isUsingCachedProof", isUsingCachedProof)
+	if subPieceProof == nil {
+		return contract.IPDPTypesProof{}, xerrors.New("failed to generate sub-piece proof")
+	}
 
 	// build partial top-tree
 	type treeElem struct {
