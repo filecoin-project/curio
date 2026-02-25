@@ -746,8 +746,8 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	if isUsingCachedProof {
 		log.Debugw("attempting cached proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize)
 		var subpieceCidV1, subpieceCidV2 cid.Cid
-		var isPieceCidsExtracted bool = false
-		var isCachedProofRetrieved bool = false
+		var isPieceCidsExtracted = false
+		var isCachedProofRetrieved = false
 
 		// First, let's extract the CIDs
 		if spCidV1, parseErr := cid.Parse(challSubPiece.SubPiece); parseErr == nil {
