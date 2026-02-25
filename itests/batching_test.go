@@ -26,12 +26,10 @@ func TestBatching(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("PrecommitNoConcurrentEmptyBatch", func(t *testing.T) {
-		const (
-			spID       int64 = 1000
-			sealProof        = 8
-			numSectors       = 20
-			maxBatch         = 10
-		)
+		const spID int64 = 1000
+		const sealProof int64 = 8
+		const numSectors int64 = 20
+		const maxBatch int = 10
 
 		for i := int64(0); i < numSectors; i++ {
 			_, err := db.Exec(ctx, `INSERT INTO sectors_sdr_pipeline (
