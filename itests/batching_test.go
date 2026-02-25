@@ -115,9 +115,9 @@ func TestBatching(t *testing.T) {
 	t.Run("CommitNoConcurrentEmptyBatch", func(t *testing.T) {
 		const (
 			spID       int64 = 2000
-			sealProof        = 8
-			numSectors       = 20
-			maxBatch         = 10
+			sealProof  int64 = 8
+			numSectors int64 = 20
+			maxBatch   int   = 10
 		)
 
 		for i := int64(0); i < numSectors; i++ {
