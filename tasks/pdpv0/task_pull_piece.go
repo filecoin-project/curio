@@ -242,10 +242,12 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		// Register piece with service (parallels notify_task.go for uploads)
+		// Set needs_save_cache=TRUE for large pieces to enable proactive caching
+		needsSaveCache := uint64(item.PieceRawSize) >= MinSizeForCache
 		_, err = tx.Exec(`
-			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at)
-			VALUES ($1, $2, $3, NOW())
-		`, service, item.PieceCid, pieceRef)
+			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
+			VALUES ($1, $2, $3, NOW(), $4)
+		`, service, item.PieceCid, pieceRef, needsSaveCache)
 		if err != nil {
 			return false, xerrors.Errorf("insert pdp_piecerefs: %w", err)
 		}
