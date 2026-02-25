@@ -83,7 +83,7 @@ type TaskInterface interface {
 	// ONLY be called by harmonytask.
 	// Indicate if the task no-longer needs scheduling with done=true including
 	// cases where it's past the deadline.
-	Do(taskID TaskID, stillOwned func() bool) (done bool, err error)
+	Do(ctx context.Context, taskID TaskID, stillOwned func() bool) (done bool, err error)
 
 	// CanAccept should return if the task can run on this machine. It should
 	// return null if the task type is not allowed on this machine.
@@ -242,7 +242,7 @@ func New(
 // passing a deadline will ignore those still running (to be picked-up later).
 func (e *TaskEngine) GracefullyTerminate() {
 
-	// call the cancel func to avoid picking up any new tasks. Running tasks have context.Background()
+	// call the cancel func to avoid picking up any new tasks. Running tasks now inherit e.ctx.
 	// Call shutdown to stop posting heartbeat to DB.
 	e.grace()
 	e.reg.Shutdown()

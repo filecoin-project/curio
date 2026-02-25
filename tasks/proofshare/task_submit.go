@@ -93,8 +93,7 @@ func (t *TaskSubmit) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngi
 	return ids, nil
 }
 
-func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
-	ctx := context.Background()
+func (t *TaskSubmit) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (bool, error) {
 
 	// 1) Look up the row assigned to this submit_task_id
 	var row struct {

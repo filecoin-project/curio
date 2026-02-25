@@ -43,8 +43,7 @@ func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient *
 	}
 }
 
-func (p *PDPTaskAddPiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskAddPiece) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var addPieces []struct {
 		ID        string `db:"id"`

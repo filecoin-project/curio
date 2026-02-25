@@ -81,8 +81,7 @@ type SendTask struct {
 	db *harmonydb.DB
 }
 
-func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.TODO()
+func (s *SendTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// get message from db
 

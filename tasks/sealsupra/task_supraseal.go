@@ -261,8 +261,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	return ssl, slots, ssl.outSDR.IsInPhase(), nil
 }
 
-func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SupraSeal) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectors []struct {
 		SpID         int64 `db:"sp_id"`
@@ -344,7 +343,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			ProofType: abi.RegisteredSealProof(t.RegSealProof),
 		}
 
-		ctx := context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
+		ctx = context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
 
 		ps, pathIDs, release, err := s.sc.Sectors.AcquireSector(ctx, &taskID, sref, storiface.FTNone, alloc, storiface.PathSealing)
 		if err != nil {

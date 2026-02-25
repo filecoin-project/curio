@@ -28,8 +28,7 @@ func NewPDPSyncTask(db *harmonydb.DB, ethClient *ethclient.Client) *PDPSyncTask 
 	}
 }
 
-func (P *PDPSyncTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (P *PDPSyncTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Fetch all proving pieces from DB
 	var provingPieces []struct {

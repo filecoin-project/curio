@@ -60,8 +60,7 @@ func NewFindDealTask(sm *CurioStorageDealMarket, db *harmonydb.DB, api fdealApi,
 	}
 }
 
-func (f *FindDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (f *FindDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var bdeals []struct {
 		UUID       string          `db:"uuid"`

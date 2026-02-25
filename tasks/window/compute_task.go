@@ -125,13 +125,12 @@ func NewWdPostTask(db *harmonydb.DB,
 	return t, nil
 }
 
-func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *WdPostTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WdPostTask.Do()", "taskID", taskID)
 
 	var spID, pps, dlIdx, partIdx uint64
 
-	err = t.db.QueryRow(context.Background(),
-		`Select sp_id, proving_period_start, deadline_index, partition_index
+	err = t.db.QueryRow(ctx, `Select sp_id, proving_period_start, deadline_index, partition_index
 			from wdpost_partition_tasks 
 			where task_id = $1`, taskID).Scan(
 		&spID, &pps, &dlIdx, &partIdx,
@@ -141,7 +140,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, err
 	}
 
-	head, err := t.api.ChainHead(context.Background())
+	head, err := t.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to get chain head: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting chain head: %w", spID, dlIdx, partIdx, err)
@@ -156,7 +155,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		}
 
 		testTask = new(int)
-		err := t.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_test WHERE task_id = $1`, taskID).Scan(testTask)
+		err := t.db.QueryRow(ctx, `SELECT COUNT(*) FROM harmony_test WHERE task_id = $1`, taskID).Scan(testTask)
 		if err != nil {
 			log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to queryRow: %s", spID, dlIdx, partIdx, err.Error())
 			return false
@@ -183,14 +182,14 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting miner address: %w", spID, dlIdx, partIdx, err)
 	}
 
-	ts, err := t.api.ChainGetTipSetAfterHeight(context.Background(), deadline.Challenge, head.Key())
+	ts, err := t.api.ChainGetTipSetAfterHeight(ctx, deadline.Challenge, head.Key())
 	if err != nil {
 		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to ChainGetTipSetAfterHeight: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting tipset: %w", spID, dlIdx, partIdx, err)
 	}
 
 	// Set up a context with cancel so we can cancel the task if deadline is closed
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(ctx)
 	finish := make(chan struct{})
 	defer close(finish)
 
@@ -206,12 +205,12 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			case <-finish:
 				return
 			case <-ticker.C:
-				h, err := stAPI.ChainHead(context.Background())
+				h, err := stAPI.ChainHead(ctx)
 				if err != nil {
 					log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %s", spID, dlIdx, partIdx, err.Error())
 					failedAt := time.Now()
 					for time.Now().After(failedAt.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
-						h, err = stAPI.ChainHead(context.Background())
+						h, err = stAPI.ChainHead(ctx)
 						if err == nil {
 							break
 						}
@@ -268,7 +267,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		if err != nil {
 			return false, xerrors.Errorf("marshaling message: %w", err)
 		}
-		_, err = t.db.Exec(context.Background(), `UPDATE harmony_test SET result=$1 WHERE task_id=$2`, string(data), taskID)
+		_, err = t.db.Exec(ctx, `UPDATE harmony_test SET result=$1 WHERE task_id=$2`, string(data), taskID)
 		if err != nil {
 			return false, xerrors.Errorf("updating harmony_test: %w", err)
 		}
@@ -276,8 +275,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return true, nil // nothing committed
 	}
 	// Insert into wdpost_proofs table
-	n, err := t.db.Exec(context.Background(),
-		`INSERT INTO wdpost_proofs (
+	n, err := t.db.Exec(ctx, `INSERT INTO wdpost_proofs (
                                sp_id,
                                proving_period_start,
 	                           deadline,

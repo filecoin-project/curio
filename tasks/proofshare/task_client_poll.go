@@ -128,8 +128,8 @@ func (t *TaskClientPoll) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (t *TaskClientPoll) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var clientRequest ClientRequest

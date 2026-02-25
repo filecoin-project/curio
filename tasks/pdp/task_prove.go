@@ -158,13 +158,12 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 	return pt
 }
 
-func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Retrieve proof set and challenge epoch for the task
 	var dataSetID int64
 
-	err = p.db.QueryRow(context.Background(), `
+	err = p.db.QueryRow(ctx, `
         SELECT data_set_id
         FROM pdp_proving_tasks
         WHERE task_id = $1

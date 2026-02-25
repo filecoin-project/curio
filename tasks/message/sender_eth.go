@@ -38,8 +38,7 @@ type SendTaskETH struct {
 	db *harmonydb.DB
 }
 
-func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.TODO()
+func (s *SendTaskETH) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Get transaction from the database
 	var dbTx struct {

@@ -38,8 +38,7 @@ func NewMoveStorageTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *MoveStora
 	}
 }
 
-func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64 `db:"sp_id"`

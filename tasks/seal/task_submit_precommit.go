@@ -87,8 +87,7 @@ func (s *SubmitPrecommitTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.
 
 var _ = harmonytask.Reg(&SubmitPrecommitTask{})
 
-func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SubmitPrecommitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// 1. Load sector info
 

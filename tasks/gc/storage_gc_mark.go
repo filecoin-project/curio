@@ -57,8 +57,7 @@ func NewStorageGCMark(si paths.SectorIndex, remote *paths.Remote, db *harmonydb.
 	}
 }
 
-func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *StorageGCMark) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	/*
 		CREATE TABLE storage_removal_marks (

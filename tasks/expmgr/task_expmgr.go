@@ -38,8 +38,7 @@ func NewExpMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.CurioCh
 	}
 }
 
-func (e *ExpMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (e *ExpMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	log.Infow("starting expiration manager task", "task_id", taskID)
 

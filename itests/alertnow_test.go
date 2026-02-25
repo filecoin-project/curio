@@ -1,6 +1,7 @@
 package itests
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestAlertNow(t *testing.T) {
 	alertmanager.AlertFuncs = []alertmanager.AlertFunc{alertmanager.NowCheck}
 	// Create a new alert task
 	at := alertmanager.NewAlertTask(nil, db, config.CurioAlertingConfig{}, as)
-	done, err := at.Do(123, func() bool { return true })
+	done, err := at.Do(context.Background(), 123, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, "Machine alertNowMachine: testMessage", tp.output)

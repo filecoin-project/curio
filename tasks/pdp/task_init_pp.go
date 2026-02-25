@@ -91,8 +91,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 	return ipp
 }
 
-func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (ipp *InitProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Select the data set where challenge_request_task_id = taskID
 	var dataSetID int64

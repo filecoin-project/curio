@@ -37,8 +37,8 @@ func NewPDPTaskAddDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient
 	}
 }
 
-func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PDPTaskAddDataSet) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+
 	var pcreates []struct {
 		RecordKeeper string `db:"record_keeper"`
 		ExtraData    []byte `db:"extra_data"`

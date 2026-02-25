@@ -43,8 +43,7 @@ func NewTaskUnsealDecode(sc *ffi.SealCalls, db *harmonydb.DB, max int, api Unsea
 	}
 }
 
-func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskUnsealDecode) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64 `db:"sp_id"`
