@@ -7,8 +7,8 @@ import (
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
+	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -156,14 +156,14 @@ func (w *DataCidWriter) Sum() (DataCIDSize, error) {
 		}
 	}
 
-	p, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1, pieces)
+	p, paddedSize, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1, pieces)
 	if err != nil {
 		return DataCIDSize{}, xerrors.Errorf("generating unsealed CID: %w", err)
 	}
 
 	return DataCIDSize{
 		PayloadSize: rawLen,
-		PieceSize:   abi.PaddedPieceSize(len(leaves)) * commPBufPad,
+		PieceSize:   paddedSize * commPBufPad,
 		PieceCID:    p,
 	}, nil
 }

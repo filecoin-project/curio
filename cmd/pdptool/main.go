@@ -26,7 +26,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v2"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -855,7 +855,7 @@ var uploadFileCmd = &cli.Command{
 				pieceSize += uint64(piece.Size)
 			}
 			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
-			root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
+			root, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}

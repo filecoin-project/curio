@@ -459,7 +459,7 @@ When adding roots to a proof set using the `POST /pdp/proof-sets/{proofSetID}/ro
     - The concatenation of the subroots must not require padding to align to the sector size used in the computation.
 
 4. **Computing the Root CID:**
-    - The server uses the `GenerateUnsealedCID` function to compute the root CID from the subroots.
+    - The server uses the `https://github.com/filecoin-project/go-commp-utils/v2 PieceAggregateCommp` function to compute the root CID from the subroots.
     - This function emulates the computation performed in the Filecoin proofs implementation.
     - The process involves stacking the subroots and combining them using a Merkle tree hash function.
 
@@ -492,7 +492,7 @@ When adding roots to a proof set using the `POST /pdp/proof-sets/{proofSetID}/ro
 ### Root Computation Function
 
 ```go
-func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.PieceInfo) (cid.Cid, error)
+func PieceAggregateCommp(proofType abi.RegisteredSealProof, pieceInfos []abi.PieceInfo) (cid.Cid, error)
 ```
 
 Where:

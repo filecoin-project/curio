@@ -22,7 +22,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -798,9 +798,9 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 				totalOffset += uint64(subrootInfo.PieceInfo.Size)
 			}
 
-			// Use GenerateUnsealedCID to generate RootCID from subroots
+			// Use commputils.PieceAggregateCommP to generate RootCID from subroots
 			proofType := abi.RegisteredSealProof_StackedDrg64GiBV1_1 // Proof type sets max piece size, nothing else
-			generatedRootCID, err := nonffi.GenerateUnsealedCID(proofType, pieceInfos)
+			generatedRootCID, _, err := commputils.PieceAggregateCommP(proofType, pieceInfos)
 			if err != nil {
 				return false, fmt.Errorf("failed to generate RootCID: %v", err)
 			}
