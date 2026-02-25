@@ -20,6 +20,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/indexing"
 )
@@ -436,9 +437,9 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("provider is already registered")
 	}
 
-	serviceURL := url.URL{
-		Scheme: "https",
-		Host:   a.deps.Cfg.HTTP.DomainName,
+	serviceURL, err := urlhelper.GetExternalURL(&a.deps.Cfg.HTTP)
+	if err != nil {
+		return xerrors.Errorf("getting external URL: %w", err)
 	}
 
 	tokenAddress, err := contract.USDFCAddress()
