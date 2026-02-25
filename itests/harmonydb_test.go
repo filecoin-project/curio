@@ -20,7 +20,7 @@ func TestCrud(t *testing.T) {
 	defer cancel()
 
 	sharedITestID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
 	require.NoError(t, err)
 
 	//cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
@@ -52,7 +52,7 @@ func TestTransaction(t *testing.T) {
 	defer cancel()
 
 	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
 	require.NoError(t, err)
