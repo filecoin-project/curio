@@ -95,31 +95,26 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 			return true, nil
 
-		case "failed":
-			// Provider reports failure - mark the client pipeline as failed
+		case "failed", "gone":
+			// Provider reports failure or sector is gone (never received / cleaned up).
+			reason := statusResp.FailReason
+			if statusResp.State == "gone" {
+				reason = "sector not found on provider"
+			}
+
 			_, err := p.db.Exec(ctx, `
 				UPDATE rseal_client_pipeline
 				SET failed = TRUE, failed_at = NOW(), failed_reason = 'provider', failed_reason_msg = $3,
 				    task_id_sdr = NULL
 				WHERE sp_id = $1 AND sector_number = $2`,
-				sector.SpID, sector.SectorNumber, statusResp.FailReason)
+				sector.SpID, sector.SectorNumber, reason)
 			if err != nil {
 				return false, xerrors.Errorf("marking sector failed: %w", err)
 			}
 
-			// Also clear the task_ids in sectors_sdr_pipeline so it can be retried
-			_, err = p.db.Exec(ctx, `
-				UPDATE sectors_sdr_pipeline
-				SET task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-				WHERE sp_id = $1 AND sector_number = $2`,
-				sector.SpID, sector.SectorNumber)
-			if err != nil {
-				return false, xerrors.Errorf("clearing sector task ids: %w", err)
-			}
-
 			log.Warnw("remote seal poll: sector failed on provider",
 				"sp_id", sector.SpID, "sector", sector.SectorNumber,
-				"reason", statusResp.FailReason)
+				"state", statusResp.State, "reason", reason)
 
 			return true, nil
 

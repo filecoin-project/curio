@@ -49,11 +49,12 @@ CREATE TABLE IF NOT EXISTS rseal_client_pipeline (
     -- at request time
     create_time timestamptz not null default current_timestamp,
     reg_seal_proof int not null,
+    user_sector_duration_epochs bigint, -- carried through to sectors_sdr_pipeline on completion
 
-    -- SDR + Trees: task_ids are shared with sectors_sdr_pipeline.
-    -- A single task covering sdr/tree_d/tree_c/tree_r delegates computation
-    -- to the remote provider. All four task_id columns will hold the same
-    -- harmony task id. The poller detects rseal_client_pipeline rows and
+    -- SDR + Trees: the delegate task sends the order to the provider and then
+    -- the poll task monitors completion. The sectors_sdr_pipeline row does NOT
+    -- exist yet — it is created by ApplyRemoteCompletion when the provider
+    -- finishes SDR+trees. The poller detects rseal_client_pipeline rows and
     -- creates the combined remote-seal task instead of individual local tasks.
 
     -- sdr (ticket is computed by the provider and returned in the /complete notification)
@@ -93,8 +94,9 @@ CREATE TABLE IF NOT EXISTS rseal_client_pipeline (
     failed_reason varchar(20) not null default '',
     failed_reason_msg text not null default '',
 
-    primary key (sp_id, sector_number),
-    foreign key (sp_id, sector_number) references sectors_sdr_pipeline (sp_id, sector_number)
+    primary key (sp_id, sector_number)
+    -- No FK to sectors_sdr_pipeline: the sdr_pipeline row is created later
+    -- (when remote completion is applied) so it may not exist yet.
 );
 
 -- rseal_provider_pipeline tracks sectors being sealed on behalf of a remote client.
@@ -199,3 +201,7 @@ DROP TRIGGER IF EXISTS trg_cascade_batch_refs_remote ON rseal_provider_pipeline;
 CREATE TRIGGER trg_cascade_batch_refs_remote
     BEFORE DELETE ON rseal_provider_pipeline
     FOR EACH ROW EXECUTE FUNCTION cascade_delete_batch_refs_remote();
+
+-- Drop FK that may exist from initial table creation (before this schema revision).
+ALTER TABLE rseal_client_pipeline DROP CONSTRAINT IF EXISTS rseal_client_pipeline_sp_id_sector_number_fkey;
+ALTER TABLE rseal_client_pipeline DROP CONSTRAINT IF EXISTS rseal_client_pipeline_sp_id_fkey;

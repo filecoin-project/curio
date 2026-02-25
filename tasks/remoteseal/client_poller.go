@@ -98,7 +98,7 @@ func (p *RSealClientPoller) poll(ctx context.Context) error {
 			c.task_id_cleanup,
 			COALESCE(s.after_porep, FALSE) AS after_porep
 		FROM rseal_client_pipeline c
-		JOIN sectors_sdr_pipeline s ON c.sp_id = s.sp_id AND c.sector_number = s.sector_number
+		LEFT JOIN sectors_sdr_pipeline s ON c.sp_id = s.sp_id AND c.sector_number = s.sector_number
 		WHERE c.after_cleanup != TRUE OR c.after_fetch != TRUE`)
 	if err != nil {
 		return xerrors.Errorf("querying rseal_client_pipeline: %w", err)

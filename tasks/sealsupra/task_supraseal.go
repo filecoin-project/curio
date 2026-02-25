@@ -603,7 +603,9 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 		err := tx.Select(&sectors, `
 			(SELECT sp_id, sector_number, task_id_sdr, 'local' as pipeline FROM sectors_sdr_pipeline
 			 LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_sdr = ht.id
-			 WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1)
+			 WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR'))
+			   AND NOT EXISTS (SELECT 1 FROM rseal_client_pipeline c WHERE c.sp_id = sectors_sdr_pipeline.sp_id AND c.sector_number = sectors_sdr_pipeline.sector_number)
+			 LIMIT $1)
 			UNION ALL
 			(SELECT sp_id, sector_number, task_id_sdr, 'remote' as pipeline FROM rseal_provider_pipeline
 			 LEFT JOIN harmony_task ht on rseal_provider_pipeline.task_id_sdr = ht.id

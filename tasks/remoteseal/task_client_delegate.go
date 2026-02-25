@@ -74,13 +74,14 @@ func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	// Find sectors ready for SDR that are not yet claimed by any task and
 	// have no existing rseal_client_pipeline entry, but DO have an enabled provider.
 	var sectors []struct {
-		SpID         int64 `db:"sp_id"`
-		SectorNumber int64 `db:"sector_number"`
-		RegSealProof int   `db:"reg_seal_proof"`
-		ProviderID   int64 `db:"provider_id"`
+		SpID                     int64  `db:"sp_id"`
+		SectorNumber             int64  `db:"sector_number"`
+		RegSealProof             int    `db:"reg_seal_proof"`
+		ProviderID               int64  `db:"provider_id"`
+		UserSectorDurationEpochs *int64 `db:"user_sector_duration_epochs"`
 	}
 	err := d.db.Select(ctx, &sectors, `
-		SELECT s.sp_id, s.sector_number, s.reg_seal_proof, p.id AS provider_id
+		SELECT s.sp_id, s.sector_number, s.reg_seal_proof, s.user_sector_duration_epochs, p.id AS provider_id
 		FROM sectors_sdr_pipeline s
 		JOIN rseal_client_providers p ON p.sp_id = s.sp_id AND p.enabled = TRUE
 		WHERE s.after_sdr = FALSE
@@ -103,41 +104,27 @@ func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	sector := sectors[0]
 
 	// Atomically claim the sector in the DB. Do() will handle the HTTP calls.
-	d.claimSectorForDelegation(taskFunc, sector.SpID, sector.SectorNumber, sector.ProviderID, sector.RegSealProof)
+	d.claimSectorForDelegation(taskFunc, sector.SpID, sector.SectorNumber, sector.ProviderID, sector.RegSealProof, sector.UserSectorDurationEpochs)
 	d.lastScheduledWork = true
 
 	return nil
 }
 
-// claimSectorForDelegation atomically creates the rseal_client_pipeline entry
-// and claims all SDR/tree task_ids in both sectors_sdr_pipeline and rseal_client_pipeline.
-func (d *RSealDelegate) claimSectorForDelegation(taskFunc harmonytask.AddTaskFunc, spID, sectorNumber int64, providerID int64, regSealProof int) {
+// claimSectorForDelegation atomically creates the rseal_client_pipeline entry.
+// The rseal_client_pipeline row is what prevents the local SDR poller and
+// SupraSeal batch scheduler from claiming this sector (via LEFT JOIN / NOT EXISTS checks).
+func (d *RSealDelegate) claimSectorForDelegation(taskFunc harmonytask.AddTaskFunc, spID, sectorNumber int64, providerID int64, regSealProof int, userDuration *int64) {
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-		// Insert into rseal_client_pipeline with task_id_sdr set
 		n, err := tx.Exec(`
-			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, task_id_sdr)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, user_sector_duration_epochs, task_id_sdr)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
-			spID, sectorNumber, providerID, regSealProof, id)
+			spID, sectorNumber, providerID, regSealProof, userDuration, id)
 		if err != nil {
 			return false, xerrors.Errorf("inserting rseal_client_pipeline: %w", err)
 		}
 		if n == 0 {
 			return false, nil // already claimed
-		}
-
-		// Claim the sector in sectors_sdr_pipeline by setting all SDR/tree task_ids
-		// to this task's ID. This prevents the local SDR poller from assigning tasks.
-		n, err = tx.Exec(`
-			UPDATE sectors_sdr_pipeline
-			SET task_id_sdr = $1, task_id_tree_d = $1, task_id_tree_c = $1, task_id_tree_r = $1
-			WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL`,
-			id, spID, sectorNumber)
-		if err != nil {
-			return false, xerrors.Errorf("claiming sector in sdr_pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, nil // someone else claimed it
 		}
 
 		return true, nil
@@ -217,38 +204,19 @@ func (d *RSealDelegate) scheduleCCRemote(ctx context.Context, taskFunc harmonyta
 		}
 		sectorNum := sectorNumbers[0]
 
-		// Insert into sectors_sdr_pipeline
-		_, err = tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs)
-			VALUES ($1, $2, $3, $4)`,
-			schedule.SpID, sectorNum, spt, userDuration)
-		if err != nil {
-			return false, xerrors.Errorf("inserting sector %d for SP %d: %w", sectorNum, schedule.SpID, err)
-		}
-
-		// Insert into rseal_client_pipeline with task_id_sdr set
+		// Only insert into rseal_client_pipeline — the sectors_sdr_pipeline row
+		// will be created later by ApplyRemoteCompletion when the provider finishes
+		// SDR+trees and the sealed data is ready for precommit.
 		n, err := tx.Exec(`
-			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, task_id_sdr)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, user_sector_duration_epochs, task_id_sdr)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
-			schedule.SpID, int64(sectorNum), schedule.ProviderID, int(spt), id)
+			schedule.SpID, int64(sectorNum), schedule.ProviderID, int(spt), userDuration, id)
 		if err != nil {
 			return false, xerrors.Errorf("inserting rseal_client_pipeline: %w", err)
 		}
 		if n == 0 {
 			return false, nil // shouldn't happen for a freshly allocated sector
-		}
-
-		// Claim the sector in sectors_sdr_pipeline
-		n, err = tx.Exec(`
-			UPDATE sectors_sdr_pipeline
-			SET task_id_sdr = $1, task_id_tree_d = $1, task_id_tree_c = $1, task_id_tree_r = $1
-			WHERE sp_id = $2 AND sector_number = $3 AND task_id_sdr IS NULL`,
-			id, schedule.SpID, int64(sectorNum))
-		if err != nil {
-			return false, xerrors.Errorf("claiming sector in sdr_pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, nil
 		}
 
 		// Decrement to_seal
@@ -333,15 +301,20 @@ func (d *RSealDelegate) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("provider rejected order: %s", orderResp.RejectReason)
 	}
 
+	// Order accepted. Clear task_id_sdr in rseal_client_pipeline so the poller
+	// can create a RSealClientPoll task to monitor progress.
+	_, err = d.db.Exec(ctx, `UPDATE rseal_client_pipeline SET task_id_sdr = NULL
+		WHERE sp_id = $1 AND sector_number = $2 AND task_id_sdr = $3`,
+		sector.SpID, sector.SectorNumber, taskID)
+	if err != nil {
+		return false, xerrors.Errorf("clearing delegate task_id_sdr: %w", err)
+	}
+
 	log.Infow("delegated sector to remote provider",
 		"sp_id", sector.SpID,
 		"sector", sector.SectorNumber,
 		"provider", sector.ProviderURL)
 
-	// Order accepted. Task completes — the RSealClientPoll task will take over
-	// to monitor progress. The task_id_sdr in rseal_client_pipeline will become
-	// stale when harmonytask deletes this task entry, allowing the poller to
-	// create poll tasks.
 	return true, nil
 }
 

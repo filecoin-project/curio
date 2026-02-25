@@ -185,10 +185,14 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	spt, err := miner2.PreferredSealProofTypeFromWindowPoStType(nv, wpt, true)
 	require.NoError(t, err)
 
-	// Allocate a sector and insert into both pipelines.
+	// Allocate a sector and insert into the remote seal pipelines.
 	// In the real flow, RSealDelegate does this after calling /available + /order.
 	// For the test we manually insert to skip the delegation HTTP handshake and
 	// directly test the sealing pipeline.
+	//
+	// NOTE: sectors_sdr_pipeline is NOT created here — it will be created by
+	// ApplyRemoteCompletion when the provider finishes SDR+trees and the
+	// client receives the /complete notification (or polls /status).
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		nums, err := seal.AllocateSectorNumbers(ctx, full, tx, maddr, 1)
 		if err != nil {
@@ -198,13 +202,6 @@ func TestRemoteSealHappyPath(t *testing.T) {
 
 		sectorNum := nums[0]
 		t.Logf("Allocated sector number: %d", sectorNum)
-
-		// Insert into sectors_sdr_pipeline (client side main pipeline entry)
-		_, err = tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3)`,
-			int64(mid), sectorNum, spt)
-		if err != nil {
-			return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
-		}
 
 		// Insert into rseal_client_pipeline (marks sector as remotely sealed)
 		_, err = tx.Exec(`INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof)

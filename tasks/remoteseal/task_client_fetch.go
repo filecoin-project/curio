@@ -139,7 +139,8 @@ func (f *RSealClientFetch) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("task no longer owned")
 	}
 
-	// Mark fetch as done
+	// Mark fetch as done — sealed data is now in local storage so the sector
+	// can proceed through the normal pipeline (precommit, PoRep, etc).
 	_, err = f.db.Exec(ctx, `
 		UPDATE rseal_client_pipeline
 		SET after_fetch = TRUE, task_id_fetch = NULL

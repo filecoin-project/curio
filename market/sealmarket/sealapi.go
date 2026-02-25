@@ -148,7 +148,7 @@ type StatusRequest struct {
 
 // StatusResponse describes the current state of a remote seal job.
 type StatusResponse struct {
-	State       string `json:"state"` // "pending", "sdr", "trees", "complete", "failed"
+	State       string `json:"state"` // "pending", "sdr", "trees", "complete", "failed", "gone"
 	TreeDCid    string `json:"tree_d_cid,omitempty"`
 	TreeRCid    string `json:"tree_r_cid,omitempty"`
 	TicketEpoch int64  `json:"ticket_epoch,omitempty"`
@@ -473,7 +473,9 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(rows) == 0 {
-		http.Error(w, "sector not found", http.StatusNotFound)
+		// Sector not found on the provider — return a structured "gone" state
+		// so the client poll task can detect this and fail the sector gracefully.
+		writeJSON(w, http.StatusOK, StatusResponse{State: "gone"})
 		return
 	}
 
@@ -896,9 +898,9 @@ func (sm *SealMarket) handleCleanup(w http.ResponseWriter, r *http.Request) {
 
 // --- Shared functions ---
 
-// ApplyRemoteCompletion updates both rseal_client_pipeline and sectors_sdr_pipeline
-// when a remote provider completes SDR+trees. This is called by both the poll task
-// (in remoteseal package) and the /complete callback handler.
+// ApplyRemoteCompletion updates rseal_client_pipeline and creates/updates the
+// sectors_sdr_pipeline row when a remote provider completes SDR+trees. Called
+// by both the poll task (in remoteseal package) and the /complete callback.
 // The ticket data comes from the provider (via notification or status poll).
 func ApplyRemoteCompletion(ctx context.Context, db *harmonydb.DB, spID, sectorNumber, providerID int64, treeDCid, treeRCid string, ticketEpoch int64, ticketValue []byte) error {
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -917,24 +919,41 @@ func ApplyRemoteCompletion(ctx context.Context, db *harmonydb.DB, spID, sectorNu
 			return false, xerrors.Errorf("expected to update 1 rseal_client_pipeline row, updated %d", n)
 		}
 
-		// Update sectors_sdr_pipeline: mark SDR, trees, and synth as done.
-		// Set after_synth = TRUE because remote-sealed sectors skip the local synth step.
-		// Propagate ticket data from the provider so the PoRep task can use it.
-		// Clear task_ids so the normal precommit pipeline can proceed.
-		n, err = tx.Exec(`
-			UPDATE sectors_sdr_pipeline
-			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
-			    after_synth = TRUE,
-			    tree_d_cid = $3, tree_r_cid = $4,
-			    ticket_epoch = $5, ticket_value = $6,
-			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
-			WHERE sp_id = $1 AND sector_number = $2`,
-			spID, sectorNumber, treeDCid, treeRCid, ticketEpoch, ticketValue)
+		// Read reg_seal_proof and user_sector_duration_epochs from rseal_client_pipeline
+		// to carry through to sectors_sdr_pipeline.
+		var clientInfo struct {
+			RegSealProof             int    `db:"reg_seal_proof"`
+			UserSectorDurationEpochs *int64 `db:"user_sector_duration_epochs"`
+		}
+		err = tx.QueryRow(`SELECT reg_seal_proof, user_sector_duration_epochs
+			FROM rseal_client_pipeline WHERE sp_id = $1 AND sector_number = $2`,
+			spID, sectorNumber).Scan(&clientInfo.RegSealProof, &clientInfo.UserSectorDurationEpochs)
 		if err != nil {
-			return false, xerrors.Errorf("updating sectors_sdr_pipeline: %w", err)
+			return false, xerrors.Errorf("reading rseal_client_pipeline for completion: %w", err)
+		}
+
+		// Create or update sectors_sdr_pipeline: mark SDR, trees, and synth as done.
+		// For new remote CC sectors, this INSERT creates the row for the first time.
+		// For existing sectors (delegated from the local pipeline), this updates the row.
+		// after_synth = TRUE because remote-sealed sectors skip the local synth step.
+		n, err = tx.Exec(`
+			INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs,
+			    after_sdr, after_tree_d, after_tree_c, after_tree_r, after_synth,
+			    tree_d_cid, tree_r_cid, ticket_epoch, ticket_value)
+			VALUES ($1, $2, $3, $4, TRUE, TRUE, TRUE, TRUE, TRUE, $5, $6, $7, $8)
+			ON CONFLICT (sp_id, sector_number) DO UPDATE SET
+			    after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
+			    after_synth = TRUE,
+			    tree_d_cid = $5, tree_r_cid = $6,
+			    ticket_epoch = $7, ticket_value = $8,
+			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL`,
+			spID, sectorNumber, clientInfo.RegSealProof, clientInfo.UserSectorDurationEpochs,
+			treeDCid, treeRCid, ticketEpoch, ticketValue)
+		if err != nil {
+			return false, xerrors.Errorf("upserting sectors_sdr_pipeline: %w", err)
 		}
 		if n != 1 {
-			return false, xerrors.Errorf("expected to update 1 sectors_sdr_pipeline row, updated %d", n)
+			return false, xerrors.Errorf("expected to upsert 1 sectors_sdr_pipeline row, affected %d", n)
 		}
 
 		return true, nil
