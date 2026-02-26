@@ -19,11 +19,13 @@ import (
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/seal"
 )
 
 var log = logging.Logger("sealmarket")
@@ -37,15 +39,17 @@ type slotEntry struct {
 type SealMarket struct {
 	db    *harmonydb.DB
 	paths *paths.Remote
+	api   seal.TicketNodeAPI // chain API for ticket generation (client-side)
 
 	slotsMu sync.Mutex
 	slots   map[string]*slotEntry
 }
 
-func NewSealMarket(db *harmonydb.DB, paths *paths.Remote) *SealMarket {
+func NewSealMarket(db *harmonydb.DB, paths *paths.Remote, api seal.TicketNodeAPI) *SealMarket {
 	return &SealMarket{
 		db:    db,
 		paths: paths,
+		api:   api,
 		slots: make(map[string]*slotEntry),
 	}
 }
@@ -247,6 +251,14 @@ type CleanupRequest struct {
 	SectorNumber int64  `json:"sector_number"`
 }
 
+// TicketResponse is returned by the client's /ticket endpoint with seal randomness
+// from the client's chain. The provider calls this instead of using its own chain
+// when sealing remote sectors (which may be on a different network).
+type TicketResponse struct {
+	Ticket []byte `json:"ticket"` // abi.SealRandomness
+	Epoch  int64  `json:"epoch"`  // abi.ChainEpoch
+}
+
 // --- Routes ---
 
 func Routes(r *chi.Mux, sm *SealMarket) {
@@ -271,6 +283,7 @@ func Routes(r *chi.Mux, sm *SealMarket) {
 
 		// Sealing flow - client-side endpoints (called by provider)
 		r.Post("/complete", sm.handleComplete)
+		r.Get("/ticket", sm.handleTicket) // stateless: provider fetches seal randomness from client's chain
 	})
 }
 
@@ -630,6 +643,47 @@ func (sm *SealMarket) handleComplete(w http.ResponseWriter, r *http.Request) {
 		"tree_d_cid", req.TreeDCid, "tree_r_cid", req.TreeRCid)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleTicket returns seal randomness from the client's chain node.
+// The provider calls this when sealing a remote sector so it uses the correct
+// chain's randomness (the client may be on a different network than the provider).
+// Stateless, no auth required — the randomness is public chain data.
+// GET /remoteseal/delegated/v0/ticket?maddr=f0XXXX
+func (sm *SealMarket) handleTicket(w http.ResponseWriter, r *http.Request) {
+	if sm.api == nil {
+		http.Error(w, "ticket endpoint not available (no chain API)", http.StatusServiceUnavailable)
+		return
+	}
+
+	maddrStr := r.URL.Query().Get("maddr")
+	if maddrStr == "" {
+		http.Error(w, "missing maddr query parameter", http.StatusBadRequest)
+		return
+	}
+
+	maddr, err := address.NewFromString(maddrStr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid maddr: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	ticket, epoch, err := seal.GetTicket(r.Context(), sm.api, maddr)
+	if err != nil {
+		log.Errorw("ticket: GetTicket failed", "error", err, "maddr", maddrStr)
+		http.Error(w, "failed to get ticket from chain", http.StatusInternalServerError)
+		return
+	}
+
+	resp := TicketResponse{
+		Ticket: ticket,
+		Epoch:  int64(epoch),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Errorw("ticket: encoding response failed", "error", err)
+	}
 }
 
 // handleSealedData streams the sealed sector file (32 GiB) to the client.

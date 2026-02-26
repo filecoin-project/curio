@@ -3,6 +3,12 @@ package seal
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -130,7 +136,15 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 
 	// FAIL: api may be down
 	// FAIL-RESP: rely on harmony retry
-	ticket, ticketEpoch, err := GetTicket(ctx, s.api, maddr)
+	var ticket abi.SealRandomness
+	var ticketEpoch abi.ChainEpoch
+
+	if sectorParams.Pipeline == "remote" {
+		// Remote sector: fetch ticket from the client's chain (may be a different network)
+		ticket, ticketEpoch, err = GetRemoteTicket(ctx, s.db, sectorParams.SpID, sectorParams.SectorNumber, maddr)
+	} else {
+		ticket, ticketEpoch, err = GetTicket(ctx, s.api, maddr)
+	}
 	if err != nil {
 		return false, xerrors.Errorf("getting ticket: %w", err)
 	}
@@ -203,6 +217,66 @@ func GetTicket(ctx context.Context, api TicketNodeAPI, maddr address.Address) (a
 	}
 
 	return abi.SealRandomness(rand), ticketEpoch, nil
+}
+
+// GetRemoteTicket fetches seal randomness from a remote client's chain node
+// via the client's /ticket HTTP endpoint. This is used when the provider is
+// sealing a sector on behalf of a remote client that may be on a different
+// network (e.g., provider on mainnet, client on calibnet).
+func GetRemoteTicket(ctx context.Context, db *harmonydb.DB, spID, sectorNumber int64, maddr address.Address) (abi.SealRandomness, abi.ChainEpoch, error) {
+	// Look up partner_url for this remote sector
+	var partners []struct {
+		PartnerURL string `db:"partner_url"`
+	}
+
+	err := db.Select(ctx, &partners, `
+		SELECT dp.partner_url
+		FROM rseal_provider_pipeline rp
+		JOIN rseal_delegated_partners dp ON rp.partner_id = dp.id
+		WHERE rp.sp_id = $1 AND rp.sector_number = $2`, spID, sectorNumber)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("looking up partner URL: %w", err)
+	}
+	if len(partners) == 0 {
+		return nil, 0, xerrors.Errorf("no partner found for remote sector %d/%d", spID, sectorNumber)
+	}
+
+	partnerURL := partners[0].PartnerURL
+
+	// Build ticket endpoint URL
+	ticketURL, err := url.JoinPath(partnerURL, "/remoteseal/delegated/v0/ticket")
+	if err != nil {
+		return nil, 0, xerrors.Errorf("building ticket URL: %w", err)
+	}
+	ticketURL = fmt.Sprintf("%s?maddr=%s", ticketURL, maddr.String())
+
+	// Make HTTP request to the client's ticket endpoint
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ticketURL, nil)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("creating ticket request: %w", err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("fetching ticket from %s: %w", ticketURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, 0, xerrors.Errorf("ticket endpoint returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var ticketResp struct {
+		Ticket []byte `json:"ticket"`
+		Epoch  int64  `json:"epoch"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ticketResp); err != nil {
+		return nil, 0, xerrors.Errorf("decoding ticket response: %w", err)
+	}
+
+	return abi.SealRandomness(ticketResp.Ticket), abi.ChainEpoch(ticketResp.Epoch), nil
 }
 
 func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

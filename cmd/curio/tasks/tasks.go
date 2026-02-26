@@ -338,7 +338,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		// Create SealMarket for remote seal HTTP API
 		if cfg.Subsystems.EnableRemoteSealProvider || cfg.Subsystems.EnableRemoteSealClient {
-			sdeps.SealMarket = sealmarket.NewSealMarket(db, stor)
+			sdeps.SealMarket = sealmarket.NewSealMarket(db, stor, full)
 		}
 
 		if cfg.HTTP.Enable {

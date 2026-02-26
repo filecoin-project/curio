@@ -331,7 +331,14 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("getting miner address: %w", err)
 		}
 
-		ticket, ticketEpoch, err := seal.GetTicket(ctx, s.api, maddr)
+		var ticket abi.SealRandomness
+		var ticketEpoch abi.ChainEpoch
+		if t.Pipeline == "remote" {
+			// Remote sector: fetch ticket from the client's chain (may be a different network)
+			ticket, ticketEpoch, err = seal.GetRemoteTicket(ctx, s.db, t.SpID, t.SectorNumber, maddr)
+		} else {
+			ticket, ticketEpoch, err = seal.GetTicket(ctx, s.api, maddr)
+		}
 		if err != nil {
 			return false, xerrors.Errorf("getting ticket: %w", err)
 		}

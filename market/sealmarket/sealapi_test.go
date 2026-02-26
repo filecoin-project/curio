@@ -85,7 +85,7 @@ func setupHarness(t *testing.T) *testHarness {
 	t.Helper()
 	initSharedDB(t)
 
-	sm := NewSealMarket(sharedDB, nil)
+	sm := NewSealMarket(sharedDB, nil, nil)
 	r := chi.NewMux()
 	Routes(r, sm)
 
