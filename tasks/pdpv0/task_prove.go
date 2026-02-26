@@ -992,6 +992,11 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 	return address, nil
 }
 
+// TODO: Ideally we should do this on node with local copy of the piece
+// but that's something to be changed once merged in main.
+// Maybe a few more changes around streaming Tree building for proofs.
+//
+// ref: https://github.com/filecoin-project/curio/pull/997/changes/2fad382258860a32504cb7427946ffcde6f78b68#r2812100187
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		return nil, nil
