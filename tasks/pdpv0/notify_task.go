@@ -184,7 +184,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 128 << 20, // 128MB
 		},
 		MaxFailures: 14,
-		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
+		RetryWait:   taskhelp.RetryWaitExpWithMax(5*time.Second, 2, 5*time.Minute),
 	}
 }
 

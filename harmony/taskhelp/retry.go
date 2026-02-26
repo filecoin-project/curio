@@ -20,3 +20,10 @@ func RetryWaitExp(initial time.Duration, factor float64) RetryWaitFunc {
 		return time.Duration(float64(initial) * math.Pow(factor, float64(retries)))
 	}
 }
+
+// RetryWaitExpWithMax returns a function that calculates an exponentially increasing duration based on retries, with a maximum cap.
+func RetryWaitExpWithMax(initial time.Duration, factor float64, max time.Duration) RetryWaitFunc {
+	return func(retries int) time.Duration {
+		return min(time.Duration(float64(initial)*math.Pow(factor, float64(retries))), max)
+	}
+}

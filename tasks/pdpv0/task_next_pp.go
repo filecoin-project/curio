@@ -408,7 +408,7 @@ func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 20,
 		},
 		MaxFailures: 3, // Set retry limit to 3 attempts
-		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
+		RetryWait:   taskhelp.RetryWaitExpWithMax(5*time.Second, 2, 5*time.Minute),
 	}
 }
 

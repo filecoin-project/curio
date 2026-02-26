@@ -3,7 +3,6 @@ package pdpv0
 import (
 	"context"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -389,10 +388,7 @@ func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 128 << 20, // 128 MiB for streaming + CommP computation
 		},
 		MaxFailures: 5,
-		RetryWait: func(retries int) time.Duration {
-			const baseWait, maxWait, factor = 10 * time.Second, 5 * time.Minute, 2.0
-			return min(time.Duration(float64(baseWait)*math.Pow(factor, float64(retries))), maxWait)
-		},
+		RetryWait:   taskhelp.RetryWaitExpWithMax(10*time.Second, 2, 5*time.Minute),
 	}
 }
 
