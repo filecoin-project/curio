@@ -348,11 +348,12 @@ func (sm *SealMarket) handleAvailable(w http.ResponseWriter, r *http.Request) {
 
 	// Look up partner
 	var partners []struct {
-		ID             int64 `db:"id"`
-		AllowanceTotal int64 `db:"allowance_total"`
+		ID                 int64 `db:"id"`
+		AllowanceTotal     int64 `db:"allowance_total"`
+		AllowanceRemaining int64 `db:"allowance_remaining"`
 	}
 
-	err := sm.db.Select(r.Context(), &partners, `SELECT id, allowance_total FROM rseal_delegated_partners WHERE partner_token = $1`, req.PartnerToken)
+	err := sm.db.Select(r.Context(), &partners, `SELECT id, allowance_total, allowance_remaining FROM rseal_delegated_partners WHERE partner_token = $1`, req.PartnerToken)
 	if err != nil {
 		log.Errorw("available: db query failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -365,6 +366,12 @@ func (sm *SealMarket) handleAvailable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	partner := partners[0]
+
+	// Check lifetime allowance (hard cap on total sectors ever accepted)
+	if partner.AllowanceRemaining <= 0 {
+		writeJSON(w, http.StatusOK, AvailableResponse{Available: false})
+		return
+	}
 
 	// Count active (non-cleaned-up) sectors for this partner
 	var counts []struct {
@@ -383,6 +390,7 @@ func (sm *SealMarket) handleAvailable(w http.ResponseWriter, r *http.Request) {
 		activeCount = counts[0].Count
 	}
 
+	// Check concurrent slots cap
 	if activeCount >= partner.AllowanceTotal {
 		writeJSON(w, http.StatusOK, AvailableResponse{Available: false})
 		return
