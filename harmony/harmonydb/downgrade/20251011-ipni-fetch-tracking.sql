@@ -1,1 +1,2 @@
-DROP TABLE IF EXISTS ipni_ad_fetches;
+-- Lets keep this data around.
+-- DROP TABLE IF EXISTS ipni_ad_fetches;

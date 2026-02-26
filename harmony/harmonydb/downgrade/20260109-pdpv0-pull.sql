@@ -1,2 +1,3 @@
-DROP TABLE IF EXISTS pdp_piece_pull_items;
-DROP TABLE IF EXISTS pdp_piece_pulls;
+-- Lets keep this data around.
+-- DROP TABLE IF EXISTS pdp_piece_pull_items;
+-- DROP TABLE IF EXISTS pdp_piece_pulls;

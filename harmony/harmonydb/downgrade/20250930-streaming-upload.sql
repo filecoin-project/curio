@@ -1,1 +1,2 @@
-DROP TABLE IF EXISTS pdp_piece_streaming_uploads;
+-- Lets keep this data around.
+-- DROP TABLE IF EXISTS pdp_piece_streaming_uploads;
