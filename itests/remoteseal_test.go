@@ -295,17 +295,15 @@ func TestRemoteSealHappyPath(t *testing.T) {
 			SpID         int64  `db:"sp_id"`
 			SectorNumber int64  `db:"sector_number"`
 			AfterSDR     bool   `db:"after_sdr"`
-			AfterTreeD   bool   `db:"after_tree_d"`
-			AfterTreeR   bool   `db:"after_tree_r"`
 			AfterFetch   bool   `db:"after_fetch"`
 			AfterCleanup bool   `db:"after_cleanup"`
 			Failed       bool   `db:"failed"`
 			FailedMsg    string `db:"failed_reason_msg"`
 		}
-		_ = db.Select(ctx, &clientPipeline, `SELECT sp_id, sector_number, after_sdr, after_tree_d, after_tree_r, after_fetch, after_cleanup, failed, failed_reason_msg FROM rseal_client_pipeline`)
+		_ = db.Select(ctx, &clientPipeline, `SELECT sp_id, sector_number, after_sdr, after_fetch, after_cleanup, failed, failed_reason_msg FROM rseal_client_pipeline`)
 		for _, cp := range clientPipeline {
-			t.Logf("ClientPipeline: sp=%d sector=%d sdr=%t treeD=%t treeR=%t fetch=%t cleanup=%t failed=%t msg=%s",
-				cp.SpID, cp.SectorNumber, cp.AfterSDR, cp.AfterTreeD, cp.AfterTreeR, cp.AfterFetch, cp.AfterCleanup, cp.Failed, cp.FailedMsg)
+			t.Logf("ClientPipeline: sp=%d sector=%d sdr=%t fetch=%t cleanup=%t failed=%t msg=%s",
+				cp.SpID, cp.SectorNumber, cp.AfterSDR, cp.AfterFetch, cp.AfterCleanup, cp.Failed, cp.FailedMsg)
 		}
 
 		if len(pollTask) == 0 {

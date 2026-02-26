@@ -34,11 +34,16 @@ CREATE TABLE IF NOT EXISTS rseal_client_providers ( -- client side
 );
 
 -- rseal_client_pipeline tracks sectors where SDR+trees are delegated to a remote
--- provider. A row here corresponds 1:1 with a row in sectors_sdr_pipeline.
--- The SDR/tree task_ids are shared between both tables (a single combined task
--- handles all of sdr/tree_d/tree_c/tree_r by delegating to the remote provider).
--- After trees complete remotely, the normal sdr_pipeline flow continues from
--- precommit onward.
+-- provider. The sectors_sdr_pipeline row does NOT exist during the remote seal
+-- phase — it is created by ApplyRemoteCompletion when the provider finishes
+-- SDR+trees and returns ticket/CIDs.
+--
+-- Client-side stages:
+--   1. Delegate: send /order to provider (task_id_delegate)
+--   2. Poll: poll /status until complete or failed (task_id_poll)
+--   3. Fetch: download sealed file + cache from provider (task_id_fetch)
+--   4. [sectors_sdr_pipeline takes over: precommit, PoRep, finalize, move-storage, commit]
+--   5. Cleanup: tell provider to drop data (task_id_cleanup)
 CREATE TABLE IF NOT EXISTS rseal_client_pipeline (
     sp_id bigint not null,
     sector_number bigint not null,
@@ -51,35 +56,17 @@ CREATE TABLE IF NOT EXISTS rseal_client_pipeline (
     reg_seal_proof int not null,
     user_sector_duration_epochs bigint, -- carried through to sectors_sdr_pipeline on completion
 
-    -- SDR + Trees: the delegate task sends the order to the provider and then
-    -- the poll task monitors completion. The sectors_sdr_pipeline row does NOT
-    -- exist yet — it is created by ApplyRemoteCompletion when the provider
-    -- finishes SDR+trees. The poller detects rseal_client_pipeline rows and
-    -- creates the combined remote-seal task instead of individual local tasks.
+    -- Delegate: RSealDelegate sends /order to provider
+    task_id_delegate bigint,
+    after_delegate bool not null default false, -- order accepted by provider
 
-    -- sdr (ticket is computed by the provider and returned in the /complete notification)
-    task_id_sdr bigint,
-    after_sdr bool not null default false,
-
-    -- tree D
-    tree_d_cid text,
-
-    task_id_tree_d bigint,
-    after_tree_d bool not null default false,
-
-    -- tree C
-    task_id_tree_c bigint,
-    after_tree_c bool not null default false,
-
-    -- tree R
-    tree_r_cid text,
-
-    task_id_tree_r bigint,
-    after_tree_r bool not null default false,
+    -- Poll: RSealClientPoll polls /status until complete/failed
+    task_id_poll bigint,
+    after_sdr bool not null default false, -- set when provider completes SDR+trees
 
     -- Data fetch: after remote SDR+trees complete, download sealed file (32 GiB)
     -- and finalized cache (p_aux, t_aux, tree-r-last) from the provider.
-    -- Must complete before client finalize/move-storage can run.
+    -- Must complete before client precommit/PoRep can run.
     task_id_fetch bigint,
     after_fetch bool not null default false,
 
@@ -202,6 +189,3 @@ CREATE TRIGGER trg_cascade_batch_refs_remote
     BEFORE DELETE ON rseal_provider_pipeline
     FOR EACH ROW EXECUTE FUNCTION cascade_delete_batch_refs_remote();
 
--- Drop FK that may exist from initial table creation (before this schema revision).
-ALTER TABLE rseal_client_pipeline DROP CONSTRAINT IF EXISTS rseal_client_pipeline_sp_id_sector_number_fkey;
-ALTER TABLE rseal_client_pipeline DROP CONSTRAINT IF EXISTS rseal_client_pipeline_sp_id_fkey;

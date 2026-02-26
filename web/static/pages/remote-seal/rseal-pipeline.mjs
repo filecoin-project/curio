@@ -167,10 +167,8 @@ class RSealPipelineElement extends LitElement {
                   <th>SP</th>
                   <th>Sector</th>
                   <th>Provider</th>
-                  <th>SDR</th>
-                  <th>TreeD</th>
-                  <th>TreeC</th>
-                  <th>TreeR</th>
+                  <th>Delegate</th>
+                  <th>Poll</th>
                   <th>Fetch</th>
                   <th>Cleanup</th>
                   <th>Status</th>
@@ -182,10 +180,8 @@ class RSealPipelineElement extends LitElement {
                     <td>f0${r.sp_id}</td>
                     <td>${r.sector_number}</td>
                     <td>${r.provider_name}</td>
-                    <td>${this.renderTaskStage(r.task_id_sdr, r.after_sdr)}</td>
-                    <td>${this.renderTaskStage(r.task_id_tree_d, r.after_tree_d)}</td>
-                    <td>${this.renderTaskStage(r.task_id_tree_c, r.after_tree_c)}</td>
-                    <td>${this.renderTaskStage(r.task_id_tree_r, r.after_tree_r)}</td>
+                    <td>${this.renderTaskStage(r.task_id_delegate, r.after_delegate)}</td>
+                    <td>${this.renderTaskStage(r.task_id_poll, r.after_sdr)}</td>
                     <td>${this.renderTaskStage(r.task_id_fetch, r.after_fetch)}</td>
                     <td>${this.renderTaskStage(r.task_id_cleanup, r.after_cleanup)}</td>
                     <td>${r.failed ? html`<span class="badge bg-danger" title="${r.failed_reason_msg}">Failed</span>` : html`<span class="badge bg-info">Active</span>`}</td>

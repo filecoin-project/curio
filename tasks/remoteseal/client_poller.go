@@ -40,20 +40,16 @@ type clientPollTask struct {
 	SectorNumber int64 `db:"sector_number"`
 
 	// client pipeline state
-	AfterSDR     bool `db:"after_sdr"`
-	AfterTreeD   bool `db:"after_tree_d"`
-	AfterTreeC   bool `db:"after_tree_c"`
-	AfterTreeR   bool `db:"after_tree_r"`
-	AfterFetch   bool `db:"after_fetch"`
-	AfterCleanup bool `db:"after_cleanup"`
-	Failed       bool `db:"failed"`
+	AfterDelegate bool `db:"after_delegate"`
+	AfterSDR      bool `db:"after_sdr"`
+	AfterFetch    bool `db:"after_fetch"`
+	AfterCleanup  bool `db:"after_cleanup"`
+	Failed        bool `db:"failed"`
 
-	TaskIDSDR     *int64 `db:"task_id_sdr"`
-	TaskIDTreeD   *int64 `db:"task_id_tree_d"`
-	TaskIDTreeC   *int64 `db:"task_id_tree_c"`
-	TaskIDTreeR   *int64 `db:"task_id_tree_r"`
-	TaskIDFetch   *int64 `db:"task_id_fetch"`
-	TaskIDCleanup *int64 `db:"task_id_cleanup"`
+	TaskIDDelegate *int64 `db:"task_id_delegate"`
+	TaskIDPoll     *int64 `db:"task_id_poll"`
+	TaskIDFetch    *int64 `db:"task_id_fetch"`
+	TaskIDCleanup  *int64 `db:"task_id_cleanup"`
 
 	// from sectors_sdr_pipeline
 	AfterPoRep bool `db:"after_porep"`
@@ -83,17 +79,13 @@ func (p *RSealClientPoller) poll(ctx context.Context) error {
 		SELECT
 			c.sp_id,
 			c.sector_number,
+			c.after_delegate,
 			c.after_sdr,
-			c.after_tree_d,
-			c.after_tree_c,
-			c.after_tree_r,
 			c.after_fetch,
 			c.after_cleanup,
 			c.failed,
-			c.task_id_sdr,
-			c.task_id_tree_d,
-			c.task_id_tree_c,
-			c.task_id_tree_r,
+			c.task_id_delegate,
+			c.task_id_poll,
 			c.task_id_fetch,
 			c.task_id_cleanup,
 			COALESCE(s.after_porep, FALSE) AS after_porep
@@ -117,14 +109,14 @@ func (p *RSealClientPoller) poll(ctx context.Context) error {
 	return nil
 }
 
-// pollClientPoll creates RSealClientPoll tasks for sectors where SDR has not yet completed
-// and no poll task is currently running. The poll task contacts the provider to check status.
+// pollClientPoll creates RSealClientPoll tasks for sectors where delegation is done
+// (after_delegate = TRUE) but remote SDR+trees have not yet completed, and no poll
+// task is currently running.
 func (p *RSealClientPoller) pollClientPoll(ctx context.Context, task clientPollTask) {
-	// Only poll if SDR is not yet done, no poll task is assigned (task_id_sdr is set by delegate and stays until complete notification)
-	if !task.AfterSDR && task.TaskIDSDR == nil && p.pollers[pollerClientPoll].IsSet() {
+	if task.AfterDelegate && !task.AfterSDR && task.TaskIDPoll == nil && p.pollers[pollerClientPoll].IsSet() {
 		p.pollers[pollerClientPoll].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-			n, err := tx.Exec(`UPDATE rseal_client_pipeline SET task_id_sdr = $1
-				WHERE sp_id = $2 AND sector_number = $3 AND after_sdr = FALSE AND task_id_sdr IS NULL`,
+			n, err := tx.Exec(`UPDATE rseal_client_pipeline SET task_id_poll = $1
+				WHERE sp_id = $2 AND sector_number = $3 AND after_delegate = TRUE AND after_sdr = FALSE AND task_id_poll IS NULL`,
 				id, task.SpID, task.SectorNumber)
 			if err != nil {
 				return false, xerrors.Errorf("updating rseal_client_pipeline for poll: %w", err)

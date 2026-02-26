@@ -116,7 +116,7 @@ func (d *RSealDelegate) schedule(taskFunc harmonytask.AddTaskFunc) error {
 func (d *RSealDelegate) claimSectorForDelegation(taskFunc harmonytask.AddTaskFunc, spID, sectorNumber int64, providerID int64, regSealProof int, userDuration *int64) {
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
-			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, user_sector_duration_epochs, task_id_sdr)
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, user_sector_duration_epochs, task_id_delegate)
 			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
 			spID, sectorNumber, providerID, regSealProof, userDuration, id)
@@ -208,7 +208,7 @@ func (d *RSealDelegate) scheduleCCRemote(ctx context.Context, taskFunc harmonyta
 		// will be created later by ApplyRemoteCompletion when the provider finishes
 		// SDR+trees and the sealed data is ready for precommit.
 		n, err := tx.Exec(`
-			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, user_sector_duration_epochs, task_id_sdr)
+			INSERT INTO rseal_client_pipeline (sp_id, sector_number, provider_id, reg_seal_proof, user_sector_duration_epochs, task_id_delegate)
 			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (sp_id, sector_number) DO NOTHING`,
 			schedule.SpID, int64(sectorNum), schedule.ProviderID, int(spt), userDuration, id)
@@ -256,7 +256,7 @@ func (d *RSealDelegate) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		       p.provider_url, p.provider_token
 		FROM rseal_client_pipeline c
 		JOIN rseal_client_providers p ON c.provider_id = p.id
-		WHERE c.task_id_sdr = $1`, taskID)
+		WHERE c.task_id_delegate = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("querying sector for delegate task: %w", err)
 	}
@@ -292,7 +292,7 @@ func (d *RSealDelegate) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	if !orderResp.Accepted {
 		// Provider rejected the order — fail permanently so the sector can be
-		// re-assigned (the poller will clear task_id_sdr on failure)
+		// re-assigned (the poller will clear task_id_delegate on failure)
 		log.Warnw("provider rejected order",
 			"provider", sector.ProviderURL,
 			"reason", orderResp.RejectReason,
@@ -301,13 +301,14 @@ func (d *RSealDelegate) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("provider rejected order: %s", orderResp.RejectReason)
 	}
 
-	// Order accepted. Clear task_id_sdr in rseal_client_pipeline so the poller
-	// can create a RSealClientPoll task to monitor progress.
-	_, err = d.db.Exec(ctx, `UPDATE rseal_client_pipeline SET task_id_sdr = NULL
-		WHERE sp_id = $1 AND sector_number = $2 AND task_id_sdr = $3`,
+	// Order accepted. Mark delegate as done so the poller can create a
+	// RSealClientPoll task to monitor provider progress.
+	_, err = d.db.Exec(ctx, `UPDATE rseal_client_pipeline
+		SET after_delegate = TRUE, task_id_delegate = NULL
+		WHERE sp_id = $1 AND sector_number = $2 AND task_id_delegate = $3`,
 		sector.SpID, sector.SectorNumber, taskID)
 	if err != nil {
-		return false, xerrors.Errorf("clearing delegate task_id_sdr: %w", err)
+		return false, xerrors.Errorf("marking delegate complete: %w", err)
 	}
 
 	log.Infow("delegated sector to remote provider",
@@ -380,7 +381,7 @@ func (d *RSealDelegate) GetSpid(db *harmonydb.DB, taskID int64) string {
 func (d *RSealDelegate) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
 	var spId, sectorNumber uint64
 	err := db.QueryRow(context.Background(),
-		`SELECT sp_id, sector_number FROM rseal_client_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spId, &sectorNumber)
+		`SELECT sp_id, sector_number FROM rseal_client_pipeline WHERE task_id_delegate = $1`, taskID).Scan(&spId, &sectorNumber)
 	if err != nil {
 		return nil, err
 	}

@@ -904,14 +904,12 @@ func (sm *SealMarket) handleCleanup(w http.ResponseWriter, r *http.Request) {
 // The ticket data comes from the provider (via notification or status poll).
 func ApplyRemoteCompletion(ctx context.Context, db *harmonydb.DB, spID, sectorNumber, providerID int64, treeDCid, treeRCid string, ticketEpoch int64, ticketValue []byte) error {
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Update rseal_client_pipeline: mark SDR and all trees as done
+		// Update rseal_client_pipeline: mark remote SDR+trees as done
 		n, err := tx.Exec(`
 			UPDATE rseal_client_pipeline
-			SET after_sdr = TRUE, after_tree_d = TRUE, after_tree_c = TRUE, after_tree_r = TRUE,
-			    tree_d_cid = $3, tree_r_cid = $4,
-			    task_id_sdr = NULL, task_id_tree_d = NULL, task_id_tree_c = NULL, task_id_tree_r = NULL
+			SET after_sdr = TRUE, task_id_poll = NULL
 			WHERE sp_id = $1 AND sector_number = $2`,
-			spID, sectorNumber, treeDCid, treeRCid)
+			spID, sectorNumber)
 		if err != nil {
 			return false, xerrors.Errorf("updating rseal_client_pipeline: %w", err)
 		}

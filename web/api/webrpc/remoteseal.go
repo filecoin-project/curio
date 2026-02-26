@@ -76,14 +76,10 @@ type RSealClientPipelineRow struct {
 	SectorNumber int64  `db:"sector_number" json:"sector_number"`
 	ProviderName string `db:"provider_name" json:"provider_name"`
 
-	TaskIDSDR   *int64 `db:"task_id_sdr" json:"task_id_sdr"`
-	AfterSDR    bool   `db:"after_sdr" json:"after_sdr"`
-	TaskIDTreeD *int64 `db:"task_id_tree_d" json:"task_id_tree_d"`
-	AfterTreeD  bool   `db:"after_tree_d" json:"after_tree_d"`
-	TaskIDTreeC *int64 `db:"task_id_tree_c" json:"task_id_tree_c"`
-	AfterTreeC  bool   `db:"after_tree_c" json:"after_tree_c"`
-	TaskIDTreeR *int64 `db:"task_id_tree_r" json:"task_id_tree_r"`
-	AfterTreeR  bool   `db:"after_tree_r" json:"after_tree_r"`
+	TaskIDDelegate *int64 `db:"task_id_delegate" json:"task_id_delegate"`
+	AfterDelegate  bool   `db:"after_delegate" json:"after_delegate"`
+	TaskIDPoll     *int64 `db:"task_id_poll" json:"task_id_poll"`
+	AfterSDR       bool   `db:"after_sdr" json:"after_sdr"`
 
 	TaskIDFetch   *int64 `db:"task_id_fetch" json:"task_id_fetch"`
 	AfterFetch    bool   `db:"after_fetch" json:"after_fetch"`
@@ -392,10 +388,7 @@ func (a *WebRPC) RSealProviderPipeline(ctx context.Context) ([]RSealProvPipeline
 func (a *WebRPC) RSealClientPipeline(ctx context.Context) ([]RSealClientPipelineRow, error) {
 	var rows []RSealClientPipelineRow
 	err := a.deps.DB.Select(ctx, &rows, `SELECT c.sp_id, c.sector_number, COALESCE(p.provider_name, p.provider_url) AS provider_name,
-		c.task_id_sdr, c.after_sdr,
-		c.task_id_tree_d, c.after_tree_d,
-		c.task_id_tree_c, c.after_tree_c,
-		c.task_id_tree_r, c.after_tree_r,
+		c.task_id_delegate, c.after_delegate, c.task_id_poll, c.after_sdr,
 		c.task_id_fetch, c.after_fetch,
 		c.task_id_cleanup, c.after_cleanup,
 		c.failed, c.failed_reason_msg, c.create_time
@@ -532,43 +525,31 @@ func (a *WebRPC) RSealClientStats(ctx context.Context) (*PipelineStats, error) {
 	const query = `
 WITH pipeline_data AS (
     SELECT c.*,
-           sdr.owner_id AS sdr_owner,
-           td.owner_id AS tree_d_owner,
-           tc.owner_id AS tree_c_owner,
-           tr.owner_id AS tree_r_owner,
-           fetch.owner_id AS fetch_owner,
-           clean.owner_id AS cleanup_owner
+           del.owner_id AS delegate_owner,
+           pol.owner_id AS poll_owner,
+           ftch.owner_id AS fetch_owner,
+           cln.owner_id AS cleanup_owner
     FROM rseal_client_pipeline c
-    LEFT JOIN harmony_task sdr ON sdr.id = c.task_id_sdr
-    LEFT JOIN harmony_task td ON td.id = c.task_id_tree_d
-    LEFT JOIN harmony_task tc ON tc.id = c.task_id_tree_c
-    LEFT JOIN harmony_task tr ON tr.id = c.task_id_tree_r
-    LEFT JOIN harmony_task fetch ON fetch.id = c.task_id_fetch
-    LEFT JOIN harmony_task clean ON clean.id = c.task_id_cleanup
+    LEFT JOIN harmony_task del ON del.id = c.task_id_delegate
+    LEFT JOIN harmony_task pol ON pol.id = c.task_id_poll
+    LEFT JOIN harmony_task ftch ON ftch.id = c.task_id_fetch
+    LEFT JOIN harmony_task cln ON cln.id = c.task_id_cleanup
     WHERE c.after_cleanup = FALSE AND c.failed = FALSE
 )
 SELECT
     COUNT(*) AS total,
 
-    -- SDR stage
-    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NULL) AS sdr_pending,
-    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NOT NULL) AS sdr_running,
+    -- Delegate stage
+    COUNT(*) FILTER (WHERE task_id_delegate IS NOT NULL AND delegate_owner IS NULL) AS delegate_pending,
+    COUNT(*) FILTER (WHERE task_id_delegate IS NOT NULL AND delegate_owner IS NOT NULL) AS delegate_running,
 
-    -- TreeD stage
-    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NULL) AS treed_pending,
-    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NOT NULL) AS treed_running,
-
-    -- TreeC stage
-    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NULL) AS treec_pending,
-    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NOT NULL) AS treec_running,
-
-    -- TreeR stage
-    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NULL) AS treer_pending,
-    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NOT NULL) AS treer_running,
+    -- Poll stage
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_poll IS NOT NULL AND poll_owner IS NULL) AS poll_pending,
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_poll IS NOT NULL AND poll_owner IS NOT NULL) AS poll_running,
 
     -- Fetch stage
-    COUNT(*) FILTER (WHERE after_tree_r = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NULL) AS fetch_pending,
-    COUNT(*) FILTER (WHERE after_tree_r = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NOT NULL) AS fetch_running,
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NULL) AS fetch_pending,
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NOT NULL) AS fetch_running,
 
     -- Cleanup stage
     COUNT(*) FILTER (WHERE after_fetch = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NULL) AS cleanup_pending,
@@ -579,18 +560,14 @@ FROM pipeline_data
 	var cts []struct {
 		Total int64 `db:"total"`
 
-		SDRPending     int64 `db:"sdr_pending"`
-		SDRRunning     int64 `db:"sdr_running"`
-		TreeDPending   int64 `db:"treed_pending"`
-		TreeDRunning   int64 `db:"treed_running"`
-		TreeCPending   int64 `db:"treec_pending"`
-		TreeCRunning   int64 `db:"treec_running"`
-		TreeRPending   int64 `db:"treer_pending"`
-		TreeRRunning   int64 `db:"treer_running"`
-		FetchPending   int64 `db:"fetch_pending"`
-		FetchRunning   int64 `db:"fetch_running"`
-		CleanupPending int64 `db:"cleanup_pending"`
-		CleanupRunning int64 `db:"cleanup_running"`
+		DelegatePending int64 `db:"delegate_pending"`
+		DelegateRunning int64 `db:"delegate_running"`
+		PollPending     int64 `db:"poll_pending"`
+		PollRunning     int64 `db:"poll_running"`
+		FetchPending    int64 `db:"fetch_pending"`
+		FetchRunning    int64 `db:"fetch_running"`
+		CleanupPending  int64 `db:"cleanup_pending"`
+		CleanupRunning  int64 `db:"cleanup_running"`
 	}
 
 	err := a.deps.DB.Select(ctx, &cts, query)
@@ -602,10 +579,8 @@ FROM pipeline_data
 		return &PipelineStats{
 			Total: 0,
 			Stages: []PipelineStage{
-				{Name: "SDR", Pending: 0, Running: 0},
-				{Name: "TreeD", Pending: 0, Running: 0},
-				{Name: "TreeC", Pending: 0, Running: 0},
-				{Name: "TreeR", Pending: 0, Running: 0},
+				{Name: "Delegate", Pending: 0, Running: 0},
+				{Name: "Poll", Pending: 0, Running: 0},
 				{Name: "Fetch", Pending: 0, Running: 0},
 				{Name: "Cleanup", Pending: 0, Running: 0},
 			},
@@ -616,10 +591,8 @@ FROM pipeline_data
 
 	out.Total = counts.Total
 	out.Stages = []PipelineStage{
-		{Name: "SDR", Pending: counts.SDRPending, Running: counts.SDRRunning},
-		{Name: "TreeD", Pending: counts.TreeDPending, Running: counts.TreeDRunning},
-		{Name: "TreeC", Pending: counts.TreeCPending, Running: counts.TreeCRunning},
-		{Name: "TreeR", Pending: counts.TreeRPending, Running: counts.TreeRRunning},
+		{Name: "Delegate", Pending: counts.DelegatePending, Running: counts.DelegateRunning},
+		{Name: "Poll", Pending: counts.PollPending, Running: counts.PollRunning},
 		{Name: "Fetch", Pending: counts.FetchPending, Running: counts.FetchRunning},
 		{Name: "Cleanup", Pending: counts.CleanupPending, Running: counts.CleanupRunning},
 	}

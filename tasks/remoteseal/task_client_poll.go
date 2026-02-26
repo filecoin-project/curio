@@ -52,7 +52,7 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		SELECT c.sp_id, c.sector_number, c.reg_seal_proof, c.provider_id, pr.provider_url, pr.provider_token
 		FROM rseal_client_pipeline c
 		JOIN rseal_client_providers pr ON c.provider_id = pr.id
-		WHERE c.task_id_sdr = $1 AND c.after_sdr = FALSE`, taskID)
+		WHERE c.task_id_poll = $1 AND c.after_sdr = FALSE`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("querying sector for poll task: %w", err)
 	}
@@ -103,10 +103,10 @@ func (p *RSealClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			}
 
 			_, err := p.db.Exec(ctx, `
-				UPDATE rseal_client_pipeline
-				SET failed = TRUE, failed_at = NOW(), failed_reason = 'provider', failed_reason_msg = $3,
-				    task_id_sdr = NULL
-				WHERE sp_id = $1 AND sector_number = $2`,
+			UPDATE rseal_client_pipeline
+			SET failed = TRUE, failed_at = NOW(), failed_reason = 'provider', failed_reason_msg = $3,
+			    task_id_poll = NULL
+			WHERE sp_id = $1 AND sector_number = $2`,
 				sector.SpID, sector.SectorNumber, reason)
 			if err != nil {
 				return false, xerrors.Errorf("marking sector failed: %w", err)
@@ -167,7 +167,7 @@ func (p *RSealClientPoll) GetSpid(db *harmonydb.DB, taskID int64) string {
 func (p *RSealClientPoll) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
 	var spId, sectorNumber uint64
 	err := db.QueryRow(context.Background(),
-		`SELECT sp_id, sector_number FROM rseal_client_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spId, &sectorNumber)
+		`SELECT sp_id, sector_number FROM rseal_client_pipeline WHERE task_id_poll = $1`, taskID).Scan(&spId, &sectorNumber)
 	if err != nil {
 		return nil, err
 	}
