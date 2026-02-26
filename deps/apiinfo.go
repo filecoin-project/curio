@@ -293,11 +293,17 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					for i := 0; i < field.Type.NumOut(); i++ {
 						out = append(out, reflect.Zero(field.Type.Out(i)))
 					}
-					// last value is always an error.. set it to the error
-					out[len(out)-1] = reflect.ValueOf(xerrors.Errorf("retry rpc call error: %w", rerr))
+					// last value is always an error.. set it to the error (wrapped as ChainError)
+					out[len(out)-1] = reflect.ValueOf(&api.ChainError{Err: xerrors.Errorf("retry rpc call error: %w", rerr)})
 					return out
 				}
 
+				// Wrap any error in ChainError so origin can be distinguished
+				if len(result) > 0 && !result[len(result)-1].IsNil() {
+					if errVal, ok := result[len(result)-1].Interface().(error); ok {
+						result[len(result)-1] = reflect.ValueOf(&api.ChainError{Err: errVal})
+					}
+				}
 				return result
 			}))
 		}

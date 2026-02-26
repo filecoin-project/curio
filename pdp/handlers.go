@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/yugabyte/pgx/v5"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -31,6 +32,11 @@ import (
 )
 
 func httpServerError(w http.ResponseWriter, msg string, err error) {
+	var chainErr *api.ChainError
+	if errors.As(err, &chainErr) {
+		http.Error(w, chainErr.Error(), http.StatusInternalServerError)
+		return
+	}
 	eid := uuid.New()
 	log.Errorf("%s [eid=%s]: %+v", msg, eid, err)
 	http.Error(w, fmt.Sprintf("%s [eid: %s]", msg, eid), http.StatusInternalServerError)
@@ -168,9 +174,7 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
 	_, err := p.AuthService(r)
 	if err != nil {
-		log.Errorf("Failed to authorize request: %+v", err)
-		http.Error(w, "Unauthorized ", http.StatusUnauthorized)
-		return
+		httpServerError(w, "Failed to authorize request", err)
 	}
 
 	// Return 200 OK
@@ -184,9 +188,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	// Verify authorization
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		log.Errorf("Failed to authorize request: %+v", err)
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
-		return
+		httpServerError(w, "Failed to authorize request", err)
 	}
 
 	// Extract pieceCid from URL and convert to v1 for DB query
@@ -274,7 +276,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	// Convert authoritative PieceCID back from v1 to v2 for external API
 	pieceInfo, err := PieceCidV2FromV1Str(result.PieceCID, result.PieceRawSize)
 	if err != nil {
-		http.Error(w, "Failed to convert PieceCID to v2. ", http.StatusInternalServerError)
+		httpServerError(w, "Failed to convert PieceCID to v2", err)
 		return
 	}
 
@@ -1002,7 +1004,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response. ", http.StatusInternalServerError)
+		httpServerError(w, "Failed to encode response", err)
 		return
 	}
 }
@@ -1013,9 +1015,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		log.Errorf("Failed to authorize request: %+v", err)
-		http.Error(w, "Unauthorized ", http.StatusUnauthorized)
-		return
+		httpServerError(w, "Failed to authorize request", err)
 	}
 
 	// Step 2: Extract and validate parameters
@@ -1104,8 +1104,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	// Step 6: Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Errorw("Failed to encode response", "error", err)
-		http.Error(w, "Failed to encode response. ", http.StatusInternalServerError)
+		httpServerError(w, "Failed to encode response", err)
 		return
 	}
 }

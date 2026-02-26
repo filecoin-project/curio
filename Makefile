@@ -260,7 +260,7 @@ docsgen-cli: curio sptool
 .PHONY: docsgen-cli
 
 go-generate:
-	$(GOCC) generate ./...
+	$(GOCC) generate ./... 2>&1 | cat
 .PHONY: go-generate
 
 gen: gensimple
