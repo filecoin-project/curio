@@ -164,3 +164,10 @@ func WriteUnixfsDAGTo(path string, into ipldformat.DAGService, chunksize int64, 
 
 	return nd.Cid(), nil
 }
+
+func EnvElse(env, els string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	return els
+}
