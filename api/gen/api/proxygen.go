@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -334,8 +335,13 @@ func (s *{{$name}}Stub) {{.Num}}({{.NamedParams}}) ({{.Results}}) {
 
 {{range .Infos}}var _ {{.Num}} = new({{.Num}}Struct)
 {{end}}
-
+var _ = fmt.Sprintf
 `)
+	if err != nil {
+		return err
+	}
+	err = exec.Command("go", "run", "golang.org/x/tools/cmd/goimports", "-w", outfile).Run()
+
 	return err
 }
 
