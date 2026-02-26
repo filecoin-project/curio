@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -329,7 +330,7 @@ func (a *WebRPC) RSealCheckProviderAvailability(ctx context.Context) ([]RSealPro
 			continue
 		}
 
-		url := p.URL + sealmarket.DelegatedSealPath + "available"
+		url := strings.TrimRight(p.URL, "/") + sealmarket.DelegatedSealPath + "available"
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 		if err != nil {
 			results[i].Error = err.Error()

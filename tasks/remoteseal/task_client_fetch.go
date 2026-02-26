@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -84,7 +85,7 @@ func (f *RSealClientFetch) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	// Allocate local storage for sealed + cache
-	sealedPaths, _, releaseSealed, err := f.sc.Sectors.AcquireSector(ctx, nil, sref, storiface.FTNone, storiface.FTSealed|storiface.FTCache, storiface.PathStorage)
+	sealedPaths, _, releaseSealed, err := f.sc.Sectors.AcquireSector(ctx, &taskID, sref, storiface.FTNone, storiface.FTSealed|storiface.FTCache, storiface.PathStorage)
 	if err != nil {
 		return false, xerrors.Errorf("acquiring sector storage: %w", err)
 	}
@@ -122,7 +123,7 @@ func (f *RSealClientFetch) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	// Write c1.url file in cache dir so that GeneratePoRepVanillaProof can fetch
 	// C1 output from the remote provider when the PoRep task runs.
 	c1Info := paths.RemoteSealC1Info{
-		C1URL:        fmt.Sprintf("%s%scommit1", sector.ProviderURL, sealmarket.DelegatedSealPath),
+		C1URL:        strings.TrimRight(sector.ProviderURL, "/") + sealmarket.DelegatedSealPath + "commit1",
 		PartnerToken: sector.ProviderToken,
 		SpID:         sector.SpID,
 		SectorNumber: sector.SectorNumber,
@@ -161,16 +162,34 @@ func (f *RSealClientFetch) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 }
 
 func (f *RSealClientFetch) TypeDetails() harmonytask.TaskTypeDetails {
+	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
+
 	return harmonytask.TaskTypeDetails{
 		Name: "RSealClientFetch",
 		Cost: resources.Resources{
-			Cpu: 0,
-			Gpu: 0,
-			Ram: 64 << 20, // 64 MiB - streaming to disk
+			Cpu:     0,
+			Gpu:     0,
+			Ram:     64 << 20, // 64 MiB - streaming to disk
+			Storage: f.sc.Storage(f.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 20,
 		RetryWait:   taskhelp.RetryWaitLinear(5*time.Minute, 5*time.Minute),
 	}
+}
+
+func (f *RSealClientFetch) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
+	var refs []ffi.SectorRef
+
+	err := f.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM rseal_client_pipeline WHERE task_id_fetch = $1`, id)
+	if err != nil {
+		return ffi.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
+	}
+
+	if len(refs) != 1 {
+		return ffi.SectorRef{}, xerrors.Errorf("expected 1 sector ref, got %d", len(refs))
+	}
+
+	return refs[0], nil
 }
 
 func (f *RSealClientFetch) Adder(taskFunc harmonytask.AddTaskFunc) {
@@ -204,8 +223,8 @@ func (f *RSealClientFetch) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.Sec
 // client with Range header support.
 // GET /remoteseal/delegated/v0/sealed-data/{sp_id}/{sector_number}?token=...
 func (c *RSealClient) FetchSealedData(ctx context.Context, providerURL, token string, spID, sectorNumber int64, destPath string) error {
-	url := fmt.Sprintf("%s%ssealed-data/%d/%d?token=%s",
-		providerURL, sealmarket.DelegatedSealPath, spID, sectorNumber, token)
+	url := fmt.Sprintf("%ssealed-data/%d/%d?token=%s",
+		strings.TrimRight(providerURL, "/")+sealmarket.DelegatedSealPath, spID, sectorNumber, token)
 
 	// Try aria2c first for multi-connection parallel resumable download.
 	// aria2c handles resume via --continue, splits into 16 segments, and retries.
@@ -312,8 +331,8 @@ func fetchWithGoHTTP(ctx context.Context, destPath, url string) error {
 // FetchCacheData downloads the finalized cache tar from the provider and extracts it.
 // GET /remoteseal/delegated/v0/cache-data/{sp_id}/{sector_number}?token=...
 func (c *RSealClient) FetchCacheData(ctx context.Context, providerURL, token string, spID, sectorNumber int64, cachePath string) error {
-	url := fmt.Sprintf("%s%scache-data/%d/%d?token=%s",
-		providerURL, sealmarket.DelegatedSealPath, spID, sectorNumber, token)
+	url := fmt.Sprintf("%scache-data/%d/%d?token=%s",
+		strings.TrimRight(providerURL, "/")+sealmarket.DelegatedSealPath, spID, sectorNumber, token)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

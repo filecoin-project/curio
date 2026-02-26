@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -140,7 +141,7 @@ func (t *RSealProviderNotify) sendCompleteNotification(ctx context.Context, part
 		return xerrors.Errorf("marshaling complete notification: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/remoteseal/delegated/v0/complete", partnerURL)
+	url := strings.TrimRight(partnerURL, "/") + sealmarket.DelegatedSealPath + "complete"
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
