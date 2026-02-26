@@ -190,6 +190,20 @@ func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *TaskPDPSaveCache) schedule(_ context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	// To facilitate the migration from no-cache to cache this
+	// query bulk updates all pieces that are "need save_cache" but
+	// trivially will not populate the cache because they are too small
+	_, err := t.db.Exec(context.Background(), `
+            UPDATE pdp_piecerefs pr SET needs_save_cache = FALSE, caching_task_completed = NOW()
+            FROM parked_piece_refs pprf
+            JOIN parked_pieces pp ON pp.id = pprf.piece_id
+            WHERE pprf.ref_id = pr.piece_ref
+            AND pr.needs_save_cache = TRUE
+            AND pr.save_cache_task_id IS NULL
+            AND pp.piece_raw_size <= $1`, MinSizeForCache)
+	if err != nil {
+		return xerrors.Errorf("bulk clearing small pieces: %w", err)
+	}
 	var stop bool
 	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
