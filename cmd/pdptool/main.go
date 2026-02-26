@@ -855,7 +855,7 @@ var uploadFileCmd = &cli.Command{
 				pieceSize += uint64(piece.Size)
 			}
 			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
-			root, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
+			root, _, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}
