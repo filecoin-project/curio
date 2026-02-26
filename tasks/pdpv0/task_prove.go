@@ -21,11 +21,11 @@ import (
 	"github.com/minio/sha256-simd"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-keccak"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -513,7 +513,7 @@ func generateChallengeIndex(seed abi.Randomness, dataSetId int64, proofIndex int
 	data = append(data, proofIndexBytes...)
 
 	// Compute the Keccak-256 hash
-	hash := sha3.NewLegacyKeccak256()
+	hash := keccak.NewLegacyKeccak256()
 	hash.Write(data)
 	hashBytes := hash.Sum(nil)
 
