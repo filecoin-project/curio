@@ -20,7 +20,11 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
-const MinSizeForCache = uint64(100 * 1024 * 1024)
+// MinSizeForCache is the minimum piece size for which we will build and
+// save a PDP layer for caching purposes. This is a tradeoff between the
+// cost of building/saving the layer. The 32 MiB threshold value was derived from conversations
+// here: https://github.com/filecoin-project/curio/pull/997#issuecomment-3960996974
+const MinSizeForCache = uint64(32 * 1024 * 1024)
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
