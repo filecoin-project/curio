@@ -26,8 +26,29 @@ import (
 	"github.com/filecoin-project/curio/pdp"
 )
 
-// PullPiecePollInterval is how often to poll for new pull items
-var PullPiecePollInterval = 10 * time.Second
+const (
+	// Time between polls for new pull items
+	PullPiecePollInterval = 10 * time.Second
+
+	// Maximum time for the entire pull operation,
+	// including download and verification.
+	PullPieceTimeout = time.Hour
+
+	// Time to wait before timing out the HTTP
+	// request for downloading the piece.
+	HTTPHeaderTimeout = 2 * time.Minute // HTTP header timeout
+
+	// Task configuration
+	PullPieceMaxFailures = 5
+
+	// Task Retry configuration
+	RetryBaseWait = 10 * time.Second
+	RetryMaxWait  = 5 * time.Minute
+	RetryFactor   = 2.0
+
+	// Size detection buffer for oversized data detection
+	SizeDetectionBuffer = 1
+)
 
 // PDPPullPieceTask downloads pieces from external SPs, verifies CommP,
 // and stores them in custore:// for StorePiece to pick up.
@@ -315,8 +336,8 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 		return uuid.UUID{}, xerrors.Errorf("HTTP status %d from source", resp.StatusCode)
 	}
 
-	// Limit reader to expected size + 1 to detect oversized data
-	dataReader := io.LimitReader(resp.Body, expectedSize+1)
+	// Limit reader to expected size + buffer to detect oversized data
+	dataReader := io.LimitReader(resp.Body, expectedSize+SizeDetectionBuffer)
 
 	// Create commp calculator
 	cp := &commp.Calc{}
@@ -388,10 +409,9 @@ func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 128 << 20, // 128 MiB for streaming + CommP computation
 		},
-		MaxFailures: 5,
+		MaxFailures: PullPieceMaxFailures,
 		RetryWait: func(retries int) time.Duration {
-			const baseWait, maxWait, factor = 10 * time.Second, 5 * time.Minute, 2.0
-			return min(time.Duration(float64(baseWait)*math.Pow(factor, float64(retries))), maxWait)
+			return min(time.Duration(float64(RetryBaseWait)*math.Pow(RetryFactor, float64(retries))), RetryMaxWait)
 		},
 	}
 }
