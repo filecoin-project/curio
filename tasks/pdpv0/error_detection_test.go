@@ -23,7 +23,7 @@ func TestIsUnrecoverableError(t *testing.T) {
 		},
 		{
 			name:     "DataSetPaymentAlreadyTerminated by selector",
-			err:      errors.New("execution reverted: 0xe3f8fa35"),
+			err:      errors.New("execution reverted: 0x211a40c0"),
 			expected: true,
 		},
 		{
@@ -120,5 +120,22 @@ func TestCalculateBackoffBlocks(t *testing.T) {
 		if result != tc.expected {
 			t.Errorf("CalculateBackoffBlocks(%d) = %d, want %d", tc.failures, result, tc.expected)
 		}
+	}
+}
+
+func TestErrorSelectors(t *testing.T) {
+	// Verify that the computed selectors match the expected values derived from the error signatures
+	// These magic numbers were derived from previous harcoded values in the codebase.
+	expectedBeyondEndEpoch := "d7c45de5"
+	expectedAlreadyTerminated := "211a40c0"
+
+	actualBeyondEndEpoch := ErrSelectorDataSetPaymentBeyondEndEpoch()
+	actualAlreadyTerminated := ErrSelectorDataSetPaymentAlreadyTerminated()
+
+	if actualBeyondEndEpoch != expectedBeyondEndEpoch {
+		t.Errorf("ErrSelectorDataSetPaymentBeyondEndEpoch() = %s, want %s", actualBeyondEndEpoch, expectedBeyondEndEpoch)
+	}
+	if actualAlreadyTerminated != expectedAlreadyTerminated {
+		t.Errorf("ErrSelectorDataSetPaymentAlreadyTerminated() = %s, want %s", actualAlreadyTerminated, expectedAlreadyTerminated)
 	}
 }
