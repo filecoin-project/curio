@@ -5,6 +5,7 @@ description: The default curio configuration
 # Default Curio Configuration
 
 ```toml
+Error parsing language
 # Subsystems defines configuration settings for various subsystems within the Curio node.
 #
 # type: CurioSubsystemsConfig
