@@ -31,6 +31,7 @@ require (
 	github.com/filecoin-project/go-fil-commcid v0.3.1
 	github.com/filecoin-project/go-fil-commp-hashhash v0.3.0
 	github.com/filecoin-project/go-jsonrpc v0.10.1
+	github.com/filecoin-project/go-keccak v0.1.0
 	github.com/filecoin-project/go-padreader v0.0.1
 	github.com/filecoin-project/go-state-types v0.18.0-dev
 	github.com/filecoin-project/go-statestore v0.2.0
