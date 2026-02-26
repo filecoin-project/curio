@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -21,9 +22,8 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	ffi2 "github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/tarutil"
 )
 
 var log = logging.Logger("sealmarket")
@@ -35,19 +35,76 @@ type slotEntry struct {
 }
 
 type SealMarket struct {
-	db *harmonydb.DB
-	sc *ffi2.SealCalls
+	db    *harmonydb.DB
+	paths *paths.Remote
 
 	slotsMu sync.Mutex
 	slots   map[string]*slotEntry
 }
 
-func NewSealMarket(db *harmonydb.DB, sc *ffi2.SealCalls) *SealMarket {
+func NewSealMarket(db *harmonydb.DB, paths *paths.Remote) *SealMarket {
 	return &SealMarket{
 		db:    db,
-		sc:    sc,
+		paths: paths,
 		slots: make(map[string]*slotEntry),
 	}
+}
+
+// readerPieceReadSeeker wraps a ReaderPiece factory function into an io.ReadSeeker
+// so that http.ServeContent can handle Range headers automatically.
+type readerPieceReadSeeker struct {
+	factory func(startOffset, endOffset int64) (io.ReadCloser, error)
+	size    int64
+	pos     int64
+	cur     io.ReadCloser
+}
+
+func (r *readerPieceReadSeeker) Read(p []byte) (int, error) {
+	if r.pos >= r.size {
+		return 0, io.EOF
+	}
+	if r.cur == nil {
+		// Open reader from current position to end
+		rc, err := r.factory(r.pos, r.size)
+		if err != nil {
+			return 0, err
+		}
+		r.cur = rc
+	}
+	n, err := r.cur.Read(p)
+	r.pos += int64(n)
+	return n, err
+}
+
+func (r *readerPieceReadSeeker) Seek(offset int64, whence int) (int64, error) {
+	var newPos int64
+	switch whence {
+	case io.SeekStart:
+		newPos = offset
+	case io.SeekCurrent:
+		newPos = r.pos + offset
+	case io.SeekEnd:
+		newPos = r.size + offset
+	default:
+		return 0, xerrors.Errorf("invalid whence: %d", whence)
+	}
+	if newPos < 0 {
+		return 0, xerrors.Errorf("negative seek position: %d", newPos)
+	}
+	// If seeking to a different position, close the current reader
+	if r.cur != nil && newPos != r.pos {
+		r.cur.Close()
+		r.cur = nil
+	}
+	r.pos = newPos
+	return r.pos, nil
+}
+
+func (r *readerPieceReadSeeker) Close() error {
+	if r.cur != nil {
+		return r.cur.Close()
+	}
+	return nil
 }
 
 const SealMarketRoutePath = "/remoteseal/"
@@ -619,22 +676,29 @@ func (sm *SealMarket) handleSealedData(w http.ResponseWriter, r *http.Request) {
 		ProofType: abi.RegisteredSealProof(sectors[0].RegSealProof),
 	}
 
-	// Acquire the sealed file path
-	paths, _, release, err := sm.sc.Sectors.AcquireSector(r.Context(), nil, sref, storiface.FTSealed, storiface.FTNone, storiface.PathStorage)
+	ssize, err := sref.ProofType.SectorSize()
 	if err != nil {
-		log.Errorw("sealed-data: acquire sector failed", "error", err)
+		log.Errorw("sealed-data: get sector size failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	readerFactory, err := sm.paths.ReaderPiece(r.Context(), sref, storiface.FTSealed, 0, int64(ssize))
+	if err != nil {
+		log.Errorw("sealed-data: get reader failed", "error", err)
 		http.Error(w, "sector data not available", http.StatusInternalServerError)
 		return
 	}
-	defer release()
-
-	if paths.Sealed == "" {
-		http.Error(w, "sealed file not found", http.StatusNotFound)
+	if readerFactory == nil {
+		http.Error(w, "sector data not found in storage", http.StatusNotFound)
 		return
 	}
 
-	// http.ServeFile handles Range headers automatically
-	http.ServeFile(w, r, paths.Sealed)
+	rs := &readerPieceReadSeeker{factory: readerFactory, size: int64(ssize)}
+	defer rs.Close()
+
+	// http.ServeContent handles Range headers automatically
+	http.ServeContent(w, r, "", time.Time{}, rs)
 }
 
 // handleCacheData streams the finalized cache (p_aux, t_aux, tree-r-last) as a tar archive.
@@ -681,27 +745,12 @@ func (sm *SealMarket) handleCacheData(w http.ResponseWriter, r *http.Request) {
 		ProofType: abi.RegisteredSealProof(sectors[0].RegSealProof),
 	}
 
-	// Acquire the cache path
-	paths, _, release, err := sm.sc.Sectors.AcquireSector(r.Context(), nil, sref, storiface.FTCache, storiface.FTNone, storiface.PathStorage)
-	if err != nil {
-		log.Errorw("cache-data: acquire sector failed", "error", err)
-		http.Error(w, "sector data not available", http.StatusInternalServerError)
-		return
-	}
-	defer release()
-
-	if paths.Cache == "" {
-		http.Error(w, "cache directory not found", http.StatusNotFound)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/x-tar")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusOK) // no seek
 
-	buf := make([]byte, 1<<20) // 1 MiB buffer
-	if err := tarutil.TarDirectory(tarutil.FinCacheFileConstraints, paths.Cache, w, buf); err != nil {
-		log.Errorw("cache-data: tar write failed", "error", err)
-		// Cannot send HTTP error at this point since we already wrote the header
+	err = sm.paths.ReadMinCacheInto(r.Context(), sref, storiface.FTCache, w)
+	if err != nil {
+		log.Errorw("cache-data: read min cache into failed", "error", err)
 		return
 	}
 }
@@ -780,33 +829,10 @@ func (sm *SealMarket) handleCommit1(w http.ResponseWriter, r *http.Request) {
 		ProofType: abi.RegisteredSealProof(sector.RegSealProof),
 	}
 
-	// Ensure synthetic proofs exist. The provider runs SDR+trees but not the
-	// normal Synth task (which also clears layers and generates the unsealed
-	// copy). SealCommitPhase1 requires syn-porep-vanilla-proofs.dat for
-	// synthetic proof types. Generate it now if it doesn't already exist.
-	ssize, err := sref.ProofType.SectorSize()
-	if err != nil {
-		log.Errorw("commit1: get sector size", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Remote-sealed sectors are always CC: single piece with size = sector size, PieceCID = unsealedCID (zero-comm)
-	pieces := []abi.PieceInfo{{
-		Size:     abi.PaddedPieceSize(ssize),
-		PieceCID: unsealedCID,
-	}}
-
 	computeStart := time.Now()
 
-	if err := sm.sc.EnsureSyntheticProofs(r.Context(), sref, sealedCID, unsealedCID, abi.SealRandomness(sector.TicketValue), pieces); err != nil {
-		log.Errorw("commit1: EnsureSyntheticProofs failed", "error", err)
-		http.Error(w, "failed to generate synthetic proofs", http.StatusInternalServerError)
-		return
-	}
-
 	// Compute the vanilla proof (C1)
-	vanillaProof, err := sm.sc.GeneratePoRepVanillaProof(
+	vanillaProof, err := sm.paths.GeneratePoRepVanillaProof(
 		r.Context(),
 		sref,
 		sealedCID,
