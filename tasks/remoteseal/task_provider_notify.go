@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -141,9 +141,12 @@ func (t *RSealProviderNotify) sendCompleteNotification(ctx context.Context, part
 		return xerrors.Errorf("marshaling complete notification: %w", err)
 	}
 
-	url := strings.TrimRight(partnerURL, "/") + sealmarket.DelegatedSealPath + "complete"
+	completeURL, err := url.JoinPath(partnerURL, sealmarket.DelegatedSealPath, "complete")
+	if err != nil {
+		return xerrors.Errorf("building complete notification URL: %w", err)
+	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, completeURL, bytes.NewReader(body))
 	if err != nil {
 		return xerrors.Errorf("creating complete notification request: %w", err)
 	}

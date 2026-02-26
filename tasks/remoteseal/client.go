@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -90,7 +90,12 @@ func (c *RSealClient) doPostNoResponse(ctx context.Context, url string, reqBody 
 
 // endpoint constructs a full URL from the provider base URL, the delegated seal path, and the endpoint name.
 func endpoint(providerURL, ep string) string {
-	return strings.TrimRight(providerURL, "/") + sealmarket.DelegatedSealPath + ep
+	u, err := url.JoinPath(providerURL, sealmarket.DelegatedSealPath, ep)
+	if err != nil {
+		// Should never happen with valid URLs; fall back to simple concat.
+		return providerURL + sealmarket.DelegatedSealPath + ep
+	}
+	return u
 }
 
 // CheckAvailable checks if the provider has an available slot.

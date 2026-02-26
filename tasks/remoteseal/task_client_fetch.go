@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -123,7 +123,7 @@ func (f *RSealClientFetch) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	// Write c1.url file in cache dir so that GeneratePoRepVanillaProof can fetch
 	// C1 output from the remote provider when the PoRep task runs.
 	c1Info := paths.RemoteSealC1Info{
-		C1URL:        strings.TrimRight(sector.ProviderURL, "/") + sealmarket.DelegatedSealPath + "commit1",
+		C1URL:        mustJoinURL(sector.ProviderURL, sealmarket.DelegatedSealPath, "commit1"),
 		PartnerToken: sector.ProviderToken,
 		SpID:         sector.SpID,
 		SectorNumber: sector.SectorNumber,
@@ -223,8 +223,8 @@ func (f *RSealClientFetch) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.Sec
 // client with Range header support.
 // GET /remoteseal/delegated/v0/sealed-data/{sp_id}/{sector_number}?token=...
 func (c *RSealClient) FetchSealedData(ctx context.Context, providerURL, token string, spID, sectorNumber int64, destPath string) error {
-	url := fmt.Sprintf("%ssealed-data/%d/%d?token=%s",
-		strings.TrimRight(providerURL, "/")+sealmarket.DelegatedSealPath, spID, sectorNumber, token)
+	base := mustJoinURL(providerURL, sealmarket.DelegatedSealPath, fmt.Sprintf("sealed-data/%d/%d", spID, sectorNumber))
+	url := base + "?token=" + token
 
 	// Try aria2c first for multi-connection parallel resumable download.
 	// aria2c handles resume via --continue, splits into 16 segments, and retries.
@@ -331,8 +331,8 @@ func fetchWithGoHTTP(ctx context.Context, destPath, url string) error {
 // FetchCacheData downloads the finalized cache tar from the provider and extracts it.
 // GET /remoteseal/delegated/v0/cache-data/{sp_id}/{sector_number}?token=...
 func (c *RSealClient) FetchCacheData(ctx context.Context, providerURL, token string, spID, sectorNumber int64, cachePath string) error {
-	url := fmt.Sprintf("%scache-data/%d/%d?token=%s",
-		strings.TrimRight(providerURL, "/")+sealmarket.DelegatedSealPath, spID, sectorNumber, token)
+	base := mustJoinURL(providerURL, sealmarket.DelegatedSealPath, fmt.Sprintf("cache-data/%d/%d", spID, sectorNumber))
+	url := base + "?token=" + token
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -359,6 +359,20 @@ func (c *RSealClient) FetchCacheData(ctx context.Context, providerURL, token str
 	}
 
 	return nil
+}
+
+// mustJoinURL joins a base URL with path segments using net/url.JoinPath.
+func mustJoinURL(base string, segments ...string) string {
+	u, err := url.JoinPath(base, segments...)
+	if err != nil {
+		// Should never happen with valid URLs; fall back to simple concat.
+		result := base
+		for _, s := range segments {
+			result += s
+		}
+		return result
+	}
+	return u
 }
 
 var _ = harmonytask.Reg(&RSealClientFetch{})
