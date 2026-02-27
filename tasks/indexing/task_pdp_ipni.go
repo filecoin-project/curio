@@ -542,7 +542,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 				n, err := tx.Exec(`INSERT INTO ipni_peerid (sp_id, priv_key, peer_id) VALUES ($1, $2, $3) ON CONFLICT(sp_id) DO NOTHING `, -1, privKey, pid.String())
 				if err != nil {
-					return false, xerrors.Errorf("failed to to insert the key into DB: %w", err)
+					return false, xerrors.Errorf("failed to insert the key into DB: %w", err)
 				}
 
 				if n == 0 {

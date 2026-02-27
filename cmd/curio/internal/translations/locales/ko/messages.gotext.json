@@ -1469,9 +1469,9 @@
       "placeholder": null
     },
     {
-      "id": "Command separated list of hostnames for yugabyte cluster",
+      "id": "Comma-separated list of hostnames for yugabyte cluster",
       "translation": "유가바이트 클러스터의 호스트 이름을 쉼표로 구분한 목록",
-      "message": "Command separated list of hostnames for yugabyte cluster",
+      "message": "Comma-separated list of hostnames for yugabyte cluster",
       "placeholder": null
     },
     {

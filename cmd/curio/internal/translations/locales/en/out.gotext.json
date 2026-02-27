@@ -339,9 +339,9 @@
             "fuzzy": true
         },
         {
-            "id": "Command separated list of hostnames for yugabyte cluster",
-            "message": "Command separated list of hostnames for yugabyte cluster",
-            "translation": "Command separated list of hostnames for yugabyte cluster",
+            "id": "Comma-separated list of hostnames for yugabyte cluster",
+            "message": "Comma-separated list of hostnames for yugabyte cluster",
+            "translation": "Comma-separated list of hostnames for yugabyte cluster",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
