@@ -132,20 +132,8 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 		return []harmonytask.TaskID{}, nil
 	}
 
-	// When cuzk is enabled, delegate capacity checks to the daemon
+	// When cuzk is enabled, the shared Max limiter handles backpressure.
 	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
-		capacity, err := p.cuzkClient.HasCapacity(context.Background(), cuzk.ProofKind_SNAP_DEALS_UPDATE)
-		if err != nil {
-			log.Warnw("UpdateProve.CanAccept() cuzk capacity check failed, rejecting", "error", err)
-			return []harmonytask.TaskID{}, nil
-		}
-		if capacity == 0 {
-			log.Debugw("UpdateProve.CanAccept() cuzk pipeline full, backpressuring")
-			return []harmonytask.TaskID{}, nil
-		}
-		if capacity < len(ids) {
-			return ids[:capacity], nil
-		}
 		return ids, nil
 	}
 
@@ -171,8 +159,15 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 		ram = 1 << 30
 	}
+	var maxLimiter taskhelp.Limiter
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		maxLimiter = p.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(p.max)
+	}
+
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(p.max),
+		Max:  maxLimiter,
 		Name: "UpdateProve",
 		Cost: resources.Resources{
 			Cpu: 1,

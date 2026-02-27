@@ -12,6 +12,8 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
 var log = logging.Logger("cuzk")
@@ -28,6 +30,14 @@ type Client struct {
 
 	proveTimeout time.Duration
 	maxPending   int
+
+	// Shared limiter across all task types that use this cuzk daemon.
+	// Each task's TypeDetails().Max gets an Instance() of this limiter,
+	// so harmonytask's Max.AtMax() / Max.Add() / Max.Headroom() track
+	// the combined in-flight count across PoRep, Snap, and ProofShare.
+	// This prevents over-claiming when the poller re-polls before tasks
+	// have been submitted to the daemon.
+	sharedMax *taskhelp.MaxCounter
 }
 
 // NewClient creates a new cuzk client targeting the given address.
@@ -39,7 +49,17 @@ func NewClient(addr string, maxPending int, proveTimeout time.Duration) *Client 
 		addr:         addr,
 		maxPending:   maxPending,
 		proveTimeout: proveTimeout,
+		sharedMax:    taskhelp.Max(maxPending),
 	}
+}
+
+// TaskMax returns a per-task-type instance of the shared limiter.
+// All CuZK task types (PoRep, Snap, ProofShare) should use this in
+// their TypeDetails().Max so that the combined in-flight count is
+// tracked. harmonytask will call Max.Add(n) when claiming tasks and
+// Max.Add(-1) on completion, preventing over-scheduling.
+func (c *Client) TaskMax() taskhelp.Limiter {
+	return c.sharedMax.Instance()
 }
 
 // connect establishes the gRPC connection if not already connected.
