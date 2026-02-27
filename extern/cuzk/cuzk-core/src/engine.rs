@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, oneshot, watch, RwLock};
-use tracing::{error, info, info_span, warn, Instrument};
+use tracing::{debug, error, info, info_span, warn, Instrument};
 
 // ─── Timeline Instrumentation ───────────────────────────────────────────────
 //
@@ -187,6 +187,104 @@ pub(crate) fn process_partition_result(
                         "Phase 7: all partitions complete, proof assembled"
                     );
 
+                    // Diagnostic self-check: verify the assembled PoRep proof
+                    if state.proof_kind == ProofKind::PoRepSealCommit {
+                        match crate::prover::verify_porep_proof(
+                            &state.request.vanilla_proof,
+                            &final_proof,
+                            state.request.sector_number,
+                            state.request.miner_id,
+                            &parent_id.0,
+                        ) {
+                            Ok(true) => {
+                                info!(job_id = %parent_id, "Phase 7: PoRep proof self-check PASSED");
+                                // If CUZK_VALIDATE_PARTITIONS=1, also run per-partition verifier
+                                // against the known-good proof to confirm the verifier itself works.
+                                if std::env::var("CUZK_VALIDATE_PARTITIONS").as_deref() == Ok("1") {
+                                    info!(job_id = %parent_id, "CUZK_VALIDATE_PARTITIONS=1: validating per-partition verifier against known-good proof");
+                                    match crate::prover::verify_porep_partitions(
+                                        &state.request.vanilla_proof,
+                                        &final_proof,
+                                        state.request.sector_number,
+                                        state.request.miner_id,
+                                        &parent_id.0,
+                                    ) {
+                                        Ok(results) => {
+                                            let valid: Vec<usize> = results.iter().enumerate()
+                                                .filter(|(_, &v)| v).map(|(i, _)| i).collect();
+                                            let invalid: Vec<usize> = results.iter().enumerate()
+                                                .filter(|(_, &v)| !v).map(|(i, _)| i).collect();
+                                            if invalid.is_empty() {
+                                                info!(
+                                                    job_id = %parent_id,
+                                                    "VERIFIER VALIDATION: per-partition verifier confirmed correct (all 10 partitions valid on known-good proof)"
+                                                );
+                                            } else {
+                                                warn!(
+                                                    job_id = %parent_id,
+                                                    valid_partitions = ?valid,
+                                                    invalid_partitions = ?invalid,
+                                                    "VERIFIER VALIDATION FAILED: per-partition verifier reports invalid partitions on a known-good proof — verifier is BUGGY"
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                job_id = %parent_id,
+                                                error = %e,
+                                                "VERIFIER VALIDATION: per-partition verifier errored on known-good proof"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(false) => {
+                                warn!(
+                                    job_id = %parent_id,
+                                    proof_len = final_proof.len(),
+                                    sector = state.request.sector_number,
+                                    miner = state.request.miner_id,
+                                    "Phase 7: PoRep proof self-check FAILED — running per-partition verification..."
+                                );
+                                // Run per-partition verification to diagnose root cause
+                                match crate::prover::verify_porep_partitions(
+                                    &state.request.vanilla_proof,
+                                    &final_proof,
+                                    state.request.sector_number,
+                                    state.request.miner_id,
+                                    &parent_id.0,
+                                ) {
+                                    Ok(results) => {
+                                        let valid: Vec<usize> = results.iter().enumerate()
+                                            .filter(|(_, &v)| v).map(|(i, _)| i).collect();
+                                        let invalid: Vec<usize> = results.iter().enumerate()
+                                            .filter(|(_, &v)| !v).map(|(i, _)| i).collect();
+                                        warn!(
+                                            job_id = %parent_id,
+                                            valid_partitions = ?valid,
+                                            invalid_partitions = ?invalid,
+                                            "Phase 7: per-partition verification results"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            job_id = %parent_id,
+                                            error = %e,
+                                            "Phase 7: per-partition verification failed"
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    job_id = %parent_id,
+                                    error = %e,
+                                    "Phase 7: PoRep proof self-check error"
+                                );
+                            }
+                        }
+                    }
+
                     if let Some(w) = t.workers.get_mut(worker_id as usize) {
                         w.last_circuit_id = Some(circuit_id_str.to_string());
                     }
@@ -276,6 +374,7 @@ pub(crate) fn process_monolithic_result(
     is_batched: bool,
     batch_requests: &[ProofRequest],
     sector_boundaries: &[usize],
+    single_request: Option<&ProofRequest>,
 ) {
     match result {
         Ok(Ok((proof_bytes, gpu_duration))) if is_batched => {
@@ -312,6 +411,39 @@ pub(crate) fn process_monolithic_result(
                             total_ms = timings.total.as_millis(),
                             "sector proof delivered from batch"
                         );
+
+                        // Diagnostic self-check: verify each batched PoRep proof
+                        if proof_kind == ProofKind::PoRepSealCommit {
+                            match crate::prover::verify_porep_proof(
+                                &req.vanilla_proof,
+                                &sector_proof,
+                                req.sector_number,
+                                req.miner_id,
+                                &req.job_id.0,
+                            ) {
+                                Ok(true) => {
+                                    info!(job_id = %req.job_id, sector_idx = i, "Batched PoRep proof self-check PASSED");
+                                }
+                                Ok(false) => {
+                                    warn!(
+                                        job_id = %req.job_id,
+                                        sector_idx = i,
+                                        proof_len = sector_proof.len(),
+                                        sector = req.sector_number,
+                                        miner = req.miner_id,
+                                        "Batched PoRep proof self-check FAILED — proof is invalid!"
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        job_id = %req.job_id,
+                                        sector_idx = i,
+                                        error = %e,
+                                        "Batched PoRep proof self-check error"
+                                    );
+                                }
+                            }
+                        }
 
                         t.record_completion(proof_kind, timings.total);
 
@@ -361,6 +493,80 @@ pub(crate) fn process_monolithic_result(
                 gpu_ms = timings.gpu_compute.as_millis(),
                 "proof completed successfully (pipeline)"
             );
+
+            // Diagnostic self-check: verify single-sector PoRep proof
+            if proof_kind == ProofKind::PoRepSealCommit {
+                if let Some(req) = single_request {
+                    match crate::prover::verify_porep_proof(
+                        &req.vanilla_proof,
+                        &proof_bytes,
+                        req.sector_number,
+                        req.miner_id,
+                        &req.job_id.0,
+                    ) {
+                        Ok(true) => {
+                            info!(job_id = %job_id, "Pipeline single-sector PoRep proof self-check PASSED");
+                            // If CUZK_VALIDATE_PARTITIONS=1, also run per-partition verifier
+                            // against the known-good proof to confirm the verifier itself works.
+                            if std::env::var("CUZK_VALIDATE_PARTITIONS").as_deref() == Ok("1") {
+                                info!(job_id = %job_id, "CUZK_VALIDATE_PARTITIONS=1: validating per-partition verifier against known-good proof");
+                                match crate::prover::verify_porep_partitions(
+                                    &req.vanilla_proof,
+                                    &proof_bytes,
+                                    req.sector_number,
+                                    req.miner_id,
+                                    &req.job_id.0,
+                                ) {
+                                    Ok(results) => {
+                                        let valid: Vec<usize> = results.iter().enumerate()
+                                            .filter(|(_, &v)| v).map(|(i, _)| i).collect();
+                                        let invalid: Vec<usize> = results.iter().enumerate()
+                                            .filter(|(_, &v)| !v).map(|(i, _)| i).collect();
+                                        if invalid.is_empty() {
+                                            info!(
+                                                job_id = %job_id,
+                                                "VERIFIER VALIDATION: per-partition verifier confirmed correct (all partitions valid on known-good proof)"
+                                            );
+                                        } else {
+                                            warn!(
+                                                job_id = %job_id,
+                                                valid_partitions = ?valid,
+                                                invalid_partitions = ?invalid,
+                                                "VERIFIER VALIDATION FAILED: per-partition verifier reports invalid partitions on a known-good proof — verifier is BUGGY"
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            job_id = %job_id,
+                                            error = %e,
+                                            "VERIFIER VALIDATION: per-partition verifier errored on known-good proof"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Ok(false) => {
+                            warn!(
+                                job_id = %job_id,
+                                proof_len = proof_bytes.len(),
+                                sector = req.sector_number,
+                                miner = req.miner_id,
+                                "Pipeline single-sector PoRep proof self-check FAILED — proof is invalid!"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                job_id = %job_id,
+                                error = %e,
+                                "Pipeline single-sector PoRep proof self-check error"
+                            );
+                        }
+                    }
+                } else {
+                    debug!(job_id = %job_id, "skipping PoRep self-check: no request available for single-sector path");
+                }
+            }
 
             if let Some(w) = t.workers.get_mut(worker_id as usize) {
                 w.last_circuit_id = Some(circuit_id_str.to_string());
@@ -1354,6 +1560,38 @@ impl Engine {
                                     "slotted PoRep C2 proof completed"
                                 );
 
+                                // Diagnostic self-check: verify the slotted PoRep proof
+                                if proof_kind == ProofKind::PoRepSealCommit {
+                                    let req = &requests[0];
+                                    match crate::prover::verify_porep_proof(
+                                        &req.vanilla_proof,
+                                        &proof_bytes,
+                                        req.sector_number,
+                                        req.miner_id,
+                                        &req.job_id.0,
+                                    ) {
+                                        Ok(true) => {
+                                            info!(job_id = %req.job_id, "Phase 6: PoRep proof self-check PASSED");
+                                        }
+                                        Ok(false) => {
+                                            warn!(
+                                                job_id = %req.job_id,
+                                                proof_len = proof_bytes.len(),
+                                                sector = req.sector_number,
+                                                miner = req.miner_id,
+                                                "Phase 6: PoRep proof self-check FAILED — proof is invalid!"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                job_id = %req.job_id,
+                                                error = %e,
+                                                "Phase 6: PoRep proof self-check error"
+                                            );
+                                        }
+                                    }
+                                }
+
                                 t.record_completion(proof_kind, pt.total);
 
                                 let status = JobStatus::Completed(ProofResult {
@@ -1631,6 +1869,12 @@ impl Engine {
                         let is_batched = !synth_job.batch_requests.is_empty();
                         let batch_requests = synth_job.batch_requests.clone();
                         let sector_boundaries = synth_job.sector_boundaries.clone();
+                        // Capture request for single-sector self-check in process_monolithic_result
+                        let single_request_owned = if !is_batched && synth_job.parent_job_id.is_none() {
+                            Some(synth_job.request.clone())
+                        } else {
+                            None
+                        };
                         // Phase 7: Extract partition metadata before moving synth_job
                         let partition_index = synth_job.partition_index;
                         let _total_partitions = synth_job.total_partitions;
@@ -1686,6 +1930,46 @@ impl Engine {
                             let gpu_str = gpu_ordinal.to_string();
                             let gpu_job_id = job_id.0.clone();
 
+                            // CUZK_DISABLE_SPLIT_PROVE=1: Use synchronous gpu_prove instead
+                            // of the Phase 12 split API (gpu_prove_start/gpu_prove_finish)
+                            // for debugging. This eliminates the async b_g2_msm finalization
+                            // as a suspect.
+                            #[cfg(feature = "cuda-supraseal")]
+                            let split_disabled = std::env::var("CUZK_DISABLE_SPLIT_PROVE").map_or(false, |v| v == "1");
+
+                            #[cfg(feature = "cuda-supraseal")]
+                            if split_disabled {
+                                let gpu_str2 = gpu_str.clone();
+                                let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
+                                    std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str2);
+                                    let gpu_mtx_ptr = gpu_mutex_addr as *mut std::ffi::c_void;
+                                    let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params, gpu_mtx_ptr)?;
+                                    Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
+                                }).await;
+
+                                // Process result inline (synchronous path)
+                                let mut t = tracker.lock().await;
+                                if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                    w.current_job = None;
+                                }
+                                if let Some(ref parent_id) = parent_job_id {
+                                    let p_idx = partition_index.unwrap();
+                                    process_partition_result(
+                                        &mut t, result, parent_id, p_idx,
+                                        synth_duration, proof_kind, worker_id,
+                                        &circuit_id_str, submitted_at,
+                                    );
+                                } else {
+                                    process_monolithic_result(
+                                        &mut t, result, &job_id, proof_kind, worker_id,
+                                        &circuit_id_str, synth_duration, submitted_at,
+                                        is_batched, &batch_requests, &sector_boundaries,
+                                        single_request_owned.as_ref(),
+                                    );
+                                }
+                                return; // exit async block, loop continues
+                            }
+
                             // Phase 12: Split GPU proving — start returns quickly
                             // after GPU lock release, with b_g2_msm still running.
                             // Finalization runs in a separate tokio task.
@@ -1717,6 +2001,7 @@ impl Engine {
                                     let fin_batch_requests = batch_requests.clone();
                                     let fin_sector_boundaries = sector_boundaries.clone();
                                     let fin_gpu_job_id = gpu_job_id.clone();
+                                    let fin_single_request = single_request_owned.clone();
                                     tokio::spawn(async move {
                                         // Finalize on a blocking thread (joins b_g2_msm)
                                         let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
@@ -1760,6 +2045,7 @@ impl Engine {
                                             &mut t, result, &job_id, proof_kind, worker_id,
                                             &circuit_id_str, synth_duration, submitted_at,
                                             is_batched, &batch_requests, &sector_boundaries,
+                                            fin_single_request.as_ref(),
                                         );
                                     });
 
@@ -1835,6 +2121,7 @@ impl Engine {
                                 &mut t, result, &job_id, proof_kind, worker_id,
                                 &circuit_id_str, synth_duration, submitted_at,
                                 is_batched, &batch_requests, &sector_boundaries,
+                                single_request_owned.as_ref(),
                             );
                             } // #[cfg(not(feature = "cuda-supraseal"))]
                         }.instrument(span).await;

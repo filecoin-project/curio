@@ -707,14 +707,20 @@ fn synthesize_auto<C>(
 where
     C: bellperson::Circuit<Fr> + Send,
 {
-    // Check if PCE is already cached for this circuit type
-    if let Some(pce) = get_pce(circuit_id) {
-        info!(circuit_id = %circuit_id, "using PCE fast path for synthesis");
-        return synthesize_with_pce(circuits, pce, circuit_id);
+    // Check if PCE is already cached for this circuit type.
+    // CUZK_DISABLE_PCE=1 forces the standard synthesis path for debugging.
+    let pce_disabled = std::env::var("CUZK_DISABLE_PCE").map_or(false, |v| v == "1");
+    if !pce_disabled {
+        if let Some(pce) = get_pce(circuit_id) {
+            info!(circuit_id = %circuit_id, "using PCE fast path for synthesis");
+            return synthesize_with_pce(circuits, pce, circuit_id);
+        }
+    } else {
+        info!(circuit_id = %circuit_id, "PCE disabled via CUZK_DISABLE_PCE=1 — using standard synthesis");
     }
 
-    // No PCE cached yet — use old path
-    info!(circuit_id = %circuit_id, "PCE not yet cached — using old synthesis path");
+    // No PCE cached (or disabled) — use standard path
+    info!(circuit_id = %circuit_id, "using standard synthesis path (synthesize_with_hint)");
     synthesize_with_hint(circuits, circuit_id)
 }
 
