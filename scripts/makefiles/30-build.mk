@@ -63,7 +63,7 @@ CUZK_PATH := extern/cuzk
 CUZK_BIN := $(CUZK_PATH)/target/release/cuzk-daemon
 
 .PHONY: cuzk
-cuzk:
+cuzk: build/.update-modules
 	@if ! command -v cargo >/dev/null 2>&1; then \
 		echo ""; \
 		echo "ERROR: cargo (Rust) not found. cuzk requires the Rust toolchain."; \
