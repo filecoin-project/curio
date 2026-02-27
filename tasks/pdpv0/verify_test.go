@@ -1,52 +1,15 @@
-// verify_test.go tests the Verify() function from task_prove.go and the
+// Tests the Verify() function from task_prove.go and the
 // supporting tree-construction machinery it depends on.
-//
-// Context (https://github.com/filecoin-project/curio/issues/888):
-//
-//   The Verify() function checks a Merkle inclusion proof against a known
-//   piece-commitment (commP) root. It is critical to PDP (Provable Data
-//   Possession) because a faulty implementation could accept invalid proofs
-//   or reject valid ones.
-//
-//   savecache.go (lib/savecache/savecache.go) is a modified copy of the
-//   upstream go-fil-commp-hashhash library, with the addition of a snapshot
-//   layer cache (hashSlab254). Because it is a copy-paste, we must verify
-//   that it produces identical roots to the canonical implementation.
-//
-// Test strategy:
-//
-//   1. Manual tree tests — build tiny (2/4/8-leaf) trees by hand, construct
-//      every possible proof manually, and verify. These are the "ground
-//      truth" tests that depend on nothing but SHA-256.
-//
-//   2. Memtree roundtrip tests — use BuildSha254Memtree + MemtreeProof to
-//      build trees of various sizes and verify at interesting challenge
-//      positions (boundaries, midpoints, etc.).
-//
-//   3. commp-hashhash fixture tests — feed the same deterministic random data
-//      used by go-fil-commp-hashhash into our memtree builder, assert roots
-//      match the published commP CIDs, then generate and verify proofs.
-//
-//   4. savecache cross-validation tests — confirm savecache.Calc (the
-//      copy-paste of commp-hashhash) produces roots identical to our memtree
-//      builder AND to the upstream test vectors.
-//
-//   5. Negative tests — tamper with each component (leaf, sibling, root,
-//      position, proof length) and confirm Verify() rejects them.
-//
-//   6. Data-pattern tests — exercise zero-fill and constant-byte payloads,
-//      matching go-fil-commp-hashhash's zero.txt and 0xCC.txt test suites.
-//
-//   7. Structural tests — validate proof depth = log2(numLeaves) and the
-//      nextPowerOfTwo helper.
-//
-// Helpers, fixtures, and data generators live in verify_test_helpers_test.go.
 
 package pdpv0
 
 import (
 	"bytes"
+	"encoding/base32"
 	"fmt"
+	"io"
+	"math/rand"
+	"strings"
 	"testing"
 
 	pool "github.com/libp2p/go-buffer-pool"
@@ -60,7 +23,7 @@ import (
 )
 
 // =========================================================================
-// Section 1: Manual tree construction tests
+// Manual tree construction tests
 //
 // These tests build Merkle trees entirely by hand using sha254() so they
 // do not depend on BuildSha254Memtree or MemtreeProof. They serve as an
@@ -71,9 +34,9 @@ import (
 // TestVerify_TwoLeafTree builds the simplest possible tree (one hash) and
 // verifies both leaf positions.
 //
-//	    root
-//	   /    \
-//	 L0      L1
+//	   root
+//	  /    \
+//	L0      L1
 func TestVerify_TwoLeafTree(t *testing.T) {
 	leaves := makeLeaves(2)
 	root := sha254(append(leaves[0][:], leaves[1][:]...))
@@ -93,14 +56,15 @@ func TestVerify_TwoLeafTree(t *testing.T) {
 
 // TestVerify_FourLeafTree builds a 4-leaf tree and checks all positions.
 //
-//	        root
-//	      /      \
-//	    n01      n23
-//	   /   \    /   \
-//	  L0   L1  L2   L3
+//	      root
+//	    /      \
+//	  n01      n23
+//	 /   \    /   \
+//	L0   L1  L2   L3
 func TestVerify_FourLeafTree(t *testing.T) {
 	leaves := makeLeaves(4)
 
+	// See diagram above for naming convention: nXY is the parent of leaves X and Y.
 	n01 := sha254(append(leaves[0][:], leaves[1][:]...))
 	n23 := sha254(append(leaves[2][:], leaves[3][:]...))
 	root := sha254(append(n01[:], n23[:]...))
@@ -130,13 +94,13 @@ func TestVerify_FourLeafTree(t *testing.T) {
 // positions. This is the smallest tree that exercises every left/right
 // combination at three different levels.
 //
-//	              root
-//	          /          \
-//	      n0123          n4567
-//	      /    \        /    \
-//	    n01    n23    n45    n67
-//	   / \    / \    / \    / \
-//	  L0 L1  L2 L3  L4 L5  L6 L7
+//	            root
+//	        /          \
+//	    n0123          n4567
+//	    /    \        /    \
+//	  n01    n23    n45    n67
+//	 / \    / \    / \    / \
+//	L0 L1  L2 L3  L4 L5  L6 L7
 func TestVerify_EightLeafTree(t *testing.T) {
 	leaves := makeLeaves(8)
 
@@ -179,15 +143,12 @@ func TestVerify_EightLeafTree(t *testing.T) {
 }
 
 // =========================================================================
-// Section 2: Memtree roundtrip tests
+// Memtree roundtrip tests
 //
 // These tests use BuildSha254Memtree (FR32-padded in-memory tree builder)
 // and MemtreeProof (proof extractor) to generate trees from deterministic
 // random data (jbenet/go-random, seed 1337), then verify proofs at
 // interesting positions via Verify().
-//
-// The sizes span from 4 leaves to 524288 leaves, covering the full range
-// up to proof.MaxMemtreeSize.
 // =========================================================================
 
 // TestVerify_MemtreeProofRoundtrip builds trees at a wide range of sizes and
@@ -230,10 +191,14 @@ func TestVerify_AllPositions_SmallTree(t *testing.T) {
 }
 
 // =========================================================================
-// Section 3: commp-hashhash fixture tests
+// commp-hashhash fixture tests
 //
 // These tests use the known-good commP test vectors published in:
 //   https://github.com/filecoin-project/go-fil-commp-hashhash/blob/master/testdata/random.txt
+//
+// The same data is imported here and available at:
+// - `smallRandomVectors` and,
+// - `largeRandomVectors`
 //
 // The data for each vector is generated by generateRandomData (seed 1337),
 // which replicates the jbenet/go-random algorithm used by the upstream test
@@ -293,7 +258,7 @@ func TestVerify_CommPHashHashVectors_Larger(t *testing.T) {
 }
 
 // =========================================================================
-// Section 4: savecache cross-validation tests
+// savecache cross-validation tests
 //
 // savecache.go (lib/savecache/savecache.go) is a copy-paste of
 // go-fil-commp-hashhash/commp.go with the addition of a snapshot-layer
@@ -353,58 +318,8 @@ func computeSavecacheRoot(t *testing.T, rawData []byte) [32]byte {
 	return root
 }
 
-// TestVerify_SavecacheSnapshot_ProofConsistency exercises the snapshot-layer
-// cache path (DigestWithSnapShot) introduced by savecache.go's hashSlab254.
-// It confirms that:
-//   - The snapshot root matches the full memtree root.
-//   - Proofs generated from the full memtree verify against that root.
-//
-// This is the key test for the savecache.go-specific modification: the
-// snapshot layer is the "only gap" between savecache.go and upstream
-// commp-hashhash (ref: https://github.com/filecoin-project/curio/pull/997).
-func TestVerify_SavecacheSnapshot_ProofConsistency(t *testing.T) {
-	snapshotTestSizes := []uint64{
-		2032,  // small: snapshot should capture 1 node
-		4064,  // medium: snapshot should capture 2 nodes
-		16256, // larger: snapshot should capture 8 nodes
-	}
-
-	for _, rawSize := range snapshotTestSizes {
-		t.Run(fmt.Sprintf("size_%d", rawSize), func(t *testing.T) {
-			rawData := generateRandomData(int64(rawSize))
-
-			// --- Snapshot path: savecache with DigestWithSnapShot
-			calc := savecache.NewCommPWithSizeForTest(rawSize)
-			_, err := calc.Write(rawData)
-			require.NoError(t, err)
-
-			commP, paddedSize, layerIdx, expectedNodeCount, _, err := calc.DigestWithSnapShot()
-			require.NoError(t, err)
-
-			var savecacheRoot [32]byte
-			copy(savecacheRoot[:], commP)
-
-			t.Logf("size=%d paddedSize=%d layerIdx=%d expectedNodeCount=%d",
-				rawSize, paddedSize, layerIdx, expectedNodeCount)
-
-			// --- Full memtree path
-			memtree, memtreeRoot := buildMemtreeFromPayload(t, rawData, paddedSize)
-			defer pool.Put(memtree)
-
-			// Roots must agree.
-			require.Equal(t, savecacheRoot, memtreeRoot,
-				"savecache snapshot root vs memtree root mismatch")
-
-			// Proofs from the full memtree must pass Verify().
-			nLeaves := int64(paddedSize) / proof.NODE_SIZE
-			verifyProofsAtPositions(t, memtree, memtreeRoot, nLeaves,
-				fmt.Sprintf("size=%d", rawSize))
-		})
-	}
-}
-
 // =========================================================================
-// Section 5: Negative tests
+// Negative tests
 //
 // Each test starts with a valid proof and mutates exactly one component,
 // asserting that Verify() rejects the tampered proof. This ensures the
@@ -504,83 +419,6 @@ func TestVerify_Negative_AllZeroProof(t *testing.T) {
 	require.False(t, Verify(p, root, 0), "Verify should fail with all-zero proof against non-zero root")
 }
 
-// TestVerify_CrossPosition proves that a valid proof for one position does NOT
-// verify at any other position (for a 16-leaf tree with random data).
-func TestVerify_CrossPosition(t *testing.T) {
-	const unpaddedSize = abi.UnpaddedPieceSize(508) // 16 leaves
-	rawData := generateRandomData(int64(unpaddedSize))
-
-	memtree, root := buildMemtree(t, rawData, unpaddedSize)
-	defer pool.Put(memtree)
-
-	nLeaves := int64(unpaddedSize.Padded()) / proof.NODE_SIZE
-
-	for pos := int64(0); pos < nLeaves; pos++ {
-		p := extractProof(t, memtree, pos)
-
-		require.True(t, Verify(p, root, uint64(pos)),
-			"proof should verify at pos=%d", pos)
-
-		for otherPos := int64(0); otherPos < nLeaves; otherPos++ {
-			if otherPos == pos {
-				continue
-			}
-			if Verify(p, root, uint64(otherPos)) {
-				t.Errorf("proof for pos=%d unexpectedly verified at pos=%d", pos, otherPos)
-			}
-		}
-	}
-}
-
-// =========================================================================
-// Section 6: Data-pattern tests
-//
-// go-fil-commp-hashhash includes test suites for zero-filled and 0xCC-filled
-// payloads (testdata/zero.txt, testdata/0xCC.txt). We replicate those data
-// patterns here to confirm that our tree builder and Verify() handle
-// degenerate inputs correctly.
-// =========================================================================
-
-// TestVerify_ZeroData verifies proofs over all-zero payloads.
-// Zero payloads exercise the "stacked null padding" path in the tree builder,
-// where FR32 padding of zeros produces a specific known leaf pattern.
-func TestVerify_ZeroData(t *testing.T) {
-	for _, size := range smallUnpaddedSizes[:3] { // 127, 254, 1016
-		t.Run(fmt.Sprintf("zeros_%d", size), func(t *testing.T) {
-			rawData := make([]byte, size)
-
-			memtree, root := buildMemtree(t, rawData, size)
-			defer pool.Put(memtree)
-
-			nLeaves := int64(size.Padded()) / proof.NODE_SIZE
-			verifyProofsAtPositions(t, memtree, root, nLeaves,
-				fmt.Sprintf("zeros size=%d", size))
-		})
-	}
-}
-
-// TestVerify_0xCCData verifies proofs over constant-0xCC payloads.
-// This pattern (10110011 repeated) exercises a different FR32 expansion path
-// than zeros or random data, matching go-fil-commp-hashhash's 0xCC.txt suite.
-func TestVerify_0xCCData(t *testing.T) {
-	for _, size := range smallUnpaddedSizes[:3] { // 127, 254, 1016
-		t.Run(fmt.Sprintf("0xCC_%d", size), func(t *testing.T) {
-			rawData := bytes.Repeat([]byte{0xCC}, int(size))
-
-			memtree, root := buildMemtree(t, rawData, size)
-			defer pool.Put(memtree)
-
-			nLeaves := int64(size.Padded()) / proof.NODE_SIZE
-			verifyProofsAtPositions(t, memtree, root, nLeaves,
-				fmt.Sprintf("0xCC size=%d", size))
-		})
-	}
-}
-
-// =========================================================================
-// Section 7: Structural / helper tests
-// =========================================================================
-
 // TestVerify_ProofPathLength asserts that the proof path length (number of
 // siblings) equals log2(numLeaves) for each tree size. This is a structural
 // invariant of binary Merkle trees.
@@ -642,4 +480,345 @@ func TestNextPowerOfTwo(t *testing.T) {
 			require.Equal(t, tc.expected, nextPowerOfTwo(tc.input))
 		})
 	}
+}
+
+// HELPERS BELOW THIS LINE -------
+
+// sha254 computes SHA-256 with the two most-significant bits of the last byte
+// zeroed, yielding a 254-bit digest. This is the hash function used throughout
+// the Filecoin piece-commitment (commP) Merkle tree.
+func sha254(data []byte) [32]byte {
+	return proof.ComputeBinShaParent(
+		[32]byte(data[:32]),
+		[32]byte(data[32:64]),
+	)
+}
+
+// generateRandomData produces deterministic pseudo-random bytes identical to
+// the data used by the go-fil-commp-hashhash test suite.
+//
+// ref: https://github.com/filecoin-project/go-fil-commp-hashhash/blob/c12522866bed8a29785c393fd791c0b9b5605e3e/commp_test.go#L65-L74
+func generateRandomData(size int64) []byte {
+	const seed = 1337
+	rng := rand.New(rand.NewSource(seed))
+
+	buf := make([]byte, size)
+	for i := int64(0); i < size; {
+		// jbenet/go-random emits one Uint32 and spreads its 4 bytes LSB-first.
+		n := rng.Uint32()
+		for j := 0; j < 4 && i < size; j++ {
+			buf[i] = byte(n & 0xff)
+			n >>= 8
+			i++
+		}
+	}
+	return buf
+}
+
+// buildMemtree builds an in-memory SHA-254 Merkle tree from raw (unpadded)
+// data using proof.BuildSha254Memtree and returns both the flat memtree buffer
+// and the 32-byte root hash.
+//
+// BuildSha254Memtree performs FR32 padding internally, so rawData should be
+// the unpadded payload.
+func buildMemtree(t *testing.T, rawData []byte, unpaddedSize abi.UnpaddedPieceSize) (memtree []byte, root [32]byte) {
+	t.Helper()
+
+	mt, err := proof.BuildSha254Memtree(bytes.NewReader(rawData), unpaddedSize)
+	require.NoError(t, err)
+
+	r := extractMemtreeRoot(mt)
+	return mt, r
+}
+
+// buildMemtreeFromPayload builds an in-memory SHA-254 Merkle tree from a
+// payload that may be smaller than the padded piece size. Any gap between
+// the payload length and the unpadded piece size is zero-filled, exactly as
+// Filecoin does when a piece is smaller than its declared size.
+func buildMemtreeFromPayload(t *testing.T, payload []byte, paddedSize uint64) (memtree []byte, root [32]byte) {
+	t.Helper()
+
+	unpaddedSize := abi.PaddedPieceSize(paddedSize).Unpadded()
+	reader := io.LimitReader(
+		io.MultiReader(
+			bytes.NewReader(payload),
+			&zeroReader{},
+		),
+		int64(unpaddedSize),
+	)
+
+	mt, err := proof.BuildSha254Memtree(reader, unpaddedSize)
+	require.NoError(t, err)
+
+	r := extractMemtreeRoot(mt)
+	return mt, r
+}
+
+// extractMemtreeRoot returns the root hash from a flat memtree buffer.
+func extractMemtreeRoot(memtree []byte) [32]byte {
+	totalNodes := int64(len(memtree)) / proof.NODE_SIZE
+	rootOffset := (totalNodes - 1) * proof.NODE_SIZE
+	var root [32]byte
+	copy(root[:], memtree[rootOffset:rootOffset+proof.NODE_SIZE])
+	return root
+}
+
+// buildProofFromMemtree builds an in-memory tree, extracts a Merkle proof for
+// the given leaf index, and returns both the proof (in contract-compatible
+// form) and the tree root.
+func buildProofFromMemtree(t *testing.T, rawData []byte, unpaddedSize abi.UnpaddedPieceSize, leafIndex int64) (contract.IPDPTypesProof, [32]byte) {
+	t.Helper()
+
+	memtree, root := buildMemtree(t, rawData, unpaddedSize)
+	defer pool.Put(memtree)
+
+	return extractProof(t, memtree, leafIndex), root
+}
+
+// extractProof extracts a Merkle proof for a single leaf from a flat memtree.
+func extractProof(t *testing.T, memtree []byte, leafIndex int64) contract.IPDPTypesProof {
+	t.Helper()
+
+	rawProof, err := proof.MemtreeProof(memtree, leafIndex)
+	require.NoError(t, err)
+
+	return contract.IPDPTypesProof{
+		Leaf:  rawProof.Leaf,
+		Proof: rawProof.Proof,
+	}
+}
+
+// verifyProofsAtPositions generates and verifies Merkle proofs at a set of
+// "interesting" leaf positions within the given memtree. This is the workhorse
+// used by most roundtrip tests. It asserts that every proof passes Verify().
+func verifyProofsAtPositions(t *testing.T, memtree []byte, root [32]byte, nLeaves int64, label string) {
+	t.Helper()
+
+	for _, pos := range interestingPositions(nLeaves) {
+		p := extractProof(t, memtree, pos)
+		require.True(t, Verify(p, root, uint64(pos)),
+			"Verify failed %s pos=%d", label, pos)
+	}
+}
+
+// interestingPositions returns a deduplicated set of leaf indices that exercise
+// various parts of a binary Merkle tree:
+//
+//   - Boundary leaves (first, last, second-to-last).
+//   - Power-of-two boundaries (quarter, half, three-quarter) which sit at
+//     subtree roots and stress left-vs-right sibling selection.
+//   - Off-by-one positions around those boundaries to catch fence-post errors.
+//   - A few random positions to increase coverage, seeded by nLeaves for variety
+//
+// These positions model the kinds of challenges the PDP verifier contract can
+// generate.
+func interestingPositions(nLeaves int64) []int64 {
+	const (
+		randomPositionsMax = 5
+		randomizerSeed     = 9009
+	)
+	candidates := []int64{
+		0,               // first leaf
+		1,               // second leaf
+		nLeaves/4 - 1,   // just before quarter boundary
+		nLeaves / 4,     // quarter boundary
+		nLeaves/2 - 1,   // just before midpoint
+		nLeaves / 2,     // midpoint
+		nLeaves/2 + 1,   // just after midpoint
+		nLeaves*3/4 - 1, // just before three-quarter
+		nLeaves * 3 / 4, // three-quarter boundary
+		nLeaves - 2,     // second-to-last leaf
+		nLeaves - 1,     // last leaf
+	}
+
+	// Add a few random positions to increase coverage, ensuring we don't exceed nLeaves.
+	rng := rand.New(rand.NewSource(randomizerSeed + nLeaves)) // seed depends on nLeaves for variety across tree sizes
+	for range randomPositionsMax {
+		randomPosWithinRange := rng.Int63n(nLeaves)
+		candidates = append(candidates, randomPosWithinRange)
+	}
+
+	seen := make(map[int64]bool, len(candidates))
+	result := make([]int64, 0, len(candidates))
+	for _, p := range candidates {
+		if p >= 0 && p < nLeaves && !seen[p] {
+			seen[p] = true
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// makeLeaf creates a deterministic 32-byte leaf value, with deterministic content.
+func makeLeaf(leafIndex int) [32]byte {
+	var leaf [32]byte
+	for j := range leaf {
+		leaf[j] = byte(leafIndex*32 + j)
+	}
+	return leaf
+}
+
+// makeLeaves creates n deterministic leaves using makeLeaf.
+func makeLeaves(n int) [][32]byte {
+	leaves := make([][32]byte, n)
+	for i := 0; i < n; i++ {
+		leaves[i] = makeLeaf(i)
+	}
+	return leaves
+}
+
+// commPTestVector holds one row from the go-fil-commp-hashhash test fixture
+// files. Each row is: unpadded_payload_size, padded_piece_size, commP_CID.
+//
+// Source file:
+//
+//	https://github.com/filecoin-project/go-fil-commp-hashhash/blob/master/testdata/random.txt
+type commPTestVector struct {
+	payloadSize int64
+	paddedSize  uint64
+	rawCommP    [32]byte
+}
+
+// b32dec is the base32 decoder used for Filecoin CIDs (RFC 4648 lower-case,
+// no padding).
+//
+// Reference: https://github.com/multiformats/multibase
+var b32dec = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
+
+// parseTestVectors parses newline-separated test vectors in the format:
+//
+//	payload_size,padded_size,commP_CID
+//
+// This matches the format of go-fil-commp-hashhash/testdata/random.txt.
+func parseTestVectors(data string) ([]commPTestVector, error) {
+	var vectors []commPTestVector
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		parts := strings.Split(line, ",")
+		if len(parts) != 3 {
+			continue
+		}
+		var v commPTestVector
+		if _, err := fmt.Sscanf(parts[0], "%d", &v.payloadSize); err != nil {
+			return nil, fmt.Errorf("parsing payload size %q: %w", parts[0], err)
+		}
+		if _, err := fmt.Sscanf(parts[1], "%d", &v.paddedSize); err != nil {
+			return nil, fmt.Errorf("parsing padded size %q: %w", parts[1], err)
+		}
+		// CID format: 'b' multibase prefix + base32-lower-encoded CIDv1.
+		// The raw commP is the last 32 bytes of the decoded CID.
+		rawCid, err := b32dec.DecodeString(parts[2][1:]) // [1:] drops the multibase 'b'
+		if err != nil {
+			return nil, fmt.Errorf("decoding CID %q: %w", parts[2], err)
+		}
+		copy(v.rawCommP[:], rawCid[len(rawCid)-32:])
+		vectors = append(vectors, v)
+	}
+	return vectors, nil
+}
+
+// ---------------------------------------------------------------------------
+// Test vector data
+//
+// These are subsets of go-fil-commp-hashhash/testdata/random.txt, the
+// canonical Filecoin commP test fixture. The data corresponding to each
+// vector is produced by generateRandomData (seed=1337, jbenet/go-random
+// algorithm).
+//
+// We select vectors whose padded sizes fit within proof.MaxMemtreeSize so we
+// can build the full binary tree in memory and generate + verify Merkle proofs
+// end-to-end.
+//
+// Source:
+//   https://github.com/filecoin-project/go-fil-commp-hashhash/blob/master/testdata/random.txt
+// ---------------------------------------------------------------------------
+
+// smallRandomVectors: payload sizes <= 2032 bytes (padded sizes <= 2048).
+// These are fast enough to run on every `go test` invocation.
+const smallRandomVectors = `96,128,baga6ea4seaqo4jg2quvjpclvaoicqywb26mnjlme54tkeb3e3ceeahbyg7tviai
+126,128,baga6ea4seaqein3inkr73gcpqxdhjy56wfkb52pdw23hpuwr35csiiso2yuvyoq
+127,128,baga6ea4seaqmqqwwyg6ql6scq5vvunlbvddhjxwzqsxcdnig4vqbuyh6bbzxodi
+192,256,baga6ea4seaqotbhavqkao7eoxjtixti2glidgwvxp3chvidrlf52l7vaknwweky
+253,256,baga6ea4seaqebawcodewpyhscsdthmmtvgqkzogca45eg6v7lafkt4tv434l6iq
+254,256,baga6ea4seaqpt3iccipvltny4uvpd37qg6w5u7wbng7lqbqplbp7t4amwgvmefi
+255,512,baga6ea4seaqlm52frc6d6xnpfquc75qxq4r5pinbahr2klui4fqs5wxy3doyaaq
+256,512,baga6ea4seaqffn52ixzqoaahrdl7pahrljpvy45xaosmt35ty53gyvai6t456ni
+384,512,baga6ea4seaqnory3ske3s5l25ykklefj5ph4ymer6bt42hmw55rme37jkkys6li
+507,512,baga6ea4seaqjplkgedsxnqoygmbx2iqvqog4w2scn2dzpxw26iggia357jveuka
+508,512,baga6ea4seaqidun3iro3tn65tqn3zjfwa2j2bltromfptcdqa5stlkjh5q4qeaa
+509,1024,baga6ea4seaqky7sahpzp37csmkswze43zbpyzrpdli5mxzy7k5pflwridmnkgmi
+512,1024,baga6ea4seaqiqj7rbfe4pz6b7rcbf3dv6xfnnr2dwbwotr6xitwec5mrgslgcea
+768,1024,baga6ea4seaqp47zaubuxxi6sdjd7qdr5wzcutem2stj5pec3g554ync227336cy
+1015,1024,baga6ea4seaqedz5ubjpdwgfm72tn6ejrnejs2wcvhycf3enyy6ygzwu4pulwijy
+1016,1024,baga6ea4seaqnvlx4oaqkcjrog6v27jpouto6rbsymqvljftyxitm7jfalzpmwcq
+1017,2048,baga6ea4seaqhx2zkltpeqwlnkvxfu2auzwv6xeqk35gd2keih65iocpjnrsqeoi
+1024,2048,baga6ea4seaqjvo24o24lunggsgxp2ykw2nl6ub5oshkgyccaiscbiu7dixiwiga
+1536,2048,baga6ea4seaqakth6qnuusqztecom6tlwcbp2m5a3gecgomgnc2z6qxq3fe4jggy
+2031,2048,baga6ea4seaqnk4aqvhnzrlkxas5buothhuplfecjo2lvvj3bwn6j27mdj2hw6lq
+2032,2048,baga6ea4seaqiqu4swshjvltped5eygatfnwt4rjnxfizqlsnlt2x4kxqpflmsay`
+
+// largerRandomVectors: payload sizes > 2032 up to 131072 bytes (padded up to
+// 131072). These are still within proof.MaxMemtreeSize but take longer to
+// process, so they are skipped by `go test -short`.
+const largerRandomVectors = `2033,4096,baga6ea4seaqfvubqe7mwtotokoo3tkephbpi3xoppi7425icaqvxybj27wm2oka
+2048,4096,baga6ea4seaqj5uibbzvsimuiiy6jl2hfhhyl4jzr6ihsiwhqjpfemj2qo7q42bq
+3072,4096,baga6ea4seaqkpxrivvwqvuyi4ofwcgtq3hzkyfmjjlb56p77mb2tbn6pmumlany
+4063,4096,baga6ea4seaqbderkod5u2oipurx4pnnzwpmbzgnsju3jgczuqivyujfgtixj6iy
+4064,4096,baga6ea4seaqn6j5vf3udiid4rbb6rv2ek2s7o3dgnlfvamb3dt5qe6o6x2pnoka
+4065,8192,baga6ea4seaqaej5ao5dat4biovfbx2h2exoivsoe4bwbhhajnop4tauoue7tyoa
+4096,8192,baga6ea4seaqfc5qcik7yruh4gzadmgrdxtyjoqyxabv5545okfshdrkh4ikr2ba
+6144,8192,baga6ea4seaqlf6nkbnjvxinjggutsjkow7dbxussjj3puax2rhzasdhxv4dn6mq
+8127,8192,baga6ea4seaqpaqnhn4rce6gsdimm5vl5v6izkh5f6lagbeheoiudqodky45oiaa
+8128,8192,baga6ea4seaqotwrimtqoatryhi3zmcjvykr3uyybsx6n5fmdq2wgo6zw7nz3kiq
+8129,16384,baga6ea4seaqjkxyydkhqeqzgtf3vsmwnsryyqnchnsytfnanfnnqevirf4cpopy
+8192,16384,baga6ea4seaqbmiwvd7oeq5nse5xqy65woqosxoceskcxwsbbyn3pnxydmqztmpi
+12288,16384,baga6ea4seaqmtdtep5xkmkavglidtslgcsjy32ej54ib2riarjy62x52kze2ihy
+16255,16384,baga6ea4seaqmguzq2wp33mxdia3wq3vaahijqcw4svwbga2abgeccofvf6u5cmy
+16256,16384,baga6ea4seaqdborfbr4mlgghf4ud6vo7wjkgmvc3elanqh4miez4wd7xfprl6cy
+16257,32768,baga6ea4seaqhtxok7ntvuzk42rh6lmnvwioqvtenrp7tymumicoaelabizfnmha
+16384,32768,baga6ea4seaqbq56qsxemtyzd3zcsjoetht7swqir7rw4fpmn6g6cfngz2djxoji
+32512,32768,baga6ea4seaqhfhque5zrqd3tg62uo2ruka2lzekpn46ahlsgl3nat4uoojuyemq
+32513,65536,baga6ea4seaqizdw52alqml4tyt37bqtuqisewhpz64fvlmryg7ehvdibkptqmga
+32768,65536,baga6ea4seaqaxucpakjt27aafpdbrecklvae7kxj3ha6dpdo45rpm7wjzls7sdy
+65024,65536,baga6ea4seaqgjaavyognzadlkkcwaovy4ij7grb3eso65dqvwkiqfg5g3cb3qbi
+65025,131072,baga6ea4seaqapw7q3joywtwplratzjnyzxfsi5nuemcgtyqapmd35sdyjtnfkpa
+65536,131072,baga6ea4seaqarj3zpcpxjs256fzt2zmral6cy2g6wqwtvcawfayhql7twnrgioa`
+
+// smallUnpaddedSizes are unpadded piece sizes whose padded forms are small
+// enough to build full memtrees and verify every leaf position exhaustively.
+// They also happen to be the exact sizes for which FR32 padding produces the
+// most compact power-of-two padded pieces (unpadded = padded * 127/128).
+var smallUnpaddedSizes = []abi.UnpaddedPieceSize{127, 254, 508, 1016}
+
+// wideUnpaddedSizes span the range from the smallest to the largest piece that
+// fits in proof.MaxMemtreeSize. Used for roundtrip proof/verify tests where
+// exhaustive leaf enumeration would be too slow.
+var wideUnpaddedSizes = []abi.UnpaddedPieceSize{
+	127,      // 4 leaves
+	254,      // 8 leaves
+	508,      // 16 leaves
+	1016,     // 32 leaves
+	2032,     // 64 leaves
+	4064,     // 128 leaves
+	8128,     // 256 leaves
+	16256,    // 512 leaves
+	32512,    // 1024 leaves
+	65024,    // 2048 leaves
+	130048,   // 4096 leaves
+	1040384,  // 32768 leaves
+	2080768,  // 65536 leaves
+	4161536,  // 131072 leaves
+	8323072,  // 262144 leaves
+	16646144, // 524288 leaves
+}
+
+// zeroReader is an io.Reader that emits zero bytes forever. It is used to
+// pad payloads shorter than their declared unpadded piece size, matching how
+// Filecoin pads under-sized pieces with trailing zeros.
+type zeroReader struct{}
+
+func (z *zeroReader) Read(p []byte) (n int, err error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
