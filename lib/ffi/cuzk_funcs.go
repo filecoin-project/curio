@@ -78,6 +78,16 @@ func (sb *SealCalls) PoRepSnarkCuzk(ctx context.Context, cuzkClient *cuzk.Client
 
 	proof := resp.Proof
 
+	if len(proof) == 0 {
+		return nil, xerrors.Errorf("cuzk returned empty proof bytes")
+	}
+
+	log.Infow("cuzk porep proof received",
+		"sector", sn.ID,
+		"proofLen", len(proof),
+		"totalMs", resp.TotalMs,
+		"gpuMs", resp.GpuComputeMs)
+
 	// Step 3: Verify proof locally
 	ok, err := ffi.VerifySeal(proof2.SealVerifyInfo{
 		SealProof:             sn.ProofType,
@@ -90,10 +100,10 @@ func (sb *SealCalls) PoRepSnarkCuzk(ctx context.Context, cuzkClient *cuzk.Client
 		UnsealedCID:           unsealed,
 	})
 	if err != nil {
-		return nil, xerrors.Errorf("failed to verify cuzk proof: %w", err)
+		return nil, xerrors.Errorf("failed to verify cuzk proof (proofLen=%d): %w", len(proof), err)
 	}
 	if !ok {
-		return nil, xerrors.Errorf("cuzk porep proof failed to validate")
+		return nil, xerrors.Errorf("cuzk porep proof failed to validate (proofLen=%d, sealProof=%d, miner=%d, sector=%d)", len(proof), sn.ProofType, sn.ID.Miner, sn.ID.Number)
 	}
 
 	return proof, nil

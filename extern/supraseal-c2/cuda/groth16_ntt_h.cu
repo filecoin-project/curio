@@ -61,24 +61,6 @@ private:
             NTT::Type::coset, stream);
     }
 
-    // Phase 9: Pre-staged variant — data already on device via async upload.
-    // Waits on the upload event, then runs NTTs in-place.
-    static void execute_ntts_prestaged(fr_t* d_inout,
-                                       size_t lg_domain_size,
-                                       cudaEvent_t upload_done,
-                                       stream_t& stream)
-    {
-        // Wait for the async HtoD + zero-pad to complete on upload stream
-        stream.wait(upload_done);
-
-        NTT_internal(&d_inout[0], lg_domain_size,
-            NTT::InputOutputOrder::NR, NTT::Direction::inverse,
-            NTT::Type::standard, stream);
-        NTT_internal(&d_inout[0], lg_domain_size,
-            NTT::InputOutputOrder::RN, NTT::Direction::forward,
-            NTT::Type::coset, stream);
-    }
-
     static int lg2(size_t n)
     {   int ret = 0; while (n >>= 1) ret++; return ret;   }
 
@@ -90,11 +72,13 @@ public:
     // a[i] /= (multiplicative_gen^domain_size) - 1
     // a = coset_intt(a)
     // a is the result vector
-    static void execute_ntt_msm_h(const gpu_t& gpu, gpu_ptr_t<fr_t> d_a,
+    static void execute_ntt_msm_h(const gpu_t& gpu, fr_t* d_a,
                                   const Assignment<fr_t>& input,
                                   slice_t<affine_t> points_h,
                                   point_t& result_h)
     {
+        struct timeval tv0, tv1, tv2, tv3, tv4, tv5, tv5a;
+
         size_t actual_size = input.abc_size;
         size_t npoints = points_h.size();
         size_t lg_domain_size = lg2(npoints - 1) + 1;
@@ -106,13 +90,26 @@ public:
 
         bool lot_of_memory = 3 * domain_size * sizeof(fr_t) <
                              gpu.props().totalGlobalMem - gib;
+
+        gettimeofday(&tv0, NULL);
         {
-            dev_ptr_t<fr_t> d_b(domain_size * (lot_of_memory + 1));
+            // Use cudaMallocAsync/cudaFreeAsync so the CUDA memory pool
+            // caches the 8 GiB d_b buffer across partition calls.
+            // First call: real allocation (~700ms).  Subsequent calls:
+            // near-instant reuse from pool cache.
+            size_t d_b_nelems = domain_size * (lot_of_memory + 1);
+            size_t d_b_alloc  = ((d_b_nelems + WARP_SZ-1) & ((size_t)0 - WARP_SZ))
+                                * sizeof(fr_t);
+
+            // Allocate on gpu's zero stream + sync, so the pointer is
+            // valid on all streams before any kernel uses it.
+            fr_t* d_b = (fr_t*)gpu.Dmalloc(d_b_alloc);
+            gettimeofday(&tv1, NULL);
             fr_t* d_c = &d_b[domain_size * lot_of_memory];
 
             event_t sync_event;
 
-            execute_ntts_single(&d_a[0], input.a, lg_domain_size,
+            execute_ntts_single(d_a, input.a, lg_domain_size,
                                 actual_size, gpu[0]);
             sync_event.record(gpu[0]);
 
@@ -121,7 +118,7 @@ public:
 
             sync_event.wait(gpu[1]);
             coeff_wise_mult<<<sm_count, 1024, 0, gpu[1]>>>
-                (&d_a[0], &d_b[0], (index_t)lg_domain_size);
+                (d_a, &d_b[0], (index_t)lg_domain_size);
             sync_event.record(gpu[1]);
 
             execute_ntts_single(&d_c[0], input.c, lg_domain_size,
@@ -129,86 +126,34 @@ public:
 
             sync_event.wait(gpu[1 + lot_of_memory]);
             sub_mult_with_constant<<<sm_count, 1024, 0, gpu[1 + lot_of_memory]>>>
-                (&d_a[0], &d_c[0], z_inv, (index_t)lg_domain_size);
-        }
+                (d_a, &d_c[0], z_inv, (index_t)lg_domain_size);
 
-        NTT_internal(&d_a[0], lg_domain_size, NTT::InputOutputOrder::NN,
+            // Free d_b on the last stream that used it.
+            CUDA_OK(cudaFreeAsync(d_b, gpu[1 + lot_of_memory]));
+        }
+        gettimeofday(&tv2, NULL);
+
+        NTT_internal(d_a, lg_domain_size, NTT::InputOutputOrder::NN,
             NTT::Direction::inverse, NTT::Type::coset, gpu[1 + lot_of_memory]);
 
         gpu[1 + lot_of_memory].sync();
-
-        msm_t<bucket_t, point_t, affine_t, fr_t> msm(nullptr, npoints);
-        msm.invoke(result_h, points_h, d_a, true);
-    }
-
-    // Phase 9: Pre-staged variant — a/b/c data already uploaded to device
-    // buffers via async HtoD before the GPU mutex was acquired. The caller
-    // provides pre-allocated device pointers and CUDA events signaling
-    // upload completion.
-    //
-    // d_a:        pre-allocated device buffer with a polynomial (domain_size fr_t)
-    // d_bc_raw:   pre-allocated device buffer for b (and c if lot_of_memory)
-    //             size = domain_size * (lot_of_memory + 1) fr_t elements
-    // ev_a/b/c:   CUDA events recorded after each polynomial's async HtoD + zero-pad
-    // lot_of_memory: same flag as original — determines if b and c share d_bc or
-    //               c gets a separate region within d_bc
-    static void execute_ntt_msm_h_prestaged(
-            const gpu_t& gpu,
-            gpu_ptr_t<fr_t> d_a,
-            fr_t* d_bc_raw,
-            size_t lg_domain_size,
-            size_t domain_size,
-            bool lot_of_memory,
-            cudaEvent_t ev_a,
-            cudaEvent_t ev_b,
-            cudaEvent_t ev_c,
-            slice_t<affine_t> points_h,
-            point_t& result_h)
-    {
-        size_t npoints = points_h.size();
-        fr_t z_inv = calculate_z_inv(lg_domain_size);
-        int sm_count = gpu.props().multiProcessorCount;
-
-        fr_t* d_b = d_bc_raw;
-        fr_t* d_c = &d_bc_raw[domain_size * lot_of_memory];
+        gettimeofday(&tv3, NULL);
 
         {
-            event_t sync_event;
-
-            // NTT on a — wait for a's upload to finish, then compute
-            execute_ntts_prestaged(&d_a[0], lg_domain_size, ev_a, gpu[0]);
-            sync_event.record(gpu[0]);
-
-            // NTT on b — wait for b's upload
-            execute_ntts_prestaged(d_b, lg_domain_size, ev_b, gpu[1]);
-
-            // a *= b (must wait for a's NTT to complete)
-            sync_event.wait(gpu[1]);
-            coeff_wise_mult<<<sm_count, 1024, 0, gpu[1]>>>
-                (&d_a[0], d_b, (index_t)lg_domain_size);
-            sync_event.record(gpu[1]);
-
-            // NTT on c — wait for c's upload
-            execute_ntts_prestaged(d_c, lg_domain_size, ev_c,
-                                   gpu[1 + lot_of_memory]);
-
-            // a = (a*b - c) * z_inv
-            sync_event.wait(gpu[1 + lot_of_memory]);
-            sub_mult_with_constant<<<sm_count, 1024, 0, gpu[1 + lot_of_memory]>>>
-                (&d_a[0], d_c, z_inv, (index_t)lg_domain_size);
+            msm_t<bucket_t, point_t, affine_t, fr_t> msm(nullptr, npoints);
+            gettimeofday(&tv4, NULL);
+            msm.invoke(result_h, points_h, d_a, true);
+            gettimeofday(&tv5a, NULL);
         }
+        gettimeofday(&tv5, NULL);
 
-        // Free d_bc by letting the caller's scope handle it (d_bc_raw will
-        // be freed by the caller after this function returns). The memory is
-        // no longer needed after the sub_mult kernel above.
-
-        NTT_internal(&d_a[0], lg_domain_size, NTT::InputOutputOrder::NN,
-            NTT::Direction::inverse, NTT::Type::coset, gpu[1 + lot_of_memory]);
-
-        gpu[1 + lot_of_memory].sync();
-
-        msm_t<bucket_t, point_t, affine_t, fr_t> msm(nullptr, npoints);
-        msm.invoke(result_h, points_h, d_a, true);
+        auto ms = [](struct timeval& a, struct timeval& b) -> long {
+            return (b.tv_sec - a.tv_sec) * 1000 + (b.tv_usec - a.tv_usec) / 1000;
+        };
+        fprintf(stderr, "CUZK_NTT_H: d_b_alloc=%ldms ntt_kernels=%ldms "
+                "coset_intt_sync=%ldms msm_init=%ldms msm_invoke=%ldms msm_dtor=%ldms total=%ldms\n",
+                ms(tv0, tv1), ms(tv1, tv2), ms(tv2, tv3),
+                ms(tv3, tv4), ms(tv4, tv5a), ms(tv5a, tv5), ms(tv0, tv5));
     }
 };
 

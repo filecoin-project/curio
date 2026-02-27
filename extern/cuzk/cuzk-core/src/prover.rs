@@ -9,7 +9,7 @@
 //! - WindowPoSt per-partition (`generate_single_window_post_with_vanilla`)
 //! - SnapDeals (`generate_empty_sector_update_proof_with_vanilla`)
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use base64::Engine as _;
 use std::path::Path;
 use std::time::Instant;
@@ -20,6 +20,8 @@ use filecoin_proofs_api::{
     post, update, ChallengeSeed, Commitment, PartitionProofBytes, RegisteredPoStProof,
     RegisteredUpdateProof, SectorId,
 };
+
+use filecoin_proofs_api::RegisteredSealProof;
 
 use crate::types::ProofTimings;
 
@@ -202,6 +204,256 @@ pub fn prove_porep_c2(
     );
 
     Ok((output.proof, timings))
+}
+
+/// Verify a PoRep proof using `filecoin-proofs-api::seal::verify_seal`.
+///
+/// This provides a self-check for pipeline-generated proofs. It re-parses
+/// the C1 output wrapper to extract `registered_proof`, `comm_r`, `comm_d`,
+/// `seed`, and `ticket`, then calls `verify_seal` with the given proof bytes.
+///
+/// Returns `Ok(true)` if the proof verifies, `Ok(false)` if it is invalid,
+/// or an error if the verification call itself fails.
+pub fn verify_porep_proof(
+    vanilla_proof_json: &[u8],
+    proof_bytes: &[u8],
+    sector_number: u64,
+    miner_id: u64,
+    job_id: &str,
+) -> Result<bool> {
+    let _span = info_span!("verify_porep_proof", job_id = job_id).entered();
+
+    // Parse the C1 wrapper to extract verification inputs
+    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+        .context("verify: failed to parse C1 output wrapper JSON")?;
+    let phase1_json_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&wrapper.phase1_out)
+        .context("verify: failed to decode base64 Phase1Output")?;
+    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+        .context("verify: failed to deserialize SealCommitPhase1Output from JSON")?;
+
+    let prover_id = make_prover_id(miner_id);
+    let sector_id = SectorId::from(sector_number);
+
+    info!(
+        registered_proof = ?c1_output.registered_proof,
+        proof_len = proof_bytes.len(),
+        sector_number = sector_number,
+        miner_id = miner_id,
+        "verifying PoRep proof (self-check)"
+    );
+
+    let result = seal::verify_seal(
+        c1_output.registered_proof,
+        c1_output.comm_r,
+        c1_output.comm_d,
+        prover_id,
+        sector_id,
+        c1_output.ticket,
+        c1_output.seed,
+        proof_bytes,
+    )
+    .context("verify_seal call failed")?;
+
+    if result {
+        info!(job_id = job_id, "PoRep proof self-check PASSED");
+    } else {
+        warn!(
+            job_id = job_id,
+            registered_proof = ?c1_output.registered_proof,
+            proof_len = proof_bytes.len(),
+            sector_number = sector_number,
+            miner_id = miner_id,
+            "PoRep proof self-check FAILED — proof is invalid"
+        );
+    }
+
+    Ok(result)
+}
+
+/// Verify each partition of a PoRep proof individually.
+///
+/// This is a diagnostic function to determine whether individual partition
+/// proofs are valid (suggesting an ordering/assembly bug) or invalid
+/// (suggesting a `num_circuits=1` GPU proving bug).
+///
+/// For each partition k (0..num_partitions):
+///   1. Extracts the 192-byte Groth16 proof at `proof_bytes[k*192..(k+1)*192]`
+///   2. Generates the public inputs for partition k via `StackedCompound::generate_public_inputs`
+///   3. Verifies the single proof with `bellperson::groth16::verify_proof`
+///
+/// Returns a Vec of booleans, one per partition, indicating validity.
+pub fn verify_porep_partitions(
+    vanilla_proof_json: &[u8],
+    proof_bytes: &[u8],
+    sector_number: u64,
+    miner_id: u64,
+    job_id: &str,
+) -> Result<Vec<bool>> {
+    use bellperson::groth16;
+    use blstrs::Bls12;
+    use filecoin_hashers::Hasher;
+    use filecoin_proofs::parameters::setup_params;
+    use filecoin_proofs::{
+        as_safe_commitment, DefaultPieceDomain, DefaultPieceHasher, SectorShape32GiB,
+    };
+    use rand_core::OsRng;
+    use storage_proofs_core::compound_proof::{CompoundProof, SetupParams};
+    use storage_proofs_porep::stacked::{
+        generate_replica_id, PublicInputs, StackedCompound, StackedDrg, Tau,
+    };
+
+    let _span = info_span!("verify_porep_partitions", job_id = job_id).entered();
+
+    type Tree = SectorShape32GiB;
+    const GROTH_PROOF_BYTES: usize = 192;
+
+    // Parse the C1 wrapper
+    let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
+        .context("verify_partitions: failed to parse C1 output wrapper JSON")?;
+    let phase1_json_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&wrapper.phase1_out)
+        .context("verify_partitions: failed to decode base64 Phase1Output")?;
+    let c1_output: SealCommitPhase1Output = serde_json::from_slice(&phase1_json_bytes)
+        .context("verify_partitions: failed to deserialize SealCommitPhase1Output from JSON")?;
+
+    let porep_config = c1_output.registered_proof.as_v1_config();
+    let num_partitions = usize::from(porep_config.partitions);
+
+    let expected_total = num_partitions * GROTH_PROOF_BYTES;
+    ensure!(
+        proof_bytes.len() == expected_total,
+        "proof bytes len {} != expected {} ({} partitions * {})",
+        proof_bytes.len(),
+        expected_total,
+        num_partitions,
+        GROTH_PROOF_BYTES,
+    );
+
+    // Derive replica_id (same as verify_seal does internally)
+    let prover_id = make_prover_id(miner_id);
+    type TreeHasher = <SectorShape32GiB as storage_proofs_core::merkle::MerkleTreeTrait>::Hasher;
+    let comm_r_safe: <TreeHasher as Hasher>::Domain =
+        as_safe_commitment(&c1_output.comm_r, "comm_r")?;
+    let comm_d_safe: DefaultPieceDomain = as_safe_commitment(&c1_output.comm_d, "comm_d")?;
+    let replica_id = generate_replica_id::<TreeHasher, _>(
+        &prover_id,
+        sector_number,
+        &c1_output.ticket,
+        comm_d_safe,
+        &porep_config.porep_id,
+    );
+
+    // Build compound public params
+    let vanilla_setup = setup_params(&porep_config)?;
+    let compound_setup = SetupParams {
+        vanilla_params: vanilla_setup,
+        partitions: Some(num_partitions),
+        priority: false,
+    };
+    let compound_public_params = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::setup(&compound_setup)?;
+
+    let public_inputs = PublicInputs {
+        replica_id,
+        tau: Some(Tau {
+            comm_r: comm_r_safe,
+            comm_d: comm_d_safe,
+        }),
+        k: None,
+        seed: Some(c1_output.seed),
+    };
+
+    // Get verifying key via the CompoundProof trait method (loads from .vk param cache)
+    info!(
+        job_id = job_id,
+        num_partitions = num_partitions,
+        "loading verifying key for per-partition verification"
+    );
+    let vk = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+        StackedDrg<'_, Tree, DefaultPieceHasher>,
+        _,
+    >>::verifying_key::<OsRng>(None, &compound_public_params.vanilla_params)
+    .context("failed to load verifying key for per-partition verification")?;
+    let pvk = groth16::prepare_verifying_key(&vk);
+
+    info!(
+        job_id = job_id,
+        num_partitions = num_partitions,
+        "starting per-partition verification"
+    );
+
+    let mut results = Vec::with_capacity(num_partitions);
+
+    for k in 0..num_partitions {
+        // Extract this partition's 192 bytes and deserialize
+        let partition_proof_bytes =
+            &proof_bytes[k * GROTH_PROOF_BYTES..(k + 1) * GROTH_PROOF_BYTES];
+        let proof = groth16::Proof::<Bls12>::read(&partition_proof_bytes[..])
+            .context(format!("failed to deserialize proof for partition {}", k))?;
+
+        // Generate public inputs for this partition
+        let partition_inputs = <StackedCompound<Tree, DefaultPieceHasher> as CompoundProof<
+            StackedDrg<'_, Tree, DefaultPieceHasher>,
+            _,
+        >>::generate_public_inputs(
+            &public_inputs,
+            &compound_public_params.vanilla_params,
+            Some(k),
+        )
+        .context(format!(
+            "failed to generate public inputs for partition {}",
+            k,
+        ))?;
+
+        // Verify single partition
+        let valid = groth16::verify_proof(&pvk, &proof, &partition_inputs)
+            .context(format!("verify_proof call failed for partition {}", k))?;
+
+        if valid {
+            info!(
+                job_id = job_id,
+                partition = k,
+                "partition {} proof VALID",
+                k
+            );
+        } else {
+            warn!(
+                job_id = job_id,
+                partition = k,
+                num_public_inputs = partition_inputs.len(),
+                "partition {} proof INVALID",
+                k
+            );
+        }
+
+        results.push(valid);
+    }
+
+    let valid_count = results.iter().filter(|&&v| v).count();
+    let invalid_count = num_partitions - valid_count;
+
+    if invalid_count == 0 {
+        info!(
+            job_id = job_id,
+            "ALL {} partition proofs are individually valid — likely an ordering/assembly bug",
+            num_partitions
+        );
+    } else {
+        warn!(
+            job_id = job_id,
+            valid = valid_count,
+            invalid = invalid_count,
+            results = ?results,
+            "PER-PARTITION VERIFICATION: {}/{} valid — likely a num_circuits=1 GPU proving bug",
+            valid_count,
+            num_partitions
+        );
+    }
+
+    Ok(results)
 }
 
 /// Convert a numeric registered proof value (from gRPC) to a `RegisteredPoStProof`.
