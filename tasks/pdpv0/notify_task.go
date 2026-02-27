@@ -117,12 +117,16 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		PieceRef       int64   `db:"piece_ref" json:"piece_ref"`
 		CheckHashCodec string  `db:"check_hash_codec" json:"check_hash_codec"`
 		CheckHash      []byte  `db:"check_hash" json:"check_hash"`
+		PieceRawSize   uint64  `db:"piece_raw_size" json:"piece_raw_size"`
 	}
 	err = t.db.QueryRow(ctx, `
-        SELECT id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash 
-        FROM pdp_piece_uploads 
-        WHERE notify_task_id = $1`, taskID).Scan(
-		&upload.ID, &upload.Service, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.CheckHashCodec, &upload.CheckHash)
+        SELECT pu.id, pu.service, pu.piece_cid, pu.notify_url, pu.piece_ref, pu.check_hash_codec, pu.check_hash,
+               pp.piece_raw_size
+        FROM pdp_piece_uploads pu
+        JOIN parked_piece_refs ppr ON ppr.ref_id = pu.piece_ref
+        JOIN parked_pieces pp ON pp.id = ppr.piece_id
+        WHERE pu.notify_task_id = $1`, taskID).Scan(
+		&upload.ID, &upload.Service, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.CheckHashCodec, &upload.CheckHash, &upload.PieceRawSize)
 	if err != nil {
 		return false, fmt.Errorf("failed to query pdp_piece_uploads for task %d: %w", taskID, err)
 	}
@@ -149,12 +153,15 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 	}
 
-	// Move the entry from pdp_piece_uploads to pdp_piecerefs
 	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		_, err := tx.Exec(`
-			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) 
-			VALUES ($1, $2, $3, NOW())`,
-			upload.Service, upload.PieceCID, upload.PieceRef)
+		// Move the entry from pdp_piece_uploads to pdp_piecerefs
+		// Insert into pdp_piecerefs
+		// Set needs_save_cache=TRUE for large pieces to enable proactive caching
+		needsSaveCache := upload.PieceRawSize >= MinSizeForCache
+		_, err = t.db.Exec(ctx, `
+        INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
+        VALUES ($1, $2, $3, NOW(), $4)`,
+			upload.Service, upload.PieceCID, upload.PieceRef, needsSaveCache)
 		if err != nil {
 			return false, fmt.Errorf("failed to insert into pdp_piecerefs: %w", err)
 		}

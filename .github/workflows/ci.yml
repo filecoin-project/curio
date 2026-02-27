@@ -179,6 +179,8 @@ jobs:
             target: "./itests/harmonydb_test.go"
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
+          - name: test-itest-pdp-prove-test
+            target: "./itests/pdp_prove_test.go"
     steps:
       - uses: actions/checkout@v4
 
