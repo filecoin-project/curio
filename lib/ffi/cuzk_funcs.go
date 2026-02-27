@@ -148,3 +148,83 @@ func (sb *SealCalls) ProveUpdateCuzk(ctx context.Context, cuzkClient *cuzk.Clien
 
 	return resp.Proof, nil
 }
+
+// WindowPoStCuzk sends per-sector vanilla proofs to the cuzk daemon for SNARK
+// computation, returning the single-partition PoStProof. The vanilla proofs
+// must already be generated locally (reading challenge data from sealed sectors).
+func WindowPoStCuzk(ctx context.Context, cuzkClient *cuzk.Client, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, vanillaProofs [][]byte, partitionIdx int) (proof2.PoStProof, error) {
+	ssize, err := proofType.SectorSize()
+	if err != nil {
+		return proof2.PoStProof{}, xerrors.Errorf("getting sector size from post proof type: %w", err)
+	}
+
+	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+		RequestId:       fmt.Sprintf("wdpost-%d-%d-%d", minerID, partitionIdx, randomness[:8]),
+		ProofKind:       cuzk.ProofKind_WINDOW_POST_PARTITION,
+		SectorSize:      uint64(ssize),
+		RegisteredProof: uint64(proofType),
+		Priority:        cuzk.Priority_HIGH,
+		VanillaProofs:   vanillaProofs,
+		MinerId:         uint64(minerID),
+		Randomness:      randomness,
+		PartitionIndex:  uint32(partitionIdx),
+	})
+	if err != nil {
+		return proof2.PoStProof{}, xerrors.Errorf("cuzk window post prove failed: %w", err)
+	}
+
+	if len(resp.Proof) == 0 {
+		return proof2.PoStProof{}, xerrors.Errorf("cuzk returned empty window post proof")
+	}
+
+	log.Infow("cuzk window post proof received",
+		"miner", minerID,
+		"partition", partitionIdx,
+		"proofLen", len(resp.Proof),
+		"totalMs", resp.TotalMs,
+		"gpuMs", resp.GpuComputeMs)
+
+	return proof2.PoStProof{
+		PoStProof:  proofType,
+		ProofBytes: resp.Proof,
+	}, nil
+}
+
+// WinningPoStCuzk sends per-sector vanilla proofs to the cuzk daemon for SNARK
+// computation, returning the WinningPoSt proof. This is time-critical —
+// must complete within the epoch window.
+func WinningPoStCuzk(ctx context.Context, cuzkClient *cuzk.Client, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, vanillaProofs [][]byte) ([]proof2.PoStProof, error) {
+	ssize, err := proofType.SectorSize()
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector size from post proof type: %w", err)
+	}
+
+	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+		RequestId:       fmt.Sprintf("winpost-%d-%x", minerID, randomness[:8]),
+		ProofKind:       cuzk.ProofKind_WINNING_POST,
+		SectorSize:      uint64(ssize),
+		RegisteredProof: uint64(proofType),
+		Priority:        cuzk.Priority_CRITICAL,
+		VanillaProofs:   vanillaProofs,
+		MinerId:         uint64(minerID),
+		Randomness:      randomness,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("cuzk winning post prove failed: %w", err)
+	}
+
+	if len(resp.Proof) == 0 {
+		return nil, xerrors.Errorf("cuzk returned empty winning post proof")
+	}
+
+	log.Infow("cuzk winning post proof received",
+		"miner", minerID,
+		"proofLen", len(resp.Proof),
+		"totalMs", resp.TotalMs,
+		"gpuMs", resp.GpuComputeMs)
+
+	return []proof2.PoStProof{{
+		PoStProof:  proofType,
+		ProofBytes: resp.Proof,
+	}}, nil
+}

@@ -68,12 +68,12 @@ var log = logging.Logger("curio/deps")
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
 	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
 	as *multictladdr.MultiAddressSelector, addresses *config.Dynamic[map[dtypes.MinerAddress]bool], db *harmonydb.DB,
-	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
+	stor paths.Store, idx paths.SectorIndex, max int, cuzkClient *cuzk.Client) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
 	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, pc.SingleCheckTimeout, pc.PartitionCheckTimeout)
 
-	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout)
+	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout, cuzkClient)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -172,6 +172,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		return senderEth
 	}
 
+	// Initialize cuzk client if configured (shared across PoSt and sealing tasks)
+	var cuzkClient *cuzk.Client
+	if cfg.Cuzk.Address != "" {
+		cuzkClient = cuzk.NewClient(cfg.Cuzk.Address, cfg.Cuzk.MaxPending, cfg.Cuzk.ProveTimeout)
+		log.Infow("cuzk proving daemon enabled", "addr", cfg.Cuzk.Address, "maxPending", cfg.Cuzk.MaxPending, "proveTimeout", cfg.Cuzk.ProveTimeout)
+	}
+
 	///////////////////////////////////////////////////////////////////////
 	///// Task Selection
 	///////////////////////////////////////////////////////////////////////
@@ -181,7 +188,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if cfg.Subsystems.EnableWindowPost {
 			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
 				ctx, cfg.Fees, cfg.Proving, full, verif, asyncParams(), sender, chainSched,
-				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
+				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks, cuzkClient)
 
 			if err != nil {
 				return nil, err
@@ -191,7 +198,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		if cfg.Subsystems.EnableWinningPost {
 			store := dependencies.Stor
-			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
+			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs, cuzkClient)
 			inclCkTask := winning.NewInclusionCheckTask(db, full)
 			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
 
@@ -228,7 +235,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	var p2Active sealsupra.P2Active
 	if hasAnySealingTask {
-		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover, cuzkClient)
 		if err != nil {
 			return nil, err
 		}
@@ -390,15 +397,9 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover,
+	cuzkClient *cuzk.Client) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
 	var activeTasks []harmonytask.TaskInterface
-
-	// Initialize cuzk client if configured
-	var cuzkClient *cuzk.Client
-	if cfg.Cuzk.Address != "" {
-		cuzkClient = cuzk.NewClient(cfg.Cuzk.Address, cfg.Cuzk.MaxPending, cfg.Cuzk.ProveTimeout)
-		log.Infow("cuzk proving daemon enabled", "addr", cfg.Cuzk.Address, "maxPending", cfg.Cuzk.MaxPending, "proveTimeout", cfg.Cuzk.ProveTimeout)
-	}
 
 	// Sealing / Snap
 
