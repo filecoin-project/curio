@@ -1,0 +1,213 @@
+package ffi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/tarutil"
+)
+
+// RemoteSealFetchParams describes everything needed to download sealed sector
+// data and cache from a remote seal provider.
+type RemoteSealFetchParams struct {
+	// Full URL to download the sealed sector file (GET, supports Range).
+	SealedURL string
+
+	// Full URL to download the cache tar (GET, returns tar stream).
+	CacheURL string
+
+	// C1 metadata to write into the cache directory for PoRep.
+	C1Info paths.RemoteSealC1Info
+
+	SpID         int64
+	SectorNumber int64
+}
+
+// DownloadRemoteSealData acquires storage for a sector's sealed file and cache,
+// downloads them from the remote seal provider, writes the c1.url metadata file,
+// and ensures only one copy of the data exists in the storage system.
+func (sb *SealCalls) DownloadRemoteSealData(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, params RemoteSealFetchParams) error {
+	fspaths, pathIDs, release, err := sb.Sectors.AcquireSector(ctx, task, sector, storiface.FTNone, storiface.FTSealed|storiface.FTCache, storiface.PathStorage)
+	if err != nil {
+		return xerrors.Errorf("acquiring sector storage: %w", err)
+	}
+	defer release()
+
+	if fspaths.Sealed == "" {
+		return xerrors.Errorf("no sealed path allocated")
+	}
+	if fspaths.Cache == "" {
+		return xerrors.Errorf("no cache path allocated")
+	}
+
+	// Download sealed sector file (32 GiB)
+	log.Infow("downloading sealed file from provider",
+		"sp_id", params.SpID, "sector", params.SectorNumber,
+		"sealed_path", fspaths.Sealed)
+
+	if err := fetchFile(ctx, fspaths.Sealed, params.SealedURL, params.SpID, params.SectorNumber); err != nil {
+		return xerrors.Errorf("fetching sealed data: %w", err)
+	}
+
+	// Download and extract cache tar (p_aux, t_aux, tree-r-last-*)
+	log.Infow("downloading cache data from provider",
+		"sp_id", params.SpID, "sector", params.SectorNumber,
+		"cache_path", fspaths.Cache)
+
+	if err := fetchCacheTar(ctx, fspaths.Cache, params.CacheURL); err != nil {
+		return xerrors.Errorf("fetching cache data: %w", err)
+	}
+
+	// Write c1.url file so PoRep can fetch C1 output from the remote provider
+	c1InfoJSON, err := json.Marshal(params.C1Info)
+	if err != nil {
+		return xerrors.Errorf("marshaling c1 info: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(fspaths.Cache, paths.RemoteSealC1UrlFile), c1InfoJSON, 0644); err != nil {
+		return xerrors.Errorf("writing c1.url file: %w", err)
+	}
+
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTSealed|storiface.FTCache); err != nil {
+		return xerrors.Errorf("ensure one copy: %w", err)
+	}
+
+	return nil
+}
+
+// fetchFile downloads a file to destPath. Tries aria2c first for multi-connection
+// resumable download, falls back to Go HTTP with Range header support.
+func fetchFile(ctx context.Context, destPath, dlURL string, spID, sectorNumber int64) error {
+	if err := fetchWithAria2c(ctx, destPath, dlURL); err == nil {
+		return nil
+	} else {
+		log.Warnw("aria2c fetch failed, falling back to Go HTTP",
+			"error", err, "sp_id", spID, "sector", sectorNumber)
+	}
+
+	return fetchWithGoHTTP(ctx, destPath, dlURL)
+}
+
+// fetchCacheTar downloads a cache tar stream and extracts it to cachePath.
+func fetchCacheTar(ctx context.Context, cachePath, dlURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlURL, nil)
+	if err != nil {
+		return xerrors.Errorf("creating request: %w", err)
+	}
+
+	dlClient := &http.Client{}
+	resp, err := dlClient.Do(req)
+	if err != nil {
+		return xerrors.Errorf("performing request to %s: %w", dlURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return xerrors.Errorf("unexpected status %d from %s: %s", resp.StatusCode, dlURL, string(body))
+	}
+
+	buf := make([]byte, 1<<20) // 1 MiB buffer
+	_, err = tarutil.ExtractTar(tarutil.FinCacheFileConstraints, resp.Body, cachePath, buf)
+	if err != nil {
+		return xerrors.Errorf("extracting cache tar to %s: %w", cachePath, err)
+	}
+
+	return nil
+}
+
+// fetchWithAria2c invokes aria2c as a subprocess for multi-connection resumable downloads.
+func fetchWithAria2c(ctx context.Context, destPath, dlURL string) error {
+	aria2cPath, err := exec.LookPath("aria2c")
+	if err != nil {
+		return xerrors.New("aria2c not found in PATH")
+	}
+
+	cmd := exec.CommandContext(ctx, aria2cPath,
+		"--lowest-speed-limit", "16K",
+		"-m100",
+		"--retry-wait", "10",
+		"--continue",
+		"-x16",
+		"-s16",
+		"--dir", filepath.Dir(destPath),
+		"-o", filepath.Base(destPath),
+		dlURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return xerrors.Errorf("aria2c failed: %w", err)
+	}
+	return nil
+}
+
+// fetchWithGoHTTP downloads a file using a plain Go HTTP client with Range header
+// support for resuming partial downloads.
+func fetchWithGoHTTP(ctx context.Context, destPath, dlURL string) error {
+	f, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return xerrors.Errorf("opening file %s: %w", destPath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	fStat, err := f.Stat()
+	if err != nil {
+		return xerrors.Errorf("stat file %s: %w", destPath, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlURL, nil)
+	if err != nil {
+		return xerrors.Errorf("creating request: %w", err)
+	}
+
+	if fStat.Size() > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%s-", strconv.FormatInt(fStat.Size(), 10)))
+	}
+
+	dlClient := &http.Client{}
+	resp, err := dlClient.Do(req)
+	if err != nil {
+		return xerrors.Errorf("performing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		if fStat.Size() > 0 {
+			if err := f.Truncate(0); err != nil {
+				return xerrors.Errorf("truncating file for full rewrite: %w", err)
+			}
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return xerrors.Errorf("seeking to start: %w", err)
+			}
+		}
+	case http.StatusPartialContent:
+		// Server is sending the remaining bytes from our Range offset.
+	case http.StatusRequestedRangeNotSatisfiable:
+		// File is already complete.
+		return nil
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return xerrors.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	buf := make([]byte, 1<<20) // 1 MiB buffer
+	_, err = io.CopyBuffer(f, resp.Body, buf)
+	if err != nil {
+		return xerrors.Errorf("writing data to %s: %w", destPath, err)
+	}
+
+	return nil
+}

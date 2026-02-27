@@ -20,8 +20,12 @@ func init() {
 }
 
 func NewFromConfig(cfg Config) (*DB, error) {
-	cfg.SqlEmbedFS = &upgradeFS
-	cfg.DowngradeEmbedFS = &downgradeFS
+	if cfg.SqlEmbedFS == nil {
+		cfg.SqlEmbedFS = &upgradeFS
+	}
+	if cfg.DowngradeEmbedFS == nil {
+		cfg.DowngradeEmbedFS = &downgradeFS
+	}
 	return harmonyquery.NewFromConfig(cfg)
 }
 
@@ -32,16 +36,21 @@ func envElse(env, els string) string {
 	return els
 }
 
-func NewFromConfigWithITestID(t *testing.T, id harmonyquery.ITestID) (*DB, error) {
+func NewFromConfigWithITestID(t *testing.T, id harmonyquery.ITestID, fullMigrations bool) (*DB, error) {
+	sqlFS := &testUpgradeFS
+	if fullMigrations {
+		sqlFS = &upgradeFS
+	}
+
 	db, err := NewFromConfig(Config{
 		Hosts:            []string{envElse(harmonyquery.DefaultHostEnv, "127.0.0.1")},
-		Database:         "yugabyte",
+		Database:         envElse("CURIO_HARMONYDB_DB", "yugabyte"),
 		Username:         "yugabyte",
 		Password:         "yugabyte",
-		Port:             "5433",
+		Port:             envElse("CURIO_HARMONYDB_PORT", "5433"),
 		LoadBalance:      false,
 		ITestID:          id,
-		SqlEmbedFS:       &upgradeFS,
+		SqlEmbedFS:       sqlFS,
 		DowngradeEmbedFS: &downgradeFS,
 	})
 	if err != nil {
@@ -58,6 +67,9 @@ var upgradeFS embed.FS
 
 //go:embed downgrade
 var downgradeFS embed.FS
+
+//go:embed sql/20230706-itest_scratch.sql
+var testUpgradeFS embed.FS
 
 // A function for clean, idempotent SQL upgrade testing.
 var ITestUpgradeFunc = harmonyquery.ITestUpgradeFunc

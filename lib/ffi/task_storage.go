@@ -62,6 +62,10 @@ type StorageReservation struct {
 }
 
 func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64) *TaskStorage {
+	oh := storiface.FSOverheadSeal
+	if pathType == storiface.PathStorage {
+		oh = storiface.FsOverheadFinalized
+	}
 	return sb.StorageMulti(func(taskID harmonytask.TaskID) ([]SectorRef, error) {
 		sr, err := taskToSectorRef(taskID)
 		if err != nil {
@@ -69,7 +73,7 @@ func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (Se
 		}
 
 		return []SectorRef{sr}, nil
-	}, alloc, existing, ssize, pathType, MinFreeStoragePercentage, storiface.FSOverheadSeal)
+	}, alloc, existing, ssize, pathType, MinFreeStoragePercentage, oh)
 }
 
 func (sb *SealCalls) StorageMulti(taskToSectorRef func(taskID harmonytask.TaskID) ([]SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64, ohs map[storiface.SectorFileType]int) *TaskStorage {

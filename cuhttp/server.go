@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
+	"github.com/filecoin-project/curio/market/sealmarket"
 	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
@@ -138,6 +140,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 type ServiceDeps struct {
 	EthSender  *message.SenderETH
 	DealMarket *storage_market.CurioStorageDealMarket
+	SealMarket *sealmarket.SealMarket
 }
 
 // This starts the public-facing server for market calls.
@@ -188,7 +191,6 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 
 	// Set up the HTTP server with proper timeouts
 	server := &http.Server{
-		Addr:              cfg.ListenAddress,
 		Handler:           libp2pConnMiddleware(loggingMiddleware(compressionMw(chiRouter))), // Attach middlewares
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      time.Hour * 2,
@@ -207,19 +209,27 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		server.TLSConfig = certManager.TLSConfig()
 	}
 
-	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
+	// Bind the listener before starting the goroutine so the caller knows
+	// the actual address (important when ListenAddress uses port 0).
+	ln, err := net.Listen("tcp", cfg.ListenAddress)
+	if err != nil {
+		return xerrors.Errorf("binding HTTP listener on %s: %w", cfg.ListenAddress, err)
+	}
 
-	// Start the server with TLS
+	d.HTTPListenAddr = ln.Addr().String()
+	log.Infof("HTTP server listening on %s (requested %s)", d.HTTPListenAddr, cfg.ListenAddress)
+
+	// Start the server
 	go func() {
-		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
+		log.Infof("Starting HTTP server for %s on %s", cfg.DomainName, d.HTTPListenAddr)
 		var serr error
 		if !cfg.DelegateTLS {
-			serr = server.ListenAndServeTLS("", "")
+			serr = server.ServeTLS(ln, "", "")
 		} else {
-			serr = server.ListenAndServe()
+			serr = server.Serve(ln)
 		}
-		if serr != nil {
-			log.Errorf("Failed to start HTTPS server: %s", serr)
+		if serr != nil && serr != http.ErrServerClosed {
+			log.Errorf("Failed to start HTTP server: %s", serr)
 			panic(serr)
 		}
 	}()
@@ -276,34 +286,44 @@ func (c cache) Delete(ctx context.Context, key string) error {
 var _ autocert.Cache = cache{}
 
 func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps) (*chi.Mux, error) {
-	// Attach retrievals
-	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
-	retrieval.Router(r, rp)
+	// Deal market routers (retrieval, IPNI, libp2p, market handler) are only
+	// attached when the deal market subsystem is enabled. Other HTTP features
+	// (e.g. remote seal) can run without these dependencies.
+	if d.Cfg.Subsystems.EnableDealMarket {
+		// Attach retrievals
+		rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
+		retrieval.Router(r, rp)
 
-	// Attach IPNI
-	ipp, err := ipni_provider.NewProvider(d)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to create new ipni provider: %w", err)
+		// Attach IPNI
+		ipp, err := ipni_provider.NewProvider(d)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to create new ipni provider: %w", err)
+		}
+		ipni_provider.Routes(r, ipp)
+
+		go ipp.StartPublishing(ctx)
+
+		// Attach LibP2P redirector
+		rd := libp2p.NewRedirector(d.DB)
+		libp2p.Router(r, rd)
+
+		//if sd.EthSender != nil {
+		//	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
+		//	pdp.Routes(r, pdsvc)
+		//}
+
+		// Attach the market handler
+		dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to create new market handler: %w", err)
+		}
+		mhttp.Router(r, dh)
 	}
-	ipni_provider.Routes(r, ipp)
 
-	go ipp.StartPublishing(ctx)
-
-	// Attach LibP2P redirector
-	rd := libp2p.NewRedirector(d.DB)
-	libp2p.Router(r, rd)
-
-	//if sd.EthSender != nil {
-	//	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
-	//	pdp.Routes(r, pdsvc)
-	//}
-
-	// Attach the market handler
-	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to create new market handler: %w", err)
+	// Attach remote seal market
+	if sd.SealMarket != nil {
+		sealmarket.Routes(r, sd.SealMarket)
 	}
-	mhttp.Router(r, dh)
 
 	return r, nil
 }

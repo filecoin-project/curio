@@ -21,7 +21,7 @@ func TestSQLIdempotent(t *testing.T) {
 	}
 
 	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
 	require.NoError(t, err)
 
 	ctx := context.Background()
