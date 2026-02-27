@@ -20,7 +20,7 @@ build/.*
 /venv
 **/.venv
 scratchpad
-
+target
 # to ensure tests build: itests/ go test -c .
 /itests/itests.test
 

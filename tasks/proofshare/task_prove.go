@@ -288,13 +288,30 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 			return nil, xerrors.Errorf("getting sector size: %w", err)
 		}
 
+		// Wrap the raw SealCommitPhase1Output JSON in the C1OutputWrapper envelope
+		// that the cuzk Rust server expects. Go's json.Marshal base64-encodes the
+		// Phase1Out []byte field, matching the Rust serde expectation.
+		type c1OutputWrapper struct {
+			SectorNum  int64  `json:"SectorNum"`
+			Phase1Out  []byte `json:"Phase1Out"`
+			SectorSize uint64 `json:"SectorSize"`
+		}
+		wrapped, err := json.Marshal(c1OutputWrapper{
+			SectorNum:  int64(sectorID.Number),
+			Phase1Out:  vproof,
+			SectorSize: uint64(ssize),
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("wrapping C1 output for cuzk: %w", err)
+		}
+
 		resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
 			RequestId:       fmt.Sprintf("ps-porep-%d-%d", sectorID.Miner, sectorID.Number),
 			ProofKind:       cuzk.ProofKind_POREP_SEAL_COMMIT,
 			SectorSize:      uint64(ssize),
 			RegisteredProof: uint64(spt),
 			Priority:        cuzk.Priority_NORMAL,
-			VanillaProof:    vproof,
+			VanillaProof:    wrapped,
 			SectorNumber:    uint64(sectorID.Number),
 			MinerId:         uint64(sectorID.Miner),
 		})

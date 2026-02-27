@@ -16,6 +16,28 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+// c1OutputWrapper is the JSON envelope the cuzk Rust server expects for PoRep C2.
+// The Rust side deserializes this as C1OutputWrapper { SectorNum, Phase1Out, SectorSize }.
+// Phase1Out is base64-encoded because Go's encoding/json encodes []byte as base64,
+// which matches the Rust expectation of a base64 string containing the inner
+// SealCommitPhase1Output JSON.
+type c1OutputWrapper struct {
+	SectorNum  int64  `json:"SectorNum"`
+	Phase1Out  []byte `json:"Phase1Out"`
+	SectorSize uint64 `json:"SectorSize"`
+}
+
+// wrapC1Output wraps raw SealCommitPhase1Output JSON bytes in the C1OutputWrapper
+// envelope expected by the cuzk Rust server.
+func wrapC1Output(c1JSON []byte, sectorNumber uint64, sectorSize uint64) ([]byte, error) {
+	wrapper := c1OutputWrapper{
+		SectorNum:  int64(sectorNumber),
+		Phase1Out:  c1JSON,
+		SectorSize: sectorSize,
+	}
+	return json.Marshal(wrapper)
+}
+
 // PoRepSnarkCuzk generates the vanilla proof locally (needs sector data on disk),
 // then delegates the SNARK computation to the cuzk daemon via gRPC.
 // The proof is verified locally after cuzk returns.
@@ -32,13 +54,21 @@ func (sb *SealCalls) PoRepSnarkCuzk(ctx context.Context, cuzkClient *cuzk.Client
 		return nil, xerrors.Errorf("getting sector size: %w", err)
 	}
 
+	// Wrap the raw SealCommitPhase1Output JSON in the C1OutputWrapper envelope
+	// that the cuzk Rust server expects. Go's json.Marshal base64-encodes the
+	// Phase1Out []byte field, matching the Rust serde expectation.
+	wrapped, err := wrapC1Output(vproof, uint64(sn.ID.Number), uint64(ssize))
+	if err != nil {
+		return nil, xerrors.Errorf("wrapping C1 output for cuzk: %w", err)
+	}
+
 	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
 		RequestId:       fmt.Sprintf("porep-%d-%d", sn.ID.Miner, sn.ID.Number),
 		ProofKind:       cuzk.ProofKind_POREP_SEAL_COMMIT,
 		SectorSize:      uint64(ssize),
 		RegisteredProof: uint64(sn.ProofType),
 		Priority:        cuzk.Priority_NORMAL,
-		VanillaProof:    vproof,
+		VanillaProof:    wrapped,
 		SectorNumber:    uint64(sn.ID.Number),
 		MinerId:         uint64(sn.ID.Miner),
 	})
