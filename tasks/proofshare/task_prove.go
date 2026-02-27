@@ -113,23 +113,9 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 		return []harmonytask.TaskID{}, nil
 	}
 
-	// When cuzk is enabled, delegate capacity checks to the daemon
-	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
-		// PSProve handles both PoRep and Snap; use POREP kind for generic capacity check
-		capacity, err := t.cuzkClient.HasCapacity(context.Background(), cuzk.ProofKind_POREP_SEAL_COMMIT)
-		if err != nil {
-			log.Warnw("PSProve.CanAccept() cuzk capacity check failed, rejecting", "error", err)
-			return []harmonytask.TaskID{}, nil
-		}
-		if capacity == 0 {
-			log.Debugw("PSProve.CanAccept() cuzk pipeline full, backpressuring")
-			return []harmonytask.TaskID{}, nil
-		}
-		if capacity < len(ids) {
-			ids = ids[:capacity]
-		}
-		// fall through to ordering logic below
-	} else {
+	// When cuzk is enabled, the shared Max limiter handles backpressure.
+	// Fall through to ordering logic below.
+	if t.cuzkClient == nil || !t.cuzkClient.Enabled() {
 		rdy, err := t.paramsReady()
 		if err != nil {
 			return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -233,8 +219,15 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 		ram = 1 << 30
 	}
+	var maxLimiter taskhelp.Limiter
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		maxLimiter = t.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(t.max)
+	}
+
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(t.max),
+		Max:  maxLimiter,
 		Name: "PSProve",
 		Cost: resources.Resources{
 			Cpu: 1,
