@@ -9,7 +9,6 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
