@@ -21,7 +21,6 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
-	pdp "github.com/filecoin-project/curio/tasks/pdpv0"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
@@ -252,7 +251,7 @@ func testPDPProvingWithSize(t *testing.T, ctx context.Context, idxStore *indexst
 	// Verify the combined proof (leaf->snapshot + snapshot->commP) against
 	// the expected root. This simulates the final verification step that
 	// would be performed before sending a proof on-chain.
-	verified := pdp.Verify(out, rd, uint64(challenge))
+	verified := proof.VerifyProof(out.Leaf, out.Proof, rd, uint64(challenge))
 	require.True(t, verified)
 
 	// Clean up the cached layer from the index store - keep tests isolated.
