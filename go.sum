@@ -226,6 +226,8 @@ github.com/crate-crypto/go-eth-kzg v1.4.0/go.mod h1:J9/u5sWfznSObptgfa92Jq8rTswn
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/cskr/pubsub v1.0.2 h1:vlOzMhl6PFn60gRlTQQsIfVwaPB/B/8MziK8FhEPt/0=
 github.com/cskr/pubsub v1.0.2/go.mod h1:/8MzYXk/NJAz782G8RPkFzXTZVu63VotefPnR9TIRis=
+github.com/curiostorage/go-openrpc-reflect v0.0.0-20260228001046-4649ba9a95f3 h1:FvUZCP/DTzBDfHn1qwsHWpXBQYXzcaJMaQDDQeSLa3Y=
+github.com/curiostorage/go-openrpc-reflect v0.0.0-20260228001046-4649ba9a95f3/go.mod h1:mBbXNZC9lEa93HAb4Hy5X7rglbO6HD0BkPHnCOu5olI=
 github.com/curiostorage/harmonyquery v0.0.0-20260216153908-9243aa5b386c h1:OuXgDHsN1Vcka8+kyOgNhVRLgHRQPqe+KUxKq7eQnR4=
 github.com/curiostorage/harmonyquery v0.0.0-20260216153908-9243aa5b386c/go.mod h1:ih3N/QVNhPcps+cIWBk/s+hYRz5QEJ+9Lkc841K7xXY=
 github.com/daaku/go.zipexe v1.0.2 h1:Zg55YLYTr7M9wjKn8SY/WcpuuEi+kR2u4E8RhvpyXmk=
@@ -295,8 +297,6 @@ github.com/envoyproxy/go-control-plane v0.9.9-0.20210217033140-668b12f5399d/go.m
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
 github.com/etclabscore/go-jsonschema-walk v0.0.6 h1:DrNzoKWKd8f8XB5nFGBY00IcjakRE22OTI12k+2LkyY=
 github.com/etclabscore/go-jsonschema-walk v0.0.6/go.mod h1:VdfDY72AFAiUhy0ZXEaWSpveGjMT5JcDIm903NGqFwQ=
-github.com/etclabscore/go-openrpc-reflect v0.0.37 h1:IH0e7JqIvR9OhbbFWi/BHIkXrqbR3Zyia3RJ733eT6c=
-github.com/etclabscore/go-openrpc-reflect v0.0.37/go.mod h1:0404Ky3igAasAOpyj1eESjstTyneBAIk5PgJFbK4s5E=
 github.com/ethereum/c-kzg-4844/v2 v2.1.5 h1:aVtoLK5xwJ6c5RiqO8g8ptJ5KU+2Hdquf6G3aXiHh5s=
 github.com/ethereum/c-kzg-4844/v2 v2.1.5/go.mod h1:u59hRTTah4Co6i9fDWtiCjTrblJv0UwsqZKCc0GfgUs=
 github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab h1:rvv6MJhy07IMfEKuARQ9TKojGqLVNxQajaXEp/BoqSk=
@@ -1158,7 +1158,6 @@ github.com/onsi/gomega v1.7.1/go.mod h1:XdKZgCCFLUoM/7CFJVPcG8C1xQ1AJ0vpAezJrB7J
 github.com/onsi/gomega v1.10.1/go.mod h1:iN09h71vgCQne3DLsj+A5owkum+a2tYe+TOCB1ybHNo=
 github.com/onsi/gomega v1.36.3 h1:hID7cr8t3Wp26+cYnfcjR6HpJ00fdogN6dqZ1t6IylU=
 github.com/onsi/gomega v1.36.3/go.mod h1:8D9+Txp43QWKhM24yyOBEdpkzN8FvJyAwecBgsU4KU0=
-github.com/open-rpc/meta-schema v0.0.0-20201029221707-1b72ef2ea333/go.mod h1:Ag6rSXkHIckQmjFBCweJEEt1mrTPBv8b9W4aU/NQWfI=
 github.com/open-rpc/meta-schema v0.0.0-20250731032156-d8c12c08675d h1:ZNYTz9aScz13ejopZvqRsfgwOtU15OStJjBoNGTZnls=
 github.com/open-rpc/meta-schema v0.0.0-20250731032156-d8c12c08675d/go.mod h1:Ag6rSXkHIckQmjFBCweJEEt1mrTPBv8b9W4aU/NQWfI=
 github.com/opencontainers/runtime-spec v1.0.2/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=

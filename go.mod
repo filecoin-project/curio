@@ -16,7 +16,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-sysinfo v1.15.4
-	github.com/etclabscore/go-openrpc-reflect v0.0.37
+	github.com/curiostorage/go-openrpc-reflect v0.0.38-compat
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/fatih/color v1.18.0
 	github.com/filecoin-project/filecoin-ffi v1.34.0
