@@ -485,9 +485,9 @@ func TestOrder_InvalidSlotToken(t *testing.T) {
 	require.Contains(t, orderResp.RejectReason, "invalid or expired slot token")
 }
 
-// --- Status returns 404 for unknown sector ---
+// --- Status returns "gone" state for unknown sector ---
 
-func TestStatus_UnknownSector_404(t *testing.T) {
+func TestStatus_UnknownSector_Gone(t *testing.T) {
 	h := setupHarness(t)
 	h.seedPartner("tok-stat", "partner-K", 5)
 
@@ -496,7 +496,11 @@ func TestStatus_UnknownSector_404(t *testing.T) {
 		SpID:         999,
 		SectorNumber: 999,
 	})
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var status StatusResponse
+	decodeJSON(t, rec, &status)
+	require.Equal(t, "gone", status.State)
 }
 
 // --- Status returns pending for newly ordered sector ---
@@ -574,11 +578,15 @@ func TestStatus_CrossPartnerIsolation(t *testing.T) {
 	decodeJSON(t, rec, &orderResp)
 	require.True(t, orderResp.Accepted)
 
-	// Partner B tries to check status of partner A's sector — should get 404
+	// Partner B tries to check status of partner A's sector — should get "gone" state
 	rec = h.postJSON(DelegatedSealPath+"status", StatusRequest{
 		PartnerToken: "tok-iso-b",
 		SpID:         1000,
 		SectorNumber: 1,
 	})
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var status StatusResponse
+	decodeJSON(t, rec, &status)
+	require.Equal(t, "gone", status.State)
 }
