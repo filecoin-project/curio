@@ -19,7 +19,6 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/curio/tasks/pdp"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
@@ -199,7 +198,7 @@ func TestPDPProving(t *testing.T) {
 		Proof: append(subTreeProof.Proof, proofs.Proof...),
 	}
 
-	verified := pdp.Verify(out, rd, uint64(challenge))
+	verified := proof.VerifyProof(out.Leaf, out.Proof, rd, uint64(challenge))
 	require.True(t, verified)
 
 	err = idxStore.DeletePDPLayer(ctx, pcid2)

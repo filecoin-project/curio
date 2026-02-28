@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	randmath "math/rand"
+	"os"
 	"testing"
 
 	"github.com/ipfs/go-cid"
@@ -51,19 +52,29 @@ type commPFixture struct {
 	RawCommP    [32]byte
 }
 
+// largeFixtureThreshold is the padded piece size above which fixtures are
+// skipped outside CI. Fixtures above this require significant memory and
+// time; worth running in CI but not on every local invocation.
+const largeFixtureThreshold = 64 << 20 // 64 MiB padded
+
 func loadCommPFixtures(t *testing.T) []commPFixture {
 	t.Helper()
-	fixtures := make([]commPFixture, len(commPFixtures))
+	inCI := os.Getenv("CI") == "true"
+	var fixtures []commPFixture
 	for i, sf := range commPFixtures {
+		if !inCI && sf.PieceSize > largeFixtureThreshold {
+			continue
+		}
 		c, err := cid.Decode(sf.CID)
 		require.NoError(t, err, "decoding CID for fixture %d", i)
 		commP, err := commcid.CIDToPieceCommitmentV1(c)
 		require.NoError(t, err, "extracting CommP for fixture %d", i)
-		fixtures[i] = commPFixture{
+		fx := commPFixture{
 			PayloadSize: sf.PayloadSize,
 			PieceSize:   sf.PieceSize,
 		}
-		copy(fixtures[i].RawCommP[:], commP)
+		copy(fx.RawCommP[:], commP)
+		fixtures = append(fixtures, fx)
 	}
 	return fixtures
 }
@@ -135,7 +146,7 @@ func buildMemtree(t *testing.T, fx commPFixture) []byte {
 func TestMemtreeRootsMatchCommPFixtures(t *testing.T) {
 	fixtures := loadCommPFixtures(t)
 	for _, fx := range fixtures {
-		fx := fx
+
 		t.Run(fmt.Sprintf("payload_%d", fx.PayloadSize), func(t *testing.T) {
 			t.Parallel()
 			memtree := buildMemtree(t, fx)
@@ -152,7 +163,7 @@ func TestMemtreeRootsMatchCommPFixtures(t *testing.T) {
 func TestProofRoundTrip(t *testing.T) {
 	fixtures := loadCommPFixtures(t)
 	for _, fx := range fixtures {
-		fx := fx
+
 		t.Run(fmt.Sprintf("payload_%d", fx.PayloadSize), func(t *testing.T) {
 			t.Parallel()
 			memtree := buildMemtree(t, fx)
@@ -207,7 +218,7 @@ func TestCacheSplitProof(t *testing.T) {
 		if fx.PieceSize < 8192 {
 			continue
 		}
-		fx := fx
+
 		t.Run(fmt.Sprintf("payload_%d", fx.PayloadSize), func(t *testing.T) {
 			t.Parallel()
 
@@ -375,7 +386,7 @@ func TestGenerateCachedProof(t *testing.T) {
 		if fx.PieceSize < 8192 {
 			continue
 		}
-		fx := fx
+
 		t.Run(fmt.Sprintf("payload_%d", fx.PayloadSize), func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
