@@ -97,7 +97,7 @@ func (r *readerPieceReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	}
 	// If seeking to a different position, close the current reader
 	if r.cur != nil && newPos != r.pos {
-		r.cur.Close()
+		_ = r.cur.Close()
 		r.cur = nil
 	}
 	r.pos = newPos
@@ -757,7 +757,7 @@ func (sm *SealMarket) handleSealedData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rs := &readerPieceReadSeeker{factory: readerFactory, size: int64(ssize)}
-	defer rs.Close()
+	defer func() { _ = rs.Close() }()
 
 	// http.ServeContent handles Range headers automatically
 	http.ServeContent(w, r, "", time.Time{}, rs)
