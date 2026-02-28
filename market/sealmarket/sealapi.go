@@ -551,9 +551,8 @@ func (sm *SealMarket) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(rows) == 0 {
-		// Sector not found on the provider — return a structured "gone" state
-		// so the client poll task can detect this and fail the sector gracefully.
-		writeJSON(w, http.StatusOK, StatusResponse{State: "gone"})
+		// Sector not found on the provider — return 404
+		http.Error(w, "sector not found", http.StatusNotFound)
 		return
 	}
 
