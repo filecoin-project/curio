@@ -19,7 +19,7 @@ Curio软件包可直接在Ubuntu / Debian系统上安装。
 1. 安装先决条件
 
 ```bash
-sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev libgmp-dev libconfig++-dev wget -y && sudo apt upgrade -y
+sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev libarchive-dev libgmp-dev libconfig++-dev protobuf-compiler wget -y && sudo apt upgrade -y
 ```
 
 2. 启用Curio软件包仓库
@@ -76,7 +76,7 @@ curio test supra system-info
 Arch:
 
 ```bash
-sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv aria2 time
+sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv aria2 time protobuf
 # 批量封装构建依赖（需要 nvcc）
 sudo pacman -Syu cuda
 # GCC 13 可能需要通过发行版/AUR 安装（取决于当前 supraseal 版本）
@@ -95,6 +95,7 @@ sudo apt install -y \
   libssl-dev uuid-dev libfuse3-dev \
   libnuma-dev libaio-dev libkeyutils-dev libncurses-dev \
   libgmp-dev libconfig++-dev \
+  protobuf-compiler \
   aria2 time \
   && sudo apt upgrade -y
 
@@ -104,19 +105,19 @@ sudo apt install -y \
 Fedora:
 
 ```bash
-sudo dnf -y install gcc make git bzr jq pkgconfig mesa-libOpenCL mesa-libOpenCL-devel opencl-headers ocl-icd ocl-icd-devel clang llvm wget hwloc hwloc-devel libarchive-devel aria2 time
+sudo dnf -y install gcc make git bzr jq pkgconfig mesa-libOpenCL mesa-libOpenCL-devel opencl-headers ocl-icd ocl-icd-devel clang llvm wget hwloc hwloc-devel libarchive-devel protobuf-compiler aria2 time
 ```
 
 OpenSUSE:
 
 ```bash
-sudo zypper in gcc git jq make libOpenCL1 opencl-headers ocl-icd-devel clang llvm hwloc libarchive-devel aria2 time && sudo ln -s /usr/lib64/libOpenCL.so.1 /usr/lib64/libOpenCL.so
+sudo zypper in gcc git jq make libOpenCL1 opencl-headers ocl-icd-devel clang llvm hwloc libarchive-devel protobuf-devel aria2 time && sudo ln -s /usr/lib64/libOpenCL.so.1 /usr/lib64/libOpenCL.so
 ```
 
 Amazon Linux 2:
 
 ```bash
-sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm; sudo yum install -y git gcc bzr jq pkgconfig clang llvm mesa-libGL-devel opencl-headers ocl-icd ocl-icd-devel hwloc-devel libarchive-devel aria2 time
+sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm; sudo yum install -y git gcc bzr jq pkgconfig clang llvm mesa-libGL-devel opencl-headers ocl-icd ocl-icd-devel hwloc-devel libarchive-devel protobuf-compiler aria2 time
 ```
 
 ### Rustup
