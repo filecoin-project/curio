@@ -277,16 +277,34 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 			return reader, dealRawSize, nil
 		}
 
+		// MK20 deal: try piece park first if piece_ref is set and valid
 		if dl.PieceRef.Valid {
-			// This is a MK20 deal, get from piece park
-			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, new(dl.PieceRef.Int64), nil, nil)
-			if err != nil {
-				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
-				continue
+			ref := dl.PieceRef.Int64
+			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
+			if err == nil {
+				return reader, rawSize, nil
 			}
-			return reader, rawSize, nil
+			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
 		}
 
+		// MK20 deal: fallback to sector read (e.g. AggregateTypeV2: single piece already in sector with tail index section)
+		if !dl.Offset.Valid {
+			merr = multierror.Append(merr, xerrors.Errorf("MK20 deal has no piece_offset for sector read"))
+			continue
+		}
+		sr := storiface.SectorRef{
+			ID: abi.SectorID{
+				Miner:  abi.ActorID(dl.SpID),
+				Number: abi.SectorNumber(dl.Sector),
+			},
+			ProofType: dl.Proof,
+		}
+		reader, err := cpr.sectorReader.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(dl.Offset.Int64).Unpadded()), dl.Length.Unpadded(), pieceCid)
+		if err != nil {
+			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from sector: %w", err))
+			continue
+		}
+		return reader, uint64(dl.RawSize), nil
 	}
 
 	return nil, 0, merr
