@@ -17,11 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/lib/nullreader"
 
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/pdp/contract"
+
+	"github.com/filecoin-project/lotus/lib/nullreader"
 )
 
 // =========================================================================
