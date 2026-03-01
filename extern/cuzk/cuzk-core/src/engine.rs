@@ -693,11 +693,23 @@ struct PartitionedJobState {
     failed: bool,
 }
 
+/// Parsed proof input shared across partition workers (Phase 7).
+///
+/// Each variant holds the pre-deserialized input for a proof type,
+/// wrapped in `Arc` for zero-copy sharing across partition workers.
+#[cfg(feature = "cuda-supraseal")]
+enum ParsedProofInput {
+    PoRep(Arc<crate::pipeline::ParsedC1Output>),
+    SnapDeals(Arc<crate::pipeline::ParsedSnapDealsInput>),
+}
+
 /// Phase 7: Work item for the partition synthesis worker pool.
+///
+/// Generalized to support any multi-partition proof type (PoRep, SnapDeals).
 #[cfg(feature = "cuda-supraseal")]
 struct PartitionWorkItem {
-    /// Shared parsed C1 output (Arc for zero-copy sharing across workers).
-    parsed: Arc<crate::pipeline::ParsedC1Output>,
+    /// Shared parsed proof input (Arc for zero-copy sharing across workers).
+    parsed: ParsedProofInput,
     /// Which partition to synthesize (0..num_partitions).
     partition_idx: usize,
     /// The parent job ID this partition belongs to.
@@ -1336,7 +1348,7 @@ impl Engine {
                         // 4. Dispatch each partition to spawn_blocking workers
                         for partition_idx in 0..num_partitions {
                             let item = PartitionWorkItem {
-                                parsed: parsed.clone(),
+                                parsed: ParsedProofInput::PoRep(parsed.clone()),
                                 partition_idx,
                                 job_id: job_id.clone(),
                                 request: req.clone(),
@@ -1396,11 +1408,16 @@ impl Engine {
                                 // is non-blocking (channel always has room), so holding the
                                 // permit through the send adds no latency.
                                 let synth_result = tokio::task::spawn_blocking(move || {
-                                    let result = pipeline::synthesize_partition(
-                                        &item.parsed,
-                                        item.partition_idx,
-                                        &item.job_id.0,
-                                    );
+                                    let result = match &item.parsed {
+                                        ParsedProofInput::PoRep(parsed) => {
+                                            pipeline::synthesize_partition(
+                                                parsed,
+                                                item.partition_idx,
+                                                &item.job_id.0,
+                                            )
+                                        }
+                                        _ => unreachable!("PoRep dispatch with wrong parsed type"),
+                                    };
 
                                     result.map(|synth| SynthesizedJob {
                                         request: item.request,
@@ -1493,6 +1510,263 @@ impl Engine {
                         // process_batch() returns immediately — completion is signaled
                         // asynchronously by the GPU worker when ProofAssembler collects
                         // all partitions.
+                        return true;
+                    }
+
+                    // SnapDeals per-partition pipeline (Phase 7 generalization).
+                    // Same architecture as PoRep: parse once, dispatch partitions to
+                    // semaphore-bounded workers, overlap synthesis with GPU proving.
+                    // SnapDeals has 16 partitions of ~81M constraints each.
+                    if proof_kind == ProofKind::SnapDealsUpdate
+                        && requests.len() == 1
+                        && partition_workers > 0
+                    {
+                        let req = requests[0].clone();
+                        let job_id = req.job_id.clone();
+                        let srs_mgr_clone = srs_mgr.clone();
+                        let param_cache_owned = param_cache_str.clone();
+
+                        // 1. Parse SnapDeals input once (blocking) and load SRS
+                        let parse_result = tokio::task::spawn_blocking({
+                            let vanilla_proofs = req.vanilla_proofs.clone();
+                            let registered_proof = req.registered_proof;
+                            let comm_r_old = req.comm_r_old.clone();
+                            let comm_r_new = req.comm_r_new.clone();
+                            let comm_d_new = req.comm_d_new.clone();
+                            let srs_mgr = srs_mgr_clone.clone();
+                            move || -> Result<(Arc<pipeline::ParsedSnapDealsInput>, Arc<bellperson::groth16::SuprasealParameters<blstrs::Bls12>>)> {
+                                std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_owned);
+                                let parsed = pipeline::parse_snap_deals_input(
+                                    &vanilla_proofs, registered_proof,
+                                    &comm_r_old, &comm_r_new, &comm_d_new,
+                                )?;
+                                let srs = {
+                                    let mut mgr = srs_mgr.blocking_lock();
+                                    mgr.ensure_loaded(&CircuitId::SnapDeals32G)?
+                                };
+                                Ok((Arc::new(parsed), srs))
+                            }
+                        }).await;
+
+                        let (parsed, srs) = match parse_result {
+                            Ok(Ok(v)) => v,
+                            Ok(Err(e)) => {
+                                error!(error = %e, "SnapDeals parse/SRS load failed");
+                                let mut t = tracker_clone.lock().await;
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("SnapDeals parse failed: {}", e));
+                                if let Some(senders) = t.pending.remove(&job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(job_id, status);
+                                return true;
+                            }
+                            Err(e) => {
+                                error!(error = %e, "SnapDeals parse task panicked");
+                                let mut t = tracker_clone.lock().await;
+                                t.record_failure(proof_kind);
+                                let status = JobStatus::Failed(format!("SnapDeals parse panicked: {}", e));
+                                if let Some(senders) = t.pending.remove(&job_id) {
+                                    for sender in senders {
+                                        let _ = sender.send(status.clone());
+                                    }
+                                }
+                                t.completed.insert(job_id, status);
+                                return true;
+                            }
+                        };
+
+                        let num_partitions = parsed.num_partitions;
+
+                        // 2. Register ProofAssembler in JobTracker
+                        {
+                            let mut t = tracker_clone.lock().await;
+                            t.assemblers.insert(job_id.clone(), PartitionedJobState {
+                                assembler: pipeline::ProofAssembler::new(num_partitions),
+                                request: req.clone(),
+                                proof_kind,
+                                total_synth_duration: Duration::ZERO,
+                                total_gpu_duration: Duration::ZERO,
+                                start_time: Instant::now(),
+                                failed: false,
+                            });
+                        }
+
+                        info!(
+                            job_id = %job_id,
+                            num_partitions = num_partitions,
+                            partition_workers = partition_workers,
+                            "dispatching per-partition SnapDeals synthesis"
+                        );
+
+                        // 3. Trigger background PCE extraction if not yet cached
+                        if pipeline::get_pce(&CircuitId::SnapDeals32G).is_none() {
+                            let vanilla_proofs = req.vanilla_proofs.clone();
+                            let rp = req.registered_proof;
+                            let cr_old = req.comm_r_old.clone();
+                            let cr_new = req.comm_r_new.clone();
+                            let cd_new = req.comm_d_new.clone();
+                            std::thread::spawn(move || {
+                                info!("background PCE extraction starting for SnapDeals");
+                                match pipeline::extract_and_cache_pce_from_snap_deals(vanilla_proofs, rp, &cr_old, &cr_new, &cd_new) {
+                                    Ok(()) => info!("background PCE extraction complete for SnapDeals"),
+                                    Err(e) => warn!(error = %e, "background PCE extraction failed for SnapDeals"),
+                                }
+                            });
+                        }
+
+                        // 4. Dispatch each partition to spawn_blocking workers
+                        for partition_idx in 0..num_partitions {
+                            let item = PartitionWorkItem {
+                                parsed: ParsedProofInput::SnapDeals(parsed.clone()),
+                                partition_idx,
+                                job_id: job_id.clone(),
+                                request: req.clone(),
+                                params: srs.clone(),
+                                circuit_id: CircuitId::SnapDeals32G,
+                                num_partitions,
+                            };
+                            let synth_tx = synth_tx.clone();
+                            let tracker_for_err = tracker_clone.clone();
+                            let partition_sem = partition_semaphore.clone();
+
+                            tokio::spawn(async move {
+                                // Acquire partition worker permit (backpressure)
+                                let permit = match partition_sem.acquire_owned().await {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        error!("partition semaphore closed");
+                                        return;
+                                    }
+                                };
+
+                                let p_idx = item.partition_idx;
+                                let p_job_id = item.job_id.clone();
+
+                                // Check if job is already failed before starting synthesis
+                                {
+                                    let t = tracker_for_err.lock().await;
+                                    if let Some(state) = t.assemblers.get(&p_job_id) {
+                                        if state.failed {
+                                            info!(
+                                                job_id = %p_job_id,
+                                                partition = p_idx,
+                                                "skipping synthesis for failed SnapDeals job"
+                                            );
+                                            drop(permit);
+                                            return;
+                                        }
+                                    }
+                                }
+
+                                crate::pipeline::buf_synth_start();
+                                crate::pipeline::log_buffers("synth_start_snap");
+                                timeline_event(
+                                    "SYNTH_START",
+                                    &p_job_id.0,
+                                    &format!("snap_partition={}", p_idx),
+                                );
+
+                                let synth_result = tokio::task::spawn_blocking(move || {
+                                    let result = match &item.parsed {
+                                        ParsedProofInput::SnapDeals(parsed) => {
+                                            pipeline::synthesize_snap_deals_partition(
+                                                parsed,
+                                                item.partition_idx,
+                                                &item.job_id.0,
+                                            )
+                                        }
+                                        _ => unreachable!("SnapDeals dispatch with wrong parsed type"),
+                                    };
+
+                                    result.map(|synth| SynthesizedJob {
+                                        request: item.request,
+                                        synth,
+                                        params: item.params,
+                                        circuit_id: item.circuit_id,
+                                        batch_requests: vec![],
+                                        sector_boundaries: vec![],
+                                        partition_index: Some(item.partition_idx),
+                                        total_partitions: Some(item.num_partitions),
+                                        parent_job_id: Some(item.job_id),
+                                    })
+                                }).await;
+
+                                match synth_result {
+                                    Ok(Ok(job)) => {
+                                        timeline_event(
+                                            "SYNTH_END",
+                                            &p_job_id.0,
+                                            &format!("snap_partition={},synth_ms={}", p_idx, job.synth.synthesis_duration.as_millis()),
+                                        );
+                                        crate::pipeline::buf_synth_done();
+                                        crate::pipeline::log_buffers("synth_done_snap");
+                                        info!(
+                                            job_id = %p_job_id,
+                                            partition = p_idx,
+                                            synth_ms = job.synth.synthesis_duration.as_millis(),
+                                            "SnapDeals partition synthesis complete, sending to GPU"
+                                        );
+                                        timeline_event("CHAN_SEND", &p_job_id.0, &format!("snap_partition={}", p_idx));
+                                        if synth_tx.send(job).await.is_err() {
+                                            error!("GPU channel closed during SnapDeals partition dispatch");
+                                        }
+                                        drop(permit);
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!(
+                                            error = %e,
+                                            job_id = %p_job_id,
+                                            partition = p_idx,
+                                            "SnapDeals partition synthesis failed"
+                                        );
+                                        let mut t = tracker_for_err.lock().await;
+                                        if let Some(state) = t.assemblers.get_mut(&p_job_id) {
+                                            if !state.failed {
+                                                state.failed = true;
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(
+                                                    format!("SnapDeals partition {} synthesis failed: {}", p_idx, e)
+                                                );
+                                                if let Some(senders) = t.pending.remove(&p_job_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(p_job_id, status);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            error = %e,
+                                            job_id = %p_job_id,
+                                            partition = p_idx,
+                                            "SnapDeals partition synthesis task panicked"
+                                        );
+                                        let mut t = tracker_for_err.lock().await;
+                                        if let Some(state) = t.assemblers.get_mut(&p_job_id) {
+                                            if !state.failed {
+                                                state.failed = true;
+                                                t.record_failure(proof_kind);
+                                                let status = JobStatus::Failed(
+                                                    format!("SnapDeals partition {} synthesis panicked: {}", p_idx, e)
+                                                );
+                                                if let Some(senders) = t.pending.remove(&p_job_id) {
+                                                    for sender in senders {
+                                                        let _ = sender.send(status.clone());
+                                                    }
+                                                }
+                                                t.completed.insert(p_job_id, status);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
                         return true;
                     }
 
@@ -1722,21 +1996,64 @@ impl Engine {
                             );
 
                             // Phase 5/6: Trigger background PCE extraction if not yet cached.
-                            // Uses the first request's C1 data to build an extraction circuit.
                             // The extraction runs in a background thread so it doesn't block
-                            // the GPU from processing this proof.
+                            // the GPU from processing this proof. Supports all proof types.
                             if pipeline::get_pce(&job.circuit_id).is_none() {
-                                if let ProofKind::PoRepSealCommit = proof_kind {
-                                    let c1_data = requests[0].vanilla_proof.clone();
-                                    let sn = requests[0].sector_number;
-                                    let mid = requests[0].miner_id;
-                                    std::thread::spawn(move || {
-                                        info!("background PCE extraction starting for PoRep 32G");
-                                        match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
-                                            Ok(()) => info!("background PCE extraction complete — next proof will use fast path"),
-                                            Err(e) => warn!(error = %e, "background PCE extraction failed (non-fatal)"),
-                                        }
-                                    });
+                                let req = requests[0].clone();
+                                match proof_kind {
+                                    ProofKind::PoRepSealCommit => {
+                                        let c1_data = req.vanilla_proof;
+                                        let sn = req.sector_number;
+                                        let mid = req.miner_id;
+                                        std::thread::spawn(move || {
+                                            info!("background PCE extraction starting for PoRep 32G");
+                                            match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
+                                                Ok(()) => info!("background PCE extraction complete for PoRep 32G"),
+                                                Err(e) => warn!(error = %e, "background PCE extraction failed for PoRep 32G (non-fatal)"),
+                                            }
+                                        });
+                                    }
+                                    ProofKind::WinningPost => {
+                                        let vanilla_proofs = req.vanilla_proofs;
+                                        let rp = req.registered_proof;
+                                        let mid = req.miner_id;
+                                        let rand = req.randomness;
+                                        std::thread::spawn(move || {
+                                            info!("background PCE extraction starting for WinningPoSt");
+                                            match pipeline::extract_and_cache_pce_from_winning_post(&vanilla_proofs, rp, mid, &rand) {
+                                                Ok(()) => info!("background PCE extraction complete for WinningPoSt"),
+                                                Err(e) => warn!(error = %e, "background PCE extraction failed for WinningPoSt (non-fatal)"),
+                                            }
+                                        });
+                                    }
+                                    ProofKind::WindowPostPartition => {
+                                        let vanilla_proofs = req.vanilla_proofs;
+                                        let rp = req.registered_proof;
+                                        let mid = req.miner_id;
+                                        let rand = req.randomness;
+                                        let pi = req.partition_index;
+                                        std::thread::spawn(move || {
+                                            info!("background PCE extraction starting for WindowPoSt");
+                                            match pipeline::extract_and_cache_pce_from_window_post(&vanilla_proofs, rp, mid, &rand, pi) {
+                                                Ok(()) => info!("background PCE extraction complete for WindowPoSt"),
+                                                Err(e) => warn!(error = %e, "background PCE extraction failed for WindowPoSt (non-fatal)"),
+                                            }
+                                        });
+                                    }
+                                    ProofKind::SnapDealsUpdate => {
+                                        let vanilla_proofs = req.vanilla_proofs;
+                                        let rp = req.registered_proof;
+                                        let cr_old = req.comm_r_old;
+                                        let cr_new = req.comm_r_new;
+                                        let cd_new = req.comm_d_new;
+                                        std::thread::spawn(move || {
+                                            info!("background PCE extraction starting for SnapDeals");
+                                            match pipeline::extract_and_cache_pce_from_snap_deals(vanilla_proofs, rp, &cr_old, &cr_new, &cd_new) {
+                                                Ok(()) => info!("background PCE extraction complete for SnapDeals"),
+                                                Err(e) => warn!(error = %e, "background PCE extraction failed for SnapDeals (non-fatal)"),
+                                            }
+                                        });
+                                    }
                                 }
                             }
 

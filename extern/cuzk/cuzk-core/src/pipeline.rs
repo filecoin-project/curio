@@ -559,6 +559,303 @@ pub fn extract_and_cache_pce_from_c1(
     extract_and_cache_pce(circuit, &CircuitId::Porep32G, param_cache.as_deref())
 }
 
+/// Extract and cache PCE from WinningPoSt request data.
+///
+/// Rebuilds the WinningPoSt circuit from the vanilla proof bytes and runs it
+/// through `RecordingCS` to capture the R1CS structure. Called from a background
+/// thread after the first WinningPoSt proof completes.
+#[cfg(feature = "cuda-supraseal")]
+pub fn extract_and_cache_pce_from_winning_post(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+) -> anyhow::Result<()> {
+    use crate::prover::{make_prover_id, registered_post_proof_from_u64, to_array32};
+
+    let post_proof_type = registered_post_proof_from_u64(registered_proof)
+        .context("PCE extraction: invalid registered proof for WinningPoSt")?;
+    let prover_id = make_prover_id(miner_id);
+    let challenge_seed: [u8; 32] = to_array32(randomness, "randomness")?;
+
+    type Tree = SectorShape32GiB;
+    let post_config = post_proof_type.as_v1_config();
+
+    let fallback_proofs: Vec<FallbackPoStSectorProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!(
+                    "PCE extraction: failed to deserialize WinningPoSt vanilla proof: {}",
+                    e
+                )
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let randomness_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&challenge_seed, "randomness")?;
+    let prover_id_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&prover_id, "prover_id")?;
+
+    let pub_sectors: Vec<fallback_vanilla::PublicSector<_>> = fallback_proofs
+        .iter()
+        .map(|p| fallback_vanilla::PublicSector {
+            id: p.sector_id,
+            comm_r: p.comm_r,
+        })
+        .collect();
+
+    let pub_inputs = fallback_vanilla::PublicInputs {
+        randomness: randomness_safe,
+        prover_id: prover_id_safe,
+        sectors: pub_sectors,
+        k: None,
+    };
+
+    let vanilla_params = winning_post_setup_params(&post_config)?;
+    let setup_params = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params,
+        partitions: None,
+        priority: post_config.priority,
+    };
+    let pub_params = FallbackPoStCompound::<Tree>::setup(&setup_params)?;
+
+    let num_sectors_per_chunk = pub_params.vanilla_params.sector_count;
+    anyhow::ensure!(!fallback_proofs.is_empty(), "no WinningPoSt vanilla proofs");
+    anyhow::ensure!(
+        fallback_proofs[0].vanilla_proof.sectors.len() == 1,
+        "WinningPoSt expected 1 sector proof, got {}",
+        fallback_proofs[0].vanilla_proof.sectors.len()
+    );
+
+    let cur_sector_proof = &fallback_proofs[0].vanilla_proof.sectors[0];
+    let mut sector_proofs = Vec::with_capacity(post_config.challenge_count);
+    for inclusion_proof in cur_sector_proof.inclusion_proofs() {
+        sector_proofs.push(storage_proofs_post::fallback::SectorProof {
+            inclusion_proofs: vec![inclusion_proof.clone()],
+            comm_c: cur_sector_proof.comm_c,
+            comm_r_last: cur_sector_proof.comm_r_last,
+        });
+    }
+    while sector_proofs.len() < num_sectors_per_chunk {
+        sector_proofs.push(sector_proofs[sector_proofs.len() - 1].clone());
+    }
+
+    let partition_proof = fallback_vanilla::Proof {
+        sectors: sector_proofs,
+    };
+
+    let circuit =
+        <FallbackPoStCompound<Tree> as CompoundProof<FallbackPoSt<'_, Tree>, _>>::circuit(
+            &pub_inputs,
+            Default::default(),
+            &partition_proof,
+            &pub_params.vanilla_params,
+            Some(0),
+        )?;
+
+    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .ok()
+        .map(std::path::PathBuf::from);
+    extract_and_cache_pce(circuit, &CircuitId::WinningPost32G, param_cache.as_deref())
+}
+
+/// Extract and cache PCE from WindowPoSt request data.
+///
+/// Rebuilds a single WindowPoSt partition circuit from the vanilla proof bytes
+/// and runs it through `RecordingCS` to capture the R1CS structure. Called from
+/// a background thread after the first WindowPoSt proof completes.
+#[cfg(feature = "cuda-supraseal")]
+pub fn extract_and_cache_pce_from_window_post(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    miner_id: u64,
+    randomness: &[u8],
+    partition_index: u32,
+) -> anyhow::Result<()> {
+    use crate::prover::{make_prover_id, registered_post_proof_from_u64, to_array32};
+
+    let post_proof_type = registered_post_proof_from_u64(registered_proof)
+        .context("PCE extraction: invalid registered proof for WindowPoSt")?;
+    let prover_id = make_prover_id(miner_id);
+    let challenge_seed: [u8; 32] = to_array32(randomness, "randomness")?;
+
+    type Tree = SectorShape32GiB;
+    let post_config = post_proof_type.as_v1_config();
+
+    let fallback_proofs: Vec<FallbackPoStSectorProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!(
+                    "PCE extraction: failed to deserialize WindowPoSt vanilla proof: {}",
+                    e
+                )
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let num_sectors = fallback_proofs.len();
+
+    let randomness_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&challenge_seed, "randomness")?;
+    let prover_id_safe: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&prover_id, "prover_id")?;
+
+    let pub_sectors: Vec<fallback_vanilla::PublicSector<_>> = fallback_proofs
+        .iter()
+        .map(|p| fallback_vanilla::PublicSector {
+            id: p.sector_id,
+            comm_r: p.comm_r,
+        })
+        .collect();
+
+    let pub_inputs = fallback_vanilla::PublicInputs {
+        randomness: randomness_safe,
+        prover_id: prover_id_safe,
+        sectors: pub_sectors,
+        k: Some(partition_index as usize),
+    };
+
+    let vanilla_params = window_post_setup_params(&post_config);
+    let partitions = {
+        let p = (num_sectors as f32 / post_config.sector_count as f32).ceil() as usize;
+        if p > 1 {
+            Some(p)
+        } else {
+            None
+        }
+    };
+    let setup_params = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params,
+        partitions,
+        priority: post_config.priority,
+    };
+    let pub_params = FallbackPoStCompound::<Tree>::setup(&setup_params)?;
+
+    let num_sectors_per_chunk = pub_params.vanilla_params.sector_count;
+    let sectors_chunk = &pub_inputs.sectors;
+
+    let mut sector_proofs = Vec::with_capacity(num_sectors_per_chunk);
+    for pub_sector in sectors_chunk.iter() {
+        let cur_proof = fallback_proofs
+            .iter()
+            .find(|proof| proof.sector_id == pub_sector.id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "PCE extraction: failed to find vanilla proof for sector {}",
+                    pub_sector.id
+                )
+            })?;
+        sector_proofs.extend(cur_proof.vanilla_proof.sectors.clone());
+    }
+    while sector_proofs.len() < num_sectors_per_chunk {
+        sector_proofs.push(sector_proofs[sector_proofs.len() - 1].clone());
+    }
+
+    let partitioned_proof = fallback_vanilla::Proof {
+        sectors: sector_proofs,
+    };
+
+    let circuit =
+        <FallbackPoStCompound<Tree> as CompoundProof<FallbackPoSt<'_, Tree>, _>>::circuit(
+            &pub_inputs,
+            Default::default(),
+            &partitioned_proof,
+            &pub_params.vanilla_params,
+            Some(partition_index as usize),
+        )?;
+
+    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .ok()
+        .map(std::path::PathBuf::from);
+    extract_and_cache_pce(circuit, &CircuitId::WindowPost32G, param_cache.as_deref())
+}
+
+/// Extract and cache PCE from SnapDeals request data.
+///
+/// Rebuilds a SnapDeals circuit from the vanilla proof bytes and runs it through
+/// `RecordingCS` to capture the R1CS structure. Called from a background thread
+/// after the first SnapDeals proof completes.
+#[cfg(feature = "cuda-supraseal")]
+pub fn extract_and_cache_pce_from_snap_deals(
+    vanilla_proofs_bytes: Vec<Vec<u8>>,
+    registered_proof: u64,
+    comm_r_old: &[u8],
+    comm_r_new: &[u8],
+    comm_d_new: &[u8],
+) -> anyhow::Result<()> {
+    use crate::prover::{registered_update_proof_from_u64, to_array32};
+    use filecoin_hashers::poseidon::PoseidonHasher;
+
+    let update_proof_type = registered_update_proof_from_u64(registered_proof)
+        .context("PCE extraction: invalid registered proof for SnapDeals")?;
+    let porep_config = update_proof_type.as_v1_config();
+
+    type Tree = SectorShape32GiB;
+
+    let comm_r_old_bytes: [u8; 32] = to_array32(comm_r_old, "comm_r_old")?;
+    let comm_r_new_bytes: [u8; 32] = to_array32(comm_r_new, "comm_r_new")?;
+    let comm_d_new_bytes: [u8; 32] = to_array32(comm_d_new, "comm_d_new")?;
+
+    let comm_r_old_safe: <PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&comm_r_old_bytes, "comm_r_old")?;
+    let comm_r_new_safe: <PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&comm_r_new_bytes, "comm_r_new")?;
+    let comm_d_new_safe: filecoin_hashers::sha256::Sha256Domain =
+        as_safe_commitment(&comm_d_new_bytes, "comm_d_new")?;
+
+    let vanilla_proofs: Vec<UpdatePartitionProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!(
+                    "PCE extraction: failed to deserialize SnapDeals partition proof: {}",
+                    e
+                )
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let config = SectorUpdateConfig::from_porep_config(&porep_config);
+    let num_partitions = usize::from(config.update_partitions);
+
+    let public_inputs = UpdatePublicInputs {
+        k: num_partitions,
+        comm_r_old: comm_r_old_safe,
+        comm_d_new: comm_d_new_safe,
+        comm_r_new: comm_r_new_safe,
+        h: config.h,
+    };
+
+    let update_vanilla_setup = storage_proofs_update::SetupParams {
+        sector_bytes: u64::from(config.sector_size),
+    };
+    let compound_setup = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params: update_vanilla_setup,
+        partitions: Some(num_partitions),
+        priority: false,
+    };
+    let pub_params = EmptySectorUpdateCompound::<Tree>::setup(&compound_setup)?;
+
+    // Build a single partition circuit (partition 0) for extraction — the R1CS
+    // structure is identical across all partitions.
+    let circuit =
+        <EmptySectorUpdateCompound<Tree> as CompoundProof<EmptySectorUpdate<Tree>, _>>::circuit(
+            &public_inputs,
+            Default::default(),
+            &vanilla_proofs[0],
+            &pub_params.vanilla_params,
+            Some(0),
+        )?;
+
+    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .ok()
+        .map(std::path::PathBuf::from);
+    extract_and_cache_pce(circuit, &CircuitId::SnapDeals32G, param_cache.as_deref())
+}
+
 /// Synthesize circuits using the PCE fast path.
 ///
 /// Instead of running full circuit synthesis (which builds and evaluates
@@ -595,7 +892,10 @@ where
         .into_par_iter()
         .map(|circuit| -> Result<_, bellperson::SynthesisError> {
             let mut cs = WitnessCS::<Fr>::new();
-            // WitnessCS::new() already allocates the "one" input = Fr::ONE
+            // WitnessCS::new() starts with 0 inputs (matching ProvingAssignment::new()).
+            // Explicitly allocate the ONE input at index 0 before synthesis,
+            // matching the bellperson prover path.
+            cs.alloc_input(|| "one", || Ok(Fr::ONE))?;
             circuit.synthesize(&mut cs)?;
             let input_assignment = cs.scalar_inputs();
             let aux_assignment = cs.scalar_aux();
@@ -2173,6 +2473,187 @@ pub fn prove_porep_c2_slotted(
     _job_id: &str,
 ) -> Result<(Vec<u8>, PipelinedTimings)> {
     anyhow::bail!("pipelined pipeline requires cuda-supraseal feature")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SnapDeals Per-Partition Pipeline (Phase 7 generalization)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Pre-parsed SnapDeals input, shared across partition workers via `Arc`.
+///
+/// Analogous to `ParsedC1Output` for PoRep. The vanilla proofs are deserialized
+/// once and shared across all partition synthesis workers.
+#[cfg(feature = "cuda-supraseal")]
+pub struct ParsedSnapDealsInput {
+    pub num_partitions: usize,
+    pub(crate) vanilla_proofs: Vec<UpdatePartitionProof<SectorShape32GiB>>,
+    pub(crate) comm_r_old: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain,
+    pub(crate) comm_r_new: <filecoin_hashers::poseidon::PoseidonHasher as Hasher>::Domain,
+    pub(crate) comm_d_new: filecoin_hashers::sha256::Sha256Domain,
+    pub(crate) h: usize,
+    pub(crate) sector_bytes: u64,
+}
+
+/// Deserialize and validate SnapDeals request data into reusable form.
+///
+/// Call once per SnapDeals job, then build per-partition circuits from the result.
+#[cfg(feature = "cuda-supraseal")]
+pub fn parse_snap_deals_input(
+    vanilla_proofs_bytes: &[Vec<u8>],
+    registered_proof: u64,
+    comm_r_old: &[u8],
+    comm_r_new: &[u8],
+    comm_d_new: &[u8],
+) -> Result<ParsedSnapDealsInput> {
+    use crate::prover::{registered_update_proof_from_u64, to_array32};
+    use filecoin_hashers::poseidon::PoseidonHasher;
+
+    let deser_start = Instant::now();
+
+    let update_proof_type = registered_update_proof_from_u64(registered_proof)
+        .context("invalid registered proof for SnapDeals")?;
+    let porep_config = update_proof_type.as_v1_config();
+    let sector_size = u64::from(porep_config.sector_size);
+    anyhow::ensure!(
+        sector_size == SECTOR_SIZE_32_GIB,
+        "pipelined synthesis currently supports only 32 GiB sectors, got {} bytes",
+        sector_size,
+    );
+
+    type Tree = SectorShape32GiB;
+
+    let comm_r_old_bytes: [u8; 32] = to_array32(comm_r_old, "comm_r_old")?;
+    let comm_r_new_bytes: [u8; 32] = to_array32(comm_r_new, "comm_r_new")?;
+    let comm_d_new_bytes: [u8; 32] = to_array32(comm_d_new, "comm_d_new")?;
+
+    let comm_r_old_safe: <PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&comm_r_old_bytes, "comm_r_old")?;
+    let comm_r_new_safe: <PoseidonHasher as Hasher>::Domain =
+        as_safe_commitment(&comm_r_new_bytes, "comm_r_new")?;
+    let comm_d_new_safe: filecoin_hashers::sha256::Sha256Domain =
+        as_safe_commitment(&comm_d_new_bytes, "comm_d_new")?;
+
+    let vanilla_proofs: Vec<UpdatePartitionProof<Tree>> = vanilla_proofs_bytes
+        .iter()
+        .map(|bytes| {
+            bincode::deserialize(bytes).map_err(|e| {
+                anyhow::anyhow!("failed to deserialize SnapDeals partition proof: {}", e)
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let config = SectorUpdateConfig::from_porep_config(&porep_config);
+    let num_partitions = usize::from(config.update_partitions);
+
+    let deser_duration = deser_start.elapsed();
+    debug!(
+        deser_ms = deser_duration.as_millis(),
+        num_partitions = num_partitions,
+        num_vanilla_proofs = vanilla_proofs.len(),
+        "parsed SnapDeals input"
+    );
+
+    Ok(ParsedSnapDealsInput {
+        num_partitions,
+        vanilla_proofs,
+        comm_r_old: comm_r_old_safe,
+        comm_r_new: comm_r_new_safe,
+        comm_d_new: comm_d_new_safe,
+        h: config.h,
+        sector_bytes: u64::from(config.sector_size),
+    })
+}
+
+/// Build the circuit for a single SnapDeals partition from pre-parsed input.
+#[cfg(feature = "cuda-supraseal")]
+fn build_snap_deals_partition_circuit(
+    parsed: &ParsedSnapDealsInput,
+    partition_idx: usize,
+) -> Result<impl bellperson::Circuit<Fr> + Send> {
+    type Tree = SectorShape32GiB;
+
+    let public_inputs = UpdatePublicInputs {
+        k: parsed.num_partitions,
+        comm_r_old: parsed.comm_r_old,
+        comm_d_new: parsed.comm_d_new,
+        comm_r_new: parsed.comm_r_new,
+        h: parsed.h,
+    };
+
+    let update_vanilla_setup = storage_proofs_update::SetupParams {
+        sector_bytes: parsed.sector_bytes,
+    };
+    let compound_setup = storage_proofs_core::compound_proof::SetupParams {
+        vanilla_params: update_vanilla_setup,
+        partitions: Some(parsed.num_partitions),
+        priority: false,
+    };
+    let pub_params = EmptySectorUpdateCompound::<Tree>::setup(&compound_setup)?;
+
+    anyhow::ensure!(
+        partition_idx < parsed.vanilla_proofs.len(),
+        "partition {} >= vanilla_proofs.len() {}",
+        partition_idx,
+        parsed.vanilla_proofs.len(),
+    );
+
+    let circuit =
+        <EmptySectorUpdateCompound<Tree> as CompoundProof<EmptySectorUpdate<Tree>, _>>::circuit(
+            &public_inputs,
+            Default::default(),
+            &parsed.vanilla_proofs[partition_idx],
+            &pub_params.vanilla_params,
+            Some(partition_idx),
+        )?;
+
+    Ok(circuit)
+}
+
+/// Synthesize a single SnapDeals partition from pre-parsed input.
+///
+/// Builds one circuit, runs synthesis (PCE fast path if available),
+/// and returns a `SynthesizedProof` with num_circuits=1 for GPU proving.
+#[cfg(feature = "cuda-supraseal")]
+pub fn synthesize_snap_deals_partition(
+    parsed: &ParsedSnapDealsInput,
+    partition_idx: usize,
+    job_id: &str,
+) -> Result<SynthesizedProof> {
+    let _span = info_span!(
+        "synthesize_snap_deals_partition",
+        job_id = job_id,
+        partition = partition_idx,
+    )
+    .entered();
+
+    let circuit = build_snap_deals_partition_circuit(parsed, partition_idx)?;
+
+    let synth_start = Instant::now();
+    let (_start, provers, input_assignments, aux_assignments) =
+        synthesize_auto(vec![circuit], &CircuitId::SnapDeals32G)?;
+    let synthesis_duration = synth_start.elapsed();
+
+    info!(
+        partition = partition_idx,
+        synth_ms = synthesis_duration.as_millis(),
+        "SnapDeals partition synthesis complete"
+    );
+
+    let mut rng = rand_core::OsRng;
+    let r_s: Vec<Fr> = vec![Fr::random(&mut rng)];
+    let s_s: Vec<Fr> = vec![Fr::random(&mut rng)];
+
+    Ok(SynthesizedProof {
+        circuit_id: CircuitId::SnapDeals32G,
+        provers,
+        input_assignments,
+        aux_assignments,
+        r_s,
+        s_s,
+        synthesis_duration,
+        partition_index: Some(partition_idx),
+        total_partitions: parsed.num_partitions,
+    })
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

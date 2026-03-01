@@ -162,6 +162,16 @@ impl<Scalar: PrimeField> ConstraintSystem<Scalar> for RecordingCS<Scalar> {
     type Root = Self;
 
     fn new() -> Self {
+        // Start with zero inputs, matching ProvingAssignment::new().
+        //
+        // ProvingAssignment::new() creates an empty input_assignment vec (0 inputs).
+        // The caller (bellperson prover or extract_precompiled_circuit) is responsible
+        // for explicitly allocating the ONE input via alloc_input() before synthesis.
+        //
+        // When used as a child CS in synthesize_extendable(), each child calls
+        // CS::new() then alloc_input("temp ONE") — placing the temp ONE at index 0
+        // (same as ProvingAssignment). The parent's extend() then skips child
+        // input 0, matching the ProvingAssignment/WitnessCS convention.
         Self::new_empty()
     }
 
@@ -264,6 +274,93 @@ impl<Scalar: PrimeField> ConstraintSystem<Scalar> for RecordingCS<Scalar> {
     fn get_root(&mut self) -> &mut Self::Root {
         self
     }
+
+    // ── Extensible support ──────────────────────────────────────────────
+    //
+    // Required so that circuits using `CS::is_extensible()` to choose
+    // between sequential and parallel synthesis paths (e.g. FallbackPoSt's
+    // `synthesize_extendable`) take the same path as `WitnessCS`.
+    //
+    // Without this, `RecordingCS` takes `synthesize_default` while
+    // `WitnessCS` takes `synthesize_extendable`, producing different
+    // numbers of input allocations (each parallel chunk adds a "temp ONE"
+    // input that becomes a real public input after `extend`).
+
+    fn is_extensible() -> bool {
+        true
+    }
+
+    fn extend(&mut self, other: &Self) {
+        // Mirroring ProvingAssignment::extend / WitnessCS::extend:
+        // skip the first input of `other` (the temporary ONE variable
+        // allocated by each parallel chunk via alloc_input("temp ONE")
+        // after CS::new()).
+        //
+        // Since CS::new() starts with 0 inputs and alloc_input("temp ONE")
+        // places the temp ONE at index 0, skipping input 0 removes exactly
+        // that temporary variable.
+        //
+        // Remap column indices from `other` into `self`'s index space:
+        //   - input cols: other's index i (where i >= 1) -> self.num_inputs + (i - 1)
+        //   - aux cols:   other's index a -> self.num_aux + a
+
+        let input_offset = self.num_inputs; // first child input (after skipping ONE) maps here
+        let aux_offset = self.num_aux;
+
+        // Helper: remap a single column index from child's space to parent's space
+        let remap_col = |col: u32| -> u32 {
+            if col & AUX_FLAG != 0 {
+                // Aux variable: strip flag, add offset, re-flag
+                let idx = col & !AUX_FLAG;
+                (idx + aux_offset as u32) | AUX_FLAG
+            } else if col == 0 {
+                // Input 0 = ONE variable. The parent already has ONE at index 0.
+                // Map child's ONE to parent's ONE (no offset).
+                0
+            } else {
+                // Input variable i (i >= 1): these are the child's real public inputs.
+                // Since we skip the child's input 0 (ONE) during count merge,
+                // child input i maps to parent input (input_offset + i - 1).
+                col - 1 + input_offset as u32
+            }
+        };
+
+        // Extend A matrix
+        let a_col_base = self.a_cols.len() as u32;
+        for &col in &other.a_cols {
+            self.a_cols.push(remap_col(col));
+        }
+        self.a_vals.extend_from_slice(&other.a_vals);
+        // Append row pointers (skip other's initial 0, offset by current col count)
+        for &ptr in &other.a_row_ptrs[1..] {
+            self.a_row_ptrs.push(ptr + a_col_base);
+        }
+
+        // Extend B matrix
+        let b_col_base = self.b_cols.len() as u32;
+        for &col in &other.b_cols {
+            self.b_cols.push(remap_col(col));
+        }
+        self.b_vals.extend_from_slice(&other.b_vals);
+        for &ptr in &other.b_row_ptrs[1..] {
+            self.b_row_ptrs.push(ptr + b_col_base);
+        }
+
+        // Extend C matrix
+        let c_col_base = self.c_cols.len() as u32;
+        for &col in &other.c_cols {
+            self.c_cols.push(remap_col(col));
+        }
+        self.c_vals.extend_from_slice(&other.c_vals);
+        for &ptr in &other.c_row_ptrs[1..] {
+            self.c_row_ptrs.push(ptr + c_col_base);
+        }
+
+        // Update counts: skip the first input (ONE) from other
+        self.num_inputs += other.num_inputs - 1;
+        self.num_aux += other.num_aux;
+        self.num_constraints += other.num_constraints;
+    }
 }
 
 /// Extract a pre-compiled circuit from a circuit instance.
@@ -288,7 +385,10 @@ where
 {
     let mut cs = RecordingCS::<Scalar>::new();
 
-    // Allocate the "one" input variable (matches bellperson prover convention)
+    // Explicitly allocate the ONE input at index 0, matching the bellperson
+    // prover path (supraseal.rs: `prover.alloc_input(|| "", || Ok(Scalar::ONE))`)
+    // which runs before circuit.synthesize(). RecordingCS::new() starts with
+    // 0 inputs (matching ProvingAssignment::new()), so this puts ONE at index 0.
     cs.alloc_input(|| "one", || Ok(Scalar::ONE))?;
 
     // Synthesize the circuit to capture R1CS structure

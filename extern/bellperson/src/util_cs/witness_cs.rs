@@ -58,10 +58,17 @@ where
     type Root = Self;
 
     fn new() -> Self {
-        let input_assignment = vec![Scalar::ONE];
-
+        // Start with empty input_assignment (0 inputs), matching
+        // ProvingAssignment::new(). The caller is responsible for
+        // explicitly allocating the ONE input via alloc_input() before
+        // synthesis — just as the bellperson prover does.
+        //
+        // When used as a child CS in synthesize_extendable(), each child
+        // calls CS::new() then alloc_input("temp ONE"), placing the temp
+        // ONE at index 0. The parent's extend() then skips child input 0,
+        // discarding the temp ONE — matching ProvingAssignment behavior.
         Self {
-            input_assignment,
+            input_assignment: vec![],
             aux_assignment: vec![],
         }
     }
