@@ -563,7 +563,7 @@ func addSealingTasks(
 		cleanupTimeout := cfg.Subsystems.RemoteSealCleanupTimeout
 
 		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller, provMaxTasks, cleanupTimeout)
-		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, cfg.Subsystems.FinalizeMaxTasks)
+		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
 		provCleanupTask := remoteseal.NewProviderCleanupTask(db, provPoller, stor, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
 
 		activeTasks = append(activeTasks, notifyTask, provFinalizeTask, provCleanupTask)

@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
@@ -25,15 +26,19 @@ type RSealProviderFinalize struct {
 	sp *RSealProviderPoller
 	sc *ffi.SealCalls
 
+	// Batch slot manager, may be nil if not using batch sealing
+	slots *slotmgr.SlotMgr
+
 	max int
 }
 
-func NewProviderFinalizeTask(db *harmonydb.DB, sp *RSealProviderPoller, sc *ffi.SealCalls, maxFinalize int) *RSealProviderFinalize {
+func NewProviderFinalizeTask(db *harmonydb.DB, sp *RSealProviderPoller, sc *ffi.SealCalls, slots *slotmgr.SlotMgr, maxFinalize int) *RSealProviderFinalize {
 	return &RSealProviderFinalize{
-		db:  db,
-		sp:  sp,
-		sc:  sc,
-		max: maxFinalize,
+		db:    db,
+		sp:    sp,
+		sc:    sc,
+		slots: slots,
+		max:   maxFinalize,
 	}
 }
 
@@ -66,6 +71,37 @@ func (f *RSealProviderFinalize) Do(taskID harmonytask.TaskID, stillOwned func() 
 		ProofType: abi.RegisteredSealProof(task.RegSealProof),
 	}
 
+	var ownedBy []struct {
+		HostAndPort string `db:"host_and_port"`
+	}
+	var refs []struct {
+		PipelineSlot int64 `db:"pipeline_slot"`
+	}
+
+	var refFound bool
+	if f.slots != nil {
+		// batch handling part 1: get machine id
+		err = f.db.Select(ctx, &ownedBy, `SELECT hm.host_and_port as host_and_port FROM harmony_task INNER JOIN harmony_machines hm on harmony_task.owner_id = hm.id WHERE harmony_task.id = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("getting machine id: %w", err)
+		}
+
+		if len(ownedBy) != 1 {
+			return false, xerrors.Errorf("expected one machine")
+		}
+
+		err = f.db.Select(ctx, &refs, `SELECT pipeline_slot FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2 AND machine_host_and_port = $3`, task.SpID, task.SectorNumber, ownedBy[0].HostAndPort)
+		if err != nil {
+			return false, xerrors.Errorf("getting batch refs: %w", err)
+		}
+
+		if len(refs) > 1 {
+			return false, xerrors.Errorf("expected one batch ref, got %d", len(refs))
+		}
+
+		refFound = len(refs) == 1
+	}
+
 	if !stillOwned() {
 		return false, xerrors.Errorf("task no longer owned")
 	}
@@ -81,6 +117,13 @@ func (f *RSealProviderFinalize) Do(taskID harmonytask.TaskID, stillOwned func() 
 				"sp", task.SpID, "sector", task.SectorNumber)
 		} else {
 			return false, xerrors.Errorf("finalizing remote seal sector: %w", err)
+		}
+	}
+
+	if refFound {
+		// batch handling part 2: release the batch slot
+		if err := f.slots.SectorDone(ctx, uint64(refs[0].PipelineSlot), sector.ID); err != nil {
+			return false, xerrors.Errorf("mark batch ref done: %w", err)
 		}
 	}
 
