@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	proof2 "github.com/filecoin-project/go-state-types/proof"
 
@@ -129,6 +130,22 @@ func (sb *SealCalls) ProveUpdateCuzk(ctx context.Context, cuzkClient *cuzk.Clien
 		return nil, xerrors.Errorf("getting sector size: %w", err)
 	}
 
+	// Extract raw 32-byte commitments from CIDs.
+	// cid.Bytes() returns the full CID (40 bytes with multicodec/multihash prefix),
+	// but the Rust daemon expects raw 32-byte commitment digests.
+	commROld, err := commcid.CIDToReplicaCommitmentV1(key)
+	if err != nil {
+		return nil, xerrors.Errorf("extracting comm_r_old from CID: %w", err)
+	}
+	commRNew, err := commcid.CIDToReplicaCommitmentV1(sealed)
+	if err != nil {
+		return nil, xerrors.Errorf("extracting comm_r_new from CID: %w", err)
+	}
+	commDNew, err := commcid.CIDToDataCommitmentV1(unsealed)
+	if err != nil {
+		return nil, xerrors.Errorf("extracting comm_d_new from CID: %w", err)
+	}
+
 	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
 		RequestId:       fmt.Sprintf("snap-%d-%d", sector.ID.Miner, sector.ID.Number),
 		ProofKind:       cuzk.ProofKind_SNAP_DEALS_UPDATE,
@@ -138,9 +155,9 @@ func (sb *SealCalls) ProveUpdateCuzk(ctx context.Context, cuzkClient *cuzk.Clien
 		VanillaProofs:   vproofs,
 		SectorNumber:    uint64(sector.ID.Number),
 		MinerId:         uint64(sector.ID.Miner),
-		CommROld:        key.Bytes(),
-		CommRNew:        sealed.Bytes(),
-		CommDNew:        unsealed.Bytes(),
+		CommROld:        commROld,
+		CommRNew:        commRNew,
+		CommDNew:        commDNew,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("cuzk snap prove failed: %w", err)
