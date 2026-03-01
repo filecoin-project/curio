@@ -2,6 +2,7 @@ package remoteseal
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -71,9 +72,16 @@ func (f *RSealProviderFinalize) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	// For remote seal finalize, we clear the cache (drop SDR layers).
 	// Delegated sectors are always CC (no unsealed data to preserve).
+	// If the sector files are already gone (cleanup ran first or client called cleanup early),
+	// treat it as a no-op and just mark the task as done.
 	err = f.sc.FinalizeSector(ctx, sector, false)
 	if err != nil {
-		return false, xerrors.Errorf("finalizing remote seal sector: %w", err)
+		if errors.Is(err, storiface.ErrSectorNotFound) {
+			log.Warnw("finalize: sector files already removed, treating as no-op",
+				"sp", task.SpID, "sector", task.SectorNumber)
+		} else {
+			return false, xerrors.Errorf("finalizing remote seal sector: %w", err)
+		}
 	}
 
 	// Mark finalize as done
@@ -97,11 +105,13 @@ func (f *RSealProviderFinalize) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 func (f *RSealProviderFinalize) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// Check that the sector's cache is on local storage, similar to the regular finalize task.
+	// If the sector files have already been removed (e.g. cleanup ran first or client called
+	// cleanup early), accept the task on any node — Do() will treat it as a no-op.
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id_finalize"`
 		SpID         int64              `db:"sp_id"`
 		SectorNumber int64              `db:"sector_number"`
-		StorageID    string             `db:"storage_id"`
+		StorageID    *string            `db:"storage_id"`
 	}
 
 	if storiface.FTCache != 4 {
@@ -115,11 +125,13 @@ func (f *RSealProviderFinalize) CanAccept(ids []harmonytask.TaskID, _ *harmonyta
 		indIDs[i] = int64(id)
 	}
 
+	// Use LEFT JOIN so that tasks whose sector_location rows have been removed
+	// still appear in the result set (with NULL storage_id).
 	err := f.db.Select(ctx, &tasks, `
 		SELECT p.task_id_finalize, p.sp_id, p.sector_number, l.storage_id
 		FROM rseal_provider_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
-		WHERE task_id_finalize = ANY ($1) AND l.sector_filetype = 4`, indIDs)
+			LEFT JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+		WHERE task_id_finalize = ANY ($1)`, indIDs)
 	if err != nil {
 		return []harmonytask.TaskID{}, xerrors.Errorf("getting finalize tasks: %w", err)
 	}
@@ -140,8 +152,15 @@ func (f *RSealProviderFinalize) CanAccept(ids []harmonytask.TaskID, _ *harmonyta
 			continue
 		}
 
+		// If no sector_location entry exists, the files are already gone.
+		// Accept on any node — Do() will be a no-op beyond marking done.
+		if t.StorageID == nil {
+			result = append(result, t.TaskID)
+			continue
+		}
+
 		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
+			if string(l.ID) == *t.StorageID {
 				result = append(result, t.TaskID)
 			}
 		}
