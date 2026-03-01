@@ -5,17 +5,19 @@ package pdpv0
 
 import (
 	"bytes"
-	"encoding/base32"
 	"fmt"
 	"io"
 	"math/rand"
 	"strings"
 	"testing"
 
+	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/lotus/lib/nullreader"
 
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/savecache"
@@ -231,7 +233,7 @@ func runCommPVectorTests(t *testing.T, vectorData string) {
 			defer pool.Put(memtree)
 
 			// Assert root matches the expected commP from the upstream fixture.
-			require.Equal(t, vec.rawCommP, root,
+			require.Equal(t, vec.commP, root,
 				"commP root mismatch for payload=%d padded=%d", vec.payloadSize, vec.paddedSize)
 
 			// Generate and verify proofs at interesting positions.
@@ -294,7 +296,7 @@ func TestVerify_SavecacheCalcVsMemtree(t *testing.T) {
 			// All three roots must agree.
 			require.Equal(t, savecacheRoot, memtreeRoot,
 				"savecache vs memtree root mismatch for payload=%d", vec.payloadSize)
-			require.Equal(t, vec.rawCommP, memtreeRoot,
+			require.Equal(t, vec.commP, memtreeRoot,
 				"memtree root vs expected commP mismatch for payload=%d", vec.payloadSize)
 
 			// Proofs generated from the memtree must pass Verify().
@@ -542,7 +544,7 @@ func buildMemtreeFromPayload(t *testing.T, payload []byte, paddedSize uint64) (m
 	reader := io.LimitReader(
 		io.MultiReader(
 			bytes.NewReader(payload),
-			&zeroReader{},
+			&nullreader.Reader{},
 		),
 		int64(unpaddedSize),
 	)
@@ -676,14 +678,8 @@ func makeLeaves(n int) [][32]byte {
 type commPTestVector struct {
 	payloadSize int64
 	paddedSize  uint64
-	rawCommP    [32]byte
+	commP       [32]byte
 }
-
-// b32dec is the base32 decoder used for Filecoin CIDs (RFC 4648 lower-case,
-// no padding).
-//
-// Reference: https://github.com/multiformats/multibase
-var b32dec = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
 // parseTestVectors parses newline-separated test vectors in the format:
 //
@@ -704,13 +700,18 @@ func parseTestVectors(data string) ([]commPTestVector, error) {
 		if _, err := fmt.Sscanf(parts[1], "%d", &v.paddedSize); err != nil {
 			return nil, fmt.Errorf("parsing padded size %q: %w", parts[1], err)
 		}
+
 		// CID format: 'b' multibase prefix + base32-lower-encoded CIDv1.
-		// The raw commP is the last 32 bytes of the decoded CID.
-		rawCid, err := b32dec.DecodeString(parts[2][1:]) // [1:] drops the multibase 'b'
+		// cid.Decode handles the multibase prefix automatically.
+		c, err := cid.Decode(parts[2])
 		if err != nil {
 			return nil, fmt.Errorf("decoding CID %q: %w", parts[2], err)
 		}
-		copy(v.rawCommP[:], rawCid[len(rawCid)-32:])
+		decoded, err := mh.Decode(c.Hash())
+		if err != nil {
+			return nil, fmt.Errorf("decoding multihash for CID %q: %w", parts[2], err)
+		}
+		copy(v.commP[:], decoded.Digest)
 		vectors = append(vectors, v)
 	}
 	return vectors, nil
@@ -809,16 +810,4 @@ var wideUnpaddedSizes = []abi.UnpaddedPieceSize{
 	4161536,  // 131072 leaves
 	8323072,  // 262144 leaves
 	16646144, // 524288 leaves
-}
-
-// zeroReader is an io.Reader that emits zero bytes forever. It is used to
-// pad payloads shorter than their declared unpadded piece size, matching how
-// Filecoin pads under-sized pieces with trailing zeros.
-type zeroReader struct{}
-
-func (z *zeroReader) Read(p []byte) (n int, err error) {
-	for i := range p {
-		p[i] = 0
-	}
-	return len(p), nil
 }
