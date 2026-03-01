@@ -414,12 +414,10 @@ func addSealingTasks(
 	var slotMgr *slotmgr.SlotMgr
 	var addFinalize bool
 
-	// Create the provider poller early if remote seal provider is enabled,
-	// so SDR/TreeD/TreeRC tasks can register their AddTaskFunc with it.
-	var provPoller *remoteseal.RSealProviderPoller
-	if cfg.Subsystems.EnableRemoteSealProvider {
-		provPoller = remoteseal.NewProviderPoller(db)
-	}
+	// Create the provider poller unconditionally so that sealing nodes (SDR/Batch)
+	// can register the RSealProviderFinalize task even without EnableRemoteSealProvider.
+	// RunPoller is started by the addFinalize block or the EnableRemoteSealProvider block.
+	provPoller := remoteseal.NewProviderPoller(db)
 
 	// NOTE: Tasks with the LEAST priority are at the top
 	if cfg.Subsystems.EnableCommP {
@@ -449,9 +447,10 @@ func addSealingTasks(
 		sdrMax := taskhelp.Max(cfg.Subsystems.SealSDRMaxTasks)
 
 		// provPoller is passed so SDR registers its AddTaskFunc with both SealPoller
-		// and RSealProviderPoller. When nil, only the local SealPoller is used.
+		// and RSealProviderPoller. When EnableRemoteSealProvider is off, only the
+		// local SealPoller is used for scheduling SDR tasks.
 		var sdrProvPoller seal.ProviderPollerSDR
-		if provPoller != nil {
+		if cfg.Subsystems.EnableRemoteSealProvider {
 			sdrProvPoller = provPoller
 		}
 		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks, sdrProvPoller)
@@ -462,7 +461,7 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableSealSDRTrees {
 		var treeDProvPoller seal.ProviderPollerTreeD
 		var treeRCProvPoller seal.ProviderPollerTreeRC
-		if provPoller != nil {
+		if cfg.Subsystems.EnableRemoteSealProvider {
 			treeDProvPoller = provPoller
 			treeRCProvPoller = provPoller
 		}
@@ -480,7 +479,15 @@ func addSealingTasks(
 	}
 	if addFinalize {
 		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db, slotMgr)
-		activeTasks = append(activeTasks, finalizeTask)
+		// RSealProviderFinalize must run on sealing nodes (SDR/Batch) that hold
+		// the sector data and batch slots, not only on EnableRemoteSealProvider nodes.
+		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
+		activeTasks = append(activeTasks, finalizeTask, provFinalizeTask)
+
+		// Start the provider poller so it can schedule RSealProviderFinalize tasks
+		// on sealing nodes. The poller safely skips task types whose AddTaskFunc
+		// hasn't been registered (e.g. Notify, Cleanup on non-provider nodes).
+		go provPoller.RunPoller(ctx)
 	}
 
 	if cfg.Subsystems.EnableSendPrecommitMsg {
@@ -553,20 +560,27 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, remoteUploadTask, remotePollTask, remoteSendTask)
 	}
 
-	// Remote seal provider tasks
+	// Remote seal provider tasks (Notify, Cleanup; Finalize is registered above with addFinalize)
 	if cfg.Subsystems.EnableRemoteSealProvider {
-		// provPoller was created earlier (before SDR/TreeD/TreeRC tasks) so that
-		// those tasks could register their AddTaskFunc with it via Adder().
-		go provPoller.RunPoller(ctx)
+		if !addFinalize {
+			// If no sealing tasks started the poller, start it now for the provider.
+			go provPoller.RunPoller(ctx)
+		}
 
 		provMaxTasks := cfg.Subsystems.RemoteSealProviderMaxTasks
 		cleanupTimeout := cfg.Subsystems.RemoteSealCleanupTimeout
 
 		notifyTask := remoteseal.NewProviderNotifyTask(db, provPoller, provMaxTasks, cleanupTimeout)
-		provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
 		provCleanupTask := remoteseal.NewProviderCleanupTask(db, provPoller, stor, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
 
-		activeTasks = append(activeTasks, notifyTask, provFinalizeTask, provCleanupTask)
+		activeTasks = append(activeTasks, notifyTask, provCleanupTask)
+
+		if !addFinalize {
+			// If the provider finalize task wasn't already registered via addFinalize
+			// (e.g. provider-only node without local sealing), register it here.
+			provFinalizeTask := remoteseal.NewProviderFinalizeTask(db, provPoller, slr, slotMgr, cfg.Subsystems.FinalizeMaxTasks)
+			activeTasks = append(activeTasks, provFinalizeTask)
+		}
 
 		// Provider-side SDR/Tree tasks are handled by the existing SDR/TreeD/TreeRC tasks
 		// via UNION ALL queries - they just need to be enabled (EnableSealSDR/EnableSealSDRTrees).
