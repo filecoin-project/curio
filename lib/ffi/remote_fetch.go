@@ -100,7 +100,20 @@ func fetchFile(ctx context.Context, destPath, dlURL string, spID, sectorNumber i
 }
 
 // fetchCacheTar downloads a cache tar stream and extracts it to cachePath.
-func fetchCacheTar(ctx context.Context, cachePath, dlURL string) error {
+// Extracts to cachePath + ".tmp" first, then renames to cachePath on success.
+// Cleans up the temp directory on any error.
+func fetchCacheTar(ctx context.Context, cachePath, dlURL string) (err error) {
+	tmpPath := cachePath + ".tmp"
+
+	// Clean up temp directory on error
+	defer func() {
+		if err != nil {
+			if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
+				log.Warnw("failed to clean up temp cache dir after error", "path", tmpPath, "error", rmErr)
+			}
+		}
+	}()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlURL, nil)
 	if err != nil {
 		return xerrors.Errorf("creating request: %w", err)
@@ -119,20 +132,47 @@ func fetchCacheTar(ctx context.Context, cachePath, dlURL string) error {
 	}
 
 	buf := make([]byte, 1<<20) // 1 MiB buffer
-	_, err = tarutil.ExtractTar(tarutil.FinCacheFileConstraints, resp.Body, cachePath, buf)
+	_, err = tarutil.ExtractTar(tarutil.FinCacheFileConstraints, resp.Body, tmpPath, buf)
 	if err != nil {
-		return xerrors.Errorf("extracting cache tar to %s: %w", cachePath, err)
+		return xerrors.Errorf("extracting cache tar to %s: %w", tmpPath, err)
+	}
+
+	// Remove the cachePath if it exists (should be empty, created by AcquireSector)
+	// and rename .tmp to final destination
+	if err := os.RemoveAll(cachePath); err != nil {
+		return xerrors.Errorf("removing existing cache path %s: %w", cachePath, err)
+	}
+
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		return xerrors.Errorf("renaming temp cache dir to final destination: %w", err)
 	}
 
 	return nil
 }
 
 // fetchWithAria2c invokes aria2c as a subprocess for multi-connection resumable downloads.
-func fetchWithAria2c(ctx context.Context, destPath, dlURL string) error {
+// Downloads to destPath + ".tmp" first, then renames to destPath on success.
+// Cleans up temp files and aria2 control files on any error.
+func fetchWithAria2c(ctx context.Context, destPath, dlURL string) (err error) {
 	aria2cPath, err := exec.LookPath("aria2c")
 	if err != nil {
 		return xerrors.New("aria2c not found in PATH")
 	}
+
+	tmpPath := destPath + ".tmp"
+	aria2ControlPath := tmpPath + ".aria2"
+
+	// Clean up temp files on error
+	defer func() {
+		if err != nil {
+			if rmErr := os.Remove(tmpPath); rmErr != nil && !os.IsNotExist(rmErr) {
+				log.Warnw("failed to clean up temp file after error", "path", tmpPath, "error", rmErr)
+			}
+			if rmErr := os.Remove(aria2ControlPath); rmErr != nil && !os.IsNotExist(rmErr) {
+				log.Warnw("failed to clean up aria2 control file after error", "path", aria2ControlPath, "error", rmErr)
+			}
+		}
+	}()
 
 	cmd := exec.CommandContext(ctx, aria2cPath,
 		"--lowest-speed-limit", "16K",
@@ -141,8 +181,8 @@ func fetchWithAria2c(ctx context.Context, destPath, dlURL string) error {
 		"--continue",
 		"-x16",
 		"-s16",
-		"--dir", filepath.Dir(destPath),
-		"-o", filepath.Base(destPath),
+		"--dir", filepath.Dir(tmpPath),
+		"-o", filepath.Base(tmpPath),
 		dlURL)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -150,21 +190,39 @@ func fetchWithAria2c(ctx context.Context, destPath, dlURL string) error {
 	if err := cmd.Run(); err != nil {
 		return xerrors.Errorf("aria2c failed: %w", err)
 	}
+
+	// Rename .tmp to final destination only after successful download
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return xerrors.Errorf("renaming temp file to final destination: %w", err)
+	}
+
 	return nil
 }
 
 // fetchWithGoHTTP downloads a file using a plain Go HTTP client with Range header
-// support for resuming partial downloads.
-func fetchWithGoHTTP(ctx context.Context, destPath, dlURL string) error {
-	f, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+// support for resuming partial downloads. Downloads to destPath + ".tmp" first,
+// then renames to destPath on success. Cleans up the temp file on any error.
+func fetchWithGoHTTP(ctx context.Context, destPath, dlURL string) (err error) {
+	tmpPath := destPath + ".tmp"
+
+	// Clean up temp file on error
+	defer func() {
+		if err != nil {
+			if rmErr := os.Remove(tmpPath); rmErr != nil && !os.IsNotExist(rmErr) {
+				log.Warnw("failed to clean up temp file after error", "path", tmpPath, "error", rmErr)
+			}
+		}
+	}()
+
+	f, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		return xerrors.Errorf("opening file %s: %w", destPath, err)
+		return xerrors.Errorf("opening temp file %s: %w", tmpPath, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	fStat, err := f.Stat()
 	if err != nil {
-		return xerrors.Errorf("stat file %s: %w", destPath, err)
+		return xerrors.Errorf("stat temp file %s: %w", tmpPath, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlURL, nil)
@@ -187,7 +245,7 @@ func fetchWithGoHTTP(ctx context.Context, destPath, dlURL string) error {
 	case http.StatusOK:
 		if fStat.Size() > 0 {
 			if err := f.Truncate(0); err != nil {
-				return xerrors.Errorf("truncating file for full rewrite: %w", err)
+				return xerrors.Errorf("truncating temp file for full rewrite: %w", err)
 			}
 			if _, err := f.Seek(0, io.SeekStart); err != nil {
 				return xerrors.Errorf("seeking to start: %w", err)
@@ -197,6 +255,14 @@ func fetchWithGoHTTP(ctx context.Context, destPath, dlURL string) error {
 		// Server is sending the remaining bytes from our Range offset.
 	case http.StatusRequestedRangeNotSatisfiable:
 		// File is already complete.
+		// Close the temp file before renaming
+		if err := f.Close(); err != nil {
+			return xerrors.Errorf("closing temp file: %w", err)
+		}
+		// Rename .tmp to final destination
+		if err := os.Rename(tmpPath, destPath); err != nil {
+			return xerrors.Errorf("renaming temp file to final destination: %w", err)
+		}
 		return nil
 	default:
 		body, _ := io.ReadAll(resp.Body)
@@ -206,7 +272,17 @@ func fetchWithGoHTTP(ctx context.Context, destPath, dlURL string) error {
 	buf := make([]byte, 1<<20) // 1 MiB buffer
 	_, err = io.CopyBuffer(f, resp.Body, buf)
 	if err != nil {
-		return xerrors.Errorf("writing data to %s: %w", destPath, err)
+		return xerrors.Errorf("writing data to %s: %w", tmpPath, err)
+	}
+
+	// Close the file before renaming
+	if err := f.Close(); err != nil {
+		return xerrors.Errorf("closing temp file: %w", err)
+	}
+
+	// Rename .tmp to final destination only after successful download
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return xerrors.Errorf("renaming temp file to final destination: %w", err)
 	}
 
 	return nil
