@@ -86,16 +86,19 @@ func (sb *SealCalls) DownloadRemoteSealData(ctx context.Context, task *harmonyta
 	return nil
 }
 
-// fetchFile downloads a file to destPath. Tries aria2c first for multi-connection
-// resumable download, falls back to Go HTTP with Range header support.
+// fetchFile downloads a file to destPath. If aria2c is installed it is used
+// exclusively — we never fall back to Go HTTP after an aria2c failure because
+// aria2c may leave a pre-allocated sparse file that would fool the Go HTTP
+// resume logic into thinking the download is complete (the file stats as full
+// size but contains null-byte holes for unfetched chunks). If aria2c is not
+// installed at all, Go HTTP is used as the sole downloader.
 func fetchFile(ctx context.Context, destPath, dlURL string, spID, sectorNumber int64) error {
-	if err := fetchWithAria2c(ctx, destPath, dlURL); err == nil {
-		return nil
-	} else {
-		log.Warnw("aria2c fetch failed, falling back to Go HTTP",
-			"error", err, "sp_id", spID, "sector", sectorNumber)
+	if _, err := exec.LookPath("aria2c"); err == nil {
+		return fetchWithAria2c(ctx, destPath, dlURL)
 	}
 
+	log.Warnw("aria2c not found in PATH, using Go HTTP downloader",
+		"sp_id", spID, "sector", sectorNumber)
 	return fetchWithGoHTTP(ctx, destPath, dlURL)
 }
 
@@ -175,6 +178,7 @@ func fetchWithAria2c(ctx context.Context, destPath, dlURL string) (err error) {
 	}()
 
 	cmd := exec.CommandContext(ctx, aria2cPath,
+		"--file-allocation=none", // prevent sparse pre-allocation that creates full-size files with null holes
 		"--lowest-speed-limit", "16K",
 		"-m100",
 		"--retry-wait", "10",
