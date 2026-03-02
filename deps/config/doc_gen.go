@@ -845,6 +845,15 @@ When enabled, this node can delegate SDR + tree computation to remote providers
 configured in the rseal_client_providers table. (Default: false)`,
 		},
 		{
+			Name: "RSealClientFetchMaxTasks",
+			Type: "int",
+
+			Comment: `RSealClientFetchMaxTasks limits how many concurrent remote seal fetch tasks can
+run on this node. Each fetch downloads ~32 GiB of sealed data from a remote
+provider, so this effectively caps concurrent download bandwidth usage.
+Set to 0 for unlimited. (Default: 8)`,
+		},
+		{
 			Name: "EnableDealMarket",
 			Type: "bool",
 

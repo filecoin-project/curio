@@ -606,7 +606,7 @@ func addSealingTasks(
 
 		delegateTask := remoteseal.NewRSealDelegate(db, full, rsealClient)
 		pollTask := remoteseal.NewRSealClientPoll(db, rsealClient, clientPoller)
-		fetchTask := remoteseal.NewRSealClientFetch(db, rsealClient, slr, clientPoller)
+		fetchTask := remoteseal.NewRSealClientFetch(db, rsealClient, slr, clientPoller, cfg.Subsystems.RSealClientFetchMaxTasks)
 		cleanupTask := remoteseal.NewRSealClientCleanup(db, rsealClient, clientPoller)
 
 		activeTasks = append(activeTasks, delegateTask, pollTask, fetchTask, cleanupTask)
