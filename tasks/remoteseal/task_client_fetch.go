@@ -23,16 +23,18 @@ import (
 // is streamed directly to disk (32 GiB), and the cache tar is extracted into
 // the local cache directory.
 type RSealClientFetch struct {
-	db *harmonydb.DB
-	sc *ffi.SealCalls
-	sp *RSealClientPoller
+	db  *harmonydb.DB
+	sc  *ffi.SealCalls
+	sp  *RSealClientPoller
+	max int
 }
 
-func NewRSealClientFetch(db *harmonydb.DB, client *RSealClient, sc *ffi.SealCalls, sp *RSealClientPoller) *RSealClientFetch {
+func NewRSealClientFetch(db *harmonydb.DB, client *RSealClient, sc *ffi.SealCalls, sp *RSealClientPoller, max int) *RSealClientFetch {
 	return &RSealClientFetch{
-		db: db,
-		sc: sc,
-		sp: sp,
+		db:  db,
+		sc:  sc,
+		sp:  sp,
+		max: max,
 	}
 }
 
@@ -120,6 +122,7 @@ func (f *RSealClientFetch) TypeDetails() harmonytask.TaskTypeDetails {
 	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
 
 	return harmonytask.TaskTypeDetails{
+		Max:  taskhelp.Max(f.max),
 		Name: "RSealClientFetch",
 		Cost: resources.Resources{
 			Cpu:     0,

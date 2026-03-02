@@ -20,6 +20,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 20,
 			RemoteSealCleanupTimeout:       72 * time.Hour,
+			RSealClientFetchMaxTasks:       8,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -416,6 +417,12 @@ type CurioSubsystemsConfig struct {
 	// When enabled, this node can delegate SDR + tree computation to remote providers
 	// configured in the rseal_client_providers table. (Default: false)
 	EnableRemoteSealClient bool
+
+	// RSealClientFetchMaxTasks limits how many concurrent remote seal fetch tasks can
+	// run on this node. Each fetch downloads ~32 GiB of sealed data from a remote
+	// provider, so this effectively caps concurrent download bandwidth usage.
+	// Set to 0 for unlimited. (Default: 8)
+	RSealClientFetchMaxTasks int
 
 	// EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured. (Default: false)
 	EnableDealMarket bool
