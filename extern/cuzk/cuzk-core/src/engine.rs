@@ -2126,7 +2126,18 @@ impl Engine {
                 "spawning GPU workers with Phase 8 dual-worker interlock"
             );
 
-            // Create one C++ mutex per GPU
+            // Create one C++ mutex per GPU, PLUS a single shared mutex for
+            // partitioned proofs (num_circuits=1). The C++ SupraSeal code
+            // picks GPUs internally via `n_gpus = min(ngpus(), num_circuits)`.
+            // With num_circuits=1 (partition pipeline), it always selects
+            // GPU 0 regardless of which Rust worker submits the job. If we
+            // gave each worker its own per-GPU mutex, workers assigned to
+            // different GPUs could run CUDA kernels on the SAME physical
+            // device concurrently without serialization — corrupting proofs.
+            //
+            // Solution: one shared mutex for partition (num_circuits=1) jobs,
+            // and per-GPU mutexes for batched (num_circuits>1) jobs where the
+            // C++ code actually fans out to multiple GPUs.
             #[cfg(feature = "cuda-supraseal")]
             let gpu_mutexes: Vec<bellperson::groth16::SendableGpuMutex> = gpu_ordinals
                 .iter()
@@ -2135,6 +2146,13 @@ impl Engine {
                     bellperson::groth16::SendableGpuMutex(ptr)
                 })
                 .collect();
+            #[cfg(feature = "cuda-supraseal")]
+            let shared_gpu_mutex: bellperson::groth16::SendableGpuMutex = {
+                let ptr = bellperson::groth16::alloc_gpu_mutex();
+                bellperson::groth16::SendableGpuMutex(ptr)
+            };
+            #[cfg(feature = "cuda-supraseal")]
+            let shared_gpu_mutex_addr: usize = shared_gpu_mutex.0 as usize;
 
             let mut global_worker_id = 0u32;
             for (gpu_idx, state) in worker_states.iter().enumerate() {
@@ -2148,8 +2166,15 @@ impl Engine {
                 // Phase 8: Convert GPU mutex pointer to usize for Send safety.
                 // Raw pointers aren't Send, but the underlying C++ mutex lives
                 // for the engine's lifetime, so the address is always valid.
+                //
+                // per_gpu_mutex_addr: used for batched (multi-circuit) proves
+                //   where C++ fans work across GPUs matching Rust's assignment.
+                // shared_mutex_addr: used for partition (single-circuit) proves
+                //   where C++ always uses GPU 0 regardless of worker assignment.
                 #[cfg(feature = "cuda-supraseal")]
-                let gpu_mutex_addr: usize = gpu_mutexes[gpu_idx].0 as usize;
+                let per_gpu_mutex_addr: usize = gpu_mutexes[gpu_idx].0 as usize;
+                #[cfg(feature = "cuda-supraseal")]
+                let shared_mutex_addr: usize = shared_gpu_mutex_addr;
 
                 tokio::spawn(async move {
                     info!(worker_id = worker_id, gpu = gpu_ordinal, sub_id = worker_sub_id, "pipeline GPU worker started");
@@ -2259,7 +2284,12 @@ impl Engine {
                                 let gpu_str2 = gpu_str.clone();
                                 let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
                                     std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str2);
-                                    let gpu_mtx_ptr = gpu_mutex_addr as *mut std::ffi::c_void;
+                                    // Partitioned (single-circuit) proofs always run on GPU 0
+                                    // in C++, so all workers must share one mutex. Batched
+                                    // (multi-circuit) proofs fan across GPUs matching Rust's
+                                    // per-GPU assignment.
+                                    let mtx_addr = if is_partitioned { shared_mutex_addr } else { per_gpu_mutex_addr };
+                                    let gpu_mtx_ptr = mtx_addr as *mut std::ffi::c_void;
                                     let gpu_result = crate::pipeline::gpu_prove(synth_job.synth, &synth_job.params, gpu_mtx_ptr)?;
                                     Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
                                 }).await;
@@ -2301,7 +2331,9 @@ impl Engine {
                                 let gpu_str2 = gpu_str.clone();
                                 tokio::task::spawn_blocking(move || -> Result<(crate::pipeline::PendingGpuProof, String)> {
                                     std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str2);
-                                    let gpu_mtx_ptr = gpu_mutex_addr as *mut std::ffi::c_void;
+                                    // Same mutex selection as synchronous path above.
+                                    let mtx_addr = if is_partitioned { shared_mutex_addr } else { per_gpu_mutex_addr };
+                                    let gpu_mtx_ptr = mtx_addr as *mut std::ffi::c_void;
                                     let pending = crate::pipeline::gpu_prove_start(synth_job.synth, &synth_job.params, gpu_mtx_ptr)?;
                                     Ok((pending, gpu_str2))
                                 }).await
