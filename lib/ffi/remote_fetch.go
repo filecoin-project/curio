@@ -179,12 +179,16 @@ func fetchWithAria2c(ctx context.Context, destPath, dlURL string) (err error) {
 
 	cmd := exec.CommandContext(ctx, aria2cPath,
 		"--file-allocation=none", // prevent sparse pre-allocation that creates full-size files with null holes
-		"--lowest-speed-limit", "16K",
-		"-m100",
-		"--retry-wait", "10",
-		"--continue",
+		"--lowest-speed-limit=4K",
+		"--timeout=120",
+		"--connect-timeout=60",
+		"--max-tries=0", // infinite retries within the context deadline
+		"--retry-wait=30",
+		"--continue=true",
 		"-x16",
 		"-s16",
+		"--auto-file-renaming=false", // don't create .1, .2 copies
+		"--allow-overwrite=true",
 		"--dir", filepath.Dir(tmpPath),
 		"-o", filepath.Base(tmpPath),
 		dlURL)
