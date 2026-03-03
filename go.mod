@@ -11,12 +11,12 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/codeskyblue/go-sh v0.0.0-20250509230738-c29da582b0f5
 	github.com/consensys/gnark-crypto v0.19.2
+	github.com/curiostorage/go-openrpc-reflect v0.0.0-20260302234910-57f4605f0e7b
 	github.com/curiostorage/harmonyquery v0.0.0-20260216153908-9243aa5b386c
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-sysinfo v1.15.4
-	github.com/curiostorage/go-openrpc-reflect v0.0.38-compat
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/fatih/color v1.18.0
 	github.com/filecoin-project/filecoin-ffi v1.34.0
@@ -104,7 +104,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/triplewz/poseidon v0.0.2
 	github.com/urfave/cli/v2 v2.27.7
-	github.com/whyrusleeping/cbor-gen v0.3.1
+	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/gocql v1.6.0-yb-1
 	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
 	go.opencensus.io v0.24.0
