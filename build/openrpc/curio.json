@@ -1,5 +1,5 @@
 {
-    "openrpc": "1.2.6",
+    "openrpc": "1.3.2",
     "info": {
         "title": "Curio RPC API",
         "version": "1.27.3-rc2"
@@ -376,17 +376,8 @@
                     ],
                     "items": [
                         {
-                            "items": [
-                                {
-                                    "title": "number",
-                                    "description": "Number is a number",
-                                    "type": [
-                                        "number"
-                                    ]
-                                }
-                            ],
                             "type": [
-                                "array"
+                                "string"
                             ]
                         }
                     ],
