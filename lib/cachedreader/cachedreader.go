@@ -152,7 +152,7 @@ func (r *cachedSectionReader) Close() error {
 	return nil
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Context, piece cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
 	/*
 		Check if the requested CID is PieceCidV2 or not.
 			- YES
@@ -169,13 +169,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 	*/
 
 	// Get all deals containing this piece
-	pieceCid := pieceCidV2
+	pieceCid := piece
 	var rawSize uint64
 	var pieceSize abi.PaddedPieceSize
 
-	if commcidv2.IsPieceCidV2(pieceCidV2) {
+	if commcidv2.IsPieceCidV2(pieceCid) {
 		var err error
-		pieceCid, rawSize, err = commcid.PieceCidV1FromV2(pieceCidV2)
+		pieceCid, rawSize, err = commcid.PieceCidV1FromV2(pieceCid)
 		if err != nil {
 			return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
 		}
@@ -380,7 +380,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 	}
 
 	if len(pieces) == 0 {
-		return nil, 0, fmt.Errorf("subpiece not found in any aggregate piece")
+		return nil, 0, fmt.Errorf("subpiece %s not found in any aggregate piece", pieceCidV2.String())
 	}
 
 	_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)

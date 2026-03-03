@@ -214,7 +214,7 @@ func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonyta
 		}
 
 		if P.cfg.Market.StorageMarketConfig.IPNI.Disable {
-			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+			n, err := tx.Exec(`UPDATE pdp_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
                                      complete = TRUE WHERE id = $1 AND indexing_task_id = $2`, id, taskID)
 			if err != nil {
 				return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)

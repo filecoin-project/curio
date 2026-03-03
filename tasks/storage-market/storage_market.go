@@ -295,7 +295,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// gas cost for PSD messages
 	err = d.addPSDTask(ctx)
 	if err != nil {
-		log.Errorf("%w", err)
+		log.Errorf("%s", err)
 	}
 
 	// Process deals
