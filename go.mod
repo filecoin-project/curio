@@ -61,7 +61,6 @@ require (
 	github.com/ipfs/go-cidutil v0.1.1
 	github.com/ipfs/go-datastore v0.9.1
 	github.com/ipfs/go-fs-lock v0.1.1
-	github.com/ipfs/go-graphsync v0.18.0
 	github.com/ipfs/go-ipld-cbor v0.2.1
 	github.com/ipfs/go-ipld-format v0.6.3
 	github.com/ipfs/go-log/v2 v2.9.1
@@ -182,7 +181,6 @@ require (
 	github.com/filecoin-project/go-hamt-ipld v0.1.5 // indirect
 	github.com/filecoin-project/go-hamt-ipld/v2 v2.0.0 // indirect
 	github.com/filecoin-project/go-hamt-ipld/v3 v3.4.1 // indirect
-	github.com/filecoin-project/go-keccak v0.1.0 // indirect
 	github.com/filecoin-project/go-paramfetch v0.0.4 // indirect
 	github.com/filecoin-project/go-statemachine v1.0.3 // indirect
 	github.com/filecoin-project/go-storedcounter v0.1.0 // indirect
