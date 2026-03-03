@@ -76,7 +76,7 @@ curio test supra system-info
 Arch:
 
 ```bash
-sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
+sudo pacman -Syu opencl-icd-loader gcc git bzr jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv aria2 time
 # 批量封装构建依赖（需要 nvcc）
 sudo pacman -Syu cuda
 # GCC 13 可能需要通过发行版/AUR 安装（取决于当前 supraseal 版本）
@@ -95,6 +95,7 @@ sudo apt install -y \
   libssl-dev uuid-dev libfuse3-dev \
   libnuma-dev libaio-dev libkeyutils-dev libncurses-dev \
   libgmp-dev libconfig++-dev \
+  aria2 time \
   && sudo apt upgrade -y
 
 # CUDA Toolkit（批量封装构建依赖；需要 nvcc）
@@ -103,19 +104,19 @@ sudo apt install -y \
 Fedora:
 
 ```bash
-sudo dnf -y install gcc make git bzr jq pkgconfig mesa-libOpenCL mesa-libOpenCL-devel opencl-headers ocl-icd ocl-icd-devel clang llvm wget hwloc hwloc-devel libarchive-devel
+sudo dnf -y install gcc make git bzr jq pkgconfig mesa-libOpenCL mesa-libOpenCL-devel opencl-headers ocl-icd ocl-icd-devel clang llvm wget hwloc hwloc-devel libarchive-devel aria2 time
 ```
 
 OpenSUSE:
 
 ```bash
-sudo zypper in gcc git jq make libOpenCL1 opencl-headers ocl-icd-devel clang llvm hwloc libarchive-devel && sudo ln -s /usr/lib64/libOpenCL.so.1 /usr/lib64/libOpenCL.so
+sudo zypper in gcc git jq make libOpenCL1 opencl-headers ocl-icd-devel clang llvm hwloc libarchive-devel aria2 time && sudo ln -s /usr/lib64/libOpenCL.so.1 /usr/lib64/libOpenCL.so
 ```
 
 Amazon Linux 2:
 
 ```bash
-sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm; sudo yum install -y git gcc bzr jq pkgconfig clang llvm mesa-libGL-devel opencl-headers ocl-icd ocl-icd-devel hwloc-devel libarchive-devel
+sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm; sudo yum install -y git gcc bzr jq pkgconfig clang llvm mesa-libGL-devel opencl-headers ocl-icd ocl-icd-devel hwloc-devel libarchive-devel aria2 time
 ```
 
 ### Rustup
@@ -282,7 +283,7 @@ xcode-select --install
 使用命令`brew install`安装以下软件包：
 
 ```bash
-brew install go bzr jq pkg-config hwloc coreutils
+brew install go bzr jq pkg-config hwloc coreutils aria2
 ```
 
 接下来是克隆Lotus仓库并构建可执行文件。

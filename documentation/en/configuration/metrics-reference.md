@@ -189,6 +189,14 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 | `curio_pdp/piece_by_cid_request_duration_ms` | gauge | Time spent retrieving a piece by cid for PDP |
 | `curio_pdp/piece_bytes_served_count` | gauge/counter | Counter of the number of bytes served by PDP since startup |
 | `curio_retrieval_info` | gauge/counter | Arbitrary counter to tag node info to |
+| `curio_rseal/active_requests` | gauge/counter | Number of active remote seal HTTP requests |
+| `curio_rseal/commit1_compute_duration_ms` | gauge | Remote seal commit1 FFI compute duration |
+| `curio_rseal/orders_total` | gauge/counter | Counter of remote seal order attempts |
+| `curio_rseal/request_count` | gauge/counter | Counter of remote seal HTTP requests |
+| `curio_rseal/request_duration_ms` | gauge | Remote seal HTTP request duration |
+| `curio_rseal/response_bytes_count` | gauge/counter | Sum of remote seal HTTP response bytes |
+| `curio_rseal/response_status_count` | gauge/counter | Counter of remote seal HTTP response status codes |
+| `curio_rseal/slots_issued_total` | gauge/counter | Counter of remote seal slot tokens issued |
 
 ## GC Metrics
 

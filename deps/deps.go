@@ -168,6 +168,7 @@ type Deps struct {
 	LocalPaths        *paths.BasicLocalStorage
 	Prover            storiface.Prover
 	ListenAddr        string
+	HTTPListenAddr    string // actual address of the HTTP server (set after bind)
 	Name              string
 	MachineID         *int64
 	Alert             *alertmanager.AlertNow
@@ -282,16 +283,19 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	if deps.ListenAddr == "" {
 		listenAddr := cctx.String("listen")
 		const unspecifiedAddress = "0.0.0.0"
-		addressSlice := strings.Split(listenAddr, ":")
-		if ip := net.ParseIP(addressSlice[0]); ip != nil {
-			if ip.String() == unspecifiedAddress {
-				rip, err := deps.DB.GetRoutableIP()
-				if err != nil {
-					return err
+		// Use net.SplitHostPort to properly handle both IPv4 and IPv6 addresses
+		host, port, err := net.SplitHostPort(listenAddr)
+		if err == nil {
+			if ip := net.ParseIP(host); ip != nil {
+				if ip.String() == unspecifiedAddress {
+					rip, err := deps.DB.GetRoutableIP()
+					if err != nil {
+						return err
+					}
+					deps.ListenAddr = net.JoinHostPort(rip, port)
+				} else {
+					deps.ListenAddr = net.JoinHostPort(ip.String(), port)
 				}
-				deps.ListenAddr = rip + ":" + addressSlice[1]
-			} else {
-				deps.ListenAddr = ip.String() + ":" + addressSlice[1]
 			}
 		}
 	}

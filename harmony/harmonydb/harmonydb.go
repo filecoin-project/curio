@@ -44,10 +44,10 @@ func NewFromConfigWithITestID(t *testing.T, id harmonyquery.ITestID, fullMigrati
 
 	db, err := NewFromConfig(Config{
 		Hosts:            []string{envElse(harmonyquery.DefaultHostEnv, "127.0.0.1")},
-		Database:         "yugabyte",
+		Database:         envElse("CURIO_HARMONYDB_DB", "yugabyte"),
 		Username:         "yugabyte",
 		Password:         "yugabyte",
-		Port:             "5433",
+		Port:             envElse("CURIO_HARMONYDB_PORT", "5433"),
 		LoadBalance:      false,
 		ITestID:          id,
 		SqlEmbedFS:       sqlFS,

@@ -12,9 +12,12 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi/cunative"
 	"github.com/filecoin-project/curio/lib/supraffi"
 )
@@ -64,6 +67,26 @@ var testSupraSystemInfoCmd = &cli.Command{
 
 		fmt.Println("CUDA:")
 		fmt.Printf("  Usable CUDA GPU detected:    %s\n", yesNo(supraffi.HasUsableCUDAGPU()))
+		fmt.Println()
+
+		fmt.Println("GPU Devices (ffi):")
+		gpuMode := "OpenCL"
+		if build.IsOpencl != "1" {
+			gpuMode = "CUDA"
+		}
+		fmt.Printf("  Mode:                        %s\n", gpuMode)
+		fmt.Printf("  Overprovision factor:        %d\n", resources.GpuOverprovisionFactor)
+		gpus, err := ffi.GetGPUDevices()
+		if err != nil {
+			fmt.Printf("  Error listing GPUs:          %s\n", err)
+		} else if len(gpus) == 0 {
+			fmt.Println("  No GPU devices found")
+		} else {
+			fmt.Printf("  Devices (%d):\n", len(gpus))
+			for i, name := range gpus {
+				fmt.Printf("    [%d] %s\n", i, name)
+			}
+		}
 
 		return nil
 	},

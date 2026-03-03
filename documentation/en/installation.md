@@ -67,7 +67,7 @@ To skip the supraseal build (e.g. if you don't have CUDA), use: `make build FFI_
 Arch:
 
 ```shell
-sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv
+sudo pacman -Syu opencl-icd-loader gcc git jq pkg-config opencl-headers hwloc libarchive nasm xxd python python-pip python-virtualenv aria2 time
 # For batch sealing builds (SnapDeals fast TreeR / batch sealing toolchain):
 sudo pacman -Syu cuda
 # GCC 12 or 13 required — pick based on your CUDA version (see note above).
@@ -85,6 +85,7 @@ sudo apt install -y \
   libarchive-dev libssl-dev uuid-dev libfuse3-dev \
   libnuma-dev libaio-dev libkeyutils-dev libncurses-dev \
   libgmp-dev libconfig++-dev \
+  aria2 time \
   && sudo apt upgrade -y
 
 # GCC 12 or 13 — pick based on your CUDA version:
@@ -100,19 +101,19 @@ sudo apt install -y \
 Fedora:
 
 ```shell
-sudo dnf -y install gcc make git jq pkgconfig mesa-libOpenCL mesa-libOpenCL-devel opencl-headers ocl-icd ocl-icd-devel clang llvm wget hwloc hwloc-devel libarchive-devel
+sudo dnf -y install gcc make git jq pkgconfig mesa-libOpenCL mesa-libOpenCL-devel opencl-headers ocl-icd ocl-icd-devel clang llvm wget hwloc hwloc-devel libarchive-devel aria2 time
 ```
 
 OpenSUSE:
 
 ```shell
-sudo zypper in gcc git jq make libOpenCL1 opencl-headers ocl-icd-devel clang llvm hwloc libarchive-devel && sudo ln -s /usr/lib64/libOpenCL.so.1 /usr/lib64/libOpenCL.so
+sudo zypper in gcc git jq make libOpenCL1 opencl-headers ocl-icd-devel clang llvm hwloc libarchive-devel aria2 time && sudo ln -s /usr/lib64/libOpenCL.so.1 /usr/lib64/libOpenCL.so
 ```
 
 Amazon Linux 2:
 
 ```shell
-sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm; sudo yum install -y git gcc jq pkgconfig clang llvm mesa-libGL-devel opencl-headers ocl-icd ocl-icd-devel hwloc-devel libarchive-devel
+sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm; sudo yum install -y git gcc jq pkgconfig clang llvm mesa-libGL-devel opencl-headers ocl-icd ocl-icd-devel hwloc-devel libarchive-devel aria2 time
 ```
 
 ### Rustup
@@ -276,7 +277,7 @@ We recommend that macOS users use [Homebrew](https://brew.sh/) to install each o
 Use the command `brew install` to install the following packages:
 
 ```shell
-brew install jq pkg-config hwloc coreutils
+brew install jq pkg-config hwloc coreutils aria2
 brew install go@1.24
 ```
 

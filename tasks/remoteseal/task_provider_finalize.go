@@ -1,0 +1,257 @@
+package remoteseal
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/slotmgr"
+	"github.com/filecoin-project/curio/lib/storiface"
+)
+
+// RSealProviderFinalize drops SDR layers (cache) after C1 has been supplied.
+// This is similar to the regular FinalizeTask but operates on rseal_provider_pipeline
+// and does not need to handle unsealed data or deal pieces (delegated sectors are CC).
+type RSealProviderFinalize struct {
+	db *harmonydb.DB
+	sp *RSealProviderPoller
+	sc *ffi.SealCalls
+
+	// Batch slot manager, may be nil if not using batch sealing
+	slots *slotmgr.SlotMgr
+
+	max int
+}
+
+func NewProviderFinalizeTask(db *harmonydb.DB, sp *RSealProviderPoller, sc *ffi.SealCalls, slots *slotmgr.SlotMgr, maxFinalize int) *RSealProviderFinalize {
+	return &RSealProviderFinalize{
+		db:    db,
+		sp:    sp,
+		sc:    sc,
+		slots: slots,
+		max:   maxFinalize,
+	}
+}
+
+func (f *RSealProviderFinalize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx := context.Background()
+
+	var sectors []struct {
+		SpID         int64 `db:"sp_id"`
+		SectorNumber int64 `db:"sector_number"`
+		RegSealProof int64 `db:"reg_seal_proof"`
+	}
+
+	err = f.db.Select(ctx, &sectors, `SELECT sp_id, sector_number, reg_seal_proof
+		FROM rseal_provider_pipeline
+		WHERE task_id_finalize = $1`, taskID)
+	if err != nil {
+		return false, xerrors.Errorf("getting sector for finalize: %w", err)
+	}
+
+	if len(sectors) != 1 {
+		return false, xerrors.Errorf("expected 1 sector for finalize, got %d", len(sectors))
+	}
+	task := sectors[0]
+
+	sector := storiface.SectorRef{
+		ID: abi.SectorID{
+			Miner:  abi.ActorID(task.SpID),
+			Number: abi.SectorNumber(task.SectorNumber),
+		},
+		ProofType: abi.RegisteredSealProof(task.RegSealProof),
+	}
+
+	var ownedBy []struct {
+		HostAndPort string `db:"host_and_port"`
+	}
+	var refs []struct {
+		PipelineSlot int64 `db:"pipeline_slot"`
+	}
+
+	var refFound bool
+	if f.slots != nil {
+		// batch handling part 1: get machine id
+		err = f.db.Select(ctx, &ownedBy, `SELECT hm.host_and_port as host_and_port FROM harmony_task INNER JOIN harmony_machines hm on harmony_task.owner_id = hm.id WHERE harmony_task.id = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("getting machine id: %w", err)
+		}
+
+		if len(ownedBy) != 1 {
+			return false, xerrors.Errorf("expected one machine")
+		}
+
+		err = f.db.Select(ctx, &refs, `SELECT pipeline_slot FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2 AND machine_host_and_port = $3`, task.SpID, task.SectorNumber, ownedBy[0].HostAndPort)
+		if err != nil {
+			return false, xerrors.Errorf("getting batch refs: %w", err)
+		}
+
+		if len(refs) > 1 {
+			return false, xerrors.Errorf("expected one batch ref, got %d", len(refs))
+		}
+
+		refFound = len(refs) == 1
+	}
+
+	if !stillOwned() {
+		return false, xerrors.Errorf("task no longer owned")
+	}
+
+	// For remote seal finalize, we clear the cache (drop SDR layers).
+	// Delegated sectors are always CC (no unsealed data to preserve).
+	// If the sector files are already gone (cleanup ran first or client called cleanup early),
+	// treat it as a no-op and just mark the task as done.
+	err = f.sc.FinalizeSector(ctx, sector, false)
+	if err != nil {
+		if errors.Is(err, storiface.ErrSectorNotFound) {
+			log.Warnw("finalize: sector files already removed, treating as no-op",
+				"sp", task.SpID, "sector", task.SectorNumber)
+		} else {
+			return false, xerrors.Errorf("finalizing remote seal sector: %w", err)
+		}
+	}
+
+	if refFound {
+		// batch handling part 2: release the batch slot
+		if err := f.slots.SectorDone(ctx, uint64(refs[0].PipelineSlot), sector.ID); err != nil {
+			return false, xerrors.Errorf("mark batch ref done: %w", err)
+		}
+	}
+
+	// Mark finalize as done
+	n, err := f.db.Exec(ctx, `UPDATE rseal_provider_pipeline
+		SET after_finalize = TRUE, task_id_finalize = NULL
+		WHERE sp_id = $1 AND sector_number = $2 AND task_id_finalize = $3`,
+		task.SpID, task.SectorNumber, taskID)
+	if err != nil {
+		return false, xerrors.Errorf("updating finalize status: %w", err)
+	}
+	if n != 1 {
+		return false, xerrors.Errorf("expected to update 1 row for finalize, updated %d", n)
+	}
+
+	log.Infow("finalized remote seal sector",
+		"sp", task.SpID,
+		"sector", task.SectorNumber)
+
+	return true, nil
+}
+
+func (f *RSealProviderFinalize) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	// Check that the sector's cache is on local storage, similar to the regular finalize task.
+	// If the sector files have already been removed (e.g. cleanup ran first or client called
+	// cleanup early), accept the task on any node — Do() will treat it as a no-op.
+	var tasks []struct {
+		TaskID       harmonytask.TaskID `db:"task_id_finalize"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector_number"`
+		StorageID    *string            `db:"storage_id"`
+	}
+
+	if storiface.FTCache != 4 {
+		panic("storiface.FTCache != 4")
+	}
+
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	// Use LEFT JOIN so that tasks whose sector_location rows have been removed
+	// still appear in the result set (with NULL storage_id).
+	err := f.db.Select(ctx, &tasks, `
+		SELECT p.task_id_finalize, p.sp_id, p.sector_number, l.storage_id
+		FROM rseal_provider_pipeline p
+			LEFT JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num AND l.sector_filetype = 4
+		WHERE task_id_finalize = ANY ($1)`, indIDs)
+	if err != nil {
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting finalize tasks: %w", err)
+	}
+
+	ls, err := f.sc.LocalStorage(ctx)
+	if err != nil {
+		return []harmonytask.TaskID{}, xerrors.Errorf("getting local storage: %w", err)
+	}
+
+	acceptables := map[harmonytask.TaskID]bool{}
+	for _, id := range ids {
+		acceptables[id] = true
+	}
+
+	var result []harmonytask.TaskID
+	for _, t := range tasks {
+		if _, ok := acceptables[t.TaskID]; !ok {
+			continue
+		}
+
+		// If no sector_location entry exists, the files are already gone.
+		// Accept on any node — Do() will be a no-op beyond marking done.
+		if t.StorageID == nil {
+			result = append(result, t.TaskID)
+			continue
+		}
+
+		for _, l := range ls {
+			if string(l.ID) == *t.StorageID {
+				result = append(result, t.TaskID)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func (f *RSealProviderFinalize) TypeDetails() harmonytask.TaskTypeDetails {
+	return harmonytask.TaskTypeDetails{
+		Max:  taskhelp.Max(f.max),
+		Name: "RSealProvFinal",
+		Cost: resources.Resources{
+			Cpu: 1,
+			Gpu: 0,
+			Ram: 100 << 20,
+		},
+		MaxFailures: 10,
+		RetryWait:   taskhelp.RetryWaitLinear(30*time.Second, 15*time.Second),
+	}
+}
+
+func (f *RSealProviderFinalize) Adder(taskFunc harmonytask.AddTaskFunc) {
+	f.sp.pollers[pollerProvFinalize].Set(taskFunc)
+}
+
+func (f *RSealProviderFinalize) GetSpid(db *harmonydb.DB, taskID int64) string {
+	sid, err := f.GetSectorID(db, taskID)
+	if err != nil {
+		log.Errorf("getting sector id: %s", err)
+		return ""
+	}
+	return sid.Miner.String()
+}
+
+func (f *RSealProviderFinalize) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	var spId, sectorNumber uint64
+	err := db.QueryRow(context.Background(), `SELECT sp_id, sector_number
+		FROM rseal_provider_pipeline
+		WHERE task_id_finalize = $1`, taskID).Scan(&spId, &sectorNumber)
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector id for finalize task: %w", err)
+	}
+	return &abi.SectorID{
+		Miner:  abi.ActorID(spId),
+		Number: abi.SectorNumber(sectorNumber),
+	}, nil
+}
+
+var _ = harmonytask.Reg(&RSealProviderFinalize{})
+var _ harmonytask.TaskInterface = &RSealProviderFinalize{}

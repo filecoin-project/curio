@@ -1,0 +1,602 @@
+package webrpc
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/market/sealmarket"
+)
+
+// RSealPartner maps to rseal_delegated_partners (provider side).
+type RSealPartner struct {
+	ID                 int64     `db:"id" json:"id"`
+	PartnerName        string    `db:"partner_name" json:"partner_name"`
+	PartnerURL         string    `db:"partner_url" json:"partner_url"`
+	PartnerToken       string    `db:"partner_token" json:"partner_token"`
+	AllowanceRemaining int64     `db:"allowance_remaining" json:"allowance_remaining"`
+	AllowanceTotal     int64     `db:"allowance_total" json:"allowance_total"`
+	AllowedProofTypes  []int64   `db:"allowed_proof_types" json:"allowed_proof_types"`
+	CreatedAt          time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// RSealProvider maps to rseal_client_providers (client side).
+type RSealProvider struct {
+	ID            int64     `db:"id" json:"id"`
+	SpID          int64     `db:"sp_id" json:"sp_id"`
+	ProviderURL   string    `db:"provider_url" json:"provider_url"`
+	ProviderToken string    `db:"provider_token" json:"provider_token"`
+	ProviderName  string    `db:"provider_name" json:"provider_name"`
+	Enabled       bool      `db:"enabled" json:"enabled"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// RSealProvPipelineRow is a summary view of a provider-side pipeline row.
+type RSealProvPipelineRow struct {
+	SpID         int64  `db:"sp_id" json:"sp_id"`
+	SectorNumber int64  `db:"sector_number" json:"sector_number"`
+	PartnerName  string `db:"partner_name" json:"partner_name"`
+
+	TaskIDSDR   *int64 `db:"task_id_sdr" json:"task_id_sdr"`
+	AfterSDR    bool   `db:"after_sdr" json:"after_sdr"`
+	TaskIDTreeD *int64 `db:"task_id_tree_d" json:"task_id_tree_d"`
+	AfterTreeD  bool   `db:"after_tree_d" json:"after_tree_d"`
+	TaskIDTreeC *int64 `db:"task_id_tree_c" json:"task_id_tree_c"`
+	AfterTreeC  bool   `db:"after_tree_c" json:"after_tree_c"`
+	TaskIDTreeR *int64 `db:"task_id_tree_r" json:"task_id_tree_r"`
+	AfterTreeR  bool   `db:"after_tree_r" json:"after_tree_r"`
+
+	TaskIDNotify    *int64 `db:"task_id_notify_client" json:"task_id_notify_client"`
+	AfterNotify     bool   `db:"after_notify_client" json:"after_notify_client"`
+	TaskIDFinalize  *int64 `db:"task_id_finalize" json:"task_id_finalize"`
+	AfterC1         bool   `db:"after_c1_supplied" json:"after_c1_supplied"`
+	AfterFinalize   bool   `db:"after_finalize" json:"after_finalize"`
+	TaskIDCleanup   *int64 `db:"task_id_cleanup" json:"task_id_cleanup"`
+	AfterCleanup    bool   `db:"after_cleanup" json:"after_cleanup"`
+	Failed          bool   `db:"failed" json:"failed"`
+	FailedReasonMsg string `db:"failed_reason_msg" json:"failed_reason_msg"`
+
+	CreateTime time.Time `db:"create_time" json:"create_time"`
+}
+
+// RSealClientPipelineRow is a summary view of a client-side pipeline row.
+type RSealClientPipelineRow struct {
+	SpID         int64  `db:"sp_id" json:"sp_id"`
+	SectorNumber int64  `db:"sector_number" json:"sector_number"`
+	ProviderName string `db:"provider_name" json:"provider_name"`
+
+	TaskIDDelegate *int64 `db:"task_id_delegate" json:"task_id_delegate"`
+	AfterDelegate  bool   `db:"after_delegate" json:"after_delegate"`
+	TaskIDPoll     *int64 `db:"task_id_poll" json:"task_id_poll"`
+	AfterSDR       bool   `db:"after_sdr" json:"after_sdr"`
+
+	TaskIDFetch   *int64 `db:"task_id_fetch" json:"task_id_fetch"`
+	AfterFetch    bool   `db:"after_fetch" json:"after_fetch"`
+	TaskIDCleanup *int64 `db:"task_id_cleanup" json:"task_id_cleanup"`
+	AfterCleanup  bool   `db:"after_cleanup" json:"after_cleanup"`
+
+	Failed          bool   `db:"failed" json:"failed"`
+	FailedReasonMsg string `db:"failed_reason_msg" json:"failed_reason_msg"`
+
+	CreateTime time.Time `db:"create_time" json:"create_time"`
+}
+
+// RSealListPartners returns all remote seal partners (provider side).
+func (a *WebRPC) RSealListPartners(ctx context.Context) ([]RSealPartner, error) {
+	var partners []RSealPartner
+	err := a.deps.DB.Select(ctx, &partners, `SELECT id, partner_name, partner_url, partner_token, allowance_remaining, allowance_total, allowed_proof_types, created_at, updated_at FROM rseal_delegated_partners ORDER BY id`)
+	if err != nil {
+		return nil, xerrors.Errorf("listing partners: %w", err)
+	}
+	if partners == nil {
+		partners = []RSealPartner{}
+	}
+	return partners, nil
+}
+
+// RSealGetPartnerURL returns the current node's base URL for remote seal
+// (derived from HTTP.DomainName config). Clients paste this when configuring
+// their provider connection, and it is shown in the UI for reference.
+func (a *WebRPC) RSealGetPartnerURL(ctx context.Context) (string, error) {
+	dn := a.deps.Cfg.HTTP.DomainName
+	if dn == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("https://%s", dn), nil
+}
+
+// RSealAddPartner creates a new remote seal partner with a generated token.
+func (a *WebRPC) RSealAddPartner(ctx context.Context, name string, url string, allowance int64, allowedProofTypes []int64) (*RSealPartner, error) {
+	// Prevent adding ourselves as a partner
+	if a.deps.Cfg.HTTP.DomainName != "" {
+		selfURL := fmt.Sprintf("https://%s", a.deps.Cfg.HTTP.DomainName)
+		if url == selfURL || url == selfURL+"/" {
+			return nil, fmt.Errorf("cannot add yourself as a partner")
+		}
+	}
+
+	if allowedProofTypes == nil {
+		allowedProofTypes = []int64{}
+	}
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, xerrors.Errorf("generating token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	var partner RSealPartner
+	err := a.deps.DB.QueryRow(ctx, `INSERT INTO rseal_delegated_partners (partner_name, partner_url, partner_token, allowance_remaining, allowance_total, allowed_proof_types)
+		VALUES ($1, $2, $3, $4, $4, $5) RETURNING id, partner_name, partner_url, partner_token, allowance_remaining, allowance_total, allowed_proof_types, created_at, updated_at`,
+		name, url, token, allowance, allowedProofTypes).Scan(
+		&partner.ID, &partner.PartnerName, &partner.PartnerURL, &partner.PartnerToken,
+		&partner.AllowanceRemaining, &partner.AllowanceTotal, &partner.AllowedProofTypes, &partner.CreatedAt, &partner.UpdatedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("inserting partner: %w", err)
+	}
+	return &partner, nil
+}
+
+// RSealRemovePartner deletes a remote seal partner. Rejects if active pipeline rows exist.
+func (a *WebRPC) RSealRemovePartner(ctx context.Context, id int64) error {
+	var count int64
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM rseal_provider_pipeline WHERE partner_id = $1 AND after_cleanup = FALSE`, id).Scan(&count)
+	if err != nil {
+		return xerrors.Errorf("checking active pipelines: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("cannot remove partner: %d active pipeline rows exist", count)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM rseal_delegated_partners WHERE id = $1`, id)
+	if err != nil {
+		return xerrors.Errorf("deleting partner: %w", err)
+	}
+	return nil
+}
+
+// RSealUpdatePartnerAllowance updates the allowance fields for a partner.
+func (a *WebRPC) RSealUpdatePartnerAllowance(ctx context.Context, id int64, totalAllowance int64, remainingAllowance int64) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE rseal_delegated_partners SET allowance_total = $2, allowance_remaining = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+		id, totalAllowance, remainingAllowance)
+	if err != nil {
+		return xerrors.Errorf("updating allowance: %w", err)
+	}
+	return nil
+}
+
+// connectStringPayload is the JSON structure encoded in the connect string.
+type connectStringPayload struct {
+	URL   string `json:"url"`
+	Token string `json:"token"`
+}
+
+// RSealGetConnectString returns a base64-encoded connect string for a partner.
+func (a *WebRPC) RSealGetConnectString(ctx context.Context, id int64) (string, error) {
+	var token string
+	err := a.deps.DB.QueryRow(ctx, `SELECT partner_token FROM rseal_delegated_partners WHERE id = $1`, id).Scan(&token)
+	if err != nil {
+		return "", xerrors.Errorf("querying partner token: %w", err)
+	}
+
+	// Build the base URL from HTTP config
+	baseURL := fmt.Sprintf("https://%s", a.deps.Cfg.HTTP.DomainName)
+
+	payload := connectStringPayload{
+		URL:   baseURL,
+		Token: token,
+	}
+
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", xerrors.Errorf("marshaling connect string: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(jsonBytes), nil
+}
+
+// RSealListProviders returns all remote seal providers (client side).
+func (a *WebRPC) RSealListProviders(ctx context.Context) ([]RSealProvider, error) {
+	var providers []RSealProvider
+	err := a.deps.DB.Select(ctx, &providers, `SELECT id, sp_id, provider_url, provider_token, provider_name, enabled, created_at, updated_at FROM rseal_client_providers ORDER BY id`)
+	if err != nil {
+		return nil, xerrors.Errorf("listing providers: %w", err)
+	}
+	if providers == nil {
+		providers = []RSealProvider{}
+	}
+	return providers, nil
+}
+
+// RSealAddProvider adds a remote seal provider from a connect string.
+func (a *WebRPC) RSealAddProvider(ctx context.Context, spID int64, connectString string) (*RSealProvider, error) {
+	// Decode connect string
+	jsonBytes, err := base64.StdEncoding.DecodeString(connectString)
+	if err != nil {
+		return nil, xerrors.Errorf("decoding connect string: %w", err)
+	}
+
+	var payload connectStringPayload
+	if err := json.Unmarshal(jsonBytes, &payload); err != nil {
+		return nil, xerrors.Errorf("parsing connect string: %w", err)
+	}
+
+	if payload.URL == "" || payload.Token == "" {
+		return nil, fmt.Errorf("connect string missing url or token")
+	}
+
+	// Prevent adding ourselves as a provider
+	if a.deps.Cfg.HTTP.DomainName != "" {
+		selfURL := fmt.Sprintf("https://%s", a.deps.Cfg.HTTP.DomainName)
+		if payload.URL == selfURL || payload.URL == selfURL+"/" {
+			return nil, fmt.Errorf("cannot add yourself as a provider")
+		}
+	}
+
+	var provider RSealProvider
+	err = a.deps.DB.QueryRow(ctx, `INSERT INTO rseal_client_providers (sp_id, provider_url, provider_token, provider_name)
+		VALUES ($1, $2, $3, $4) RETURNING id, sp_id, provider_url, provider_token, provider_name, enabled, created_at, updated_at`,
+		spID, payload.URL, payload.Token, "").Scan(
+		&provider.ID, &provider.SpID, &provider.ProviderURL, &provider.ProviderToken,
+		&provider.ProviderName, &provider.Enabled, &provider.CreatedAt, &provider.UpdatedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("inserting provider: %w", err)
+	}
+	return &provider, nil
+}
+
+// RSealRemoveProvider deletes a remote seal provider. Rejects if active pipeline rows exist.
+func (a *WebRPC) RSealRemoveProvider(ctx context.Context, id int64) error {
+	var count int64
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM rseal_client_pipeline WHERE provider_id = $1 AND after_cleanup = FALSE`, id).Scan(&count)
+	if err != nil {
+		// Table might not exist if no sectors have been delegated yet
+		if err != sql.ErrNoRows {
+			return xerrors.Errorf("checking active pipelines: %w", err)
+		}
+	}
+	if count > 0 {
+		return fmt.Errorf("cannot remove provider: %d active pipeline rows exist", count)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM rseal_client_providers WHERE id = $1`, id)
+	if err != nil {
+		return xerrors.Errorf("deleting provider: %w", err)
+	}
+	return nil
+}
+
+// RSealToggleProvider enables or disables a remote seal provider.
+func (a *WebRPC) RSealToggleProvider(ctx context.Context, id int64, enabled bool) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE rseal_client_providers SET enabled = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, id, enabled)
+	if err != nil {
+		return xerrors.Errorf("toggling provider: %w", err)
+	}
+	return nil
+}
+
+// RSealUpdateProviderName updates the display name for a client-side provider.
+func (a *WebRPC) RSealUpdateProviderName(ctx context.Context, id int64, name string) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE rseal_client_providers SET provider_name = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, id, name)
+	if err != nil {
+		return xerrors.Errorf("updating provider name: %w", err)
+	}
+	return nil
+}
+
+// RSealProviderAvailability is the result of probing a provider's /available endpoint.
+type RSealProviderAvailability struct {
+	ID        int64  `json:"id"`
+	Available bool   `json:"available"`
+	Error     string `json:"error,omitempty"` // non-empty if the probe failed
+}
+
+// RSealCheckProviderAvailability probes each configured provider's /available
+// endpoint and returns whether it currently has slots. This is called from the
+// client UI so operators can see at a glance which providers are ready.
+func (a *WebRPC) RSealCheckProviderAvailability(ctx context.Context) ([]RSealProviderAvailability, error) {
+	var providers []struct {
+		ID    int64  `db:"id"`
+		URL   string `db:"provider_url"`
+		Token string `db:"provider_token"`
+	}
+	err := a.deps.DB.Select(ctx, &providers, `SELECT id, provider_url, provider_token FROM rseal_client_providers WHERE enabled = TRUE ORDER BY id`)
+	if err != nil {
+		return nil, xerrors.Errorf("listing providers for availability check: %w", err)
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	results := make([]RSealProviderAvailability, len(providers))
+	for i, p := range providers {
+		results[i].ID = p.ID
+
+		reqBody := sealmarket.AuthorizeRequest{PartnerToken: p.Token}
+		bodyBytes, err := json.Marshal(reqBody)
+		if err != nil {
+			results[i].Error = err.Error()
+			continue
+		}
+
+		availURL, _ := url.JoinPath(p.URL, sealmarket.DelegatedSealPath, "available")
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, availURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			results[i].Error = err.Error()
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			results[i].Error = err.Error()
+			continue
+		}
+
+		var availResp sealmarket.AvailableResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&availResp)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			results[i].Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+			continue
+		}
+		if decErr != nil {
+			results[i].Error = decErr.Error()
+			continue
+		}
+
+		results[i].Available = availResp.Available
+	}
+
+	return results, nil
+}
+
+// RSealProviderPipeline returns active provider-side pipeline rows.
+func (a *WebRPC) RSealProviderPipeline(ctx context.Context) ([]RSealProvPipelineRow, error) {
+	var rows []RSealProvPipelineRow
+	err := a.deps.DB.Select(ctx, &rows, `SELECT p.sp_id, p.sector_number, d.partner_name,
+		p.task_id_sdr, p.after_sdr, p.task_id_tree_d, p.after_tree_d,
+		p.task_id_tree_c, p.after_tree_c, p.task_id_tree_r, p.after_tree_r,
+		p.task_id_notify_client, p.after_notify_client, p.after_c1_supplied,
+		p.task_id_finalize, p.after_finalize, p.task_id_cleanup, p.after_cleanup,
+		p.failed, p.failed_reason_msg, p.create_time
+		FROM rseal_provider_pipeline p
+		JOIN rseal_delegated_partners d ON p.partner_id = d.id
+		WHERE p.after_cleanup = FALSE
+		ORDER BY p.create_time DESC
+		LIMIT 100`)
+	if err != nil {
+		return nil, xerrors.Errorf("querying provider pipeline: %w", err)
+	}
+	if rows == nil {
+		rows = []RSealProvPipelineRow{}
+	}
+	return rows, nil
+}
+
+// RSealClientPipeline returns active client-side pipeline rows.
+func (a *WebRPC) RSealClientPipeline(ctx context.Context) ([]RSealClientPipelineRow, error) {
+	var rows []RSealClientPipelineRow
+	err := a.deps.DB.Select(ctx, &rows, `SELECT c.sp_id, c.sector_number, COALESCE(p.provider_name, p.provider_url) AS provider_name,
+		c.task_id_delegate, c.after_delegate, c.task_id_poll, c.after_sdr,
+		c.task_id_fetch, c.after_fetch,
+		c.task_id_cleanup, c.after_cleanup,
+		c.failed, c.failed_reason_msg, c.create_time
+		FROM rseal_client_pipeline c
+		JOIN rseal_client_providers p ON c.provider_id = p.id
+		WHERE c.after_cleanup = FALSE
+		ORDER BY c.create_time DESC
+		LIMIT 100`)
+	if err != nil {
+		return nil, xerrors.Errorf("querying client pipeline: %w", err)
+	}
+	if rows == nil {
+		rows = []RSealClientPipelineRow{}
+	}
+	return rows, nil
+}
+
+// RSealProviderStats returns aggregate statistics for the remote seal provider pipeline.
+func (a *WebRPC) RSealProviderStats(ctx context.Context) (*PipelineStats, error) {
+	var out PipelineStats
+
+	const query = `
+WITH pipeline_data AS (
+    SELECT p.*,
+           sdr.owner_id AS sdr_owner,
+           td.owner_id AS tree_d_owner,
+           tc.owner_id AS tree_c_owner,
+           tr.owner_id AS tree_r_owner,
+           notify.owner_id AS notify_owner,
+           fin.owner_id AS finalize_owner,
+           clean.owner_id AS cleanup_owner
+    FROM rseal_provider_pipeline p
+    LEFT JOIN harmony_task sdr ON sdr.id = p.task_id_sdr
+    LEFT JOIN harmony_task td ON td.id = p.task_id_tree_d
+    LEFT JOIN harmony_task tc ON tc.id = p.task_id_tree_c
+    LEFT JOIN harmony_task tr ON tr.id = p.task_id_tree_r
+    LEFT JOIN harmony_task notify ON notify.id = p.task_id_notify_client
+    LEFT JOIN harmony_task fin ON fin.id = p.task_id_finalize
+    LEFT JOIN harmony_task clean ON clean.id = p.task_id_cleanup
+    WHERE p.after_cleanup = FALSE AND p.failed = FALSE
+)
+SELECT
+    COUNT(*) AS total,
+
+    -- SDR stage
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NULL) AS sdr_pending,
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_sdr IS NOT NULL AND sdr_owner IS NOT NULL) AS sdr_running,
+
+    -- TreeD stage
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NULL) AS treed_pending,
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_tree_d = false AND task_id_tree_d IS NOT NULL AND tree_d_owner IS NOT NULL) AS treed_running,
+
+    -- TreeC stage
+    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NULL) AS treec_pending,
+    COUNT(*) FILTER (WHERE after_tree_d = true AND after_tree_c = false AND task_id_tree_c IS NOT NULL AND tree_c_owner IS NOT NULL) AS treec_running,
+
+    -- TreeR stage
+    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NULL) AS treer_pending,
+    COUNT(*) FILTER (WHERE after_tree_c = true AND after_tree_r = false AND task_id_tree_r IS NOT NULL AND tree_r_owner IS NOT NULL) AS treer_running,
+
+    -- Notify stage
+    COUNT(*) FILTER (WHERE after_tree_r = true AND after_notify_client = false AND task_id_notify_client IS NOT NULL AND notify_owner IS NULL) AS notify_pending,
+    COUNT(*) FILTER (WHERE after_tree_r = true AND after_notify_client = false AND task_id_notify_client IS NOT NULL AND notify_owner IS NOT NULL) AS notify_running,
+
+    -- Finalize stage
+    COUNT(*) FILTER (WHERE after_c1_supplied = true AND after_finalize = false AND task_id_finalize IS NOT NULL AND finalize_owner IS NULL) AS finalize_pending,
+    COUNT(*) FILTER (WHERE after_c1_supplied = true AND after_finalize = false AND task_id_finalize IS NOT NULL AND finalize_owner IS NOT NULL) AS finalize_running,
+
+    -- Cleanup stage
+    COUNT(*) FILTER (WHERE after_finalize = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NULL) AS cleanup_pending,
+    COUNT(*) FILTER (WHERE after_finalize = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NOT NULL) AS cleanup_running
+FROM pipeline_data
+`
+
+	var cts []struct {
+		Total int64 `db:"total"`
+
+		SDRPending      int64 `db:"sdr_pending"`
+		SDRRunning      int64 `db:"sdr_running"`
+		TreeDPending    int64 `db:"treed_pending"`
+		TreeDRunning    int64 `db:"treed_running"`
+		TreeCPending    int64 `db:"treec_pending"`
+		TreeCRunning    int64 `db:"treec_running"`
+		TreeRPending    int64 `db:"treer_pending"`
+		TreeRRunning    int64 `db:"treer_running"`
+		NotifyPending   int64 `db:"notify_pending"`
+		NotifyRunning   int64 `db:"notify_running"`
+		FinalizePending int64 `db:"finalize_pending"`
+		FinalizeRunning int64 `db:"finalize_running"`
+		CleanupPending  int64 `db:"cleanup_pending"`
+		CleanupRunning  int64 `db:"cleanup_running"`
+	}
+
+	err := a.deps.DB.Select(ctx, &cts, query)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to run remote seal provider stats query: %w", err)
+	}
+
+	if len(cts) == 0 {
+		return &PipelineStats{
+			Total: 0,
+			Stages: []PipelineStage{
+				{Name: "SDR", Pending: 0, Running: 0},
+				{Name: "TreeD", Pending: 0, Running: 0},
+				{Name: "TreeC", Pending: 0, Running: 0},
+				{Name: "TreeR", Pending: 0, Running: 0},
+				{Name: "Notify", Pending: 0, Running: 0},
+				{Name: "Finalize", Pending: 0, Running: 0},
+				{Name: "Cleanup", Pending: 0, Running: 0},
+			},
+		}, nil
+	}
+
+	counts := cts[0]
+
+	out.Total = counts.Total
+	out.Stages = []PipelineStage{
+		{Name: "SDR", Pending: counts.SDRPending, Running: counts.SDRRunning},
+		{Name: "TreeD", Pending: counts.TreeDPending, Running: counts.TreeDRunning},
+		{Name: "TreeC", Pending: counts.TreeCPending, Running: counts.TreeCRunning},
+		{Name: "TreeR", Pending: counts.TreeRPending, Running: counts.TreeRRunning},
+		{Name: "Notify", Pending: counts.NotifyPending, Running: counts.NotifyRunning},
+		{Name: "Finalize", Pending: counts.FinalizePending, Running: counts.FinalizeRunning},
+		{Name: "Cleanup", Pending: counts.CleanupPending, Running: counts.CleanupRunning},
+	}
+
+	return &out, nil
+}
+
+// RSealClientStats returns aggregate statistics for the remote seal client pipeline.
+func (a *WebRPC) RSealClientStats(ctx context.Context) (*PipelineStats, error) {
+	var out PipelineStats
+
+	const query = `
+WITH pipeline_data AS (
+    SELECT c.*,
+           del.owner_id AS delegate_owner,
+           pol.owner_id AS poll_owner,
+           ftch.owner_id AS fetch_owner,
+           cln.owner_id AS cleanup_owner
+    FROM rseal_client_pipeline c
+    LEFT JOIN harmony_task del ON del.id = c.task_id_delegate
+    LEFT JOIN harmony_task pol ON pol.id = c.task_id_poll
+    LEFT JOIN harmony_task ftch ON ftch.id = c.task_id_fetch
+    LEFT JOIN harmony_task cln ON cln.id = c.task_id_cleanup
+    WHERE c.after_cleanup = FALSE AND c.failed = FALSE
+)
+SELECT
+    COUNT(*) AS total,
+
+    -- Delegate stage
+    COUNT(*) FILTER (WHERE task_id_delegate IS NOT NULL AND delegate_owner IS NULL) AS delegate_pending,
+    COUNT(*) FILTER (WHERE task_id_delegate IS NOT NULL AND delegate_owner IS NOT NULL) AS delegate_running,
+
+    -- Poll stage
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_poll IS NOT NULL AND poll_owner IS NULL) AS poll_pending,
+    COUNT(*) FILTER (WHERE after_sdr = false AND task_id_poll IS NOT NULL AND poll_owner IS NOT NULL) AS poll_running,
+
+    -- Fetch stage
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NULL) AS fetch_pending,
+    COUNT(*) FILTER (WHERE after_sdr = true AND after_fetch = false AND task_id_fetch IS NOT NULL AND fetch_owner IS NOT NULL) AS fetch_running,
+
+    -- Cleanup stage
+    COUNT(*) FILTER (WHERE after_fetch = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NULL) AS cleanup_pending,
+    COUNT(*) FILTER (WHERE after_fetch = true AND after_cleanup = false AND task_id_cleanup IS NOT NULL AND cleanup_owner IS NOT NULL) AS cleanup_running
+FROM pipeline_data
+`
+
+	var cts []struct {
+		Total int64 `db:"total"`
+
+		DelegatePending int64 `db:"delegate_pending"`
+		DelegateRunning int64 `db:"delegate_running"`
+		PollPending     int64 `db:"poll_pending"`
+		PollRunning     int64 `db:"poll_running"`
+		FetchPending    int64 `db:"fetch_pending"`
+		FetchRunning    int64 `db:"fetch_running"`
+		CleanupPending  int64 `db:"cleanup_pending"`
+		CleanupRunning  int64 `db:"cleanup_running"`
+	}
+
+	err := a.deps.DB.Select(ctx, &cts, query)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to run remote seal client stats query: %w", err)
+	}
+
+	if len(cts) == 0 {
+		return &PipelineStats{
+			Total: 0,
+			Stages: []PipelineStage{
+				{Name: "Delegate", Pending: 0, Running: 0},
+				{Name: "Poll", Pending: 0, Running: 0},
+				{Name: "Fetch", Pending: 0, Running: 0},
+				{Name: "Cleanup", Pending: 0, Running: 0},
+			},
+		}, nil
+	}
+
+	counts := cts[0]
+
+	out.Total = counts.Total
+	out.Stages = []PipelineStage{
+		{Name: "Delegate", Pending: counts.DelegatePending, Running: counts.DelegateRunning},
+		{Name: "Poll", Pending: counts.PollPending, Running: counts.PollRunning},
+		{Name: "Fetch", Pending: counts.FetchPending, Running: counts.FetchRunning},
+		{Name: "Cleanup", Pending: counts.CleanupPending, Running: counts.CleanupRunning},
+	}
+
+	return &out, nil
+}

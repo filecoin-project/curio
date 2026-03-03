@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func TestCurioHappyPath(t *testing.T) {
 
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, testutils.YBCQLPort(), config.DefaultCurioConfig())
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
@@ -122,6 +124,15 @@ func TestCurioHappyPath(t *testing.T) {
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
+	// Enable all sealing subsystems needed for the full pipeline.
+	baseCfg.Subsystems.EnableSealSDR = true
+	baseCfg.Subsystems.EnableSealSDRTrees = true
+	baseCfg.Subsystems.EnableSendPrecommitMsg = true
+	baseCfg.Subsystems.EnablePoRepProof = true
+	baseCfg.Subsystems.EnableSendCommitMsg = true
+	baseCfg.Subsystems.EnableMoveStorage = true
+	baseCfg.Subsystems.UseSyntheticPoRep = true
+
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
 
@@ -135,7 +146,7 @@ func TestCurioHappyPath(t *testing.T) {
 		_ = os.Remove(dir)
 	}()
 
-	capi, enginerTerm, closure, finishCh := ConstructCurioTest(ctx, t, dir, db, idxStore, full, maddr, baseCfg)
+	capi, enginerTerm, closure, finishCh, _ := ConstructCurioTest(ctx, t, dir, db, idxStore, full, maddr, baseCfg)
 	defer enginerTerm()
 	defer closure()
 
@@ -423,7 +434,7 @@ func createCliContext(dir string) (*cli.Context, error) {
 	return ctx, nil
 }
 
-func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmonydb.DB, idx *indexstore.IndexStore, full v1api.FullNode, maddr address.Address, cfg *config.CurioConfig) (api.Curio, func(), jsonrpc.ClientCloser, <-chan struct{}) {
+func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmonydb.DB, idx *indexstore.IndexStore, full v1api.FullNode, maddr address.Address, cfg *config.CurioConfig) (api.Curio, func(), jsonrpc.ClientCloser, <-chan struct{}, *deps.Deps) {
 	ffiselect.IsTest = true
 
 	cctx, err := createCliContext(dir)
@@ -444,27 +455,55 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	dependencies.DB = db
 	dependencies.Chain = full
 	dependencies.IndexStore = idx
+	dependencies.Cfg = cfg // set before PopulateRemainingDeps so it skips DB config load
 	seal.SetDevnet(true)
 	err = os.Setenv("CURIO_REPO_PATH", dir)
 	require.NoError(t, err)
 	err = dependencies.PopulateRemainingDeps(ctx, cctx, false)
 	require.NoError(t, err)
 
+	// Register storage BEFORE starting tasks to avoid a race where the task
+	// engine picks up sectors before any storage path is known (causes
+	// "storage claim failed" for SyntheticProofs and similar tasks).
+	scfg := storiface.LocalStorageMeta{
+		ID:         storiface.ID(uuid.New().String()),
+		Weight:     10,
+		CanSeal:    true,
+		CanStore:   true,
+		MaxStorage: 0,
+		Groups:     []string{},
+		AllowTo:    []string{},
+	}
+
+	{
+		b, serr := json.MarshalIndent(scfg, "", "  ")
+		require.NoError(t, serr)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "sectorstore.json"), b, 0644))
+	}
+	require.NoError(t, dependencies.LocalStore.OpenPath(ctx, dir))
+	require.NoError(t, dependencies.LocalPaths.SetStorage(func(sc *storiface.StorageConfig) {
+		sc.StoragePaths = append(sc.StoragePaths, storiface.LocalPath{Path: dir})
+	}))
+
 	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 	require.NoError(t, err)
 
 	go func() {
 		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
-		require.NoError(t, err)
+		if err != nil && ctx.Err() == nil {
+			// Log but don't fail for bind errors — when running multiple Curio instances
+			// in the same test they share a hardcoded listen port which causes EADDRINUSE.
+			t.Logf("ListenAndServe error (non-fatal): %v", err)
+		}
 	}()
 
 	finishCh := node.MonitorShutdown(shutdownChan)
 
 	var machines []string
-	err = db.Select(ctx, &machines, `select host_and_port from harmony_machines`)
+	err = db.Select(ctx, &machines, `select host_and_port from harmony_machines order by id desc`)
 	require.NoError(t, err)
 
-	require.Len(t, machines, 1)
+	require.GreaterOrEqual(t, len(machines), 1)
 	laddr, err := net.ResolveTCPAddr("tcp", machines[0])
 	require.NoError(t, err)
 
@@ -495,26 +534,10 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	capi, ccloser, err := rpc.GetCurioAPI(&cli.Context{})
 	require.NoError(t, err)
 
-	scfg := storiface.LocalStorageMeta{
-		ID:         storiface.ID(uuid.New().String()),
-		Weight:     10,
-		CanSeal:    true,
-		CanStore:   true,
-		MaxStorage: 0,
-		Groups:     []string{},
-		AllowTo:    []string{},
-	}
-
-	err = capi.StorageInit(ctx, dir, scfg)
-	require.NoError(t, err)
-
-	err = capi.StorageAddLocal(ctx, dir)
-	require.NoError(t, err)
-
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
 	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
-	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
+	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh, dependencies
 }
 
 // Helper functions to handle nil or null values

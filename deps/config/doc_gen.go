@@ -786,6 +786,14 @@ NOTE: This definitely is not safe on PoSt nodes.`,
 only need to be run on a single machine in the cluster. (Default: false)`,
 		},
 		{
+			Name: "WebInstanceColorHue",
+			Type: "uint8",
+
+			Comment: `WebInstanceColorHue sets a hue value (0-255) to visually identify this cluster instance in the web GUI.
+When set, the UI displays a 3px right border with a pastel desaturated color of the specified hue.
+Examples: 0=LightCoral, 60=Khaki, 120=LightGreen, 240=LightSteelBlue`,
+		},
+		{
 			Name: "GuiAddress",
 			Type: "string",
 
@@ -810,6 +818,48 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Type: "bool",
 
 			Comment: `EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)`,
+		},
+		{
+			Name: "EnableRemoteSealProvider",
+			Type: "bool",
+
+			Comment: `EnableRemoteSealProvider enables the remote seal provider on this node.
+When enabled, this node will accept seal orders from remote clients and perform
+SDR + tree computation on their behalf. (Default: false)`,
+		},
+		{
+			Name: "RemoteSealProviderMaxTasks",
+			Type: "int",
+
+			Comment: `RemoteSealProviderMaxTasks limits how many concurrent remote seal orders the provider
+will process. This controls the number of Notify, Finalize, and Cleanup tasks that can
+run simultaneously. SDR/Tree concurrency is controlled by the existing SealSDRMaxTasks
+and SealSDRTreesMaxTasks settings. Set to 0 for unlimited. (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "RemoteSealCleanupTimeout",
+			Type: "time.Duration",
+
+			Comment: `RemoteSealCleanupTimeout is how long the provider keeps sealed sector data after
+notifying the client of completion. If the client doesn't trigger cleanup within this
+period, the provider automatically cleans up the data. (Default: 72h)`,
+		},
+		{
+			Name: "EnableRemoteSealClient",
+			Type: "bool",
+
+			Comment: `EnableRemoteSealClient enables the remote seal client on this node.
+When enabled, this node can delegate SDR + tree computation to remote providers
+configured in the rseal_client_providers table. (Default: false)`,
+		},
+		{
+			Name: "RSealClientFetchMaxTasks",
+			Type: "int",
+
+			Comment: `RSealClientFetchMaxTasks limits how many concurrent remote seal fetch tasks can
+run on this node. Each fetch downloads ~32 GiB of sealed data from a remote
+provider, so this effectively caps concurrent download bandwidth usage.
+Set to 0 for unlimited. (Default: 8)`,
 		},
 		{
 			Name: "EnableDealMarket",
