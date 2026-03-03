@@ -1,11 +1,10 @@
-package pdp
+package pdpv0
 
 import (
 	"context"
 	"encoding/json"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -93,7 +92,7 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(int64(dataSetId)))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), big.NewInt(int64(dataSetId)))
 	if err != nil {
 		return xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
 	}
@@ -164,12 +163,12 @@ func extractDataSetIdFromReceipt(receipt *types.Receipt) (int64, error) {
 
 func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {
 	// Get the proving schedule from the listener (handles view contract indirection)
-	schedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ethClient)
+	schedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ethClient)
 	if err != nil {
 		return 0, 0, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
 
-	config, err := schedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
+	config, err := schedule.GetPDPConfig(contract.EthCallOpts(ctx))
 	if err != nil {
 		return 0, 0, xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}

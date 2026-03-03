@@ -1,15 +1,13 @@
-package pdp
+package pdpv0
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
 	"net/url"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -17,7 +15,6 @@ import (
 	"github.com/ipni/go-libipni/maurl"
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -34,17 +31,17 @@ import (
 
 func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched, idx *indexstore.IndexStore) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingPieceDeletes(ctx, db, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process pending piece delete: %s", err)
-		}
+		// Zen: processPendingCleanup is currently disabled because we want to debug an observation
+		// that removed pieces cause unexpected proving failures. Rather than just comment out the
+		// DB delete we comment out the whole function call because otherwise the PDPVerifier liveness
+		// checks have been observed to cripple the curio lotus ETH RPC connection
 
-		err = processPendingCleanup(ctx, db, ethClient)
-		if err != nil {
-			log.Warnf("Failed to process pending piece cleanup: %s", err)
-		}
+		// err := processPendingCleanup(ctx, db, ethClient)
+		// if err != nil {
+		// 	log.Warnf("Failed to process pending piece cleanup: %s", err)
+		// }
 
-		err = processIndexingAndIPNICleanup(ctx, db, cfg, idx)
+		err := processIndexingAndIPNICleanup(ctx, db, cfg, idx)
 		if err != nil {
 			log.Warnf("Failed to process indexing and IPNI cleanup: %s", err)
 		}
@@ -55,81 +52,8 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *
 	}
 }
 
-func processPendingPieceDeletes(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
-
-	var pendingDeletes []struct {
-		DataSetID int64        `db:"data_set"`
-		PieceID   int64        `db:"piece_id"`
-		TxHash    string       `db:"rm_message_hash"`
-		TxSuccess sql.NullBool `db:"tx_success"`
-	}
-
-	err := db.Select(ctx, &pendingDeletes, `SELECT
-    												psp.data_set,
-    												psp.piece_id,
-    												psp.rm_message_hash,
-													mwe.tx_success
-												FROM pdp_data_set_pieces psp
-												LEFT JOIN message_waits_eth mwe ON mwe.signed_tx_hash = psp.rm_message_hash
-												WHERE psp.rm_message_hash IS NOT NULL
-												  AND psp.removed = FALSE`)
-	if err != nil {
-		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
-	}
-
-	if len(pendingDeletes) == 0 {
-		return nil
-	}
-
-	pdpAddress := contract.ContractAddresses().PDPVerifier
-
-	verifier, err := contract.NewPDPVerifier(pdpAddress, ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
-	}
-
-	for _, piece := range pendingDeletes {
-		if !piece.TxSuccess.Valid {
-			log.Debugf("for piece ($d:$d) tx %s not found in message_waits_eth", piece.DataSetID, piece.PieceID, piece.TxHash)
-			continue
-		}
-
-		// NOTE(Kubuxu): this is a bit fragile, as one failing piece will stop processing of the rest of deleted pieces
-		if !piece.TxSuccess.Bool {
-			return xerrors.Errorf("failed to process pending piece delete as transaction %s failed: %w", piece.TxHash, err)
-		}
-
-		removals, err := verifier.GetScheduledRemovals(&bind.CallOpts{Context: ctx}, big.NewInt(piece.DataSetID))
-		if err != nil {
-			return xerrors.Errorf("failed to get scheduled removals: %w", err)
-		}
-
-		contains := lo.Contains(removals, big.NewInt(piece.PieceID))
-		if !contains {
-			// Huston! we have a serious problem
-			return xerrors.Errorf("piece %d is not scheduled for removal", piece.PieceID)
-		}
-		log.Infow("noticed scheduled deletion, marking as removed", "dataSetId", piece.DataSetID, "pieceID", piece.PieceID, "txHash", piece.TxHash)
-
-		n, err := db.Exec(ctx, `UPDATE pdp_data_set_pieces
-								SET removed = TRUE
-								WHERE data_set = $1
-								  AND piece_id = $2
-								  AND rm_message_hash = $3
-								  AND removed = FALSE`, piece.DataSetID, piece.PieceID, piece.TxHash)
-		if err != nil {
-			return xerrors.Errorf("failed to update pdp_data_set_pieces: %w", err)
-		}
-
-		if n != 1 {
-			return xerrors.Errorf("expected to update 1 row but updated %d", n)
-		}
-	}
-
-	return nil
-}
-
-func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+//nolint:unused // TODO: reinstate after debugging
+func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	var pieces []struct {
 		DataSetID int64 `db:"data_set"`
 		PieceID   int64 `db:"piece_id"`
@@ -152,18 +76,17 @@ func processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *eth
 	}
 
 	for _, piece := range pieces {
-		live, err := verifier.PieceLive(nil, big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
+		live, err := verifier.PieceLive(contract.EthCallOpts(ctx), big.NewInt(piece.DataSetID), big.NewInt(piece.PieceID))
 		if err != nil {
 			return xerrors.Errorf("failed to check if piece is live: %w", err)
 		}
 
 		if !live {
-			// XXX(Kubuxu): commented out as this has lead to proving failures
-			//_, err := db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2`, piece.DataSetID, piece.PieceID)
-			err = nil
+			_, err = db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2 AND removed = TRUE`, piece.DataSetID, piece.PieceID)
 			if err != nil {
 				return xerrors.Errorf("failed to delete piece %d: %w", piece.PieceID, err)
 			}
+			log.Infow("deleted confirmed-removed piece from DB", "dataSetId", piece.DataSetID, "pieceId", piece.PieceID)
 		}
 	}
 

@@ -42,15 +42,15 @@ const (
 	PDP_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
 )
 
-type PDPIPNITask struct {
+type PDPV0IPNITask struct {
 	db  *harmonydb.DB
 	cpr *cachedreader.CachedPieceReader
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
 }
 
-func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPIPNITask {
-	return &PDPIPNITask{
+func NewPDPV0IPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPV0IPNITask {
+	return &PDPV0IPNITask{
 		db:  db,
 		cpr: cpr,
 		cfg: cfg,
@@ -58,7 +58,7 @@ func NewPDPIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.Cache
 	}
 }
 
-func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	var tasks []struct {
@@ -283,7 +283,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	return true, nil
 }
 
-func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
+func (P *PDPV0IPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
 		n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL
@@ -306,11 +306,11 @@ func (P *PDPIPNITask) recordCompletion(ctx context.Context, taskID harmonytask.T
 	return nil
 }
 
-func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (P *PDPV0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
 }
 
-func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
+func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPv0_IPNI",
 		Cost: resources.Resources{
@@ -325,7 +325,7 @@ func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (P *PDPV0IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// schedule submits
 	var stop bool
 	for !stop {
@@ -374,7 +374,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 	return nil
 }
 
-func (P *PDPIPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (P *PDPV0IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 // The ipni provider key for pdp is at PDP_SP_ID
 func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
@@ -418,8 +418,8 @@ func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
 	return pid, nil
 }
 
-var _ harmonytask.TaskInterface = &PDPIPNITask{}
-var _ = harmonytask.Reg(&PDPIPNITask{})
+var _ harmonytask.TaskInterface = &PDPV0IPNITask{}
+var _ = harmonytask.Reg(&PDPV0IPNITask{})
 
 // PdpIpniContext is used to generate the context bytes for PDP IPNI ads
 type PdpIpniContext struct {

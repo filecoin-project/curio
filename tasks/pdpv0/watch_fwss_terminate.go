@@ -1,11 +1,10 @@
-package pdp
+package pdpv0
 
 import (
 	"context"
 	"database/sql"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
@@ -54,7 +53,7 @@ func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient
 	}
 
 	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	viewAddr, err := contract.ResolveViewAddress(sAddr, ethClient)
+	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, ethClient)
 	if err != nil {
 		return xerrors.Errorf("failed to get FWSS view address: %w", err)
 	}
@@ -73,7 +72,7 @@ func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient
 			return xerrors.Errorf("filecoin warm storage service termination tx %s failed for data set %d", detail.TxHash, detail.DataSetId)
 		}
 
-		ds, err := fwssv.GetDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(detail.DataSetId))
+		ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(detail.DataSetId))
 		if err != nil {
 			return xerrors.Errorf("failed to get data set %d: %w", detail.DataSetId, err)
 		}

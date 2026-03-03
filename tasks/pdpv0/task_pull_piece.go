@@ -1,4 +1,4 @@
-package pdp
+package pdpv0
 
 import (
 	"context"
@@ -109,6 +109,7 @@ func (t *PDPPullPieceTask) pollPullItems(ctx context.Context) {
 			}
 		}
 
+		log.Debugw("PDPv0_PullPiece: found pending pull items, scheduling tasks", "count", len(items))
 		for _, item := range items {
 			fetchID := item.FetchID
 			pieceCid := item.PieceCid
@@ -172,6 +173,8 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	item := items[0]
+
+	log.Debugw("PDPv0_PullPiece starting", "taskID", taskID, "pieceCid", item.PieceCid, "sourceUrl", item.SourceURL, "rawSize", item.PieceRawSize)
 
 	// Parse expected CID
 	expectedCid, err := cid.Parse(item.PieceCid)
@@ -239,10 +242,12 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		// Register piece with service (parallels notify_task.go for uploads)
+		// Set needs_save_cache=TRUE for large pieces to enable proactive caching
+		needsSaveCache := uint64(item.PieceRawSize) >= MinSizeForCache
 		_, err = tx.Exec(`
-			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at)
-			VALUES ($1, $2, $3, NOW())
-		`, service, item.PieceCid, pieceRef)
+			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
+			VALUES ($1, $2, $3, NOW(), $4)
+		`, service, item.PieceCid, pieceRef, needsSaveCache)
 		if err != nil {
 			return false, xerrors.Errorf("insert pdp_piecerefs: %w", err)
 		}
@@ -281,6 +286,8 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 	if parsedURL.Scheme != "https" && (!allowHTTP || parsedURL.Scheme != "http") {
 		return uuid.UUID{}, xerrors.Errorf("source URL must use HTTPS scheme, got: %s", parsedURL.Scheme)
 	}
+
+	log.Debugw("PDPv0_PullPiece: downloading piece from source", "sourceURL", sourceURL, "expectedSize", expectedSize, "expectedCid", expectedCid)
 
 	// 1 hour timeout for entire pull operation
 	ctx, cancel := context.WithTimeout(ctx, time.Hour)
@@ -340,6 +347,8 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 		return uuid.UUID{}, xerrors.Errorf("size mismatch: expected %d, got %d", expectedSize, readSize)
 	}
 
+	log.Debugw("PDPv0_PullPiece: download complete, verifying CommP", "sourceURL", sourceURL, "readSize", readSize, "stashID", stashID)
+
 	// Finalize CommP calculation
 	digest, _, err := cp.Digest()
 	if err != nil {
@@ -359,6 +368,8 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 		_ = t.storage.StashRemove(ctx, stashID)
 		return uuid.UUID{}, xerrors.Errorf("CommP mismatch: expected %s, got %s", expectedCid, computedCid)
 	}
+
+	log.Debugw("PDPv0_PullPiece: CommP verified, piece stored in stash", "computedCid", computedCid, "stashID", stashID)
 
 	return stashID, nil
 }

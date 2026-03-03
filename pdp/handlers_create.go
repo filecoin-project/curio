@@ -90,7 +90,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		logCreate.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
 	}
 
-	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
 		logCreate.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
@@ -152,7 +152,11 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 		// Enable indexing if the extraData indicates indexing is needed
 		if mustIndex {
 			logCreate.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
-			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
+			subPieceRefIDs := make([]int64, 0, len(subPieceInfoMap))
+			for _, info := range subPieceInfoMap {
+				subPieceRefIDs = append(subPieceRefIDs, info.PDPPieceRefID)
+			}
+			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceRefIDs); err != nil {
 				return false, err
 			}
 		}

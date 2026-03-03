@@ -1,4 +1,4 @@
-package pdp
+package pdpv0
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -49,7 +48,7 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	viewAddr, err := contract.ResolveViewAddress(sAddr, t.ethClient)
+	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, t.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get FWSS view address: %w", err)
 	}
@@ -58,7 +57,7 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
 	}
 
-	ds, err := fwssv.GetDataSet(&bind.CallOpts{Context: ctx}, big.NewInt(dataSetId))
+	ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get data set %d: %w", dataSetId, err)
 	}
