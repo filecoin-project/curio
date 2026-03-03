@@ -624,7 +624,7 @@ func (p *PDPService) handleDeleteDataSet(w http.ResponseWriter, r *http.Request)
 	// ### DEL /data-sets/{set id}
 	// Remove the specified data set entirely
 
-	http.Error(w, "todo", http.StatusBadRequest)
+	http.Error(w, "dataset deletion not yet implemented", http.StatusNotImplemented)
 }
 
 // handleGetPieceAdditionStatus handles GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}
@@ -906,6 +906,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	}
 	if !found {
 		http.Error(w, "Piece not found", http.StatusNotFound)
+		return
 	}
 
 	// Get the ABI and pack the transaction data
