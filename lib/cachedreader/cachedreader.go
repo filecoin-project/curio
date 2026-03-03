@@ -277,8 +277,26 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 			return reader, dealRawSize, nil
 		}
 
-		// MK20 deal: try piece park first if piece_ref is set and valid
-		if dl.PieceRef.Valid {
+		// MK20 deal: for piece_ref 0 or invalid (e.g. AggregateTypeV2 single piece in sector),
+		// try sector read first; otherwise try piece park then sector.
+		if (!dl.PieceRef.Valid || dl.PieceRef.Int64 == 0) && dl.Offset.Valid {
+			// No piece park ref or ref=0: read directly from sector (e.g. V2 with tail index section).
+			sr := storiface.SectorRef{
+				ID: abi.SectorID{
+					Miner:  abi.ActorID(dl.SpID),
+					Number: abi.SectorNumber(dl.Sector),
+				},
+				ProofType: dl.Proof,
+			}
+			reader, err := cpr.sectorReader.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(dl.Offset.Int64).Unpadded()), dl.Length.Unpadded(), pieceCid)
+			if err == nil {
+				return reader, uint64(dl.RawSize), nil
+			}
+			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from sector: %w", err))
+		}
+
+		// MK20 deal: try piece park when piece_ref is set and non-zero
+		if dl.PieceRef.Valid && dl.PieceRef.Int64 != 0 {
 			ref := dl.PieceRef.Int64
 			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
 			if err == nil {
@@ -287,7 +305,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
 		}
 
-		// MK20 deal: fallback to sector read (e.g. AggregateTypeV2: single piece already in sector with tail index section)
+		// MK20 deal: fallback to sector read (e.g. when piece park failed or piece_ref was 0 but Offset was missing earlier)
 		if !dl.Offset.Valid {
 			merr = multierror.Append(merr, xerrors.Errorf("MK20 deal has no piece_offset for sector read"))
 			continue
@@ -310,6 +328,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 	return nil, 0, merr
 }
 
+// GetPieceReaderByRef returns a reader for the piece stored in the piece park under the given ref_id (pieceref:N).
+// Used by indexing when the task has url=pieceref:N so we can read the piece before market_piece_deal is populated.
+func (cpr *CachedPieceReader) GetPieceReaderByRef(ctx context.Context, pieceRef int64) (storiface.Reader, uint64, error) {
+	ref := pieceRef
+	return cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
+}
+
 func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceRef *int64, pieceCid *cid.Cid, pieceSize *abi.PaddedPieceSize) (storiface.Reader, uint64, error) {
 	type pieceData struct {
 		ID           int64  `db:"id"`
@@ -321,6 +346,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 
 	if pieceRef != nil {
 		var pdr []pieceData
+		// Do not require long_term = TRUE: Mk20 SourceAggregate (e.g. exa-gateway) inserts with long_term = FALSE.
 		err := cpr.db.Select(ctx, &pdr, `
 										SELECT
 										  pp.id,
@@ -328,13 +354,34 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 										  pp.piece_raw_size
 										FROM parked_piece_refs pr
 										JOIN parked_pieces     pp ON pp.id = pr.piece_id
-										WHERE pr.ref_id = $1 AND pp.complete = TRUE and pp.long_term = TRUE;
-    `, pieceRef)
+										WHERE pr.ref_id = $1 AND pp.complete = TRUE;
+    `, *pieceRef)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", pieceRef, err)
+			return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", *pieceRef, err)
 		}
 		if len(pdr) > 0 {
 			pd = append(pd, pdr...)
+		} else {
+			// Diagnostic: see why ref wasn't found (ref missing vs piece not complete)
+			var diag []struct {
+				RefID    int64  `db:"ref_id"`
+				PieceID  int64  `db:"piece_id"`
+				Complete bool   `db:"complete"`
+				PieceCID string `db:"piece_cid"`
+			}
+			_ = cpr.db.Select(ctx, &diag, `
+				SELECT pr.ref_id, pr.piece_id, pp.complete, pp.piece_cid
+				FROM parked_piece_refs pr
+				LEFT JOIN parked_pieces pp ON pp.id = pr.piece_id
+				WHERE pr.ref_id = $1`, *pieceRef)
+			if len(diag) > 0 {
+				d := diag[0]
+				if !d.Complete {
+					return nil, 0, fmt.Errorf("piece_ref %d exists but piece id=%d is not complete (ParkPiece may still be running or failed); piece_cid=%s",
+						*pieceRef, d.PieceID, d.PieceCID)
+				}
+				// complete=true but we didn't get it above — shouldn't happen
+			}
 		}
 	}
 
@@ -349,7 +396,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 										FROM parked_pieces
 										WHERE piece_cid = $1 AND piece_padded_size = $2;`, pcid.String(), *pieceSize)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", pieceRef, err)
+			return nil, 0, fmt.Errorf("failed to query parked_pieces by piece_cid: %w", err)
 		}
 		if len(pdc) > 0 {
 			pd = append(pd, pdc...)
@@ -357,7 +404,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 	}
 
 	if len(pd) == 0 {
-		return nil, 0, fmt.Errorf("failed to find piece in parked_pieces for piece_ref %d", pieceRef)
+		if pieceRef != nil {
+			return nil, 0, fmt.Errorf("failed to find piece in parked_pieces for piece_ref %d (ref_id not in parked_piece_refs or piece was removed; check DB and that indexing runs after ParkPiece completes)", *pieceRef)
+		}
+		if pieceCid != nil {
+			return nil, 0, fmt.Errorf("failed to find piece in parked_pieces for piece_cid %s", pieceCid.String())
+		}
+		return nil, 0, fmt.Errorf("failed to find piece in parked_pieces")
 	}
 
 	pcid, err := cid.Parse(pd[0].PieceCid)
