@@ -232,14 +232,14 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 		}
 		// sanity check that the rawSize in the CommPv2 matches the totalSize of the subPieces
 		if rawSize != totalSize {
-			return nil, nil, nil, fmt.Errorf("raw size miss-match: expected %d, got %d", totalSize, rawSize)
+			return nil, nil, nil, fmt.Errorf("raw size mismatch: expected %d, got %d", totalSize, rawSize)
 		}
 
 		/* TODO: this doesn't work, do we need it?
 		// sanity check that height and totalSize match
 		computedHeight := bits.LeadingZeros64(totalSize-1) - 5
 		if computedHeight != int(height) {
-			http.Error(w, fmt.Sprintf("Height miss-match: expected %d, got %d for total size %d", computedHeight, height, totalSize), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Height mismatch: expected %d, got %d for total size %d", computedHeight, height, totalSize), http.StatusBadRequest)
 		}
 		*/
 
