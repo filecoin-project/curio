@@ -98,7 +98,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	var pcid, pcid2 cid.Cid
 	var psize int64
 
-	if details.SpID == -1 {
+	if details.SpID <= 0 {
 		var pi itype.PdpIpniContext
 		err = pi.Unmarshal(details.ContextID)
 		if err != nil {
@@ -138,7 +138,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	details.PieceSize = psize
 	details.PieceCidV2 = pcid2.String()
 
-	if details.SpID == -1 {
+	if details.SpID <= 0 {
 		details.Miner = "PDP"
 	} else {
 		maddr, err := address.NewIDAddress(uint64(details.SpID))
@@ -243,7 +243,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	}
 
 	for i := range summary {
-		if summary[i].SpId == -1 {
+		if summary[i].SpId <= 0 {
 			summary[i].Miner = "PDP"
 		} else {
 			maddr, err := address.NewIDAddress(uint64(summary[i].SpId))

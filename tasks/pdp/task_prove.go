@@ -20,10 +20,10 @@ import (
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-keccak"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -232,10 +232,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		log.Infof("PDP Prove Task: dataSetID: %d, taskID: %d, proofs: %s", dataSetID, taskID, proofStr)
 	} */
 
-	// If gas used is 0 fee is maximized
-	gasFee := big.NewInt(0)
-
-	fee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetID), gasFee)
+	fee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
@@ -284,7 +281,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		"taskID", taskID,
 		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
-		"gasFeeEstimate", gasFee,
 		"proofFee initial", fee.Div(fee, big.NewInt(3)),
 		"proofFee 3x", fee,
 		"txEth", txEth,
@@ -362,7 +358,7 @@ func generateChallengeIndex(seed abi.Randomness, dataSetID int64, proofIndex int
 	data = append(data, proofIndexBytes...)
 
 	// Compute the Keccak-256 hash
-	hash := sha3.NewLegacyKeccak256()
+	hash := keccak.NewLegacyKeccak256()
 	hash.Write(data)
 	hashBytes := hash.Sum(nil)
 

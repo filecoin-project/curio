@@ -567,19 +567,19 @@ description: The default curio configuration
   #DelegateTLS = false
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #ReadTimeout = "10s"
+  #ReadTimeout = "30m0s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #IdleTimeout = "1h0m0s"
+  #IdleTimeout = "30m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
   #
   # type: time.Duration
   #ReadHeaderTimeout = "5s"
@@ -1065,6 +1065,13 @@ description: The default curio configuration
     # type: time.Duration
     #Slack = "6h0m0s"
 
+    # Maximum number of sectors per precommit batch message. The batch will be submitted
+    # immediately when this many sectors are ready, without waiting for the timeout.
+    # 0 = use the protocol maximum. (Default: 0)
+    #
+    # type: int
+    #MaxBatch = 0
+
   # Commit batching configuration
   #
   # type: CommitBatchingConfig
@@ -1087,6 +1094,13 @@ description: The default curio configuration
     #
     # type: time.Duration
     #Slack = "1h0m0s"
+
+    # Maximum number of sectors per commit batch message. The batch will be submitted
+    # immediately when this many sectors are ready, without waiting for the timeout.
+    # 0 = use the protocol maximum. (Default: 0)
+    #
+    # type: int
+    #MaxBatch = 0
 
   # Snap Deals batching configuration
   #

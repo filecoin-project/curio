@@ -129,8 +129,8 @@ func DefaultCurioConfig() *CurioConfig {
 		HTTP: HTTPConfig{
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
-			ReadTimeout:       time.Second * 10,
-			IdleTimeout:       time.Hour,
+			ReadTimeout:       time.Minute * 30,
+			IdleTimeout:       time.Minute * 30,
 			ReadHeaderTimeout: time.Second * 5,
 			CORSOrigins:       []string{},
 			CSP:               "inline",
@@ -720,6 +720,11 @@ type PreCommitBatchingConfig struct {
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
 	Slack time.Duration
+
+	// Maximum number of sectors per precommit batch message. The batch will be submitted
+	// immediately when this many sectors are ready, without waiting for the timeout.
+	// 0 = use the protocol maximum. (Default: 0)
+	MaxBatch int
 }
 
 type CommitBatchingConfig struct {
@@ -734,6 +739,11 @@ type CommitBatchingConfig struct {
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
 	Slack time.Duration
+
+	// Maximum number of sectors per commit batch message. The batch will be submitted
+	// immediately when this many sectors are ready, without waiting for the timeout.
+	// 0 = use the protocol maximum. (Default: 0)
+	MaxBatch int
 }
 
 type UpdateBatchingConfig struct {
@@ -876,15 +886,15 @@ type HTTPConfig struct {
 	DelegateTLS bool
 
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
 	ReadTimeout time.Duration
 
 	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
 	IdleTimeout time.Duration
 
 	// ReadHeaderTimeout is amount of time allowed to read request headers
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
 	ReadHeaderTimeout time.Duration
 
 	// CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.

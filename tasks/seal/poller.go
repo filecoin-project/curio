@@ -76,15 +76,18 @@ type SealPoller struct {
 }
 
 func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
+	precommitMax := ClampMaxBatch(cfg.Batching.PreCommit.MaxBatch, miner15.PreCommitSectorBatchMaxSize)
+	commitMax := ClampMaxBatch(cfg.Batching.Commit.MaxBatch, 256)
+
 	c := pollerConfig{
 		commit: commitBatchingConfig{
 			MinCommitBatch: miner.MinAggregatedSectors,
-			MaxCommitBatch: 256,
+			MaxCommitBatch: commitMax,
 			Slack:          cfg.Batching.Commit.Slack,
 			Timeout:        cfg.Batching.Commit.Timeout,
 		},
 		preCommit: preCommitBatchingConfig{
-			MaxPreCommitBatch: miner15.PreCommitSectorBatchMaxSize,
+			MaxPreCommitBatch: precommitMax,
 			Slack:             cfg.Batching.PreCommit.Slack,
 			Timeout:           cfg.Batching.PreCommit.Timeout,
 		},
