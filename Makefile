@@ -266,6 +266,7 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
+gensimple: LANG=en_US.UTF-8
 gensimple: api-gen go-generate cfgdoc-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
