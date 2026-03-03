@@ -51,8 +51,6 @@ type Record struct {
 	Size   uint64  `json:"size"`
 }
 
-var ErrNotFound = errors.New("not found")
-
 func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Timeout = 5 * time.Minute
