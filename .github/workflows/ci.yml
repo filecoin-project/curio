@@ -202,6 +202,10 @@ jobs:
             target: "./itests/alertnow_test.go"
           - name: test-itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
+          - name: test-itest-dyncfg
+            target: "./itests/dyncfg_test.go"
+          - name: test-itest-market-deal-dynamic
+            target: "./itests/market_deal_dynamic_test.go"
     steps:
       - uses: actions/checkout@v4
 

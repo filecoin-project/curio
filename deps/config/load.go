@@ -539,6 +539,11 @@ func FixTOML(newText string, cfg *CurioConfig) error {
 		return xerrors.Errorf("Error decoding TOML for length detection: %w", err)
 	}
 
+	// Ensure Addresses is initialized (config can be partial when testing or during dynamic updates)
+	if cfg.Addresses == nil {
+		cfg.Addresses = NewDynamic([]CurioAddresses{})
+	}
+
 	l := len(lengthDetector.Addresses)
 	addrs := cfg.Addresses.GetWithoutLock()
 	il := len(addrs)

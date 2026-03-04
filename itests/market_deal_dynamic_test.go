@@ -120,6 +120,10 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	baseCfg.Subsystems.EnableDealMarket = true
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
+	// Market libp2p requires HTTP server and domain name (use distinct port from worker 12345)
+	baseCfg.HTTP.Enable = true
+	baseCfg.HTTP.DomainName = "localhost"
+	baseCfg.HTTP.ListenAddress = "0.0.0.0:12346"
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
@@ -475,6 +479,10 @@ func TestMarketDealSystemBasic(t *testing.T) {
 	baseCfg.Subsystems.EnableDealMarket = true
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
+	// Market libp2p requires HTTP server and domain name (use distinct port from worker 12345)
+	baseCfg.HTTP.Enable = true
+	baseCfg.HTTP.DomainName = "localhost"
+	baseCfg.HTTP.ListenAddress = "0.0.0.0:12346"
 
 	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)

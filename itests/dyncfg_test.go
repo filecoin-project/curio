@@ -20,6 +20,13 @@ func TestDynamicConfig(t *testing.T) {
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
 	require.NoError(t, err)
 
+	// Insert minimal base layer (required by GetConfigs)
+	baseCfg := config.DefaultCurioConfig()
+	baseToml, err := config.TransparentMarshal(baseCfg)
+	require.NoError(t, err)
+	_, err = cdb.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ('base', $1) ON CONFLICT (title) DO UPDATE SET config = $1`, string(baseToml))
+	require.NoError(t, err)
+
 	databaseContents := &config.CurioConfig{
 		HTTP: config.HTTPConfig{
 			ListenAddress: "first value",
@@ -58,6 +65,6 @@ func setTestConfig(ctx context.Context, cdb *harmonydb.DB, cfg *config.CurioConf
 	if err != nil {
 		return err
 	}
-	_, err = cdb.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2)`, "testcfg", string(tomlData))
+	_, err = cdb.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, "testcfg", string(tomlData))
 	return err
 }
