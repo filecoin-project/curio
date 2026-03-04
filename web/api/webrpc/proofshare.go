@@ -424,15 +424,15 @@ type ProofShareClientRequest struct {
 	TaskID          int64      `db:"task_id"           json:"task_id"`
 	SpID            int64      `db:"sp_id"`
 	SectorNum       int64      `db:"sector_num"        json:"sector_num"`
-	RequestCID      NullString `db:"request_cid"       json:"request_cid,omitempty"`
+	RequestCID      NullString `db:"request_cid"       json:"request_cid"`
 	RequestUploaded bool       `db:"request_uploaded"  json:"request_uploaded"`
-	PaymentWallet   NullInt64  `db:"payment_wallet"    json:"payment_wallet,omitempty"`
-	PaymentNonce    NullInt64  `db:"payment_nonce"     json:"payment_nonce,omitempty"`
+	PaymentWallet   NullInt64  `db:"payment_wallet"    json:"payment_wallet"`
+	PaymentNonce    NullInt64  `db:"payment_nonce"     json:"payment_nonce"`
 	RequestSent     bool       `db:"request_sent"      json:"request_sent"`
 	ResponseData    []byte     `db:"response_data"     json:"response_data,omitempty"`
 	Done            bool       `db:"done"              json:"done"`
 	CreatedAt       time.Time  `db:"created_at"        json:"created_at"`
-	DoneAt          NullTime   `db:"done_at"           json:"done_at,omitempty"`
+	DoneAt          NullTime   `db:"done_at"           json:"done_at"`
 
 	PaymentAmount *string `db:"-" json:"payment_amount"`
 	SpIDStr       string  `db:"-" json:"sp_id"`

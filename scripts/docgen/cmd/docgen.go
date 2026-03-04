@@ -36,7 +36,7 @@ func main() {
 			groups[groupName] = g
 		}
 
-		var args []interface{}
+		var args []any
 		ft := m.Func.Type()
 		for j := 2; j < ft.NumIn(); j++ {
 			inp := ft.In(j)
@@ -82,7 +82,6 @@ func main() {
 	}
 
 	for _, g := range groupslice {
-		g := g
 		fmt.Printf("### %s\n", g.GroupName)
 		fmt.Printf("%s\n\n", g.Header)
 

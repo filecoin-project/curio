@@ -114,14 +114,14 @@ func (d *deviceOrdinalManager) Get() int {
 }
 
 type ValErr struct {
-	Val []interface{}
+	Val []any
 	Err string
 }
 
 // This is not the one you're looking for.
 type FFICall struct {
 	Fn   string
-	Args []interface{}
+	Args []any
 }
 
 func subStrInSet(set []string, sub string) bool {
@@ -265,7 +265,7 @@ var FFISelect struct {
 // //////////////////////////
 
 func init() {
-	_, err := jsonrpc.NewCustomClient("FFI", []interface{}{&FFISelect}, call)
+	_, err := jsonrpc.NewCustomClient("FFI", []any{&FFISelect}, call)
 	if err != nil {
 		panic(err)
 	}

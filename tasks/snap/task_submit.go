@@ -192,7 +192,6 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	transferMap := make(map[int64]*updateCids)
 
 	for _, update := range tasks {
-		update := update
 
 		// Check miner ID is same for all sectors in batch
 		tmpMaddr, err := address.NewIDAddress(uint64(update.SpID))
@@ -442,7 +441,6 @@ func (s *SubmitTask) transferUpdatedSectorData(ctx context.Context, spID int64, 
 
 	commit, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		for sectorNum, cids := range transferMap {
-			sectorNum, cids := sectorNum, cids
 			n, err := tx.Exec(`UPDATE sectors_meta SET cur_sealed_cid = $1,
 	                        		cur_unsealed_cid = $2, msg_cid_update = $3
 	                        		WHERE sp_id = $4 AND sector_num = $5`, cids.sealed.String(), cids.unsealed.String(), mcid.String(), spID, sectorNum)

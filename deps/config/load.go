@@ -25,12 +25,12 @@ import (
 
 // FromFile loads config from a specified file overriding defaults specified in
 // the def parameter. If file does not exist or is empty defaults are assumed.
-func FromFile(path string, opts ...LoadCfgOpt) (interface{}, error) {
+func FromFile(path string, opts ...LoadCfgOpt) (any, error) {
 	loadOpts, err := applyOpts(opts...)
 	if err != nil {
 		return nil, err
 	}
-	var def interface{}
+	var def any
 	if loadOpts.defaultCfg != nil {
 		def, err = loadOpts.defaultCfg()
 		if err != nil {
@@ -67,7 +67,7 @@ func FromFile(path string, opts ...LoadCfgOpt) (interface{}, error) {
 }
 
 // FromReader loads config from a reader instance.
-func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interface{}, error) {
+func FromReader(reader io.Reader, def any, opts ...LoadCfgOpt) (any, error) {
 	loadOpts, err := applyOpts(opts...)
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interfac
 
 // move a value from the location in the valPtr struct specified by oldPath, to the location
 // specified by newPath; where the path is an array of nested field names.
-func moveFieldValue(valPtr interface{}, oldPath []string, newPath []string) error {
+func moveFieldValue(valPtr any, oldPath []string, newPath []string) error {
 	oldValue, err := getFieldValue(valPtr, oldPath)
 	if err != nil {
 		return err
@@ -154,8 +154,8 @@ func moveFieldValue(valPtr interface{}, oldPath []string, newPath []string) erro
 }
 
 // recursively iterate into `path` to find the terminal value
-func getFieldValue(val interface{}, path []string) (reflect.Value, error) {
-	if reflect.ValueOf(val).Kind() == reflect.Ptr {
+func getFieldValue(val any, path []string) (reflect.Value, error) {
+	if reflect.ValueOf(val).Kind() == reflect.Pointer {
 		val = reflect.ValueOf(val).Elem().Interface()
 	}
 	field := reflect.ValueOf(val).FieldByName(path[0])
@@ -177,9 +177,9 @@ type movedField struct {
 }
 
 // inspect the fields recursively within a struct and find any with "moved" tags
-func findMovedFields(path []string, val interface{}) []movedField {
+func findMovedFields(path []string, val any) []movedField {
 	dep := make([]movedField, 0)
-	if reflect.ValueOf(val).Kind() == reflect.Ptr {
+	if reflect.ValueOf(val).Kind() == reflect.Pointer {
 		val = reflect.ValueOf(val).Elem().Interface()
 	}
 	t := reflect.TypeOf(val)
@@ -204,7 +204,7 @@ func findMovedFields(path []string, val interface{}) []movedField {
 }
 
 type cfgLoadOpts struct {
-	defaultCfg           func() (interface{}, error)
+	defaultCfg           func() (any, error)
 	canFallbackOnDefault func() error
 	validate             func(string) error
 	warningWriter        io.Writer
@@ -223,7 +223,7 @@ func applyOpts(opts ...LoadCfgOpt) (cfgLoadOpts, error) {
 	return loadOpts, nil
 }
 
-func SetDefault(f func() (interface{}, error)) LoadCfgOpt {
+func SetDefault(f func() (any, error)) LoadCfgOpt {
 	return func(opts *cfgLoadOpts) error {
 		opts.defaultCfg = f
 		return nil
@@ -305,7 +305,7 @@ func NoEnv() UpdateCfgOpt {
 }
 
 // ConfigUpdate takes in a config and a default config and optionally comments out default values
-func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, error) {
+func ConfigUpdate(cfgCur, cfgDef any, opts ...UpdateCfgOpt) ([]byte, error) {
 	var updateOpts cfgUpdateOpts
 	for _, opt := range opts {
 		if err := opt(&updateOpts); err != nil {
@@ -378,7 +378,7 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 					if doc != nil {
 						// Add section documentation comments
 						if len(doc.Comment) > 0 {
-							for _, docLine := range strings.Split(doc.Comment, "\n") {
+							for docLine := range strings.SplitSeq(doc.Comment, "\n") {
 								outLines = append(outLines, pad+"# "+docLine)
 							}
 							outLines = append(outLines, pad+"#")
@@ -404,7 +404,7 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 					if doc != nil {
 						// found docfield, emit doc comment
 						if len(doc.Comment) > 0 {
-							for _, docLine := range strings.Split(doc.Comment, "\n") {
+							for docLine := range strings.SplitSeq(doc.Comment, "\n") {
 								outLines = append(outLines, pad+"# "+docLine)
 							}
 							outLines = append(outLines, pad+"#")
@@ -461,11 +461,11 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 	return []byte(nodeStr), nil
 }
 
-func ConfigComment(t interface{}) ([]byte, error) {
+func ConfigComment(t any) ([]byte, error) {
 	return ConfigUpdate(t, nil, Commented(true), DefaultKeepUncommented())
 }
 
-func findDoc(root interface{}, section, name string) *DocField {
+func findDoc(root any, section, name string) *DocField {
 	rt := fmt.Sprintf("%T", root)[len("*config."):]
 
 	doc := findDocSect(rt, section, name)

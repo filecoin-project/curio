@@ -149,7 +149,6 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 
 	// 2. Prepare preCommit info and PreCommitSectorBatchParams
 	for _, sectorParams := range sectorParamsArr {
-		sectorParams := sectorParams
 
 		// Check miner ID is same for all sectors in batch
 		tmpMaddr, err := address.NewIDAddress(uint64(sectorParams.SpID))

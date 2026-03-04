@@ -136,7 +136,7 @@ func (s SnapDST) DST() *fr.Element {
 	genRandomnessDST := "0000000000010000000000000000000000000000000000000000000000000000"
 	dstLE := must.One(hex.DecodeString(genRandomnessDST))
 	inverted := make([]byte, len(dstLE))
-	for i := 0; i < len(dstLE); i++ {
+	for i := range dstLE {
 		inverted[i] = dstLE[len(dstLE)-1-i]
 	}
 

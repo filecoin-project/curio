@@ -9,7 +9,7 @@ import (
 
 // TransparentMarshal marshals a struct to TOML, treating Dynamic[T] fields transparently.
 // Dynamic[T] fields are unwrapped and their inner values are marshaled directly.
-func TransparentMarshal(v interface{}) ([]byte, error) {
+func TransparentMarshal(v any) ([]byte, error) {
 	// Create a shadow struct with Dynamic fields unwrapped
 	shadow := UnwrapDynamics(v)
 	return toml.Marshal(shadow)
@@ -19,7 +19,7 @@ func TransparentMarshal(v interface{}) ([]byte, error) {
 // Values are decoded into temporary structs then wrapped in Dynamic.
 // NOTE: For types like types.FIL with unexported pointer fields, the target must be pre-initialized
 // with default values (e.g., types.MustParseFIL("0")) before calling this function.
-func TransparentUnmarshal(data []byte, v interface{}) error {
+func TransparentUnmarshal(data []byte, v any) error {
 	_, err := TransparentDecode(string(data), v)
 	return err
 }
@@ -29,7 +29,7 @@ func TransparentUnmarshal(data []byte, v interface{}) error {
 // NOTE: For types like types.FIL with unexported pointer fields, the target must be pre-initialized
 // with default values (e.g., types.MustParseFIL("0")) before calling this function.
 // NOTE: FixTOML should be called BEFORE this function to ensure proper slice lengths and FIL initialization.
-func TransparentDecode(data string, v interface{}) (toml.MetaData, error) {
+func TransparentDecode(data string, v any) (toml.MetaData, error) {
 	// Create a shadow struct to decode into
 	shadow := createShadowStruct(v)
 
@@ -52,14 +52,14 @@ func TransparentDecode(data string, v interface{}) (toml.MetaData, error) {
 
 // initializeShadowFromTarget copies initialized values from target to shadow
 // This is needed for types like types.FIL that require non-nil internal pointers
-func initializeShadowFromTarget(shadow, target interface{}) {
+func initializeShadowFromTarget(shadow, target any) {
 	shadowVal := reflect.ValueOf(shadow)
 	targetVal := reflect.ValueOf(target)
 
-	if shadowVal.Kind() == reflect.Ptr {
+	if shadowVal.Kind() == reflect.Pointer {
 		shadowVal = shadowVal.Elem()
 	}
-	if targetVal.Kind() == reflect.Ptr {
+	if targetVal.Kind() == reflect.Pointer {
 		targetVal = targetVal.Elem()
 	}
 
@@ -90,7 +90,7 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 		} else if targetField.Kind() == reflect.Struct && hasNestedDynamics(targetField.Type()) {
 			// For nested structs with Dynamic fields, recursively initialize
 			initializeShadowFromTarget(shadowField.Addr().Interface(), targetField.Addr().Interface())
-		} else if targetField.Kind() == reflect.Ptr && !targetField.IsNil() && !shadowField.IsNil() {
+		} else if targetField.Kind() == reflect.Pointer && !targetField.IsNil() && !shadowField.IsNil() {
 			// Handle pointers to structs
 			elemType := targetField.Type().Elem()
 			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
@@ -108,9 +108,9 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 }
 
 // UnwrapDynamics recursively unwraps Dynamic[T] fields for marshaling
-func UnwrapDynamics(v interface{}) interface{} {
+func UnwrapDynamics(v any) any {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 
@@ -144,7 +144,7 @@ func UnwrapDynamics(v interface{}) interface{} {
 		} else if field.Kind() == reflect.Struct && hasNestedDynamics(field.Type()) {
 			// Only recursively unwrap structs that contain Dynamic fields
 			shadowField.Set(reflect.ValueOf(UnwrapDynamics(field.Interface())))
-		} else if field.Kind() == reflect.Ptr && !field.IsNil() {
+		} else if field.Kind() == reflect.Pointer && !field.IsNil() {
 			// Handle pointers - check if the pointed-to type contains Dynamic fields
 			elemType := field.Type().Elem()
 			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
@@ -169,9 +169,9 @@ func UnwrapDynamics(v interface{}) interface{} {
 }
 
 // createShadowStruct creates a struct for unmarshaling where Dynamic fields are their inner types
-func createShadowStruct(v interface{}) interface{} {
+func createShadowStruct(v any) any {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 
@@ -181,7 +181,7 @@ func createShadowStruct(v interface{}) interface{} {
 
 // createShadowType creates a type with Dynamic[T] fields replaced by T
 func createShadowType(t reflect.Type) reflect.Type {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		return reflect.PointerTo(createShadowType(t.Elem()))
 	}
 
@@ -201,7 +201,7 @@ func createShadowType(t reflect.Type) reflect.Type {
 		} else if field.Type.Kind() == reflect.Struct && hasNestedDynamics(field.Type) {
 			// Only recursively modify structs that contain Dynamic fields
 			newField.Type = createShadowType(field.Type)
-		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+		} else if field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct {
 			if hasNestedDynamics(field.Type.Elem()) {
 				newField.Type = reflect.PointerTo(createShadowType(field.Type.Elem()))
 			}
@@ -215,14 +215,14 @@ func createShadowType(t reflect.Type) reflect.Type {
 }
 
 // wrapDynamics copies values from shadow struct to Dynamic fields
-func wrapDynamics(shadow, target interface{}) error {
+func wrapDynamics(shadow, target any) error {
 	shadowVal := reflect.ValueOf(shadow)
 	targetVal := reflect.ValueOf(target)
 
-	if shadowVal.Kind() == reflect.Ptr {
+	if shadowVal.Kind() == reflect.Pointer {
 		shadowVal = shadowVal.Elem()
 	}
-	if targetVal.Kind() == reflect.Ptr {
+	if targetVal.Kind() == reflect.Pointer {
 		targetVal = targetVal.Elem()
 	}
 
@@ -248,7 +248,7 @@ func wrapDynamics(shadow, target interface{}) error {
 			if err != nil {
 				return err
 			}
-		} else if targetField.Kind() == reflect.Ptr && !targetField.IsNil() && !shadowField.IsNil() {
+		} else if targetField.Kind() == reflect.Pointer && !targetField.IsNil() && !shadowField.IsNil() {
 			// Handle pointers to structs
 			elemType := targetField.Type().Elem()
 			if elemType.Kind() == reflect.Struct && hasNestedDynamics(elemType) {
@@ -280,7 +280,7 @@ func wrapDynamics(shadow, target interface{}) error {
 // (renamed to avoid conflict with isDynamicType in dynamic.go)
 func isDynamicTypeForMarshal(t reflect.Type) bool {
 	// Handle pointer to Dynamic
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	name := t.Name()
@@ -289,7 +289,7 @@ func isDynamicTypeForMarshal(t reflect.Type) bool {
 
 // hasNestedDynamics checks if a struct type contains any Dynamic[T] fields
 func hasNestedDynamics(t reflect.Type) bool {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
@@ -305,7 +305,7 @@ func hasNestedDynamics(t reflect.Type) bool {
 		if fieldType.Kind() == reflect.Struct && hasNestedDynamics(fieldType) {
 			return true
 		}
-		if fieldType.Kind() == reflect.Ptr && fieldType.Elem().Kind() == reflect.Struct {
+		if fieldType.Kind() == reflect.Pointer && fieldType.Elem().Kind() == reflect.Struct {
 			if hasNestedDynamics(fieldType.Elem()) {
 				return true
 			}
@@ -319,7 +319,7 @@ func hasNestedDynamics(t reflect.Type) bool {
 // 1. During startup (FromReader) - no concurrent readers, safe
 // 2. During ApplyLayers with treeCopy (not live deps config) - lock is held, safe
 func extractDynamicValue(v reflect.Value) reflect.Value {
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return reflect.Value{}
 		}
@@ -347,7 +347,7 @@ func extractDynamicValue(v reflect.Value) reflect.Value {
 // extractDynamicInnerType gets the T from Dynamic[T]
 func extractDynamicInnerType(t reflect.Type) reflect.Type {
 	// Handle pointer to Dynamic
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -362,7 +362,7 @@ func extractDynamicInnerType(t reflect.Type) reflect.Type {
 
 // setDynamicValue sets a Dynamic[T] field using its Set method
 func setDynamicValue(dynamicField, valueField reflect.Value) {
-	if dynamicField.Kind() == reflect.Ptr {
+	if dynamicField.Kind() == reflect.Pointer {
 		if dynamicField.IsNil() {
 			// Create new Dynamic instance
 			dynamicField.Set(reflect.New(dynamicField.Type().Elem()))

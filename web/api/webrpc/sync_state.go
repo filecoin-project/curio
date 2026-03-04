@@ -38,7 +38,7 @@ func forEachConfig[T any](a *WebRPC, cb func(name string, v T) error) error {
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			if field.Type.Kind() == reflect.Slice && field.Type.Elem() == reflect.TypeOf(config.CurioAddresses{}) {
+			if field.Type.Kind() == reflect.Slice && field.Type.Elem() == reflect.TypeFor[config.CurioAddresses]() {
 				addressesField = v.Field(i)
 				addressesFieldIndex = i
 				break
@@ -158,9 +158,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 			continue
 		}
 		dedup[ai.Addr] = true
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			var clayers []string
 			for layer, adrs := range confNameToAddr {
 				for _, adr := range adrs {
@@ -226,7 +224,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 				Version:   ver.Version,
 				SyncState: syncState,
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

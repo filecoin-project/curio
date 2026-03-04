@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -109,11 +110,9 @@ func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
 	}
 
 	// Look for withIPFSIndexing in the keys array
-	for _, key := range keys {
-		if key == "withIPFSIndexing" {
-			log.Debugw("Found withIPFSIndexing in extraData metadata keys")
-			return true, nil
-		}
+	if slices.Contains(keys, "withIPFSIndexing") {
+		log.Debugw("Found withIPFSIndexing in extraData metadata keys")
+		return true, nil
 	}
 
 	return false, nil

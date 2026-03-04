@@ -828,10 +828,10 @@ func printAllocation(allocations map[verifreg.AllocationId]verifreg.Allocation, 
 	tMax := "TermMax"
 	expr := "Expiration"
 
-	var allocs []map[string]interface{}
+	var allocs []map[string]any
 
 	for key, val := range allocations {
-		alloc := map[string]interface{}{
+		alloc := map[string]any{
 			allocationID: key,
 			client:       val.Client,
 			provider:     val.Provider,
@@ -922,10 +922,7 @@ func CreateAllocationMsg(ctx context.Context, api lapi.Gateway, infos []PieceInf
 	// Batch allocationRequests to create message
 	var messages []*types.Message
 	for i := 0; i < len(allocationRequests); i += batchSize {
-		end := i + batchSize
-		if end > len(allocationRequests) {
-			end = len(allocationRequests)
-		}
+		end := min(i+batchSize, len(allocationRequests))
 		batch := allocationRequests[i:end]
 		arequest := &verifreg9.AllocationRequests{
 			Allocations: batch,

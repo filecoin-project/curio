@@ -241,7 +241,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 			if deal.Products.DDOV1 != nil {
 				ddo := deal.Products.DDOV1
 
-				var allocationID interface{}
+				var allocationID any
 				if ddo.AllocationId != nil {
 					allocationID = *ddo.AllocationId
 				} else {
@@ -334,7 +334,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		return fmt.Errorf("getting piece info: %w", err)
 	}
 
-	var allocationID interface{}
+	var allocationID any
 	if ddo.AllocationId != nil {
 		allocationID = *ddo.AllocationId
 	} else {

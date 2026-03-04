@@ -47,8 +47,7 @@ import (
 )
 
 func TestCurioHappyPath(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	full, miner, esemble := kit.EnsembleMinimal(t,
 		kit.LatestActorsAt(-1),
