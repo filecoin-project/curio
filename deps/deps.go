@@ -452,7 +452,7 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 	if err != nil {
 		return nil, err
 	}
-	err = config.EnableChangeDetection(db, curioConfig, layers, config.FixTOML)
+	err = config.EnableChangeDetection(db, curioConfig, append([]string{"base"}, layers...), config.FixTOML)
 	if err != nil {
 		return nil, err
 	}

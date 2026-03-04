@@ -62,7 +62,7 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	blockTime := 100 * time.Millisecond
 	esemble.BeginMining(blockTime)
 
-	full.WaitTillChain(ctx, kit.HeightAtLeast(15))
+	_ = full.WaitTillChain(ctx, kit.HeightAtLeast(15))
 
 	err := miner.LogSetLevel(ctx, "*", "ERROR")
 	require.NoError(t, err)

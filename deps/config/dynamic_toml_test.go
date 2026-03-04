@@ -124,6 +124,36 @@ func TestTransparentMarshalUnmarshal(t *testing.T) {
 	})
 }
 
+func TestTransparentDecodeDoesNotAliasDynamicValues(t *testing.T) {
+	type CurioAddress struct {
+		MinerAddresses []string
+	}
+	type cfg struct {
+		Addresses *Dynamic[[]CurioAddress]
+	}
+
+	target := cfg{
+		Addresses: NewDynamic([]CurioAddress{{
+			MinerAddresses: []string{"f01002"},
+		}}),
+	}
+
+	// Hold a reference to the pre-decode value. If decode mutates in-place,
+	// this reference will change too.
+	before := target.Addresses.GetWithoutLock()
+
+	input := `
+[[Addresses]]
+MinerAddresses = ["f01002", "f01003"]
+`
+
+	_, err := TransparentDecode(input, &target)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"f01002"}, before[0].MinerAddresses, "pre-decode value was mutated in-place")
+	require.Equal(t, []string{"f01002", "f01003"}, target.Addresses.Get()[0].MinerAddresses)
+}
+
 func TestTransparentMarshalCurioIngest(t *testing.T) {
 	// Test with a subset of CurioIngestConfig
 	type TestIngest struct {
