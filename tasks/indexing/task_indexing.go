@@ -528,9 +528,9 @@ type IndexReader interface {
 	io.Reader
 }
 
-// IndexAggregateV2 indexes an AggregateTypeV2 piece: data at [0, indexStart) is CAR-indexed into recs,
-// then the tail index section is parsed with datasegmentv2.ParseIndexSection (same as exa-gateway sector
-// Finalize) and each segment entry is inserted into the index store as aggregate index (piece_cid -> offset/size).
+// IndexAggregateV2 indexes an AggregateTypeV2 piece: the tail index section is parsed with
+// datasegmentv2.ParseIndexSection (same as exa-gateway sector Finalize). For each blob entry we index by
+// PieceCidV2 and, when present, by the CID mapping; entries with ACL set are skipped.
 func IndexAggregateV2(
 	pieceCid cid.Cid,
 	reader IndexReader,
@@ -546,25 +546,74 @@ func IndexAggregateV2(
 		return 0, nil, false, xerrors.New("V2 tail index section has no entries")
 	}
 
-	// Build aggregate index records and save to indexstore: each entry -> (PieceCID, UnpaddedOffset, UnpaddedLength)
-	records := make([]indexstore.Record, 0, len(idx.Entries))
-	for _, entry := range idx.Entries {
+	// Blob entries: all but the last, which is the MulticodecCIDMappingSection descriptor.
+	blobCount := len(idx.Entries)
+	if blobCount > 0 && idx.Entries[blobCount-1] != nil && idx.Entries[blobCount-1].Multicodec == datasegmentv2.MulticodecCIDMappingSection {
+		blobCount--
+	}
+	if blobCount == 0 {
+		return 0, nil, false, xerrors.New("V2 tail index section has no blob entries")
+	}
+
+	var interrupted bool
+	records := make([]indexstore.Record, 0, blobCount*2) // *2 for possible mapping CIDs
+
+	for i := 0; i < blobCount; i++ {
+		entry := idx.Entries[i]
 		if entry == nil {
 			continue
 		}
-		entry.PieceCID()
-		records = append(records, indexstore.Record{
-			Cid:    entry.PieceCID(),
+		if entry.Multicodec == datasegmentv2.MulticodecCIDMappingSection {
+			continue
+		}
+		if entry.ACLType != 0 {
+			continue // skip ACL entries: do not index them
+		}
+
+		pc2, err := entry.PieceCIDV2()
+		if err != nil {
+			log.Warnw("IndexAggregateV2: skip entry without valid PieceCidV2", "index", i, "err", err)
+			continue
+		}
+		rec := indexstore.Record{
+			Cid:    pc2,
 			Offset: entry.UnpaddedOffset(),
 			Size:   entry.UnpaddedLength(),
-		})
+		}
+		records = append(records, rec)
+		select {
+		case recs <- rec:
+		case <-addFail:
+			interrupted = true
+		}
+		if interrupted {
+			break
+		}
+
+		// Index by mapping CID when present (same offset/size as segment).
+		if i < len(idx.CidMappings) && idx.CidMappings[i] != nil && idx.CidMappings[i].Defined() {
+			mappingRec := indexstore.Record{
+				Cid:    *idx.CidMappings[i],
+				Offset: entry.UnpaddedOffset(),
+				Size:   entry.UnpaddedLength(),
+			}
+			records = append(records, mappingRec)
+			select {
+			case recs <- mappingRec:
+			case <-addFail:
+				interrupted = true
+			}
+			if interrupted {
+				break
+			}
+		}
 	}
+
 	aggidx := map[cid.Cid][]indexstore.Record{
 		pieceCid: records,
 	}
-
 	log.Infow("Indexed AggregateTypeV2 tail index", "piece_cid", pieceCid, "num_entries", len(records))
-	return 0, aggidx, false, nil
+	return 0, aggidx, interrupted, nil
 }
 
 func IndexAggregate(pieceCid cid.Cid,
