@@ -21,6 +21,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/lists"
 )
 
 // FromFile loads config from a specified file overriding defaults specified in
@@ -591,7 +592,7 @@ type ConfigText struct {
 // GetConfigs returns the configs in the order of the layers
 func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]ConfigText, error) {
 	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
-	layers = lo.Uniq(layers)
+	layers = lists.UniqNoAlloc(layers)
 	inputMap := map[string]int{}
 	for i, layer := range layers {
 		inputMap[layer] = i
