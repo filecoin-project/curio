@@ -241,7 +241,15 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	var rawSize abi.UnpaddedPieceSize
-	err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1`, pi.PieceCID.String(), pi.Size).Scan(&rawSize)
+	if task.ID.Valid {
+		err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 AND id = $3 LIMIT 1`, pi.PieceCID.String(), pi.Size, task.ID.String).Scan(&rawSize)
+	} else {
+		err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1`, pi.PieceCID.String(), pi.Size).Scan(&rawSize)
+		if rawSize == 0 {
+			return false, xerrors.Errorf("piece raw size %d not found in market_piece_deal", pi.Size)
+		}
+	}
+
 	if err != nil {
 		return false, xerrors.Errorf("querying raw size: %w", err)
 	}

@@ -226,7 +226,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		} else {
 			serr = server.ListenAndServe()
 		}
-		if serr != nil {
+		if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
 			log.Errorf("Failed to start HTTPS server: %s", serr)
 			panic(serr)
 		}

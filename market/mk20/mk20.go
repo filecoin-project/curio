@@ -482,7 +482,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.CreateDataSet {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
+			n, err := tx.Exec(`INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client, pdp.RecordKeeper, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set create: %w", err)
@@ -493,7 +493,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.DeleteDataSet {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
+			n, err := tx.Exec(`INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set delete: %w", err)
@@ -504,7 +504,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.DeletePiece {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
+			n, err := tx.Exec(`INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
 				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.PieceIDs, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP delete root: %w", err)

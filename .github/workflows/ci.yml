@@ -192,16 +192,26 @@ jobs:
       fail-fast: false  # Continue running even if one test fails
       matrix:
         test-suite:
-          - name: test-itest-curio
-            target: "./itests/curio_test.go"
           - name: test-all
             target: "`go list ./... | grep -v curio/itests`"
-          - name: test-itest-harmonyDB
-            target: "./itests/harmonydb_test.go"
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
+          - name: test-itest-curio
+            target: "./itests/curio_test.go"
+          - name: test-itest-dynamic-config
+            target: "./itests/dyncfg_test.go"
+          - name: test-itest-harmonyDB
+            target: "./itests/harmonydb_test.go"
+          - name: test-itest-market-dynamic-config
+            target: "./itests/market_deal_dynamic_test.go"
           - name: test-itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
+          - name: test-itest-retrievals-test
+            target: "./itests/retrievals_test.go"
+          - name: test-itest-sql-idempotent-test
+            target: "./itests/sql_idempotent_test.go"
+          - name: test-itest-transaction-db-usage
+            target: "./itests/transaction_db_usage_test.go"
     steps:
       - uses: actions/checkout@v4
 
