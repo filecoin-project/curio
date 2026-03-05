@@ -563,7 +563,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                                         <td>
                                             ${piece.PieceCidV2 && piece.PieceCidV2.trim() !== ""
                                                 ? html`<a href="/pages/piece/?id=${piece.PieceCidV2}" @click="${(e) => e.stopPropagation()}">${this.formatCid(piece.PieceCidV2)}</a>`
-                                                : piece.PieceCid ? this.formatCid(piece.PieceCid) : 'N/A'}
+                                                : piece.PieceCid ? html`<a href="/pages/piece/?id=${piece.PieceCid}" @click="${(e) => e.stopPropagation()}">${this.formatCid(piece.PieceCid)}</a>` : 'N/A'}
                                         </td>
                                         <td>${this.formatSize(piece.PieceSize)}</td>
                                         <td>

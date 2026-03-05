@@ -10,10 +10,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/multiformats/go-multicodec"
 	"go.opencensus.io/stats"
-
-	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
@@ -39,23 +36,13 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pieceCidStr := r.URL.Path[prefixLen:]
+	log.Debugw("piece request received for CID", "cid", pieceCidStr)
 	pieceCid, err := cid.Parse(pieceCidStr)
 	if err != nil {
 		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
 		return
-	}
-
-	originalPieceCid := pieceCid
-	if multicodec.Code(pieceCid.Type()) != multicodec.FilCommitmentUnsealed {
-		pieceCid, _, err = commcid.PieceCidV1FromV2(pieceCid)
-		if err != nil {
-			log.Errorf("parsing piece CID as CommPv2 '%s': %s", pieceCidStr, err.Error())
-			w.WriteHeader(http.StatusBadRequest)
-			stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
-			return
-		}
 	}
 
 	// Get a reader over the piece
@@ -85,7 +72,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, originalPieceCid, contentType, int64(size))
+	setHeaders(w, pieceCid, contentType, int64(size))
 	serveContent(w, r, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))

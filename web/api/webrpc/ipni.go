@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -120,17 +122,24 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 
 		pcid = pi.PieceCID
 		psize = int64(pi.Size)
+		pcid2 = pi.PieceCID
 
 		// Get RawSize from market_piece_deal to calculate PieceCidV2
 		var rawSize uint64
-		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 AND raw_size > 0 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to get raw size: %w", err)
-		}
-
-		pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get commp: %w", err)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, xerrors.Errorf("failed to get raw size: %w", err)
+			}
+			log.Warnw("raw_size missing, using piece cid v1", "piece_cid", pi.PieceCID)
+		} else if rawSize >= 127 {
+			pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
+			if err != nil {
+				log.Warnw("failed to generate piece cid v2, using piece cid v1", "piece_cid", pi.PieceCID, "raw_size", rawSize, "err", err)
+				pcid2 = pi.PieceCID
+			}
+		} else {
+			log.Warnw("raw_size unavailable, using piece cid v1", "piece_cid", pi.PieceCID, "raw_size", rawSize)
 		}
 	}
 

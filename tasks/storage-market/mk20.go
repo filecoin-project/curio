@@ -1206,11 +1206,20 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 			if count != 1 {
 				return false, xerrors.Errorf("expected to find a single piece metadata entry for piece cid %s", pieceCID.PieceCID)
 			}
-			// Get raw size from market_piece_deal table for this piece CID
+			// Get raw size from market_piece_deal table for this piece CID.
+			// Old migrations can contain raw_size = 0; skip those rows.
 			var rawSize uint64
-			err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1`, pieceCID.PieceCID).Scan(&rawSize)
+			err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND raw_size > 0 LIMIT 1`, pieceCID.PieceCID).Scan(&rawSize)
 			if err != nil {
-				log.Errorf("failed to get piece deal: %w", err)
+				if errors.Is(err, pgx.ErrNoRows) {
+					log.Warnw("raw_size missing, skipping piece CID migration", "piece_cid", pieceCID.PieceCID)
+					return false, nil
+				}
+				return false, xerrors.Errorf("failed to get piece deal: %w", err)
+			}
+			if rawSize < 127 {
+				log.Warnw("raw_size too small, skipping piece CID migration", "piece_cid", pieceCID.PieceCID, "raw_size", rawSize)
+				return false, nil
 			}
 
 			pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
@@ -1252,6 +1261,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 											  FROM market_piece_deal AS d
 											  WHERE d.piece_cid   = i.piece_cid
 												AND d.piece_length = i.piece_size
+												AND d.raw_size > 0
 											  LIMIT 1
 											) AS mpd ON true
 											WHERE i.piece_cid_v2 IS NULL;`)
@@ -1263,11 +1273,17 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 		pcid, err := cid.Parse(pieceInfo.PieceCID)
 		if err != nil {
 			log.Errorf("failed to parse piece CID: %w", err)
+			continue
+		}
+		if pieceInfo.RawSize < 127 {
+			log.Warnw("raw_size too small, skipping ipni piece_cid_v2 update", "piece_cid", pieceInfo.PieceCID, "raw_size", pieceInfo.RawSize)
+			continue
 		}
 
 		pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
 		if err != nil {
 			log.Errorf("failed to convert to piece cid v2: %w", err)
+			continue
 		}
 
 		_, err = d.db.Exec(ctx, `UPDATE ipni SET piece_cid_v2 = $1 WHERE piece_cid = $2 AND piece_size = $3`, pcid2.String(), pieceInfo.PieceCID, pieceInfo.Size)

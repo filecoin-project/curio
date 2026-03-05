@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -164,7 +164,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		}
 		d.miners.OnChange(func() {
 			newMiners := d.miners.Get()
-			if !cmp.Equal(prevMiners, newMiners, config.BigIntComparer) {
+			if !reflect.DeepEqual(prevMiners, newMiners) {
 				log.Errorf("Miners changed from %d to %d. . Restart required for Market 1.2 Ingest to work.", len(prevMiners), len(newMiners))
 			}
 		})
@@ -295,7 +295,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// gas cost for PSD messages
 	err = d.addPSDTask(ctx)
 	if err != nil {
-		log.Errorf("%w", err)
+		log.Errorf("%s", err)
 	}
 
 	// Process deals

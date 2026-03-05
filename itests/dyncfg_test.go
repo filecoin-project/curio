@@ -41,11 +41,11 @@ func TestDynamicConfig(t *testing.T) {
 	require.NoError(t, setTestConfig(ctx, cdb, databaseContents))
 
 	// "Start the server". This will immediately poll for a config update.
-	require.NoError(t, config.EnableChangeDetection(cdb, databaseContents, []string{"testcfg"}, config.FixTOML))
+	require.NoError(t, config.EnableChangeDetection(cdb, runtimeConfig, []string{"testcfg"}, config.FixTOML))
 
 	// Positive Test: the runtime config should have the new value
 	require.Eventually(t, func() bool {
-		return databaseContents.Ingest.MaxQueueDownload.Get() == 20
+		return runtimeConfig.Ingest.MaxQueueDownload.Get() == 20
 	}, 10*time.Second, 100*time.Millisecond)
 
 	// Negative Test: the runtime config should not have the changed static value
@@ -58,6 +58,10 @@ func setTestConfig(ctx context.Context, cdb *harmonydb.DB, cfg *config.CurioConf
 	if err != nil {
 		return err
 	}
-	_, err = cdb.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2)`, "testcfg", string(tomlData))
+	_, err = cdb.Exec(ctx, `
+		INSERT INTO harmony_config (title, config) VALUES ($1, $2)
+		ON CONFLICT (title) DO UPDATE
+		SET config = EXCLUDED.config, timestamp = NOW()
+	`, "testcfg", string(tomlData))
 	return err
 }

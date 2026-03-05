@@ -561,15 +561,18 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
 		}
+		pieces[i].PieceCidV2 = pcid.String()
 
-		if pieces[i].DataRawSize.Valid {
+		if pieces[i].DataRawSize.Valid && pieces[i].DataRawSize.Int64 >= 127 {
 			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieces[i].DataRawSize.Int64))
-
 			if err != nil {
-				return nil, xerrors.Errorf("failed to generate piece cid v2: %w", err)
+				log.Warnw("failed to generate piece cid v2, using piece cid v1",
+					"piece_cid", pieces[i].PieceCid, "raw_size", pieces[i].DataRawSize.Int64, "err", err)
+			} else {
+				pieces[i].PieceCidV2 = pcid2.String()
 			}
-
-			pieces[i].PieceCidV2 = pcid2.String()
+		} else if pieces[i].DataRawSize.Valid {
+			log.Warnw("raw_size unavailable, using piece cid v1", "piece_cid", pieces[i].PieceCid, "raw_size", pieces[i].DataRawSize.Int64)
 		}
 
 		dataUrl := ""

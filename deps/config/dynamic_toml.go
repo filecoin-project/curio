@@ -80,11 +80,10 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 			// For Dynamic fields, copy the inner initialized value to the unwrapped shadow field
 			innerVal := extractDynamicValue(targetField)
 			if innerVal.IsValid() && innerVal.CanInterface() {
-				// Copy the value (including slices with initialized FIL elements from FixTOML)
-				val := innerVal.Interface()
-				valReflect := reflect.ValueOf(val)
-				if valReflect.Type().AssignableTo(shadowField.Type()) {
-					shadowField.Set(valReflect)
+				// Copy by value (deep clone for refs) so TOML decode doesn't mutate the live target value in-place.
+				cloned := cloneForDecode(innerVal)
+				if cloned.IsValid() && cloned.Type().AssignableTo(shadowField.Type()) {
+					shadowField.Set(cloned)
 				}
 			}
 		} else if targetField.Kind() == reflect.Struct && hasNestedDynamics(targetField.Type()) {
@@ -98,12 +97,69 @@ func initializeShadowFromTarget(shadow, target interface{}) {
 				initializeShadowFromTarget(shadowField.Elem().Addr().Interface(), targetField.Elem().Addr().Interface())
 			} else if targetField.CanInterface() && shadowField.Type() == targetField.Type() {
 				// Copy regular pointer if types match
-				shadowField.Set(reflect.ValueOf(targetField.Interface()))
+				shadowField.Set(cloneForDecode(targetField))
 			}
 		} else if targetField.CanInterface() && shadowField.Type() == targetField.Type() {
 			// Copy regular fields only if types match exactly
-			shadowField.Set(reflect.ValueOf(targetField.Interface()))
+			shadowField.Set(cloneForDecode(targetField))
 		}
+	}
+}
+
+// cloneForDecode creates an independent copy for values copied into the decode shadow.
+// This avoids in-place mutation of live config values when TOML decoding into the shadow struct.
+func cloneForDecode(v reflect.Value) reflect.Value {
+	if !v.IsValid() {
+		return v
+	}
+
+	switch v.Kind() {
+	case reflect.Pointer:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		cp := reflect.New(v.Type().Elem())
+		cp.Elem().Set(cloneForDecode(v.Elem()))
+		return cp
+	case reflect.Slice:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		cp := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			cp.Index(i).Set(cloneForDecode(v.Index(i)))
+		}
+		return cp
+	case reflect.Array:
+		cp := reflect.New(v.Type()).Elem()
+		for i := 0; i < v.Len(); i++ {
+			cp.Index(i).Set(cloneForDecode(v.Index(i)))
+		}
+		return cp
+	case reflect.Map:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		cp := reflect.MakeMapWithSize(v.Type(), v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			cp.SetMapIndex(cloneForDecode(iter.Key()), cloneForDecode(iter.Value()))
+		}
+		return cp
+	case reflect.Struct:
+		cp := reflect.New(v.Type()).Elem()
+		// Start with a full shallow copy so unexported fields remain intact.
+		cp.Set(v)
+		// Deep-copy mutable/settable fields.
+		for i := 0; i < v.NumField(); i++ {
+			if !cp.Field(i).CanSet() {
+				continue
+			}
+			cp.Field(i).Set(cloneForDecode(v.Field(i)))
+		}
+		return cp
+	default:
+		return v
 	}
 }
 
