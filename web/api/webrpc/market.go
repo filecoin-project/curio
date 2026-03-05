@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
-	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/commcidv2"
+	"github.com/filecoin-project/curio/lib/lists"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
 
@@ -455,7 +455,9 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 		return nil, err
 	}
 
-	for _, m := range lo.Uniq(miners) {
+	for _, m := range lists.UniqNoAllocWithComparator(miners, func(i, j int) bool {
+		return bytes.Compare(miners[i].Bytes(), miners[j].Bytes()) < 0
+	}) {
 		balance, err := a.deps.Chain.StateMarketBalance(ctx, m, types.EmptyTSK)
 		if err != nil {
 			return nil, err
