@@ -32,7 +32,7 @@ func UniqNoAllocWithComparator[T any](list []T, less func(a, b int) bool) []T {
 
 outer:
 	for i := 1; i <= j; i++ { // i = index, j last unique's index
-		if !less(matchTarget, i) { // we care about the first dup's value.
+		if !less(matchTarget, i) && !less(i, matchTarget) { // equal: neither less than the other
 			for !less(j-1, j) { // clean up the end so we copy only unique elements.
 				j--
 				if j <= i {
