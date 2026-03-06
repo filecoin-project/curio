@@ -12,7 +12,6 @@ import (
 	"sort"
 	"sync/atomic"
 
-	"github.com/dustin/go-humanize"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -26,7 +25,6 @@ import (
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-keccak"
-	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -578,108 +576,49 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }
 
-// proveSubPieceCached generates a merkle proof using a cached middle layer instead of building the full memtree.
-// Returns nil proof (not error) if no cache is available, so the caller can fall back to the full memtree approach.
-func (p *ProveTask) proveSubPieceCached(ctx context.Context, subPieceCidV1 cid.Cid, pcidV2 cid.Cid, subPieceSize abi.PaddedPieceSize, challengedLeaf int64) (*proof.RawMerkleProof, error) {
-	has, layerIdx, err := p.idx.GetPDPLayerIndex(ctx, pcidV2)
+// cprPieceReader adapts CachedPieceReader to the proof.PieceReader interface.
+// Converts v2 CIDs to v1 for pdpv0's v1-native CachedPieceReader.
+// NOTE: On main branch, GetSharedPieceReader accepts v2 natively so this
+// conversion can be dropped when pdpv0 merges.
+type cprPieceReader struct {
+	cpr *cachedreader.CachedPieceReader
+}
+
+func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, abi.UnpaddedPieceSize, error) {
+	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCid)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to check PDP layer: %w", err)
+		return nil, 0, xerrors.Errorf("failed to derive v1 CID from v2: %w", err)
 	}
-	if !has {
-		return nil, nil // no cache available, caller should fall back
+	return r.cpr.GetSharedPieceReader(ctx, pieceCidV1)
+}
+
+// idxProofCache adapts IndexStore to the proof.ProofCache interface.
+type idxProofCache struct {
+	idx *indexstore.IndexStore
+}
+
+func (c *idxProofCache) GetLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (bool, int, error) {
+	return c.idx.GetPDPLayerIndex(ctx, pieceCidV2)
+}
+
+func (c *idxProofCache) GetNode(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int, index int64) (bool, [32]byte, error) {
+	has, node, err := c.idx.GetPDPNode(ctx, pieceCidV2, layerIdx, index)
+	if err != nil || !has {
+		return has, [32]byte{}, err
 	}
+	return true, node.Hash, nil
+}
 
-	leavesPerNode := int64(1) << layerIdx
-	snapshotNodeIndex := challengedLeaf >> layerIdx
-	startLeaf := snapshotNodeIndex << layerIdx
-
-	has, node, err := p.idx.GetPDPNode(ctx, pcidV2, layerIdx, snapshotNodeIndex)
+func (c *idxProofCache) GetLayer(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int) ([]byte, error) {
+	nodes, err := c.idx.GetPDPLayer(ctx, pieceCidV2, layerIdx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get cached node: %w", err)
+		return nil, err
 	}
-	if !has {
-		return nil, nil // cache incomplete, caller should fall back
+	out := make([]byte, len(nodes)*proof.NODE_SIZE)
+	for i, n := range nodes {
+		copy(out[i*proof.NODE_SIZE:], n.Hash[:])
 	}
-
-	log.Debugw("proveSubPieceCached", "challengedLeaf", challengedLeaf, "layerIdx", layerIdx,
-		"snapshotNodeIndex", snapshotNodeIndex, "startLeaf", startLeaf, "leavesPerNode", leavesPerNode)
-
-	// Convert tree-based leaf range to file-based offset/length
-	offset := int64(abi.PaddedPieceSize(startLeaf * LeafSize).Unpadded())
-	length := int64(abi.PaddedPieceSize(leavesPerNode * LeafSize).Unpadded())
-
-	// Compute padded size for the sub-section memtree
-	subrootSize := padreader.PaddedSize(uint64(length)).Padded()
-
-	// Get file reader
-	reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidV1)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get reader: %w", err)
-	}
-	defer func() {
-		_ = reader.Close()
-	}()
-
-	// Read only the section covering the challenged snapshot node
-	dataReader := io.NewSectionReader(reader, offset, length)
-	fileRemaining := int64(reportedSize) - offset
-
-	var data io.Reader
-	if fileRemaining < length {
-		data = io.MultiReader(dataReader, nullreader.NewNullReader(abi.UnpaddedPieceSize(int64(subrootSize.Unpadded())-fileRemaining)))
-	} else {
-		data = dataReader
-	}
-
-	memtree, err := proof.BuildSha254Memtree(data, subrootSize.Unpadded())
-	if err != nil {
-		return nil, xerrors.Errorf("failed to build section memtree: %w", err)
-	}
-	defer pool.Put(memtree)
-
-	// Get proof within the small section memtree
-	subTreeChallenge := challengedLeaf - startLeaf
-	subTreeProof, err := proof.MemtreeProof(memtree, subTreeChallenge)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to generate section proof: %w", err)
-	}
-
-	// Verify the section root matches the cached node
-	if subTreeProof.Root != node.Hash {
-		return nil, xerrors.Errorf("section root mismatch with cached node: %x != %x", subTreeProof.Root, node.Hash)
-	}
-
-	// Fetch full cached layer and build tree from snapshot to root
-	layerNodes, err := p.idx.GetPDPLayer(ctx, pcidV2, layerIdx)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get cached layer nodes: %w", err)
-	}
-
-	var layerBytes []byte
-	for _, n := range layerNodes {
-		layerBytes = append(layerBytes, n.Hash[:]...)
-	}
-	log.Debugw("proveSubPieceCached layerBytes", "humanSize", humanize.Bytes(uint64(len(layerBytes))),
-		"size", len(layerBytes), "numNodes", len(layerNodes))
-
-	mtree, err := proof.BuildSha254MemtreeFromSnapshot(layerBytes)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
-	}
-	defer pool.Put(mtree)
-
-	// Generate proof from snapshot node to sub-piece root
-	snapshotProof, err := proof.MemtreeProof(mtree, snapshotNodeIndex)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to generate snapshot-to-root proof: %w", err)
-	}
-
-	// Combine: leaf→snapshot + snapshot→root
-	return &proof.RawMerkleProof{
-		Leaf:  subTreeProof.Leaf,
-		Proof: append(subTreeProof.Proof, snapshotProof.Proof...),
-		Root:  snapshotProof.Root,
-	}, nil
+	return out, nil
 }
 
 func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
@@ -740,8 +679,8 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	if isUsingCachedProof {
 		log.Debugw("attempting cached proof generation for sub-piece", "dataSetId", dataSetId, "pieceId", pieceId, "subPieceCid", challSubPiece.SubPiece, "subPieceSize", challSubPiece.SubPieceSize)
 		var subpieceCidV1, subpieceCidV2 cid.Cid
-		var isPieceCidsExtracted = false
-		var isCachedProofRetrieved = false
+		isPieceCidsExtracted := false
+		isCachedProofRetrieved := false
 
 		// First, let's extract the CIDs
 		if spCidV1, parseErr := cid.Parse(challSubPiece.SubPiece); parseErr == nil {
@@ -754,7 +693,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 		// Second, check we can get proofs through a subPieceCached setup
 		if isPieceCidsExtracted {
-			cachedProof, cacheErr := p.proveSubPieceCached(ctx, subpieceCidV1, subpieceCidV2, abi.PaddedPieceSize(challSubPiece.SubPieceSize), subPieceChallengedLeaf)
+			cachedProof, cacheErr := proof.GenerateCachedProof(ctx, &cprPieceReader{cpr: p.cpr}, &idxProofCache{idx: p.idx}, subpieceCidV2, subPieceChallengedLeaf)
 			if cacheErr == nil && cachedProof != nil {
 				subPieceProof = cachedProof
 				isCachedProofRetrieved = true
@@ -971,7 +910,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	var cr [LeafSize]byte
 	copy(cr[:], commPiece)
 
-	if !Verify(out, cr, uint64(challengedLeaf)) {
+	if !proof.VerifyProof(out.Leaf, out.Proof, cr, uint64(challengedLeaf)) {
 		return contract.IPDPTypesProof{}, xerrors.Errorf("proof verification failed")
 	}
 
@@ -1030,31 +969,6 @@ func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
 	lz := bits.LeadingZeros64(uint64(n - 1))
 	return 1 << (64 - lz)
-}
-
-func Verify(proof contract.IPDPTypesProof, root [32]byte, position uint64) bool {
-	computedHash := proof.Leaf
-
-	for i := 0; i < len(proof.Proof); i++ {
-		sibling := proof.Proof[i]
-
-		if position%2 == 0 {
-			log.Debugw("Verify", "position", position, "left-c", hex.EncodeToString(computedHash[:]), "right-s", hex.EncodeToString(sibling[:]), "out", hex.EncodeToString(shabytes(append(computedHash[:], sibling[:]...))[:]))
-			// If position is even, current node is on the left
-			computedHash = sha256.Sum256(append(computedHash[:], sibling[:]...))
-		} else {
-			log.Debugw("Verify", "position", position, "left-s", hex.EncodeToString(sibling[:]), "right-c", hex.EncodeToString(computedHash[:]), "out", hex.EncodeToString(shabytes(append(sibling[:], computedHash[:]...))[:]))
-			// If position is odd, current node is on the right
-			computedHash = sha256.Sum256(append(sibling[:], computedHash[:]...))
-		}
-		computedHash[31] &= 0x3F // set top bits to 00
-
-		// Move up to the parent node
-		position /= 2
-	}
-
-	// Compare the reconstructed root with the expected root
-	return computedHash == root
 }
 
 func shabytes(in []byte) []byte {
