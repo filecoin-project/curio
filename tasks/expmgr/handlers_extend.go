@@ -660,7 +660,6 @@ func countParamsExtensions(params *miner.ExtendSectorExpiration2Params) (uint64,
 			return 0, xerrors.Errorf("counting sectors bitfield: %w", err)
 		}
 		total += count
-		total += uint64(len(ext.SectorsWithClaims))
 	}
 	return total, nil
 }
