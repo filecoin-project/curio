@@ -88,6 +88,7 @@ pub fn generate_groth16_proof<S, D, PR>(
     proofs: &mut [PR],
     srs: &SRS,
     gpu_mtx: *mut core::ffi::c_void,
+    gpu_index: i32,
 ) {
     assert_eq!(ntt_a_scalars.len(), num_circuits);
     assert_eq!(ntt_b_scalars.len(), num_circuits);
@@ -146,6 +147,7 @@ pub fn generate_groth16_proof<S, D, PR>(
             proofs.as_mut_ptr() as *mut _,
             srs,
             gpu_mtx,
+            gpu_index,
         )
     };
 
@@ -215,6 +217,7 @@ extern "C" {
         s_s: *const core::ffi::c_void,
         srs: &SRS,
         gpu_mtx: *mut core::ffi::c_void,
+        gpu_index: i32,
         pending_out: *mut *mut core::ffi::c_void,
     ) -> cuda::Error;
 
@@ -255,6 +258,7 @@ pub fn start_groth16_proof<S, D>(
     s_s: &[S],
     srs: &SRS,
     gpu_mtx: *mut core::ffi::c_void,
+    gpu_index: i32,
 ) -> *mut core::ffi::c_void {
     assert_eq!(ntt_a_scalars.len(), num_circuits);
     assert_eq!(ntt_b_scalars.len(), num_circuits);
@@ -303,6 +307,7 @@ pub fn start_groth16_proof<S, D>(
             s_s.as_ptr() as *const _,
             srs,
             gpu_mtx,
+            gpu_index,
             &mut pending,
         )
     };
@@ -344,6 +349,7 @@ extern "C" {
         proofs: *mut core::ffi::c_void,
         srs: &SRS,
         gpu_mtx: *mut core::ffi::c_void,
+        gpu_index: i32,
     ) -> cuda::Error;
 }
 
@@ -369,6 +375,7 @@ pub fn generate_groth16_proofs<S, PR>(
             proofs.as_mut_ptr() as *mut _,
             srs,
             core::ptr::null_mut(), // no external mutex — uses internal fallback
+            -1,                    // auto GPU selection
         )
     };
 

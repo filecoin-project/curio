@@ -146,43 +146,44 @@ static void ensure_pool_threshold(int cuda_device_id) {
     configured_mask.fetch_or(bit, std::memory_order_relaxed);
 }
 
-// Persistent per-GPU device buffer for d_a.  Shared between both GPU
-// workers on the same device — safe because access is serialized by
-// gpu_mtx.  Allocated on first use via cudaMalloc and never freed
-// (lives for the process lifetime, same as SRS).
+// Persistent per-GPU device buffer for d_a.  One entry per physical GPU,
+// so workers on different GPUs don't thrash a shared allocation.
+// Each entry is protected by gpu_mtx (one worker per GPU at a time).
+// Allocated on first use via cudaMalloc and never freed (process lifetime).
+static constexpr int MAX_GPUS = 16;
 static struct {
     std::mutex mtx;           // protects initial allocation only
     fr_t*      ptr  = nullptr;
     size_t     sz   = 0;      // bytes
-    int        gpu_id = -1;
-} g_d_a_cache;
+} g_d_a_cache[MAX_GPUS];
 
 static fr_t* get_cached_d_a(const gpu_t& gpu, size_t sz_bytes) {
     ensure_pool_threshold(gpu.cid());
 
-    // Fast path: already allocated with correct size on correct GPU.
-    if (g_d_a_cache.ptr && g_d_a_cache.sz == sz_bytes &&
-        g_d_a_cache.gpu_id == gpu.id())
-        return g_d_a_cache.ptr;
+    int gid = gpu.id();
+    assert(gid >= 0 && gid < MAX_GPUS);
+    auto& cache = g_d_a_cache[gid];
+
+    // Fast path: already allocated with correct size.
+    if (cache.ptr && cache.sz == sz_bytes)
+        return cache.ptr;
 
     // Slow path: (re)allocate.  Only happens once per GPU/size combo.
-    std::lock_guard<std::mutex> lk(g_d_a_cache.mtx);
-    if (g_d_a_cache.ptr && g_d_a_cache.sz == sz_bytes &&
-        g_d_a_cache.gpu_id == gpu.id())
-        return g_d_a_cache.ptr;   // another thread won the race
+    std::lock_guard<std::mutex> lk(cache.mtx);
+    if (cache.ptr && cache.sz == sz_bytes)
+        return cache.ptr;   // another thread won the race
 
-    if (g_d_a_cache.ptr) {
+    if (cache.ptr) {
         gpu.select();
-        cudaFree(g_d_a_cache.ptr);
-        g_d_a_cache.ptr = nullptr;
+        cudaFree(cache.ptr);
+        cache.ptr = nullptr;
     }
     gpu.select();
-    CUDA_OK(cudaMalloc(&g_d_a_cache.ptr, sz_bytes));
-    g_d_a_cache.sz = sz_bytes;
-    g_d_a_cache.gpu_id = gpu.id();
+    CUDA_OK(cudaMalloc(&cache.ptr, sz_bytes));
+    cache.sz = sz_bytes;
     fprintf(stderr, "CUZK_TIMING: d_a_cache allocated %zu MiB on gpu %d\n",
-            sz_bytes >> 20, gpu.id());
-    return g_d_a_cache.ptr;
+            sz_bytes >> 20, gid);
+    return cache.ptr;
 }
 
 // Phase 8: Allocate/free a std::mutex on the C++ heap, returned as an
@@ -360,12 +361,17 @@ extern "C" void set_membw_throttle(int value);
 // Phase 12: Async entry point — returns a pending proof handle instead of
 // blocking on b_g2_msm + epilogue. The GPU worker can loop immediately.
 // Call finalize_groth16_proof_c(handle, proofs) later to complete.
+//
+// gpu_index: when >= 0, force all CUDA work to this specific GPU (used for
+// single-circuit partition proofs). When -1, auto-select: spread circuits
+// across min(ngpus(), num_circuits) GPUs (original multi-circuit behavior).
 extern "C"
 RustError::by_value generate_groth16_proofs_start_c(
     const Assignment<fr_t> provers[],
     size_t num_circuits,
     const fr_t r_s[], const fr_t s_s[],
     SRS& srs, std::mutex* gpu_mtx,
+    int gpu_index,
     void** pending_out);
 
 // Main sync entry point — delegates to the core with pending_out=nullptr.
@@ -374,13 +380,14 @@ RustError::by_value generate_groth16_proofs_c(const Assignment<fr_t> provers[],
                                               size_t num_circuits,
                                               const fr_t r_s[], const fr_t s_s[],
                                               groth16_proof proofs[], SRS& srs,
-                                              std::mutex* gpu_mtx)
+                                              std::mutex* gpu_mtx,
+                                              int gpu_index)
 {
     // Sync path: run everything including b_g2_msm + epilogue.
     // We call start then finish inline.
     void* pending = nullptr;
     auto err = generate_groth16_proofs_start_c(provers, num_circuits, r_s, s_s,
-                                               srs, gpu_mtx, &pending);
+                                               srs, gpu_mtx, gpu_index, &pending);
     if (err.code != 0)
         return err;
     return finalize_groth16_proof_c(pending, proofs);
@@ -392,6 +399,7 @@ RustError::by_value generate_groth16_proofs_start_c(
     size_t num_circuits,
     const fr_t r_s[], const fr_t s_s[],
     SRS& srs, std::mutex* gpu_mtx,
+    int gpu_index,
     void** pending_out)
 {
     // Phase 8: The caller passes a per-GPU mutex pointer. The lock is acquired
@@ -480,7 +488,18 @@ RustError::by_value generate_groth16_proofs_start_c(
 
     semaphore_t barrier;
     auto& caught_exception = pp->caught_exception;
-    size_t n_gpus = std::min(ngpus(), num_circuits);
+
+    // GPU selection: when gpu_index >= 0, pin all work to that specific GPU
+    // (single-circuit partition proofs). Otherwise spread across available GPUs.
+    size_t n_gpus;
+    int gpu_base;   // offset added to tid in select_gpu()
+    if (gpu_index >= 0) {
+        n_gpus = 1;
+        gpu_base = gpu_index;
+    } else {
+        n_gpus = std::min(ngpus(), num_circuits);
+        gpu_base = 0;
+    }
 
     // Alias for the heap-owned provers copy. The prep_msm_thread captures
     // this reference (which resolves to pp->provers_owned, heap-allocated)
@@ -881,9 +900,9 @@ RustError::by_value generate_groth16_proofs_start_c(
     std::unique_lock<std::mutex> gpu_lock(*mtx_ptr);
 
     for (size_t tid = 0; tid < n_gpus; tid++) {
-        per_gpu.emplace_back(std::thread([&, tid, n_gpus](size_t num_circuits)
+        per_gpu.emplace_back(std::thread([&, tid, n_gpus, gpu_base](size_t num_circuits)
         {
-            const gpu_t& gpu = select_gpu(tid);
+            const gpu_t& gpu = select_gpu(gpu_base + tid);
 
             size_t rem = num_circuits % n_gpus;
             num_circuits /= n_gpus;
