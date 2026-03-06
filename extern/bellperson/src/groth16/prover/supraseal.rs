@@ -122,6 +122,7 @@ where
         proofs.as_mut_slice(),
         srs,
         core::ptr::null_mut(), // no external mutex — uses C++ fallback
+        -1,                    // auto GPU selection
     );
 
     let proof_time = start.elapsed();
@@ -172,6 +173,7 @@ pub fn prove_start<E, P: ParameterSource<E>>(
     r_s: Vec<E::Fr>,
     s_s: Vec<E::Fr>,
     gpu_mtx: GpuMutexPtr,
+    gpu_index: i32,
 ) -> Result<PendingProofHandle<E>, SynthesisError>
 where
     E: MultiMillerLoop,
@@ -217,6 +219,7 @@ where
         s_s.as_slice(),
         srs,
         gpu_mtx,
+        gpu_index,
     );
 
     // The GPU kernels (NTT + MSM) are done and cudaHostUnregister has run.
@@ -458,6 +461,7 @@ pub fn prove_from_assignments<E, P: ParameterSource<E>>(
     r_s: Vec<E::Fr>,
     s_s: Vec<E::Fr>,
     gpu_mtx: GpuMutexPtr,
+    gpu_index: i32,
 ) -> Result<Vec<Proof<E>>, SynthesisError>
 where
     E: MultiMillerLoop,
@@ -547,6 +551,7 @@ where
         proofs.as_mut_slice(),
         srs,
         gpu_mtx,
+        gpu_index,
     );
 
     let proof_time = start.elapsed();

@@ -1115,6 +1115,7 @@ pub fn gpu_prove(
     synth: SynthesizedProof,
     params: &SuprasealParameters<Bls12>,
     gpu_mutex: GpuMutexPtr,
+    gpu_index: i32,
 ) -> Result<GpuProveResult> {
     let _span = info_span!("gpu_prove",
         circuit_id = %synth.circuit_id,
@@ -1132,6 +1133,7 @@ pub fn gpu_prove(
         synth.r_s,
         synth.s_s,
         gpu_mutex,
+        gpu_index,
     )
     .map_err(|e| anyhow::anyhow!("GPU prove failed: {:?}", e))?;
 
@@ -1168,6 +1170,7 @@ pub fn gpu_prove_start(
     synth: SynthesizedProof,
     params: &SuprasealParameters<Bls12>,
     gpu_mutex: GpuMutexPtr,
+    gpu_index: i32,
 ) -> Result<(PendingProofHandle<Bls12>, Option<usize>, Instant)> {
     let gpu_start = Instant::now();
     let partition_index = synth.partition_index;
@@ -1180,6 +1183,7 @@ pub fn gpu_prove_start(
         synth.r_s,
         synth.s_s,
         gpu_mutex,
+        gpu_index,
     )
     .map_err(|e| anyhow::anyhow!("GPU prove start failed: {:?}", e))?;
 
@@ -1808,7 +1812,7 @@ pub fn prove_porep_c2_pipelined(
     let synth_duration = synth.synthesis_duration;
 
     // GPU prove: all partitions in one call
-    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut(), -1)?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
@@ -2314,7 +2318,7 @@ pub fn prove_porep_c2_partitioned(
                         "GPU received partition, starting prove"
                     );
 
-                    let gpu_result = gpu_prove(slot.synth, params_ref, std::ptr::null_mut())?;
+                    let gpu_result = gpu_prove(slot.synth, params_ref, std::ptr::null_mut(), -1)?;
                     total_gpu += gpu_result.gpu_duration;
 
                     info!(
@@ -2430,7 +2434,7 @@ pub fn prove_porep_c2_slotted(
             total_partitions: num_partitions,
         };
 
-        let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
+        let gpu_result = gpu_prove(synth, params, std::ptr::null_mut(), -1)?;
 
         let timings = PipelinedTimings {
             synthesis: synthesis_duration,
@@ -2828,7 +2832,7 @@ pub fn prove_winning_post_pipelined(
     )?;
     let synth_duration = synth.synthesis_duration;
 
-    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut(), -1)?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
@@ -3025,7 +3029,7 @@ pub fn prove_window_post_pipelined(
     )?;
     let synth_duration = synth.synthesis_duration;
 
-    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut(), -1)?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
@@ -3204,7 +3208,7 @@ pub fn prove_snap_deals_pipelined(
     )?;
     let synth_duration = synth.synthesis_duration;
 
-    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut())?;
+    let gpu_result = gpu_prove(synth, params, std::ptr::null_mut(), -1)?;
 
     let timings = PipelinedTimings {
         synthesis: synth_duration,
