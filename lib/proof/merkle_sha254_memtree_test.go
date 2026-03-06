@@ -412,10 +412,6 @@ func TestGenerateCachedProof(t *testing.T) {
 			pieceCidV2, err := commcid.DataCommitmentToPieceCidv2(fx.RawCommP[:], uint64(fx.PayloadSize))
 			require.NoError(t, err)
 
-			// Derive v1 CID for piece reader keying
-			pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-			require.NoError(t, err)
-
 			// Prepare full unpadded data
 			unpaddedSize := abi.PaddedPieceSize(fx.PieceSize).Unpadded()
 			fullData := generateDeterministicData(fx.PayloadSize)
@@ -426,7 +422,7 @@ func TestGenerateCachedProof(t *testing.T) {
 			// Build mock PieceReader
 			reader := &memPieceReader{
 				data: map[string][]byte{
-					pieceCidV1.String(): fullData,
+					pieceCidV2.String(): fullData,
 				},
 			}
 

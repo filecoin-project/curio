@@ -8,7 +8,6 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"golang.org/x/xerrors"
 
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -123,13 +122,7 @@ func GenerateCachedProof(
 	log.Debugw("GenerateCachedProof", "challengedLeaf", challengedLeaf, "layerIdx", layerIdx,
 		"snapshotNodeIndex", params.SnapshotNodeIndex, "startLeaf", params.StartLeaf, "leavesPerNode", params.LeavesPerNode)
 
-	// Derive v1 CID for piece reader lookup
-	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to derive v1 CID from v2: %w", err)
-	}
-
-	pieceReader, reportedSize, err := reader.GetPieceReader(ctx, pieceCidV1)
+	pieceReader, reportedSize, err := reader.GetPieceReader(ctx, pieceCidV2)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get reader: %w", err)
 	}
