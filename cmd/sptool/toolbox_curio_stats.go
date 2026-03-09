@@ -91,9 +91,6 @@ var statsCmd = &cli.Command{
 		workersWg.Wait()
 
 		fmt.Println("Miners with Curio style multiAddress:", len(miners))
-		for miner, ad := range miners {
-			fmt.Println("Miner:Address", miner, ad.String())
-		}
 
 		var finalMiners []address.Address
 		failedMiners := make(map[address.Address]error)
@@ -125,7 +122,6 @@ var statsCmd = &cli.Command{
 			if err != nil {
 				return xerrors.Errorf("reading response body: %w", err)
 			}
-			fmt.Println("Curio response for:", miner.String(), string(r))
 			if strings.Contains(string(r), "-Curio") {
 				finalMiners = append(finalMiners, miner)
 			}
