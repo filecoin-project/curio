@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/filecoin-project/go-address"
@@ -41,34 +42,53 @@ var statsCmd = &cli.Command{
 
 		miners := make(map[address.Address]multiaddr.Multiaddr)
 
-		for _, miner := range allMiners {
-			info, err := api.StateMinerInfo(ctx, miner, types.EmptyTSK)
-			if err != nil {
-				continue // Api tries to decode ba stuff and results in error
-			}
-			if info.PeerId == nil {
-				continue
-			}
-			if info.Multiaddrs == nil {
-				continue
-			}
-			if len(info.Multiaddrs) == 0 {
-				continue
-			}
-			for _, m := range info.Multiaddrs {
-				ad, err := multiaddr.NewMultiaddrBytes(m)
-				if err != nil {
-					continue // bad addresses should simply be skipped
-				}
-				s := strings.Split(ad.String(), "/")
-				if s[len(s)-1] == "wss" {
-					if s[1] == "dns" {
-						miners[miner] = ad
-						break
+		const minerInfoWorkers = 64
+		minerCh := make(chan address.Address, minerInfoWorkers)
+		var minersMu sync.Mutex
+		var workersWg sync.WaitGroup
+
+		for i := 0; i < minerInfoWorkers; i++ {
+			workersWg.Add(1)
+			go func() {
+				defer workersWg.Done()
+				for miner := range minerCh {
+					info, err := api.StateMinerInfo(ctx, miner, types.EmptyTSK)
+					if err != nil {
+						continue // Api tries to decode ba stuff and results in error
+					}
+					if info.PeerId == nil || info.Multiaddrs == nil || len(info.Multiaddrs) == 0 {
+						continue
+					}
+					for _, m := range info.Multiaddrs {
+						ad, err := multiaddr.NewMultiaddrBytes(m)
+						if err != nil {
+							continue // bad addresses should simply be skipped
+						}
+						s := strings.Split(ad.String(), "/")
+						if len(s) < 2 {
+							continue
+						}
+						if s[len(s)-1] == "wss" && s[1] == "dns" {
+							minersMu.Lock()
+							miners[miner] = ad
+							minersMu.Unlock()
+							break
+						}
 					}
 				}
+			}()
+		}
+
+	enqueueMiners:
+		for _, miner := range allMiners {
+			select {
+			case <-ctx.Done():
+				break enqueueMiners
+			case minerCh <- miner:
 			}
 		}
+		close(minerCh)
+		workersWg.Wait()
 
 		fmt.Println("Miners with Curio style multiAddress:", len(miners))
 		for miner, ad := range miners {
