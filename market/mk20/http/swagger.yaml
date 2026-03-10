@@ -27,40 +27,29 @@ definitions:
         allOf:
         - $ref: '#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId'
         description: AllocationId represents an allocation identifier for the deal.
-      contract_address:
-        description: ContractAddress specifies the address of the contract governing
-          the deal
-        type: string
-      contract_verify_method:
-        description: ContractDealIDMethod specifies the method name to verify the
-          deal and retrieve the deal ID for a contract
-        type: string
-      contract_verify_method_Params:
-        description: ContractDealIDMethodParams represents encoded parameters for
-          the contract verify method if required by the contract
-        items:
-          type: integer
-        type: array
       duration:
         description: |-
           Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
           It must be at least 518400
         type: integer
+      market_address:
+        description: MarketAddress specifies the address of the market governing the
+          deal
+        type: string
+      market_deal_id:
+        description: MarketDealID specifies the deal ID for the market actor at MarketAddress
+        type: integer
       notification_address:
+        allOf:
+        - $ref: '#/definitions/address.Address'
         description: NotificationAddress specifies the address to which notifications
           will be relayed to when sector is activated
-        type: string
       notification_payload:
-        description: NotificationPayload holds the notification data typically in
+        description: NotificationPayload holds the notification data, typically in
           a serialized byte array format.
         items:
           type: integer
         type: array
-      piece_manager:
-        allOf:
-        - $ref: '#/definitions/address.Address'
-        description: Actor providing AuthorizeMessage (like f1/f3 wallet) able to
-          authorize actions such as managing ACLs
       provider:
         allOf:
         - $ref: '#/definitions/address.Address'
@@ -618,7 +607,7 @@ paths:
       - CurioAuth: []
       summary: Make a mk20 deal
   /update/{id}:
-    get:
+    post:
       consumes:
       - application/json
       description: Useful for adding adding additional products and updating PoRep
