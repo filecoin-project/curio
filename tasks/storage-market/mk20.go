@@ -480,6 +480,9 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			}
 		}
 
+		// AggregateTypeV2 single piece is the deal's final piece; keep it long_term so indexing/cleanup do not remove it.
+		longTerm := data.Format.Aggregate != nil && data.Format.Aggregate.Type == mk20.AggregateTypeV2 && len(toDownload) == 1
+
 		var downloadRefs []mk20.ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
@@ -498,7 +501,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 					RawSize:    int64(k.RawSize),
 					URL:        src.URL,
 					Headers:    headers,
-					LongTerm:   false,
+					LongTerm:   longTerm,
 				})
 			}
 		}

@@ -13,6 +13,9 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/minio/sha256-simd"
+	"github.com/multiformats/go-multicodec"
+	"github.com/multiformats/go-multihash"
 	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
@@ -41,6 +44,10 @@ import (
 )
 
 var log = logging.Logger("mk20")
+
+func init() {
+	multihash.Register(uint64(multicodec.Fr32Sha256Trunc254Padbintree), sha256.New)
+}
 
 type MK20API interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -843,6 +850,9 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 
+		// AggregateTypeV2 single piece is the deal's final piece; keep it long_term so indexing/cleanup do not remove it.
+		longTerm := data.Format.Aggregate != nil && data.Format.Aggregate.Type == AggregateTypeV2 && len(toDownload) == 1
+
 		var downloadRefs []ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
@@ -861,7 +871,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 					RawSize:    int64(k.RawSize),
 					URL:        src.URL,
 					Headers:    headers,
-					LongTerm:   false,
+					LongTerm:   longTerm,
 				})
 			}
 		}
