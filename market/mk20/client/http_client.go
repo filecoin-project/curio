@@ -124,22 +124,43 @@ func (e *Error) HError() error {
 
 // /contracts
 func (c *HTTPClient) Contracts(ctx context.Context) ([]string, *Error) {
-	var out []string
+	var out mk20.SupportedContracts
 	err := c.do(ctx, http.MethodGet, "/contracts", nil, false, &out)
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	var contracts []string
+	for _, contract := range out.Contracts {
+		contracts = append(contracts, contract)
+	}
+	return contracts, err
 }
 
 // /products
 func (c *HTTPClient) Products(ctx context.Context) ([]string, *Error) {
+	var ret mk20.SupportedProducts
+	err := c.do(ctx, http.MethodGet, "/products", nil, false, &ret)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	err := c.do(ctx, http.MethodGet, "/products", nil, false, &out)
+	for _, product := range ret.Products {
+		out = append(out, product)
+	}
 	return out, err
 }
 
 // /sources
 func (c *HTTPClient) Sources(ctx context.Context) ([]string, *Error) {
+	var ret mk20.SupportedDataSources
+	err := c.do(ctx, http.MethodGet, "/sources", nil, false, &ret)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	err := c.do(ctx, http.MethodGet, "/sources", nil, false, &out)
+	for _, source := range ret.Sources {
+		out = append(out, source)
+	}
 	return out, err
 }
 
@@ -160,13 +181,13 @@ func (c *HTTPClient) Store(ctx context.Context, deal *mk20.Deal) *Error {
 	return err
 }
 
-// /update/{id}  (GET in spec – unusual, but honoured)
+// /update/{id}  (POST)
 func (c *HTTPClient) Update(ctx context.Context, id ulid.ULID, deal *mk20.Deal) *Error {
 	b, merr := json.Marshal(deal)
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodGet, "/update/"+id.String(), bytes.NewReader(b), false, nil)
+	err := c.do(ctx, http.MethodPost, "/update/"+id.String(), bytes.NewReader(b), false, nil)
 	return err
 }
 

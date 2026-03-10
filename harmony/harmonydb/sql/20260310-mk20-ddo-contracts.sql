@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS ddo_contracts (
+    address TEXT PRIMARY KEY,
+    allowed BOOLEAN NOT NULL DEFAULT FALSE
+);

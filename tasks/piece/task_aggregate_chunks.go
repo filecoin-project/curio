@@ -280,7 +280,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 						   piece_size, raw_size, url, offline, indexing, announce,
 						   allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
 		       		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
-					dealID, spid, ddo.ContractAddress, deal.Client, pcid2.String(), pcid.String(),
+					dealID, spid, ddo.MarketAddress, deal.Client, pcid2.String(), pcid.String(),
 					psize, rawSize, pieceIDUrl.String(), false, rev.Indexing, rev.AnnouncePayload,
 					allocationID, ddo.Duration, aggregation, aggregation)
 
