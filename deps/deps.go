@@ -56,6 +56,8 @@ import (
 	lrepo "github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
+
+	_ "github.com/multiformats/go-multihash/register/blake3" // BLAKE3
 )
 
 var log = logging.Logger("curio/deps")

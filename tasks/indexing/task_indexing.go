@@ -556,7 +556,20 @@ func IndexAggregateV2(
 	}
 
 	var interrupted bool
-	records := make([]indexstore.Record, 0, blobCount*2) // *2 for possible mapping CIDs
+	records := make([]indexstore.Record, 0, blobCount*2+1) // *2 for possible mapping CIDs, +1 for piece root
+
+	// Index the aggregate piece CID itself so HEAD/GET /ipfs/<piece_cid> can resolve (otherwise
+	// PiecesContainingMultihash(piece_cid.Hash()) returns no rows and retrieval returns 404).
+	rootRec := indexstore.Record{Cid: pieceCid, Offset: 0, Size: uint64(rawSize)}
+	records = append(records, rootRec)
+	select {
+	case recs <- rootRec:
+	case <-addFail:
+		interrupted = true
+	}
+	if interrupted {
+		return 0, nil, true, nil
+	}
 
 	for i := 0; i < blobCount; i++ {
 		entry := idx.Entries[i]
@@ -642,6 +655,19 @@ func IndexAggregate(pieceCid cid.Cid,
 	}
 
 	aggidx := make(map[cid.Cid][]indexstore.Record)
+
+	// Total unpadded size of the aggregate piece (sum of segment lengths) for root record
+	var totalUnpadded uint64
+	for _, entry := range valid {
+		totalUnpadded += entry.UnpaddedLength()
+	}
+	// Index the aggregate piece CID itself so HEAD/GET /ipfs/<piece_cid> can resolve (same as V2).
+	rootRec := indexstore.Record{Cid: pieceCid, Offset: 0, Size: totalUnpadded}
+	select {
+	case recs <- rootRec:
+	case <-addFail:
+		return 0, aggidx, true, nil
+	}
 
 	log.Infow("Indexing aggregate", "piece_size", size, "num_chunks", len(valid), "num_sub_pieces", len(subPieces))
 
@@ -757,10 +783,10 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 				return xerrors.Errorf("store indexing success: updated %d rows", n)
 			}
 			if task.PieceRef != 0 {
-				_, _ = i.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, task.PieceRef)
+				_, _ = i.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1 AND long_term = FALSE`, task.PieceRef)
 			}
 		} else {
-			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL,
                                      complete = TRUE WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
 			if err != nil {
 				return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
@@ -780,7 +806,7 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 				return xerrors.Errorf("store indexing success: updated %d rows", n)
 			}
 			if task.PieceRef != 0 {
-				_, _ = i.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, task.PieceRef)
+				_, _ = i.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1 AND long_term = FALSE`, task.PieceRef)
 			}
 		} else {
 			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL 

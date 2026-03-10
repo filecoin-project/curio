@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	blocks "github.com/ipfs/go-block-format"
@@ -129,10 +130,24 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
 			}
 
-			// Seek to the section offset
+			// Seek to the section offset. Try CAR block layout first (varint length + CID + payload).
 			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize+MaxCarBlockPrefixSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
 			if err != nil {
+				// Aggregate (V2) segments are stored as raw blobs at offset, not CAR blocks.
+				// If CAR parse fails (e.g. "invalid cid: expected 1 as the cid version number"),
+				// read exactly BlockSize bytes at offset and treat as raw block data.
+				if piece.BlockSize > 0 && (strings.Contains(err.Error(), "invalid cid") || strings.Contains(err.Error(), "expected 1 as the cid version")) {
+					rawAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize))
+					data, readErr := io.ReadAll(rawAt)
+					if readErr != nil {
+						return nil, fmt.Errorf("reading raw block for %s from piece %s: %w", c, piece.PieceCid, readErr)
+					}
+					if uint64(len(data)) != piece.BlockSize {
+						return nil, fmt.Errorf("short read for block %s in piece %s: got %d, want %d", c, piece.PieceCid, len(data), piece.BlockSize)
+					}
+					return data, nil
+				}
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
 			}
 			if !bytes.Equal(readCid.Hash(), c.Hash()) {
