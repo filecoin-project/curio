@@ -21,6 +21,10 @@ jobs:
       - name: Check title and add label
         uses: actions/github-script@v7
         with:
+          # A PAT is used instead of the default GITHUB_TOKEN because events triggered
+          # by GITHUB_TOKEN do not cascade to trigger other workflows. Using a PAT allows
+          # the label event emitted here to trigger add-issues-and-prs-to-fs-project-board.yml.
+          github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}
           script: |
             const title = context.payload.issue?.title || context.payload.pull_request?.title || '';
             const number = context.payload.issue?.number || context.payload.pull_request?.number;
