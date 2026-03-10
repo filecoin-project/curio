@@ -133,9 +133,7 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 			},
 			DDOV1: &DDOV1{
 				Provider:                   addr,
-				PieceManager:               addr,
 				AllocationId:               &v,
-				ContractVerifyMethodParams: []byte("contract verify method params"),
 			},
 		},
 	}

@@ -179,9 +179,9 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 		return rejection
 	}
 
-	id, code, err := deal.Products.DDOV1.GetDealID(ctx, m.DB, m.ethClient)
+	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal)
 	if err != nil {
-		log.Errorw("error getting deal ID", "deal", deal, "error", err)
+		log.Errorw("error verifying market deal", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
 			HTTPCode: code,
 		}
@@ -193,8 +193,6 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 		return ret
 	}
 
-	log.Debugw("deal ID found", "deal", deal.Identifier.String(), "id", id)
-
 	// TODO: Backpressure, client filter
 
 	process := func(tx *harmonydb.Tx) error {
@@ -202,16 +200,6 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 		if err != nil {
 			return err
 		}
-		n, err := tx.Exec(`UPDATE market_mk20_deal
-								SET ddo_v1 = jsonb_set(ddo_v1, '{deal_id}', to_jsonb($1::bigint))
-								WHERE id = $2;`, id, deal.Identifier.String())
-		if err != nil {
-			return err
-		}
-		if n != 1 {
-			return fmt.Errorf("expected 1 row to be updated, got %d", n)
-		}
-
 		// Assume upload if no data source defined
 		if deal.Data == nil {
 			_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
@@ -334,6 +322,22 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}, nil
 	}
 
+	if deal.Products.DDOV1.NotificationAddress != address.Undef && !deal.Products.DDOV1.NotificationAddress.Empty() {
+		id, err := m.api.StateLookupID(ctx, deal.Products.DDOV1.NotificationAddress, types.EmptyTSK)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Notification address is not valid",
+			}, nil
+		}
+		if id.Empty() || id == address.Undef {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Notification address is not valid",
+			}, nil
+		}
+	}
+
 	if deal.Products.DDOV1.AllocationId != nil {
 		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{
@@ -418,6 +422,20 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation term min is greater than the maximum sector expiration extension",
+			}, nil
+		}
+
+		if alloc.TermMin > deal.Products.DDOV1.Duration {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Allocation term min is less than deal duration",
+			}, nil
+		}
+
+		if alloc.TermMax > deal.Products.DDOV1.Duration {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Allocation term max is greater than deal duration",
 			}, nil
 		}
 	}

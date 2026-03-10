@@ -1177,7 +1177,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 						   piece_size, raw_size, url, offline, indexing, announce,
 						   allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
 		       		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
-				id.String(), spid, ddo.ContractAddress, uDeal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
+				id.String(), spid, ddo.MarketAddress, uDeal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 				pi.Size, pi.RawSize, pieceIDUrl.String(), false, retv.Indexing, retv.AnnouncePayload,
 				allocationID, ddo.Duration, aggregation, aggregation)
 

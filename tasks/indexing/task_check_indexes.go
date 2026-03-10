@@ -332,7 +332,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
                                   	indexing_created_at, complete) 
 									VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
 									        TRUE, TRUE, TRUE, TRUE, $15, 0, $16, TRUE, NOW(), TRUE)`, // We can use reg_seal_proof = 0 because process_piece_deal will prevent new entry from being created
-						deal.Identifier.String(), spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, int64(pi.RawSize),
+						deal.Identifier.String(), spid, ddo.MarketAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, int64(pi.RawSize),
 						false, pieceIDUrl.String(), true, false, ddo.Duration, aggregation,
 						cent.SectorID, cent.PieceOff)
 					if err != nil {
@@ -728,7 +728,7 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
                                   	indexing_created_at, indexed, complete) 
 									VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
 									        TRUE, TRUE, TRUE, TRUE, $15, 0, $16, TRUE, NOW(), TRUE, FALSE)`, // We can use reg_seal_proof = 0 because process_piece_deal will prevent new entry from being created
-			deal.Identifier.String(), spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pinfo.PieceCIDV1.String(), pinfo.Size, int64(pinfo.RawSize),
+			deal.Identifier.String(), spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pinfo.PieceCIDV1.String(), pinfo.Size, int64(pinfo.RawSize),
 			false, pieceIDUrl.String(), true, true, ddo.Duration, aggregation,
 			src.SectorNum, src.PieceOffset)
 		if err != nil {

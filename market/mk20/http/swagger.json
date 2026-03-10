@@ -239,7 +239,7 @@
             }
         },
         "/update/{id}": {
-            "get": {
+            "post": {
                 "security": [
                     {
                         "CurioAuth": []
@@ -882,43 +882,32 @@
                         }
                     ]
                 },
-                "contract_address": {
-                    "description": "ContractAddress specifies the address of the contract governing the deal",
-                    "type": "string"
-                },
-                "contract_verify_method": {
-                    "description": "ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract",
-                    "type": "string"
-                },
-                "contract_verify_method_Params": {
-                    "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
                 "duration": {
                     "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
                     "type": "integer"
                 },
-                "notification_address": {
-                    "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
+                "market_address": {
+                    "description": "MarketAddress specifies the address of the market governing the deal",
                     "type": "string"
                 },
-                "notification_payload": {
-                    "description": "NotificationPayload holds the notification data typically in a serialized byte array format.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                "market_deal_id": {
+                    "description": "MarketDealID specifies the deal ID for the market actor at MarketAddress",
+                    "type": "integer"
                 },
-                "piece_manager": {
-                    "description": "Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs",
+                "notification_address": {
+                    "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
                     "allOf": [
                         {
                             "$ref": "#/definitions/address.Address"
                         }
                     ]
+                },
+                "notification_payload": {
+                    "description": "NotificationPayload holds the notification data, typically in a serialized byte array format.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "provider": {
                     "description": "Provider specifies the address of the provider",

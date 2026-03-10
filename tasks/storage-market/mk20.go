@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
@@ -267,7 +268,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 					offline, indexing, announce, allocation_id, duration, 
 					piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-					id, spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+					id, spid, ddo.MarketAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
 					false, retv.Indexing, retv.AnnouncePayload, allocationID, ddo.Duration,
 					0, aggregation)
 				if err != nil {
@@ -406,7 +407,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation, started) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE)`,
-			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, false, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
@@ -425,7 +426,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, true, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
@@ -543,7 +544,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, aggr_index, started) 
         	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-				dealID, spid, ddo.ContractAddress, deal.Client, piece.PieceCID.String(), spi.PieceCIDV1.String(),
+				dealID, spid, ddo.MarketAddress, deal.Client, piece.PieceCID.String(), spi.PieceCIDV1.String(),
 				spi.Size, spi.RawSize, offline, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 				0, aggregation, i, !offline)
 			if pBatch.Len() > pBatchSize {
@@ -1093,6 +1094,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
+		// TODO: Use correct start duration
 		start := head.Height() + 2*builtin.EpochsInDay
 		end := start + abi.ChainEpoch(deal.Duration)
 		var vak *miner.VerifiedAllocationKey
@@ -1117,7 +1119,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			}
 		}
 
-		// TODO: Attach notifications
 		pdi := lpiece.PieceDealInfo{
 			DealSchedule: lpiece.DealSchedule{
 				StartEpoch: start,
@@ -1128,6 +1129,27 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 				Size:                  abi.PaddedPieceSize(deal.PieceSize),
 				VerifiedAllocationKey: vak,
 			},
+		}
+
+		dealID, err := ulid.Parse(deal.ID)
+		if err != nil {
+			log.Errorw("failed to parse deal id", "deal", deal, "error", err)
+			continue
+		}
+
+		mk20Deal, err := mk20.DealFromDB(ctx, d.db, dealID)
+		if err != nil {
+			log.Errorw("failed to get deal from db", "deal", deal, "error", err)
+			continue
+		}
+
+		if !mk20Deal.Products.DDOV1.NotificationAddress.Empty() && mk20Deal.Products.DDOV1.NotificationAddress != address.Undef && mk20Deal.Products.DDOV1.NotificationPayload != nil {
+			pdi.PieceActivationManifest.Notify = []miner13.DataActivationNotification{
+				{
+					Address: mk20Deal.Products.DDOV1.NotificationAddress,
+					Payload: mk20Deal.Products.DDOV1.NotificationPayload,
+				},
+			}
 		}
 
 		maddr, err := address.NewIDAddress(uint64(deal.SPID))
