@@ -85,9 +85,9 @@ miner_actor=$(lotus state list-miners | grep -v t01000)
 
 ###################################################################################
 printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
---pcidv2=$commp_cid --contract-address 0xtest --contract-verify-method test \
+--pcidv2=$commp_cid \
 --aggregate "$aggregate_file"\n\n${cn}"
 
-sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$commp_cid --contract-address 0xtest --contract-verify-method test --aggregate "$aggregate_file"
+sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$commp_cid --aggregate "$aggregate_file"
 
 echo -e "\nDone!"
