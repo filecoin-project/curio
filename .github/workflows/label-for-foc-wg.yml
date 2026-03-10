@@ -21,6 +21,7 @@ jobs:
       - name: Check title and add label
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}
           script: |
             const title = context.payload.issue?.title || context.payload.pull_request?.title || '';
             const number = context.payload.issue?.number || context.payload.pull_request?.number;
