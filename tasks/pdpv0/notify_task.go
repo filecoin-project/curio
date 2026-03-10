@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	logger "github.com/ipfs/go-log/v2"
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 )
 
-var log = logger.Logger("pdp")
+var log = logging.Logger("pdpv0")
 
 // NotifyPollInterval is how often to poll for uploads ready to finalize.
 var NotifyPollInterval = 2 * time.Second
