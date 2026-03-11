@@ -62,8 +62,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 ####################################
 FROM golang:1.24-trixie AS piece-server-builder
 
-RUN go install github.com/ipld/go-car/cmd/car@latest \
- && cp $GOPATH/bin/car /usr/local/bin/
+#RUN go install github.com/ipld/go-car/v2/cmd/car@v2.16.0 \
+# && cp $GOPATH/bin/car /usr/local/bin/
+
+RUN git clone https://github.com/ipld/go-car.git /tmp/go-car && \
+    cd /tmp/go-car && \
+    git checkout v2.16.0 && \
+    cd cmd/car && go build -o car && \
+    chmod +x car && \
+    cp car /usr/local/bin/
 
 RUN go install github.com/LexLuthr/piece-server@latest \
  && cp $GOPATH/bin/piece-server /usr/local/bin/

@@ -1,16 +1,15 @@
-import { html, css, LitElement } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import { html, LitElement } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
 /**
  * A custom Web Component for managing products, data sources, and market contracts.
- * Extends the LitElement class to leverage the Lit library for efficient rendering.
  */
 class MarketManager extends LitElement {
     static properties = {
         products: { type: Array },
         dataSources: { type: Array },
         contracts: { type: Array },
-        selectedContract: { type: Object },
+        newContractAddress: { type: String },
     };
 
     constructor() {
@@ -18,7 +17,7 @@ class MarketManager extends LitElement {
         this.products = [];
         this.dataSources = [];
         this.contracts = [];
-        this.selectedContract = null; // For modal
+        this.newContractAddress = '';
         this.loadAllData();
     }
 
@@ -27,19 +26,23 @@ class MarketManager extends LitElement {
             const productsResult = await RPCCall('ListProducts', []);
             this.products = Array.isArray(productsResult)
                 ? productsResult
-                : Object.entries(productsResult).map(([name, enabled]) => ({ name, enabled }));
+                : Object.entries(productsResult || {}).map(([name, enabled]) => ({ name, enabled }));
 
             const dataSourcesResult = await RPCCall('ListDataSources', []);
             this.dataSources = Array.isArray(dataSourcesResult)
                 ? dataSourcesResult
-                : Object.entries(dataSourcesResult).map(([name, enabled]) => ({ name, enabled }));
+                : Object.entries(dataSourcesResult || {}).map(([name, enabled]) => ({ name, enabled }));
 
-            // const contractsResult = await RPCCall('ListMarketContracts', []);
-            // this.contracts = Array.isArray(contractsResult)
-            //     ? contractsResult
-            //     : Object.entries(contractsResult).map(([address, abi]) => ({ address, abi }));
-            //
-            // this.requestUpdate();
+            const contractsResult = await RPCCall('ListMarketContracts', []);
+            this.contracts = Array.isArray(contractsResult)
+                ? contractsResult
+                : Object.entries(contractsResult || {}).map(([address, allowed]) => ({
+                    address,
+                    allowed: Boolean(allowed),
+                }));
+            this.contracts.sort((a, b) => a.address.localeCompare(b.address));
+
+            this.requestUpdate();
         } catch (err) {
             console.error('Failed to load data:', err);
             this.products = [];
@@ -61,7 +64,7 @@ class MarketManager extends LitElement {
             } else {
                 await RPCCall('EnableProduct', [product.name]);
             }
-            this.loadAllData(); // Refresh after toggling
+            await this.loadAllData();
         } catch (err) {
             console.error('Failed to toggle product state:', err);
         }
@@ -80,24 +83,49 @@ class MarketManager extends LitElement {
             } else {
                 await RPCCall('EnableDataSource', [dataSource.name]);
             }
-            this.loadAllData(); // Refresh after toggling
+            await this.loadAllData();
         } catch (err) {
             console.error('Failed to toggle data source state:', err);
         }
     }
 
-    openContractModal(contract) {
-        this.selectedContract = { ...contract };
-        this.updateComplete.then(() => {
-            const modal = this.shadowRoot.querySelector('#contract-modal');
-            if (modal && typeof modal.showModal === 'function') {
-                modal.showModal();
-            }
-        });
+    async addContract() {
+        const address = (this.newContractAddress || '').trim();
+        if (!address) {
+            alert('Contract address is required.');
+            return;
+        }
+
+        try {
+            await RPCCall('AddMarketContract', [address, true]);
+            this.newContractAddress = '';
+            await this.loadAllData();
+        } catch (err) {
+            console.error('Failed to add contract:', err);
+            alert(`Failed to add contract: ${err.message}`);
+        }
+    }
+
+    async toggleContractState(contract) {
+        const nextAllowed = !contract.allowed;
+        const confirmation = confirm(
+            `Are you sure you want to ${nextAllowed ? 'allow' : 'block'} contract "${contract.address}"?`
+        );
+
+        if (!confirmation) return;
+
+        try {
+            await RPCCall('UpdateMarketContract', [contract.address, nextAllowed]);
+            await this.loadAllData();
+        } catch (err) {
+            console.error('Failed to update contract state:', err);
+            alert(`Failed to update contract: ${err.message}`);
+        }
     }
 
     async removeContract(contract) {
-        if (!confirm(`Are you sure you want to remove contract ${contract.address}?`)) return;
+        const confirmation = confirm(`Are you sure you want to remove contract "${contract.address}"?`);
+        if (!confirmation) return;
 
         try {
             await RPCCall('RemoveMarketContract', [contract.address]);
@@ -106,37 +134,6 @@ class MarketManager extends LitElement {
             console.error('Failed to remove contract:', err);
             alert(`Failed to remove contract: ${err.message}`);
         }
-    }
-
-
-    async saveContractChanges() {
-        try {
-            const { address, abi } = this.selectedContract;
-
-            if (!address || !abi) {
-                alert("Contract address and ABI are required.");
-                return;
-            }
-
-            const method = this.contracts.find(c => c.address === address)
-                ? 'UpdateMarketContract'
-                : 'AddMarketContract';
-
-            await RPCCall(method, [address, abi]);
-
-            this.loadAllData();
-            this.closeModal();
-        } catch (err) {
-            console.error('Failed to save contract changes:', err);
-            alert(`Failed to save contract: ${err.message}`);
-        }
-    }
-
-
-    closeModal() {
-        this.selectedContract = null;
-        const modal = this.shadowRoot.querySelector('#contract-modal');
-        if (modal) modal.close();
     }
 
     render() {
@@ -155,144 +152,117 @@ class MarketManager extends LitElement {
                             <h2>Products</h2>
                             <table class="table table-dark table-striped table-sm">
                                 <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Enabled</th>
-                                    <th>Action</th>
-                                </tr>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Enabled</th>
+                                        <th>Action</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                ${this.products?.map(
+                                    ${this.products?.map(
                                         (product) => html`
                                             <tr>
                                                 <td>${product.name}</td>
                                                 <td>${product.enabled ? 'Yes' : 'No'}</td>
                                                 <td>
                                                     <button
-                                                            class="btn btn-${product.enabled ? 'danger' : 'success'}"
-                                                            @click=${() => this.toggleProductState(product)}
+                                                        class="btn btn-${product.enabled ? 'danger' : 'success'}"
+                                                        @click=${() => this.toggleProductState(product)}
                                                     >
                                                         ${product.enabled ? 'Disable' : 'Enable'}
                                                     </button>
                                                 </td>
                                             </tr>
                                         `
-                                )}
+                                    )}
                                 </tbody>
                             </table>
                         </td>
+
                         <td class="pe-2">
                             <h2>Data Sources</h2>
                             <table class="table table-dark table-striped table-sm">
                                 <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Enabled</th>
-                                    <th>Action</th>
-                                </tr>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Enabled</th>
+                                        <th>Action</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                ${this.dataSources?.map(
+                                    ${this.dataSources?.map(
                                         (source) => html`
                                             <tr>
                                                 <td>${source.name}</td>
                                                 <td>${source.enabled ? 'Yes' : 'No'}</td>
                                                 <td>
                                                     <button
-                                                            class="btn btn-${source.enabled ? 'danger' : 'success'}"
-                                                            @click=${() => this.toggleDataSourceState(source)}
+                                                        class="btn btn-${source.enabled ? 'danger' : 'success'}"
+                                                        @click=${() => this.toggleDataSourceState(source)}
                                                     >
                                                         ${source.enabled ? 'Disable' : 'Enable'}
                                                     </button>
                                                 </td>
                                             </tr>
                                         `
-                                )}
-                                </tbody>
-                            </table>
-                        </td>
-                        <!---
-                        <td class="pe-2">
-                            <h2>Contracts
-                                <button class="btn btn-primary mb-3" @click=${() => this.openContractModal({ address: '', abi: '' })}>
-                                    Add Contract
-                                </button>
-                            </h2>
-                                <table class="table table-dark table-striped table-sm" style="display: block;max-height: 200px; overflow-y: auto">
-                                    <thead>
-                                    <tr>
-                                        <th>Address</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    ${this.contracts?.map(
-                                            (contract) => html`
-                                                <!---
-                                        <tr>
-                                            <td>${contract.address}</td>
-                                            <td>
-                                                <div class="d-flex gap-2">
-                                                    <button class="btn btn-secondary btn-sm" @click=${() => this.openContractModal(contract)}>
-                                                        Edit
-                                                    </button>
-                                                    <button class="btn btn-danger btn-sm" @click=${() => this.removeContract(contract)}>
-                                                        Remove
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>--->
-                                          `
                                     )}
                                 </tbody>
                             </table>
                         </td>
-                        --->
+
+                        <td class="pe-2">
+                            <h2>DDO Contracts</h2>
+
+                            <div class="d-flex gap-2 mb-2">
+                                <input
+                                    class="form-control"
+                                    type="text"
+                                    .value=${this.newContractAddress}
+                                    @input=${e => this.newContractAddress = e.target.value}
+                                    placeholder="0x..."
+                                />
+                                <button class="btn btn-primary" @click=${this.addContract}>Add</button>
+                            </div>
+
+                            <table class="table table-dark table-striped table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Address</th>
+                                        <th>Allowed</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${this.contracts?.map(
+                                        (contract) => html`
+                                            <tr>
+                                                <td>${contract.address}</td>
+                                                <td>${contract.allowed ? 'Yes' : 'No'}</td>
+                                                <td>
+                                                    <div class="d-flex gap-2">
+                                                        <button
+                                                            class="btn btn-${contract.allowed ? 'warning' : 'success'}"
+                                                            @click=${() => this.toggleContractState(contract)}
+                                                        >
+                                                            ${contract.allowed ? 'Block' : 'Allow'}
+                                                        </button>
+                                                        <button
+                                                            class="btn btn-danger"
+                                                            @click=${() => this.removeContract(contract)}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `
+                                    )}
+                                </tbody>
+                            </table>
+                        </td>
                     </tr>
                 </table>
-                ${this.renderContractModal()}
             </div>
-        `;
-    }
-
-    renderContractModal() {
-        if (!this.selectedContract) return null;
-
-        return html`
-            <dialog id="contract-modal">
-                <h3>
-                    ${this.contracts.some(c => c.address === this.selectedContract.address)
-                            ? html`Edit Contract: ${this.selectedContract.address}`
-                            : html`Add New Contract`}
-                </h3>
-
-                <div class="mb-3">
-                    <label class="form-label">Contract Address</label>
-                    <input
-                            class="form-control"
-                            type="text"
-                            .value=${this.selectedContract.address}
-                            @input=${e => this.selectedContract.address = e.target.value}
-                            placeholder="0x..."
-                    />
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label">ABI</label>
-                    <textarea
-                            class="form-control"
-                            rows="10"
-                            .value=${this.selectedContract.abi}
-                            @input=${e => this.selectedContract.abi = e.target.value}
-                            placeholder='[{"type":"function",...}]'
-                    ></textarea>
-                </div>
-
-                <div class="mt-3">
-                    <button class="btn btn-success" @click=${this.saveContractChanges}>Save</button>
-                    <button class="btn btn-secondary" @click=${this.closeModal}>Cancel</button>
-                </div>
-            </dialog>
         `;
     }
 }
