@@ -182,10 +182,11 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 		if rawSize != upload.RawSize {
 			log.Errorw("raw size of deal does not match the one provided in deal", "deal", id, "error", err)
 			http.Error(w, "", int(UploadStartCodeBadRequest))
+			return
 		}
 	}
 
-	numChunks := int(math.Ceil(float64(rawSize) / float64(chunkSize)))
+	numChunks := int(math.Ceil(float64(upload.RawSize) / float64(chunkSize)))
 
 	// Create rows in market_mk20_deal_chunk for each chunk for the ID
 	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
@@ -196,7 +197,7 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 				batch.Queue(`INSERT INTO market_mk20_deal_chunk (id, chunk, chunk_size, complete) VALUES ($1, $2, $3, FALSE);`, id.String(), i, chunkSize)
 			} else {
 				// Calculate the size of last chunk
-				s := int64(rawSize) - (int64(numChunks-1) * chunkSize)
+				s := int64(upload.RawSize) - (int64(numChunks-1) * chunkSize)
 				if s <= 0 || s > chunkSize {
 					return false, xerrors.Errorf("invalid chunk size")
 				}
@@ -282,6 +283,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	if err != nil {
 		log.Errorw("failed to check if chunk exists", "deal", id, "chunk", chunk, "error", err)
 		http.Error(w, "", int(UploadServerError))
+		return
 	}
 
 	if len(chunkDetails) == 0 {
@@ -462,7 +464,7 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 								  SELECT 1
 								  FROM market_mk20_deal_chunk
-								  WHERE id = $1 AND complete = FALSE OR complete IS NULL
+								  WHERE id = $1 AND (complete = FALSE OR complete IS NULL) 
 								)`, id.String()).Scan(&exists)
 	if err != nil {
 		log.Errorw("failed to check if deal upload has started", "deal", id, "error", err)
@@ -729,6 +731,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 		if err != nil {
 			log.Errorw("failed to get piece info from deal", "deal", id, "error", err)
 			http.Error(w, "", int(UploadServerError))
+			return
 		}
 
 		tpcid = pi.PieceCIDV1
@@ -773,7 +776,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 		}
 
 		// Mark upload as started to prevent someone else from using chunk upload
-		n, err := tx.Exec(`UPDATE market_mk20_upload_waiting SET chunked = FALSE WHERE id = $1`, id.String())
+		n, err := tx.Exec(`UPDATE market_mk20_upload_waiting SET chunked = FALSE, ref_id = $2 WHERE id = $1 AND chunked IS NULL AND ref_id IS NULL`, id.String(), refID)
 		if err != nil {
 			return false, xerrors.Errorf("updating upload waiting: %w", err)
 		}
@@ -799,6 +802,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	// If we know the piece details and already have it then let's return early
 	if pieceExists && havePInfo {
 		w.WriteHeader(int(UploadOk))
+		return
 	}
 
 	if !havePInfo {
@@ -813,7 +817,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 				log.Errorw("failed to delete parked piece ref", "deal", id, "error", serr)
 			}
 
-			_, serr = m.DB.Exec(ctx, `UPDATE market_mk20_upload_waiting SET chunked = NULL WHERE id = $1`, id.String())
+			_, serr = m.DB.Exec(ctx, `UPDATE market_mk20_upload_waiting SET chunked = NULL, ref_id = NULL, ready_at = NULL WHERE id = $1`, id.String())
 			if serr != nil {
 				log.Errorw("failed to update upload waiting", "deal", id, "error", serr)
 			}
@@ -1039,6 +1043,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 	if err != nil {
 		log.Errorw("failed to parse piece cid", "deal", id, "error", err)
 		http.Error(w, "", int(ErrServerInternalError))
+		return
 	}
 
 	var uDeal *Deal

@@ -117,13 +117,17 @@ func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB,
 // @Return DealCode
 // @Return Reason string
 
-func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) *ProviderDealRejectionInfo {
+func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) (result *ProviderDealRejectionInfo) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			result = &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "Internal server error",
+			}
 		}
 	}()
 
@@ -443,13 +447,17 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 	return nil, nil
 }
 
-func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
+func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) (result *ProviderDealRejectionInfo) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred in PDP: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			result = &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "Internal server error",
+			}
 		}
 	}()
 
@@ -500,7 +508,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.CreateDataSet {
-			n, err := tx.Exec(`INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
+			n, err := tx.Exec( `INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client, pdp.RecordKeeper, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set create: %w", err)
@@ -511,7 +519,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.DeleteDataSet {
-			n, err := tx.Exec(`INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
+			n, err := tx.Exec( `INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set delete: %w", err)
@@ -522,7 +530,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.DeletePiece {
-			n, err := tx.Exec(`INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
+			n, err := tx.Exec( `INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
 				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.PieceIDs, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP delete root: %w", err)
@@ -568,7 +576,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		if deal.Data.Format.Raw != nil && deal.Products.RetrievalV1.AnnouncePayload {
+		if deal.Data.Format.Raw != nil && deal.Products.RetrievalV1 != nil && deal.Products.RetrievalV1.AnnouncePayload {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "Raw bytes deal cannot be announced to IPNI",
@@ -578,7 +586,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 	p := deal.Products.PDPV1
 
-	// This serves as Auth for now. We are checking if client is authorized to make changes to the proof set or pieces
+	// This serves as Auth for now. We are checking if a client is authorized to make changes to the proof set or pieces
 	// In future this will be replaced by an ACL check
 
 	if p.DeleteDataSet || p.AddPiece {
@@ -736,7 +744,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			if piece.SourceHTTP != nil {
 				urls, ok := toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
 					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
@@ -810,9 +818,9 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 		pBatchSize := 4000
 		for i, piece := range deal.Data.SourceAggregate.Pieces {
 			pBatch.Queue(`INSERT INTO pdp_pipeline (
-                          id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-				dealID, deal.Client, piece.PieceCID.String(), pdp.ExtraData, *pdp.DataSetID,
+                          id, client, piece_cid_v2, data_set_id, extra_data, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+				dealID, deal.Client, piece.PieceCID.String(), *pdp.DataSetID, pdp.ExtraData,
 				aggregation, i, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if pBatch.Len() > pBatchSize {
 				res, err := tx.SendBatch(ctx, pBatch)
