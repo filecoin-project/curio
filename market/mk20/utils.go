@@ -837,18 +837,9 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 	// If Data details exist, do not update them
 	// If DDOV1 is defined then no update to it
 	// If PDPV1 is defined then no update to it
-	// If PDPv1 is defined by DDOV1 is not, then allow updating it
-	// If DDOV1 is defined then don't allow PDPv1 yet
+	// If PDPv1 is defined but DDOV1 is not, then allow updating it
 
-	// TODO: Remove this once DDO is live
-	if ddeal.Products.PDPV1 != nil {
-		if ddeal.Data == nil {
-			ddeal.Data = deal.Data
-		}
-		return ddeal, Ok, nil, nil
-	}
-
-	if ddeal.Data == nil {
+	if ddeal.Data == nil && deal.Data != nil {
 		ddeal.Data = deal.Data
 	}
 
@@ -857,6 +848,11 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 	if ddeal.Products.DDOV1 == nil || deal.Products.DDOV1 != nil {
 		ddeal.Products.DDOV1 = deal.Products.DDOV1
 		newProducts = append(newProducts, ProductNameDDOV1)
+	}
+
+	if ddeal.Products.PDPV1 == nil || deal.Products.PDPV1 != nil {
+		ddeal.Products.PDPV1 = deal.Products.PDPV1
+		newProducts = append(newProducts, ProductNamePDPV1)
 	}
 
 	if ddeal.Products.RetrievalV1 == nil || deal.Products.RetrievalV1 != nil {

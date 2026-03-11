@@ -627,7 +627,7 @@ func (a *WebRPC) RemoveMarketContract(ctx context.Context, contract string) erro
 func (a *WebRPC) ListMarketContracts(ctx context.Context) (map[string]bool, error) {
 	var contracts []struct {
 		Address string `db:"address"`
-		Allowed     bool `db:"allowed"`
+		Allowed bool   `db:"allowed"`
 	}
 	err := a.deps.DB.Select(ctx, &contracts, `SELECT address, allowed FROM ddo_contracts`)
 	if err != nil {

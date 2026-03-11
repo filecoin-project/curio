@@ -71,7 +71,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.PDPV1.ErrorMsg = pdp_error.String
 		}
 
-		if !pdp_complete.Bool && !(pdp_error.Valid && pdp_error.String != "") {
+		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {
 			pdp := deal.Products.PDPV1
 			if pdp.AddPiece {
 				if deal.Data != nil {
@@ -120,7 +120,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.DDOV1.ErrorMsg = ddo_error.String
 		}
 
-		if !ddo_complete.Bool && !(ddo_error.Valid && ddo_error.String != "") {
+		if !ddo_complete.Bool && (!ddo_error.Valid || ddo_error.String == "") {
 			state, err := m.getDDOStatus(ctx, id)
 			if err != nil {
 				log.Errorw("failed to get DDO status", "deal", id.String(), "error", err)
@@ -166,7 +166,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.DDOV1.ErrorMsg = ddo_error.String
 		}
 
-		if !pdp_complete.Bool && !(pdp_error.Valid && pdp_error.String != "") {
+		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {
 			pdp := deal.Products.PDPV1
 			if pdp.AddPiece {
 				if deal.Data != nil {
@@ -194,7 +194,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			}
 		}
 
-		if !ddo_complete.Bool && !(ddo_error.Valid && ddo_error.String != "") {
+		if !ddo_complete.Bool && (!ddo_error.Valid || ddo_error.String == "") {
 			state, err := m.getDDOStatus(ctx, id)
 			if err != nil {
 				log.Errorw("failed to get DDO status", "deal", id.String(), "error", err)

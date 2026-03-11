@@ -1675,12 +1675,12 @@ var mk20DealCmd = &cli.Command{
 			Value: 518400, // default is 2880 * 180 == 180 days
 		},
 		&cli.StringFlag{
-			Name:     "market-address",
-			Usage:    "market contract address of the deal",
+			Name:  "market-address",
+			Usage: "market contract address of the deal",
 		},
 		&cli.Uint64Flag{
-			Name:     "market-deal-id",
-			Usage:    "market deal ID",
+			Name:  "market-deal-id",
+			Usage: "market deal ID",
 		},
 		&cli.Uint64Flag{
 			Name:  "allocation",
@@ -1932,9 +1932,9 @@ var mk20DealCmd = &cli.Command{
 
 		p := mk20.Products{
 			DDOV1: &mk20.DDOV1{
-				Provider:                   maddr,
-				Duration:                   abi.ChainEpoch(cctx.Int64("duration")),
-				MarketAddress:            cctx.String("market-address"),
+				Provider:      maddr,
+				Duration:      abi.ChainEpoch(cctx.Int64("duration")),
+				MarketAddress: cctx.String("market-address"),
 			},
 			RetrievalV1: &mk20.RetrievalV1{
 				Indexing:        cctx.Bool("indexing"),
@@ -1942,7 +1942,7 @@ var mk20DealCmd = &cli.Command{
 			},
 		}
 
-		if p.DDOV1.MarketAddress != ""{
+		if p.DDOV1.MarketAddress != "" {
 			if cctx.IsSet("market-deal-id") {
 				did := cctx.Uint64("market-deal-id")
 				p.DDOV1.MarketDealID = &did

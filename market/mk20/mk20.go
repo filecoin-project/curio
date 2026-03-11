@@ -24,7 +24,6 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffi"
@@ -149,15 +148,7 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) (result
 	log.Debugw("deal validated", "deal", deal.Identifier.String())
 
 	if deal.Products.DDOV1 != nil {
-		// TODO: Remove this check once DDO market is done
-		if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
-			return m.processDDODeal(ctx, deal, nil)
-		}
-		log.Errorw("DDOV1 is not supported yet", "deal", deal.Identifier.String())
-		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrUnsupportedProduct,
-			Reason:   "DDOV1 is not supported yet",
-		}
+		return m.processDDODeal(ctx, deal, nil)
 	}
 
 	if deal.Products.PDPV1 != nil {
@@ -508,7 +499,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) (result *Provider
 		}
 
 		if pdp.CreateDataSet {
-			n, err := tx.Exec( `INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
+			n, err := tx.Exec(`INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client, pdp.RecordKeeper, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set create: %w", err)
@@ -519,7 +510,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) (result *Provider
 		}
 
 		if pdp.DeleteDataSet {
-			n, err := tx.Exec( `INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
+			n, err := tx.Exec(`INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set delete: %w", err)
@@ -530,7 +521,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) (result *Provider
 		}
 
 		if pdp.DeletePiece {
-			n, err := tx.Exec( `INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
+			n, err := tx.Exec(`INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
 				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.PieceIDs, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP delete root: %w", err)

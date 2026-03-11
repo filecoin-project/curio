@@ -132,8 +132,8 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 				DataSetID:     &x,
 			},
 			DDOV1: &DDOV1{
-				Provider:                   addr,
-				AllocationId:               &v,
+				Provider:     addr,
+				AllocationId: &v,
 			},
 		},
 	}
