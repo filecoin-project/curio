@@ -1,4 +1,4 @@
-# Deal Lifecycle, Status, and Pipelines
+# Deal Processing
 
 This page defines the deal intake paths, lifecycle progression, status semantics, and pipeline behavior for Market 2.0.
 

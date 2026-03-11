@@ -21,8 +21,8 @@ This model reflects real deal-making: who is asking, what they want, how it is r
 Use these guides to submit and manage deals:
 
 1. [HTTP API: create, update, and query deals](./http-api.md)
-2. [Deal intake paths and upload ordering](./status-lifecycle-and-pipeline.md#deal-intake-paths)
-3. [Lifecycle and status tracking](./status-lifecycle-and-pipeline.md)
+2. [Deal intake paths and upload ordering](./deal-processing.md#deal-intake-paths)
+3. [Lifecycle and status tracking](./deal-processing.md)
 4. [Data model and source/format requirements](./architecture.md#data-model)
 5. [Error codes and troubleshooting](./http-api.md#endpoint-details)
 
@@ -36,8 +36,8 @@ Contact your storage provider when:
 
 Use these guides to operate and support Market 2.0:
 
-1. [Lifecycle and operational behavior](./status-lifecycle-and-pipeline.md)
-2. [DDO contract verification and requirements](./contracts/curiodealview.md)
+1. [Lifecycle and operational behavior](./deal-processing.md)
+2. [Contract integration and provider allowlisting](./contracts/README.md)
 3. [Error codes for support triage](./http-api.md#endpoint-details)
 
 Operational note:
@@ -50,14 +50,15 @@ Operational note:
 ### SDK and Client Library Developers
 
 1. [HTTP interaction model](./http-api.md)
-2. [Lifecycle semantics](./status-lifecycle-and-pipeline.md)
+2. [Lifecycle semantics](./deal-processing.md)
 3. [Error handling contract](./http-api.md#endpoint-details)
 4. [Data model and validation context](./architecture.md)
 5. [Data source and format constraints](./architecture.md#data-model)
 
 ### Contract Integrators
 
-1. [Current DDO contract interface](./contracts/curiodealview.md)
+1. [Contract integration guide](./contracts/README.md)
+2. [Current DDO contract interface (CurioDealView v1)](./contracts/curiodealview.md)
 
 Current integration surface:
 
@@ -66,7 +67,7 @@ Current integration surface:
 
 ### Curio Product Developers
 
-1. [Extending products](./extending-mk20-with-new-products.md)
+1. [Extending products](./extending-mk20.md)
 2. [DDO product behavior](./products/ddo_v1.md)
 3. [Retrieval product behavior](./products/retrieval_v1.md)
 4. [PDP product behavior](./products/pdp_v1.md)

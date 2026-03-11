@@ -1,4 +1,4 @@
-# Extending MK20 With New Products
+# Extending MK20
 
 This guide is for developers adding new MK20 products while keeping client and operator behavior predictable.
 
