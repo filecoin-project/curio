@@ -52,7 +52,7 @@ func (c *Client) CreateDataSet(ctx context.Context, client, recordKeeper string,
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -85,7 +85,7 @@ func (c *Client) RemoveDataSet(ctx context.Context, client, recordKeeper string,
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -120,7 +120,7 @@ func (c *Client) addPiece(ctx context.Context, client, recordKeeper string, extr
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -158,7 +158,7 @@ func (c *Client) RemovePiece(ctx context.Context, client, recordKeeper string, e
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
