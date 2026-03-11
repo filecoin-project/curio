@@ -1,202 +1,77 @@
 # Market 2.0
 
-This guide introduces the new Filecoin Market 2.0 architecture for clients, developers, and aggregators. It explains how to use the new modular, contract-governed storage market and how to interact with Curio-based storage providers under this new system.
+Market 2.0 is Curio’s unified, extensible deal interface between clients and storage providers.
 
----
+It exists to abstract away deal-type-specific integration.  
+A client can request PoRep-style storage, PDP operations, or future specialized services through one consistent model and one consistent API surface.
 
-## 🧭 Overview
+## Deal Model
 
-Filecoin's Market 2.0 removes legacy assumptions of the built-in storage market actor. Instead, deals are processed through **user-defined smart contracts**, allowing:
+Every deal is expressed as:
 
-* Flexible pricing and service terms
-* Support for custom retrieval logic
-* Contract-governed deal lifecycle
-* Composability via extensible "products"
+- `id`: deal reference
+- `client`: requester identity
+- `product`: requested service
+- `data source` (optional): operation input data when required
 
-Curio's role is purely to onboard data and respect contract terms—it does not mediate pricing, payments, or retrieval policy.
+This model reflects real deal-making: who is asking, what they want, how it is referenced, and what inputs are needed.
 
----
+## Clients
 
-## 🔧 Lotus prerequisites (for Curio market nodes)
+Use these guides to submit and manage deals:
 
-Curio market nodes rely on Lotus’ Ethereum JSON-RPC compatibility layer for some operations.
+1. [HTTP API: create, update, and query deals](./http-api.md)
+2. [Deal intake paths and upload ordering](./status-lifecycle-and-pipeline.md#deal-intake-paths)
+3. [Lifecycle and status tracking](./status-lifecycle-and-pipeline.md)
+4. [Data model and source/format requirements](./architecture.md#data-model)
+5. [Error codes and troubleshooting](./http-api.md#endpoint-details)
 
-Make sure your Lotus node has:
+Contact your storage provider when:
 
-- `EnableEthRPC = true`
+1. You receive repeated `500` or `503` responses.
+2. A deal stays non-terminal longer than expected.
+3. A contract-related rejection needs provider policy confirmation.
 
-If this is disabled, Curio market operations may fail.
+## Storage Providers
 
-## 📡 Supported Endpoints
+Use these guides to operate and support Market 2.0:
 
-### 🔄 POST `/market/mk20/store`
+1. [Lifecycle and operational behavior](./status-lifecycle-and-pipeline.md)
+2. [DDO contract verification and requirements](./contracts/curiodealview.md)
+3. [Error codes for support triage](./http-api.md#endpoint-details)
 
-Accept a new deal (JSON body).
+Operational note:
 
-* Auto-validates structure, products, sources, contract
-* If valid, returns `200 OK`
-* Otherwise returns appropriate error code (e.g. `400`, `422`, etc)
+1. Product/source controls and contract allowlisting are provider policy decisions managed through the Curio GUI.
+2. DDO contracts must be vetted before allowlisting.
 
-### 🧾 GET `/market/mk20/status?id=<ulid>`
+## Developers
 
-Check the status of a deal.
+### SDK and Client Library Developers
 
-* Returns one of: `accepted`, `processing`, `sealing`, `indexing`, `complete`, or `failed`
+1. [HTTP interaction model](./http-api.md)
+2. [Lifecycle semantics](./status-lifecycle-and-pipeline.md)
+3. [Error handling contract](./http-api.md#endpoint-details)
+4. [Data model and validation context](./architecture.md)
+5. [Data source and format constraints](./architecture.md#data-model)
 
-### 🗂 PUT `/market/mk20/data?id=<ulid>`
+### Contract Integrators
 
-Used only when `source_httpput` is selected.
+1. [Current DDO contract interface](./contracts/curiodealview.md)
 
-* Clients upload raw bytes
-* `Content-Length` must match raw size
+Current integration surface:
 
-### 📜 GET `/market/mk20/contracts`
+1. DDO uses `CurioDealViewV1` today.
+2. Additional interfaces may be introduced in future product/version evolution without changing the top-level Market 2.0 deal model.
 
-Return list of supported contract addresses
+### Curio Product Developers
 
-### 🧠 GET `/market/mk20/info`
+1. [Extending products](./extending-mk20-with-new-products.md)
+2. [DDO product behavior](./products/ddo_v1.md)
+3. [Retrieval product behavior](./products/retrieval_v1.md)
+4. [PDP product behavior](./products/pdp_v1.md)
 
-Markdown documentation of deal format and validation rules
+Design rule:
 
-### 🧠 GET `/market/mk20/producs`
-
-Json list of products supported by the provider
-
-### 🧠 GET `/market/mk20/sources`
-
-Json list of data sources supported by the provider
-
----
-
-## 🧑‍💻 Clients
-
-### 📝 Submitting a Deal
-
-Clients submit a deal to a Curio node using the `/market/mk20/store` endpoint. A deal includes:
-
-* A unique ULID identifier
-* A `DataSource` (e.g. HTTP, offline, PUT)
-* One or more `Products` (like `ddov1`) that define how the deal should behave
-
-#### Example Products:
-
-* `ddov1`: governs how the data should be stored and verified
-* (future) `aclv1`: may define retrieval access controls
-* (future) `retrievalv1`: may define retrieval SLA or payment terms
-
-### 🛠 Smart Contract Control
-
-Clients must select a contract that:
-
-* Is supported by the SP
-* Implements a deal validation method that returns a valid DealID
-
-Clients pass the contract address, method name, and encoded params.
-
-### 🔁 Deal Lifecycle
-
-The contract governs whether the deal is valid. If valid:
-
-* The SP accepts and starts onboarding the data
-* The deal may be indexed and/or announced to IPNI, based on deal config
-* Data may be retrieved later via PieceCIDv2, PayloadCID, or subpiece CID
-
----
-
-## 🧱 Developers
-
-### 🧩 Building New Products
-
-Each product is a self-contained struct in the deal payload. Developers can:
-
-* Define new product types (e.g., `aclv1`, `retrievalv1`, `auditv1`)
-* Implement validation logic on the SP side
-* Optionally affect indexing, retrievals, ACLs, or other lifecycle aspects
-
-This makes the deal structure extensible **without requiring protocol or DB changes.**
-
-### 🧠 Writing Market Contracts
-
-A contract must:
-
-* Be added to the SP's whitelist
-* Implement a method (e.g. `verifyDeal`) that takes a single `bytes` parameter
-* Return a valid deal ID if the deal is accepted
-
-Contracts can implement features like:
-
-* Off-chain or on-chain ACL logic
-* Multi-party deal approval
-* FIL+ verification
-* SLA enforcement
-
----
-
-## 🔁 Aggregators
-
-Data aggregators in Market 2.0 should:
-
-* No longer implement protocol-level workarounds (like ACLs or approvals)
-* Provide value-added services like dashboards, alerts, analytics, SDKs
-* Optionally act as data sources for multi-client deal generation
-
-Market 2.0 aims to reduce dependency on aggregators by letting providers and contracts do the heavy lifting.
-
----
-
-## 📦 Retrievals
-
-Curio supports the following retrieval inputs:
-
-* **PieceCIDv2**: required for all piece-level retrievals
-* **PayloadCID**: if indexing is enabled
-* **Subpiece CID**: if the deal was aggregated and subpieces were indexed
-
-ACL-based gating is not yet implemented, but future products can enable it.
-
----
-
-## ♻️ Deal Lifecycle in Curio
-
-1. **Client submits** deal with products, data, and contract call info
-2. **Curio validates** all inputs and uses the contract to get a DealID
-3. **Data is onboarded** via HTTP, offline import, PUT, or aggregation
-4. **Products control** indexing, IPNI, and future extensibility
-5. **Data is removed** from disk and DB when the sector expires
-
----
-
-## 🧪 Current Product: `ddov1`
-
-This product represents the first non-native Filecoin market product. It includes:
-
-* Provider, client, and piece manager addresses
-* Optional AllocationID (or minimum duration)
-* Contract + verification method for DealID
-* Indexing and IPNI flags
-* Notification hooks for deal lifecycle events
-
-More details can be found in the product schema or SP guide.
-
----
-
-## 🔮 Future Directions
-
-* ACL enforcement via `aclv1`
-* Retrieval policy enforcement via `retrievalv1`
-* Sealed sector access / download pricing
-* Smart contract SLAs and renewals
-* Market UIs and dashboards
-
----
-
-## ✅ Summary
-
-Market 2.0 enables:
-
-* Composable, contract-governed storage deals
-* Modular product design
-* Client-friendly HTTP-first onboarding
-* Decoupled market innovation from SP software
-* Stronger integration paths for aggregators and external tools
-
+1. Extend an existing product when behavior remains backward compatible and JSON evolution is safe.
+2. Introduce a new product when behavior, lifecycle, or compatibility contracts diverge.
