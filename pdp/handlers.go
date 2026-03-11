@@ -31,15 +31,15 @@ import (
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
 
-func httpServerError(w http.ResponseWriter, msg string, err error) {
+func httpServerError(w http.ResponseWriter, statusCode int, msg string, err error) {
 	var chainErr *api.ChainError
 	if errors.As(err, &chainErr) {
-		http.Error(w, chainErr.Error(), http.StatusInternalServerError)
+		http.Error(w, chainErr.Error(), statusCode)
 		return
 	}
 	eid := uuid.New()
 	log.Errorf("%s [eid=%s]: %+v", msg, eid, err)
-	http.Error(w, fmt.Sprintf("%s [eid: %s]", msg, eid), http.StatusInternalServerError)
+	http.Error(w, fmt.Sprintf("%s [eid: %s]", msg, eid), statusCode)
 }
 
 // PDPRoutePath is the base path for PDP routes
@@ -174,7 +174,7 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
 	_, err := p.AuthService(r)
 	if err != nil {
-		httpServerError(w, "Failed to authorize request", err)
+		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
 	}
 
 	// Return 200 OK
@@ -188,7 +188,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	// Verify authorization
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		httpServerError(w, "Failed to authorize request", err)
+		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
 	}
 
 	// Extract pieceCid from URL and convert to v1 for DB query
@@ -269,14 +269,14 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Piece not found or does not belong to service", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to query piece status", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to query piece status", err)
 		return
 	}
 
 	// Convert authoritative PieceCID back from v1 to v2 for external API
 	pieceInfo, err := PieceCidV2FromV1Str(result.PieceCID, result.PieceRawSize)
 	if err != nil {
-		httpServerError(w, "Failed to convert PieceCID to v2", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to convert PieceCID to v2", err)
 		return
 	}
 
@@ -376,7 +376,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 			http.Error(w, "Data set creation not found for given txHash", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to query data set creation", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to query data set creation", err)
 		return
 	}
 
@@ -414,7 +414,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 			http.Error(w, "Message status not found for given txHash", http.StatusInternalServerError)
 			return
 		}
-		httpServerError(w, "Failed to query message status", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to query message status", err)
 		return
 	}
 
@@ -434,7 +434,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 				http.Error(w, "Data set not found despite data_set_created = true", http.StatusInternalServerError)
 				return
 			}
-			httpServerError(w, "Failed to query data set", err)
+			httpServerError(w, http.StatusInternalServerError, "Failed to query data set", err)
 			return
 		}
 		response.DataSetId = &dataSetId
@@ -497,7 +497,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to retrieve data set", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set", err)
 		return
 	}
 
@@ -538,7 +538,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
         ORDER BY dsp.piece_id, dsp.sub_piece_offset
     `, dataSetId)
 	if err != nil {
-		httpServerError(w, "Failed to retrieve data set pieces", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set pieces", err)
 		return
 	}
 
@@ -550,7 +550,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
         WHERE id = $1
     `, dataSetId).Scan(&nextChallengeEpoch)
 	if err != nil {
-		httpServerError(w, "Failed to retrieve next challenge epoch", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve next challenge epoch", err)
 		return
 	}
 
@@ -697,7 +697,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to retrieve data set", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set", err)
 		return
 	}
 
@@ -727,7 +727,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		ORDER BY add_message_index, sub_piece_offset
 	`, dataSetId, txHash)
 	if err != nil {
-		httpServerError(w, "Failed to query piece additions", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to query piece additions", err)
 		return
 	}
 
@@ -746,7 +746,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 			http.Error(w, "Transaction status not found", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to query transaction status", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to query transaction status", err)
 		return
 	}
 
@@ -769,7 +769,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 			ORDER BY piece_id
 		`, dataSetId, txHash)
 		if err != nil {
-			httpServerError(w, "Failed to query confirmed pieces", err)
+			httpServerError(w, http.StatusInternalServerError, "Failed to query confirmed pieces", err)
 			return
 		}
 	}
@@ -867,7 +867,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to retrieve data set", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set", err)
 		return
 	}
 
@@ -911,7 +911,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	var found bool
 	err = p.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2)`, dataSetId, pieceID).Scan(&found)
 	if err != nil {
-		httpServerError(w, "Failed to query piece existence", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to query piece existence", err)
 		return
 	}
 	if !found {
@@ -939,7 +939,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	// Get the sender address
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		httpServerError(w, "Failed to get sender address", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address", err)
 		return
 	}
 
@@ -957,7 +957,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	reason := "pdp-delete-piece"
 	txHash, err := p.sender.Send(ctx, fromAddress, ethTx, reason)
 	if err != nil {
-		httpServerError(w, "Failed to send transaction", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to send transaction", err)
 		return
 	}
 
@@ -992,7 +992,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		httpServerError(w, "Failed to schedule delete piece", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to schedule delete piece", err)
 		return
 	}
 
@@ -1004,7 +1004,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		httpServerError(w, "Failed to encode response", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to encode response", err)
 		return
 	}
 }
@@ -1015,7 +1015,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		httpServerError(w, "Failed to authorize request", err)
+		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
 	}
 
 	// Step 2: Extract and validate parameters
@@ -1056,7 +1056,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Piece not found", http.StatusNotFound)
 			return
 		}
-		httpServerError(w, "Failed to retrieve piece", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve piece", err)
 		return
 	}
 
@@ -1074,7 +1074,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 		ORDER BY sub_piece_offset
 	`, dataSetId, pieceID)
 	if err != nil {
-		httpServerError(w, "Failed to retrieve subPieces", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve subPieces", err)
 		return
 	}
 
@@ -1104,7 +1104,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	// Step 6: Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		httpServerError(w, "Failed to encode response", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to encode response", err)
 		return
 	}
 }

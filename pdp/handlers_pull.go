@@ -308,7 +308,7 @@ func NewPullHandler(auth Auth, store PullStore, validator AddPiecesValidator) *P
 // This allows safe retries and status polling using the same request.
 func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		httpServerError(w, http.StatusMethodNotAllowed, "Method Not Allowed", nil)
 		return
 	}
 
@@ -317,20 +317,20 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	// Auth check
 	service, err := h.auth.AuthService(r)
 	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
 		return
 	}
 
 	// Parse request body
 	var req PullRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
 
 	// Validate request
 	if err := req.Validate(); err != nil {
-		http.Error(w, "Validation error: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Validation error: "+err.Error(), err)
 		return
 	}
 
@@ -339,12 +339,12 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	if req.IsCreateNew() {
 		recordKeeperAddr = common.HexToAddress(*req.RecordKeeper)
 		if recordKeeperAddr == (common.Address{}) {
-			http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+			httpServerError(w, http.StatusBadRequest, "Invalid recordKeeper address", err)
 			return
 		}
 		// Check recordKeeper is allowed (prevents bypass via malicious contract)
 		if contract.IsPublicService(service) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
-			http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+			httpServerError(w, http.StatusForbidden, "recordKeeper address not allowed for public service", err)
 			return
 		}
 	}
@@ -352,11 +352,11 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	// Compute extraData hash and prepare idempotency key components
 	extraDataBytes, err := decodeExtraData(&req.ExtraData)
 	if err != nil {
-		http.Error(w, "Invalid extraData: "+err.Error(), http.StatusBadRequest)
+			httpServerError(w, http.StatusBadRequest, "Invalid extraData: "+err.Error(), err)
 		return
 	}
 	if extraDataBytes == nil {
-		http.Error(w, "extraData is required", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "extraData is required", err)
 		return
 	}
 	extraDataHash := sha256.Sum256(extraDataBytes)
@@ -375,7 +375,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	existingPull, err := h.store.GetPullByKey(ctx, service, extraDataHash[:], dataSetId, recordKeeperStr)
 	if err != nil {
 		log.Errorw("failed to check pull idempotency", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
@@ -391,11 +391,14 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	for i, piece := range req.Pieces {
 		info, err := ParsePieceCidV2(piece.PieceCid)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Invalid pieceCid[%d]: %s", i, err.Error()), http.StatusBadRequest)
+			msg := fmt.Sprintf("Invalid pieceCid[%d]: %s", i, err.Error())
+			httpServerError(w, http.StatusBadRequest, msg, err)
+
 			return
 		}
 		if info.RawSize > uint64(PieceSizeLimit) {
-			http.Error(w, fmt.Sprintf("pieceCid[%d]: size %d exceeds maximum %d", i, info.RawSize, PieceSizeLimit), http.StatusBadRequest)
+			msg := fmt.Sprintf("pieceCid[%d]: size %d exceeds maximum %d", i, info.RawSize, PieceSizeLimit)
+			httpServerError(w, http.StatusBadRequest, msg, err)
 			return
 		}
 		pieceInfos[i] = info
@@ -410,7 +413,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 		ExtraData:    extraDataBytes,
 	}
 	if err := h.validator.ValidateAddPieces(ctx, validatorParams); err != nil {
-		http.Error(w, "extraData validation failed: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "extraData validation failed: "+err.Error(), err)
 		return
 	}
 
@@ -435,7 +438,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	pullID, err := h.store.CreatePullWithPieces(ctx, pullRecord, pullPieces)
 	if err != nil {
 		log.Errorw("failed to create pull record", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
@@ -452,7 +455,7 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 	pieces, err := h.store.GetPullPieces(ctx, pullID)
 	if err != nil {
 		log.Errorw("failed to get pull pieces", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
@@ -466,7 +469,7 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 	pieceStatuses, err := h.store.GetPieceStatuses(ctx, cidV1s)
 	if err != nil {
 		log.Errorw("failed to get piece statuses", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
@@ -474,7 +477,7 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 	pullItemStatuses, err := h.store.GetPullItemStatuses(ctx, pullID, cidV1s)
 	if err != nil {
 		log.Errorw("failed to get pull item statuses", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 		return
 	}
 
@@ -492,7 +495,7 @@ func (h *PullHandler) respondWithStatus(ctx context.Context, w http.ResponseWrit
 		cidV2, err := commcid.PieceCidV2FromV1(piece.CidV1, piece.RawSize)
 		if err != nil {
 			log.Errorw("failed to reconstruct v2 CID", "error", err, "cidV1", piece.CidV1.String())
-			http.Error(w, "Internal error", http.StatusInternalServerError)
+			httpServerError(w, http.StatusInternalServerError, "Internal error", err)
 			return
 		}
 
