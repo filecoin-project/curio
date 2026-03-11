@@ -171,13 +171,13 @@ func (c *HTTPClient) Status(ctx context.Context, id ulid.ULID) (*mk20.DealProduc
 	return &out, err
 }
 
-// /store  (POST)
-func (c *HTTPClient) Store(ctx context.Context, deal *mk20.Deal) *Error {
+// /deal  (POST)
+func (c *HTTPClient) SubmitDeal(ctx context.Context, deal *mk20.Deal) *Error {
 	b, merr := json.Marshal(deal)
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodPost, "/store", bytes.NewReader(b), false, nil)
+	err := c.do(ctx, http.MethodPost, "/deal", bytes.NewReader(b), false, nil)
 	return err
 }
 

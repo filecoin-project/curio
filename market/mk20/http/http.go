@@ -132,7 +132,7 @@ func APIRouter(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
 	mux.Use(AuthMiddleware(mdh.db, mdh.cfg))
-	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
+	mux.Method("POST", "/deal", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
 	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
 	mux.Method("POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
 	mux.Method("GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
@@ -192,7 +192,7 @@ func swaggerJson(w http.ResponseWriter, r *http.Request) {
 }
 
 // mk20deal handles HTTP requests to process MK20 deals, parses the request body, validates it, and executes the deal logic.
-// @Router /store [post]
+// @Router /deal [post]
 // @Summary Make a mk20 deal
 // @Description Make a mk20 deal
 // @BasePath /market/mk20

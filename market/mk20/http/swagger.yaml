@@ -454,74 +454,7 @@ paths:
           schema:
             type: string
       summary: List of supported DDO contracts
-  /info/:
-    get:
-      description: '- OpenAPI spec UI for the Market 2.0 APIs'
-      responses: {}
-      summary: OpenAPI Spec UI
-  /info/swagger.json:
-    get:
-      description: '- OpenAPI spec for the Market 2.0 APIs in JSON format'
-      responses: {}
-      summary: OpenAPI Spec JSON
-  /info/swagger.yaml:
-    get:
-      description: '- OpenAPI spec for the Market 2.0 APIs in YAML format'
-      responses: {}
-      summary: OpenAPI Spec YAML
-  /products:
-    get:
-      description: List of supported products
-      responses:
-        "200":
-          description: Array of products supported by the SP
-          schema:
-            $ref: '#/definitions/mk20.SupportedProducts'
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
-      summary: List of supported products
-  /sources:
-    get:
-      description: List of supported data sources
-      responses:
-        "200":
-          description: Array of dats sources supported by the SP
-          schema:
-            $ref: '#/definitions/mk20.SupportedDataSources'
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
-      summary: List of supported data sources
-  /status/{id}:
-    get:
-      description: Current status of MK20 deal per product
-      parameters:
-      - description: id
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: the status response for deal products with their respective
-            deal statuses
-          schema:
-            $ref: '#/definitions/mk20.DealProductStatusResponse'
-        "400":
-          description: Bad Request - Invalid input or validation error
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
-      security:
-      - CurioAuth: []
-      summary: Status of the MK20 deal
-  /store:
+  /deal:
     post:
       consumes:
       - application/json
@@ -606,6 +539,73 @@ paths:
       security:
       - CurioAuth: []
       summary: Make a mk20 deal
+  /info/:
+    get:
+      description: '- OpenAPI spec UI for the Market 2.0 APIs'
+      responses: {}
+      summary: OpenAPI Spec UI
+  /info/swagger.json:
+    get:
+      description: '- OpenAPI spec for the Market 2.0 APIs in JSON format'
+      responses: {}
+      summary: OpenAPI Spec JSON
+  /info/swagger.yaml:
+    get:
+      description: '- OpenAPI spec for the Market 2.0 APIs in YAML format'
+      responses: {}
+      summary: OpenAPI Spec YAML
+  /products:
+    get:
+      description: List of supported products
+      responses:
+        "200":
+          description: Array of products supported by the SP
+          schema:
+            $ref: '#/definitions/mk20.SupportedProducts'
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: List of supported products
+  /sources:
+    get:
+      description: List of supported data sources
+      responses:
+        "200":
+          description: Array of dats sources supported by the SP
+          schema:
+            $ref: '#/definitions/mk20.SupportedDataSources'
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: List of supported data sources
+  /status/{id}:
+    get:
+      description: Current status of MK20 deal per product
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: the status response for deal products with their respective
+            deal statuses
+          schema:
+            $ref: '#/definitions/mk20.DealProductStatusResponse'
+        "400":
+          description: Bad Request - Invalid input or validation error
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      security:
+      - CurioAuth: []
+      summary: Status of the MK20 deal
   /update/{id}:
     post:
       consumes:

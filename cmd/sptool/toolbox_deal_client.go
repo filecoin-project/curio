@@ -1976,7 +1976,7 @@ var mk20DealCmd = &cli.Command{
 
 		// Try to request all URLs one by one and exit after first success
 		for _, u := range hurls {
-			s := u.String() + "/market/mk20/store"
+			s := u.String() + "/market/mk20/deal"
 			log.Debugw("trying to send request to", "url", u.String())
 			req, err := http.NewRequest("POST", s, bytes.NewReader(body))
 			if err != nil {
