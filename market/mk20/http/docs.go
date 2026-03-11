@@ -35,108 +35,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/info/": {
-            "get": {
-                "description": "- OpenAPI spec UI for the Market 2.0 APIs",
-                "summary": "OpenAPI Spec UI",
-                "responses": {}
-            }
-        },
-        "/info/swagger.json": {
-            "get": {
-                "description": "- OpenAPI spec for the Market 2.0 APIs in JSON format",
-                "summary": "OpenAPI Spec JSON",
-                "responses": {}
-            }
-        },
-        "/info/swagger.yaml": {
-            "get": {
-                "description": "- OpenAPI spec for the Market 2.0 APIs in YAML format",
-                "summary": "OpenAPI Spec YAML",
-                "responses": {}
-            }
-        },
-        "/products": {
-            "get": {
-                "description": "List of supported products",
-                "summary": "List of supported products",
-                "responses": {
-                    "200": {
-                        "description": "Array of products supported by the SP",
-                        "schema": {
-                            "$ref": "#/definitions/mk20.SupportedProducts"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/sources": {
-            "get": {
-                "description": "List of supported data sources",
-                "summary": "List of supported data sources",
-                "responses": {
-                    "200": {
-                        "description": "Array of dats sources supported by the SP",
-                        "schema": {
-                            "$ref": "#/definitions/mk20.SupportedDataSources"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/status/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "CurioAuth": []
-                    }
-                ],
-                "description": "Current status of MK20 deal per product",
-                "summary": "Status of the MK20 deal",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "the status response for deal products with their respective deal statuses",
-                        "schema": {
-                            "$ref": "#/definitions/mk20.DealProductStatusResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request - Invalid input or validation error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/store": {
+        "/deal": {
             "post": {
                 "security": [
                     {
@@ -242,6 +141,107 @@ const docTemplate = `{
                         "description": "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503",
                         "schema": {
                             "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/info/": {
+            "get": {
+                "description": "- OpenAPI spec UI for the Market 2.0 APIs",
+                "summary": "OpenAPI Spec UI",
+                "responses": {}
+            }
+        },
+        "/info/swagger.json": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in JSON format",
+                "summary": "OpenAPI Spec JSON",
+                "responses": {}
+            }
+        },
+        "/info/swagger.yaml": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in YAML format",
+                "summary": "OpenAPI Spec YAML",
+                "responses": {}
+            }
+        },
+        "/products": {
+            "get": {
+                "description": "List of supported products",
+                "summary": "List of supported products",
+                "responses": {
+                    "200": {
+                        "description": "Array of products supported by the SP",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedProducts"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/sources": {
+            "get": {
+                "description": "List of supported data sources",
+                "summary": "List of supported data sources",
+                "responses": {
+                    "200": {
+                        "description": "Array of dats sources supported by the SP",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedDataSources"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/status/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Current status of MK20 deal per product",
+                "summary": "Status of the MK20 deal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the status response for deal products with their respective deal statuses",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealProductStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
