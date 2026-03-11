@@ -10,6 +10,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestPreemptCostMessage verifies that messageRenderPreemptCost produces bytes
+// that handlePeerMessage correctly parses and routes into preemptCostChs.
+// When preemptCostChs has a channel for the taskID, the response is delivered there.
+func TestPreemptCostMessage(t *testing.T) {
+	engine := &TaskEngine{
+		schedulerChannel: make(chan schedulerEvent, 10),
+		preemptCostChs:   make(map[TaskID]chan preemptCostResponse),
+	}
+	ch := make(chan preemptCostResponse, 1)
+	engine.preemptCostChs[TaskID(123)] = ch
+
+	p := &peering{h: engine}
+	them := peer{id: 99}
+
+	msg := messageRenderPreemptCost{TaskType: "WinPost", TaskID: 123, Cost: 5 * time.Second}.Render()
+	t.Logf("wire bytes (%d): %q", len(msg), msg)
+
+	err := p.handlePeerMessage("test-peer", them, msg)
+	require.NoError(t, err)
+
+	select {
+	case resp := <-ch:
+		require.Equal(t, int64(99), resp.PeerID)
+		require.Equal(t, 5*time.Second, resp.Cost)
+	case <-time.After(time.Second):
+		t.Fatal("no response on preempt cost channel")
+	}
+}
+
+// TestPreemptCostMessageWireFormat verifies the exact byte layout of preempt cost messages.
+func TestPreemptCostMessageWireFormat(t *testing.T) {
+	msg := messageRenderPreemptCost{TaskType: "WdPost", TaskID: 42, Cost: 3 * time.Second}.Render()
+	require.Equal(t, byte('c'), msg[0], "first byte should be messageTypePreemptCost")
+	require.Equal(t, byte(':'), msg[1])
+	require.Contains(t, string(msg), "WdPost")
+	require.GreaterOrEqual(t, len(msg), 16, "need at least 8 byte taskID + 8 byte cost")
+}
+
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====
 
 func pipePair() (*pipeConn, *pipeConn) {
