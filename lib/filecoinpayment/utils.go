@@ -58,8 +58,8 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 				railIds = append(railIds, r.RailId)
 			}
 
-			// If rail terminated in the last 30 days, we should consider it for settlement
-			if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*30) {
+			// If rail terminated in the last 7 days, we should consider it for settlement
+			if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*7) {
 				railIds = append(railIds, r.RailId)
 			}
 		}
@@ -67,7 +67,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	}
 
 	var toSettle []*big.Int
-	bufferPeriod := big.NewInt(builtin.EpochsInDay)
+	//bufferPeriod := big.NewInt(builtin.EpochsInDay)
 	for _, rail := range railIds {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
@@ -86,10 +86,15 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 			}
 		} else {
 			// If rail is not terminated, settle if SettledUpTo+LockupPeriod-1day > current block
-			threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-			thresholdWithGrace := big.NewInt(0).Sub(threshold, bufferPeriod)
+			//threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
+			//thresholdWithGrace := big.NewInt(0).Sub(threshold, bufferPeriod)
+			//
+			//if thresholdWithGrace.Uint64() < current {
+			//	toSettle = append(toSettle, rail)
+			//}
 
-			if thresholdWithGrace.Uint64() < current {
+			// Settle every 7 days if rail is not terminated
+			if view.SettledUpTo.Uint64() > current-(builtin.EpochsInDay*7) {
 				toSettle = append(toSettle, rail)
 			}
 		}
