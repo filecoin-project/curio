@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
@@ -23,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
+	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
@@ -308,7 +308,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 				comm = true
 			}
 
-			if comm{
+			if comm {
 				// Clear upload-waiting marker in same tx to prevent reprocessing/stuck uploading status.
 				n, err := tx.Exec(`DELETE FROM market_mk20_upload_waiting WHERE id = $1 AND chunked IS NULL AND ref_id IS NULL`, id.String())
 				if err != nil {
