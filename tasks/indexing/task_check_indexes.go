@@ -194,6 +194,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 					PieceSize int64     `db:"piece_size"`
 					Offline   bool      `db:"offline"`
 					CreatedAt time.Time `db:"created_at"`
+					DDO bool `db:"ddo"`
 				}
 				err = c.db.Select(ctx, &mk12deals, `SELECT
 											  uuid,
@@ -252,14 +253,14 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 									uuid, sp_id, piece_cid, piece_size, raw_size, offline, created_at,
 									sector, sector_offset, reg_seal_proof,
 									started, after_psd, after_commp, after_find_deal, sealed, complete,
-									indexed, indexing_created_at, indexing_task_id, should_index
+									indexed, indexing_created_at, indexing_task_id, should_index, id_ddo
 								)
 								VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 										true, true, true, true, true, true,
-										false, NOW(), NULL, true)
+										false, NOW(), NULL, true, $11)
 								ON CONFLICT (uuid) DO NOTHING
 							`, mk12deal.UUID, mk12deal.SPID, mk12deal.PieceCID, mk12deal.PieceSize, cent.RawSize, mk12deal.Offline, mk12deal.CreatedAt,
-						sourceSector.ID.Number, cent.PieceOff, int64(sourceSector.ProofType))
+						sourceSector.ID.Number, cent.PieceOff, int64(sourceSector.ProofType), mk12deal.DDO)
 					if err != nil {
 						return false, xerrors.Errorf("upserting into deal pipeline for uuid %s: %w", mk12deal.UUID, err)
 					}
