@@ -217,10 +217,10 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 				if errors.Is(err, pgx.ErrNoRows) {
 					// We don't have the piece, let user upload
 					return false, nil
-				} else {
-					// Some other error occurred during select
-					return false, xerrors.Errorf("checking existing parked piece: %w", err)
 				}
+				// Some other error occurred during select
+				return false, xerrors.Errorf("checking existing parked piece: %w", err)
+
 			}
 
 			retv := deal.Products.RetrievalV1
@@ -231,16 +231,16 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 				aggregation = int(data.Format.Aggregate.Type)
 			}
 
-			spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
-			if err != nil {
-				return false, fmt.Errorf("getting provider ID: %w", err)
-			}
-
 			var comm bool
 
 			// Insert DDO deal if present
 			if deal.Products.DDOV1 != nil {
 				ddo := deal.Products.DDOV1
+
+				spid, err := address.IDFromAddress(ddo.Provider)
+				if err != nil {
+					return false, fmt.Errorf("getting provider ID: %w", err)
+				}
 
 				var allocationID interface{}
 				if ddo.AllocationId != nil {
@@ -306,6 +306,17 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 					return false, xerrors.Errorf("inserting piece in PDP pipeline: %d rows affected", n)
 				}
 				comm = true
+			}
+
+			if comm{
+				// Clear upload-waiting marker in same tx to prevent reprocessing/stuck uploading status.
+				n, err := tx.Exec(`DELETE FROM market_mk20_upload_waiting WHERE id = $1 AND chunked IS NULL AND ref_id IS NULL`, id.String())
+				if err != nil {
+					return false, xerrors.Errorf("deleting upload waiting row: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected 1 upload waiting row deleted, got %d", n)
+				}
 			}
 
 			return comm, nil
@@ -459,7 +470,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			if piece.SourceHTTP != nil {
 				urls, ok := toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
 					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
@@ -725,7 +736,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 	if piece.Offline && !piece.Downloaded && !piece.Started {
 		comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var updated bool
-			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4, $5)`, piece.ID, piece.PieceCIDV2, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&updated)
+			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4, $5, $6)`, piece.ID, piece.PieceCIDV2, piece.PieceCID, piece.PieceSize, piece.RawSize, mk20.ProductNameDDOV1).Scan(&updated)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to start download for offline deal %s: %w", piece.ID, err)
@@ -755,6 +766,9 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 				if err != nil {
 					return false, xerrors.Errorf("error making GET request: %w", err)
 				}
+				defer func() {
+					_ = resp.Body.Close()
+				}()
 
 				// Check the response code for 404
 				if resp.StatusCode != http.StatusOK {

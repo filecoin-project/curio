@@ -105,7 +105,25 @@ func (d DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 		return ErrBadProposal, err
 	}
 
-	if d.SourceOffline != nil && d.SourceHTTP != nil && d.SourceAggregate != nil && d.SourceHttpPut != nil {
+	sourceCount := 0
+
+	if d.SourceHTTP != nil {
+		sourceCount++
+	}
+
+	if d.SourceOffline != nil {
+		sourceCount++
+	}
+
+	if d.SourceAggregate != nil {
+		sourceCount++
+	}
+
+	if d.SourceHttpPut != nil {
+		sourceCount++
+	}
+
+	if sourceCount > 1 {
 		return ErrBadProposal, xerrors.Errorf("multiple sources defined for data source")
 	}
 
