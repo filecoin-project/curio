@@ -754,6 +754,8 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 			return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
 		}
 		pcid1 = pcid
+	} else {
+		pcid1 = pcid2
 	}
 
 	var pps ParkedPieceState
@@ -950,6 +952,8 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 			return nil, xerrors.Errorf("failed to get piece CID v1 from piece CID v2: %w", err)
 		}
 		pcid1 = pcid
+	} else {
+		pcid1 = pcid2
 	}
 
 	var mk12Deals []*MK12Deal

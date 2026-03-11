@@ -462,7 +462,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 			reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCidV2, retrieval)
 			if err != nil {
-				log.Errorw("failed to get piece reader", "piececid", pieceCidV2, err)
+				log.Errorw("failed to get piece reader", "piececid", pieceCidV2, "err", err)
 				finalErr := fmt.Errorf("failed to get piece reader from aggregate, sector or piece park: %w, %w", aerr, err)
 
 				// Record error metric
