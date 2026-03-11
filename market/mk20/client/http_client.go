@@ -124,16 +124,12 @@ func (e *Error) HError() error {
 
 // /contracts
 func (c *HTTPClient) Contracts(ctx context.Context) ([]string, *Error) {
-	var out mk20.SupportedContracts
-	err := c.do(ctx, http.MethodGet, "/contracts", nil, false, &out)
+	var ret mk20.SupportedContracts
+	err := c.do(ctx, http.MethodGet, "/contracts", nil, false, &ret)
 	if err != nil {
 		return nil, err
 	}
-	var contracts []string
-	for _, contract := range out.Contracts {
-		contracts = append(contracts, contract)
-	}
-	return contracts, err
+	return ret.Contracts, err
 }
 
 // /products
@@ -143,11 +139,7 @@ func (c *HTTPClient) Products(ctx context.Context) ([]string, *Error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, product := range ret.Products {
-		out = append(out, product)
-	}
-	return out, err
+	return ret.Products, err
 }
 
 // /sources
@@ -157,11 +149,7 @@ func (c *HTTPClient) Sources(ctx context.Context) ([]string, *Error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, source := range ret.Sources {
-		out = append(out, source)
-	}
-	return out, err
+	return ret.Sources, err
 }
 
 // /status/{id}

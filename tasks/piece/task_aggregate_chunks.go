@@ -135,18 +135,18 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		if err == nil {
 			// If piece exists then check if we can access the data
 			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
-			if err != nil {
-				// If piece does not exist then we will park it otherwise fail here
-				if !errors.Is(err, storiface.ErrSectorNotFound) {
-					// We should fail here because any subsequent operation which requires access to data will also fail
-					// till this error is fixed
-					return false, fmt.Errorf("failed to get piece reader: %w", err)
-				}
+			if err == nil {
+				defer func() {
+					_ = pr.Close()
+				}()
+				pieceParked = true
+			} else if errors.Is(err, storiface.ErrSectorNotFound) {
+				// Stale parked piece row: reuse existing row id and rewrite bytes.
+				pieceParked = false
+			} else {
+				// Any other storage error should fail fast.
+				return false, fmt.Errorf("failed to get piece reader: %w", err)
 			}
-			defer func() {
-				_ = pr.Close()
-			}()
-			pieceParked = true
 			parkedPieceID = pid
 		} else {
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -236,7 +236,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 			_, err = tx.Exec(`UPDATE parked_pieces SET 
                          complete = TRUE 
                      WHERE id = $1 
-                       AND complete = false`, pieceRefID)
+                       AND complete = false`, parkedPieceID)
 			if err != nil {
 				return false, xerrors.Errorf("marking piece park as complete: %w", err)
 			}
