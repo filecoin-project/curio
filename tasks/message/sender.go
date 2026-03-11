@@ -344,6 +344,18 @@ func (s *Sender) Send(ctx context.Context, msg *types.Message, mss *api.MessageS
 			return cid.Undef, xerrors.Errorf("estimating gas price: %w", err)
 		}
 		msg.GasPremium = gasPremium
+
+		// GasPremium must not exceed GasFeeCap, otherwise the message will be
+		// rejected by the mpool with "GasFeeCap less than GasPremium".
+		// Cap the premium rather than inflating the fee cap, so we don't
+		// exceed the caller's MaxFee budget. The message may take longer to
+		// be included, but it remains within the cost bounds set by
+		// GasEstimateMessageGas + MaxFee.
+		if types.BigCmp(msg.GasPremium, msg.GasFeeCap) > 0 {
+			log.Warnw("estimated GasPremium exceeds GasFeeCap, capping premium",
+				"gasPremium", msg.GasPremium, "gasFeeCap", msg.GasFeeCap, "nbi", NBI)
+			msg.GasPremium = msg.GasFeeCap
+		}
 	}
 
 	b, err := s.api.WalletBalance(ctx, msg.From)
