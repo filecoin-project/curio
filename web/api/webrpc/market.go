@@ -675,7 +675,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 														piece_length, 
 														raw_size 
 													FROM market_piece_deal
-													WHERE piece_cid = $1`, ret.PieceCid, ret.Size)
+													WHERE piece_cid = $1`, ret.PieceCid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get piece deals: %w", err)
 	}
