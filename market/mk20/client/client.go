@@ -395,7 +395,7 @@ func (c *Client) DealChunkUploadFinalize(ctx context.Context, dealID string, dea
 	if err != nil {
 		return xerrors.Errorf("parsing deal id: %w", err)
 	}
-	rerr := c.http.UploadSerialFinalize(ctx, id, deal)
+	rerr := c.http.UploadFinalize(ctx, id, deal)
 	if rerr.Error != nil {
 		return rerr.Error
 	}
