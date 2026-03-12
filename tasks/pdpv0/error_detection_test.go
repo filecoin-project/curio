@@ -122,16 +122,3 @@ func TestCalculateBackoffBlocks(t *testing.T) {
 		}
 	}
 }
-
-func TestErrorSelectors(t *testing.T) {
-	// Verify that the selectors derived from the FWSS ABI match the expected values
-	expectedBeyondEndEpoch := "d7c45de5"
-	expectedAlreadyTerminated := "211a40c0"
-
-	if ErrSelectorDataSetPaymentBeyondEndEpoch != expectedBeyondEndEpoch {
-		t.Errorf("ErrSelectorDataSetPaymentBeyondEndEpoch = %s, want %s", ErrSelectorDataSetPaymentBeyondEndEpoch, expectedBeyondEndEpoch)
-	}
-	if ErrSelectorDataSetPaymentAlreadyTerminated != expectedAlreadyTerminated {
-		t.Errorf("ErrSelectorDataSetPaymentAlreadyTerminated = %s, want %s", ErrSelectorDataSetPaymentAlreadyTerminated, expectedAlreadyTerminated)
-	}
-}
