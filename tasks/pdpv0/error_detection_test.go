@@ -124,18 +124,14 @@ func TestCalculateBackoffBlocks(t *testing.T) {
 }
 
 func TestErrorSelectors(t *testing.T) {
-	// Verify that the computed selectors match the expected values derived from the error signatures
-	// These magic numbers were derived from previous harcoded values in the codebase.
+	// Verify that the selectors derived from the FWSS ABI match the expected values
 	expectedBeyondEndEpoch := "d7c45de5"
 	expectedAlreadyTerminated := "211a40c0"
 
-	actualBeyondEndEpoch := ErrSelectorDataSetPaymentBeyondEndEpoch()
-	actualAlreadyTerminated := ErrSelectorDataSetPaymentAlreadyTerminated()
-
-	if actualBeyondEndEpoch != expectedBeyondEndEpoch {
-		t.Errorf("ErrSelectorDataSetPaymentBeyondEndEpoch() = %s, want %s", actualBeyondEndEpoch, expectedBeyondEndEpoch)
+	if ErrSelectorDataSetPaymentBeyondEndEpoch != expectedBeyondEndEpoch {
+		t.Errorf("ErrSelectorDataSetPaymentBeyondEndEpoch = %s, want %s", ErrSelectorDataSetPaymentBeyondEndEpoch, expectedBeyondEndEpoch)
 	}
-	if actualAlreadyTerminated != expectedAlreadyTerminated {
-		t.Errorf("ErrSelectorDataSetPaymentAlreadyTerminated() = %s, want %s", actualAlreadyTerminated, expectedAlreadyTerminated)
+	if ErrSelectorDataSetPaymentAlreadyTerminated != expectedAlreadyTerminated {
+		t.Errorf("ErrSelectorDataSetPaymentAlreadyTerminated = %s, want %s", ErrSelectorDataSetPaymentAlreadyTerminated, expectedAlreadyTerminated)
 	}
 }
