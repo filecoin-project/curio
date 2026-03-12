@@ -94,7 +94,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 			//}
 
 			// Settle every 7 days if rail is not terminated
-			if view.SettledUpTo.Uint64() > current-(builtin.EpochsInDay*7) {
+			if view.SettledUpTo.Uint64() < current-(builtin.EpochsInDay*7) {
 				toSettle = append(toSettle, rail)
 			}
 		}
