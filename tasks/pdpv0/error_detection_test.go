@@ -23,7 +23,7 @@ func TestIsUnrecoverableError(t *testing.T) {
 		},
 		{
 			name:     "DataSetPaymentAlreadyTerminated by selector",
-			err:      errors.New("execution reverted: 0xe3f8fa35"),
+			err:      errors.New("execution reverted: 0x211a40c0"),
 			expected: true,
 		},
 		{
