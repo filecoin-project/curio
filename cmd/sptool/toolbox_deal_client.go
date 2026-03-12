@@ -1675,14 +1675,12 @@ var mk20DealCmd = &cli.Command{
 			Value: 518400, // default is 2880 * 180 == 180 days
 		},
 		&cli.StringFlag{
-			Name:     "contract-address",
-			Usage:    "contract address of the deal",
-			Required: true,
+			Name:  "market-address",
+			Usage: "market contract address of the deal",
 		},
-		&cli.StringFlag{
-			Name:     "contract-verify-method",
-			Usage:    "contract verify method of the deal",
-			Required: true,
+		&cli.Uint64Flag{
+			Name:  "market-deal-id",
+			Usage: "market deal ID",
 		},
 		&cli.Uint64Flag{
 			Name:  "allocation",
@@ -1934,17 +1932,21 @@ var mk20DealCmd = &cli.Command{
 
 		p := mk20.Products{
 			DDOV1: &mk20.DDOV1{
-				Provider:                   maddr,
-				PieceManager:               walletAddr,
-				Duration:                   abi.ChainEpoch(cctx.Int64("duration")),
-				ContractAddress:            cctx.String("contract-address"),
-				ContractVerifyMethod:       cctx.String("contract-verify-method"),
-				ContractVerifyMethodParams: []byte("test bytes"),
+				Provider:      maddr,
+				Duration:      abi.ChainEpoch(cctx.Int64("duration")),
+				MarketAddress: cctx.String("market-address"),
 			},
 			RetrievalV1: &mk20.RetrievalV1{
 				Indexing:        cctx.Bool("indexing"),
 				AnnouncePayload: cctx.Bool("announce"),
 			},
+		}
+
+		if p.DDOV1.MarketAddress != "" {
+			if cctx.IsSet("market-deal-id") {
+				did := cctx.Uint64("market-deal-id")
+				p.DDOV1.MarketDealID = &did
+			}
 		}
 
 		if cctx.Uint64("allocation") != 0 {
@@ -1974,7 +1976,7 @@ var mk20DealCmd = &cli.Command{
 
 		// Try to request all URLs one by one and exit after first success
 		for _, u := range hurls {
-			s := u.String() + "/market/mk20/store"
+			s := u.String() + "/market/mk20/deal"
 			log.Debugw("trying to send request to", "url", u.String())
 			req, err := http.NewRequest("POST", s, bytes.NewReader(body))
 			if err != nil {

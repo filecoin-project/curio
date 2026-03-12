@@ -1,0 +1,87 @@
+[
+  {
+    "type": "function",
+    "name": "getDeal",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ICurioDealViewV1.DealView",
+        "components": [
+          {
+            "name": "state",
+            "type": "uint8",
+            "internalType": "enum ICurioDealViewV1.DealState"
+          },
+          {
+            "name": "providerActorId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "clientId",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "pieceCidV2",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "startEpoch",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "duration",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "allocationId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "finalizedEpoch",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "version",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "error",
+    "name": "DealNotFound",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  }
+]

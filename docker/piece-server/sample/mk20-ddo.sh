@@ -26,6 +26,6 @@ ALLOC=$(sptool --actor t01000 toolbox mk12-client list-allocations -j | jq -r --
 
 printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
 --http-url=http://piece-server:12320/pieces?id=$PAYLOAD_CID \
---pcidv2=$COMMP_CID --contract-address 0xtest --contract-verify-method test --allocation=$ALLOC\n\n${cn}"
+--pcidv2=$COMMP_CID --allocation=$ALLOC\n\n${cn}"
 
-sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --pcidv2=$COMMP_CID --contract-address 0xtest --contract-verify-method test --allocation $ALLOC
+sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --pcidv2=$COMMP_CID --allocation $ALLOC
