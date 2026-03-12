@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
-	logger "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
@@ -49,8 +48,6 @@ type SubPieceInfo struct {
 	PDPPieceRefID  int64
 	SubPieceOffset uint64
 }
-
-var logAdd = logger.Logger("pdp/add")
 
 func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel string, pieces []AddPieceRequest) ([]PieceData, map[string]*SubPieceInfo, error) {
 	// Collect all subPieceCids to fetch their info in a batch
@@ -341,7 +338,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Step 4: Prepare piece information
 	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
-		logAdd.Warnf("Failed to process AddPieces request data: %+v", err)
+		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
 	}
 
@@ -382,12 +379,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Step 8: Check for indexing requirements
 	mustIndex, err := CheckIfIndexingNeeded(ctx, p.ethClient, dataSetIdUint64)
 	if err != nil {
-		logAdd.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
+		log.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if mustIndex {
-		logAdd.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
+		log.Infow("Data set has withIPFSIndexing enabled, pieces will be indexed", "dataSetId", dataSetId)
 	}
 
 	// Step 9: Send the transaction
@@ -395,20 +392,20 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	txHash, err := p.sender.Send(workCtx, fromAddress, txEth, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		logAdd.Errorf("Failed to send transaction: %+v", err)
+		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	// Step 10: Insert database tracking records
 	txHashLower := strings.ToLower(txHash.Hex())
-	logAdd.Infow("PDP AddPieces: Inserting transaction tracking",
+	log.Infow("PDP AddPieces: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"dataSetId", dataSetIdUint64,
 		"pieceCount", len(payload.Pieces))
 
 	comm, err := p.db.BeginTransaction(workCtx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
-		logAdd.Debugw("Inserting AddPieces into message_waits_eth",
+		log.Debugw("Inserting AddPieces into message_waits_eth",
 			"txHash", txHashLower,
 			"status", "pending")
 		n, err := txdb.Exec(`
@@ -416,14 +413,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
             VALUES ($1, $2)
         `, txHashLower, "pending")
 		if err != nil {
-			logAdd.Errorw("Failed to insert AddPieces into message_waits_eth",
+			log.Errorw("Failed to insert AddPieces into message_waits_eth",
 				"txHash", txHashLower,
 				"error", err)
 			return false, err // Return false to rollback the transaction
 		}
 
 		if n != 1 {
-			logAdd.Errorw("Failed to insert AddPieces into message_waits_eth",
+			log.Errorw("Failed to insert AddPieces into message_waits_eth",
 				"txHash", txHashLower,
 				"expected_rows", 1,
 				"actual_rows", n)
@@ -437,7 +434,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		if mustIndex {
-			logAdd.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
+			log.Debugw("Data set metadata exists, marking all subpieces as needing indexing", "dataSetId", dataSetId)
 			subPieceRefIDs := make([]int64, 0, len(subPieceInfoMap))
 			for _, info := range subPieceInfoMap {
 				subPieceRefIDs = append(subPieceRefIDs, info.PDPPieceRefID)
@@ -452,13 +449,13 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		logAdd.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
+		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if !comm {
-		logAdd.Errorw("Failed to commit database transaction", "txHash", txHashLower)
+		log.Errorw("Failed to commit database transaction", "txHash", txHashLower)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}

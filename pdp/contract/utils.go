@@ -32,7 +32,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
-var log = logging.Logger("pdp-contract")
+var log = logging.Logger("pdp")
 
 // Standard capability keys for PDP product type (must match ServiceProviderRegistry.sol REQUIRED_PDP_KEYS Bloom filter)
 const (
