@@ -187,7 +187,11 @@ pub(crate) fn process_partition_result(
                         "Phase 7: all partitions complete, proof assembled"
                     );
 
-                    // Diagnostic self-check: verify the assembled PoRep proof
+                    // Self-check: verify the assembled PoRep proof before returning.
+                    // If the self-check fails, return JobStatus::Failed so the caller
+                    // doesn't receive an invalid proof. This catches intermittent GPU
+                    // proving errors that produce bad partition proofs.
+                    let mut self_check_passed = true;
                     if state.proof_kind == ProofKind::PoRepSealCommit {
                         match crate::prover::verify_porep_proof(
                             &state.request.vanilla_proof,
@@ -239,14 +243,15 @@ pub(crate) fn process_partition_result(
                                 }
                             }
                             Ok(false) => {
-                                warn!(
+                                self_check_passed = false;
+                                error!(
                                     job_id = %parent_id,
                                     proof_len = final_proof.len(),
                                     sector = state.request.sector_number,
                                     miner = state.request.miner_id,
-                                    "Phase 7: PoRep proof self-check FAILED — running per-partition verification..."
+                                    "Phase 7: PoRep proof self-check FAILED — proof will NOT be returned to caller"
                                 );
-                                // Run per-partition verification to diagnose root cause
+                                // Run per-partition verification to diagnose which partition(s) are bad
                                 match crate::prover::verify_porep_partitions(
                                     &state.request.vanilla_proof,
                                     &final_proof,
@@ -259,15 +264,15 @@ pub(crate) fn process_partition_result(
                                             .filter(|(_, &v)| v).map(|(i, _)| i).collect();
                                         let invalid: Vec<usize> = results.iter().enumerate()
                                             .filter(|(_, &v)| !v).map(|(i, _)| i).collect();
-                                        warn!(
+                                        error!(
                                             job_id = %parent_id,
                                             valid_partitions = ?valid,
                                             invalid_partitions = ?invalid,
-                                            "Phase 7: per-partition verification results"
+                                            "Phase 7: per-partition verification results (invalid partitions produced bad proofs)"
                                         );
                                     }
                                     Err(e) => {
-                                        warn!(
+                                        error!(
                                             job_id = %parent_id,
                                             error = %e,
                                             "Phase 7: per-partition verification failed"
@@ -276,10 +281,11 @@ pub(crate) fn process_partition_result(
                                 }
                             }
                             Err(e) => {
-                                warn!(
+                                self_check_passed = false;
+                                error!(
                                     job_id = %parent_id,
                                     error = %e,
-                                    "Phase 7: PoRep proof self-check error"
+                                    "Phase 7: PoRep proof self-check error — proof will NOT be returned to caller"
                                 );
                             }
                         }
@@ -288,14 +294,22 @@ pub(crate) fn process_partition_result(
                     if let Some(w) = t.workers.get_mut(worker_id as usize) {
                         w.last_circuit_id = Some(circuit_id_str.to_string());
                     }
-                    t.record_completion(state.proof_kind, timings.total);
 
-                    let status = JobStatus::Completed(ProofResult {
-                        job_id: parent_id.clone(),
-                        proof_kind: state.proof_kind,
-                        proof_bytes: final_proof,
-                        timings,
-                    });
+                    let status = if self_check_passed {
+                        t.record_completion(state.proof_kind, timings.total);
+                        JobStatus::Completed(ProofResult {
+                            job_id: parent_id.clone(),
+                            proof_kind: state.proof_kind,
+                            proof_bytes: final_proof,
+                            timings,
+                        })
+                    } else {
+                        t.record_failure(state.proof_kind);
+                        JobStatus::Failed(format!(
+                            "PoRep proof self-check failed: assembled proof did not verify (sector={}, miner={})",
+                            state.request.sector_number, state.request.miner_id,
+                        ))
+                    };
                     if let Some(senders) = t.pending.remove(parent_id) {
                         for sender in senders {
                             let _ = sender.send(status.clone());
@@ -412,7 +426,8 @@ pub(crate) fn process_monolithic_result(
                             "sector proof delivered from batch"
                         );
 
-                        // Diagnostic self-check: verify each batched PoRep proof
+                        // Self-check: verify each batched PoRep proof before returning.
+                        let mut batch_self_check_passed = true;
                         if proof_kind == ProofKind::PoRepSealCommit {
                             match crate::prover::verify_porep_proof(
                                 &req.vanilla_proof,
@@ -425,34 +440,43 @@ pub(crate) fn process_monolithic_result(
                                     info!(job_id = %req.job_id, sector_idx = i, "Batched PoRep proof self-check PASSED");
                                 }
                                 Ok(false) => {
-                                    warn!(
+                                    batch_self_check_passed = false;
+                                    error!(
                                         job_id = %req.job_id,
                                         sector_idx = i,
                                         proof_len = sector_proof.len(),
                                         sector = req.sector_number,
                                         miner = req.miner_id,
-                                        "Batched PoRep proof self-check FAILED — proof is invalid!"
+                                        "Batched PoRep proof self-check FAILED — proof will NOT be returned to caller"
                                     );
                                 }
                                 Err(e) => {
-                                    warn!(
+                                    batch_self_check_passed = false;
+                                    error!(
                                         job_id = %req.job_id,
                                         sector_idx = i,
                                         error = %e,
-                                        "Batched PoRep proof self-check error"
+                                        "Batched PoRep proof self-check error — proof will NOT be returned to caller"
                                     );
                                 }
                             }
                         }
 
-                        t.record_completion(proof_kind, timings.total);
-
-                        let status = JobStatus::Completed(ProofResult {
-                            job_id: req.job_id.clone(),
-                            proof_kind,
-                            proof_bytes: sector_proof,
-                            timings,
-                        });
+                        let status = if batch_self_check_passed {
+                            t.record_completion(proof_kind, timings.total);
+                            JobStatus::Completed(ProofResult {
+                                job_id: req.job_id.clone(),
+                                proof_kind,
+                                proof_bytes: sector_proof,
+                                timings,
+                            })
+                        } else {
+                            t.record_failure(proof_kind);
+                            JobStatus::Failed(format!(
+                                "PoRep proof self-check failed: batched proof {} did not verify (sector={}, miner={})",
+                                i, req.sector_number, req.miner_id,
+                            ))
+                        };
 
                         if let Some(senders) = t.pending.remove(&req.job_id) {
                             for sender in senders {
@@ -494,7 +518,8 @@ pub(crate) fn process_monolithic_result(
                 "proof completed successfully (pipeline)"
             );
 
-            // Diagnostic self-check: verify single-sector PoRep proof
+            // Self-check: verify single-sector PoRep proof before returning.
+            let mut single_self_check_passed = true;
             if proof_kind == ProofKind::PoRepSealCommit {
                 if let Some(req) = single_request {
                     match crate::prover::verify_porep_proof(
@@ -506,8 +531,6 @@ pub(crate) fn process_monolithic_result(
                     ) {
                         Ok(true) => {
                             info!(job_id = %job_id, "Pipeline single-sector PoRep proof self-check PASSED");
-                            // If CUZK_VALIDATE_PARTITIONS=1, also run per-partition verifier
-                            // against the known-good proof to confirm the verifier itself works.
                             if std::env::var("CUZK_VALIDATE_PARTITIONS").as_deref() == Ok("1") {
                                 info!(job_id = %job_id, "CUZK_VALIDATE_PARTITIONS=1: validating per-partition verifier against known-good proof");
                                 match crate::prover::verify_porep_partitions(
@@ -547,19 +570,49 @@ pub(crate) fn process_monolithic_result(
                             }
                         }
                         Ok(false) => {
-                            warn!(
+                            single_self_check_passed = false;
+                            error!(
                                 job_id = %job_id,
                                 proof_len = proof_bytes.len(),
                                 sector = req.sector_number,
                                 miner = req.miner_id,
-                                "Pipeline single-sector PoRep proof self-check FAILED — proof is invalid!"
+                                "Pipeline single-sector PoRep proof self-check FAILED — proof will NOT be returned to caller"
                             );
+                            // Run per-partition verification to diagnose which partition(s) are bad
+                            match crate::prover::verify_porep_partitions(
+                                &req.vanilla_proof,
+                                &proof_bytes,
+                                req.sector_number,
+                                req.miner_id,
+                                &req.job_id.0,
+                            ) {
+                                Ok(results) => {
+                                    let valid: Vec<usize> = results.iter().enumerate()
+                                        .filter(|(_, &v)| v).map(|(i, _)| i).collect();
+                                    let invalid: Vec<usize> = results.iter().enumerate()
+                                        .filter(|(_, &v)| !v).map(|(i, _)| i).collect();
+                                    error!(
+                                        job_id = %job_id,
+                                        valid_partitions = ?valid,
+                                        invalid_partitions = ?invalid,
+                                        "Pipeline single-sector: per-partition verification results"
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        job_id = %job_id,
+                                        error = %e,
+                                        "Pipeline single-sector: per-partition verification failed"
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
-                            warn!(
+                            single_self_check_passed = false;
+                            error!(
                                 job_id = %job_id,
                                 error = %e,
-                                "Pipeline single-sector PoRep proof self-check error"
+                                "Pipeline single-sector PoRep proof self-check error — proof will NOT be returned to caller"
                             );
                         }
                     }
@@ -571,14 +624,21 @@ pub(crate) fn process_monolithic_result(
             if let Some(w) = t.workers.get_mut(worker_id as usize) {
                 w.last_circuit_id = Some(circuit_id_str.to_string());
             }
-            t.record_completion(proof_kind, timings.total);
 
-            let status = JobStatus::Completed(ProofResult {
-                job_id: job_id.clone(),
-                proof_kind,
-                proof_bytes,
-                timings,
-            });
+            let status = if single_self_check_passed {
+                t.record_completion(proof_kind, timings.total);
+                JobStatus::Completed(ProofResult {
+                    job_id: job_id.clone(),
+                    proof_kind,
+                    proof_bytes,
+                    timings,
+                })
+            } else {
+                t.record_failure(proof_kind);
+                JobStatus::Failed(
+                    "PoRep proof self-check failed: pipeline single-sector proof did not verify".to_string()
+                )
+            };
             if let Some(senders) = t.pending.remove(job_id) {
                 for sender in senders {
                     let _ = sender.send(status.clone());
@@ -1834,7 +1894,10 @@ impl Engine {
                                     "slotted PoRep C2 proof completed"
                                 );
 
-                                // Diagnostic self-check: verify the slotted PoRep proof
+                                // Self-check: verify the slotted PoRep proof before returning.
+                                // If the self-check fails, return JobStatus::Failed so the
+                                // caller doesn't receive an invalid proof.
+                                let mut self_check_passed = true;
                                 if proof_kind == ProofKind::PoRepSealCommit {
                                     let req = &requests[0];
                                     match crate::prover::verify_porep_proof(
@@ -1848,32 +1911,41 @@ impl Engine {
                                             info!(job_id = %req.job_id, "Phase 6: PoRep proof self-check PASSED");
                                         }
                                         Ok(false) => {
-                                            warn!(
+                                            self_check_passed = false;
+                                            error!(
                                                 job_id = %req.job_id,
                                                 proof_len = proof_bytes.len(),
                                                 sector = req.sector_number,
                                                 miner = req.miner_id,
-                                                "Phase 6: PoRep proof self-check FAILED — proof is invalid!"
+                                                "Phase 6: PoRep proof self-check FAILED — proof will NOT be returned to caller"
                                             );
                                         }
                                         Err(e) => {
-                                            warn!(
+                                            self_check_passed = false;
+                                            error!(
                                                 job_id = %req.job_id,
                                                 error = %e,
-                                                "Phase 6: PoRep proof self-check error"
+                                                "Phase 6: PoRep proof self-check error — proof will NOT be returned to caller"
                                             );
                                         }
                                     }
                                 }
 
-                                t.record_completion(proof_kind, pt.total);
-
-                                let status = JobStatus::Completed(ProofResult {
-                                    job_id: requests[0].job_id.clone(),
-                                    proof_kind,
-                                    proof_bytes,
-                                    timings: pt,
-                                });
+                                let status = if self_check_passed {
+                                    t.record_completion(proof_kind, pt.total);
+                                    JobStatus::Completed(ProofResult {
+                                        job_id: requests[0].job_id.clone(),
+                                        proof_kind,
+                                        proof_bytes,
+                                        timings: pt,
+                                    })
+                                } else {
+                                    t.record_failure(proof_kind);
+                                    JobStatus::Failed(format!(
+                                        "PoRep proof self-check failed: assembled proof did not verify (sector={}, miner={})",
+                                        requests[0].sector_number, requests[0].miner_id,
+                                    ))
+                                };
                                 if let Some(senders) = t.pending.remove(&requests[0].job_id) {
                                     for sender in senders {
                                         let _ = sender.send(status.clone());

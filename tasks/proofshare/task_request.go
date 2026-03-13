@@ -2,6 +2,7 @@ package proofshare
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -227,6 +228,12 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	log.Infow("starting proof request loop", "toRequest", toRequest)
 
+	// Exponential backoff for when we make no progress (e.g. all asks 429'd
+	// and no new work was matched). Resets to the base interval whenever the
+	// loop makes forward progress.
+	pollBackoff := ProofRequestPollInterval
+	const maxPollBackoff = 2 * time.Minute
+
 	for {
 		/////////////////////////
 		// POLL
@@ -259,11 +266,12 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		/////////////////////////
 		// INSERT NEW WORK
 
-		// Fetch existing service IDs from the database
+		// Fetch existing service IDs for non-completed items (dedup)
 		var existingServiceIDs []int64
 		err = t.db.Select(ctx, &existingServiceIDs, `
 			SELECT service_id 
 			FROM proofshare_queue
+			WHERE submit_done = FALSE
 		`)
 		if err != nil {
 			return false, xerrors.Errorf("failed to load existing service_ids: %w", err)
@@ -325,45 +333,73 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
 		needAsksGauge.Set(float64(neededAsks))
 
-		startCreate := time.Now()
-		for i := 0; i < neededAsks; i++ {
-			price, err := types.BigFromString(meta.Price)
+		// Prepare signing material once, outside the ask-creation loop.
+		var (
+			walletAddr address.Address
+			resolver   *proofsvc.AddressResolver
+			price      abi.TokenAmount
+		)
+		if neededAsks > 0 {
+			priceBig, err := types.BigFromString(meta.Price)
 			if err != nil {
 				return false, xerrors.Errorf("failed to parse price: %w", err)
 			}
+			price = abi.TokenAmount(priceBig)
 
-			// Convert wallet string to address
-			walletAddr, err := address.NewFromString(meta.Wallet)
+			walletAddr, err = address.NewFromString(meta.Wallet)
 			if err != nil {
 				return false, xerrors.Errorf("failed to parse wallet address: %w", err)
 			}
 
-			// Create address resolver
-			resolver, err := proofsvc.NewAddressResolver(t.chain)
+			resolver, err = proofsvc.NewAddressResolver(t.chain)
 			if err != nil {
 				return false, xerrors.Errorf("failed to create address resolver: %w", err)
 			}
+		}
 
-			askID, askErr := proofsvc.CreateWorkAsk(ctx, resolver, walletAddr, abi.TokenAmount(price))
+		asksCreated := 0
+		rateLimited := false
+		startCreate := time.Now()
+		for i := 0; i < neededAsks; i++ {
+			askID, askErr := proofsvc.CreateWorkAsk(ctx, resolver, walletAddr, price)
 			if askErr != nil {
+				if errors.Is(askErr, proofsvc.ErrTooManyRequests) {
+					log.Warnw("rate limited creating asks, will retry after poll", "created", asksCreated, "wanted", neededAsks)
+					rateLimited = true
+					break
+				}
 				return false, xerrors.Errorf("failed to create work ask: %w", askErr)
 			}
+			asksCreated++
 			log.Infow("created new work ask", "askID", askID)
 			newlyAddedCounter.Inc()
 		}
-		if neededAsks > 0 {
+		if asksCreated > 0 {
 			createAsksDuration.Observe(time.Since(startCreate).Seconds())
 		}
 
+		// Track whether we made forward progress this iteration.
+		madeProgress := newlyAdded > 0 || asksCreated > 0
+
 		// If we've fulfilled our quota and there are no active asks, we're done
-		if toRequest <= 0 && len(work.ActiveAsks) == 0 {
+		if toRequest <= 0 && len(work.ActiveAsks) == 0 && !rateLimited {
 			log.Infow("request quota fulfilled and no active asks remaining")
 			break
 		}
 
-		// Otherwise, wait before polling again
-		log.Infow("waiting before next poll", "interval", ProofRequestPollInterval)
-		time.Sleep(ProofRequestPollInterval)
+		// Adjust backoff: reset on progress, increase on stall.
+		if madeProgress {
+			pollBackoff = ProofRequestPollInterval
+		} else if rateLimited {
+			pollBackoff = min(pollBackoff*2, maxPollBackoff)
+		}
+		// (If !madeProgress && !rateLimited we keep the current backoff;
+		// the service may just be slow matching asks to work.)
+
+		toRequestGauge.Set(float64(toRequest))
+
+		log.Infow("waiting before next poll", "interval", pollBackoff, "madeProgress", madeProgress, "rateLimited", rateLimited)
+		time.Sleep(pollBackoff)
 	}
 
 	return true, nil
