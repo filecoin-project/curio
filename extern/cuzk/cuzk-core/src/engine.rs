@@ -69,6 +69,11 @@ impl<T> PriorityWorkQueue<T> {
         item
     }
 
+    /// Number of items currently in the queue.
+    fn len(&self) -> usize {
+        self.inner.lock().unwrap().len()
+    }
+
     /// Wait until an item might be available.
     /// Callers should call `try_pop()` after this returns.
     async fn notified(&self) {
@@ -202,7 +207,16 @@ pub(crate) fn process_partition_result(
                         "discarding GPU result for failed job"
                     );
                     #[cfg(target_os = "linux")]
-                    unsafe { libc::malloc_trim(0); }
+                    {
+                        let trim_t = Instant::now();
+                        unsafe { libc::malloc_trim(0); }
+                        info!(
+                            job_id = %parent_id,
+                            partition = p_idx,
+                            malloc_trim_ms = trim_t.elapsed().as_millis(),
+                            "FIN_TIMING malloc_trim (discard path)"
+                        );
+                    }
                     return;
                 }
 
@@ -219,7 +233,16 @@ pub(crate) fn process_partition_result(
                 );
 
                 #[cfg(target_os = "linux")]
-                unsafe { libc::malloc_trim(0); }
+                {
+                    let trim_t = Instant::now();
+                    unsafe { libc::malloc_trim(0); }
+                    info!(
+                        job_id = %parent_id,
+                        partition = p_idx,
+                        malloc_trim_ms = trim_t.elapsed().as_millis(),
+                        "FIN_TIMING malloc_trim (success path)"
+                    );
+                }
 
                 if state.assembler.is_complete() {
                     let state = t.assemblers.remove(parent_id).unwrap();
@@ -853,6 +876,8 @@ struct PartitionWorkItem {
     /// Monotonic sequence number for pipeline age ordering.
     /// Lower = older pipeline = higher priority.
     job_seq: u64,
+    /// Optional pinned memory pool for fast H2D transfers.
+    pinned_pool: Option<Arc<crate::pinned_pool::PinnedPool>>,
 }
 
 /// The cuzk proving engine.
@@ -880,6 +905,8 @@ pub struct Engine {
     pce_cache: Arc<crate::pipeline::PceCache>,
     /// Lightweight status tracker for HTTP debug API.
     status_tracker: Arc<crate::status::StatusTracker>,
+    /// CUDA pinned memory pool for fast H2D transfers.
+    pinned_pool: Arc<crate::pinned_pool::PinnedPool>,
 }
 
 /// Detect available GPU ordinals.
@@ -941,6 +968,9 @@ impl Engine {
             budget.clone(),
         ));
 
+        let pinned_pool = Arc::new(crate::pinned_pool::PinnedPool::new());
+        info!("CUDA pinned memory pool initialized");
+
         Self {
             config,
             scheduler: Arc::new(Scheduler::new()),
@@ -955,6 +985,7 @@ impl Engine {
             #[cfg(feature = "cuda-supraseal")]
             pce_cache,
             status_tracker,
+            pinned_pool,
         }
     }
 
@@ -974,10 +1005,23 @@ impl Engine {
             let srs_for_evict = self.srs_manager.clone();
             #[cfg(feature = "cuda-supraseal")]
             let pce_for_evict = self.pce_cache.clone();
+            let pool_for_evict = self.pinned_pool.clone();
             let min_idle = self.config.memory.eviction_min_idle_duration();
             self.budget.set_evictor(Arc::new(move |needed: u64| -> u64 {
                 let mut freed = 0u64;
 
+                // First try: shrink the pinned pool (fast, no lock contention).
+                // This frees idle pinned buffers that aren't currently checked out.
+                if freed < needed {
+                    let pool_freed = pool_for_evict.shrink(needed - freed);
+                    freed += pool_freed;
+                }
+
+                if freed >= needed {
+                    return freed;
+                }
+
+                // Second try: evict SRS/PCE caches (slower, requires locks).
                 // Collect all candidates from both caches.
                 // NOTE: try_lock() because this callback runs from async acquire() —
                 // blocking_lock() would panic on a tokio runtime thread.
@@ -1141,6 +1185,23 @@ impl Engine {
 
             let synth_worker_count = max_partitions_in_budget.min(64).max(4);
 
+            // ── GPU pipeline throttle (semaphore) ──────────────────────────
+            //
+            // Limits how many partitions are in the synthesis→GPU pipeline at
+            // once. Each permit represents one "slot" — consumed when the
+            // dispatcher sends work to a synthesis worker, returned when the
+            // GPU finalizer completes the partition.
+            //
+            // This reactive modulation ensures: GPU finishes one → dispatcher
+            // starts one. No burst allocation of pinned memory or budget.
+            let max_gpu_queue_depth = self.config.pipeline.max_gpu_queue_depth as usize;
+            let gpu_pipeline_sem: Option<Arc<tokio::sync::Semaphore>> = if max_gpu_queue_depth > 0 {
+                tracing::info!(max_gpu_queue_depth, "GPU pipeline semaphore enabled");
+                Some(Arc::new(tokio::sync::Semaphore::new(max_gpu_queue_depth)))
+            } else {
+                None
+            };
+
             // ── Ordered synthesis dispatch ─────────────────────────────────
             //
             // A single dispatcher task serializes BOTH the priority queue pop
@@ -1160,16 +1221,28 @@ impl Engine {
                 tokio::sync::mpsc::channel::<(PartitionWorkItem, crate::memory::MemoryReservation)>(synth_worker_count);
             let synth_dispatch_rx = Arc::new(Mutex::new(synth_dispatch_rx));
 
-            // Single dispatcher: pop → budget → send to workers
+            // Single dispatcher: semaphore → pop → budget → send to workers
             {
                 let synth_work_queue = synth_work_queue.clone();
                 let budget = self.budget.clone();
                 let tracker = self.tracker.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
+                let sem_for_dispatch = gpu_pipeline_sem.clone();
 
                 tokio::spawn(async move {
                     tracing::info!("synthesis priority dispatcher started");
                     loop {
+                        // Reactive throttle: acquire a pipeline slot before dispatching.
+                        // Each slot is returned when a GPU worker finishes a partition.
+                        // This ensures 1:1 modulation: GPU finishes one → dispatch one.
+                        if let Some(ref sem) = sem_for_dispatch {
+                            let permit = sem.acquire().await.unwrap();
+                            // Forget the permit — it will be returned via add_permits(1)
+                            // in the GPU finalizer. We can't hold it across the async
+                            // boundary (dispatch → synthesis → GPU → finalizer).
+                            std::mem::forget(permit);
+                        }
+
                         // Pop highest-priority item (oldest pipeline, lowest partition).
                         let item = loop {
                             if let Some(item) = synth_work_queue.try_pop() {
@@ -1270,12 +1343,14 @@ impl Engine {
 
                         // Run synthesis on blocking thread
                         let synth_result = tokio::task::spawn_blocking(move || {
+                            let pool_ref = item.pinned_pool.as_ref().map(|p| p);
                             let result = match &item.parsed {
                                 ParsedProofInput::PoRep(parsed) => {
                                     crate::pipeline::synthesize_partition(
                                         parsed,
                                         item.partition_idx,
                                         &item.job_id.0,
+                                        pool_ref,
                                     )
                                 }
                                 ParsedProofInput::SnapDeals(parsed) => {
@@ -1283,6 +1358,7 @@ impl Engine {
                                         parsed,
                                         item.partition_idx,
                                         &item.job_id.0,
+                                        pool_ref,
                                     )
                                 }
                             };
@@ -1420,6 +1496,7 @@ impl Engine {
                 #[cfg(feature = "cuda-supraseal")]
                 let pce_cache = self.pce_cache.clone();
                 let st = self.status_tracker.clone();
+                let pinned_pool = self.pinned_pool.clone();
                 // Clone queues for the dispatcher (originals kept for GPU workers)
                 let synth_work_queue = synth_work_queue.clone();
                 let gpu_work_queue = gpu_work_queue.clone();
@@ -1463,6 +1540,7 @@ impl Engine {
                         concurrency: usize,
                         span: tracing::Span,
                         st: &Arc<crate::status::StatusTracker>,
+                        pinned_pool: &Arc<crate::pinned_pool::PinnedPool>,
                     ) -> bool {
                         if concurrency <= 1 {
                             // Sequential mode: await inline (old behavior)
@@ -1474,6 +1552,7 @@ impl Engine {
                                 #[cfg(feature = "cuda-supraseal")]
                                 pce_cache,
                                 st,
+                                pinned_pool,
                             ).instrument(span).await
                         } else {
                             // Parallel mode: acquire semaphore, spawn task
@@ -1494,6 +1573,7 @@ impl Engine {
                             #[cfg(feature = "cuda-supraseal")]
                             let pce_cache = pce_cache.clone();
                             let st = st.clone();
+                            let pinned_pool = pinned_pool.clone();
                             tokio::spawn(async move {
                                 let _permit = permit; // held until task completes
                                 process_batch(
@@ -1504,6 +1584,7 @@ impl Engine {
                                     #[cfg(feature = "cuda-supraseal")]
                                     &pce_cache,
                                     &st,
+                                    &pinned_pool,
                                 ).instrument(span).await;
                             });
                             true // always continue — errors handled inside the spawned task
@@ -1536,6 +1617,7 @@ impl Engine {
                                                 #[cfg(feature = "cuda-supraseal")]
                                                 &pce_cache,
                                                 &synth_semaphore, synthesis_concurrency, span, &st,
+                                                &pinned_pool,
                                             ).await;
                                         }
                                         break;
@@ -1544,7 +1626,7 @@ impl Engine {
                                 }
                                 _ = tokio::time::sleep(timeout_dur) => {
                                     // Timer expired — check timeout and flush
-                                    if let Some(batch) = batch_collector.check_timeout() {
+                                     if let Some(batch) = batch_collector.check_timeout() {
                                         let span = info_span!("synth_timeout_flush", batch_size = batch.len());
                                         let ok = dispatch_batch(
                                             batch, &tracker, &srs_manager, &param_cache,
@@ -1554,6 +1636,7 @@ impl Engine {
                                             #[cfg(feature = "cuda-supraseal")]
                                             &pce_cache,
                                             &synth_semaphore, synthesis_concurrency, span, &st,
+                                            &pinned_pool,
                                         ).await;
                                         if !ok { break; }
                                     }
@@ -1600,6 +1683,7 @@ impl Engine {
                                     #[cfg(feature = "cuda-supraseal")]
                                     &pce_cache,
                                     &synth_semaphore, synthesis_concurrency, span, &st,
+                                    &pinned_pool,
                                 ).await;
                                 if !ok { break; }
                             }
@@ -1619,6 +1703,7 @@ impl Engine {
                                     #[cfg(feature = "cuda-supraseal")]
                                     &pce_cache,
                                     &synth_semaphore, synthesis_concurrency, span, &st,
+                                    &pinned_pool,
                                 ).await;
                                 if !ok { break; }
                             }
@@ -1640,6 +1725,7 @@ impl Engine {
                                 #[cfg(feature = "cuda-supraseal")]
                                 &pce_cache,
                                 &synth_semaphore, synthesis_concurrency, span, &st,
+                                &pinned_pool,
                             ).await;
                             if !ok { break; }
                         }
@@ -1673,6 +1759,7 @@ impl Engine {
                 #[cfg(feature = "cuda-supraseal")]
                 pce_cache: &Arc<crate::pipeline::PceCache>,
                 st: &Arc<crate::status::StatusTracker>,
+                pinned_pool: &Arc<crate::pinned_pool::PinnedPool>,
             ) -> bool {
                 let batch_size = batch.len();
                 let proof_kind = batch.proof_kind;
@@ -1839,6 +1926,7 @@ impl Engine {
                                 circuit_id: CircuitId::Porep32G,
                                 num_partitions,
                                 job_seq,
+                                pinned_pool: Some(pinned_pool.clone()),
                             };
                             synth_work_queue.push(job_seq, partition_idx, item);
                         }
@@ -1991,6 +2079,7 @@ impl Engine {
                                 circuit_id: CircuitId::SnapDeals32G,
                                 num_partitions,
                                 job_seq,
+                                pinned_pool: Some(pinned_pool.clone()),
                             };
                             synth_work_queue.push(job_seq, partition_idx, item);
                         }
@@ -2472,6 +2561,7 @@ impl Engine {
                 let gpu_work_queue = gpu_work_queue.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
                 let st = self.status_tracker.clone();
+                let gpu_pipeline_sem_for_worker = gpu_pipeline_sem.clone();
                 // Phase 8: Convert GPU mutex pointer to usize for Send safety.
                 // Raw pointers aren't Send, but the underlying C++ mutex lives
                 // for the engine's lifetime, so the address is always valid.
@@ -2538,22 +2628,21 @@ impl Engine {
                         );
 
                         async {
+                            let hot_path_start = Instant::now();
+
                             // Status tracker: mark partition as GPU-proving
                             if let (Some(ref pid), Some(pi)) = (&parent_job_id, partition_index) {
                                 st.partition_gpu_start(&pid.0, pi, worker_id);
                             }
+                            let t_status = hot_path_start.elapsed();
+
                             timeline_event("GPU_PICKUP", &job_id.0, &format!(
                                 "worker={}{}", worker_id,
                                 if let Some(pi) = partition_index { format!(",partition={}", pi) } else { String::new() }
                             ));
-                            info!(
-                                batched = is_batched,
-                                partitioned = is_partitioned,
-                                partition = ?partition_index,
-                                "GPU worker picked up synthesized proof"
-                            );
 
                             // Phase 7: Check if partitioned job is already failed — skip GPU proving
+                            let t_before_fail_check = hot_path_start.elapsed();
                             if let Some(ref pid) = parent_job_id {
                                 let t = tracker.lock().await;
                                 if let Some(state) = t.assemblers.get(pid) {
@@ -2567,6 +2656,7 @@ impl Engine {
                                     }
                                 }
                             }
+                            let t_fail_check = hot_path_start.elapsed();
 
                             // Mark as running on this GPU worker
                             {
@@ -2578,6 +2668,17 @@ impl Engine {
                                     ));
                                 }
                             }
+                            let t_mark_busy = hot_path_start.elapsed();
+
+                            info!(
+                                worker_id = worker_id,
+                                partition = ?partition_index,
+                                status_ms = t_status.as_millis(),
+                                fail_check_ms = (t_fail_check - t_before_fail_check).as_millis(),
+                                mark_busy_ms = (t_mark_busy - t_fail_check).as_millis(),
+                                total_overhead_ms = t_mark_busy.as_millis(),
+                                "GPU_TIMING hot_path pre-prove overhead"
+                            );
 
                             let gpu_str = gpu_ordinal.to_string();
                             let gpu_job_id = job_id.0.clone();
@@ -2635,11 +2736,30 @@ impl Engine {
                                 };
                                 timeline_event("GPU_START", &gpu_job_id, &partition_detail);
                                 let gpu_str2 = gpu_str.clone();
-                                tokio::task::spawn_blocking(move || -> Result<(crate::pipeline::PendingGpuProof, String)> {
+                                let spawn_t = Instant::now();
+                                let r = tokio::task::spawn_blocking(move || -> Result<(crate::pipeline::PendingGpuProof, Instant, String)> {
+                                    let enter_t = Instant::now();
                                     let gpu_mtx_ptr = gpu_mutex_addr as *mut std::ffi::c_void;
                                     let pending = crate::pipeline::gpu_prove_start(synth_job.synth, &synth_job.params, gpu_mtx_ptr, gpu_ordinal as i32)?;
-                                    Ok((pending, gpu_str2))
-                                }).await
+                                    let prove_done_t = Instant::now();
+                                    info!(
+                                        worker_id = worker_id,
+                                        partition = ?partition_index,
+                                        spawn_to_enter_ms = (enter_t - spawn_t).as_millis(),
+                                        prove_start_ms = (prove_done_t - enter_t).as_millis(),
+                                        "GPU_TIMING spawn_blocking prove_start"
+                                    );
+                                    Ok((pending, enter_t, gpu_str2))
+                                }).await;
+                                info!(
+                                    worker_id = worker_id,
+                                    partition = ?partition_index,
+                                    total_pre_prove_ms = hot_path_start.elapsed().as_millis(),
+                                    spawn_blocking_wall_ms = spawn_t.elapsed().as_millis(),
+                                    "GPU_TIMING prove_start returned"
+                                );
+                                // Re-map the result to strip the timing Instant
+                                r.map(|inner| inner.map(|(pending, _enter_t, gpu_str)| (pending, gpu_str)))
                             };
 
                             #[cfg(feature = "cuda-supraseal")]
@@ -2665,7 +2785,10 @@ impl Engine {
                                     let fin_single_request = single_request_owned.clone();
                                     let fin_reservation = reservation; // moved into finalizer
                                     let fin_st = st.clone();
+                                    let fin_pipeline_sem = gpu_pipeline_sem_for_worker.clone();
                                     tokio::spawn(async move {
+                                        let fin_start = Instant::now();
+
                                         // Finalize on a blocking thread (joins b_g2_msm)
                                         let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
                                             let gpu_result = crate::pipeline::gpu_prove_finish(pending_handle, pending_pi, gpu_start)?;
@@ -2677,12 +2800,21 @@ impl Engine {
                                             timeline_event("GPU_END", &fin_gpu_job_id, &detail);
                                             Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
                                         }).await;
+                                        let t_finish = fin_start.elapsed();
 
                                         // Phase 2: Drop reservation to release remaining budget (shell + aux)
                                         drop(fin_reservation);
 
+                                        // Release pipeline semaphore permit — allows dispatcher
+                                        // to start one new synthesis (reactive 1:1 modulation).
+                                        if let Some(ref sem) = fin_pipeline_sem {
+                                            sem.add_permits(1);
+                                        }
+                                        let t_drop_res = fin_start.elapsed();
+
                                         // Process result (same logic as before)
                                         let mut t = fin_tracker.lock().await;
+                                        let t_lock = fin_start.elapsed();
 
                                         // Clear current job from worker
                                         if let Some(w) = t.workers.get_mut(worker_id as usize) {
@@ -2704,6 +2836,17 @@ impl Engine {
                                                 synth_duration, proof_kind, worker_id,
                                                 &circuit_id_str, submitted_at, &fin_st,
                                             );
+                                            let t_result = fin_start.elapsed();
+                                            info!(
+                                                worker_id = worker_id,
+                                                partition = ?partition_index,
+                                                finish_ms = t_finish.as_millis(),
+                                                drop_res_ms = (t_drop_res - t_finish).as_millis(),
+                                                lock_wait_ms = (t_lock - t_drop_res).as_millis(),
+                                                process_ms = (t_result - t_lock).as_millis(),
+                                                total_ms = t_result.as_millis(),
+                                                "FIN_TIMING finalizer partition"
+                                            );
                                             return;
                                         }
 
@@ -2713,6 +2856,16 @@ impl Engine {
                                             is_batched, &batch_requests, &sector_boundaries,
                                             fin_single_request.as_ref(),
                                         );
+                                        let t_result = fin_start.elapsed();
+                                        info!(
+                                            worker_id = worker_id,
+                                            finish_ms = t_finish.as_millis(),
+                                            drop_res_ms = (t_drop_res - t_finish).as_millis(),
+                                            lock_wait_ms = (t_lock - t_drop_res).as_millis(),
+                                            process_ms = (t_result - t_lock).as_millis(),
+                                            total_ms = t_result.as_millis(),
+                                            "FIN_TIMING finalizer monolithic"
+                                        );
                                     });
 
                                     // GPU worker continues — don't process result here
@@ -2721,6 +2874,9 @@ impl Engine {
                                 Ok(Err(e)) => {
                                     // gpu_prove_start itself failed (before GPU kernels)
                                     drop(reservation);
+                                    if let Some(ref sem) = gpu_pipeline_sem_for_worker {
+                                        sem.add_permits(1);
+                                    }
                                     error!(error = %e, "GPU prove start failed");
                                     let mut t = tracker.lock().await;
                                     if let Some(w) = t.workers.get_mut(worker_id as usize) {
@@ -2740,6 +2896,9 @@ impl Engine {
                                 Err(e) => {
                                     // spawn_blocking panicked
                                     drop(reservation);
+                                    if let Some(ref sem) = gpu_pipeline_sem_for_worker {
+                                        sem.add_permits(1);
+                                    }
                                     error!(error = %e, "GPU prove start task panicked");
                                     let mut t = tracker.lock().await;
                                     if let Some(w) = t.workers.get_mut(worker_id as usize) {
