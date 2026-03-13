@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
@@ -17,6 +16,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/multicall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -24,7 +24,7 @@ import (
 
 var log = logging.Logger("filecoin-pay")
 
-func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address) error {
+func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH, from common.Address, payees []common.Address, operators []common.Address) error {
 	paymentContractAddr, err := PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)

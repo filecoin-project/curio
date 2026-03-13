@@ -23,6 +23,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -339,7 +340,7 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 	return false
 }
 
-func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, error) {
+func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, error) {
 	if len(ainfoCfg) == 0 {
 		return nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 	}
@@ -355,7 +356,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, erro
 		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 	}
 
-	var clients []*ethclient.Client
+	var clients []ethchain.EthClient
 
 	for _, head := range httpHeads {
 		if cliutil.IsVeryVerbose {

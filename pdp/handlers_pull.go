@@ -11,12 +11,12 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -125,13 +125,13 @@ type AddPiecesValidator interface {
 
 // EthCallValidator validates via eth_call to PDPVerifier contract
 type EthCallValidator struct {
-	ethClient  *ethclient.Client
+	ethClient  ethchain.EthClient
 	db         *harmonydb.DB
 	senderAddr common.Address // cached, lazily loaded
 }
 
 // NewEthCallValidator creates a validator that uses eth_call
-func NewEthCallValidator(ethClient *ethclient.Client, db *harmonydb.DB) *EthCallValidator {
+func NewEthCallValidator(ethClient ethchain.EthClient, db *harmonydb.DB) *EthCallValidator {
 	return &EthCallValidator{ethClient: ethClient, db: db}
 }
 
@@ -352,7 +352,7 @@ func (h *PullHandler) HandlePull(w http.ResponseWriter, r *http.Request) {
 	// Compute extraData hash and prepare idempotency key components
 	extraDataBytes, err := decodeExtraData(&req.ExtraData)
 	if err != nil {
-			httpServerError(w, http.StatusBadRequest, "Invalid extraData: "+err.Error(), err)
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData: "+err.Error(), err)
 		return
 	}
 	if extraDataBytes == nil {

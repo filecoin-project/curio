@@ -19,7 +19,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/curiostorage/harmonyquery"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -39,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -182,7 +182,7 @@ type Deps struct {
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
-	EthClient         *lazy.Lazy[*ethclient.Client]
+	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
 }
 
@@ -269,7 +269,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.EthClient == nil {
-		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+		deps.EthClient = lazy.MakeLazy[ethchain.EthClient](func() (ethchain.EthClient, error) {
 			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 				cfgApiInfo = []string{v}

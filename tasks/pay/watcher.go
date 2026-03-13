@@ -6,13 +6,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/lib/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -36,7 +36,7 @@ type mwe struct {
 	Success *bool `db:"tx_success"`
 }
 
-func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
+func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingTransactions(ctx, db, ethClient)
 		if err != nil {
@@ -48,7 +48,7 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 	}
 }
 
-func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	// Handle failed settlements first - log error and clean up
 	// This JOINLESS query structure is a critical optimization to prevent the query planner from iterating the entire
 	// massive mwe table on each filecoin head change.  We've observed that mwe gets selected as driving table if we
@@ -122,7 +122,7 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 	return nil
 }
 
-func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
+func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, fwssv *FWSS.FilecoinWarmStorageServiceStateView, fwssAddr common.Address, settle settled) error {
 	paymentContractAddr, err := filecoinpayment.PaymentContractAddress()
 	if err != nil {
 		return fmt.Errorf("failed to get payment contract address: %w", err)

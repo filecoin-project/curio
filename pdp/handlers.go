@@ -16,13 +16,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -63,7 +63,7 @@ type PDPService struct {
 	storage paths.StashStore
 
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient ethchain.EthClient
 	filClient PDPServiceNodeApi
 
 	pullHandler *PullHandler
@@ -74,7 +74,7 @@ type PDPServiceNodeApi interface {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
+func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec ethchain.EthClient, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)

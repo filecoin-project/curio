@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
@@ -22,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -29,7 +29,7 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched, idx *indexstore.IndexStore) {
+func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, idx *indexstore.IndexStore) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		// Zen: processPendingCleanup is currently disabled because we want to debug an observation
 		// that removed pieces cause unexpected proving failures. Rather than just comment out the
@@ -53,7 +53,7 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient *
 }
 
 //nolint:unused // TODO: reinstate after debugging
-func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pieces []struct {
 		DataSetID int64 `db:"data_set"`
 		PieceID   int64 `db:"piece_id"`
