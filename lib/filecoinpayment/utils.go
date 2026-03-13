@@ -58,7 +58,7 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 				railIds = append(railIds, r.RailId)
 			}
 
-			// If rail terminated in the last 7 days, we should consider it for settlement
+			// If rail's settlement deadline (endEpoch) passed less than 7 days ago, keep trying to settle it
 			if uint64(r.EndEpoch.Int64()) > current-(builtin.EpochsInDay*7) {
 				railIds = append(railIds, r.RailId)
 			}
@@ -67,7 +67,6 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	}
 
 	var toSettle []*big.Int
-	//bufferPeriod := big.NewInt(builtin.EpochsInDay)
 	for _, rail := range railIds {
 		view, err := payment.GetRail(&bind.CallOpts{Context: ctx}, rail)
 		if err != nil {
@@ -85,16 +84,21 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 				toSettle = append(toSettle, rail)
 			}
 		} else {
-			// If rail is not terminated, settle if SettledUpTo+LockupPeriod-1day > current block
-			//threshold := big.NewInt(0).Add(view.SettledUpTo, view.LockupPeriod)
-			//thresholdWithGrace := big.NewInt(0).Sub(threshold, bufferPeriod)
-			//
-			//if thresholdWithGrace.Uint64() < current {
-			//	toSettle = append(toSettle, rail)
-			//}
+			// could be a constant, or a config variable this is the important tunable
+			settleInterval := big.NewInt(builtin.EpochsInDay * 7)
 
-			// Settle every 7 days if rail is not terminated
-			if view.SettledUpTo.Uint64() < current-(builtin.EpochsInDay*7) {
+			gracedLockup := new(big.Int).Sub(view.LockupPeriod, big.NewInt(builtin.EpochsInDay))
+			if gracedLockup.Sign() <= 0 {
+				// special case, lockup period is <= 1 day so settle every run
+				// alternatively adjust the grace down from a day to something smaller
+				toSettle = append(toSettle, rail)
+				continue
+			} else if gracedLockup.Cmp(settleInterval) < 0 {
+				settleInterval = gracedLockup
+			}
+
+			nextSettle := new(big.Int).Add(view.SettledUpTo, settleInterval)
+			if nextSettle.Uint64() < current {
 				toSettle = append(toSettle, rail)
 			}
 		}
