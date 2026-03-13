@@ -121,6 +121,7 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	baseCfg.HTTP.DelegateTLS = true
 	baseCfg.HTTP.DomainName = "localhost"
 	baseCfg.HTTP.ListenAddress = helpers.FreeListenAddr(t)
+	baseCfg.HTTP.DenylistServers = config.NewDynamic([]string{})
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
@@ -403,6 +404,7 @@ func TestMarketDealSystemBasic(t *testing.T) {
 	baseCfg.HTTP.DelegateTLS = true
 	baseCfg.HTTP.DomainName = "localhost"
 	baseCfg.HTTP.ListenAddress = helpers.FreeListenAddr(t)
+	baseCfg.HTTP.DenylistServers = config.NewDynamic([]string{})
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
