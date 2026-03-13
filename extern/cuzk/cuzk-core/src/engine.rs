@@ -905,18 +905,23 @@ impl Engine {
             self.budget.set_evictor(Arc::new(move |needed: u64| -> u64 {
                 let mut freed = 0u64;
 
-                // Collect all candidates from both caches
+                // Collect all candidates from both caches.
+                // NOTE: try_lock() because this callback runs from async acquire() —
+                // blocking_lock() would panic on a tokio runtime thread.
+                // If the SrsManager mutex is held, we skip SRS candidates this iteration;
+                // the acquire loop retries so we'll catch them next time.
                 let mut candidates: Vec<(String, CircuitId, u64, Instant, bool)> = Vec::new();
 
-                // SRS candidates
-                {
-                    let mgr = srs_for_evict.blocking_lock();
+                // SRS candidates (skip if mutex is held)
+                let srs_locked = srs_for_evict.try_lock();
+                if let Ok(ref mgr) = srs_locked {
                     for (cid, size, last_used) in mgr.evictable_entries() {
                         if last_used.elapsed() >= min_idle {
                             candidates.push((format!("srs:{}", cid), cid, size, last_used, true));
                         }
                     }
                 }
+                drop(srs_locked);
 
                 // PCE candidates
                 #[cfg(feature = "cuda-supraseal")]
@@ -934,8 +939,10 @@ impl Engine {
                 for (label, cid, _size, _last_used, is_srs) in candidates {
                     if freed >= needed { break; }
                     let bytes = if is_srs {
-                        let mut mgr = srs_for_evict.blocking_lock();
-                        mgr.evict(&cid)
+                        match srs_for_evict.try_lock() {
+                            Ok(mut mgr) => mgr.evict(&cid),
+                            Err(_) => 0, // Mutex held — skip, will retry
+                        }
                     } else {
                         #[cfg(feature = "cuda-supraseal")]
                         { pce_for_evict.evict(&cid) }
