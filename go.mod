@@ -5,7 +5,6 @@ go 1.24.7
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
 	github.com/BurntSushi/toml v1.5.0
-	github.com/CAFxX/httpcompression v0.0.9
 	github.com/KarpelesLab/reflink v1.0.1
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
 	github.com/charmbracelet/lipgloss v0.10.0
@@ -63,7 +62,6 @@ require (
 	github.com/ipfs/go-cidutil v0.1.0
 	github.com/ipfs/go-datastore v0.9.0
 	github.com/ipfs/go-fs-lock v0.1.1
-	github.com/ipfs/go-graphsync v0.18.0
 	github.com/ipfs/go-ipld-cbor v0.2.1
 	github.com/ipfs/go-ipld-format v0.6.3
 	github.com/ipfs/go-log/v2 v2.9.1
@@ -135,7 +133,6 @@ require (
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/akavel/rsrc v0.10.2 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect

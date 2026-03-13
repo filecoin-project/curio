@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CAFxX/httpcompression"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
@@ -21,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/lib/compression"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	mhttp "github.com/filecoin-project/curio/market/http"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
@@ -91,18 +91,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Compression middleware from https://github.com/CAFxX/httpcompression
-// Uses the compression levels defined in the config
-func compressionMiddleware(config *config.CompressionConfig) (func(http.Handler) http.Handler, error) {
-	adapter, err := httpcompression.DefaultAdapter(
-		httpcompression.GzipCompressionLevel(config.GzipLevel),
-		httpcompression.BrotliCompressionLevel(config.BrotliLevel),
-		httpcompression.DeflateCompressionLevel(config.DeflateLevel),
-	)
-	if err != nil {
-		return nil, err
-	}
-	return adapter, nil
+// Compression middleware using stdlib gzip only (Brotli/Deflate levels ignored).
+func compressionMiddleware(cfg *config.CompressionConfig) (func(http.Handler) http.Handler, error) {
+	return compression.Middleware(compression.Config{
+		GzipLevel:    cfg.GzipLevel,
+		BrotliLevel:  cfg.BrotliLevel,
+		DeflateLevel: cfg.DeflateLevel,
+	}), nil
 }
 
 // libp2pConnMiddleware intercepts WebSocket upgrade requests to "/" and rewrites the path to "/libp2p"

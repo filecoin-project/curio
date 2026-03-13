@@ -20,6 +20,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
+	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
@@ -85,8 +87,10 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 		return nil, nil, fmt.Errorf("creating address factory: %w", err)
 	}
 
+	// TCP+WebSocket only; no WebRTC/WebTransport (we have no need for them).
+	// DefaultTransports would pull in ~1.2MB pion/webrtc + webtransport.
 	opts := []libp2p.Option{
-		libp2p.DefaultTransports,
+		libp2p.ChainOptions(libp2p.Transport(tcp.NewTCPTransport), libp2p.Transport(ws.New)),
 		libp2p.NoListenAddrs,
 		libp2p.ListenAddrs(lcfg.ListenAddr...),
 		libp2p.AddrsFactory(addrFactory),
