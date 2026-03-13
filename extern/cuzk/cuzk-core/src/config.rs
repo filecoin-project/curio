@@ -308,6 +308,22 @@ pub struct PipelineConfig {
     /// WinningPoSt and WindowPoSt are single-partition and bypass this.
     #[serde(default = "PipelineConfig::default_slot_size")]
     pub slot_size: u32,
+
+    /// Maximum number of synthesized partitions waiting in the GPU queue
+    /// before the synthesis dispatcher pauses dispatching new work.
+    ///
+    /// This limits memory pressure by preventing synthesis from running
+    /// far ahead of GPU consumption. When the GPU queue depth reaches
+    /// this threshold, the dispatcher stops popping from the synthesis
+    /// work queue until GPU workers drain below the threshold.
+    ///
+    /// - 0 = no throttle (default, unlimited queue depth)
+    /// - 8 = recommended — keeps GPU fed while limiting memory to
+    ///       ~8 × partition_size (~19 GiB for SnapDeals, ~109 GiB for PoRep)
+    ///
+    /// This also ensures enough free budget for PCE caching (~16 GiB).
+    #[serde(default = "PipelineConfig::default_max_gpu_queue_depth")]
+    pub max_gpu_queue_depth: u32,
 }
 
 impl PipelineConfig {
@@ -323,6 +339,9 @@ impl PipelineConfig {
     fn default_slot_size() -> u32 {
         0 // disabled by default for backward compatibility
     }
+    fn default_max_gpu_queue_depth() -> u32 {
+        0 // disabled by default
+    }
 }
 
 impl Default for PipelineConfig {
@@ -332,6 +351,7 @@ impl Default for PipelineConfig {
             synthesis_lookahead: Self::default_synthesis_lookahead(),
             synthesis_concurrency: Self::default_synthesis_concurrency(),
             slot_size: Self::default_slot_size(),
+            max_gpu_queue_depth: Self::default_max_gpu_queue_depth(),
         }
     }
 }

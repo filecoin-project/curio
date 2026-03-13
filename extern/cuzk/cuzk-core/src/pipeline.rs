@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use tracing::{debug, info, info_span};
+use tracing::{debug, info, info_span, warn};
 
 use crate::prover::C1OutputWrapper;
 use crate::srs_manager::CircuitId;
@@ -109,8 +109,9 @@ pub fn buf_dealloc_done() {
 #[cfg(feature = "cuda-supraseal")]
 use bellperson::groth16::{
     finish_pending_proof, prove_from_assignments, prove_start, synthesize_circuits_batch_with_hint,
-    GpuMutexPtr, PendingProofHandle, Proof, ProvingAssignment, SuprasealParameters,
-    SynthesisCapacityHint,
+    synthesize_circuits_batch_with_prover_factory,
+    GpuMutexPtr, PendingProofHandle, PinnedReturnFn, Proof, ProvingAssignment,
+    SuprasealParameters, SynthesisCapacityHint,
 };
 #[cfg(feature = "cuda-supraseal")]
 use blstrs::{Bls12, Scalar as Fr};
@@ -242,10 +243,14 @@ fn cache_hint(circuit_id: &CircuitId, provers: &[ProvingAssignment<Fr>]) {
 /// Uses cached hints from previous runs (if available) to pre-allocate Vecs
 /// to full capacity, eliminating ~27 reallocation cycles per Vec.
 /// After the first synthesis (no hint), caches the actual sizes for next time.
+///
+/// When `pinned_pool` is provided and a capacity hint is available, a/b/c
+/// vectors are allocated from CUDA pinned memory for fast H2D transfers.
 #[cfg(feature = "cuda-supraseal")]
 fn synthesize_with_hint<C>(
     circuits: Vec<C>,
     circuit_id: &CircuitId,
+    pinned_pool: Option<&Arc<crate::pinned_pool::PinnedPool>>,
 ) -> Result<
     (
         Instant,
@@ -265,8 +270,86 @@ where
         info!(circuit_id = %circuit_id, "no capacity hint cached — first synthesis will grow organically");
     }
 
-    let (start, provers, input_assignments, aux_assignments) =
-        synthesize_circuits_batch_with_hint(circuits, hint)?;
+    // If pinned pool is available AND we have a capacity hint, use pinned buffers.
+    // The hint gives us the exact num_constraints needed to size the pinned buffers.
+    let use_pinned = pinned_pool.is_some() && hint.is_some();
+
+    let (start, provers, input_assignments, aux_assignments) = if use_pinned {
+        let pool = pinned_pool.unwrap().clone();
+        let hint_val = hint.unwrap();
+        let scalar_size = std::mem::size_of::<Fr>();
+
+        info!(
+            circuit_id = %circuit_id,
+            num_constraints = hint_val.num_constraints,
+            scalar_size = scalar_size,
+            buf_gib = (hint_val.num_constraints * scalar_size) as f64 / crate::memory::GIB as f64,
+            "attempting pinned memory synthesis"
+        );
+
+        synthesize_circuits_batch_with_prover_factory(
+            circuits,
+            hint,
+            move |_idx, hint_opt| -> Option<ProvingAssignment<Fr>> {
+                let h = hint_opt?;
+                let bufs = match crate::pinned_pool::PinnedAbcBuffers::checkout(
+                    &pool,
+                    h.num_constraints,
+                    scalar_size,
+                ) {
+                    Some(b) => b,
+                    None => {
+                        warn!(
+                            num_constraints = h.num_constraints,
+                            pool_free = pool.free_count(),
+                            pool_total_gib = pool.total_bytes() as f64 / crate::memory::GIB as f64,
+                            "pinned pool checkout FAILED — falling back to unpinned"
+                        );
+                        return None;
+                    }
+                };
+
+                let a_ptr = bufs.a.as_ptr() as *mut Fr;
+                let b_ptr = bufs.b.as_ptr() as *mut Fr;
+                let c_ptr = bufs.c.as_ptr() as *mut Fr;
+                let buf_bytes = bufs.a.size(); // all 3 are same size
+
+                // Build the return callback that checks buffers back into the pool.
+                let pool_for_return = pool.clone();
+                let return_fn: PinnedReturnFn = Box::new(move |a_raw, b_raw, c_raw, bytes| {
+                    pool_for_return.checkin(crate::pinned_pool::PinnedBuffer::from_raw(a_raw, bytes));
+                    pool_for_return.checkin(crate::pinned_pool::PinnedBuffer::from_raw(b_raw, bytes));
+                    pool_for_return.checkin(crate::pinned_pool::PinnedBuffer::from_raw(c_raw, bytes));
+                });
+
+                // Safety: pinned ptrs are valid, aligned (cudaHostAlloc returns aligned
+                // memory), and remain valid until release_abc() calls return_fn.
+                let prover = unsafe {
+                    ProvingAssignment::new_with_pinned(
+                        h.num_constraints,
+                        h.num_aux,
+                        h.num_inputs,
+                        a_ptr,
+                        b_ptr,
+                        c_ptr,
+                        buf_bytes,
+                        return_fn,
+                    )
+                };
+
+                // Forget the PinnedAbcBuffers wrapper — ownership is now with
+                // ProvingAssignment's PinnedBacking (via the raw ptrs).
+                // The individual PinnedBuffer structs must NOT be dropped here
+                // because they would call cudaFreeHost.
+                std::mem::forget(bufs);
+
+                info!("pinned prover created for partition synthesis");
+                Some(prover)
+            },
+        )?
+    } else {
+        synthesize_circuits_batch_with_hint(circuits, hint)?
+    };
 
     // Cache hint for subsequent syntheses
     cache_hint(circuit_id, &provers);
@@ -1116,11 +1199,15 @@ where
 ///
 /// `pce_cache` is optional to support the bench tool and other callers that
 /// don't use the PceCache.
+///
+/// `pinned_pool` is optional — when provided, synthesis allocates a/b/c
+/// vectors from CUDA pinned memory for fast H2D transfers (~50 GB/s vs 1-4 GB/s).
 #[cfg(feature = "cuda-supraseal")]
 fn synthesize_auto<C>(
     circuits: Vec<C>,
     circuit_id: &CircuitId,
     pce_cache: Option<&PceCache>,
+    pinned_pool: Option<&Arc<crate::pinned_pool::PinnedPool>>,
 ) -> Result<
     (
         Instant,
@@ -1140,6 +1227,8 @@ where
         if let Some(cache) = pce_cache {
             if let Some(pce_arc) = cache.get(circuit_id) {
                 info!(circuit_id = %circuit_id, "using PCE fast path for synthesis");
+                // TODO: PCE path doesn't use pinned pool yet (a/b/c are computed
+                // by CSR SpMV into regular heap Vecs). Could be added later.
                 return synthesize_with_pce(circuits, &pce_arc, circuit_id);
             }
         }
@@ -1147,9 +1236,9 @@ where
         info!(circuit_id = %circuit_id, "PCE disabled via CUZK_DISABLE_PCE=1 — using standard synthesis");
     }
 
-    // No PCE cached (or disabled) — use standard path
+    // No PCE cached (or disabled) — use standard path with optional pinned pool
     info!(circuit_id = %circuit_id, "using standard synthesis path (synthesize_with_hint)");
-    synthesize_with_hint(circuits, circuit_id)
+    synthesize_with_hint(circuits, circuit_id, pinned_pool)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1540,7 +1629,7 @@ pub fn synthesize_porep_c2_multi(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(all_circuits, &CircuitId::Porep32G, None)?;
+        synthesize_auto(all_circuits, &CircuitId::Porep32G, None, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1740,7 +1829,7 @@ pub fn synthesize_porep_c2_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::Porep32G, None)?;
+        synthesize_auto(vec![circuit], &CircuitId::Porep32G, None, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1881,7 +1970,7 @@ pub fn synthesize_porep_c2_batch(
     info!(num_circuits = circuits.len(), "synthesizing all circuits");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(circuits, &CircuitId::Porep32G, None)?;
+        synthesize_auto(circuits, &CircuitId::Porep32G, None, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -2281,11 +2370,15 @@ fn build_partition_circuits_from_parsed(
 ///
 /// Builds the circuit, runs synthesis (PCE fast path if available),
 /// and returns a `SynthesizedProof` with num_circuits=1 for GPU proving.
+///
+/// When `pinned_pool` is provided, a/b/c vectors are allocated from CUDA
+/// pinned memory for fast H2D transfers during GPU proving.
 #[cfg(feature = "cuda-supraseal")]
 pub fn synthesize_partition(
     parsed: &ParsedC1Output,
     partition_idx: usize,
     job_id: &str,
+    pinned_pool: Option<&Arc<crate::pinned_pool::PinnedPool>>,
 ) -> Result<SynthesizedProof> {
     let _span = info_span!(
         "synthesize_partition",
@@ -2298,12 +2391,13 @@ pub fn synthesize_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::Porep32G, None)?;
+        synthesize_auto(vec![circuit], &CircuitId::Porep32G, None, pinned_pool)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
         partition = partition_idx,
         synth_ms = synthesis_duration.as_millis(),
+        is_pinned = provers.first().map_or(false, |p| p.is_pinned()),
         "partition synthesis complete"
     );
 
@@ -2405,7 +2499,7 @@ pub fn prove_porep_c2_partitioned(
                     let job_id_owned = job_id.to_string();
                     scope.spawn(move || -> Result<Duration> {
                         let part_job_id = format!("{}-part-{}", job_id_owned, partition_idx);
-                        let synth = synthesize_partition(parsed_ref, partition_idx, &part_job_id)?;
+                        let synth = synthesize_partition(parsed_ref, partition_idx, &part_job_id, None)?;
                         let duration = synth.synthesis_duration;
 
                         let slot = SynthesizedSlot {
@@ -2543,7 +2637,7 @@ pub fn prove_porep_c2_slotted(
         let circuits = build_partition_circuits_from_parsed(&parsed, 0..num_partitions)?;
         let synth_start = Instant::now();
         let (_start, provers, input_assignments, aux_assignments) =
-            synthesize_auto(circuits, &CircuitId::Porep32G, None)?;
+            synthesize_auto(circuits, &CircuitId::Porep32G, None, None)?;
         let synthesis_duration = synth_start.elapsed();
 
         let mut rng = rand_core::OsRng;
@@ -2745,11 +2839,15 @@ fn build_snap_deals_partition_circuit(
 ///
 /// Builds one circuit, runs synthesis (PCE fast path if available),
 /// and returns a `SynthesizedProof` with num_circuits=1 for GPU proving.
+///
+/// When `pinned_pool` is provided, a/b/c vectors are allocated from CUDA
+/// pinned memory for fast H2D transfers during GPU proving.
 #[cfg(feature = "cuda-supraseal")]
 pub fn synthesize_snap_deals_partition(
     parsed: &ParsedSnapDealsInput,
     partition_idx: usize,
     job_id: &str,
+    pinned_pool: Option<&Arc<crate::pinned_pool::PinnedPool>>,
 ) -> Result<SynthesizedProof> {
     let _span = info_span!(
         "synthesize_snap_deals_partition",
@@ -2762,12 +2860,13 @@ pub fn synthesize_snap_deals_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::SnapDeals32G, None)?;
+        synthesize_auto(vec![circuit], &CircuitId::SnapDeals32G, None, pinned_pool)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
         partition = partition_idx,
         synth_ms = synthesis_duration.as_millis(),
+        is_pinned = provers.first().map_or(false, |p| p.is_pinned()),
         "SnapDeals partition synthesis complete"
     );
 
@@ -2913,7 +3012,7 @@ pub fn synthesize_winning_post(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(circuits, &CircuitId::WinningPost32G, None)?;
+        synthesize_auto(circuits, &CircuitId::WinningPost32G, None, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -3108,7 +3207,7 @@ pub fn synthesize_window_post(
     info!("synthesizing WindowPoSt circuit");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::WindowPost32G, None)?;
+        synthesize_auto(vec![circuit], &CircuitId::WindowPost32G, None, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -3286,7 +3385,7 @@ pub fn synthesize_snap_deals(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(circuits, &CircuitId::SnapDeals32G, None)?;
+        synthesize_auto(circuits, &CircuitId::SnapDeals32G, None, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(

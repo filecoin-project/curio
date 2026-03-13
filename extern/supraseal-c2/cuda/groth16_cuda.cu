@@ -897,7 +897,12 @@ RustError::by_value generate_groth16_proofs_start_c(
     // Phase 8: Acquire GPU mutex — serializes CUDA kernel region only.
     // CPU preprocessing (prep_msm_thread) is already running concurrently.
     // Another worker's CPU work can overlap with our GPU kernels.
+    auto t_before_lock = std::chrono::steady_clock::now();
+    auto pre_lock_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_before_lock - t_entry).count();
     std::unique_lock<std::mutex> gpu_lock(*mtx_ptr);
+    auto t_after_lock = std::chrono::steady_clock::now();
+    auto mutex_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_after_lock - t_before_lock).count();
+    fprintf(stderr, "CUZK_TIMING: pre_lock_cpu_ms=%ld mutex_wait_ms=%ld\n", pre_lock_ms, mutex_wait_ms);
 
     for (size_t tid = 0; tid < n_gpus; tid++) {
         per_gpu.emplace_back(std::thread([&, tid, n_gpus, gpu_base](size_t num_circuits)
@@ -931,7 +936,11 @@ RustError::by_value generate_groth16_proofs_start_c(
                 auto ntt_h_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_ntt_h_end - t_gpu_start).count();
                 fprintf(stderr, "CUZK_TIMING: gpu_tid=%zu ntt_msm_h_ms=%ld\n", tid, ntt_h_ms);
 
+                auto t_before_barrier = std::chrono::steady_clock::now();
                 barrier.wait();
+                auto t_after_barrier = std::chrono::steady_clock::now();
+                auto barrier_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_after_barrier - t_before_barrier).count();
+                fprintf(stderr, "CUZK_TIMING: gpu_tid=%zu barrier_wait_ms=%ld\n", tid, barrier_wait_ms);
 
                 if (caught_exception)
                     return;
@@ -1054,6 +1063,10 @@ RustError::by_value generate_groth16_proofs_start_c(
 
     // Release GPU lock — another worker can now launch CUDA kernels
     // while we finish b_g2_msm + epilogue on CPU.
+    auto t_before_unlock = std::chrono::steady_clock::now();
+    auto mutex_held_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_before_unlock - t_after_lock).count();
+    auto total_fn_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_before_unlock - t_entry).count();
+    fprintf(stderr, "CUZK_TIMING: mutex_held_ms=%ld total_start_fn_ms=%ld\n", mutex_held_ms, total_fn_ms);
     gpu_lock.unlock();
 
     // Phase 12: All data is already in the handle (results, batch_add_res,
