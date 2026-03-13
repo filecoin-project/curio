@@ -81,21 +81,31 @@ impl<T> PriorityWorkQueue<T> {
     }
 }
 
-// ─── Dispatch Pacer (PI controller) ─────────────────────────────────────────
+// ─── Dispatch Pacer (PI controller with GPU rate feed-forward) ─────────────
 //
 // Regulates synthesis dispatch rate to maintain `target` synthesized partitions
-// waiting in the GPU queue. Uses a PI controller with GPU rate feed-forward:
+// waiting in the GPU queue.
 //
-//   Feed-forward: base dispatch rate = measured GPU consumption rate (EMA).
-//   Feedback:     PI correction on error = (target - EMA_waiting).
+//   Feed-forward: actual GPU processing time / num_workers (from worker reports)
+//   Feedback:     PI correction on error = (target - EMA_waiting)
+//   Backpressure: memory budget naturally limits synthesis concurrency
 //
-// The output is a dispatch interval (seconds between dispatches). The dispatcher
-// dispatches one item per timer tick. GPU completions update the pacer state
-// but don't directly trigger dispatch — only the timer does.
+// The GPU rate is measured from actual worker processing durations (not
+// inter-completion intervals), making it immune to idle gaps and pipeline
+// fill delays. With N interleaved GPU workers, the effective dispatch
+// interval is processing_time / N.
 //
-// Given the deep pipeline (synthesis takes 20-60s), gains must be very
-// conservative to avoid oscillation. The feed-forward handles steady-state;
-// PI just nudges around it.
+// No synthesis throughput cap — that creates a self-reinforcing collapse:
+// slow dispatch → fewer concurrent synths → slower throughput → tighter
+// cap → even slower dispatch. Instead, the memory budget provides natural
+// backpressure: budget.acquire() blocks when too many partitions are
+// in-flight, which is the correct concurrency limit.
+//
+// Bootstrap (initial + re-entry): dispatches `target` items at moderate
+// spacing (3s initial, max(2s, gpu_eff) for re-bootstrap). Initial bootstrap
+// is slow to avoid flooding the pinned memory pool with cudaHostAlloc calls.
+// Re-bootstrap triggers when the pipeline drains (between proof batches)
+// and new work arrives.
 
 struct DispatchPacer {
     target: f64,
@@ -104,12 +114,29 @@ struct DispatchPacer {
     ema_waiting: f64,
     alpha_waiting: f64,
 
-    // GPU consumption rate tracking
-    ema_gpu_interval_s: f64, // EMA of seconds between GPU completions
-    gpu_rate_known: bool,    // false until first interval measured
-    last_gpu_event: Instant,
+    // GPU processing rate tracking (from actual worker durations)
+    //
+    // GPU workers atomically accumulate their processing time into a shared
+    // counter. The pacer computes avg processing time per partition from
+    // deltas. Effective dispatch interval = processing_time / num_workers.
+    //
+    // Immune to pipeline fill delays, idle gaps, and correctly handles
+    // multiple interleaved GPU workers.
+    ema_gpu_processing_s: f64, // EMA of per-partition GPU processing time
+    gpu_rate_known: bool,      // false until first measurement
     prev_gpu_count: u64,
+    prev_gpu_total_ns: u64,    // previous reading of gpu_processing_total_ns
     alpha_gpu: f64,
+    num_gpu_workers: usize,
+
+    // Synthesis throughput tracking (monitoring only, not used for control)
+    ema_synth_interval_s: f64,
+    synth_rate_known: bool,
+    synth_completions_seen: u64,
+    last_synth_event: Instant,
+    prev_synth_count: u64,
+    alpha_synth: f64,
+    synth_warmup: u64,
 
     // PI state
     integral_error: f64,
@@ -118,55 +145,84 @@ struct DispatchPacer {
     ki: f64,
     max_integral: f64,
 
-    // Bootstrap: dispatch `target` items quickly before GPU data is available
+    // Bootstrap: dispatch `target` items at moderate spacing
     bootstrap_remaining: usize,
+    rebootstrap_count: u64, // how many times we re-entered bootstrap
 
     // Logging
     total_dispatched: u64,
 }
 
 impl DispatchPacer {
-    fn new(target: usize) -> Self {
+    fn new(target: usize, num_gpu_workers: usize) -> Self {
         let now = Instant::now();
         Self {
             target: target as f64,
             ema_waiting: 0.0,
-            alpha_waiting: 0.15, // slow — filter noise over long synth times
-            ema_gpu_interval_s: 1.0, // initial guess: 1 partition/sec
+            alpha_waiting: 0.15,
+            ema_gpu_processing_s: 1.0,
             gpu_rate_known: false,
-            last_gpu_event: now,
             prev_gpu_count: 0,
-            alpha_gpu: 0.2, // moderate — GPU interval is less noisy
+            prev_gpu_total_ns: 0,
+            alpha_gpu: 0.2,
+            num_gpu_workers: num_gpu_workers.max(1),
+            ema_synth_interval_s: 1.0,
+            synth_rate_known: false,
+            synth_completions_seen: 0,
+            last_synth_event: now,
+            prev_synth_count: 0,
+            alpha_synth: 0.25,
+            synth_warmup: 8,
             integral_error: 0.0,
             last_pi_update: now,
-            kp: 0.1,        // conservative — 20-60s feedback delay
-            ki: 0.008,      // very gentle integral
+            kp: 0.1,
+            ki: 0.008,
             max_integral: 20.0,
             bootstrap_remaining: target,
+            rebootstrap_count: 0,
             total_dispatched: 0,
         }
     }
 
     /// Update state with current observations.
-    /// Called on every loop iteration (both timer ticks and GPU events).
-    fn update(&mut self, waiting: usize, gpu_count: u64) {
+    fn update(&mut self, waiting: usize, gpu_count: u64, gpu_total_ns: u64, synth_count: u64) {
         let now = Instant::now();
 
-        // --- GPU rate ---
-        let new_completions = gpu_count.saturating_sub(self.prev_gpu_count);
-        if new_completions > 0 {
-            let elapsed = now.duration_since(self.last_gpu_event).as_secs_f64();
-            let avg_interval = elapsed / new_completions as f64;
-            if self.gpu_rate_known {
-                self.ema_gpu_interval_s =
-                    self.alpha_gpu * avg_interval + (1.0 - self.alpha_gpu) * self.ema_gpu_interval_s;
-            } else {
-                // First measurement — seed the EMA
-                self.ema_gpu_interval_s = avg_interval;
-                self.gpu_rate_known = true;
+        // --- GPU rate (from actual processing durations) ---
+        let new_gpu = gpu_count.saturating_sub(self.prev_gpu_count);
+        if new_gpu > 0 {
+            let delta_ns = gpu_total_ns.saturating_sub(self.prev_gpu_total_ns);
+            let avg_processing_s = (delta_ns as f64 / new_gpu as f64) / 1_000_000_000.0;
+            if avg_processing_s > 0.0 {
+                if self.gpu_rate_known {
+                    self.ema_gpu_processing_s =
+                        self.alpha_gpu * avg_processing_s + (1.0 - self.alpha_gpu) * self.ema_gpu_processing_s;
+                } else {
+                    self.ema_gpu_processing_s = avg_processing_s;
+                    self.gpu_rate_known = true;
+                }
             }
-            self.last_gpu_event = now;
             self.prev_gpu_count = gpu_count;
+            self.prev_gpu_total_ns = gpu_total_ns;
+        }
+
+        // --- Synthesis throughput (monitoring only) ---
+        let new_synth = synth_count.saturating_sub(self.prev_synth_count);
+        if new_synth > 0 {
+            self.synth_completions_seen += new_synth;
+            let elapsed = now.duration_since(self.last_synth_event).as_secs_f64();
+            let avg_interval = elapsed / new_synth as f64;
+            if self.synth_completions_seen > self.synth_warmup {
+                if self.synth_rate_known {
+                    self.ema_synth_interval_s =
+                        self.alpha_synth * avg_interval + (1.0 - self.alpha_synth) * self.ema_synth_interval_s;
+                } else {
+                    self.ema_synth_interval_s = avg_interval;
+                    self.synth_rate_known = true;
+                }
+            }
+            self.last_synth_event = now;
+            self.prev_synth_count = synth_count;
         }
 
         // --- Waiting EMA ---
@@ -180,33 +236,60 @@ impl DispatchPacer {
         self.last_pi_update = now;
     }
 
-    /// Compute the dispatch interval for the next tick.
+    /// Compute the dispatch interval.
     fn interval(&self) -> Duration {
-        if !self.gpu_rate_known {
-            // Bootstrap: fast dispatch to prime the pipe
-            return Duration::from_millis(200);
+        // Bootstrap: moderate spacing to avoid flooding pinned pool
+        if self.bootstrap_remaining > 0 {
+            if self.gpu_rate_known {
+                // Re-bootstrap: known GPU rate, fill at moderate speed
+                let gpu_eff = self.ema_gpu_processing_s / self.num_gpu_workers as f64;
+                return Duration::from_secs_f64(gpu_eff.max(2.0));
+            } else {
+                // Initial bootstrap: slow start (pinned pool cold)
+                return Duration::from_secs(3);
+            }
         }
 
+        if !self.gpu_rate_known {
+            return Duration::from_secs(3);
+        }
+
+        // PI control
         let error = self.target - self.ema_waiting;
         let correction = self.kp * error + self.ki * self.integral_error;
-
-        // rate_mult > 1: dispatch faster than GPU (deficit)
-        // rate_mult < 1: dispatch slower (surplus)
-        // Clamped to [0.1, 5.0] — max 5× GPU rate, min 0.1× GPU rate
+        let base_interval_s = self.ema_gpu_processing_s / self.num_gpu_workers as f64;
         let rate_mult = (1.0 + correction).clamp(0.1, 5.0);
+        let pi_interval_s = base_interval_s / rate_mult;
 
-        let interval_s = (self.ema_gpu_interval_s / rate_mult).clamp(0.05, 60.0);
-        Duration::from_millis((interval_s * 1000.0) as u64)
+        Duration::from_millis((pi_interval_s * 1000.0).clamp(50.0, 60000.0) as u64)
     }
 
-    /// Whether we're still in bootstrap (filling pipe before first GPU data).
+    /// Whether we're in bootstrap (initial or re-bootstrap).
     fn in_bootstrap(&self) -> bool {
-        !self.gpu_rate_known && self.bootstrap_remaining > 0
+        self.bootstrap_remaining > 0
     }
 
-    /// Whether bootstrap is exhausted and we need GPU data before continuing.
+    /// Whether initial bootstrap is exhausted and we need GPU data.
     fn bootstrap_exhausted(&self) -> bool {
         !self.gpu_rate_known && self.bootstrap_remaining == 0
+    }
+
+    /// Check if we should re-enter bootstrap (pipeline drained).
+    /// Condition: GPU is calibrated, not already bootstrapping, and the
+    /// queue has been sustained-empty (ema_waiting < 1).
+    fn should_rebootstrap(&self) -> bool {
+        self.gpu_rate_known
+            && self.bootstrap_remaining == 0
+            && self.ema_waiting < 1.0
+    }
+
+    /// Re-enter bootstrap to fill the pipeline after it drained.
+    /// Resets integral (stale from previous batch) and sets bootstrap count.
+    /// GPU rate EMA is preserved (it's a hardware characteristic).
+    fn enter_rebootstrap(&mut self) {
+        self.bootstrap_remaining = self.target as usize;
+        self.integral_error = 0.0;
+        self.rebootstrap_count += 1;
     }
 
     fn on_dispatch(&mut self) {
@@ -1335,6 +1418,8 @@ impl Engine {
             let gpu_queue_target = self.config.pipeline.max_gpu_queue_depth as usize;
             let gpu_done_notify: Arc<tokio::sync::Notify> = Arc::new(tokio::sync::Notify::new());
             let gpu_completion_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+            let gpu_processing_total_ns: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+            let synth_completion_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
             if gpu_queue_target > 0 {
                 tracing::info!(gpu_queue_target, "GPU queue target dispatch pacer enabled");
             }
@@ -1378,25 +1463,41 @@ impl Engine {
                 let mut shutdown_rx = self.shutdown_rx.clone();
                 let gpu_done = gpu_done_notify.clone();
                 let gpu_count = gpu_completion_count.clone();
+                let gpu_proc_ns = gpu_processing_total_ns.clone();
+                let synth_count = synth_completion_count.clone();
                 let target = gpu_queue_target;
+                let total_gpu_workers = num_workers;
 
                 tokio::spawn(async move {
                     tracing::info!("synthesis priority dispatcher started (PI pacer)");
-                    let mut pacer = DispatchPacer::new(target);
+                    let mut pacer = DispatchPacer::new(target, total_gpu_workers);
 
                     loop {
                         // ── Update pacer state ──
                         if target > 0 {
                             let waiting = gpu_work_queue_for_dispatch.len();
                             let count = gpu_count.load(AtomicOrdering::Acquire);
-                            pacer.update(waiting, count);
+                            let proc_ns = gpu_proc_ns.load(AtomicOrdering::Acquire);
+                            let sc = synth_count.load(AtomicOrdering::Acquire);
+                            pacer.update(waiting, count, proc_ns, sc);
+
+                            // Re-enter bootstrap when pipeline drains between batches.
+                            // GPU rate EMA is preserved; integral is reset (stale).
+                            if pacer.should_rebootstrap() {
+                                pacer.enter_rebootstrap();
+                                tracing::info!(
+                                    rebootstrap = pacer.rebootstrap_count,
+                                    gpu_proc_ms = format!("{:.0}", pacer.ema_gpu_processing_s * 1000.0),
+                                    "pacer: pipeline drained, re-entering bootstrap"
+                                );
+                            }
                         }
 
                         // ── Pacing / gating ──
                         if target > 0 {
                             if pacer.bootstrap_exhausted() {
-                                // Dispatched `target` items but no GPU data yet.
-                                // Wait for the first GPU completion to calibrate.
+                                // Initial bootstrap exhausted: wait for first GPU
+                                // completion to calibrate processing time.
                                 tracing::info!("pacer: bootstrap done, waiting for first GPU completion");
                                 loop {
                                     tokio::select! {
@@ -1407,36 +1508,21 @@ impl Engine {
                                         _ = gpu_done.notified() => {
                                             let w = gpu_work_queue_for_dispatch.len();
                                             let c = gpu_count.load(AtomicOrdering::Acquire);
-                                            pacer.update(w, c);
+                                            let pns = gpu_proc_ns.load(AtomicOrdering::Acquire);
+                                            let sc = synth_count.load(AtomicOrdering::Acquire);
+                                            pacer.update(w, c, pns, sc);
                                             if pacer.gpu_rate_known { break; }
                                         }
                                     }
                                 }
                                 tracing::info!(
-                                    ema_gpu_ms = format!("{:.0}", pacer.ema_gpu_interval_s * 1000.0),
+                                    gpu_proc_ms = format!("{:.0}", pacer.ema_gpu_processing_s * 1000.0),
+                                    gpu_eff_ms = format!("{:.0}", pacer.ema_gpu_processing_s / pacer.num_gpu_workers as f64 * 1000.0),
                                     ema_waiting = format!("{:.1}", pacer.ema_waiting),
                                     "pacer: GPU rate calibrated, switching to PI control"
                                 );
-                            } else if !pacer.in_bootstrap() {
-                                // Steady state: wait for timer tick or GPU event
-                                let interval = pacer.interval();
-                                tokio::select! {
-                                    biased;
-                                    _ = shutdown_rx.changed() => {
-                                        if *shutdown_rx.borrow() { return; }
-                                        continue;
-                                    }
-                                    _ = gpu_done.notified() => {
-                                        // GPU event: update state, re-compute interval.
-                                        // Don't dispatch — only timer dispatches.
-                                        continue;
-                                    }
-                                    _ = tokio::time::sleep(interval) => {
-                                        // Timer tick: proceed to dispatch one item
-                                    }
-                                }
-                            } else {
-                                // Bootstrap: use pacer.interval() (200ms) spacing
+                            } else if pacer.in_bootstrap() {
+                                // Bootstrap (initial or re-): moderate spacing
                                 let interval = pacer.interval();
                                 tokio::select! {
                                     biased;
@@ -1447,10 +1533,29 @@ impl Engine {
                                     _ = gpu_done.notified() => {
                                         let w = gpu_work_queue_for_dispatch.len();
                                         let c = gpu_count.load(AtomicOrdering::Acquire);
-                                        pacer.update(w, c);
+                                        let pns = gpu_proc_ns.load(AtomicOrdering::Acquire);
+                                        let sc = synth_count.load(AtomicOrdering::Acquire);
+                                        pacer.update(w, c, pns, sc);
                                         // GPU event during bootstrap — still dispatch
                                     }
                                     _ = tokio::time::sleep(interval) => {}
+                                }
+                            } else {
+                                // Steady state: PI-controlled timer tick
+                                let interval = pacer.interval();
+                                tokio::select! {
+                                    biased;
+                                    _ = shutdown_rx.changed() => {
+                                        if *shutdown_rx.borrow() { return; }
+                                        continue;
+                                    }
+                                    _ = gpu_done.notified() => {
+                                        // GPU event: update state, don't dispatch
+                                        continue;
+                                    }
+                                    _ = tokio::time::sleep(interval) => {
+                                        // Timer tick: proceed to dispatch one item
+                                    }
                                 }
                             }
                         }
@@ -1475,7 +1580,9 @@ impl Engine {
                                     if target > 0 {
                                         let w = gpu_work_queue_for_dispatch.len();
                                         let c = gpu_count.load(AtomicOrdering::Acquire);
-                                        pacer.update(w, c);
+                                        let pns = gpu_proc_ns.load(AtomicOrdering::Acquire);
+                                        let sc = synth_count.load(AtomicOrdering::Acquire);
+                                        pacer.update(w, c, pns, sc);
                                     }
                                 }
                             }
@@ -1518,10 +1625,13 @@ impl Engine {
                                 total = pacer.total_dispatched,
                                 waiting = gpu_work_queue_for_dispatch.len(),
                                 ema_waiting = format!("{:.1}", pacer.ema_waiting),
-                                ema_gpu_ms = format!("{:.0}", pacer.ema_gpu_interval_s * 1000.0),
+                                gpu_proc_ms = format!("{:.0}", pacer.ema_gpu_processing_s * 1000.0),
+                                gpu_eff_ms = format!("{:.0}", pacer.ema_gpu_processing_s / pacer.num_gpu_workers as f64 * 1000.0),
+                                ema_synth_ms = format!("{:.0}", pacer.ema_synth_interval_s * 1000.0),
                                 interval_ms = interval.as_millis(),
                                 integral = format!("{:.2}", pacer.integral_error),
                                 bootstrap = pacer.in_bootstrap(),
+                                rebootstraps = pacer.rebootstrap_count,
                                 "pacer: status"
                             );
                         }
@@ -1533,6 +1643,7 @@ impl Engine {
             for sw_id in 0..synth_worker_count {
                 let synth_dispatch_rx = synth_dispatch_rx.clone();
                 let gpu_work_queue = gpu_work_queue.clone();
+                let synth_done_count = synth_completion_count.clone();
                 let tracker = self.tracker.clone();
                 let st = self.status_tracker.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
@@ -1631,6 +1742,7 @@ impl Engine {
                                 };
                                 timeline_event("GPU_QUEUE", &p_job_id.0, &format!("partition={}", p_idx));
                                 gpu_work_queue.push(p_job_seq, p_idx, job);
+                                synth_done_count.fetch_add(1, AtomicOrdering::Release);
                             }
                             Ok(Err(e)) => {
                                 st.partition_failed(&p_job_id.0, p_idx);
@@ -2798,6 +2910,7 @@ impl Engine {
                 let st = self.status_tracker.clone();
                 let gpu_done_for_worker = gpu_done_notify.clone();
                 let gpu_count_for_worker = gpu_completion_count.clone();
+                let gpu_proc_ns_for_worker = gpu_processing_total_ns.clone();
                 // Phase 8: Convert GPU mutex pointer to usize for Send safety.
                 // Raw pointers aren't Send, but the underlying C++ mutex lives
                 // for the engine's lifetime, so the address is always valid.
@@ -2937,6 +3050,16 @@ impl Engine {
                                 // GPU prove complete — release full reservation
                                 drop(reservation);
 
+                                // Accumulate GPU processing time + completion (sync path)
+                                if let Ok(Ok((_, ref gpu_dur))) = result {
+                                    gpu_proc_ns_for_worker.fetch_add(
+                                        gpu_dur.as_nanos() as u64,
+                                        AtomicOrdering::Release,
+                                    );
+                                }
+                                gpu_count_for_worker.fetch_add(1, AtomicOrdering::Release);
+                                gpu_done_for_worker.notify_one();
+
                                 // Process result inline (synchronous path)
                                 let mut t = tracker.lock().await;
                                 if let Some(w) = t.workers.get_mut(worker_id as usize) {
@@ -3023,6 +3146,7 @@ impl Engine {
                                     let fin_st = st.clone();
                                     let fin_gpu_done = gpu_done_for_worker.clone();
                                     let fin_gpu_count = gpu_count_for_worker.clone();
+                                    let fin_gpu_proc_ns = gpu_proc_ns_for_worker.clone();
                                     tokio::spawn(async move {
                                         let fin_start = Instant::now();
 
@@ -3042,8 +3166,17 @@ impl Engine {
                                         // Phase 2: Drop reservation to release remaining budget (shell + aux)
                                         drop(fin_reservation);
 
+                                        // Accumulate actual GPU processing time for pacer.
+                                        // Must be done BEFORE incrementing completion count
+                                        // so the pacer sees consistent (count, total_ns) pairs.
+                                        if let Ok(Ok((_, ref gpu_dur))) = result {
+                                            fin_gpu_proc_ns.fetch_add(
+                                                gpu_dur.as_nanos() as u64,
+                                                AtomicOrdering::Release,
+                                            );
+                                        }
+
                                         // Increment completion counter and notify dispatcher.
-                                        // Counter gives the pacer accurate GPU rate data.
                                         fin_gpu_count.fetch_add(1, AtomicOrdering::Release);
                                         fin_gpu_done.notify_one();
                                         let t_drop_res = fin_start.elapsed();
