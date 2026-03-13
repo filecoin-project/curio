@@ -1142,12 +1142,18 @@ fn run_pce_bench(
         num_constraints,
     );
 
+    // Create PceCache for benchmarking (large budget, no eviction)
+    let bench_budget = std::sync::Arc::new(cuzk_core::memory::MemoryBudget::new(1024 * cuzk_core::memory::GIB));
+    let param_cache_path = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/data/zk/params"));
+    let pce_cache = std::sync::Arc::new(cuzk_core::pipeline::PceCache::new(bench_budget, param_cache_path));
+
     // Step 2: Extract PCE from a single circuit
     println!("\n--- Step 2: PCE extraction (RecordingCS) ---");
     let extract_start = Instant::now();
     // Build one circuit with the same vanilla proof data for extraction
-    // We use extract_and_cache_pce which will cache it in the global OnceLock
-    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id)?;
+    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id, &pce_cache)?;
     let extract_time = extract_start.elapsed();
     println!("  extract={:.1}s", extract_time.as_secs_f64());
 
@@ -1245,10 +1251,10 @@ fn run_pce_bench(
     // Optionally save PCE to disk
     if let Some(path) = save_pce {
         println!("\n--- Saving PCE to disk ---");
-        let pce_ref = cuzk_core::pipeline::get_pce(&cuzk_core::srs_manager::CircuitId::Porep32G)
+        let pce_ref = pce_cache.get(&cuzk_core::srs_manager::CircuitId::Porep32G)
             .expect("PCE should be cached after extraction");
         let save_start = Instant::now();
-        cuzk_pce::save_to_disk(pce_ref, &path)?;
+        cuzk_pce::save_to_disk(&pce_ref, &path)?;
         let save_time = save_start.elapsed();
         let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         println!(
@@ -1374,13 +1380,20 @@ fn run_pce_pipeline(
         log_rss("old-path results DROPPED");
     }
 
-    // Step 1: PCE extraction (first time only — cached in OnceLock)
+    // Create PceCache for benchmarking (large budget, no eviction)
+    let bench_budget = std::sync::Arc::new(cuzk_core::memory::MemoryBudget::new(1024 * cuzk_core::memory::GIB));
+    let param_cache_path = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/data/zk/params"));
+    let pce_cache = std::sync::Arc::new(cuzk_core::pipeline::PceCache::new(bench_budget, param_cache_path));
+
+    // Step 1: PCE extraction (first time only — cached in PceCache)
     println!("\n--- PCE Extraction (one-time) ---");
     let extract_start = Instant::now();
-    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id)?;
+    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id, &pce_cache)?;
     let extract_time = extract_start.elapsed();
     println!("  extract={:.1}s", extract_time.as_secs_f64());
-    log_rss("after PCE extraction (cached in OnceLock)");
+    log_rss("after PCE extraction (cached in PceCache)");
 
     if is_parallel {
         // ── Parallel mode: launch `parallel` syntheses concurrently ──
@@ -1576,10 +1589,17 @@ fn run_slotted_bench(
     println!("c1 loaded: {} bytes", c1_data.len());
     log_rss("after c1 load");
 
+    // Create PceCache for benchmarking (large budget, no eviction)
+    let bench_budget = std::sync::Arc::new(cuzk_core::memory::MemoryBudget::new(1024 * cuzk_core::memory::GIB));
+    let param_cache_path = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/data/zk/params"));
+    let pce_cache = std::sync::Arc::new(cuzk_core::pipeline::PceCache::new(bench_budget.clone(), param_cache_path.clone()));
+
     // Ensure PCE is extracted first (one-time cost)
     println!("\n--- PCE Extraction (one-time) ---");
     let extract_start = Instant::now();
-    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id)?;
+    cuzk_core::pipeline::extract_and_cache_pce_from_c1(&c1_data, sector_num, miner_id, &pce_cache)?;
     let extract_time = extract_start.elapsed();
     println!("  extract={:.1}s", extract_time.as_secs_f64());
     log_rss("after PCE extraction");
@@ -1589,13 +1609,10 @@ fn run_slotted_bench(
     let srs_start = Instant::now();
     let srs = {
         let mut mgr = cuzk_core::srs_manager::SrsManager::new(
-            std::path::PathBuf::from(
-                std::env::var("FIL_PROOFS_PARAMETER_CACHE")
-                    .unwrap_or_else(|_| "/data/zk/params".to_string()),
-            ),
-            50 * 1024 * 1024 * 1024, // 50 GiB budget
+            param_cache_path,
+            bench_budget,
         );
-        mgr.ensure_loaded(&cuzk_core::srs_manager::CircuitId::Porep32G)?
+        mgr.ensure_loaded(&cuzk_core::srs_manager::CircuitId::Porep32G, None)?
     };
     let srs_time = srs_start.elapsed();
     println!("  SRS loaded in {:.1}s", srs_time.as_secs_f64());

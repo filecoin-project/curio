@@ -16,19 +16,32 @@ listen = "0.0.0.0:9820"
 # Download with: curio fetch-params 32
 param_cache = "/data/zk/params"
 
-# SRS entries to pre-warm at daemon startup.
-# This sets the environment so the first proof call per circuit type
-# populates GROTH_PARAM_MEMORY_CACHE automatically.
-# Values: "porep-32g", "wpost-32g", "winning-32g", "snap-32g"
-preload = ["porep-32g"]
+# NOTE: The 'preload' field is deprecated and ignored. SRS entries are now
+# loaded on demand when the first proof of each circuit type arrives. Budget
+# is automatically managed — no manual preload configuration needed.
 
 [memory]
-# Maximum CUDA pinned memory budget for SRS residency.
-# Phase 1+: controls how much SRS data is kept in pinned memory.
-pinned_budget = "50GiB"
+# Total memory budget for all cuzk allocations (SRS + PCE + working set).
+# "auto" = detect from /proc/meminfo MemTotal - safety_margin (recommended).
+# Or specify explicitly: "256GiB", "512GiB", etc.
+#
+# This single budget replaces the old pinned_budget and working_memory_budget.
+# All memory consumers (SRS, PCE, partition synthesis) share one pool and
+# concurrency is automatically determined by available budget.
+total_budget = "auto"
 
-# Maximum working memory for proof operations.
-working_memory_budget = "80GiB"
+# Safety margin subtracted from total_budget when using "auto".
+# Reserves space for OS, kernel, other processes.
+safety_margin = "5GiB"
+
+# Minimum idle time before SRS/PCE entries become eviction candidates.
+# Entries are only evicted when the budget is under pressure AND idle
+# for at least this duration. Set higher for stable workloads, lower
+# for mixed workloads that frequently switch circuit types.
+eviction_min_idle = "5m"
+
+# NOTE: The 'pinned_budget' and 'working_memory_budget' fields are deprecated
+# and ignored. Use 'total_budget' instead for unified budget management.
 
 [gpus]
 # GPU ordinals to use. Empty = auto-detect all GPUs.
@@ -38,19 +51,19 @@ devices = []
 # CPU threads for the GPU-side work (b_g2_msm, preprocessing).
 # 0 = auto-detect (all CPUs).
 #
-# With partition-level pipelining (partition_workers > 0), synthesis workers
-# and b_g2_msm compete for DDR5 bandwidth and L3 cache. Reducing the pool
-# from all-cores to 32 threads cuts b_g2_msm's bucket RAM from ~1.1 GiB to
-# ~192 MB, dramatically reducing L3 cache interference with synthesis.
+# With budget-gated partition pipelining, synthesis workers and b_g2_msm
+# compete for DDR5 bandwidth and L3 cache. Reducing the pool from all-cores
+# to 32 threads cuts b_g2_msm's bucket RAM from ~1.1 GiB to ~192 MB,
+# dramatically reducing L3 cache interference with synthesis.
 #
 # b_g2_msm slows from ~0.5s to ~1.7s but runs outside the GPU lock (Phase 12
 # split API), so this does NOT affect GPU throughput.
 #
-# Recommended: 32 for machines with partition_workers >= 10.
+# Recommended: 32 for machines with high-concurrency workloads.
 # Use 0 (auto) only for low-concurrency or single-proof workloads.
 gpu_threads = 32
 
-# Number of GPU worker tasks per physical GPU (Phase 8: dual-worker interlock).
+# Number of GPU worker tasks per physical GPU (dual-worker interlock).
 #
 # With 2 workers, one worker's CPU preprocessing overlaps with the other's
 # CUDA kernel execution on the same GPU. Only the CUDA kernel region is
@@ -62,32 +75,21 @@ gpu_threads = 32
 #   Worker B:           [CPU prep──][══ CUDA ══][b_g2+epilogue][CPU prep]
 #   GPU:                [████ A ████][████ B ████][████ A ████][████ B ██]
 #
-#   1 = single worker — use on low-memory systems (pw <= 7) where the GPU
-#       is already synthesis-starved. Adds no memory overhead.
-#   2 = dual-worker interlock — recommended when pw >= 10 and synthesis can
-#       keep the GPU channel saturated. ~6% throughput gain over gw=1 at pw=10.
+#   1 = single worker — use on low-memory systems where the GPU is already
+#       synthesis-starved. Adds no memory overhead.
+#   2 = dual-worker interlock — recommended when synthesis can keep the GPU
+#       channel saturated. ~6% throughput gain over gw=1.
 #   3+ = diminishing returns (CPU ~1.3s < CUDA ~2.1s, so 2 workers suffice)
 gpu_workers_per_device = 2
 
 [scheduler]
 # Max proofs to batch into a single GPU invocation (same circuit type).
 #
-# Phase 3: Cross-sector batching for PoRep C2 and SnapDeals.
-# When multiple same-type proof requests arrive, the engine accumulates
-# them into a batch and processes all sectors in a single synthesis + GPU
-# pass. This amortizes fixed GPU costs and improves SM utilization.
+# Cross-sector batching for PoRep C2 and SnapDeals. When multiple same-type
+# proof requests arrive, the engine accumulates them into a batch and
+# processes all sectors in a single synthesis + GPU pass.
 #
-# Memory impact (PoRep 32G, batch synthesis — all partitions at once):
-#   batch=1: ~136 GiB intermediate (10 circuits)    → needs 256+ GiB RAM
-#   batch=2: ~272 GiB intermediate (20 circuits)    → needs 384+ GiB RAM
-#   batch=3: ~408 GiB intermediate (30 circuits)    → needs 512+ GiB RAM
-#
-# Throughput improvement (approximate, PoRep C2):
-#   batch=1: baseline (Phase 2)
-#   batch=2: ~1.5x throughput (amortize GPU fixed costs)
-#   batch=3: ~2.0x throughput
-#
-# Set to 1 to disable batching (Phase 2 behavior).
+# Set to 1 to disable batching.
 # Set to 2-3 on large-memory machines for higher throughput.
 # WinningPoSt and WindowPoSt bypass batching regardless of this setting.
 max_batch_size = 1
@@ -106,53 +108,15 @@ sort_by_type = true
 [synthesis]
 # CPU threads for circuit synthesis (rayon global pool). 0 = auto (all CPUs).
 # Controls the rayon thread pool used by bellperson synthesis and PCE SpMV.
-#
-# When using parallel synthesis (synthesis_concurrency > 1), partition
-# CPU cores between synthesis and the GPU thread pool:
-#
-# Example for 96-core machine:
-#   threads = 64        → synthesis gets 64 rayon threads
-#   [gpus] gpu_threads = 32  → GPU b_g2_msm gets 32 threads
-#   [pipeline] synthesis_concurrency = 2  → 2 synthesis tasks share 64 threads
-#
-# With sequential synthesis (synthesis_concurrency=1), leave at 0 to let
-# both pools use all CPUs (no contention since they don't overlap).
 threads = 0
 
-# Number of concurrent partition synthesis workers (Phase 7).
-#
-# Each worker processes one PoRep partition at a time (~29s each, mostly
-# single-threaded witness generation). With 20 workers and 10 partitions
-# per sector, 2 sectors can be synthesized simultaneously, keeping the
-# GPU continuously fed with zero idle gaps between sectors.
-#
-# The workers feed individual partitions to the GPU channel. Each GPU call
-# uses num_circuits=1, making b_g2_msm 0.4s instead of 25s (62x speedup
-# on this step alone).
-#
-# Memory formula: Peak RSS ≈ 69 + (pw × 20) GiB
-#   (69 GiB baseline = SRS 44 GiB + PCE 26 GiB)
-#
-# Recommended configs by system RAM (measured, gt=32):
-#
-#   RAM       pw   gw   Peak RSS   Throughput    Notes
-#   -------   --   --   --------   ----------    -----
-#   128 GiB    2    1    110 GiB   152 s/proof   Minimum viable
-#   256 GiB    7    1    208 GiB    53 s/proof   Best value
-#   384 GiB   10    2    271 GiB    43 s/proof   Near-optimal
-#   512 GiB   12    2    373 GiB    43 s/proof   Same throughput, more headroom
-#   768 GiB   12    2    400 GiB    38 s/proof   Full pipeline (j=20)
-#
-# At pw <= 7, gw=2 adds no benefit — set gw=1 instead.
-# At pw >= 10, gw=2 gives ~6% throughput gain.
-# pw > 12 uses more RAM with no throughput gain.
-# pw > 16 regresses due to DDR5 bandwidth saturation.
-#
-# 0 = disabled — falls back to batch-all or Phase 6 slotted pipeline.
-partition_workers = 12
+# NOTE: The 'partition_workers' field is deprecated and ignored. Partition
+# concurrency is now managed automatically by the memory budget. On a 256 GiB
+# machine, ~7 PoRep partitions can run concurrently; on 512 GiB, ~12.
+# No manual tuning needed.
 
 [pipeline]
-# Enable pipelined synthesis → GPU proving (Phase 2).
+# Enable pipelined synthesis → GPU proving.
 # When enabled, a dedicated synthesis task pre-synthesizes proofs on CPU
 # and feeds them to GPU workers via a bounded channel. This allows CPU
 # synthesis of proof N+1 to overlap with GPU proving of proof N:
@@ -167,25 +131,18 @@ partition_workers = 12
 enabled = true
 
 # Max pre-synthesized proofs buffered between synthesis and GPU stages.
-# Controls memory backpressure — each in-flight PoRep 32G proof is ~136 GiB
-# of intermediate state (10 partitions × ~13.6 GiB each).
-#   1 = one proof pre-synthesized (recommended for PoRep on 512+ GiB machines)
-#   2+ = more aggressive lookahead (only for PoSt which has small state)
-# The synthesis task blocks when the channel is full, preventing OOM.
+# Auto-scaled based on memory budget. This is a minimum — the engine will
+# use max(this, budget/partition_size) capped at 32.
 synthesis_lookahead = 1
 
 # Number of concurrent CPU synthesis tasks.
 #
 # When synthesis takes longer than GPU proving (e.g. 39s synth vs 27s GPU),
-# the GPU idles for ~12s between proofs with a single synthesis task.
-# With 2 concurrent synthesis tasks, the GPU can be kept fully saturated.
+# the GPU idles between proofs with a single synthesis task. With 2
+# concurrent synthesis tasks, the GPU can be kept fully saturated.
 #
 #   1 = sequential synthesis (default, lower memory)
 #   2 = recommended for single-GPU machines with >=400 GiB RAM
-#   N = N concurrent syntheses (each PoRep 32G synth uses ~136 GiB)
-#
-# Setting this > 1 subsumes the benefit of cross-sector batching
-# (max_batch_size > 1) for throughput, while using the same total memory.
 synthesis_concurrency = 1
 
 [logging]
