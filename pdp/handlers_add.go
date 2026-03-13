@@ -299,9 +299,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Reject addPieces for terminated data sets - avoids wasting gas estimation
-	// on data sets where the FWSS contract will revert with DataSetPaymentAlreadyTerminated.
-	// See #1059 for the error selector fix that detects this on-chain.
 	if unrecoverable != nil {
 		http.Error(w, "Data set has been terminated due to unrecoverable proving failure", http.StatusConflict)
 		return
