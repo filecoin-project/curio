@@ -53,6 +53,33 @@ impl<Scalar> LcVecPool<Scalar> {
     }
 }
 
+/// Callback that returns pinned a/b/c buffers to a pool.
+///
+/// Called when `release_abc()` frees the a/b/c vectors. The three `*mut u8`
+/// pointers are the original pinned buffer pointers (a, b, c). `buf_bytes`
+/// is the allocated size of each buffer in bytes.
+///
+/// The callback is `Send` so it can be invoked from any thread.
+pub type PinnedReturnFn = Box<dyn FnOnce(*mut u8, *mut u8, *mut u8, usize) + Send>;
+
+/// Tracks pinned memory backing for a/b/c vectors.
+///
+/// When a `ProvingAssignment` is created with `new_with_pinned`, the a/b/c
+/// `Vec`s are constructed from raw pinned pointers via `Vec::from_raw_parts`.
+/// On release, we must `mem::forget` the Vecs (to prevent the global allocator
+/// from freeing pinned memory) and call `return_fn` to return buffers to the pool.
+pub struct PinnedBacking {
+    a_ptr: *mut u8,
+    b_ptr: *mut u8,
+    c_ptr: *mut u8,
+    buf_bytes: usize,
+    return_fn: Option<PinnedReturnFn>,
+}
+
+// PinnedBacking holds raw pointers to CUDA pinned memory which is
+// process-global and accessible from any thread.
+unsafe impl Send for PinnedBacking {}
+
 pub struct ProvingAssignment<Scalar: PrimeField> {
     // Density of queries
     pub a_aux_density: DensityTracker,
@@ -70,6 +97,11 @@ pub struct ProvingAssignment<Scalar: PrimeField> {
 
     // Recycling pool for LC temporary buffers (avoids malloc/free per constraint)
     lc_pool: LcVecPool<Scalar>,
+
+    // Optional pinned memory backing for a/b/c.
+    // When set, a/b/c are backed by CUDA pinned memory and must not be
+    // deallocated via the global allocator.
+    pinned_backing: Option<PinnedBacking>,
 }
 
 impl<Scalar: PrimeField> fmt::Debug for ProvingAssignment<Scalar> {
@@ -149,6 +181,7 @@ impl<Scalar: PrimeField> ProvingAssignment<Scalar> {
             input_assignment: Vec::new(), // extracted separately via std::mem::take pattern
             aux_assignment: Vec::new(),   // extracted separately
             lc_pool: LcVecPool::new(),
+            pinned_backing: None,
         }
     }
 
@@ -179,6 +212,112 @@ impl<Scalar: PrimeField> ProvingAssignment<Scalar> {
             input_assignment: Vec::with_capacity(num_inputs),
             aux_assignment: Vec::with_capacity(num_aux),
             lc_pool: LcVecPool::new(),
+            pinned_backing: None,
+        }
+    }
+
+    /// Create a ProvingAssignment with CUDA-pinned memory for a/b/c vectors.
+    ///
+    /// The a/b/c vectors are backed by pre-allocated pinned memory from a pool.
+    /// This enables fast H2D transfers (50 GB/s vs 1-4 GB/s for unpinned).
+    ///
+    /// `a_ptr`, `b_ptr`, `c_ptr` must point to pinned memory of at least
+    /// `num_constraints * size_of::<Scalar>()` bytes each.
+    ///
+    /// `return_fn` is called when the a/b/c vectors are released (in
+    /// `release_abc()` or `Drop`) to return the pinned buffers to the pool.
+    ///
+    /// # Safety
+    ///
+    /// The pinned pointers must be valid, aligned for `Scalar`, and remain
+    /// valid until `release_abc()` or `Drop` is called.
+    pub unsafe fn new_with_pinned(
+        num_constraints: usize,
+        num_aux: usize,
+        num_inputs: usize,
+        a_ptr: *mut Scalar,
+        b_ptr: *mut Scalar,
+        c_ptr: *mut Scalar,
+        buf_bytes: usize,
+        return_fn: PinnedReturnFn,
+    ) -> Self {
+        use bitvec::prelude::*;
+        Self {
+            a_aux_density: DensityTracker {
+                bv: BitVec::<usize, Lsb0>::with_capacity(num_aux),
+                total_density: 0,
+            },
+            b_input_density: DensityTracker {
+                bv: BitVec::<usize, Lsb0>::with_capacity(num_inputs),
+                total_density: 0,
+            },
+            b_aux_density: DensityTracker {
+                bv: BitVec::<usize, Lsb0>::with_capacity(num_aux),
+                total_density: 0,
+            },
+            a: Vec::from_raw_parts(a_ptr, 0, num_constraints),
+            b: Vec::from_raw_parts(b_ptr, 0, num_constraints),
+            c: Vec::from_raw_parts(c_ptr, 0, num_constraints),
+            input_assignment: Vec::with_capacity(num_inputs),
+            aux_assignment: Vec::with_capacity(num_aux),
+            lc_pool: LcVecPool::new(),
+            pinned_backing: Some(PinnedBacking {
+                a_ptr: a_ptr as *mut u8,
+                b_ptr: b_ptr as *mut u8,
+                c_ptr: c_ptr as *mut u8,
+                buf_bytes,
+                return_fn: Some(return_fn),
+            }),
+        }
+    }
+
+    /// Release a/b/c vectors, returning pinned buffers to pool if applicable.
+    ///
+    /// If a/b/c are backed by pinned memory, this `mem::forget`s the Vecs
+    /// (preventing the global allocator from freeing pinned ptrs) and calls
+    /// the pool return callback. If a/b/c are regular heap Vecs, this just
+    /// drops them normally.
+    ///
+    /// After this call, a/b/c are empty Vecs (zero capacity, heap-backed).
+    pub fn release_abc(&mut self) {
+        if let Some(mut backing) = self.pinned_backing.take() {
+            // Take the Vecs out (replacing with empty heap Vecs)
+            let a = std::mem::take(&mut self.a);
+            let b = std::mem::take(&mut self.b);
+            let c = std::mem::take(&mut self.c);
+            // Forget them — do NOT let Vec::drop call dealloc on pinned ptrs
+            std::mem::forget(a);
+            std::mem::forget(b);
+            std::mem::forget(c);
+            // Return pinned buffers to pool
+            if let Some(return_fn) = backing.return_fn.take() {
+                return_fn(
+                    backing.a_ptr,
+                    backing.b_ptr,
+                    backing.c_ptr,
+                    backing.buf_bytes,
+                );
+            }
+        } else {
+            // Regular heap Vecs — just replace with empty
+            self.a = Vec::new();
+            self.b = Vec::new();
+            self.c = Vec::new();
+        }
+    }
+
+    /// Whether this assignment uses pinned memory for a/b/c.
+    pub fn is_pinned(&self) -> bool {
+        self.pinned_backing.is_some()
+    }
+}
+
+impl<Scalar: PrimeField> Drop for ProvingAssignment<Scalar> {
+    fn drop(&mut self) {
+        // If pinned backing is still present, release_abc wasn't called explicitly.
+        // Handle it now to prevent UB (Vec::drop on pinned ptrs).
+        if self.pinned_backing.is_some() {
+            self.release_abc();
         }
     }
 }
@@ -197,6 +336,7 @@ impl<Scalar: PrimeField> ConstraintSystem<Scalar> for ProvingAssignment<Scalar> 
             input_assignment: vec![],
             aux_assignment: vec![],
             lc_pool: LcVecPool::new(),
+            pinned_backing: None,
         }
     }
 
