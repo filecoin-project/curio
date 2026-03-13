@@ -278,11 +278,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// check if the data set belongs to the service in pdp_data_sets
 	var dataSetService string
+	var unrecoverable *int64
 	err = p.db.QueryRow(ctx, `
-			SELECT service
+			SELECT service, unrecoverable_proving_failure_epoch
 			FROM pdp_data_sets
 			WHERE id = $1
-		`, dataSetIdUint64).Scan(&dataSetService)
+		`, dataSetIdUint64).Scan(&dataSetService, &unrecoverable)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Data set not found", http.StatusNotFound)
@@ -295,6 +296,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	if dataSetService != serviceLabel {
 		// same as when actually not found to avoid leaking information in obvious ways
 		http.Error(w, "Data set not found", http.StatusNotFound)
+		return
+	}
+
+	// Reject addPieces for terminated data sets - avoids wasting gas estimation
+	// on data sets where the FWSS contract will revert with DataSetPaymentAlreadyTerminated.
+	// See #1059 for the error selector fix that detects this on-chain.
+	if unrecoverable != nil {
+		http.Error(w, "Data set has been terminated due to unrecoverable proving failure", http.StatusConflict)
 		return
 	}
 
