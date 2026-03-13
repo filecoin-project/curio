@@ -2,6 +2,7 @@
 
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Top-level daemon configuration, loaded from TOML.
 #[derive(Debug, Clone, Deserialize)]
@@ -49,33 +50,81 @@ impl Default for DaemonConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MemoryConfig {
-    /// Maximum CUDA pinned memory for SRS residency (e.g. "50GiB", "140GiB").
-    #[serde(default = "MemoryConfig::default_pinned_budget")]
-    pub pinned_budget: String,
-    /// Maximum total memory for proof working set.
-    #[serde(default = "MemoryConfig::default_working_memory_budget")]
-    pub working_memory_budget: String,
+    /// Total memory budget for all cuzk allocations (SRS + PCE + working set).
+    /// "auto" = detect from /proc/meminfo MemTotal (recommended).
+    /// Or specify explicitly: "256GiB", "512GiB", etc.
+    #[serde(default = "MemoryConfig::default_total_budget")]
+    pub total_budget: String,
+
+    /// Safety margin subtracted from total_budget when using "auto".
+    /// Reserves space for OS, kernel, other processes.
+    #[serde(default = "MemoryConfig::default_safety_margin")]
+    pub safety_margin: String,
+
+    /// Minimum idle time before SRS/PCE entries become eviction candidates.
+    /// Entries are only evicted when the budget is under pressure AND idle
+    /// for at least this duration. Format: "5m", "300s", or seconds as integer.
+    #[serde(default = "MemoryConfig::default_eviction_min_idle")]
+    pub eviction_min_idle: String,
+
+    // ── Deprecated fields (silently ignored for backward compatibility) ──
+    /// Deprecated: subsumed by unified total_budget.
+    #[serde(default)]
+    pinned_budget: Option<String>,
+    /// Deprecated: subsumed by unified total_budget.
+    #[serde(default)]
+    working_memory_budget: Option<String>,
 }
 
 impl MemoryConfig {
-    fn default_pinned_budget() -> String {
-        "50GiB".to_string()
+    fn default_total_budget() -> String {
+        "auto".to_string()
     }
-    fn default_working_memory_budget() -> String {
-        "80GiB".to_string()
+    fn default_safety_margin() -> String {
+        "5GiB".to_string()
+    }
+    fn default_eviction_min_idle() -> String {
+        "5m".to_string()
     }
 
-    /// Parse the pinned budget string into bytes.
-    pub fn pinned_budget_bytes(&self) -> u64 {
-        parse_size(&self.pinned_budget)
+    /// Resolve total budget in bytes.
+    ///
+    /// - `"auto"` → system RAM - safety_margin
+    /// - Explicit size → parse as bytes
+    pub fn resolve_total_budget(&self) -> u64 {
+        if self.total_budget == "auto" {
+            let total = crate::memory::detect_system_memory().unwrap_or(256 * crate::memory::GIB);
+            let margin = parse_size(&self.safety_margin);
+            total.saturating_sub(margin)
+        } else {
+            parse_size(&self.total_budget)
+        }
+    }
+
+    /// Parse eviction_min_idle into Duration.
+    pub fn eviction_min_idle_duration(&self) -> Duration {
+        parse_duration(&self.eviction_min_idle)
+    }
+
+    /// Check for deprecated fields and log warnings.
+    pub fn warn_deprecated(&self) {
+        if self.pinned_budget.is_some() {
+            tracing::warn!("memory.pinned_budget is deprecated — memory is now managed by the unified total_budget");
+        }
+        if self.working_memory_budget.is_some() {
+            tracing::warn!("memory.working_memory_budget is deprecated — memory is now managed by the unified total_budget");
+        }
     }
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            pinned_budget: Self::default_pinned_budget(),
-            working_memory_budget: Self::default_working_memory_budget(),
+            total_budget: Self::default_total_budget(),
+            safety_margin: Self::default_safety_margin(),
+            eviction_min_idle: Self::default_eviction_min_idle(),
+            pinned_budget: None,
+            working_memory_budget: None,
         }
     }
 }
@@ -172,26 +221,18 @@ pub struct SynthesisConfig {
     #[serde(default)]
     pub threads: u32,
 
-    /// Number of concurrent partition synthesis workers (Phase 7).
-    ///
-    /// Each worker processes one PoRep partition at a time (~29s each).
-    /// With 20 workers and 10 partitions per sector, 2 sectors can be
-    /// synthesized simultaneously, keeping the GPU continuously fed.
-    ///
-    /// Recommended: 20 (fits in 754 GiB with ~235 GiB headroom).
-    /// Minimum for full GPU utilization: 10 (one sector in flight).
-    /// Set lower on machines with less RAM:
-    ///   512 GiB → 15 workers (~332 GiB peak)
-    ///   256 GiB → 5 workers (~100 GiB peak, GPU will idle)
-    ///
-    /// 0 = disabled (use legacy batch-all or Phase 6 slotted pipeline).
-    #[serde(default = "SynthesisConfig::default_partition_workers")]
-    pub partition_workers: u32,
+    // ── Deprecated fields (silently ignored for backward compatibility) ──
+    /// Deprecated: concurrency is now managed by the memory budget.
+    #[serde(default)]
+    partition_workers: Option<u32>,
 }
 
 impl SynthesisConfig {
-    fn default_partition_workers() -> u32 {
-        20
+    /// Check for deprecated fields and log warnings.
+    pub fn warn_deprecated(&self) {
+        if self.partition_workers.is_some() {
+            tracing::warn!("synthesis.partition_workers is deprecated — concurrency is now managed by the memory budget");
+        }
     }
 }
 
@@ -199,7 +240,7 @@ impl Default for SynthesisConfig {
     fn default() -> Self {
         Self {
             threads: 0,
-            partition_workers: Self::default_partition_workers(),
+            partition_workers: None,
         }
     }
 }
@@ -294,14 +335,23 @@ pub struct SrsConfig {
     /// Directory containing .params and .vk files.
     #[serde(default = "SrsConfig::default_param_cache")]
     pub param_cache: PathBuf,
-    /// SRS entries to preload at startup (e.g. ["porep-32g"]).
+
+    // ── Deprecated fields (silently ignored for backward compatibility) ──
+    /// Deprecated: SRS is loaded on demand now.
     #[serde(default)]
-    pub preload: Vec<String>,
+    preload: Option<Vec<String>>,
 }
 
 impl SrsConfig {
     fn default_param_cache() -> PathBuf {
         PathBuf::from("/data/zk/params")
+    }
+
+    /// Check for deprecated fields and log warnings.
+    pub fn warn_deprecated(&self) {
+        if self.preload.is_some() {
+            tracing::warn!("srs.preload is deprecated — SRS is loaded on demand");
+        }
     }
 }
 
@@ -309,7 +359,7 @@ impl Default for SrsConfig {
     fn default() -> Self {
         Self {
             param_cache: Self::default_param_cache(),
-            preload: vec![],
+            preload: None,
         }
     }
 }
@@ -359,10 +409,29 @@ impl Config {
         let config: Config = toml::from_str(&content)?;
         Ok(config)
     }
+
+    /// Log warnings for deprecated configuration fields.
+    pub fn warn_deprecated(&self) {
+        self.memory.warn_deprecated();
+        self.synthesis.warn_deprecated();
+        self.srs.warn_deprecated();
+    }
+}
+
+/// Parse a human-readable duration string like "5m" or "300s" into a Duration.
+pub(crate) fn parse_duration(s: &str) -> Duration {
+    let s = s.trim();
+    if let Some(n) = s.strip_suffix('m') {
+        Duration::from_secs(n.trim().parse::<u64>().unwrap_or(5) * 60)
+    } else if let Some(n) = s.strip_suffix('s') {
+        Duration::from_secs(n.trim().parse::<u64>().unwrap_or(300))
+    } else {
+        Duration::from_secs(s.parse::<u64>().unwrap_or(300))
+    }
 }
 
 /// Parse a human-readable size string like "50GiB" or "140GiB" into bytes.
-fn parse_size(s: &str) -> u64 {
+pub(crate) fn parse_size(s: &str) -> u64 {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("GiB") {
         n.trim().parse::<u64>().unwrap_or(50) * 1024 * 1024 * 1024
@@ -390,11 +459,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_duration() {
+        assert_eq!(parse_duration("5m"), Duration::from_secs(300));
+        assert_eq!(parse_duration("300s"), Duration::from_secs(300));
+        assert_eq!(parse_duration("10m"), Duration::from_secs(600));
+        assert_eq!(parse_duration("60"), Duration::from_secs(60));
+    }
+
+    #[test]
     fn test_default_config() {
         let cfg = Config::default();
         assert_eq!(cfg.daemon.listen, "unix:///run/curio/cuzk.sock");
         assert_eq!(cfg.scheduler.max_batch_size, 1);
-        assert!(cfg.srs.preload.is_empty());
+        assert_eq!(cfg.memory.total_budget, "auto");
+        assert_eq!(cfg.memory.safety_margin, "5GiB");
+        assert_eq!(cfg.memory.eviction_min_idle, "5m");
     }
 
     #[test]
@@ -405,7 +484,11 @@ listen = "0.0.0.0:9820"
 
 [srs]
 param_cache = "/data/zk/params"
-preload = ["porep-32g"]
+
+[memory]
+total_budget = "256GiB"
+safety_margin = "8GiB"
+eviction_min_idle = "10m"
 
 [scheduler]
 max_batch_size = 1
@@ -413,6 +496,54 @@ sort_by_type = true
 "#;
         let cfg: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.daemon.listen, "0.0.0.0:9820");
-        assert_eq!(cfg.srs.preload, vec!["porep-32g"]);
+        assert_eq!(cfg.memory.total_budget, "256GiB");
+        assert_eq!(cfg.memory.resolve_total_budget(), 256 * 1024 * 1024 * 1024);
+        assert_eq!(
+            cfg.memory.eviction_min_idle_duration(),
+            Duration::from_secs(600)
+        );
+    }
+
+    #[test]
+    fn test_backward_compat_deprecated_fields() {
+        // Old config files with deprecated fields should parse without error
+        let toml_str = r#"
+[srs]
+param_cache = "/data/zk/params"
+preload = ["porep-32g"]
+
+[memory]
+pinned_budget = "50GiB"
+working_memory_budget = "80GiB"
+
+[synthesis]
+threads = 0
+partition_workers = 12
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.srs.param_cache, PathBuf::from("/data/zk/params"));
+        // Deprecated fields are silently accepted but have no effect
+        assert_eq!(cfg.memory.total_budget, "auto"); // uses default
+    }
+
+    #[test]
+    fn test_resolve_total_budget_auto() {
+        let cfg = MemoryConfig::default();
+        let budget = cfg.resolve_total_budget();
+        // "auto" should detect system memory (or fall back to 256 GiB)
+        // and subtract 5 GiB safety margin
+        assert!(budget > 0);
+    }
+
+    #[test]
+    fn test_resolve_total_budget_explicit() {
+        let cfg = MemoryConfig {
+            total_budget: "512GiB".to_string(),
+            safety_margin: "5GiB".to_string(),
+            eviction_min_idle: "5m".to_string(),
+            pinned_budget: None,
+            working_memory_budget: None,
+        };
+        assert_eq!(cfg.resolve_total_budget(), 512 * 1024 * 1024 * 1024);
     }
 }

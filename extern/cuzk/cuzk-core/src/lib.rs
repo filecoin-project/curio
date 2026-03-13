@@ -6,6 +6,7 @@
 pub mod batch_collector;
 pub mod config;
 pub mod engine;
+pub mod memory;
 pub mod pipeline;
 pub mod prover;
 pub mod scheduler;

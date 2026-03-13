@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 #[cfg(feature = "cuda-supraseal")]
 use bellperson::groth16::SuprasealParameters;
@@ -113,6 +113,10 @@ pub fn circuit_id_to_vk_filename(id: &CircuitId) -> &'static str {
 /// the `.params` file and allocates CUDA pinned memory for the SRS points.
 /// This is the same codepath used by bellperson internally, but we manage
 /// the lifetime explicitly instead of relying on the global cache.
+///
+/// Budget integration: SRS memory is tracked in the unified [`MemoryBudget`].
+/// The caller pre-acquires budget before calling [`ensure_loaded`], and
+/// eviction releases budget via [`MemoryBudget::release_internal`].
 #[cfg(feature = "cuda-supraseal")]
 pub struct SrsManager {
     /// Loaded SRS entries, keyed by circuit ID.
@@ -121,36 +125,45 @@ pub struct SrsManager {
     param_dir: PathBuf,
     /// Approximate bytes of SRS currently loaded (based on file sizes).
     loaded_bytes: u64,
-    /// Memory budget for SRS (0 = unlimited).
-    budget_bytes: u64,
+    /// Unified memory budget shared with PCE and working set.
+    budget: Arc<crate::memory::MemoryBudget>,
+    /// Last time each circuit's SRS was accessed (for eviction ordering).
+    last_used: HashMap<CircuitId, Instant>,
 }
 
 #[cfg(feature = "cuda-supraseal")]
 impl SrsManager {
-    /// Create a new SRS manager.
-    ///
-    /// # Arguments
-    /// * `param_dir` — Directory containing `.params` and `.vk` files.
-    /// * `budget_bytes` — Maximum total SRS memory budget (0 = unlimited).
-    pub fn new(param_dir: PathBuf, budget_bytes: u64) -> Self {
+    /// Create a new SRS manager with unified budget reference.
+    pub fn new(param_dir: PathBuf, budget: Arc<crate::memory::MemoryBudget>) -> Self {
         Self {
             loaded: HashMap::new(),
             param_dir,
             loaded_bytes: 0,
-            budget_bytes,
+            budget,
+            last_used: HashMap::new(),
         }
     }
 
     /// Get a loaded SRS, or load it if not cached.
     ///
-    /// Returns the SRS wrapped in an Arc for shared ownership across
-    /// synthesis and GPU worker threads.
+    /// If the SRS is not loaded and `budget_reservation` is provided, the
+    /// reservation is consumed (converted to permanent) to cover the SRS
+    /// memory. If no reservation is provided and the SRS needs loading,
+    /// a non-blocking `try_acquire` is attempted.
+    ///
+    /// The caller (in async context) should pre-acquire budget via
+    /// `budget.acquire(srs_file_size).await` when `is_loaded()` returns false,
+    /// then pass the reservation here.
     pub fn ensure_loaded(
         &mut self,
         circuit_id: &CircuitId,
+        budget_reservation: Option<crate::memory::MemoryReservation>,
     ) -> Result<Arc<SuprasealParameters<Bls12>>> {
+        // Fast path: already loaded
         if let Some(srs) = self.loaded.get(circuit_id) {
-            debug!(circuit_id = %circuit_id, "SRS already loaded");
+            self.last_used.insert(circuit_id.clone(), Instant::now());
+            debug!(circuit_id = %circuit_id, "SRS already loaded (cache hit)");
+            // Reservation (if any) is dropped here, releasing budget back
             return Ok(Arc::clone(srs));
         }
 
@@ -165,22 +178,27 @@ impl SrsManager {
             );
         }
 
-        // Check file size for budget tracking
         let file_size = std::fs::metadata(&path)
             .with_context(|| format!("failed to stat {}", path.display()))?
             .len();
 
-        if self.budget_bytes > 0 && self.loaded_bytes + file_size > self.budget_bytes {
-            warn!(
-                circuit_id = %circuit_id,
-                file_size_gib = file_size / (1024 * 1024 * 1024),
-                loaded_gib = self.loaded_bytes / (1024 * 1024 * 1024),
-                budget_gib = self.budget_bytes / (1024 * 1024 * 1024),
-                "SRS load would exceed memory budget"
-            );
-            // Still load — budget is advisory, not hard. The operator should
-            // configure the budget or the preload list appropriately.
-        }
+        // Ensure we have budget for this SRS
+        let reservation = match budget_reservation {
+            Some(r) => r,
+            None => {
+                // Caller didn't pre-reserve; try non-blocking acquire
+                self.budget.try_acquire(file_size).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "insufficient memory budget for SRS {} ({} GiB), \
+                         available: {} GiB, total: {} GiB",
+                        circuit_id,
+                        file_size / crate::memory::GIB,
+                        self.budget.available_bytes() / crate::memory::GIB,
+                        self.budget.total_bytes() / crate::memory::GIB,
+                    )
+                })?
+            }
+        };
 
         info!(
             circuit_id = %circuit_id,
@@ -194,70 +212,107 @@ impl SrsManager {
             .with_context(|| format!("failed to load SRS from {}", path.display()))?;
         let elapsed = start.elapsed();
 
-        info!(
-            circuit_id = %circuit_id,
-            elapsed_ms = elapsed.as_millis(),
-            "SRS loaded successfully"
-        );
-
         let srs = Arc::new(srs);
         self.loaded.insert(circuit_id.clone(), Arc::clone(&srs));
         self.loaded_bytes += file_size;
+        self.last_used.insert(circuit_id.clone(), Instant::now());
+
+        // Make reservation permanent — SrsManager owns this budget now.
+        // It will be released via evict() → budget.release_internal().
+        reservation.into_permanent();
+
+        info!(
+            circuit_id = %circuit_id,
+            elapsed_ms = elapsed.as_millis(),
+            budget_used_gib = self.budget.used_bytes() / crate::memory::GIB,
+            budget_available_gib = self.budget.available_bytes() / crate::memory::GIB,
+            "SRS loaded successfully"
+        );
 
         Ok(srs)
     }
 
-    /// Preload SRS for multiple circuit IDs.
+    /// Return evictable SRS entries (idle with refcount == 1).
     ///
-    /// Errors on individual loads are logged as warnings but don't prevent
-    /// loading other entries.
-    pub fn preload(
-        &mut self,
-        circuit_ids: &[CircuitId],
-    ) -> Vec<(CircuitId, Result<std::time::Duration>)> {
-        let mut results = Vec::with_capacity(circuit_ids.len());
-        for cid in circuit_ids {
-            let start = Instant::now();
-            match self.ensure_loaded(cid) {
-                Ok(_) => results.push((cid.clone(), Ok(start.elapsed()))),
-                Err(e) => {
-                    warn!(circuit_id = %cid, error = %e, "SRS preload failed");
-                    results.push((cid.clone(), Err(e)));
+    /// Only entries where `Arc::strong_count() == 1` (only the cache holds
+    /// a reference — no in-flight proof) are eligible.
+    ///
+    /// Returns `(circuit_id, file_size_bytes, last_used)`.
+    pub fn evictable_entries(&self) -> Vec<(CircuitId, u64, Instant)> {
+        let mut entries = Vec::new();
+        for (cid, srs_arc) in &self.loaded {
+            if Arc::strong_count(srs_arc) == 1 {
+                if let Some(&last_used) = self.last_used.get(cid) {
+                    let file_size =
+                        std::fs::metadata(self.param_dir.join(circuit_id_to_param_filename(cid)))
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                    entries.push((cid.clone(), file_size, last_used));
                 }
             }
         }
-        results
+        entries
     }
 
-    /// Evict an SRS entry, freeing its memory.
+    /// Evict a specific SRS entry, freeing its memory and budget.
     ///
-    /// Returns true if the entry was evicted, false if it wasn't loaded.
-    /// Note: The actual memory is freed when all Arc references are dropped,
-    /// which may be after this call if a GPU worker is still using it.
-    pub fn evict(&mut self, circuit_id: &CircuitId) -> bool {
+    /// Returns the number of bytes freed (0 if entry not found or in use).
+    /// The actual pinned memory is freed when all `Arc` references are dropped.
+    pub fn evict(&mut self, circuit_id: &CircuitId) -> u64 {
+        // Check refcount before removing
+        if let Some(srs_arc) = self.loaded.get(circuit_id) {
+            if Arc::strong_count(srs_arc) > 1 {
+                debug!(
+                    circuit_id = %circuit_id,
+                    refcount = Arc::strong_count(srs_arc),
+                    "SRS cannot be evicted — in use by in-flight proof"
+                );
+                return 0;
+            }
+        }
         if let Some(_srs) = self.loaded.remove(circuit_id) {
             let filename = circuit_id_to_param_filename(circuit_id);
             let path = self.param_dir.join(filename);
-            if let Ok(meta) = std::fs::metadata(&path) {
-                self.loaded_bytes = self.loaded_bytes.saturating_sub(meta.len());
-            }
-            info!(circuit_id = %circuit_id, "SRS evicted from cache");
-            true
+            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            self.loaded_bytes = self.loaded_bytes.saturating_sub(file_size);
+            self.last_used.remove(circuit_id);
+            // Release budget — the Arc<SuprasealParameters> is dropped here.
+            // If this was the last reference, Drop calls cudaFreeHost.
+            self.budget.release_internal(file_size);
+            info!(
+                circuit_id = %circuit_id,
+                freed_gib = file_size / crate::memory::GIB,
+                budget_available_gib = self.budget.available_bytes() / crate::memory::GIB,
+                "SRS evicted"
+            );
+            file_size
         } else {
-            false
+            0
         }
     }
 
     /// Get the SRS for a circuit ID without loading it.
     ///
-    /// Returns None if the SRS is not loaded.
-    pub fn get(&self, circuit_id: &CircuitId) -> Option<Arc<SuprasealParameters<Bls12>>> {
-        self.loaded.get(circuit_id).cloned()
+    /// Returns None if the SRS is not loaded. Updates last_used if found.
+    pub fn get(&mut self, circuit_id: &CircuitId) -> Option<Arc<SuprasealParameters<Bls12>>> {
+        if let Some(srs) = self.loaded.get(circuit_id) {
+            self.last_used.insert(circuit_id.clone(), Instant::now());
+            Some(Arc::clone(srs))
+        } else {
+            None
+        }
     }
 
     /// Check if an SRS is loaded.
     pub fn is_loaded(&self, circuit_id: &CircuitId) -> bool {
         self.loaded.contains_key(circuit_id)
+    }
+
+    /// Get the file size for an SRS entry (for pre-budget-acquisition).
+    pub fn srs_file_size(&self, circuit_id: &CircuitId) -> u64 {
+        let filename = circuit_id_to_param_filename(circuit_id);
+        let path = self.param_dir.join(filename);
+        std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
     }
 
     /// List all currently loaded circuit IDs.
@@ -287,7 +342,7 @@ pub struct SrsManager {
 
 #[cfg(not(feature = "cuda-supraseal"))]
 impl SrsManager {
-    pub fn new(param_dir: PathBuf, _budget_bytes: u64) -> Self {
+    pub fn new(param_dir: PathBuf, _budget: Arc<crate::memory::MemoryBudget>) -> Self {
         Self { param_dir }
     }
 
@@ -297,6 +352,18 @@ impl SrsManager {
 
     pub fn is_loaded(&self, _circuit_id: &CircuitId) -> bool {
         false
+    }
+
+    pub fn srs_file_size(&self, _circuit_id: &CircuitId) -> u64 {
+        0
+    }
+
+    pub fn evictable_entries(&self) -> Vec<(CircuitId, u64, Instant)> {
+        vec![]
+    }
+
+    pub fn evict(&mut self, _circuit_id: &CircuitId) -> u64 {
+        0
     }
 
     pub fn loaded_ids(&self) -> Vec<CircuitId> {

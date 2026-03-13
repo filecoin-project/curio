@@ -729,6 +729,11 @@ pub(crate) struct SynthesizedJob {
     /// The original job_id that this partition belongs to.
     /// Used to route GPU results to the correct ProofAssembler.
     pub parent_job_id: Option<JobId>,
+
+    /// Memory budget reservation for this job's working set.
+    /// Released in two phases: partial after prove_start (a/b/c freed),
+    /// remainder after prove_finish (shell + aux freed).
+    pub reservation: Option<crate::memory::MemoryReservation>,
 }
 
 /// Phase 7: Tracks in-progress partitioned proof assembly.
@@ -802,6 +807,11 @@ pub struct Engine {
     srs_manager: Arc<Mutex<SrsManager>>,
     /// Whether pipeline mode is enabled.
     pipeline_enabled: bool,
+    /// Unified memory budget for all allocations.
+    budget: Arc<crate::memory::MemoryBudget>,
+    /// PCE (pre-compiled circuit) cache.
+    #[cfg(feature = "cuda-supraseal")]
+    pce_cache: Arc<crate::pipeline::PceCache>,
 }
 
 /// Detect available GPU ordinals.
@@ -836,10 +846,29 @@ impl Engine {
     pub fn new(config: Config) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let pipeline_enabled = config.pipeline.enabled;
+
+        // Warn about deprecated config fields
+        config.warn_deprecated();
+
+        // Create unified memory budget
+        let total_budget = config.memory.resolve_total_budget();
+        let budget = Arc::new(crate::memory::MemoryBudget::new(total_budget));
+        info!(
+            total_budget_gib = total_budget / crate::memory::GIB,
+            "memory budget initialized"
+        );
+
         let srs_manager = SrsManager::new(
             config.srs.param_cache.clone(),
-            config.memory.pinned_budget_bytes(),
+            budget.clone(),
         );
+
+        #[cfg(feature = "cuda-supraseal")]
+        let pce_cache = Arc::new(crate::pipeline::PceCache::new(
+            budget.clone(),
+            config.srs.param_cache.clone(),
+        ));
+
         Self {
             config,
             scheduler: Arc::new(Scheduler::new()),
@@ -850,6 +879,9 @@ impl Engine {
             preloaded_srs: Arc::new(RwLock::new(HashMap::new())),
             srs_manager: Arc::new(Mutex::new(srs_manager)),
             pipeline_enabled,
+            budget,
+            #[cfg(feature = "cuda-supraseal")]
+            pce_cache,
         }
     }
 
@@ -863,78 +895,66 @@ impl Engine {
             "starting cuzk engine"
         );
 
-        // Preload configured SRS entries
-        if self.pipeline_enabled {
-            // Phase 2: Preload via SrsManager (direct SuprasealParameters loading)
-            let srs_mgr = self.srs_manager.clone();
-            let preload_ids: Vec<CircuitId> = self
-                .config
-                .srs
-                .preload
-                .iter()
-                .filter_map(|s| CircuitId::from_str_id(s))
-                .collect();
-            if !preload_ids.is_empty() {
-                info!(
-                    circuit_ids = ?preload_ids,
-                    "preloading SRS via SrsManager (Phase 2)"
-                );
-                let srs_mgr_clone = srs_mgr.clone();
-                let preloaded_srs = self.preloaded_srs.clone();
-                // SRS loading is blocking I/O, run on blocking thread
-                tokio::task::spawn_blocking(move || {
-                    let mut mgr = srs_mgr_clone.blocking_lock();
-                    for cid in &preload_ids {
-                        let start = Instant::now();
-                        match mgr.ensure_loaded(cid) {
-                            Ok(_) => {
-                                let elapsed = start.elapsed();
-                                let mut srs = preloaded_srs.blocking_write();
-                                srs.insert(cid.to_string(), elapsed.as_millis() as u64);
-                                info!(
-                                    circuit_id = %cid,
-                                    elapsed_ms = elapsed.as_millis(),
-                                    "SRS preloaded (Phase 2)"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(circuit_id = %cid, error = %e, "SRS preload failed");
-                            }
+        // SRS and PCE are loaded on demand — no preload.
+        // Wire evictor callback so budget.acquire() can evict idle SRS/PCE.
+        {
+            let srs_for_evict = self.srs_manager.clone();
+            #[cfg(feature = "cuda-supraseal")]
+            let pce_for_evict = self.pce_cache.clone();
+            let min_idle = self.config.memory.eviction_min_idle_duration();
+            self.budget.set_evictor(Arc::new(move |needed: u64| -> u64 {
+                let mut freed = 0u64;
+
+                // Collect all candidates from both caches
+                let mut candidates: Vec<(String, CircuitId, u64, Instant, bool)> = Vec::new();
+
+                // SRS candidates
+                {
+                    let mgr = srs_for_evict.blocking_lock();
+                    for (cid, size, last_used) in mgr.evictable_entries() {
+                        if last_used.elapsed() >= min_idle {
+                            candidates.push((format!("srs:{}", cid), cid, size, last_used, true));
                         }
                     }
-                })
-                .await?;
-            }
-        } else {
-            // Phase 1: Preload via environment variable (lazy GROTH_PARAM_MEMORY_CACHE)
-            let param_cache = self.config.srs.param_cache.clone();
-            for circuit_id in &self.config.srs.preload {
-                match prover::preload_srs(circuit_id, &param_cache) {
-                    Ok(elapsed) => {
-                        let mut srs = self.preloaded_srs.write().await;
-                        srs.insert(circuit_id.clone(), elapsed.as_millis() as u64);
-                        info!(
-                            circuit_id = circuit_id.as_str(),
-                            elapsed_ms = elapsed.as_millis(),
-                            "SRS preloaded (Phase 1)"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(circuit_id = circuit_id.as_str(), error = %e, "SRS preload failed");
+                }
+
+                // PCE candidates
+                #[cfg(feature = "cuda-supraseal")]
+                {
+                    for (cid, size, last_used) in pce_for_evict.evictable_entries() {
+                        if last_used.elapsed() >= min_idle {
+                            candidates.push((format!("pce:{}", cid), cid, size, last_used, false));
+                        }
                     }
                 }
-            }
-        }
 
-        // Preload PCE caches from disk (Phase 5/6)
-        #[cfg(feature = "cuda-supraseal")]
-        {
-            let param_cache = self.config.srs.param_cache.clone();
-            let loaded = tokio::task::spawn_blocking(move || {
-                crate::pipeline::preload_pce_from_disk(&param_cache)
-            })
-            .await?;
-            info!(loaded = loaded, "PCE disk preload complete");
+                // Sort by last_used ascending (oldest first = best eviction candidate)
+                candidates.sort_by_key(|c| c.3);
+
+                for (label, cid, _size, _last_used, is_srs) in candidates {
+                    if freed >= needed { break; }
+                    let bytes = if is_srs {
+                        let mut mgr = srs_for_evict.blocking_lock();
+                        mgr.evict(&cid)
+                    } else {
+                        #[cfg(feature = "cuda-supraseal")]
+                        { pce_for_evict.evict(&cid) }
+                        #[cfg(not(feature = "cuda-supraseal"))]
+                        { 0 }
+                    };
+                    if bytes > 0 {
+                        info!(
+                            entry = %label,
+                            freed_gib = bytes / crate::memory::GIB,
+                            "evicted for memory pressure"
+                        );
+                    }
+                    freed += bytes;
+                }
+
+                freed
+            })).await;
+            info!("evictor callback wired");
         }
 
         // Detect GPUs and create worker states
@@ -1006,34 +1026,26 @@ impl Engine {
 
             // Channel capacity sizing:
             //
-            // In partition mode (partition_workers > 0), up to `pw` partitions
-            // complete synthesis concurrently. If the channel is too small,
-            // completed syntheses block on send() while still holding their
-            // full memory allocation (~16 GiB each pre-a/b/c-free, ~4 GiB after).
-            // This caused OOM at pw=12 with channel capacity=1 (28 provers piled up).
+            // With budget-based concurrency, the number of concurrent partitions
+            // is determined by available memory, not a static config. We size the
+            // channel large enough that completed syntheses can drain without
+            // blocking while still holding memory. The budget caps total in-flight
+            // memory regardless of channel size.
             //
-            // We auto-scale the channel to max(synthesis_lookahead, partition_workers)
-            // so completed partitions can drain into the channel buffer without
-            // blocking the synthesis tasks. The GPU worker pulls one at a time,
-            // and once the channel is full, backpressure kicks in naturally.
-            //
-            // In non-partition mode, synthesis_lookahead (default 1) still applies.
+            // Use budget / partition_size as upper bound, capped at 32 to prevent
+            // absurdly large channels on high-RAM machines.
             let configured_lookahead = self.config.pipeline.synthesis_lookahead.max(1) as usize;
-            let pw = self.config.synthesis.partition_workers as usize;
-            let lookahead = if pw > 0 {
-                configured_lookahead.max(pw)
-            } else {
-                configured_lookahead
-            };
+            let max_partitions_in_budget = (self.budget.total_bytes() / crate::memory::POREP_PARTITION_FULL_BYTES) as usize;
+            let lookahead = configured_lookahead.max(max_partitions_in_budget.min(32));
             let (synth_tx, synth_rx) = tokio::sync::mpsc::channel::<SynthesizedJob>(lookahead);
             let synth_rx = Arc::new(Mutex::new(synth_rx));
 
             info!(
                 configured_lookahead = configured_lookahead,
-                partition_workers = pw,
+                max_partitions_in_budget = max_partitions_in_budget,
                 effective_lookahead = lookahead,
                 num_gpus = num_workers,
-                "starting pipeline: synthesis task + GPU workers"
+                "starting pipeline: synthesis task + GPU workers (budget-gated)"
             );
 
             // Spawn the synthesis dispatcher task.
@@ -1065,17 +1077,13 @@ impl Engine {
                 let max_batch_wait_ms = self.config.scheduler.max_batch_wait_ms;
                 let slot_size = self.config.pipeline.slot_size;
                 let synthesis_concurrency = self.config.pipeline.synthesis_concurrency.max(1) as usize;
-                let partition_workers = self.config.synthesis.partition_workers;
+                let budget = self.budget.clone();
+                #[cfg(feature = "cuda-supraseal")]
+                let pce_cache = self.pce_cache.clone();
 
                 // Semaphore limits concurrent synthesis tasks.
                 // With concurrency=1, behavior is identical to the old sequential loop.
                 let synth_semaphore = Arc::new(tokio::sync::Semaphore::new(synthesis_concurrency));
-
-                // Phase 7: Semaphore limits concurrent partition synthesis workers.
-                // Each worker processes one partition (~29s, mostly single-threaded).
-                let partition_semaphore = Arc::new(tokio::sync::Semaphore::new(
-                    if partition_workers > 0 { partition_workers as usize } else { 1 },
-                ));
 
                 tokio::spawn(async move {
                     info!(
@@ -1083,8 +1091,7 @@ impl Engine {
                         max_batch_wait_ms = max_batch_wait_ms,
                         slot_size = slot_size,
                         synthesis_concurrency = synthesis_concurrency,
-                        partition_workers = partition_workers,
-                        "synthesis dispatcher started"
+                        "synthesis dispatcher started (budget-gated)"
                     );
 
                     let mut batch_collector = crate::batch_collector::BatchCollector::new(
@@ -1103,8 +1110,9 @@ impl Engine {
                         param_cache: &std::path::Path,
                         synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
                         slot_size: u32,
-                        partition_workers: u32,
-                        partition_semaphore: &Arc<tokio::sync::Semaphore>,
+                        budget: &Arc<crate::memory::MemoryBudget>,
+                        #[cfg(feature = "cuda-supraseal")]
+                        pce_cache: &Arc<crate::pipeline::PceCache>,
                         semaphore: &Arc<tokio::sync::Semaphore>,
                         concurrency: usize,
                         span: tracing::Span,
@@ -1113,7 +1121,9 @@ impl Engine {
                             // Sequential mode: await inline (old behavior)
                             process_batch(
                                 batch, tracker, srs_manager, param_cache, synth_tx, slot_size,
-                                partition_workers, partition_semaphore,
+                                budget,
+                                #[cfg(feature = "cuda-supraseal")]
+                                pce_cache,
                             ).instrument(span).await
                         } else {
                             // Parallel mode: acquire semaphore, spawn task
@@ -1128,12 +1138,16 @@ impl Engine {
                             let srs_manager = srs_manager.clone();
                             let param_cache = param_cache.to_owned();
                             let synth_tx = synth_tx.clone();
-                            let partition_semaphore = partition_semaphore.clone();
+                            let budget = budget.clone();
+                            #[cfg(feature = "cuda-supraseal")]
+                            let pce_cache = pce_cache.clone();
                             tokio::spawn(async move {
                                 let _permit = permit; // held until task completes
                                 process_batch(
                                     batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                    partition_workers, &partition_semaphore,
+                                    &budget,
+                                    #[cfg(feature = "cuda-supraseal")]
+                                    &pce_cache,
                                 ).instrument(span).await;
                             });
                             true // always continue — errors handled inside the spawned task
@@ -1160,7 +1174,9 @@ impl Engine {
                                             let span = info_span!("synth_shutdown_flush", batch_size = batch.len());
                                             let _ = dispatch_batch(
                                                 batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                                partition_workers, &partition_semaphore,
+                                                &budget,
+                                                #[cfg(feature = "cuda-supraseal")]
+                                                &pce_cache,
                                                 &synth_semaphore, synthesis_concurrency, span,
                                             ).await;
                                         }
@@ -1174,7 +1190,9 @@ impl Engine {
                                         let span = info_span!("synth_timeout_flush", batch_size = batch.len());
                                         let ok = dispatch_batch(
                                             batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                            partition_workers, &partition_semaphore,
+                                            &budget,
+                                            #[cfg(feature = "cuda-supraseal")]
+                                            &pce_cache,
                                             &synth_semaphore, synthesis_concurrency, span,
                                         ).await;
                                         if !ok { break; }
@@ -1216,7 +1234,9 @@ impl Engine {
                                 );
                                 let ok = dispatch_batch(
                                     batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                    partition_workers, &partition_semaphore,
+                                    &budget,
+                                    #[cfg(feature = "cuda-supraseal")]
+                                    &pce_cache,
                                     &synth_semaphore, synthesis_concurrency, span,
                                 ).await;
                                 if !ok { break; }
@@ -1231,7 +1251,9 @@ impl Engine {
                                 );
                                 let ok = dispatch_batch(
                                     pending_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                    partition_workers, &partition_semaphore,
+                                    &budget,
+                                    #[cfg(feature = "cuda-supraseal")]
+                                    &pce_cache,
                                     &synth_semaphore, synthesis_concurrency, span,
                                 ).await;
                                 if !ok { break; }
@@ -1248,7 +1270,9 @@ impl Engine {
                             );
                             let ok = dispatch_batch(
                                 single_batch, &tracker, &srs_manager, &param_cache, &synth_tx, slot_size,
-                                partition_workers, &partition_semaphore,
+                                &budget,
+                                #[cfg(feature = "cuda-supraseal")]
+                                &pce_cache,
                                 &synth_semaphore, synthesis_concurrency, span,
                             ).await;
                             if !ok { break; }
@@ -1261,14 +1285,13 @@ impl Engine {
             /// Process a batch of proof requests: synthesize all circuits, load SRS,
             /// and send the synthesized job to the GPU channel.
             ///
-            /// Phase 7: When `partition_workers > 0` and the request is single-sector
-            /// PoRep C2, dispatches individual partitions as independent work units
-            /// through the engine's synthesis→GPU pipeline. Each partition is synthesized
-            /// by a `spawn_blocking` worker gated by `partition_semaphore`, then sent to
-            /// `synth_tx` as a `SynthesizedJob` with `partition_index` set.
+            /// Single-sector PoRep C2 and SnapDeals are dispatched as individual
+            /// partitions through the engine's synthesis→GPU pipeline. Each partition
+            /// acquires a memory reservation from the budget before synthesis, which
+            /// naturally limits concurrency based on available RAM.
             ///
-            /// Falls back to Phase 6 slotted pipeline when `slot_size > 0` and
-            /// `partition_workers == 0`, or to batch-all when both are 0.
+            /// Falls back to Phase 6 slotted pipeline when `slot_size > 0` and the
+            /// request is single-sector PoRep, or to batch-all for other proof types.
             ///
             /// Returns `true` to continue, `false` to stop the synthesis task.
             async fn process_batch(
@@ -1278,8 +1301,9 @@ impl Engine {
                 param_cache: &std::path::Path,
                 synth_tx: &tokio::sync::mpsc::Sender<SynthesizedJob>,
                 slot_size: u32,
-                partition_workers: u32,
-                partition_semaphore: &Arc<tokio::sync::Semaphore>,
+                budget: &Arc<crate::memory::MemoryBudget>,
+                #[cfg(feature = "cuda-supraseal")]
+                pce_cache: &Arc<crate::pipeline::PceCache>,
             ) -> bool {
                 let batch_size = batch.len();
                 let proof_kind = batch.proof_kind;
@@ -1300,13 +1324,13 @@ impl Engine {
                 {
                     use crate::pipeline;
 
-                    // ── Phase 7: Engine-level per-partition dispatch ─────────────────
+                    // ── Budget-gated per-partition dispatch ────────────────────────
                     //
-                    // When partition_workers > 0, single-sector PoRep C2 is dispatched
-                    // as 10 independent partition work items through the engine's
-                    // synthesis→GPU pipeline. Each partition is synthesized by a
-                    // spawn_blocking worker (gated by partition_semaphore), then sent
-                    // to synth_tx as a SynthesizedJob with partition_index set.
+                    // Single-sector PoRep C2 is dispatched as 10 independent partition
+                    // work items through the engine's synthesis→GPU pipeline. Each
+                    // partition acquires a memory reservation from the budget before
+                    // synthesis, which naturally limits concurrency based on available
+                    // RAM. No static partition_workers count needed.
                     //
                     // The GPU worker routes partition results to a ProofAssembler
                     // (registered in tracker.assemblers) and delivers the final proof
@@ -1316,14 +1340,25 @@ impl Engine {
                     // different sectors interleave on the GPU, achieving zero idle gaps.
                     if proof_kind == ProofKind::PoRepSealCommit
                         && requests.len() == 1
-                        && partition_workers > 0
                     {
                         let req = requests[0].clone();
                         let job_id = req.job_id.clone();
                         let srs_mgr_clone = srs_mgr.clone();
                         let param_cache_owned = param_cache_str.clone();
 
-                        // 1. Parse C1 once (blocking) and load SRS
+                        // 1. Pre-acquire SRS budget if not loaded (async context)
+                        let srs_reservation = {
+                            let mgr = srs_mgr_clone.lock().await;
+                            if !mgr.is_loaded(&CircuitId::Porep32G) {
+                                let size = mgr.srs_file_size(&CircuitId::Porep32G);
+                                drop(mgr);
+                                Some(budget.acquire(size).await)
+                            } else {
+                                None
+                            }
+                        };
+
+                        // 2. Parse C1 once (blocking) and load SRS
                         let parse_result = tokio::task::spawn_blocking({
                             let vanilla_proof = req.vanilla_proof.clone();
                             let srs_mgr = srs_mgr_clone.clone();
@@ -1332,7 +1367,7 @@ impl Engine {
                                 let parsed = pipeline::parse_c1_output(&vanilla_proof)?;
                                 let srs = {
                                     let mut mgr = srs_mgr.blocking_lock();
-                                    mgr.ensure_loaded(&CircuitId::Porep32G)?
+                                    mgr.ensure_loaded(&CircuitId::Porep32G, srs_reservation)?
                                 };
                                 Ok((Arc::new(parsed), srs))
                             }
@@ -1387,25 +1422,35 @@ impl Engine {
                         info!(
                             job_id = %job_id,
                             num_partitions = num_partitions,
-                            partition_workers = partition_workers,
-                            "Phase 7: dispatching per-partition synthesis"
+                            budget_available_gib = budget.available_bytes() / crate::memory::GIB,
+                            "dispatching per-partition synthesis (budget-gated)"
                         );
 
-                        // 3. Trigger background PCE extraction if not yet cached
-                        if pipeline::get_pce(&CircuitId::Porep32G).is_none() {
+                        // 4. Trigger background PCE extraction if not yet cached
+                        if pce_cache.get(&CircuitId::Porep32G).is_none() {
                             let c1_data = req.vanilla_proof.clone();
                             let sn = req.sector_number;
                             let mid = req.miner_id;
+                            let pce_cache_bg = pce_cache.clone();
+                            let budget_bg = budget.clone();
                             std::thread::spawn(move || {
                                 info!("background PCE extraction starting for PoRep 32G");
-                                match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
-                                    Ok(()) => info!("background PCE extraction complete"),
-                                    Err(e) => warn!(error = %e, "background PCE extraction failed"),
+                                // Acquire budget for transient extraction memory
+                                loop {
+                                    if let Some(reservation) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                        match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid, &pce_cache_bg) {
+                                            Ok(()) => info!("background PCE extraction complete"),
+                                            Err(e) => warn!(error = %e, "background PCE extraction failed"),
+                                        }
+                                        drop(reservation);
+                                        break;
+                                    }
+                                    std::thread::sleep(Duration::from_secs(1));
                                 }
                             });
                         }
 
-                        // 4. Dispatch each partition to spawn_blocking workers
+                        // 5. Dispatch each partition to spawn_blocking workers
                         for partition_idx in 0..num_partitions {
                             let item = PartitionWorkItem {
                                 parsed: ParsedProofInput::PoRep(parsed.clone()),
@@ -1418,17 +1463,13 @@ impl Engine {
                             };
                             let synth_tx = synth_tx.clone();
                             let tracker_for_err = tracker_clone.clone();
-                            let partition_sem = partition_semaphore.clone();
+                            let budget_for_partition = budget.clone();
 
                             tokio::spawn(async move {
-                                // Acquire partition worker permit (backpressure)
-                                let permit = match partition_sem.acquire_owned().await {
-                                    Ok(p) => p,
-                                    Err(_) => {
-                                        error!("partition semaphore closed");
-                                        return;
-                                    }
-                                };
+                                // Acquire memory reservation from budget (blocks until available)
+                                let reservation = budget_for_partition.acquire(
+                                    crate::memory::POREP_PARTITION_FULL_BYTES
+                                ).await;
 
                                 let p_idx = item.partition_idx;
                                 let p_job_id = item.job_id.clone();
@@ -1444,7 +1485,7 @@ impl Engine {
                                                 partition = p_idx,
                                                 "skipping synthesis for failed job"
                                             );
-                                            drop(permit);
+                                            drop(reservation);
                                             return;
                                         }
                                     }
@@ -1459,14 +1500,10 @@ impl Engine {
                                 );
 
                                 // Run synthesis on blocking thread.
-                                // The partition permit is held across both synthesis AND
-                                // the channel send. This bounds total in-flight synthesis
-                                // outputs to `partition_workers` — preventing unbounded
-                                // memory growth when synthesis is faster than GPU consumption.
-                                //
-                                // With channel capacity = partition_workers, the send()
-                                // is non-blocking (channel always has room), so holding the
-                                // permit through the send adds no latency.
+                                // The reservation is held across synthesis AND the channel
+                                // send. It travels with the SynthesizedJob to the GPU worker,
+                                // which releases it in two phases (a/b/c after prove_start,
+                                // remainder after prove_finish).
                                 let synth_result = tokio::task::spawn_blocking(move || {
                                     let result = match &item.parsed {
                                         ParsedProofInput::PoRep(parsed) => {
@@ -1479,40 +1516,41 @@ impl Engine {
                                         _ => unreachable!("PoRep dispatch with wrong parsed type"),
                                     };
 
-                                    result.map(|synth| SynthesizedJob {
-                                        request: item.request,
-                                        synth,
-                                        params: item.params,
-                                        circuit_id: item.circuit_id,
-                                        batch_requests: vec![],
-                                        sector_boundaries: vec![],
-                                        partition_index: Some(item.partition_idx),
-                                        total_partitions: Some(item.num_partitions),
-                                        parent_job_id: Some(item.job_id),
-                                    })
+                                    result.map(|synth| (synth, item))
                                 }).await;
 
                                 match synth_result {
-                                    Ok(Ok(job)) => {
+                                    Ok(Ok((synth, item))) => {
                                         timeline_event(
                                             "SYNTH_END",
                                             &p_job_id.0,
-                                            &format!("partition={},synth_ms={}", p_idx, job.synth.synthesis_duration.as_millis()),
+                                            &format!("partition={},synth_ms={}", p_idx, synth.synthesis_duration.as_millis()),
                                         );
                                         crate::pipeline::buf_synth_done();
                                         crate::pipeline::log_buffers("synth_done");
                                         info!(
                                             job_id = %p_job_id,
                                             partition = p_idx,
-                                            synth_ms = job.synth.synthesis_duration.as_millis(),
+                                            synth_ms = synth.synthesis_duration.as_millis(),
                                             "partition synthesis complete, sending to GPU"
                                         );
+                                        let job = SynthesizedJob {
+                                            request: item.request,
+                                            synth,
+                                            params: item.params,
+                                            circuit_id: item.circuit_id,
+                                            batch_requests: vec![],
+                                            sector_boundaries: vec![],
+                                            partition_index: Some(item.partition_idx),
+                                            total_partitions: Some(item.num_partitions),
+                                            parent_job_id: Some(item.job_id),
+                                            reservation: Some(reservation),
+                                        };
                                         timeline_event("CHAN_SEND", &p_job_id.0, &format!("partition={}", p_idx));
                                         if synth_tx.send(job).await.is_err() {
                                             error!("GPU channel closed during partition dispatch");
                                         }
-                                        // Drop permit AFTER send succeeds — bounds in-flight outputs
-                                        drop(permit);
+                                        // reservation ownership transferred to SynthesizedJob — no drop here
                                     }
                                     Ok(Err(e)) => {
                                         error!(
@@ -1521,6 +1559,7 @@ impl Engine {
                                             partition = p_idx,
                                             "partition synthesis failed"
                                         );
+                                        drop(reservation);
                                         // Mark assembler as failed and notify callers
                                         let mut t = tracker_for_err.lock().await;
                                         if let Some(state) = t.assemblers.get_mut(&p_job_id) {
@@ -1546,6 +1585,7 @@ impl Engine {
                                             partition = p_idx,
                                             "partition synthesis task panicked"
                                         );
+                                        drop(reservation);
                                         let mut t = tracker_for_err.lock().await;
                                         if let Some(state) = t.assemblers.get_mut(&p_job_id) {
                                             if !state.failed {
@@ -1573,20 +1613,31 @@ impl Engine {
                         return true;
                     }
 
-                    // SnapDeals per-partition pipeline (Phase 7 generalization).
+                    // SnapDeals per-partition pipeline.
                     // Same architecture as PoRep: parse once, dispatch partitions to
-                    // semaphore-bounded workers, overlap synthesis with GPU proving.
+                    // budget-gated workers, overlap synthesis with GPU proving.
                     // SnapDeals has 16 partitions of ~81M constraints each.
                     if proof_kind == ProofKind::SnapDealsUpdate
                         && requests.len() == 1
-                        && partition_workers > 0
                     {
                         let req = requests[0].clone();
                         let job_id = req.job_id.clone();
                         let srs_mgr_clone = srs_mgr.clone();
                         let param_cache_owned = param_cache_str.clone();
 
-                        // 1. Parse SnapDeals input once (blocking) and load SRS
+                        // 1. Pre-acquire SRS budget if not loaded (async context)
+                        let srs_reservation = {
+                            let mgr = srs_mgr_clone.lock().await;
+                            if !mgr.is_loaded(&CircuitId::SnapDeals32G) {
+                                let size = mgr.srs_file_size(&CircuitId::SnapDeals32G);
+                                drop(mgr);
+                                Some(budget.acquire(size).await)
+                            } else {
+                                None
+                            }
+                        };
+
+                        // 2. Parse SnapDeals input once (blocking) and load SRS
                         let parse_result = tokio::task::spawn_blocking({
                             let vanilla_proofs = req.vanilla_proofs.clone();
                             let registered_proof = req.registered_proof;
@@ -1602,7 +1653,7 @@ impl Engine {
                                 )?;
                                 let srs = {
                                     let mut mgr = srs_mgr.blocking_lock();
-                                    mgr.ensure_loaded(&CircuitId::SnapDeals32G)?
+                                    mgr.ensure_loaded(&CircuitId::SnapDeals32G, srs_reservation)?
                                 };
                                 Ok((Arc::new(parsed), srs))
                             }
@@ -1657,27 +1708,36 @@ impl Engine {
                         info!(
                             job_id = %job_id,
                             num_partitions = num_partitions,
-                            partition_workers = partition_workers,
-                            "dispatching per-partition SnapDeals synthesis"
+                            budget_available_gib = budget.available_bytes() / crate::memory::GIB,
+                            "dispatching per-partition SnapDeals synthesis (budget-gated)"
                         );
 
-                        // 3. Trigger background PCE extraction if not yet cached
-                        if pipeline::get_pce(&CircuitId::SnapDeals32G).is_none() {
+                        // 4. Trigger background PCE extraction if not yet cached
+                        if pce_cache.get(&CircuitId::SnapDeals32G).is_none() {
                             let vanilla_proofs = req.vanilla_proofs.clone();
                             let rp = req.registered_proof;
                             let cr_old = req.comm_r_old.clone();
                             let cr_new = req.comm_r_new.clone();
                             let cd_new = req.comm_d_new.clone();
+                            let pce_cache_bg = pce_cache.clone();
+                            let budget_bg = budget.clone();
                             std::thread::spawn(move || {
                                 info!("background PCE extraction starting for SnapDeals");
-                                match pipeline::extract_and_cache_pce_from_snap_deals(vanilla_proofs, rp, &cr_old, &cr_new, &cd_new) {
-                                    Ok(()) => info!("background PCE extraction complete for SnapDeals"),
-                                    Err(e) => warn!(error = %e, "background PCE extraction failed for SnapDeals"),
+                                loop {
+                                    if let Some(reservation) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                        match pipeline::extract_and_cache_pce_from_snap_deals(vanilla_proofs, rp, &cr_old, &cr_new, &cd_new, &pce_cache_bg) {
+                                            Ok(()) => info!("background PCE extraction complete for SnapDeals"),
+                                            Err(e) => warn!(error = %e, "background PCE extraction failed for SnapDeals"),
+                                        }
+                                        drop(reservation);
+                                        break;
+                                    }
+                                    std::thread::sleep(Duration::from_secs(1));
                                 }
                             });
                         }
 
-                        // 4. Dispatch each partition to spawn_blocking workers
+                        // 5. Dispatch each partition to spawn_blocking workers
                         for partition_idx in 0..num_partitions {
                             let item = PartitionWorkItem {
                                 parsed: ParsedProofInput::SnapDeals(parsed.clone()),
@@ -1690,17 +1750,13 @@ impl Engine {
                             };
                             let synth_tx = synth_tx.clone();
                             let tracker_for_err = tracker_clone.clone();
-                            let partition_sem = partition_semaphore.clone();
+                            let budget_for_partition = budget.clone();
 
                             tokio::spawn(async move {
-                                // Acquire partition worker permit (backpressure)
-                                let permit = match partition_sem.acquire_owned().await {
-                                    Ok(p) => p,
-                                    Err(_) => {
-                                        error!("partition semaphore closed");
-                                        return;
-                                    }
-                                };
+                                // Acquire memory reservation from budget (blocks until available)
+                                let reservation = budget_for_partition.acquire(
+                                    crate::memory::SNAP_PARTITION_FULL_BYTES
+                                ).await;
 
                                 let p_idx = item.partition_idx;
                                 let p_job_id = item.job_id.clone();
@@ -1715,7 +1771,7 @@ impl Engine {
                                                 partition = p_idx,
                                                 "skipping synthesis for failed SnapDeals job"
                                             );
-                                            drop(permit);
+                                            drop(reservation);
                                             return;
                                         }
                                     }
@@ -1741,39 +1797,41 @@ impl Engine {
                                         _ => unreachable!("SnapDeals dispatch with wrong parsed type"),
                                     };
 
-                                    result.map(|synth| SynthesizedJob {
-                                        request: item.request,
-                                        synth,
-                                        params: item.params,
-                                        circuit_id: item.circuit_id,
-                                        batch_requests: vec![],
-                                        sector_boundaries: vec![],
-                                        partition_index: Some(item.partition_idx),
-                                        total_partitions: Some(item.num_partitions),
-                                        parent_job_id: Some(item.job_id),
-                                    })
+                                    result.map(|synth| (synth, item))
                                 }).await;
 
                                 match synth_result {
-                                    Ok(Ok(job)) => {
+                                    Ok(Ok((synth, item))) => {
                                         timeline_event(
                                             "SYNTH_END",
                                             &p_job_id.0,
-                                            &format!("snap_partition={},synth_ms={}", p_idx, job.synth.synthesis_duration.as_millis()),
+                                            &format!("snap_partition={},synth_ms={}", p_idx, synth.synthesis_duration.as_millis()),
                                         );
                                         crate::pipeline::buf_synth_done();
                                         crate::pipeline::log_buffers("synth_done_snap");
                                         info!(
                                             job_id = %p_job_id,
                                             partition = p_idx,
-                                            synth_ms = job.synth.synthesis_duration.as_millis(),
+                                            synth_ms = synth.synthesis_duration.as_millis(),
                                             "SnapDeals partition synthesis complete, sending to GPU"
                                         );
+                                        let job = SynthesizedJob {
+                                            request: item.request,
+                                            synth,
+                                            params: item.params,
+                                            circuit_id: item.circuit_id,
+                                            batch_requests: vec![],
+                                            sector_boundaries: vec![],
+                                            partition_index: Some(item.partition_idx),
+                                            total_partitions: Some(item.num_partitions),
+                                            parent_job_id: Some(item.job_id),
+                                            reservation: Some(reservation),
+                                        };
                                         timeline_event("CHAN_SEND", &p_job_id.0, &format!("snap_partition={}", p_idx));
                                         if synth_tx.send(job).await.is_err() {
                                             error!("GPU channel closed during SnapDeals partition dispatch");
                                         }
-                                        drop(permit);
+                                        // reservation ownership transferred to SynthesizedJob
                                     }
                                     Ok(Err(e)) => {
                                         error!(
@@ -1782,6 +1840,7 @@ impl Engine {
                                             partition = p_idx,
                                             "SnapDeals partition synthesis failed"
                                         );
+                                        drop(reservation);
                                         let mut t = tracker_for_err.lock().await;
                                         if let Some(state) = t.assemblers.get_mut(&p_job_id) {
                                             if !state.failed {
@@ -1806,6 +1865,7 @@ impl Engine {
                                             partition = p_idx,
                                             "SnapDeals partition synthesis task panicked"
                                         );
+                                        drop(reservation);
                                         let mut t = tracker_for_err.lock().await;
                                         if let Some(state) = t.assemblers.get_mut(&p_job_id) {
                                             if !state.failed {
@@ -1831,7 +1891,9 @@ impl Engine {
                     }
 
                     // Phase 6 fallback: Slotted partition pipeline (self-contained)
-                    // Used when partition_workers=0 and slot_size > 0.
+                    // Note: This path is now unreachable for single-sector PoRep C2
+                    // since the budget-gated partition dispatch above catches it.
+                    // Kept for multi-sector PoRep + slot_size > 0 edge case.
                     if proof_kind == ProofKind::PoRepSealCommit
                         && requests.len() == 1
                         && slot_size > 0
@@ -1847,7 +1909,7 @@ impl Engine {
                             // Load SRS
                             let srs = {
                                 let mut mgr = srs_mgr_clone.blocking_lock();
-                                mgr.ensure_loaded(&CircuitId::Porep32G)?
+                                mgr.ensure_loaded(&CircuitId::Porep32G, None)?
                             };
 
                             pipeline::prove_porep_c2_partitioned(
@@ -1861,15 +1923,24 @@ impl Engine {
                         }).await;
 
                         // Trigger background PCE extraction if not yet cached
-                        if pipeline::get_pce(&CircuitId::Porep32G).is_none() {
+                        if pce_cache.get(&CircuitId::Porep32G).is_none() {
                             let c1_data = requests[0].vanilla_proof.clone();
                             let sn = requests[0].sector_number;
                             let mid = requests[0].miner_id;
+                            let pce_cache_bg = pce_cache.clone();
+                            let budget_bg = budget.clone();
                             std::thread::spawn(move || {
                                 info!("background PCE extraction starting for PoRep 32G");
-                                match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
-                                    Ok(()) => info!("background PCE extraction complete"),
-                                    Err(e) => warn!(error = %e, "background PCE extraction failed"),
+                                loop {
+                                    if let Some(reservation) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                        match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid, &pce_cache_bg) {
+                                            Ok(()) => info!("background PCE extraction complete"),
+                                            Err(e) => warn!(error = %e, "background PCE extraction failed"),
+                                        }
+                                        drop(reservation);
+                                        break;
+                                    }
+                                    std::thread::sleep(Duration::from_secs(1));
                                 }
                             });
                         }
@@ -1981,6 +2052,35 @@ impl Engine {
                     }
 
                     // Standard path: synthesize, then send to GPU channel
+                    //
+                    // Acquire budget for working memory before synthesis.
+                    // For multi-sector PoRep batch, use batch-level estimate.
+                    // For single-sector, use per-proof estimate.
+                    let working_circuit_id = match proof_kind {
+                        ProofKind::PoRepSealCommit => CircuitId::Porep32G,
+                        ProofKind::WinningPost => CircuitId::WinningPost32G,
+                        ProofKind::WindowPostPartition => CircuitId::WindowPost32G,
+                        ProofKind::SnapDealsUpdate => CircuitId::SnapDeals32G,
+                    };
+                    let working_bytes = if proof_kind == ProofKind::PoRepSealCommit && requests.len() > 1 {
+                        crate::memory::POREP_BATCH_FULL_BYTES
+                    } else {
+                        crate::memory::proof_kind_full_bytes(&working_circuit_id)
+                    };
+                    let reservation = budget.acquire(working_bytes).await;
+
+                    // Pre-acquire SRS budget if not loaded
+                    let srs_reservation = {
+                        let mgr = srs_mgr.lock().await;
+                        if !mgr.is_loaded(&working_circuit_id) {
+                            let size = mgr.srs_file_size(&working_circuit_id);
+                            drop(mgr);
+                            Some(budget.acquire(size).await)
+                        } else {
+                            None
+                        }
+                    };
+
                     let reqs = requests.clone();
                     let synth_job_id = reqs[0].job_id.0.clone();
                     timeline_event("SYNTH_START", &synth_job_id, &format!("kind={}", proof_kind));
@@ -2035,10 +2135,10 @@ impl Engine {
                             }
                         };
 
-                        // Load SRS
+                        // Load SRS (budget pre-acquired in async context)
                         let srs = {
                             let mut mgr = srs_mgr.blocking_lock();
-                            mgr.ensure_loaded(&circuit_id)?
+                            mgr.ensure_loaded(&circuit_id, srs_reservation)?
                         };
 
                         Ok(SynthesizedJob {
@@ -2051,11 +2151,15 @@ impl Engine {
                             partition_index: None,
                             total_partitions: None,
                             parent_job_id: None,
+                            reservation: None, // set below after unwrapping
                         })
                     }).await;
 
                     match synth_result {
-                        Ok(Ok(job)) => {
+                        Ok(Ok(mut job)) => {
+                            // Attach the working memory reservation to the job
+                            job.reservation = Some(reservation);
+
                             let is_batched = !job.batch_requests.is_empty();
                             let synth_job_id_str = job.request.job_id.0.clone();
                             timeline_event("SYNTH_END", &synth_job_id_str, &format!("synth_ms={}", job.synth.synthesis_duration.as_millis()));
@@ -2067,11 +2171,13 @@ impl Engine {
                                 "synthesis complete, sending to GPU"
                             );
 
-                            // Phase 5/6: Trigger background PCE extraction if not yet cached.
+                            // Trigger background PCE extraction if not yet cached.
                             // The extraction runs in a background thread so it doesn't block
                             // the GPU from processing this proof. Supports all proof types.
-                            if pipeline::get_pce(&job.circuit_id).is_none() {
+                            if pce_cache.get(&job.circuit_id).is_none() {
                                 let req = requests[0].clone();
+                                let pce_cache_bg = pce_cache.clone();
+                                let budget_bg = budget.clone();
                                 match proof_kind {
                                     ProofKind::PoRepSealCommit => {
                                         let c1_data = req.vanilla_proof;
@@ -2079,9 +2185,16 @@ impl Engine {
                                         let mid = req.miner_id;
                                         std::thread::spawn(move || {
                                             info!("background PCE extraction starting for PoRep 32G");
-                                            match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid) {
-                                                Ok(()) => info!("background PCE extraction complete for PoRep 32G"),
-                                                Err(e) => warn!(error = %e, "background PCE extraction failed for PoRep 32G (non-fatal)"),
+                                            loop {
+                                                if let Some(res) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                                    match pipeline::extract_and_cache_pce_from_c1(&c1_data, sn, mid, &pce_cache_bg) {
+                                                        Ok(()) => info!("background PCE extraction complete for PoRep 32G"),
+                                                        Err(e) => warn!(error = %e, "background PCE extraction failed for PoRep 32G (non-fatal)"),
+                                                    }
+                                                    drop(res);
+                                                    break;
+                                                }
+                                                std::thread::sleep(Duration::from_secs(1));
                                             }
                                         });
                                     }
@@ -2092,9 +2205,16 @@ impl Engine {
                                         let rand = req.randomness;
                                         std::thread::spawn(move || {
                                             info!("background PCE extraction starting for WinningPoSt");
-                                            match pipeline::extract_and_cache_pce_from_winning_post(&vanilla_proofs, rp, mid, &rand) {
-                                                Ok(()) => info!("background PCE extraction complete for WinningPoSt"),
-                                                Err(e) => warn!(error = %e, "background PCE extraction failed for WinningPoSt (non-fatal)"),
+                                            loop {
+                                                if let Some(res) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                                    match pipeline::extract_and_cache_pce_from_winning_post(&vanilla_proofs, rp, mid, &rand, &pce_cache_bg) {
+                                                        Ok(()) => info!("background PCE extraction complete for WinningPoSt"),
+                                                        Err(e) => warn!(error = %e, "background PCE extraction failed for WinningPoSt (non-fatal)"),
+                                                    }
+                                                    drop(res);
+                                                    break;
+                                                }
+                                                std::thread::sleep(Duration::from_secs(1));
                                             }
                                         });
                                     }
@@ -2106,9 +2226,16 @@ impl Engine {
                                         let pi = req.partition_index;
                                         std::thread::spawn(move || {
                                             info!("background PCE extraction starting for WindowPoSt");
-                                            match pipeline::extract_and_cache_pce_from_window_post(&vanilla_proofs, rp, mid, &rand, pi) {
-                                                Ok(()) => info!("background PCE extraction complete for WindowPoSt"),
-                                                Err(e) => warn!(error = %e, "background PCE extraction failed for WindowPoSt (non-fatal)"),
+                                            loop {
+                                                if let Some(res) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                                    match pipeline::extract_and_cache_pce_from_window_post(&vanilla_proofs, rp, mid, &rand, pi, &pce_cache_bg) {
+                                                        Ok(()) => info!("background PCE extraction complete for WindowPoSt"),
+                                                        Err(e) => warn!(error = %e, "background PCE extraction failed for WindowPoSt (non-fatal)"),
+                                                    }
+                                                    drop(res);
+                                                    break;
+                                                }
+                                                std::thread::sleep(Duration::from_secs(1));
                                             }
                                         });
                                     }
@@ -2120,9 +2247,16 @@ impl Engine {
                                         let cd_new = req.comm_d_new;
                                         std::thread::spawn(move || {
                                             info!("background PCE extraction starting for SnapDeals");
-                                            match pipeline::extract_and_cache_pce_from_snap_deals(vanilla_proofs, rp, &cr_old, &cr_new, &cd_new) {
-                                                Ok(()) => info!("background PCE extraction complete for SnapDeals"),
-                                                Err(e) => warn!(error = %e, "background PCE extraction failed for SnapDeals (non-fatal)"),
+                                            loop {
+                                                if let Some(res) = budget_bg.try_acquire(crate::memory::PCE_EXTRACTION_TRANSIENT_BYTES) {
+                                                    match pipeline::extract_and_cache_pce_from_snap_deals(vanilla_proofs, rp, &cr_old, &cr_new, &cd_new, &pce_cache_bg) {
+                                                        Ok(()) => info!("background PCE extraction complete for SnapDeals"),
+                                                        Err(e) => warn!(error = %e, "background PCE extraction failed for SnapDeals (non-fatal)"),
+                                                    }
+                                                    drop(res);
+                                                    break;
+                                                }
+                                                std::thread::sleep(Duration::from_secs(1));
                                             }
                                         });
                                     }
@@ -2138,6 +2272,7 @@ impl Engine {
                             }
                         }
                         Ok(Err(e)) => {
+                            drop(reservation);
                             error!(error = %e, "synthesis failed");
                             let mut t = tracker_clone.lock().await;
                             for req in &requests {
@@ -2152,6 +2287,7 @@ impl Engine {
                             }
                         }
                         Err(e) => {
+                            drop(reservation);
                             error!(error = %e, "synthesis task panicked");
                             let mut t = tracker_clone.lock().await;
                             for req in &requests {
@@ -2239,7 +2375,7 @@ impl Engine {
                     info!(worker_id = worker_id, gpu = gpu_ordinal, sub_id = worker_sub_id, "pipeline GPU worker started");
                     loop {
                         // Pull next synthesized job from channel
-                        let synth_job = {
+                        let mut synth_job = {
                             let mut rx = synth_rx.lock().await;
                             tokio::select! {
                                 biased;
@@ -2276,7 +2412,9 @@ impl Engine {
                         } else {
                             None
                         };
-                        // Phase 7: Extract partition metadata before moving synth_job
+                        // Extract reservation and circuit info before moving synth_job
+                        let reservation = synth_job.reservation.take();
+                        let circuit_id_for_release = synth_job.circuit_id.clone();
                         let partition_index = synth_job.partition_index;
                         let _total_partitions = synth_job.total_partitions;
                         let parent_job_id = synth_job.parent_job_id.clone();
@@ -2346,6 +2484,9 @@ impl Engine {
                                     Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
                                 }).await;
 
+                                // GPU prove complete — release full reservation
+                                drop(reservation);
+
                                 // Process result inline (synchronous path)
                                 let mut t = tracker.lock().await;
                                 if let Some(w) = t.workers.get_mut(worker_id as usize) {
@@ -2391,7 +2532,16 @@ impl Engine {
                             #[cfg(feature = "cuda-supraseal")]
                             match start_result {
                                 Ok(Ok(((pending_handle, pending_pi, gpu_start), _gpu_str_ret))) => {
-                                    // Spawn finalizer task — GPU worker loops immediately
+                                    // Two-phase memory release:
+                                    // Phase 1: a/b/c vectors freed inside prove_start — release that budget now
+                                    if let Some(ref res) = reservation {
+                                        let abc_bytes = crate::memory::proof_kind_abc_bytes(&circuit_id_for_release);
+                                        res.release(abc_bytes);
+                                    }
+
+                                    // Spawn finalizer task — GPU worker loops immediately.
+                                    // Move reservation into finalizer so remaining budget
+                                    // (shell + aux) is released after prove_finish.
                                     let fin_tracker = tracker.clone();
                                     let fin_job_id = job_id.clone();
                                     let fin_parent_job_id = parent_job_id.clone();
@@ -2400,6 +2550,7 @@ impl Engine {
                                     let fin_sector_boundaries = sector_boundaries.clone();
                                     let fin_gpu_job_id = gpu_job_id.clone();
                                     let fin_single_request = single_request_owned.clone();
+                                    let fin_reservation = reservation; // moved into finalizer
                                     tokio::spawn(async move {
                                         // Finalize on a blocking thread (joins b_g2_msm)
                                         let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
@@ -2412,6 +2563,9 @@ impl Engine {
                                             timeline_event("GPU_END", &fin_gpu_job_id, &detail);
                                             Ok((gpu_result.proof_bytes, gpu_result.gpu_duration))
                                         }).await;
+
+                                        // Phase 2: Drop reservation to release remaining budget (shell + aux)
+                                        drop(fin_reservation);
 
                                         // Process result (same logic as before)
                                         let mut t = fin_tracker.lock().await;
@@ -2452,6 +2606,7 @@ impl Engine {
                                 }
                                 Ok(Err(e)) => {
                                     // gpu_prove_start itself failed (before GPU kernels)
+                                    drop(reservation);
                                     error!(error = %e, "GPU prove start failed");
                                     let mut t = tracker.lock().await;
                                     if let Some(w) = t.workers.get_mut(worker_id as usize) {
@@ -2470,6 +2625,7 @@ impl Engine {
                                 }
                                 Err(e) => {
                                     // spawn_blocking panicked
+                                    drop(reservation);
                                     error!(error = %e, "GPU prove start task panicked");
                                     let mut t = tracker.lock().await;
                                     if let Some(w) = t.workers.get_mut(worker_id as usize) {
@@ -2494,6 +2650,8 @@ impl Engine {
                                 let _ = (gpu_str, synth_job);
                                 Ok(Err(anyhow::anyhow!("GPU proving requires cuda-supraseal feature")))
                             };
+
+                            drop(reservation);
 
                             // Process result and notify callers (non-supraseal fallback)
                             let mut t = tracker.lock().await;
@@ -2789,21 +2947,37 @@ impl Engine {
         }
     }
 
-    /// Preload an SRS entry.
+    /// Preload an SRS entry via the budget-aware SrsManager.
     pub async fn preload_srs(&self, circuit_id: &str) -> Result<(bool, u64)> {
-        let srs = self.preloaded_srs.read().await;
-        if srs.contains_key(circuit_id) {
-            return Ok((true, 0));
-        }
-        drop(srs);
+        let cid = match CircuitId::from_str_id(circuit_id) {
+            Some(c) => c,
+            None => return Err(anyhow::anyhow!("unknown circuit ID: {}", circuit_id)),
+        };
 
-        let param_cache = self.config.srs.param_cache.clone();
-        let cid = circuit_id.to_string();
-        let elapsed = tokio::task::spawn_blocking(move || {
-            prover::preload_srs(&cid, &param_cache)
+        // Check if already loaded
+        {
+            let mgr = self.srs_manager.lock().await;
+            if mgr.is_loaded(&cid) {
+                return Ok((true, 0));
+            }
+        }
+
+        // Pre-acquire budget in async context
+        let srs_size = {
+            let mgr = self.srs_manager.lock().await;
+            mgr.srs_file_size(&cid)
+        };
+        let reservation = self.budget.acquire(srs_size).await;
+
+        let srs_mgr = self.srs_manager.clone();
+        let start = Instant::now();
+        tokio::task::spawn_blocking(move || {
+            let mut mgr = srs_mgr.blocking_lock();
+            mgr.ensure_loaded(&cid, Some(reservation))
         })
         .await??;
 
+        let elapsed = start.elapsed();
         let mut srs = self.preloaded_srs.write().await;
         let ms = elapsed.as_millis() as u64;
         srs.insert(circuit_id.to_string(), ms);

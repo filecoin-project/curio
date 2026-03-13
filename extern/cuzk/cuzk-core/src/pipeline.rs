@@ -288,41 +288,255 @@ use cuzk_pce::{eval::density_tracker_from_words, evaluate_pce, PreCompiledCircui
 #[cfg(feature = "cuda-supraseal")]
 use bellperson::util_cs::witness_cs::WitnessCS;
 
-/// Cached pre-compiled circuit for PoRep 32G (extracted once, reused forever).
-#[cfg(feature = "cuda-supraseal")]
-static POREP_32G_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+// ─── PceCache: Evictable PCE cache (replaces static OnceLocks) ──────────────
+//
+// Budget-integrated PCE cache. Entries are reference-counted and evictable
+// under memory pressure when idle ≥ 5 minutes.
 
-/// Cached pre-compiled circuit for WinningPoSt.
 #[cfg(feature = "cuda-supraseal")]
-static WINNING_POST_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+use std::collections::HashMap as PceHashMap;
 
-/// Cached pre-compiled circuit for WindowPoSt.
+/// Evictable PCE cache, budget-integrated.
+///
+/// Replaces the previous static `OnceLock<PreCompiledCircuit<Fr>>` caches.
+/// Each entry is wrapped in `Arc` for shared ownership and tracks last-used
+/// time for LRU eviction.
 #[cfg(feature = "cuda-supraseal")]
-static WINDOW_POST_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+pub struct PceCache {
+    entries: std::sync::Mutex<PceHashMap<CircuitId, PceCacheEntry>>,
+    budget: Arc<crate::memory::MemoryBudget>,
+    param_cache: std::path::PathBuf,
+}
 
-/// Cached pre-compiled circuit for SnapDeals.
 #[cfg(feature = "cuda-supraseal")]
-static SNAP_DEALS_PCE: OnceLock<PreCompiledCircuit<Fr>> = OnceLock::new();
+struct PceCacheEntry {
+    pce: Arc<PreCompiledCircuit<Fr>>,
+    size_bytes: u64,
+    last_used: Instant,
+}
 
-/// Get the cached PCE for a circuit type, if available.
 #[cfg(feature = "cuda-supraseal")]
-pub fn get_pce(circuit_id: &CircuitId) -> Option<&'static PreCompiledCircuit<Fr>> {
-    match circuit_id {
-        CircuitId::Porep32G | CircuitId::Porep64G => POREP_32G_PCE.get(),
-        CircuitId::WinningPost32G => WINNING_POST_PCE.get(),
-        CircuitId::WindowPost32G => WINDOW_POST_PCE.get(),
-        CircuitId::SnapDeals32G | CircuitId::SnapDeals64G => SNAP_DEALS_PCE.get(),
+impl PceCache {
+    /// Create a new PCE cache with budget reference.
+    pub fn new(
+        budget: Arc<crate::memory::MemoryBudget>,
+        param_cache: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            entries: std::sync::Mutex::new(PceHashMap::new()),
+            budget,
+            param_cache,
+        }
+    }
+
+    /// Get a cached PCE, updating `last_used`. Returns `None` if not loaded.
+    pub fn get(&self, circuit_id: &CircuitId) -> Option<Arc<PreCompiledCircuit<Fr>>> {
+        let mut entries = self.entries.lock().unwrap();
+        if let Some(entry) = entries.get_mut(circuit_id) {
+            entry.last_used = Instant::now();
+            Some(Arc::clone(&entry.pce))
+        } else {
+            None
+        }
+    }
+
+    /// Insert a PCE into the cache (blocking variant for std::thread contexts).
+    ///
+    /// Acquires budget via `try_acquire` + sleep retry loop. If already
+    /// cached, returns without re-inserting.
+    ///
+    /// Also saves the PCE to disk for future daemon starts.
+    pub fn insert_blocking(
+        &self,
+        circuit_id: CircuitId,
+        pce: PreCompiledCircuit<Fr>,
+    ) {
+        // Check if already cached
+        {
+            let entries = self.entries.lock().unwrap();
+            if entries.contains_key(&circuit_id) {
+                return;
+            }
+        }
+
+        let size = pce.memory_bytes() as u64;
+
+        // Try to acquire budget (blocking retry loop)
+        loop {
+            if let Some(reservation) = self.budget.try_acquire(size) {
+                let pce_arc = Arc::new(pce);
+
+                // Save to disk for future daemon starts
+                let disk_path = pce_disk_path(&circuit_id, &self.param_cache);
+                match cuzk_pce::save_to_disk(&pce_arc, &disk_path) {
+                    Ok(()) => {
+                        info!(
+                            circuit_id = %circuit_id,
+                            path = %disk_path.display(),
+                            "PCE saved to disk"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            circuit_id = %circuit_id,
+                            error = %e,
+                            "failed to save PCE to disk (non-fatal)"
+                        );
+                    }
+                }
+
+                let mut entries = self.entries.lock().unwrap();
+                if entries.contains_key(&circuit_id) {
+                    // Raced with another thread — reservation is dropped
+                    return;
+                }
+                reservation.into_permanent();
+                entries.insert(circuit_id.clone(), PceCacheEntry {
+                    pce: pce_arc,
+                    size_bytes: size,
+                    last_used: Instant::now(),
+                });
+                info!(
+                    circuit_id = %circuit_id,
+                    size_gib = size / crate::memory::GIB,
+                    budget_used_gib = self.budget.used_bytes() / crate::memory::GIB,
+                    "PCE cached"
+                );
+                return;
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    /// Try to load a PCE from disk into the cache. Returns `Ok(true)` if loaded,
+    /// `Ok(false)` if file not found. Acquires budget before loading.
+    ///
+    /// This is the async variant — blocks on budget acquire if needed.
+    pub async fn load_from_disk(
+        &self,
+        circuit_id: &CircuitId,
+    ) -> anyhow::Result<bool> {
+        // Already in memory
+        {
+            let entries = self.entries.lock().unwrap();
+            if entries.contains_key(circuit_id) {
+                return Ok(true);
+            }
+        }
+
+        let disk_path = pce_disk_path(circuit_id, &self.param_cache);
+        if !disk_path.exists() {
+            return Ok(false);
+        }
+
+        let file_size = std::fs::metadata(&disk_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        // Acquire budget (async, may trigger eviction)
+        let reservation = self.budget.acquire(file_size).await;
+
+        // Load from disk (this is I/O-bound, ~5 GB/s)
+        let pce: PreCompiledCircuit<Fr> = cuzk_pce::load_from_disk(&disk_path)
+            .with_context(|| format!("failed to load PCE from {}", disk_path.display()))?;
+
+        let actual_size = pce.memory_bytes() as u64;
+
+        let mut entries = self.entries.lock().unwrap();
+        if entries.contains_key(circuit_id) {
+            // Raced with another loader — reservation dropped releases budget
+            return Ok(true);
+        }
+
+        // Adjust budget if actual size differs from file size
+        if actual_size > file_size {
+            // Need more budget — try non-blocking
+            if let Some(extra) = self.budget.try_acquire(actual_size - file_size) {
+                extra.into_permanent();
+            }
+            // If can't get extra, proceed with file_size estimate
+        } else if actual_size < file_size {
+            // Release excess
+            self.budget.release_internal(file_size - actual_size);
+        }
+
+        reservation.into_permanent();
+        let tracked_size = actual_size.max(file_size);
+        entries.insert(circuit_id.clone(), PceCacheEntry {
+            pce: Arc::new(pce),
+            size_bytes: tracked_size,
+            last_used: Instant::now(),
+        });
+
+        info!(
+            circuit_id = %circuit_id,
+            size_gib = tracked_size / crate::memory::GIB,
+            budget_used_gib = self.budget.used_bytes() / crate::memory::GIB,
+            "PCE loaded from disk"
+        );
+        Ok(true)
+    }
+
+    /// Return evictable entries (idle entries with refcount == 1).
+    ///
+    /// Only entries where `Arc::strong_count() == 1` (only the cache holds
+    /// a reference) are candidates.
+    pub fn evictable_entries(&self) -> Vec<(CircuitId, u64, Instant)> {
+        let entries = self.entries.lock().unwrap();
+        let mut result = Vec::new();
+        for (cid, entry) in entries.iter() {
+            if Arc::strong_count(&entry.pce) == 1 {
+                result.push((cid.clone(), entry.size_bytes, entry.last_used));
+            }
+        }
+        result
+    }
+
+    /// Evict a specific entry. Returns freed bytes (0 if not found or in use).
+    pub fn evict(&self, circuit_id: &CircuitId) -> u64 {
+        let mut entries = self.entries.lock().unwrap();
+        if let Some(entry) = entries.get(circuit_id) {
+            if Arc::strong_count(&entry.pce) > 1 {
+                return 0; // In use by an in-flight proof
+            }
+            let size = entry.size_bytes;
+            entries.remove(circuit_id);
+            self.budget.release_internal(size);
+            info!(
+                circuit_id = %circuit_id,
+                freed_gib = size / crate::memory::GIB,
+                budget_available_gib = self.budget.available_bytes() / crate::memory::GIB,
+                "PCE evicted"
+            );
+            size
+        } else {
+            0
+        }
+    }
+
+    /// Get the parameter cache directory.
+    pub fn param_cache(&self) -> &std::path::Path {
+        &self.param_cache
     }
 }
 
-/// Get the PCE cache lock for a circuit type.
-#[cfg(feature = "cuda-supraseal")]
-fn get_pce_lock(circuit_id: &CircuitId) -> &'static OnceLock<PreCompiledCircuit<Fr>> {
-    match circuit_id {
-        CircuitId::Porep32G | CircuitId::Porep64G => &POREP_32G_PCE,
-        CircuitId::WinningPost32G => &WINNING_POST_PCE,
-        CircuitId::WindowPost32G => &WINDOW_POST_PCE,
-        CircuitId::SnapDeals32G | CircuitId::SnapDeals64G => &SNAP_DEALS_PCE,
+/// Stub PceCache for non-cuda-supraseal builds.
+#[cfg(not(feature = "cuda-supraseal"))]
+pub struct PceCache;
+
+#[cfg(not(feature = "cuda-supraseal"))]
+impl PceCache {
+    pub fn new(
+        _budget: Arc<crate::memory::MemoryBudget>,
+        _param_cache: std::path::PathBuf,
+    ) -> Self {
+        PceCache
+    }
+    pub fn evictable_entries(&self) -> Vec<(crate::srs_manager::CircuitId, u64, std::time::Instant)> {
+        vec![]
+    }
+    pub fn evict(&self, _circuit_id: &crate::srs_manager::CircuitId) -> u64 {
+        0
     }
 }
 
@@ -343,97 +557,40 @@ fn pce_disk_path(circuit_id: &CircuitId, param_cache: &std::path::Path) -> std::
     param_cache.join(cuzk_pce::pce_filename(circuit_id_pce_name(circuit_id)))
 }
 
-/// Try to load a PCE from disk into the OnceLock cache.
+/// Load a PCE from disk (standalone, for bench tool usage).
 ///
-/// Returns `Ok(true)` if loaded successfully, `Ok(false)` if file not found,
-/// or `Err` if the file exists but is corrupt/incompatible.
+/// Returns the loaded PCE, or `None` if the file doesn't exist.
 #[cfg(feature = "cuda-supraseal")]
-pub fn load_pce_from_disk(
+pub fn load_pce_standalone(
     circuit_id: &CircuitId,
     param_cache: &std::path::Path,
-) -> anyhow::Result<bool> {
-    // Already cached in memory — skip disk I/O
-    if get_pce(circuit_id).is_some() {
-        info!(circuit_id = %circuit_id, "PCE already in memory, skipping disk load");
-        return Ok(true);
-    }
-
+) -> anyhow::Result<Option<PreCompiledCircuit<Fr>>> {
     let path = pce_disk_path(circuit_id, param_cache);
     if !path.exists() {
         info!(circuit_id = %circuit_id, path = %path.display(), "PCE file not found on disk");
-        return Ok(false);
+        return Ok(None);
     }
 
     let pce: PreCompiledCircuit<Fr> = cuzk_pce::load_from_disk(&path)?;
-
-    let lock = get_pce_lock(circuit_id);
-    let _ = lock.set(pce); // ignore if concurrently set
-    info!(circuit_id = %circuit_id, "PCE loaded from disk into cache");
-    Ok(true)
+    info!(circuit_id = %circuit_id, "PCE loaded from disk");
+    Ok(Some(pce))
 }
 
-/// Preload PCE caches for all known circuit types from disk.
-///
-/// Call this at daemon startup. Loads whatever PCE files exist in the parameter
-/// cache directory. Returns the number of circuit types successfully loaded.
-#[cfg(feature = "cuda-supraseal")]
-pub fn preload_pce_from_disk(param_cache: &std::path::Path) -> usize {
-    let circuit_ids = [
-        CircuitId::Porep32G,
-        CircuitId::WinningPost32G,
-        CircuitId::WindowPost32G,
-        CircuitId::SnapDeals32G,
-    ];
+// preload_pce_from_disk removed — PCE loading is now on-demand via PceCache.
 
-    let mut loaded = 0;
-    for cid in &circuit_ids {
-        match load_pce_from_disk(cid, param_cache) {
-            Ok(true) => {
-                loaded += 1;
-            }
-            Ok(false) => {
-                // File not found — will extract on first proof
-            }
-            Err(e) => {
-                tracing::warn!(
-                    circuit_id = %cid,
-                    error = %e,
-                    "failed to load PCE from disk — will re-extract on first proof"
-                );
-                // Delete the corrupt file so next extraction writes a fresh one
-                let path = pce_disk_path(cid, param_cache);
-                if let Err(rm_err) = std::fs::remove_file(&path) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        error = %rm_err,
-                        "failed to remove corrupt PCE file"
-                    );
-                }
-            }
-        }
-    }
-
-    info!(
-        loaded = loaded,
-        total = circuit_ids.len(),
-        "PCE disk preload complete"
-    );
-    loaded
-}
-
-/// Extract a pre-compiled circuit from a circuit instance and cache it.
+/// Extract a pre-compiled circuit and insert it into the PceCache.
 ///
 /// This runs the circuit with `RecordingCS` to capture R1CS structure.
 /// It's called once per circuit type, typically from a background thread
 /// after the first proof completes.
 ///
-/// If `param_cache` is provided, the extracted PCE is also saved to disk
-/// for instant loading on future daemon starts.
+/// The extracted PCE is inserted into the cache (which also saves to disk).
+/// Budget for the PCE is acquired by `PceCache::insert_blocking`.
 #[cfg(feature = "cuda-supraseal")]
 pub fn extract_and_cache_pce<C>(
     circuit: C,
     circuit_id: &CircuitId,
-    param_cache: Option<&std::path::Path>,
+    pce_cache: &PceCache,
 ) -> anyhow::Result<()>
 where
     C: bellperson::Circuit<Fr>,
@@ -452,45 +609,20 @@ where
         "PCE extraction complete"
     );
 
-    let lock = get_pce_lock(circuit_id);
-    let _ = lock.set(pce); // ignore if already set (concurrent race)
-
-    // Save to disk for future daemon starts
-    if let Some(cache_dir) = param_cache {
-        if let Some(pce_ref) = lock.get() {
-            let path = pce_disk_path(circuit_id, cache_dir);
-            match cuzk_pce::save_to_disk(pce_ref, &path) {
-                Ok(()) => {
-                    info!(
-                        circuit_id = %circuit_id,
-                        path = %path.display(),
-                        "PCE saved to disk for future daemon starts"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        circuit_id = %circuit_id,
-                        error = %e,
-                        "failed to save PCE to disk (non-fatal)"
-                    );
-                }
-            }
-        }
-    }
-
+    pce_cache.insert_blocking(circuit_id.clone(), pce);
     Ok(())
 }
 
 /// Extract and cache PCE from a PoRep C1 output JSON blob.
 ///
 /// Builds one partition circuit from the C1 data, runs it through `RecordingCS`
-/// to capture R1CS structure, and caches the result for future proofs.
-/// This is used by the bench tool to prime the PCE cache.
+/// to capture R1CS structure, and caches the result via PceCache.
 #[cfg(feature = "cuda-supraseal")]
 pub fn extract_and_cache_pce_from_c1(
     vanilla_proof_json: &[u8],
     _sector_number: u64,
     _miner_id: u64,
+    pce_cache: &PceCache,
 ) -> anyhow::Result<()> {
     // Deserialize C1 output
     let wrapper: C1OutputWrapper = serde_json::from_slice(vanilla_proof_json)
@@ -552,11 +684,7 @@ pub fn extract_and_cache_pce_from_c1(
         Some(0),
     )?;
 
-    // Use param cache from environment if available (for disk persistence)
-    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
-        .ok()
-        .map(std::path::PathBuf::from);
-    extract_and_cache_pce(circuit, &CircuitId::Porep32G, param_cache.as_deref())
+    extract_and_cache_pce(circuit, &CircuitId::Porep32G, pce_cache)
 }
 
 /// Extract and cache PCE from WinningPoSt request data.
@@ -570,6 +698,7 @@ pub fn extract_and_cache_pce_from_winning_post(
     registered_proof: u64,
     miner_id: u64,
     randomness: &[u8],
+    pce_cache: &PceCache,
 ) -> anyhow::Result<()> {
     use crate::prover::{make_prover_id, registered_post_proof_from_u64, to_array32};
 
@@ -655,10 +784,7 @@ pub fn extract_and_cache_pce_from_winning_post(
             Some(0),
         )?;
 
-    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
-        .ok()
-        .map(std::path::PathBuf::from);
-    extract_and_cache_pce(circuit, &CircuitId::WinningPost32G, param_cache.as_deref())
+    extract_and_cache_pce(circuit, &CircuitId::WinningPost32G, pce_cache)
 }
 
 /// Extract and cache PCE from WindowPoSt request data.
@@ -673,6 +799,7 @@ pub fn extract_and_cache_pce_from_window_post(
     miner_id: u64,
     randomness: &[u8],
     partition_index: u32,
+    pce_cache: &PceCache,
 ) -> anyhow::Result<()> {
     use crate::prover::{make_prover_id, registered_post_proof_from_u64, to_array32};
 
@@ -767,10 +894,7 @@ pub fn extract_and_cache_pce_from_window_post(
             Some(partition_index as usize),
         )?;
 
-    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
-        .ok()
-        .map(std::path::PathBuf::from);
-    extract_and_cache_pce(circuit, &CircuitId::WindowPost32G, param_cache.as_deref())
+    extract_and_cache_pce(circuit, &CircuitId::WindowPost32G, pce_cache)
 }
 
 /// Extract and cache PCE from SnapDeals request data.
@@ -785,6 +909,7 @@ pub fn extract_and_cache_pce_from_snap_deals(
     comm_r_old: &[u8],
     comm_r_new: &[u8],
     comm_d_new: &[u8],
+    pce_cache: &PceCache,
 ) -> anyhow::Result<()> {
     use crate::prover::{registered_update_proof_from_u64, to_array32};
     use filecoin_hashers::poseidon::PoseidonHasher;
@@ -850,10 +975,7 @@ pub fn extract_and_cache_pce_from_snap_deals(
             Some(0),
         )?;
 
-    let param_cache = std::env::var("FIL_PROOFS_PARAMETER_CACHE")
-        .ok()
-        .map(std::path::PathBuf::from);
-    extract_and_cache_pce(circuit, &CircuitId::SnapDeals32G, param_cache.as_deref())
+    extract_and_cache_pce(circuit, &CircuitId::SnapDeals32G, pce_cache)
 }
 
 /// Synthesize circuits using the PCE fast path.
@@ -868,7 +990,7 @@ pub fn extract_and_cache_pce_from_snap_deals(
 #[cfg(feature = "cuda-supraseal")]
 fn synthesize_with_pce<C>(
     circuits: Vec<C>,
-    pce: &'static PreCompiledCircuit<Fr>,
+    pce: &PreCompiledCircuit<Fr>,
     circuit_id: &CircuitId,
 ) -> Result<
     (
@@ -991,10 +1113,14 @@ where
 ///
 /// On all subsequent proofs:
 /// 1. Uses `synthesize_with_pce` (WitnessCS + CSR MatVec, ~3-5x faster)
+///
+/// `pce_cache` is optional to support the bench tool and other callers that
+/// don't use the PceCache.
 #[cfg(feature = "cuda-supraseal")]
 fn synthesize_auto<C>(
     circuits: Vec<C>,
     circuit_id: &CircuitId,
+    pce_cache: Option<&PceCache>,
 ) -> Result<
     (
         Instant,
@@ -1011,9 +1137,11 @@ where
     // CUZK_DISABLE_PCE=1 forces the standard synthesis path for debugging.
     let pce_disabled = std::env::var("CUZK_DISABLE_PCE").map_or(false, |v| v == "1");
     if !pce_disabled {
-        if let Some(pce) = get_pce(circuit_id) {
-            info!(circuit_id = %circuit_id, "using PCE fast path for synthesis");
-            return synthesize_with_pce(circuits, pce, circuit_id);
+        if let Some(cache) = pce_cache {
+            if let Some(pce_arc) = cache.get(circuit_id) {
+                info!(circuit_id = %circuit_id, "using PCE fast path for synthesis");
+                return synthesize_with_pce(circuits, &pce_arc, circuit_id);
+            }
         }
     } else {
         info!(circuit_id = %circuit_id, "PCE disabled via CUZK_DISABLE_PCE=1 — using standard synthesis");
@@ -1412,7 +1540,7 @@ pub fn synthesize_porep_c2_multi(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(all_circuits, &CircuitId::Porep32G)?;
+        synthesize_auto(all_circuits, &CircuitId::Porep32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1612,7 +1740,7 @@ pub fn synthesize_porep_c2_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::Porep32G)?;
+        synthesize_auto(vec![circuit], &CircuitId::Porep32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -1753,7 +1881,7 @@ pub fn synthesize_porep_c2_batch(
     info!(num_circuits = circuits.len(), "synthesizing all circuits");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(circuits, &CircuitId::Porep32G)?;
+        synthesize_auto(circuits, &CircuitId::Porep32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -2170,7 +2298,7 @@ pub fn synthesize_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::Porep32G)?;
+        synthesize_auto(vec![circuit], &CircuitId::Porep32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -2415,7 +2543,7 @@ pub fn prove_porep_c2_slotted(
         let circuits = build_partition_circuits_from_parsed(&parsed, 0..num_partitions)?;
         let synth_start = Instant::now();
         let (_start, provers, input_assignments, aux_assignments) =
-            synthesize_auto(circuits, &CircuitId::Porep32G)?;
+            synthesize_auto(circuits, &CircuitId::Porep32G, None)?;
         let synthesis_duration = synth_start.elapsed();
 
         let mut rng = rand_core::OsRng;
@@ -2634,7 +2762,7 @@ pub fn synthesize_snap_deals_partition(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::SnapDeals32G)?;
+        synthesize_auto(vec![circuit], &CircuitId::SnapDeals32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -2785,7 +2913,7 @@ pub fn synthesize_winning_post(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(circuits, &CircuitId::WinningPost32G)?;
+        synthesize_auto(circuits, &CircuitId::WinningPost32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -2980,7 +3108,7 @@ pub fn synthesize_window_post(
     info!("synthesizing WindowPoSt circuit");
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(vec![circuit], &CircuitId::WindowPost32G)?;
+        synthesize_auto(vec![circuit], &CircuitId::WindowPost32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
@@ -3158,7 +3286,7 @@ pub fn synthesize_snap_deals(
 
     let synth_start = Instant::now();
     let (_start, provers, input_assignments, aux_assignments) =
-        synthesize_auto(circuits, &CircuitId::SnapDeals32G)?;
+        synthesize_auto(circuits, &CircuitId::SnapDeals32G, None)?;
     let synthesis_duration = synth_start.elapsed();
 
     info!(
