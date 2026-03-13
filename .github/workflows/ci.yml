@@ -13,7 +13,7 @@ env:
 
 jobs:
   ci-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,16 +30,8 @@ jobs:
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
 
-  setup-params:
-    runs-on: [self-hosted, docker]
-    needs: [ci-lint]
-    steps:
-      - name: Fetch parameters
-        run: lotus fetch-params 8388608
-        shell: bash
-
   build-mainnet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +60,7 @@ jobs:
         shell: bash
 
   build-calibnet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -97,7 +89,7 @@ jobs:
         shell: bash
 
   build-debug:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -126,7 +118,7 @@ jobs:
         shell: bash
 
   build-2k:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -155,7 +147,7 @@ jobs:
         shell: bash
 
   build-forest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -184,10 +176,15 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker]
-    needs: [setup-params]
+    runs-on: ubuntu-latest-4-cores
+    needs: [ci-lint]
     env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
+      YB_VERSION: "2024.1.2.0"
+      YB_BUILD: "b77"
+      YB_BASE_DIR: "${{ runner.temp }}/yb-local"
+      FIL_PROOFS_PARAMETER_CACHE: /var/tmp/filecoin-proof-parameters
+      CURIO_HARMONYDB_HOSTS: 127.0.0.1
+      LOTUS_HARMONYDB_HOSTS: 127.0.0.1
     strategy:
       fail-fast: false  # Continue running even if one test fails
       matrix:
@@ -232,38 +229,63 @@ jobs:
           make deps
         shell: bash
 
-      - name: Start YugabyteDB container with dynamic ports
-        id: start-yugabyte
-        run: |
-          # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+      - name: Restore proof parameters cache
+        id: proof-params-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FIL_PROOFS_PARAMETER_CACHE }}
+          key: proof-params-8388608
 
-      - name: Wait for YugabyteDB to start
+      - name: Fetch proof parameters with Lotus
+        if: steps.proof-params-cache.outputs.cache-hit != 'true'
         run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
+          LOTUS_TAR="$RUNNER_TEMP/lotus_v1.35.0_linux_amd64_v1.tar.gz"
+          curl -sSL "https://github.com/filecoin-project/lotus/releases/download/v1.35.0/lotus_v1.35.0_linux_amd64_v1.tar.gz" -o "$LOTUS_TAR"
+          tar -xzf "$LOTUS_TAR" -C "$RUNNER_TEMP"
+          LOTUS_BIN=$(find "$RUNNER_TEMP" -maxdepth 2 -type f -name lotus | head -n 1)
+          if [ -z "$LOTUS_BIN" ]; then
+            echo "Lotus binary not found after extraction"
+            exit 1
+          fi
+          chmod +x "$LOTUS_BIN"
+          "$LOTUS_BIN" fetch-params 8388608
+        shell: bash
+
+      - name: Install YugabyteDB
+        run: |
+          YB_TAR="yugabyte-${{ env.YB_VERSION }}-${{ env.YB_BUILD }}-linux-x86_64.tar.gz"
+          wget -q "https://software.yugabyte.com/releases/${{ env.YB_VERSION }}/${YB_TAR}" -O "$RUNNER_TEMP/$YB_TAR"
+          tar -xzf "$RUNNER_TEMP/$YB_TAR" -C "$RUNNER_TEMP"
+          YB_HOME=$(find "$RUNNER_TEMP" -maxdepth 1 -type d -name "yugabyte-${{ env.YB_VERSION }}*" | head -n 1)
+          if [ -z "$YB_HOME" ]; then
+            echo "Failed to locate extracted YugabyteDB directory"
+            exit 1
+          fi
+          "$YB_HOME/bin/post_install.sh"
+          echo "YB_HOME=$YB_HOME" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Start YugabyteDB
+        run: |
+          "$YB_HOME/bin/yugabyted" start --advertise_address 127.0.0.1 --base_dir "${{ env.YB_BASE_DIR }}"
+          for i in {1..60}; do
+            status=$("$YB_HOME/bin/yugabyted" status --base_dir "${{ env.YB_BASE_DIR }}" || true)
+            echo "$status"
+            if echo "$status" | grep -q Running; then
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "YugabyteDB did not become ready in time"
+              exit 1
+            fi
+            sleep 2
           done
         shell: bash
 
-      - name: Get YugabyteDB container IP
-        id: get-yb-ip
-        run: |
-          # Retrieve internal bridge IP of YugabyteDB container
-          YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-
       - name: Run tests with coverage
         env:
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
-          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
           FFI_USE_OPENCL: 1
         run: |
-          echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
-          export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           mkdir -p coverage
           go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
 
@@ -275,12 +297,8 @@ jobs:
           path: coverage/${{ matrix.test-suite.name }}.out
           retention-days: 1
 
-      - name: Stop YugabyteDB container
-        if: always()  # Ensure this run even if the tests fail
-        run: docker stop ${{ env.CONTAINER_NAME }}
-
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -315,7 +333,7 @@ jobs:
         shell: bash
 
   gofmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -340,7 +358,7 @@ jobs:
         shell: bash
 
   build-supraseal-ubuntu24:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     
     env:
@@ -568,7 +586,7 @@ jobs:
           echo "✅ Library compiled successfully with GCC 12 and CUDA!" >> $GITHUB_STEP_SUMMARY
 
   gen-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
@@ -622,7 +640,7 @@ jobs:
         shell: bash
 
   mod-tidy-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
