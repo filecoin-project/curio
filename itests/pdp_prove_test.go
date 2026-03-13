@@ -2,6 +2,7 @@ package itests
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math/rand"
 	"os"
@@ -20,14 +21,27 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
-	pdp "github.com/filecoin-project/curio/tasks/pdpv0"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
 
 // TestPDPProving verifies the functionality of generating and validating PDP proofs
 // using a random file and a cached snapshot layer stored in Cassandra.
+// It runs as a table-driven test across multiple piece sizes.
 func TestPDPProving(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawSize int64
+		seed    int64
+	}{
+		{"small_4MB", 4 * 1024 * 1024, 1001},
+		{"medium_28MB", 28 * 1024 * 1024, 2002},
+		{"above_threshold_40MB", 40 * 1024 * 1024, 3003},
+		{"large_256MB", 256 * 1024 * 1024, 4004},
+		{"xlarge_512MB", 512 * 1024 * 1024, 5005},
+		{"xxlarge_1GB", 1024 * 1024 * 1024, 6006},
+	}
+
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
@@ -37,14 +51,24 @@ func TestPDPProving(t *testing.T) {
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testPDPProvingWithSize(t, ctx, idxStore, tc.rawSize, tc.seed)
+		})
+	}
+}
+
+func testPDPProvingWithSize(t *testing.T, ctx context.Context, idxStore *indexstore.IndexStore, rawSize, seed int64) {
+	// Deterministic PRNG seeded per test case for challenge selection.
+	prng := rand.New(rand.NewSource(seed))
+
 	dir := t.TempDir()
 
-	rawSize := int64(5 * 1024 * 1024)
 	pieceSize := padreader.PaddedSize(uint64(rawSize)).Padded()
 
-	// Create a temporary random file of the desired raw size. This file
-	// will be used to compute a commP and a snapshot layer for the test.
-	fileStr, err := testutils.CreateRandomFile(dir, 0, rawSize)
+	// Create a temporary deterministic random file of the desired raw size.
+	// The seed ensures identical file content across runs.
+	fileStr, err := testutils.CreateRandomFile(dir, seed, rawSize)
 	require.NoError(t, err)
 
 	defer func() {
@@ -69,8 +93,7 @@ func TestPDPProving(t *testing.T) {
 
 	// Compute the piece commitment (commP) and capture a snapshot layer.
 	// The snapshot layer records node digests at a middle merkle-tree level
-	// which we will store in the indexstore and later use to accelerate
-	// proof generation.
+	// which we later use to accelerate proof generation.
 	cp := savecache.NewCommPWithSizeForTest(uint64(rawSize))
 	_, err = io.Copy(cp, f)
 	require.NoError(t, err)
@@ -107,12 +130,12 @@ func TestPDPProving(t *testing.T) {
 	err = idxStore.AddPDPLayer(ctx, pcid2, leafs)
 	require.NoError(t, err)
 
-	// Choose a random challenge leaf index inside the piece (in terms of
-	// 32-byte leaves). This is the same selection logic used by the on-chain
-	// PDP verifier to pick challenge positions.
-	challenge := int64(rand.Intn(int(numberOfLeafs)))
+	// Choose a deterministic challenge leaf index inside the piece (in terms
+	// of 32-byte leaves). This is the same selection logic used by the
+	// on-chain PDP verifier to pick challenge positions.
+	challenge := int64(prng.Intn(int(numberOfLeafs)))
 
-	t.Logf("Challenge: %d", challenge)
+	t.Logf("Challenge: %d (seed=%d, rawSize=%s)", challenge, seed, formatSize(rawSize))
 
 	has, outLayerIndex, err := idxStore.GetPDPLayerIndex(ctx, pcid2)
 	require.NoError(t, err)
@@ -228,10 +251,15 @@ func TestPDPProving(t *testing.T) {
 	// Verify the combined proof (leaf->snapshot + snapshot->commP) against
 	// the expected root. This simulates the final verification step that
 	// would be performed before sending a proof on-chain.
-	verified := pdp.Verify(out, rd, uint64(challenge))
+	verified := proof.VerifyProof(out.Leaf, out.Proof, rd, uint64(challenge))
 	require.True(t, verified)
 
 	// Clean up the cached layer from the index store - keep tests isolated.
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
 	require.NoError(t, err)
+}
+
+func formatSize(bytes int64) string {
+	const mb = 1024 * 1024
+	return fmt.Sprintf("%dMB", bytes/mb)
 }

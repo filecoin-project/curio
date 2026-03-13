@@ -16,7 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	logger "github.com/ipfs/go-log/v2"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
@@ -30,7 +30,7 @@ import (
 	"github.com/filecoin-project/curio/lib/proof"
 )
 
-var log = logger.Logger("pdp")
+var log = logging.Logger("pdpv0")
 
 // PieceSizeLimit in bytes
 var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()

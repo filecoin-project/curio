@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	logger "github.com/ipfs/go-log/v2"
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 )
 
-var log = logger.Logger("pdp")
+var log = logging.Logger("pdpv0")
 
 // NotifyPollInterval is how often to poll for uploads ready to finalize.
 var NotifyPollInterval = 2 * time.Second
@@ -33,12 +33,20 @@ var NotifyPollInterval = 2 * time.Second
 // The poll goroutine watches for uploads where the underlying piece is complete
 // but no finalization task has been assigned yet.
 type PDPNotifyTask struct {
-	db *harmonydb.DB
-	TF promise.Promise[harmonytask.AddTaskFunc]
+	db     *harmonydb.DB
+	TF     promise.Promise[harmonytask.AddTaskFunc]
+	client *http.Client
 }
 
 func NewPDPNotifyTask(ctx context.Context, db *harmonydb.DB) *PDPNotifyTask {
-	n := &PDPNotifyTask{db: db}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: 10 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
+	}
+	n := &PDPNotifyTask{db: db, client: client}
 	go n.poll(ctx)
 	return n
 }
@@ -133,7 +141,7 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	if upload.NotifyURL != "" {
 
-		resp, err := http.Post(upload.NotifyURL, "application/json", bytes.NewReader(upJson))
+		resp, err := t.client.Post(upload.NotifyURL, "application/json", bytes.NewReader(upJson))
 		if err != nil {
 			log.Errorw("HTTP POST request to notify_url failed", "notify_url", upload.NotifyURL, "upload_id", upload.ID, "error", err)
 		} else {
@@ -145,22 +153,31 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 	}
 
-	// Move the entry from pdp_piece_uploads to pdp_piecerefs
-	// Insert into pdp_piecerefs
-	// Set needs_save_cache=TRUE for large pieces to enable proactive caching
-	needsSaveCache := upload.PieceRawSize >= MinSizeForCache
-	_, err = t.db.Exec(ctx, `
+	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Move the entry from pdp_piece_uploads to pdp_piecerefs
+		// Insert into pdp_piecerefs
+		// Set needs_save_cache=TRUE for large pieces to enable proactive caching
+		needsSaveCache := upload.PieceRawSize >= MinSizeForCache
+		_, err = t.db.Exec(ctx, `
         INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
         VALUES ($1, $2, $3, NOW(), $4)`,
-		upload.Service, upload.PieceCID, upload.PieceRef, needsSaveCache)
-	if err != nil {
-		return false, fmt.Errorf("failed to insert into pdp_piecerefs: %w", err)
-	}
+			upload.Service, upload.PieceCID, upload.PieceRef, needsSaveCache)
+		if err != nil {
+			return false, fmt.Errorf("failed to insert into pdp_piecerefs: %w", err)
+		}
 
-	// Delete the entry from pdp_piece_uploads
-	_, err = t.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, upload.ID)
+		_, err = tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, upload.ID)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete upload ID %s from pdp_piece_uploads: %w", upload.ID, err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, fmt.Errorf("failed to delete upload ID %s from pdp_piece_uploads: %w", upload.ID, err)
+		return false, fmt.Errorf("failed to move upload to piecerefs: %w", err)
+	}
+	if !comm {
+		return false, fmt.Errorf("transaction to move upload to piecerefs was not committed")
 	}
 
 	log.Infof("Successfully processed PDP notify task %d for upload ID %s", taskID, upload.ID)
