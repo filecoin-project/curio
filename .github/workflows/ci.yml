@@ -181,7 +181,7 @@ jobs:
     env:
       YB_VERSION: "2024.1.2.0"
       YB_BUILD: "b77"
-      YB_BASE_DIR: "${{ runner.temp }}/yb-local"
+      YB_BASE_DIR: /tmp/yb-local
       FIL_PROOFS_PARAMETER_CACHE: /var/tmp/filecoin-proof-parameters
       CURIO_HARMONYDB_HOSTS: 127.0.0.1
       LOTUS_HARMONYDB_HOSTS: 127.0.0.1
