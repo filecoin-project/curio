@@ -1141,175 +1141,238 @@ impl Engine {
 
             let synth_worker_count = max_partitions_in_budget.min(64).max(4);
 
-            // Spawn synthesis worker pool.
-            // Workers pop from the priority queue (lowest partition in oldest
-            // pipeline first), acquire budget, synthesize, and push the result
-            // to the GPU priority queue.
-            for sw_id in 0..synth_worker_count {
+            // ── Ordered synthesis dispatch ─────────────────────────────────
+            //
+            // A single dispatcher task serializes BOTH the priority queue pop
+            // AND budget acquisition. This guarantees that partitions enter
+            // synthesis in strict (job_seq, partition_idx) order — the lowest
+            // partition in the oldest pipeline always gets budget first.
+            //
+            // Without this, N workers each pop an item then race for budget,
+            // and budget goes to whichever worker's acquire() happens to
+            // complete first (essentially random).
+            //
+            // The dispatcher hands (item, reservation) to a bounded channel.
+            // A pool of synthesis workers receives from the channel, runs
+            // synthesis on blocking threads, and pushes results to the GPU
+            // priority queue.
+            let (synth_dispatch_tx, synth_dispatch_rx) =
+                tokio::sync::mpsc::channel::<(PartitionWorkItem, crate::memory::MemoryReservation)>(synth_worker_count);
+            let synth_dispatch_rx = Arc::new(Mutex::new(synth_dispatch_rx));
+
+            // Single dispatcher: pop → budget → send to workers
+            {
                 let synth_work_queue = synth_work_queue.clone();
-                let gpu_work_queue = gpu_work_queue.clone();
                 let budget = self.budget.clone();
+                let tracker = self.tracker.clone();
+                let mut shutdown_rx = self.shutdown_rx.clone();
+
+                tokio::spawn(async move {
+                    tracing::info!("synthesis priority dispatcher started");
+                    loop {
+                        // Pop highest-priority item (oldest pipeline, lowest partition).
+                        let item = loop {
+                            if let Some(item) = synth_work_queue.try_pop() {
+                                break item;
+                            }
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.changed() => {
+                                    if *shutdown_rx.borrow() {
+                                        tracing::info!("synthesis priority dispatcher: shutdown");
+                                        return;
+                                    }
+                                }
+                                _ = synth_work_queue.notified() => {}
+                            }
+                        };
+
+                        let mem_bytes = crate::memory::proof_kind_full_bytes(&item.circuit_id);
+                        let p_idx = item.partition_idx;
+                        let p_job_id = item.job_id.clone();
+
+                        // Acquire budget in priority order (blocks until available).
+                        // Because this is a single task, budget goes to the highest
+                        // priority item first — no racing between workers.
+                        let reservation = budget.acquire(mem_bytes).await;
+
+                        // Check if job already failed
+                        {
+                            let t = tracker.lock().await;
+                            if let Some(state) = t.assemblers.get(&p_job_id) {
+                                if state.failed {
+                                    tracing::info!(
+                                        job_id = %p_job_id,
+                                        partition = p_idx,
+                                        "skipping synthesis for failed job"
+                                    );
+                                    drop(reservation);
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // Hand to worker pool (blocks if all workers busy — backpressure)
+                        if synth_dispatch_tx.send((item, reservation)).await.is_err() {
+                            tracing::error!("synthesis worker channel closed");
+                            break;
+                        }
+                    }
+                });
+            }
+
+            // Synthesis worker pool: receive dispatched work, synthesize, push to GPU queue
+            for sw_id in 0..synth_worker_count {
+                let synth_dispatch_rx = synth_dispatch_rx.clone();
+                let gpu_work_queue = gpu_work_queue.clone();
                 let tracker = self.tracker.clone();
                 let st = self.status_tracker.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
 
                 tokio::spawn(async move {
                     loop {
-                        // Try to pop highest-priority item (oldest pipeline, lowest partition)
-                        if let Some(item) = synth_work_queue.try_pop() {
-                            let mem_bytes = crate::memory::proof_kind_full_bytes(&item.circuit_id);
-                            let p_idx = item.partition_idx;
-                            let p_job_id = item.job_id.clone();
-                            let p_job_seq = item.job_seq;
-                            let proof_kind = item.request.proof_kind;
-
-                            // Acquire memory reservation (blocks until budget available)
-                            let reservation = budget.acquire(mem_bytes).await;
-
-                            // Check if job already failed
-                            {
-                                let t = tracker.lock().await;
-                                if let Some(state) = t.assemblers.get(&p_job_id) {
-                                    if state.failed {
-                                        tracing::info!(
-                                            job_id = %p_job_id,
-                                            partition = p_idx,
-                                            "skipping synthesis for failed job"
-                                        );
-                                        drop(reservation);
-                                        continue;
+                        let (item, reservation) = {
+                            let mut rx = synth_dispatch_rx.lock().await;
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.changed() => {
+                                    if *shutdown_rx.borrow() {
+                                        tracing::info!(sw_id = sw_id, "synthesis worker received shutdown");
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                msg = rx.recv() => {
+                                    match msg {
+                                        Some(v) => v,
+                                        None => {
+                                            tracing::info!(sw_id = sw_id, "synthesis dispatch channel closed");
+                                            break;
+                                        }
                                     }
                                 }
                             }
+                        };
 
-                            st.partition_synth_start(&p_job_id.0, p_idx);
-                            crate::pipeline::buf_synth_start();
-                            crate::pipeline::log_buffers("synth_start");
-                            timeline_event(
-                                "SYNTH_START",
-                                &p_job_id.0,
-                                &format!("partition={}", p_idx),
-                            );
+                        let p_idx = item.partition_idx;
+                        let p_job_id = item.job_id.clone();
+                        let p_job_seq = item.job_seq;
+                        let proof_kind = item.request.proof_kind;
 
-                            // Run synthesis on blocking thread
-                            let synth_result = tokio::task::spawn_blocking(move || {
-                                let result = match &item.parsed {
-                                    ParsedProofInput::PoRep(parsed) => {
-                                        crate::pipeline::synthesize_partition(
-                                            parsed,
-                                            item.partition_idx,
-                                            &item.job_id.0,
-                                        )
-                                    }
-                                    ParsedProofInput::SnapDeals(parsed) => {
-                                        crate::pipeline::synthesize_snap_deals_partition(
-                                            parsed,
-                                            item.partition_idx,
-                                            &item.job_id.0,
-                                        )
-                                    }
+                        st.partition_synth_start(&p_job_id.0, p_idx);
+                        crate::pipeline::buf_synth_start();
+                        crate::pipeline::log_buffers("synth_start");
+                        timeline_event(
+                            "SYNTH_START",
+                            &p_job_id.0,
+                            &format!("partition={}", p_idx),
+                        );
+
+                        // Run synthesis on blocking thread
+                        let synth_result = tokio::task::spawn_blocking(move || {
+                            let result = match &item.parsed {
+                                ParsedProofInput::PoRep(parsed) => {
+                                    crate::pipeline::synthesize_partition(
+                                        parsed,
+                                        item.partition_idx,
+                                        &item.job_id.0,
+                                    )
+                                }
+                                ParsedProofInput::SnapDeals(parsed) => {
+                                    crate::pipeline::synthesize_snap_deals_partition(
+                                        parsed,
+                                        item.partition_idx,
+                                        &item.job_id.0,
+                                    )
+                                }
+                            };
+                            result.map(|synth| (synth, item))
+                        }).await;
+
+                        match synth_result {
+                            Ok(Ok((synth, item))) => {
+                                st.partition_synth_end(&p_job_id.0, p_idx);
+                                timeline_event(
+                                    "SYNTH_END",
+                                    &p_job_id.0,
+                                    &format!("partition={},synth_ms={}", p_idx, synth.synthesis_duration.as_millis()),
+                                );
+                                crate::pipeline::buf_synth_done();
+                                crate::pipeline::log_buffers("synth_done");
+                                tracing::info!(
+                                    job_id = %p_job_id,
+                                    partition = p_idx,
+                                    synth_ms = synth.synthesis_duration.as_millis(),
+                                    "partition synthesis complete, pushing to GPU queue"
+                                );
+                                let job = SynthesizedJob {
+                                    request: item.request,
+                                    synth,
+                                    params: item.params,
+                                    circuit_id: item.circuit_id,
+                                    batch_requests: vec![],
+                                    sector_boundaries: vec![],
+                                    partition_index: Some(item.partition_idx),
+                                    total_partitions: Some(item.num_partitions),
+                                    parent_job_id: Some(item.job_id),
+                                    reservation: Some(reservation),
+                                    job_seq: p_job_seq,
                                 };
-                                result.map(|synth| (synth, item))
-                            }).await;
-
-                            match synth_result {
-                                Ok(Ok((synth, item))) => {
-                                    st.partition_synth_end(&p_job_id.0, p_idx);
-                                    timeline_event(
-                                        "SYNTH_END",
-                                        &p_job_id.0,
-                                        &format!("partition={},synth_ms={}", p_idx, synth.synthesis_duration.as_millis()),
-                                    );
-                                    crate::pipeline::buf_synth_done();
-                                    crate::pipeline::log_buffers("synth_done");
-                                    tracing::info!(
-                                        job_id = %p_job_id,
-                                        partition = p_idx,
-                                        synth_ms = synth.synthesis_duration.as_millis(),
-                                        "partition synthesis complete, pushing to GPU queue"
-                                    );
-                                    let job = SynthesizedJob {
-                                        request: item.request,
-                                        synth,
-                                        params: item.params,
-                                        circuit_id: item.circuit_id,
-                                        batch_requests: vec![],
-                                        sector_boundaries: vec![],
-                                        partition_index: Some(item.partition_idx),
-                                        total_partitions: Some(item.num_partitions),
-                                        parent_job_id: Some(item.job_id),
-                                        reservation: Some(reservation),
-                                        job_seq: p_job_seq,
-                                    };
-                                    timeline_event("GPU_QUEUE", &p_job_id.0, &format!("partition={}", p_idx));
-                                    gpu_work_queue.push(p_job_seq, p_idx, job);
-                                }
-                                Ok(Err(e)) => {
-                                    st.partition_failed(&p_job_id.0, p_idx);
-                                    tracing::error!(
-                                        error = %e,
-                                        job_id = %p_job_id,
-                                        partition = p_idx,
-                                        "partition synthesis failed"
-                                    );
-                                    drop(reservation);
-                                    let mut t = tracker.lock().await;
-                                    if let Some(state) = t.assemblers.get_mut(&p_job_id) {
-                                        if !state.failed {
-                                            state.failed = true;
-                                            t.record_failure(proof_kind);
-                                            let status = JobStatus::Failed(
-                                                format!("partition {} synthesis failed: {}", p_idx, e)
-                                            );
-                                            if let Some(senders) = t.pending.remove(&p_job_id) {
-                                                for sender in senders {
-                                                    let _ = sender.send(status.clone());
-                                                }
+                                timeline_event("GPU_QUEUE", &p_job_id.0, &format!("partition={}", p_idx));
+                                gpu_work_queue.push(p_job_seq, p_idx, job);
+                            }
+                            Ok(Err(e)) => {
+                                st.partition_failed(&p_job_id.0, p_idx);
+                                tracing::error!(
+                                    error = %e,
+                                    job_id = %p_job_id,
+                                    partition = p_idx,
+                                    "partition synthesis failed"
+                                );
+                                drop(reservation);
+                                let mut t = tracker.lock().await;
+                                if let Some(state) = t.assemblers.get_mut(&p_job_id) {
+                                    if !state.failed {
+                                        state.failed = true;
+                                        t.record_failure(proof_kind);
+                                        let status = JobStatus::Failed(
+                                            format!("partition {} synthesis failed: {}", p_idx, e)
+                                        );
+                                        if let Some(senders) = t.pending.remove(&p_job_id) {
+                                            for sender in senders {
+                                                let _ = sender.send(status.clone());
                                             }
-                                            t.completed.insert(p_job_id.clone(), status);
                                         }
-                                    }
-                                }
-                                Err(e) => {
-                                    st.partition_failed(&p_job_id.0, p_idx);
-                                    tracing::error!(
-                                        error = %e,
-                                        job_id = %p_job_id,
-                                        partition = p_idx,
-                                        "partition synthesis task panicked"
-                                    );
-                                    drop(reservation);
-                                    let mut t = tracker.lock().await;
-                                    if let Some(state) = t.assemblers.get_mut(&p_job_id) {
-                                        if !state.failed {
-                                            state.failed = true;
-                                            t.record_failure(proof_kind);
-                                            let status = JobStatus::Failed(
-                                                format!("partition {} synthesis panicked: {}", p_idx, e)
-                                            );
-                                            if let Some(senders) = t.pending.remove(&p_job_id) {
-                                                for sender in senders {
-                                                    let _ = sender.send(status.clone());
-                                                }
-                                            }
-                                            t.completed.insert(p_job_id.clone(), status);
-                                        }
+                                        t.completed.insert(p_job_id.clone(), status);
                                     }
                                 }
                             }
-                            continue;
-                        }
-
-                        // Queue empty — wait for new items or shutdown
-                        tokio::select! {
-                            biased;
-                            _ = shutdown_rx.changed() => {
-                                if *shutdown_rx.borrow() {
-                                    tracing::info!(sw_id = sw_id, "synthesis worker received shutdown");
-                                    break;
+                            Err(e) => {
+                                st.partition_failed(&p_job_id.0, p_idx);
+                                tracing::error!(
+                                    error = %e,
+                                    job_id = %p_job_id,
+                                    partition = p_idx,
+                                    "partition synthesis task panicked"
+                                );
+                                drop(reservation);
+                                let mut t = tracker.lock().await;
+                                if let Some(state) = t.assemblers.get_mut(&p_job_id) {
+                                    if !state.failed {
+                                        state.failed = true;
+                                        t.record_failure(proof_kind);
+                                        let status = JobStatus::Failed(
+                                            format!("partition {} synthesis panicked: {}", p_idx, e)
+                                        );
+                                        if let Some(senders) = t.pending.remove(&p_job_id) {
+                                            for sender in senders {
+                                                let _ = sender.send(status.clone());
+                                            }
+                                        }
+                                        t.completed.insert(p_job_id.clone(), status);
+                                    }
                                 }
                             }
-                            _ = synth_work_queue.notified() => {}
                         }
                     }
                 });
