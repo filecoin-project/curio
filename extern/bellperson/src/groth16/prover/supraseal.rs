@@ -9,7 +9,9 @@ use bellpepper_core::{Circuit, ConstraintSystem, Index, SynthesisError, Variable
 use ff::{Field, PrimeField};
 use log::info;
 use pairing::MultiMillerLoop;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
 use super::{ParameterSource, Proof, ProvingAssignment};
 use crate::{gpu::GpuName, BELLMAN_VERSION};
@@ -227,11 +229,10 @@ where
     // needed — only the density bitvecs and assignment data are still
     // referenced by the background prep_msm/b_g2_msm thread.
     // Free them now to reduce peak memory by ~12 GiB per pending partition.
+    // If a/b/c are pinned, this returns the buffers to the pool.
     let mut provers = provers;
     for prover in &mut provers {
-        prover.a = Vec::new();
-        prover.b = Vec::new();
-        prover.c = Vec::new();
+        prover.release_abc();
     }
 
     // r_s/s_s are already copied into the C++ handle (pp->r_s_owned/s_s_owned).
@@ -337,6 +338,95 @@ where
         .into_par_iter()
         .map(|circuit| -> Result<_, SynthesisError> {
             let mut prover = if let Some(hint) = capacity_hint {
+                ProvingAssignment::new_with_capacity(
+                    hint.num_constraints,
+                    hint.num_aux,
+                    hint.num_inputs,
+                )
+            } else {
+                ProvingAssignment::new()
+            };
+
+            prover.alloc_input(|| "", || Ok(Scalar::ONE))?;
+
+            circuit.synthesize(&mut prover)?;
+
+            for i in 0..prover.input_assignment.len() {
+                prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+            }
+
+            Ok(prover)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    info!("synthesis time: {:?}", start.elapsed());
+
+    // Start fft/multiexp prover timer
+    let start = Instant::now();
+    info!("starting proof timer");
+
+    let input_assignments_no_repr = provers
+        .par_iter_mut()
+        .map(|prover| {
+            let input_assignment = std::mem::take(&mut prover.input_assignment);
+            Arc::new(input_assignment)
+        })
+        .collect::<Vec<_>>();
+
+    let aux_assignments_no_repr = provers
+        .par_iter_mut()
+        .map(|prover| {
+            let aux_assignment = std::mem::take(&mut prover.aux_assignment);
+            Arc::new(aux_assignment)
+        })
+        .collect::<Vec<_>>();
+
+    Ok((
+        start,
+        provers,
+        input_assignments_no_repr,
+        aux_assignments_no_repr,
+    ))
+}
+
+/// Like `synthesize_circuits_batch_with_hint`, but accepts a function to create
+/// each `ProvingAssignment`. This allows the caller to provide pinned-memory-backed
+/// provers (via `new_with_pinned`) instead of the default heap-backed ones.
+///
+/// `prover_factory` is called once per circuit. It receives `(circuit_index, hint)`
+/// and must return a `ProvingAssignment` ready for synthesis (empty a/b/c, no
+/// input_assignment yet — `alloc_input` for ONE will be called after creation).
+///
+/// If `prover_factory` returns `None` for a circuit, falls back to
+/// `new_with_capacity` (if hint available) or `new()`.
+#[allow(clippy::type_complexity)]
+pub fn synthesize_circuits_batch_with_prover_factory<Scalar, C, F>(
+    circuits: Vec<C>,
+    capacity_hint: Option<SynthesisCapacityHint>,
+    prover_factory: F,
+) -> Result<
+    (
+        Instant,
+        std::vec::Vec<ProvingAssignment<Scalar>>,
+        std::vec::Vec<std::sync::Arc<std::vec::Vec<Scalar>>>,
+        std::vec::Vec<std::sync::Arc<std::vec::Vec<Scalar>>>,
+    ),
+    SynthesisError,
+>
+where
+    Scalar: PrimeField,
+    C: Circuit<Scalar> + Send,
+    F: Fn(usize, Option<SynthesisCapacityHint>) -> Option<ProvingAssignment<Scalar>> + Sync,
+{
+    let start = Instant::now();
+
+    let mut provers = circuits
+        .into_par_iter()
+        .enumerate()
+        .map(|(idx, circuit)| -> Result<_, SynthesisError> {
+            let mut prover = if let Some(p) = prover_factory(idx, capacity_hint) {
+                p
+            } else if let Some(hint) = capacity_hint {
                 ProvingAssignment::new_with_capacity(
                     hint.num_constraints,
                     hint.num_aux,
