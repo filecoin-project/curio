@@ -194,24 +194,34 @@ jobs:
         test-suite:
           - name: test-all
             target: "`go list ./... | grep -v curio/itests`"
+            no-parallel: false
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
+            no-parallel: true
           - name: test-itest-curio
             target: "./itests/curio_test.go"
+            no-parallel: true
           - name: test-itest-dynamic-config
             target: "./itests/dyncfg_test.go"
+            no-parallel: true
           - name: test-itest-harmonyDB
             target: "./itests/harmonydb_test.go"
+            no-parallel: true
           - name: test-itest-market-dynamic-config
             target: "./itests/market_deal_dynamic_test.go"
+            no-parallel: true
           - name: test-itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
+            no-parallel: true
           - name: test-itest-retrievals-test
             target: "./itests/retrievals_test.go"
+            no-parallel: true
           - name: test-itest-sql-idempotent-test
             target: "./itests/sql_idempotent_test.go"
+            no-parallel: true
           - name: test-itest-transaction-db-usage
             target: "./itests/transaction_db_usage_test.go"
+            no-parallel: true
     steps:
       - uses: actions/checkout@v4
 
@@ -265,7 +275,8 @@ jobs:
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           mkdir -p coverage
-          go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
+          ITEST_FLAGS=$([ "${{ matrix.test-suite.no-parallel }}" = "true" ] && echo "-p 1 -parallel 1" || echo "")
+          go test -v $ITEST_FLAGS --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
