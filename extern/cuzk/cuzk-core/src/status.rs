@@ -320,6 +320,10 @@ impl StatusTracker {
     }
 
     /// Mark a partition as GPU-done + free worker.
+    ///
+    /// Only clears the worker's busy state if it still matches the job/partition
+    /// being finished. With split GPU proving, the worker may have already moved
+    /// on to a new job before the finalizer task calls this method.
     pub fn partition_gpu_end(&self, job_id: &str, partition: usize, worker_id: u32) {
         let mut inner = self.inner.write().unwrap();
         if let Some(job) = inner.jobs.get_mut(job_id) {
@@ -333,10 +337,17 @@ impl StatusTracker {
             .iter_mut()
             .find(|w| w.worker_id == worker_id)
         {
-            w.busy = false;
-            w.current_job_id = None;
-            w.current_partition = None;
-            w.busy_since = None;
+            // Only clear if this worker is still working on the same job+partition.
+            // The split-prove finalizer may arrive after the worker already picked
+            // up a new job, in which case we must not clobber the new state.
+            let still_mine = w.current_job_id.as_deref() == Some(job_id)
+                && w.current_partition == Some(partition);
+            if still_mine {
+                w.busy = false;
+                w.current_job_id = None;
+                w.current_partition = None;
+                w.busy_since = None;
+            }
         }
     }
 
