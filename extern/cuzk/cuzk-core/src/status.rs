@@ -200,7 +200,6 @@ struct GpuWorkerState {
 struct Inner {
     jobs: HashMap<String, JobState>,
     gpu_workers: Vec<GpuWorkerState>,
-    synth_max: u32,
     synth_active: u32,
     total_completed: u64,
     total_failed: u64,
@@ -223,12 +222,11 @@ pub struct StatusTracker {
 
 impl StatusTracker {
     /// Create a new tracker.
-    pub fn new(budget: Arc<MemoryBudget>, synth_max: u32) -> Self {
+    pub fn new(budget: Arc<MemoryBudget>) -> Self {
         Self {
             inner: RwLock::new(Inner {
                 jobs: HashMap::new(),
                 gpu_workers: Vec::new(),
-                synth_max,
                 synth_active: 0,
                 total_completed: 0,
                 total_failed: 0,
@@ -473,7 +471,11 @@ impl StatusTracker {
                 available_bytes: self.budget.available_bytes(),
             },
             synthesis: SynthesisStatus {
-                max_concurrent: inner.synth_max,
+                // Effective max is budget-derived: total / smallest partition size.
+                // The memory budget is the real concurrency limiter, not a static config.
+                max_concurrent: (self.budget.total_bytes()
+                    / crate::memory::SNAP_PARTITION_FULL_BYTES)
+                    as u32,
                 active: inner.synth_active,
             },
             pipelines,
