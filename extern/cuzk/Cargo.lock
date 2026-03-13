@@ -737,6 +737,7 @@ dependencies = [
  "cuzk-server",
  "rayon",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "toml",

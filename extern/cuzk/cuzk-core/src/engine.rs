@@ -135,7 +135,9 @@ pub(crate) fn process_partition_result(
     worker_id: u32,
     circuit_id_str: &str,
     _submitted_at: Instant,
+    st: &crate::status::StatusTracker,
 ) {
+    st.partition_gpu_end(&parent_id.0, p_idx, worker_id);
     match result {
         Ok(Ok((proof_bytes, gpu_duration))) => {
             // Check if assembler still exists and isn't failed
@@ -297,6 +299,7 @@ pub(crate) fn process_partition_result(
 
                     let status = if self_check_passed {
                         t.record_completion(state.proof_kind, timings.total);
+                        st.job_completed(&parent_id.0, &format!("{}", state.proof_kind), true);
                         JobStatus::Completed(ProofResult {
                             job_id: parent_id.clone(),
                             proof_kind: state.proof_kind,
@@ -305,6 +308,7 @@ pub(crate) fn process_partition_result(
                         })
                     } else {
                         t.record_failure(state.proof_kind);
+                        st.job_completed(&parent_id.0, &format!("{}", state.proof_kind), false);
                         JobStatus::Failed(format!(
                             "PoRep proof self-check failed: assembled proof did not verify (sector={}, miner={})",
                             state.request.sector_number, state.request.miner_id,
@@ -812,6 +816,8 @@ pub struct Engine {
     /// PCE (pre-compiled circuit) cache.
     #[cfg(feature = "cuda-supraseal")]
     pce_cache: Arc<crate::pipeline::PceCache>,
+    /// Lightweight status tracker for HTTP debug API.
+    status_tracker: Arc<crate::status::StatusTracker>,
 }
 
 /// Detect available GPU ordinals.
@@ -869,6 +875,12 @@ impl Engine {
             config.srs.param_cache.clone(),
         ));
 
+        let synth_conc = config.pipeline.synthesis_concurrency.max(1);
+        let status_tracker = Arc::new(crate::status::StatusTracker::new(
+            budget.clone(),
+            synth_conc,
+        ));
+
         Self {
             config,
             scheduler: Arc::new(Scheduler::new()),
@@ -882,6 +894,7 @@ impl Engine {
             budget,
             #[cfg(feature = "cuda-supraseal")]
             pce_cache,
+            status_tracker,
         }
     }
 
@@ -1014,6 +1027,19 @@ impl Engine {
             tracker.workers = tracker_worker_states;
         }
 
+        // Register workers in status tracker
+        {
+            let worker_pairs: Vec<(u32, u32)> = gpu_ordinals
+                .iter()
+                .flat_map(|&ordinal| {
+                    (0..gpu_workers_per_device).map(move |_| ordinal)
+                })
+                .enumerate()
+                .map(|(i, ordinal)| (i as u32, ordinal))
+                .collect();
+            self.status_tracker.register_workers(&worker_pairs);
+        }
+
         if self.pipeline_enabled {
             // ─── Phase 2: Two-stage pipeline ───────────────────────────────
             //
@@ -1087,6 +1113,7 @@ impl Engine {
                 let budget = self.budget.clone();
                 #[cfg(feature = "cuda-supraseal")]
                 let pce_cache = self.pce_cache.clone();
+                let st = self.status_tracker.clone();
 
                 // Semaphore limits concurrent synthesis tasks.
                 // With concurrency=1, behavior is identical to the old sequential loop.
@@ -1123,6 +1150,7 @@ impl Engine {
                         semaphore: &Arc<tokio::sync::Semaphore>,
                         concurrency: usize,
                         span: tracing::Span,
+                        st: &Arc<crate::status::StatusTracker>,
                     ) -> bool {
                         if concurrency <= 1 {
                             // Sequential mode: await inline (old behavior)
@@ -1131,6 +1159,7 @@ impl Engine {
                                 budget,
                                 #[cfg(feature = "cuda-supraseal")]
                                 pce_cache,
+                                st,
                             ).instrument(span).await
                         } else {
                             // Parallel mode: acquire semaphore, spawn task
@@ -1148,6 +1177,7 @@ impl Engine {
                             let budget = budget.clone();
                             #[cfg(feature = "cuda-supraseal")]
                             let pce_cache = pce_cache.clone();
+                            let st = st.clone();
                             tokio::spawn(async move {
                                 let _permit = permit; // held until task completes
                                 process_batch(
@@ -1155,6 +1185,7 @@ impl Engine {
                                     &budget,
                                     #[cfg(feature = "cuda-supraseal")]
                                     &pce_cache,
+                                    &st,
                                 ).instrument(span).await;
                             });
                             true // always continue — errors handled inside the spawned task
@@ -1184,7 +1215,7 @@ impl Engine {
                                                 &budget,
                                                 #[cfg(feature = "cuda-supraseal")]
                                                 &pce_cache,
-                                                &synth_semaphore, synthesis_concurrency, span,
+                                                &synth_semaphore, synthesis_concurrency, span, &st,
                                             ).await;
                                         }
                                         break;
@@ -1200,7 +1231,7 @@ impl Engine {
                                             &budget,
                                             #[cfg(feature = "cuda-supraseal")]
                                             &pce_cache,
-                                            &synth_semaphore, synthesis_concurrency, span,
+                                            &synth_semaphore, synthesis_concurrency, span, &st,
                                         ).await;
                                         if !ok { break; }
                                     }
@@ -1244,7 +1275,7 @@ impl Engine {
                                     &budget,
                                     #[cfg(feature = "cuda-supraseal")]
                                     &pce_cache,
-                                    &synth_semaphore, synthesis_concurrency, span,
+                                    &synth_semaphore, synthesis_concurrency, span, &st,
                                 ).await;
                                 if !ok { break; }
                             }
@@ -1261,7 +1292,7 @@ impl Engine {
                                     &budget,
                                     #[cfg(feature = "cuda-supraseal")]
                                     &pce_cache,
-                                    &synth_semaphore, synthesis_concurrency, span,
+                                    &synth_semaphore, synthesis_concurrency, span, &st,
                                 ).await;
                                 if !ok { break; }
                             }
@@ -1280,7 +1311,7 @@ impl Engine {
                                 &budget,
                                 #[cfg(feature = "cuda-supraseal")]
                                 &pce_cache,
-                                &synth_semaphore, synthesis_concurrency, span,
+                                &synth_semaphore, synthesis_concurrency, span, &st,
                             ).await;
                             if !ok { break; }
                         }
@@ -1311,6 +1342,7 @@ impl Engine {
                 budget: &Arc<crate::memory::MemoryBudget>,
                 #[cfg(feature = "cuda-supraseal")]
                 pce_cache: &Arc<crate::pipeline::PceCache>,
+                st: &Arc<crate::status::StatusTracker>,
             ) -> bool {
                 let batch_size = batch.len();
                 let proof_kind = batch.proof_kind;
@@ -1412,7 +1444,8 @@ impl Engine {
 
                         let num_partitions = parsed.num_partitions;
 
-                        // 2. Register ProofAssembler in JobTracker
+                        // 2. Register ProofAssembler in JobTracker + StatusTracker
+                        st.register_job(&job_id.0, &format!("{}", proof_kind), num_partitions);
                         {
                             let mut t = tracker_clone.lock().await;
                             t.assemblers.insert(job_id.clone(), PartitionedJobState {
@@ -1471,6 +1504,7 @@ impl Engine {
                             let synth_tx = synth_tx.clone();
                             let tracker_for_err = tracker_clone.clone();
                             let budget_for_partition = budget.clone();
+                            let st_for_partition = st.clone();
 
                             tokio::spawn(async move {
                                 // Acquire memory reservation from budget (blocks until available)
@@ -1498,6 +1532,7 @@ impl Engine {
                                     }
                                 }
 
+                                st_for_partition.partition_synth_start(&p_job_id.0, p_idx);
                                 crate::pipeline::buf_synth_start();
                                 crate::pipeline::log_buffers("synth_start");
                                 timeline_event(
@@ -1528,6 +1563,7 @@ impl Engine {
 
                                 match synth_result {
                                     Ok(Ok((synth, item))) => {
+                                        st_for_partition.partition_synth_end(&p_job_id.0, p_idx);
                                         timeline_event(
                                             "SYNTH_END",
                                             &p_job_id.0,
@@ -1560,6 +1596,7 @@ impl Engine {
                                         // reservation ownership transferred to SynthesizedJob — no drop here
                                     }
                                     Ok(Err(e)) => {
+                                        st_for_partition.partition_failed(&p_job_id.0, p_idx);
                                         error!(
                                             error = %e,
                                             job_id = %p_job_id,
@@ -1586,6 +1623,7 @@ impl Engine {
                                         }
                                     }
                                     Err(e) => {
+                                        st_for_partition.partition_failed(&p_job_id.0, p_idx);
                                         error!(
                                             error = %e,
                                             job_id = %p_job_id,
@@ -1698,7 +1736,8 @@ impl Engine {
 
                         let num_partitions = parsed.num_partitions;
 
-                        // 2. Register ProofAssembler in JobTracker
+                        // 2. Register ProofAssembler in JobTracker + StatusTracker
+                        st.register_job(&job_id.0, &format!("{}", proof_kind), num_partitions);
                         {
                             let mut t = tracker_clone.lock().await;
                             t.assemblers.insert(job_id.clone(), PartitionedJobState {
@@ -1758,6 +1797,7 @@ impl Engine {
                             let synth_tx = synth_tx.clone();
                             let tracker_for_err = tracker_clone.clone();
                             let budget_for_partition = budget.clone();
+                            let st_for_partition = st.clone();
 
                             tokio::spawn(async move {
                                 // Acquire memory reservation from budget (blocks until available)
@@ -1784,6 +1824,7 @@ impl Engine {
                                     }
                                 }
 
+                                st_for_partition.partition_synth_start(&p_job_id.0, p_idx);
                                 crate::pipeline::buf_synth_start();
                                 crate::pipeline::log_buffers("synth_start_snap");
                                 timeline_event(
@@ -1809,6 +1850,7 @@ impl Engine {
 
                                 match synth_result {
                                     Ok(Ok((synth, item))) => {
+                                        st_for_partition.partition_synth_end(&p_job_id.0, p_idx);
                                         timeline_event(
                                             "SYNTH_END",
                                             &p_job_id.0,
@@ -1841,6 +1883,7 @@ impl Engine {
                                         // reservation ownership transferred to SynthesizedJob
                                     }
                                     Ok(Err(e)) => {
+                                        st_for_partition.partition_failed(&p_job_id.0, p_idx);
                                         error!(
                                             error = %e,
                                             job_id = %p_job_id,
@@ -1866,6 +1909,7 @@ impl Engine {
                                         }
                                     }
                                     Err(e) => {
+                                        st_for_partition.partition_failed(&p_job_id.0, p_idx);
                                         error!(
                                             error = %e,
                                             job_id = %p_job_id,
@@ -2370,6 +2414,7 @@ impl Engine {
                 let tracker = self.tracker.clone();
                 let synth_rx = synth_rx.clone();
                 let mut shutdown_rx = self.shutdown_rx.clone();
+                let st = self.status_tracker.clone();
                 // Phase 8: Convert GPU mutex pointer to usize for Send safety.
                 // Raw pointers aren't Send, but the underlying C++ mutex lives
                 // for the engine's lifetime, so the address is always valid.
@@ -2436,6 +2481,10 @@ impl Engine {
                         );
 
                         async {
+                            // Status tracker: mark partition as GPU-proving
+                            if let (Some(ref pid), Some(pi)) = (&parent_job_id, partition_index) {
+                                st.partition_gpu_start(&pid.0, pi, worker_id);
+                            }
                             timeline_event("GPU_PICKUP", &job_id.0, &format!(
                                 "worker={}{}", worker_id,
                                 if let Some(pi) = partition_index { format!(",partition={}", pi) } else { String::new() }
@@ -2504,7 +2553,7 @@ impl Engine {
                                     process_partition_result(
                                         &mut t, result, parent_id, p_idx,
                                         synth_duration, proof_kind, worker_id,
-                                        &circuit_id_str, submitted_at,
+                                        &circuit_id_str, submitted_at, &st,
                                     );
                                 } else {
                                     process_monolithic_result(
@@ -2558,6 +2607,7 @@ impl Engine {
                                     let fin_gpu_job_id = gpu_job_id.clone();
                                     let fin_single_request = single_request_owned.clone();
                                     let fin_reservation = reservation; // moved into finalizer
+                                    let fin_st = st.clone();
                                     tokio::spawn(async move {
                                         // Finalize on a blocking thread (joins b_g2_msm)
                                         let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Duration)> {
@@ -2595,7 +2645,7 @@ impl Engine {
                                             crate::engine::process_partition_result(
                                                 &mut t, result, parent_id, p_idx,
                                                 synth_duration, proof_kind, worker_id,
-                                                &circuit_id_str, submitted_at,
+                                                &circuit_id_str, submitted_at, &fin_st,
                                             );
                                             return;
                                         }
@@ -2674,7 +2724,7 @@ impl Engine {
                                 process_partition_result(
                                     &mut t, result, parent_id, p_idx,
                                     synth_duration, proof_kind, worker_id,
-                                    &circuit_id_str, submitted_at,
+                                    &circuit_id_str, submitted_at, &st,
                                 );
                                 return;
                             }
@@ -2989,6 +3039,66 @@ impl Engine {
         let ms = elapsed.as_millis() as u64;
         srs.insert(circuit_id.to_string(), ms);
         Ok((false, ms))
+    }
+
+    /// Get a detailed status snapshot for the HTTP debug API.
+    ///
+    /// Collects memory budget, pipeline jobs, GPU workers, SRS/PCE allocations.
+    pub async fn detailed_status(&self) -> crate::status::StatusSnapshot {
+        let now = std::time::Instant::now();
+
+        // SRS entries
+        let srs_entries = {
+            let mgr = self.srs_manager.try_lock();
+            match mgr {
+                Ok(mgr) => mgr.evictable_entries().iter().map(|(cid, bytes, last_used)| {
+                    crate::status::SrsEntry {
+                        circuit_id: cid.to_string(),
+                        bytes: *bytes,
+                        last_used_secs_ago: now.duration_since(*last_used).as_secs_f64(),
+                        evictable: true,
+                    }
+                }).chain(
+                    // Also include non-evictable (in-use) entries
+                    mgr.loaded_ids().iter().filter_map(|cid| {
+                        if mgr.evictable_entries().iter().any(|(c, _, _)| c == cid) {
+                            None
+                        } else {
+                            Some(crate::status::SrsEntry {
+                                circuit_id: cid.to_string(),
+                                bytes: mgr.srs_file_size(cid),
+                                last_used_secs_ago: 0.0,
+                                evictable: false,
+                            })
+                        }
+                    })
+                ).collect(),
+                Err(_) => vec![], // Mutex held, skip this poll
+            }
+        };
+
+        // PCE entries
+        #[cfg(feature = "cuda-supraseal")]
+        let pce_entries: Vec<crate::status::PceEntry> = self.pce_cache.evictable_entries().iter().map(|(cid, bytes, last_used)| {
+            crate::status::PceEntry {
+                circuit_id: cid.to_string(),
+                bytes: *bytes,
+                last_used_secs_ago: now.duration_since(*last_used).as_secs_f64(),
+                evictable: true,
+            }
+        }).collect();
+        #[cfg(not(feature = "cuda-supraseal"))]
+        let pce_entries: Vec<crate::status::PceEntry> = vec![];
+
+        // Update queue depth
+        self.status_tracker.set_queue_depth(self.scheduler.len().await as u32);
+
+        self.status_tracker.snapshot(srs_entries, pce_entries)
+    }
+
+    /// Get the status tracker (for sharing with the HTTP server).
+    pub fn status_tracker(&self) -> &Arc<crate::status::StatusTracker> {
+        &self.status_tracker
     }
 
     /// Shutdown the engine gracefully.
