@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/curiostorage/harmonyquery"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -38,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -62,7 +63,7 @@ var log = logging.Logger("curio/deps")
 func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 	// #1 CLI opts
 	fromCLI := func() (*harmonydb.DB, error) {
-		dbConfig := config.HarmonyDB{
+		dbConfig := harmonyquery.Config{
 			Username:    cctx.String("db-user"),
 			Password:    cctx.String("db-password"),
 			Hosts:       strings.Split(cctx.String("db-host"), ","),
@@ -79,7 +80,14 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 			return nil, err
 		}
 		if c, ok := cfg.(*config.StorageMiner); ok {
-			return harmonydb.NewFromConfig(c.HarmonyDB)
+			return harmonydb.NewFromConfig(harmonyquery.Config{
+				Username:    c.HarmonyDB.Username,
+				Password:    c.HarmonyDB.Password,
+				Hosts:       c.HarmonyDB.Hosts,
+				Database:    c.HarmonyDB.Database,
+				Port:        c.HarmonyDB.Port,
+				LoadBalance: c.HarmonyDB.LoadBalance,
+			})
 		}
 		return nil, errors.New("not a miner config")
 	}
@@ -174,7 +182,7 @@ type Deps struct {
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
-	EthClient         *lazy.Lazy[*ethclient.Client]
+	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
 }
 
@@ -261,7 +269,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.EthClient == nil {
-		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+		deps.EthClient = lazy.MakeLazy[ethchain.EthClient](func() (ethchain.EthClient, error) {
 			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 				cfgApiInfo = []string{v}

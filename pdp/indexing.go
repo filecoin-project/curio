@@ -5,9 +5,9 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -16,7 +16,7 @@ import (
 // This is a read-only check that can be done outside a transaction for existing datasets.
 func CheckIfIndexingNeeded(
 	ctx context.Context,
-	ethClient *ethclient.Client,
+	ethClient ethchain.EthClient,
 	dataSetId uint64,
 ) (bool, error) {
 	// Get the PDPVerifier contract instance

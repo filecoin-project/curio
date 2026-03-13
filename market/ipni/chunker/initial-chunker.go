@@ -234,7 +234,10 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 		}
 
 		// Send the batch
-		br := tx.SendBatch(ctx, batch)
+		br, err := tx.SendBatch(ctx, batch)
+		if err != nil {
+			return false, xerrors.Errorf("failed to send batch: %w", err)
+		}
 		defer func() {
 			_ = br.Close()
 		}()
@@ -298,7 +301,10 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 		}
 
 		// Send the batch
-		br := tx.SendBatch(ctx, batch)
+		br, err := tx.SendBatch(ctx, batch)
+		if err != nil {
+			return false, xerrors.Errorf("failed to send batch: %w", err)
+		}
 		defer func() {
 			_ = br.Close()
 		}()

@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/curiostorage/harmonyquery"
 	"github.com/docker/go-units"
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
@@ -202,7 +203,7 @@ type MigrationData struct {
 	selectTemplates *promptui.SelectTemplates
 	MinerConfigPath string
 	DB              *harmonydb.DB
-	HarmonyCfg      config.HarmonyDB
+	HarmonyCfg      harmonyquery.Config
 	MinerID         address.Address
 	full            api.Chain
 	cctx            *cli.Context
@@ -690,7 +691,15 @@ func completeNonSP(d *MigrationData) {
 }
 
 func getDBDetails(d *MigrationData) {
-	harmonyCfg := config.DefaultStorageMiner().HarmonyDB
+	minerCfg := config.DefaultStorageMiner()
+	harmonyCfg := harmonyquery.Config{
+		Username:    minerCfg.HarmonyDB.Username,
+		Password:    minerCfg.HarmonyDB.Password,
+		Hosts:       minerCfg.HarmonyDB.Hosts,
+		Database:    minerCfg.HarmonyDB.Database,
+		Port:        minerCfg.HarmonyDB.Port,
+		LoadBalance: minerCfg.HarmonyDB.LoadBalance,
+	}
 	for {
 		i, _, err := (&promptui.Select{
 			Label: d.T("Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)"),

@@ -5,18 +5,18 @@ import (
 	"database/sql"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
+func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingTerminations(ctx, db, ethClient)
 		if err != nil {
@@ -28,7 +28,7 @@ func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient *ethclient.Client, p
 	}
 }
 
-func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processPendingTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 
 	var details []struct {
 		DataSetId int64        `db:"id"`
