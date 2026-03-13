@@ -118,6 +118,91 @@ async fn main() -> Result<()> {
     let engine = Arc::new(Engine::new(config.clone()));
     engine.start().await?;
 
+    // ─── HTTP status server (lightweight debug API) ────────────────────
+    //
+    // Spawns a minimal raw-TCP HTTP/1.1 server on a separate port for
+    // live monitoring from vast-manager's HTML UI. Serves GET /status
+    // returning JSON from engine.detailed_status(). No external HTTP
+    // crate needed — just manual request line parsing + JSON response.
+    if !config.daemon.status_listen.is_empty() {
+        let status_listen = config.daemon.status_listen.clone();
+        let status_engine = engine.clone();
+        tokio::spawn(async move {
+            let listener = match tokio::net::TcpListener::bind(&status_listen).await {
+                Ok(l) => {
+                    info!(addr = %status_listen, "status HTTP server listening");
+                    l
+                }
+                Err(e) => {
+                    tracing::error!(addr = %status_listen, error = %e, "failed to bind status HTTP server");
+                    return;
+                }
+            };
+            loop {
+                let (stream, _peer) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "status HTTP accept error");
+                        continue;
+                    }
+                };
+                let engine = status_engine.clone();
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut stream = stream;
+
+                    // Read request (up to 4 KiB — we only need the first line)
+                    let mut buf = vec![0u8; 4096];
+                    let n = match stream.read(&mut buf).await {
+                        Ok(n) if n > 0 => n,
+                        _ => return,
+                    };
+                    let request_text = String::from_utf8_lossy(&buf[..n]);
+                    let first_line = request_text.lines().next().unwrap_or("");
+
+                    if first_line.starts_with("GET /status") {
+                        let snapshot = engine.detailed_status().await;
+                        let body = match serde_json::to_string(&snapshot) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                let err_body = format!("{{\"error\":\"{}\"}}", e);
+                                let resp = format!(
+                                    "HTTP/1.1 500 Internal Server Error\r\n\
+                                     Content-Type: application/json\r\n\
+                                     Content-Length: {}\r\n\
+                                     Access-Control-Allow-Origin: *\r\n\
+                                     Connection: close\r\n\r\n{}",
+                                    err_body.len(), err_body,
+                                );
+                                let _ = stream.write_all(resp.as_bytes()).await;
+                                return;
+                            }
+                        };
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\n\
+                             Content-Type: application/json\r\n\
+                             Content-Length: {}\r\n\
+                             Access-Control-Allow-Origin: *\r\n\
+                             Connection: close\r\n\r\n{}",
+                            body.len(), body,
+                        );
+                        let _ = stream.write_all(resp.as_bytes()).await;
+                    } else {
+                        let body = "404 Not Found\n";
+                        let resp = format!(
+                            "HTTP/1.1 404 Not Found\r\n\
+                             Content-Type: text/plain\r\n\
+                             Content-Length: {}\r\n\
+                             Connection: close\r\n\r\n{}",
+                            body.len(), body,
+                        );
+                        let _ = stream.write_all(resp.as_bytes()).await;
+                    }
+                });
+            }
+        });
+    }
+
     // Create gRPC service
     let service = ProvingService::new(engine.clone());
 

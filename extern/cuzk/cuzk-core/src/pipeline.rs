@@ -38,21 +38,21 @@ use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 /// Number of ProvingAssignment sets in-flight (each has a/b/c ~12 GiB + density ~48 MB).
 /// Incremented after synthesis, decremented after dealloc thread completes.
-static PROVERS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static PROVERS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Number of aux_assignment buffers in-flight (~4 GiB each).
 /// Incremented after synthesis, decremented after dealloc.
-static AUX_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static AUX_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Number of a/b/c-cleared provers (density bitvecs only, ~48 MB each).
 /// After prove_start, a/b/c are freed but density is kept for b_g2_msm.
-static PROVERS_SHELL_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static PROVERS_SHELL_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Number of pending proof handles (C++ side: split_vectors + tails).
-static PENDING_HANDLES: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static PENDING_HANDLES: AtomicUsize = AtomicUsize::new(0);
 
 /// Number of partitions currently synthesizing.
-static SYNTH_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static SYNTH_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Log current buffer flight counts at a named event.
 /// Uses tracing::debug so it's only emitted when RUST_LOG includes debug for this crate.
@@ -527,7 +527,7 @@ pub struct PceCache;
 #[cfg(not(feature = "cuda-supraseal"))]
 impl PceCache {
     pub fn new(
-        _budget: Arc<crate::memory::MemoryBudget>,
+        _budget: std::sync::Arc<crate::memory::MemoryBudget>,
         _param_cache: std::path::PathBuf,
     ) -> Self {
         PceCache

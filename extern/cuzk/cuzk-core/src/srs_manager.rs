@@ -373,6 +373,14 @@ impl SrsManager {
     pub fn loaded_bytes(&self) -> u64 {
         0
     }
+
+    pub fn ensure_loaded(
+        &mut self,
+        _circuit_id: &CircuitId,
+        _budget_reservation: Option<crate::memory::MemoryReservation>,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("SRS loading requires cuda-supraseal feature")
+    }
 }
 
 #[cfg(test)]

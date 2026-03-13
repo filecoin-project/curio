@@ -11,6 +11,7 @@ pub mod pipeline;
 pub mod prover;
 pub mod scheduler;
 pub mod srs_manager;
+pub mod status;
 pub mod types;
 
 pub use batch_collector::{BatchCollector, BatchConfig, ProofBatch};

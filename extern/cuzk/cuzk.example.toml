@@ -10,6 +10,11 @@
 # UDS:   "unix:///run/curio/cuzk.sock"
 listen = "0.0.0.0:9820"
 
+# HTTP status API listen address (for debug UI polling).
+# Serves GET /status returning JSON with pipeline, GPU worker, and memory state.
+# Empty string or omitted = disabled.
+# status_listen = "0.0.0.0:9821"
+
 [srs]
 # Directory containing Filecoin proof parameter files (.params, .vk).
 # Must contain the relevant v28-*.params files for the proof types you run.

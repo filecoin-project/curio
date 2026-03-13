@@ -32,6 +32,11 @@ pub struct DaemonConfig {
     ///   "0.0.0.0:9820"
     #[serde(default = "DaemonConfig::default_listen")]
     pub listen: String,
+
+    /// HTTP status API listen address (for debug UI polling).
+    /// Empty string disables. Examples: "0.0.0.0:9821", "127.0.0.1:9821"
+    #[serde(default)]
+    pub status_listen: String,
 }
 
 impl DaemonConfig {
@@ -44,6 +49,7 @@ impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             listen: Self::default_listen(),
+            status_listen: String::new(),
         }
     }
 }
