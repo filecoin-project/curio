@@ -1482,7 +1482,7 @@ function renderCuzkPanel(d) {
       html += '<div class="pipeline-job">';
       const elapsed = job.started_secs_ago.toFixed(0);
       html += `<div class="pipeline-job-hdr">`;
-      html += `<span class="jid">${esc(job.job_id.substring(0,8))}</span>`;
+      html += `<span class="jid">${esc(job.job_id.substring(0,16))}</span>`;
       html += `<span class="kind">${esc(job.proof_kind)}</span>`;
       html += `<span class="elapsed">${elapsed}s</span>`;
       html += `<span style="color:var(--green)">${job.partitions_done}/${job.total_partitions} done</span>`;
