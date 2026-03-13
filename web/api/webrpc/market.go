@@ -1066,7 +1066,6 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 
 	pipelineMap := make(map[string]MK12DealPipeline)
 	for _, pipeline := range pipelines {
-		pipeline := pipeline
 		pipelineMap[pipeline.UUID] = pipeline
 	}
 
@@ -1185,13 +1184,11 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 
 	mk20pipelineMap := make(map[string]MK20DDOPipeline)
 	for _, pipeline := range mk20Pipelines {
-		pipeline := pipeline
 		mk20pipelineMap[pipeline.ID] = pipeline
 	}
 
 	mk20PDPpipelineMap := make(map[string]MK20PDPPipeline)
 	for _, pipeline := range mk20PDPPipelines {
-		pipeline := pipeline
 		mk20PDPpipelineMap[pipeline.ID] = pipeline
 	}
 

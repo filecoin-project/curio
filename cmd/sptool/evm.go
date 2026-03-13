@@ -227,10 +227,7 @@ func CreateAllocationViaEVMMsg(ctx context.Context, api api.Gateway, infos []Pie
 	// Batch allocationRequests to create message
 	var messages []*types.Message
 	for i := 0; i < len(allocationRequests); i += batchSize {
-		end := i + batchSize
-		if end > len(allocationRequests) {
-			end = len(allocationRequests)
-		}
+		end := min(i+batchSize, len(allocationRequests))
 		batch := allocationRequests[i:end]
 		arequest := &verifreg9.AllocationRequests{
 			Allocations: batch,

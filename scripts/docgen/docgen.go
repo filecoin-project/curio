@@ -25,16 +25,16 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-var ExampleValues = map[reflect.Type]interface{}{
+var ExampleValues = map[reflect.Type]any{
 	//reflect.TypeOf(api.MinerSubsystem(0)): api.MinerSubsystem(1),
-	reflect.TypeOf(auth.Permission("")): auth.Permission("write"),
-	reflect.TypeOf(""):                  "string value",
-	reflect.TypeOf(uint64(42)):          uint64(42),
-	reflect.TypeOf(byte(7)):             byte(7),
-	reflect.TypeOf([]byte{}):            []byte("byte array"),
+	reflect.TypeFor[auth.Permission](): auth.Permission("write"),
+	reflect.TypeFor[string]():          "string value",
+	reflect.TypeFor[uint64]():          uint64(42),
+	reflect.TypeFor[byte]():            byte(7),
+	reflect.TypeFor[[]byte]():          []byte("byte array"),
 }
 
-func addExample(v interface{}) {
+func addExample(v any) {
 	ExampleValues[reflect.TypeOf(v)] = v
 }
 
@@ -44,8 +44,8 @@ func init() {
 		panic(err)
 	}
 
-	ExampleValues[reflect.TypeOf(c)] = c
-	ExampleValues[reflect.TypeOf(&c)] = &c
+	ExampleValues[reflect.TypeFor[cid.Cid]()] = c
+	ExampleValues[reflect.TypeFor[*cid.Cid]()] = &c
 
 	c2, err := cid.Decode("bafy2bzacebp3shtrn43k7g3unredz7fxn4gj533d3o43tqn2p2ipxxhrvchve")
 	if err != nil {
@@ -54,15 +54,15 @@ func init() {
 
 	tsk := types.NewTipSetKey(c, c2)
 
-	ExampleValues[reflect.TypeOf(tsk)] = tsk
+	ExampleValues[reflect.TypeFor[types.TipSetKey]()] = tsk
 
 	addr, err := address.NewIDAddress(1234)
 	if err != nil {
 		panic(err)
 	}
 
-	ExampleValues[reflect.TypeOf(addr)] = addr
-	ExampleValues[reflect.TypeOf(&addr)] = &addr
+	ExampleValues[reflect.TypeFor[address.Address]()] = addr
+	ExampleValues[reflect.TypeFor[*address.Address]()] = &addr
 
 	//pid, err := peer.Decode("12D3KooWGzxzKZYveHXtpG6AsrUJBcWxHBFS2HsEoGTxrMLvKXtf")
 	//if err != nil {
@@ -392,14 +392,14 @@ func init() {
 	//})
 }
 
-func GetAPIType(name, pkg string) (i interface{}, t reflect.Type, permStruct []reflect.Type) {
+func GetAPIType(name, pkg string) (i any, t reflect.Type, permStruct []reflect.Type) {
 	switch pkg {
 	case "api": // latest
 		switch name {
 		case "Curio":
 			i = &api.CurioStruct{}
-			t = reflect.TypeOf(new(struct{ api.Curio })).Elem()
-			permStruct = append(permStruct, reflect.TypeOf(api.CurioStruct{}.Internal))
+			t = reflect.TypeFor[struct{ api.Curio }]()
+			permStruct = append(permStruct, reflect.TypeFor[api.CurioMethods]())
 		default:
 			panic("unknown type")
 		}
@@ -407,7 +407,7 @@ func GetAPIType(name, pkg string) (i interface{}, t reflect.Type, permStruct []r
 	return
 }
 
-func ExampleValue(method string, t, parent reflect.Type) interface{} {
+func ExampleValue(method string, t, parent reflect.Type) any {
 	v, ok := ExampleValues[t]
 	if ok {
 		return v
@@ -432,7 +432,7 @@ func ExampleValue(method string, t, parent reflect.Type) interface{} {
 		}
 		return out.Interface()
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if t.Elem().Kind() == reflect.Struct {
 			es := exampleStruct(method, t.Elem(), t)
 			ExampleValues[t] = es
@@ -450,7 +450,7 @@ func ExampleValue(method string, t, parent reflect.Type) interface{} {
 	panic(fmt.Sprintf("No example value for type: %s (method '%s')", t, method))
 }
 
-func exampleStruct(method string, t, parent reflect.Type) interface{} {
+func exampleStruct(method string, t, parent reflect.Type) any {
 	ns := reflect.New(t)
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)

@@ -348,7 +348,7 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 	br := bufio.NewReader(reader)
 
 	mhs := make([]multihash.Multihash, 0, numBlocks)
-	for i := int64(0); i < numBlocks; i++ {
+	for range numBlocks {
 		bcid, err := ipniculib.SkipCarNode(br)
 		if err != nil {
 			return nil, xerrors.Errorf("skipping car node: %w", err)

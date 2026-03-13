@@ -250,8 +250,8 @@ func generate(path, pkg, outpkg, outfile string) error {
 				if len(filteredComments) > 0 {
 					tagstr := filteredComments[len(filteredComments)-1].List[0].Text
 					tagstr = strings.TrimPrefix(tagstr, "//")
-					tl := strings.Split(strings.TrimSpace(tagstr), " ")
-					for _, ts := range tl {
+					tl := strings.SplitSeq(strings.TrimSpace(tagstr), " ")
+					for ts := range tl {
 						tf := strings.Split(ts, ":")
 						if len(tf) != 2 {
 							continue
@@ -347,7 +347,7 @@ func (s *{{$name}}Stub) {{.Num}}({{.NamedParams}}) ({{.Results}}) {
 	return os.WriteFile(outfile, formatted, 0o666)
 }
 
-func doTemplate(w io.Writer, info interface{}, templ string) error {
+func doTemplate(w io.Writer, info any, templ string) error {
 	t := template.Must(template.New("").
 		Funcs(template.FuncMap{}).Parse(templ))
 

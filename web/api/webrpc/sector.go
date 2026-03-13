@@ -370,7 +370,6 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	locs := []LocationTable{}
 
 	for i, loc := range sectorLocations {
-		loc := loc
 		if loc.FileType == storiface.FTUnsealed {
 			si.HasUnsealed = true
 		}
@@ -1385,7 +1384,6 @@ func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, erro
 	deadlineInfoChan := make(chan deadlineInfo, len(stats))
 
 	for _, sp := range spMap {
-		sp := sp
 		eg.Go(func() error {
 			// Get deadlines for this miner
 			deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)

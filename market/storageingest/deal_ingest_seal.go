@@ -210,7 +210,6 @@ func (p *PieceIngester) Seal() error {
 			}
 
 			for _, sector := range openSectors {
-				sector := sector
 				if shouldSeal(sector) {
 					// Start sealing the sector
 					cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, mid, sector.number, p.minerDetails[mid].sealProof)
@@ -371,7 +370,6 @@ func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Addre
 	}
 
 	for _, sec := range openSectors {
-		sec := sec
 		// Check that each sector has unique pieces
 		var nextSector bool
 		for i := range sec.pieces {
@@ -494,7 +492,6 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 
 	sectorMap := map[abi.SectorNumber]*openSector{}
 	for _, pi := range pieces {
-		pi := pi
 		sector, ok := sectorMap[pi.Sector]
 		if !ok {
 			sectorMap[pi.Sector] = &openSector{
@@ -530,7 +527,6 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 	var os []*openSector
 
 	for _, v := range sectorMap {
-		v := v
 		os = append(os, v)
 	}
 

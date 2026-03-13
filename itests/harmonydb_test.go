@@ -1,7 +1,6 @@
 package itests
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -16,8 +15,7 @@ import (
 )
 
 func TestCrud(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sharedITestID := harmonydb.ITestNewID()
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, false)
@@ -48,8 +46,7 @@ func TestCrud(t *testing.T) {
 }
 
 func TestTransaction(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testID := harmonydb.ITestNewID()
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
@@ -112,8 +109,7 @@ func TestTransaction(t *testing.T) {
 }
 
 func TestPartialWalk(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testID := harmonydb.ITestNewID()
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
@@ -157,8 +153,7 @@ func TestPartialWalk(t *testing.T) {
 }
 
 func TestDowngradeTo(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testID := harmonydb.ITestNewID()
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)

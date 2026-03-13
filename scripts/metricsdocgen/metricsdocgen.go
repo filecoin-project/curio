@@ -147,10 +147,7 @@ func discoverAndParseMetrics(root string) []fileResult {
 	}
 
 	// Process in parallel: open, check, parse, close - all in one worker call
-	numWorkers := runtime.NumCPU()
-	if numWorkers > 8 {
-		numWorkers = 8
-	}
+	numWorkers := min(runtime.NumCPU(), 8)
 
 	jobs := make(chan string, len(candidates))
 	var results []fileResult
@@ -158,9 +155,7 @@ func discoverAndParseMetrics(root string) []fileResult {
 	var wg sync.WaitGroup
 
 	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for path := range jobs {
 				if metrics := processFile(path); len(metrics) > 0 {
 					mu.Lock()
@@ -168,7 +163,7 @@ func discoverAndParseMetrics(root string) []fileResult {
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	for _, c := range candidates {

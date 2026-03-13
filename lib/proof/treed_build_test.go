@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	pool "github.com/libp2p/go-buffer-pool"
@@ -328,7 +329,7 @@ func Test32G(t *testing.T) {
 
 func hexPrint32LDedup(r io.Reader) string {
 	var prevLine []byte
-	var outStr string
+	var outStr strings.Builder
 	var duplicateLine bool
 	buffer := make([]byte, 32)
 	offset := 0
@@ -350,11 +351,11 @@ func hexPrint32LDedup(r io.Reader) string {
 		} else {
 			if duplicateLine {
 				// Output a marker for the previous duplicate line
-				outStr += "*\n"
+				outStr.WriteString("*\n")
 				duplicateLine = false
 			}
 			// Convert to hex and output
-			outStr += fmt.Sprintf("%08x: %s\n", offset, toHex(buffer))
+			outStr.WriteString(fmt.Sprintf("%08x: %s\n", offset, toHex(buffer)))
 
 			// Update prevLine
 			if len(prevLine) != 32 {
@@ -368,18 +369,18 @@ func hexPrint32LDedup(r io.Reader) string {
 
 	// If the last line was a duplicate, ensure we mark it
 	if duplicateLine {
-		outStr += "*\n"
+		outStr.WriteString("*\n")
 	}
 
-	return outStr
+	return outStr.String()
 }
 
 func toHex(data []byte) string {
-	var hexStr string
+	var hexStr strings.Builder
 	for _, b := range data {
-		hexStr += fmt.Sprintf("%02x ", b)
+		hexStr.WriteString(fmt.Sprintf("%02x ", b))
 	}
-	return hexStr
+	return hexStr.String()
 }
 
 func BenchmarkHashChunk(b *testing.B) {

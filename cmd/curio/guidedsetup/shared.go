@@ -52,7 +52,7 @@ func (storageMiner) Type() string {
 	return "StorageMiner"
 }
 
-func (storageMiner) Config() interface{} {
+func (storageMiner) Config() any {
 	return config.DefaultStorageMiner()
 }
 
