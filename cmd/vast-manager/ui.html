@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vast Worker Manager</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--bg4:#21262d;
+  --border:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#6e7681;
+  --blue:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149;
+  --orange:#d18616;--purple:#bc8cff;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;
+  display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.header h1{font-size:16px;font-weight:600;letter-spacing:0.5px}
+.header-right{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text2)}
+.header-right .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.dot-green{background:var(--green)}
+.dot-yellow{background:var(--yellow)}
+.dot-red{background:var(--red)}
+#refresh-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);
+  padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+#refresh-btn:hover{background:var(--bg4)}
+
+.container{max-width:1600px;margin:0 auto;padding:16px 24px}
+
+/* Summary cards */
+.summary{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;
+  min-width:140px;flex:1}
+.card .label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:4px}
+.card .value{font-size:22px;font-weight:600}
+.card .sub{font-size:11px;color:var(--text3);margin-top:2px}
+.card.highlight{border-color:var(--blue)}
+
+/* Tables */
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:20px;overflow:hidden}
+.panel-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;
+  align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+.panel-header h2{font-size:14px;font-weight:600}
+.panel-header .badge{background:var(--bg4);color:var(--text2);padding:2px 8px;border-radius:10px;font-size:11px}
+.panel-body{padding:0}
+.panel-body.collapsed{display:none}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;
+  color:var(--text2);border-bottom:1px solid var(--border);background:var(--bg3);
+  cursor:pointer;white-space:nowrap;position:sticky;top:0}
+th:hover{color:var(--text)}
+td{padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px}
+tr:hover td{background:var(--bg3)}
+tr.expanded td{background:var(--bg4)}
+
+/* State badges */
+.state{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.state-running{background:rgba(63,185,80,0.15);color:var(--green)}
+.state-bench_done{background:rgba(88,166,255,0.15);color:var(--blue)}
+.state-params_done{background:rgba(210,153,34,0.15);color:var(--yellow)}
+.state-registered{background:rgba(209,134,22,0.15);color:var(--orange)}
+.state-killed{background:rgba(248,81,73,0.15);color:var(--red)}
+.state-loading{background:rgba(139,148,158,0.15);color:var(--text2)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;
+  border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:12px}
+.btn:hover{background:var(--bg4)}
+.btn-danger{border-color:var(--red);color:var(--red)}
+.btn-danger:hover{background:rgba(248,81,73,0.15)}
+.btn-sm{padding:2px 8px;font-size:11px}
+
+/* Instance detail */
+.detail-row td{padding:0 !important;border-bottom:1px solid var(--border)}
+.detail-content{padding:16px;background:var(--bg3)}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px 20px;margin-bottom:16px}
+.detail-item{font-size:12px}
+.detail-item .dl{color:var(--text2)}
+.detail-item .dv{font-weight:500}
+
+/* Log viewer */
+.log-tabs{display:flex;gap:4px;margin-bottom:8px}
+.log-tab{padding:4px 12px;border-radius:6px 6px 0 0;font-size:12px;cursor:pointer;
+  background:var(--bg2);border:1px solid var(--border);border-bottom:none;color:var(--text2)}
+.log-tab.active{background:var(--bg);color:var(--text);font-weight:600}
+.log-viewer{background:var(--bg);border:1px solid var(--border);border-radius:0 8px 8px 8px;
+  padding:8px;max-height:400px;overflow-y:auto;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;
+  font-size:12px;line-height:1.6}
+.log-line{white-space:pre-wrap;word-break:break-all}
+.log-line .src{font-weight:600;margin-right:4px}
+.src-setup{color:var(--blue)}
+.src-cuzk{color:var(--green)}
+.src-curio{color:var(--purple)}
+.src-manager{color:var(--yellow)}
+
+/* Manager log */
+.manager-log{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:8px;max-height:300px;overflow-y:auto;font-family:'SF Mono',Monaco,monospace;
+  font-size:12px;line-height:1.6}
+
+/* Bad hosts */
+.bh-form{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+.bh-form input{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  padding:6px 10px;border-radius:6px;font-size:13px}
+.bh-form input:focus{outline:none;border-color:var(--blue)}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border);
+  padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity 0.3s;z-index:200}
+.toast.show{opacity:1}
+
+/* Offers panel */
+.offers-toolbar{display:flex;gap:8px;align-items:center;padding:12px 16px;border-top:1px solid var(--border);flex-wrap:wrap}
+.offers-toolbar input[type="text"]{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  padding:6px 10px;border-radius:6px;font-size:13px;flex:1;min-width:300px;font-family:'SF Mono',Monaco,monospace}
+.offers-toolbar input[type="text"]:focus{outline:none;border-color:var(--blue)}
+.offers-toolbar .btn{white-space:nowrap}
+.offers-loading{padding:24px;text-align:center;color:var(--text2)}
+.perf-badge{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px}
+.perf-good{background:rgba(63,185,80,0.15);color:var(--green)}
+.perf-ok{background:rgba(210,153,34,0.15);color:var(--yellow)}
+.perf-bad{background:rgba(248,81,73,0.15);color:var(--red)}
+.bad-host-row td{opacity:0.5;text-decoration:line-through}
+.btn-deploy{border-color:var(--green);color:var(--green)}
+.btn-deploy:hover{background:rgba(63,185,80,0.15)}
+.btn-deploy:disabled{opacity:0.3;cursor:not-allowed}
+.deploy-confirm{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);
+  display:flex;align-items:center;justify-content:center;z-index:300}
+.deploy-dialog{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+  padding:24px;min-width:400px;max-width:500px}
+.deploy-dialog h3{margin-bottom:16px;font-size:16px}
+.deploy-field{margin-bottom:12px}
+.deploy-field label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
+.deploy-field input{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  padding:6px 10px;border-radius:6px;font-size:13px;width:100%}
+.deploy-field input:focus{outline:none;border-color:var(--blue)}
+.deploy-field .hint{font-size:11px;color:var(--text3);margin-top:2px}
+.deploy-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+.deploy-info{font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6}
+.deploy-info .mono{color:var(--text)}
+.offer-count-info{font-size:12px;color:var(--text2);padding:0 16px 8px}
+.bulk-toolbar{display:flex;gap:8px;align-items:center;padding:8px 16px;background:var(--bg4);
+  border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.bulk-toolbar .sel-count{font-size:12px;color:var(--text);font-weight:600;margin-right:8px}
+.bulk-toolbar .btn-bulk-deploy{border-color:var(--green);color:var(--green)}
+.bulk-toolbar .btn-bulk-deploy:hover{background:rgba(63,185,80,0.15)}
+.bulk-toolbar .btn-bulk-ignore{border-color:var(--red);color:var(--red)}
+.bulk-toolbar .btn-bulk-ignore:hover{background:rgba(248,81,73,0.15)}
+.offers-table input[type="checkbox"]{cursor:pointer;width:14px;height:14px;accent-color:var(--blue)}
+.bulk-progress{font-size:12px;color:var(--text2);margin-left:8px}
+
+/* cuzk status panel */
+.cuzk-panel{margin-top:16px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);overflow:hidden;min-height:80px}
+.cuzk-header{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.cuzk-header h3{font-size:13px;font-weight:600;color:var(--text)}
+.cuzk-header .uptime{font-size:11px;color:var(--text3)}
+.cuzk-body{padding:12px 16px}
+.cuzk-row{display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+.cuzk-section{flex:1;min-width:200px}
+.cuzk-section h4{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:6px}
+
+/* Memory gauge */
+.mem-gauge{height:20px;background:var(--bg);border-radius:4px;overflow:hidden;position:relative}
+.mem-gauge-fill{height:100%;border-radius:4px;transition:width 0.3s}
+.mem-gauge-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:600;color:var(--text)}
+
+/* Pipeline partition grid */
+.pipeline-job{margin-bottom:10px}
+.pipeline-job-hdr{font-size:12px;margin-bottom:4px;display:flex;gap:12px;align-items:center}
+.pipeline-job-hdr .jid{color:var(--blue);font-family:'SF Mono',Monaco,monospace}
+.pipeline-job-hdr .kind{color:var(--text2)}
+.pipeline-job-hdr .elapsed{color:var(--text3)}
+.partition-grid{display:flex;gap:2px;flex-wrap:wrap}
+.partition-cell{width:72px;height:36px;border-radius:4px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;font-size:10px;font-weight:600;position:relative;
+  border:1px solid transparent;transition:background 0.3s}
+.partition-cell .p-idx{font-size:9px;opacity:0.7;line-height:1}
+.partition-cell .p-time{font-size:10px;line-height:1}
+.p-pending{background:var(--bg4);color:var(--text3)}
+.p-synthesizing{background:rgba(88,166,255,0.25);color:var(--blue);border-color:rgba(88,166,255,0.4)}
+.p-synth_done{background:rgba(188,140,255,0.2);color:var(--purple)}
+.p-gpu{background:rgba(63,185,80,0.25);color:var(--green);border-color:rgba(63,185,80,0.4)}
+.p-done{background:rgba(63,185,80,0.12);color:var(--green);opacity:0.7}
+.p-failed{background:rgba(248,81,73,0.2);color:var(--red)}
+
+/* GPU workers */
+.gpu-workers{display:flex;gap:6px;flex-wrap:wrap}
+.gpu-worker{padding:6px 12px;border-radius:6px;font-size:11px;border:1px solid var(--border);
+  min-width:100px;text-align:center}
+.gpu-worker.idle{background:var(--bg4);color:var(--text3)}
+.gpu-worker.proving{background:rgba(63,185,80,0.15);color:var(--green);border-color:rgba(63,185,80,0.3)}
+.gpu-worker .gw-label{font-weight:600}
+.gpu-worker .gw-detail{font-size:10px;margin-top:2px;opacity:0.8}
+
+/* Alloc bars */
+.alloc-list{display:flex;gap:8px;flex-wrap:wrap}
+.alloc-item{font-size:11px;padding:4px 10px;border-radius:4px;background:var(--bg4);color:var(--text2)}
+.alloc-item .alloc-name{color:var(--text);font-weight:500}
+
+/* Counters row */
+.counter-row{display:flex;gap:16px;flex-wrap:wrap;font-size:12px}
+.counter-item{display:flex;gap:4px;align-items:center}
+.counter-item .cv{font-weight:600;font-family:'SF Mono',Monaco,monospace}
+
+.cuzk-err{padding:16px;color:var(--text3);font-size:12px}
+
+/* Misc */
+.gpu-bar{width:50px;height:6px;background:var(--bg);border-radius:3px;display:inline-block;
+  vertical-align:middle;margin-left:4px;overflow:hidden}
+.gpu-bar-fill{height:100%;border-radius:3px}
+.empty{padding:24px;text-align:center;color:var(--text3)}
+.mono{font-family:'SF Mono',Monaco,monospace}
+.text-right{text-align:right}
+.text-muted{color:var(--text2)}
+.nowrap{white-space:nowrap}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.pulse{animation:pulse 2s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>VAST WORKER MANAGER</h1>
+  <div class="header-right">
+    <span id="status-dot"><span class="dot dot-green"></span> <span id="conn-status">Connected</span></span>
+    <span id="vast-age" class="text-muted"></span>
+    <span>Refresh in <strong id="countdown">10</strong>s</span>
+    <button id="refresh-btn" onclick="refresh()">Refresh Now</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Summary -->
+  <div class="summary" id="summary"></div>
+
+  <!-- Instances -->
+  <div class="panel">
+    <div class="panel-header" onclick="togglePanel('instances')">
+      <h2>Instances <span class="badge" id="inst-count">0</span></h2>
+      <div>
+        <select id="state-filter" onclick="event.stopPropagation()" onchange="renderInstances()">
+          <option value="all">All States</option>
+          <option value="running">Running</option>
+          <option value="bench_done">Bench Done</option>
+          <option value="params_done">Params Done</option>
+          <option value="registered">Registered</option>
+          <option value="loading">Loading</option>
+          <option value="killed">Killed</option>
+        </select>
+      </div>
+    </div>
+    <div class="panel-body" id="instances-body">
+      <table>
+        <thead id="inst-head"></thead>
+        <tbody id="inst-table"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Offers -->
+  <div class="panel">
+    <div class="panel-header" onclick="togglePanel('offers')">
+      <h2>Offers <span class="badge" id="offers-count">0</span></h2>
+      <div style="font-size:11px;color:var(--text2)">[O] to toggle</div>
+    </div>
+    <div class="panel-body collapsed" id="offers-body">
+      <div class="offers-toolbar">
+        <input type="text" id="offers-filter" placeholder="disk_space>=250 dph<=0.9 gpu_ram>12.5 cpu_ram>=240 cpu_cores>25 inet_down>100 cuda_vers>=13.0"
+          value="disk_space>=250 dph<=0.9 gpu_ram>12.5 cpu_ram>=240 cpu_cores>25 inet_down>100 cuda_vers>=13.0"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();searchOffers()}">
+        <button class="btn" onclick="searchOffers()">Search</button>
+        <label style="font-size:12px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="offers-hide-bad" checked onchange="renderOffers()"> Hide bad hosts
+        </label>
+      </div>
+      <div id="offers-info" class="offer-count-info"></div>
+      <div id="offers-content">
+        <div class="offers-loading">Press Search or [O] to load offers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy confirmation dialog (hidden) -->
+  <div id="deploy-dialog" class="deploy-confirm" style="display:none" onclick="if(event.target===this)closeDeployDialog()">
+    <div class="deploy-dialog">
+      <h3>Deploy Instance</h3>
+      <div class="deploy-info" id="deploy-offer-info"></div>
+      <div class="deploy-field">
+        <label>Min Rate (proofs/hr) — max $<span id="deploy-cost-per-proof">0.008</span>/proof</label>
+        <input type="number" id="deploy-min-rate" value="30" step="1" min="0">
+        <div class="hint">Instance destroyed if bench &lt; this. Auto-set from $/hr &div; $0.008/proof</div>
+      </div>
+      <div class="deploy-field">
+        <label>Max $/proof</label>
+        <input type="number" id="deploy-max-cpp" value="0.008" step="0.001" min="0.001" onchange="recalcMinRate()" oninput="recalcMinRate()">
+        <div class="hint">Adjust to change the min rate threshold (saved across sessions)</div>
+      </div>
+      <div class="deploy-field">
+        <label>Disk (GB)</label>
+        <input type="number" id="deploy-disk" value="250" step="50" min="100" onchange="saveDisk()">
+      </div>
+      <div class="deploy-actions">
+        <button class="btn" onclick="closeDeployDialog()">Cancel</button>
+        <button class="btn btn-deploy" id="deploy-confirm-btn" onclick="confirmDeploy()">Deploy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manager Log -->
+  <div class="panel">
+    <div class="panel-header" onclick="togglePanel('mlog')">
+      <h2>Manager Log <span class="badge" id="mlog-count">0</span></h2>
+    </div>
+    <div class="panel-body collapsed" id="mlog-body">
+      <div class="manager-log" id="mlog-content"></div>
+    </div>
+  </div>
+
+  <!-- Bad Hosts -->
+  <div class="panel">
+    <div class="panel-header" onclick="togglePanel('bhosts')">
+      <h2>Bad Hosts <span class="badge" id="bh-count">0</span></h2>
+    </div>
+    <div class="panel-body collapsed" id="bhosts-body">
+      <table>
+        <thead><tr><th>Machine ID</th><th>Reason</th><th>Added</th><th></th></tr></thead>
+        <tbody id="bh-table"></tbody>
+      </table>
+      <div class="bh-form">
+        <input type="text" id="bh-machine-id" placeholder="Machine ID" style="width:120px">
+        <input type="text" id="bh-reason" placeholder="Reason" style="flex:1">
+        <button class="btn" onclick="addBadHost()">Add Bad Machine</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';  // same origin
+let data = null;
+let expandedUUID = null;
+let logFilter = 'all';
+let sortCol = null;
+let sortDir = 1;
+let refreshInterval = 10;
+let countdown = refreshInterval;
+let mlogVisible = false;
+
+// ── Data fetching ──────────────────────────────────────────
+
+async function refresh() {
+  try {
+    const r = await fetch(API + '/api/dashboard');
+    if (!r.ok) throw new Error(r.statusText);
+    data = await r.json();
+    render();
+    setConnected(true);
+  } catch(e) {
+    console.error('Dashboard fetch failed:', e);
+    setConnected(false);
+  }
+  countdown = refreshInterval;
+  if (mlogVisible) fetchManagerLogs();
+  if (expandedUUID) fetchInstanceLogs(expandedUUID);
+}
+
+async function fetchManagerLogs() {
+  try {
+    const r = await fetch(API + '/api/manager-logs?tail=500');
+    const lines = await r.json();
+    renderManagerLogs(lines);
+  } catch(e) { console.error('Manager logs fetch failed:', e); }
+}
+
+async function fetchInstanceLogs(uuid) {
+  try {
+    const src = logFilter === 'all' ? '' : `&source=${logFilter}`;
+    const r = await fetch(API + `/api/instance-logs/${uuid}?tail=1000${src}`);
+    const lines = await r.json();
+    renderInstanceLogs(uuid, lines);
+  } catch(e) { console.error('Instance logs fetch failed:', e); }
+}
+
+// ── Rendering ──────────────────────────────────────────────
+
+function render() {
+  if (!data) return;
+  renderSummary();
+  renderInstances();
+  renderBadHosts();
+}
+
+function renderSummary() {
+  const s = data.summary;
+  const el = document.getElementById('summary');
+  const totalGPUs = data.instances.reduce((a, i) => a + (i.state !== 'killed' && i.state !== 'loading' ? (i.num_gpus || 0) : 0), 0);
+  el.innerHTML = `
+    <div class="card"><div class="label">Running</div><div class="value" style="color:var(--green)">${s.running}</div></div>
+    <div class="card"><div class="label">Benchmarking</div><div class="value" style="color:var(--blue)">${s.benching}</div></div>
+    <div class="card"><div class="label">Fetching</div><div class="value" style="color:var(--yellow)">${s.fetching}</div></div>
+    ${s.loading ? `<div class="card"><div class="label">Loading</div><div class="value" style="color:var(--text2)">${s.loading}</div></div>` : ''}
+    <div class="card"><div class="label">Killed</div><div class="value" style="color:var(--red)">${s.killed}</div></div>
+    <div class="card"><div class="label">Total $/hr</div><div class="value">$${s.total_dph.toFixed(2)}</div>
+      <div class="sub">${totalGPUs} GPU${totalGPUs!==1?'s':''}</div></div>
+    <div class="card"><div class="label">Proofs/hr</div><div class="value">${s.total_proofs_hour.toFixed(1)}</div></div>
+    <div class="card highlight"><div class="label">Avg $/proof</div>
+      <div class="value">${s.avg_price_per_proof > 0 ? '$'+s.avg_price_per_proof.toFixed(4) : '-'}</div></div>
+  `;
+  document.getElementById('inst-count').textContent = data.instances.length;
+  if (data.vast_cache_age_s > 120) {
+    document.getElementById('vast-age').textContent = `Vast data ${Math.round(data.vast_cache_age_s)}s old`;
+    document.getElementById('vast-age').style.color = 'var(--yellow)';
+  } else if (data.vast_cache_age_s > 0) {
+    document.getElementById('vast-age').textContent = `Vast data ${Math.round(data.vast_cache_age_s)}s ago`;
+    document.getElementById('vast-age').style.color = '';
+  }
+}
+
+const COLUMNS = [
+  {key:'state', label:'State', w:'90px'},
+  {key:'label', label:'Label'},
+  {key:'gpu', label:'GPU'},
+  {key:'runner_id', label:'Runner', align:'right'},
+  {key:'bench_rate', label:'Rate (p/h)', align:'right'},
+  {key:'dph_total', label:'$/hr', align:'right'},
+  {key:'price_per_proof', label:'$/proof', align:'right'},
+  {key:'gpu_util', label:'GPU%', align:'right'},
+  {key:'gpu_temp', label:'Temp', align:'right'},
+  {key:'mem', label:'RAM', align:'right'},
+  {key:'uptime', label:'Uptime', align:'right'},
+  {key:'actions', label:'Actions', sort:false},
+];
+
+function renderInstances() {
+  const filter = document.getElementById('state-filter').value;
+  let instances = data.instances;
+  if (filter !== 'all') instances = instances.filter(i => i.state === filter);
+
+  if (sortCol) {
+    instances = [...instances].sort((a, b) => {
+      let va = getSortVal(a, sortCol), vb = getSortVal(b, sortCol);
+      if (typeof va === 'string') return va.localeCompare(vb) * sortDir;
+      return ((va||0) - (vb||0)) * sortDir;
+    });
+  }
+
+  // Header
+  const head = document.getElementById('inst-head');
+  head.innerHTML = '<tr>' + COLUMNS.map(c => {
+    const arrow = sortCol === c.key ? (sortDir > 0 ? ' ^' : ' v') : '';
+    const click = c.sort === false ? '' : `onclick="sortBy('${c.key}')"`;
+    const align = c.align === 'right' ? ' class="text-right"' : '';
+    return `<th${align} ${click} style="${c.w?'width:'+c.w:''}">${c.label}${arrow}</th>`;
+  }).join('') + '</tr>';
+
+  // Body
+  const tbody = document.getElementById('inst-table');
+  if (instances.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="' + COLUMNS.length + '" class="empty">No instances</td></tr>';
+    return;
+  }
+
+  let html = '';
+  for (const inst of instances) {
+    const expanded = inst.uuid === expandedUUID;
+    const cls = expanded ? ' class="expanded"' : '';
+    html += `<tr${cls} onclick="toggleExpand('${inst.uuid}')" style="cursor:pointer">`;
+    html += `<td><span class="state state-${inst.state}">${stateLabel(inst.state)}</span></td>`;
+    html += `<td class="mono">${esc(inst.label||'-')}</td>`;
+    html += `<td>${inst.num_gpus?inst.num_gpus+'x ':''}${esc(inst.gpu_name||'-')}</td>`;
+    html += `<td class="text-right">${inst.runner_id}</td>`;
+    html += `<td class="text-right">${inst.bench_rate != null ? inst.bench_rate.toFixed(1) : '-'}</td>`;
+    html += `<td class="text-right">${inst.dph_total > 0 ? '$'+inst.dph_total.toFixed(3) : '-'}</td>`;
+    html += `<td class="text-right">${inst.price_per_proof > 0 ? '$'+inst.price_per_proof.toFixed(4) : '-'}</td>`;
+    html += `<td class="text-right">${renderGpuUtil(inst.gpu_util)}</td>`;
+    html += `<td class="text-right">${inst.gpu_temp > 0 ? Math.round(inst.gpu_temp)+'C' : '-'}</td>`;
+    html += `<td class="text-right">${inst.mem_limit_gb > 0 ? fmtGB(inst.mem_limit_gb) : (inst.cpu_ram_mb > 0 ? fmtGB(inst.cpu_ram_mb/1024) : '-')}</td>`;
+    html += `<td class="text-right nowrap">${fmtUptime(inst)}</td>`;
+    html += `<td class="nowrap">`;
+    if (inst.ssh_cmd) html += `<button class="btn btn-sm" onclick="event.stopPropagation();copySSH('${esc(inst.ssh_cmd)}')" title="${esc(inst.ssh_cmd)}">SSH</button> `;
+    if (inst.state !== 'killed') html += `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();killInstance(${inst.vast_id},'${inst.uuid}','${esc(inst.label)}')">Kill</button>`;
+    html += `</td></tr>`;
+
+    if (expanded) {
+      html += `<tr class="detail-row"><td colspan="${COLUMNS.length}"><div class="detail-content">`;
+      html += renderDetail(inst);
+      if (inst.state === 'running' || inst.state === 'bench_done') {
+        const cached = (cuzkLastData && cuzkPollUUID === inst.uuid) ? renderCuzkPanel(cuzkLastData) : '<div class="cuzk-body cuzk-err">Connecting to cuzk...</div>';
+        html += `<div id="cuzk-${inst.uuid}" class="cuzk-panel">${cached}</div>`;
+      }
+      html += `<div id="logs-${inst.uuid}"><div class="text-muted">Loading logs...</div></div>`;
+      html += `</div></td></tr>`;
+    }
+  }
+  tbody.innerHTML = html;
+
+  if (expandedUUID) fetchInstanceLogs(expandedUUID);
+}
+
+function renderDetail(inst) {
+  const items = [
+    ['UUID', inst.uuid],
+    ['Vast ID', inst.vast_id || '-'],
+    ['Host ID', inst.host_id || '-'],
+    ['Machine ID', inst.machine_id || '-'],
+    ['Location', inst.geolocation || '-'],
+    ['Public IP', inst.public_ip || '-'],
+    ['GPU', `${inst.num_gpus||0}x ${inst.gpu_name||'-'} (${inst.gpu_ram_mb||0}MB)`],
+    ['GPU Frac', inst.gpu_frac ? (inst.gpu_frac*100).toFixed(0)+'%' : '-'],
+    ['GPU Mem BW', inst.gpu_mem_bw ? inst.gpu_mem_bw+' GB/s' : '-'],
+    ['CUDA', inst.cuda_version || '-'],
+    ['Driver', inst.driver_version || '-'],
+    ['CPU Util', inst.cpu_util > 0 ? inst.cpu_util.toFixed(1)+'%' : '-'],
+    ['RAM', inst.mem_limit_gb > 0 ? `${fmtGB(inst.mem_usage_gb)} / ${fmtGB(inst.mem_limit_gb)}` : '-'],
+    ['Disk', inst.disk_space_gb > 0 ? fmtGB(inst.disk_space_gb) : '-'],
+    ['Net Down', inst.inet_down_mbps > 0 ? inst.inet_down_mbps.toFixed(0)+' Mbps' : '-'],
+    ['Net Up', inst.inet_up_mbps > 0 ? inst.inet_up_mbps.toFixed(0)+' Mbps' : '-'],
+    ['Reliability', inst.reliability > 0 ? (inst.reliability*100).toFixed(1)+'%' : '-'],
+    ['Min Rate', inst.min_rate+' p/h'],
+    ['Registered', fmtTime(inst.registered_at)],
+    ['Params Done', fmtTime(inst.param_done_at)],
+    ['Bench Done', fmtTime(inst.bench_done_at)],
+    ['Killed', fmtTime(inst.killed_at)],
+    ['Kill Reason', inst.kill_reason || '-'],
+    ['Status', inst.status_msg || '-'],
+    ['SSH', inst.ssh_cmd || '-'],
+    ['Log Lines', inst.log_lines || 0],
+  ];
+  let html = '<div class="detail-grid">';
+  for (const [k,v] of items) {
+    html += `<div class="detail-item"><span class="dl">${k}: </span><span class="dv mono">${esc(String(v))}</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderInstanceLogs(uuid, lines) {
+  const el = document.getElementById(`logs-${uuid}`);
+  if (!el) return;
+
+  const tabs = ['all','setup','benchdaemon','benchout','cuzk','curio'];
+  let html = '<div class="log-tabs">';
+  for (const t of tabs) {
+    const active = logFilter === t ? ' active' : '';
+    html += `<div class="log-tab${active}" onclick="event.stopPropagation();setLogFilter('${t}')">${t}</div>`;
+  }
+  html += '</div>';
+  html += '<div class="log-viewer" id="log-scroll">';
+  if (!lines || lines.length === 0) {
+    html += '<div class="text-muted">No logs available. Logs appear when the instance ships them via the entrypoint log shipper.</div>';
+  } else {
+    for (const l of lines) {
+      const srcCls = `src-${l.src}`;
+      html += `<div class="log-line"><span class="src ${srcCls}">[${esc(l.src)}]</span>${esc(l.text)}</div>`;
+    }
+  }
+  html += '</div>';
+  el.innerHTML = html;
+
+  // Auto-scroll to bottom
+  const scr = document.getElementById('log-scroll');
+  if (scr) scr.scrollTop = scr.scrollHeight;
+}
+
+function renderManagerLogs(lines) {
+  const el = document.getElementById('mlog-content');
+  document.getElementById('mlog-count').textContent = lines.length;
+  if (!lines || lines.length === 0) {
+    el.innerHTML = '<div class="text-muted">No manager logs yet.</div>';
+    return;
+  }
+  let html = '';
+  for (const l of lines) {
+    html += `<div class="log-line">${esc(l.text)}</div>`;
+  }
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderBadHosts() {
+  const hosts = data.bad_hosts || [];
+  document.getElementById('bh-count').textContent = hosts.length;
+  const tbody = document.getElementById('bh-table');
+  if (hosts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No bad machines</td></tr>';
+    return;
+  }
+  let html = '';
+  for (const h of hosts) {
+    html += `<tr>
+      <td class="mono">${esc(h.machine_id)}</td>
+      <td>${esc(h.reason)}</td>
+      <td class="nowrap">${fmtTime(h.added_at)}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="removeBadHost('${esc(h.machine_id)}')">Remove</button></td>
+    </tr>`;
+  }
+  tbody.innerHTML = html;
+}
+
+// ── Actions ────────────────────────────────────────────────
+
+async function killInstance(vastId, uuid, label) {
+  if (!confirm(`Kill instance ${label}?\n\nVast ID: ${vastId}\nUUID: ${uuid}`)) return;
+  try {
+    await fetch(API + '/api/kill', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({vast_id: vastId, uuid: uuid})
+    });
+    toast('Instance kill requested');
+    setTimeout(refresh, 1000);
+  } catch(e) { toast('Kill failed: ' + e.message, true); }
+}
+
+function copySSH(cmd) {
+  navigator.clipboard.writeText(cmd).then(() => toast('SSH command copied')).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = cmd; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    toast('SSH command copied');
+  });
+}
+
+async function addBadHost() {
+  const machineId = document.getElementById('bh-machine-id').value.trim();
+  const reason = document.getElementById('bh-reason').value.trim();
+  if (!machineId) return toast('Machine ID required', true);
+  try {
+    await fetch(API + '/bad-host', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({machine_id: machineId, reason: reason})
+    });
+    document.getElementById('bh-machine-id').value = '';
+    document.getElementById('bh-reason').value = '';
+    toast('Bad machine added');
+    refresh();
+  } catch(e) { toast('Failed: ' + e.message, true); }
+}
+
+async function removeBadHost(machineId) {
+  if (!confirm(`Remove bad machine ${machineId}?`)) return;
+  try {
+    await fetch(API + `/bad-host/${machineId}`, {method: 'DELETE'});
+    toast('Bad machine removed');
+    refresh();
+  } catch(e) { toast('Failed: ' + e.message, true); }
+}
+
+// ── UI State ───────────────────────────────────────────────
+
+function toggleExpand(uuid) {
+  stopCuzkPolling();
+  if (expandedUUID === uuid) {
+    expandedUUID = null;
+    logFilter = 'all';
+  } else {
+    expandedUUID = uuid;
+    logFilter = 'all';
+  }
+  renderInstances();
+  startCuzkPolling();
+}
+
+function setLogFilter(f) {
+  logFilter = f;
+  if (expandedUUID) fetchInstanceLogs(expandedUUID);
+}
+
+function togglePanel(id) {
+  const body = document.getElementById(id + '-body');
+  body.classList.toggle('collapsed');
+  if (id === 'mlog') {
+    mlogVisible = !body.classList.contains('collapsed');
+    if (mlogVisible) fetchManagerLogs();
+  }
+  if (id === 'offers') {
+    offersVisible = !body.classList.contains('collapsed');
+    if (offersVisible && !offersData) searchOffers();
+  }
+}
+
+function sortBy(col) {
+  if (sortCol === col) { sortDir *= -1; }
+  else { sortCol = col; sortDir = 1; }
+  renderInstances();
+}
+
+function getSortVal(inst, col) {
+  switch(col) {
+    case 'state': return stateOrder(inst.state);
+    case 'label': return inst.label || '';
+    case 'gpu': return (inst.gpu_name || '');
+    case 'runner_id': return inst.runner_id;
+    case 'bench_rate': return inst.bench_rate || 0;
+    case 'dph_total': return inst.dph_total || 0;
+    case 'price_per_proof': return inst.price_per_proof || 0;
+    case 'gpu_util': return inst.gpu_util || 0;
+    case 'gpu_temp': return inst.gpu_temp || 0;
+    case 'mem': return inst.mem_limit_gb || (inst.cpu_ram_mb||0)/1024;
+    case 'uptime': return inst.start_date || 0;
+    default: return 0;
+  }
+}
+
+function stateOrder(s) {
+  const m = {running:0,bench_done:1,params_done:2,registered:3,loading:4,killed:5};
+  return m[s] ?? 6;
+}
+
+// ── Helpers ────────────────────────────────────────────────
+
+function stateLabel(s) {
+  const m = {running:'Running',bench_done:'Benched',params_done:'Params OK',registered:'Fetching',loading:'Loading',killed:'Killed'};
+  return m[s] || s;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtGB(gb) {
+  if (gb >= 1024) return (gb/1024).toFixed(1) + ' TB';
+  if (gb >= 1) return gb.toFixed(0) + ' GB';
+  return (gb*1024).toFixed(0) + ' MB';
+}
+
+function fmtUptime(inst) {
+  let ts = inst.start_date;
+  if (!ts || ts <= 0) {
+    // Fallback to registered_at
+    if (inst.registered_at) {
+      ts = new Date(inst.registered_at).getTime() / 1000;
+    }
+  }
+  if (!ts || ts <= 0) return '-';
+  const secs = Math.floor(Date.now()/1000 - ts);
+  if (secs < 0) return '-';
+  if (secs < 60) return secs + 's';
+  if (secs < 3600) return Math.floor(secs/60) + 'm';
+  const h = Math.floor(secs/3600);
+  const m = Math.floor((secs%3600)/60);
+  if (h < 24) return h + 'h ' + m + 'm';
+  const d = Math.floor(h/24);
+  return d + 'd ' + (h%24) + 'h';
+}
+
+function fmtTime(t) {
+  if (!t) return '-';
+  try {
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return t;
+    return d.toLocaleString();
+  } catch(e) { return t; }
+}
+
+function renderGpuUtil(u) {
+  if (!u && u !== 0) return '-';
+  const pct = Math.round(u);
+  const color = pct > 80 ? 'var(--green)' : pct > 50 ? 'var(--yellow)' : 'var(--text3)';
+  return `${pct}%<span class="gpu-bar"><span class="gpu-bar-fill" style="width:${pct}%;background:${color}"></span></span>`;
+}
+
+function setConnected(ok) {
+  const dot = document.querySelector('#status-dot .dot');
+  const txt = document.getElementById('conn-status');
+  if (ok) {
+    dot.className = 'dot dot-green';
+    txt.textContent = 'Connected';
+  } else {
+    dot.className = 'dot dot-red';
+    txt.textContent = 'Disconnected';
+  }
+}
+
+function toast(msg, isErr) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = isErr ? 'var(--red)' : 'var(--green)';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Offers ─────────────────────────────────────────────────
+
+let offersData = null;
+let offersLoading = false;
+let offersVisible = false;
+let offersSortCol = 'dph_total';
+let offersSortDir = 1;
+let deployOfferID = null;
+let selectedOffers = new Set(); // Set of offer IDs for multi-select
+
+const OFFER_COLUMNS = [
+  {key:'_check', label:'', sort:false, w:'30px'},
+  {key:'gpu', label:'GPU'},
+  {key:'num_gpus', label:'#GPU', align:'right'},
+  {key:'gpu_ram', label:'VRAM', align:'right'},
+  {key:'cpu', label:'CPU'},
+  {key:'cpu_cores', label:'Cores', align:'right'},
+  {key:'cpu_ram', label:'RAM', align:'right'},
+  {key:'pcie_bw', label:'PCIe GB/s', align:'right'},
+  {key:'dph_total', label:'$/hr', align:'right'},
+  {key:'inet_down', label:'DL Mbps', align:'right'},
+  {key:'reliability', label:'Rel%', align:'right'},
+  {key:'geolocation', label:'Location'},
+  {key:'perf', label:'Known Perf', sort:false},
+  {key:'actions', label:'', sort:false},
+];
+
+// ── Color coding helpers ──────────────────────────────────
+
+// Returns 'var(--green)', 'var(--yellow)', 'var(--orange)', or 'var(--red)'
+function clr(level) {
+  // level: 3=green, 2=yellow, 1=orange, 0=red
+  if (level >= 3) return 'var(--green)';
+  if (level >= 2) return 'var(--yellow)';
+  if (level >= 1) return 'var(--orange)';
+  return 'var(--red)';
+}
+
+function gpuColor(name) {
+  if (!name) return clr(0);
+  const n = name.toUpperCase();
+  // Blackwell: B200, B100 — green
+  if (/^B\d/.test(n)) return clr(3);
+  // Hopper: H100, H200 — green
+  if (/^H\d/.test(n)) return clr(3);
+  // RTX 50xx series — green
+  if (/RTX\s*(PRO\s+)?5\d/i.test(name)) return clr(3);
+  // RTX PRO 6000 (Ada) — green
+  if (/RTX\s*PRO\s*6/i.test(name) || /6000\s*Ada/i.test(name)) return clr(3);
+  // RTX 4090 — green
+  if (/4090/.test(n)) return clr(3);
+  // RTX 40xx (not 4090) — generation dependent
+  if (/4080/.test(n)) return clr(2);
+  if (/4070/.test(n)) return clr(2);
+  if (/4060/.test(n)) return clr(1); // 4060 Ti too weak
+  if (/RTX\s*(PRO\s+)?4\d/i.test(name)) return clr(2);
+  // A100 — yellow (good compute but older interconnect)
+  if (/A100/.test(n)) return clr(2);
+  // RTX A6000/A5000/5000Ada — yellow
+  if (/A[56]000|5000\s*Ada/i.test(n)) return clr(2);
+  // RTX 3090 — orange (slow single, ok dual)
+  if (/3090/.test(n)) return clr(1);
+  // RTX 20xx — red
+  if (/20[78]0/.test(n)) return clr(0);
+  // Tesla V100 — red (old)
+  if (/V100/.test(n)) return clr(0);
+  // Anything older — red
+  return clr(0);
+}
+
+function cpuGen(name) {
+  // Returns {gen: number, color, shortName}
+  // gen: 5=Zen5, 4=Zen4/DDR5 Xeon, 3=Zen3, 2=Zen2/ICX, 1=old DDR4, 0=DDR3/ancient
+  if (!name) return {gen:0, color:clr(0), shortName:'-'};
+  const n = name;
+
+  // ── AMD Ryzen ──
+  // Ryzen 9xxx (Zen5)
+  if (/Ryzen\s+\d\s+9\d{3}/i.test(n)) {
+    const m = n.match(/Ryzen\s+(\d\s+\S+)/i);
+    return {gen:5, color:clr(3), shortName:'Ryzen ' + (m?m[1]:'9xxx') + ' (Zen5)'};
+  }
+  // Ryzen 7xxx (Zen4)
+  if (/Ryzen\s+\d\s+7\d{3}/i.test(n)) {
+    const m = n.match(/Ryzen\s+(\d\s+\S+)/i);
+    return {gen:4, color:clr(3), shortName:'Ryzen ' + (m?m[1]:'7xxx') + ' (Zen4)'};
+  }
+
+  // ── AMD EPYC — classify by series prefix ──
+  if (/EPYC/.test(n)) {
+    const m = n.match(/EPYC\s+(\S+)/);
+    const model = m ? m[1] : '';
+
+    // 9xx4 / 9[A-Z]xx = Turin (Zen5, DDR5, PCIe Gen5)
+    if (/^9/.test(model)) {
+      // 9xx4 or 9Bxx etc = Zen5; 9xx3/9xx5 = Zen4 (Genoa)
+      if (/4$|4P$/.test(model) || /^9[A-Z]/.test(model)) {
+        return {gen:5, color:clr(3), shortName:'EPYC ' + model + ' (Zen5)'};
+      }
+      // Genoa: 9x04, 9x14, 9x54 etc — all 9xxx series are Zen4+
+      return {gen:4, color:clr(3), shortName:'EPYC ' + model + ' (Zen4)'};
+    }
+
+    // 7xx3 / 7x43 / 7x53 / 7x63 / 7B13 / 7C13 / 7R13 = Milan (Zen3)
+    // Pattern: last two significant digits end in 13 or model is 7[0-9]{2}3
+    if (/^7\d{2}3/.test(model) || /^7[0-9][4-7]3/.test(model) || /^7[BCR]13/.test(model)) {
+      return {gen:3, color:clr(2), shortName:'EPYC ' + model + ' (Zen3)'};
+    }
+
+    // 7xx2 / 7xx2P / 7K62 / 7R32 / 7B12 = Rome (Zen2)
+    if (/^7\d{2}2/.test(model) || /^7\d+P$/.test(model) || /^7K62/.test(model) ||
+        /^7R32/.test(model) || /^7B12/.test(model) || /^7[0-9][0-4]2/.test(model)) {
+      return {gen:2, color:clr(1), shortName:'EPYC ' + model + ' (Zen2)'};
+    }
+
+    // 7xx1 = Naples (Zen1) — very old
+    if (/^7\d{2}1/.test(model)) {
+      return {gen:1, color:clr(0), shortName:'EPYC ' + model + ' (Zen1)'};
+    }
+
+    // Cloud variants fallback: 7B/7C/7R — guess by suffix
+    if (/^7[BCKR]/.test(model)) {
+      if (/13$/.test(model)) return {gen:3, color:clr(2), shortName:'EPYC ' + model + ' (Zen3)'};
+      if (/12$/.test(model) || /32$/.test(model) || /62$/.test(model)) return {gen:2, color:clr(1), shortName:'EPYC ' + model + ' (Zen2)'};
+    }
+
+    return {gen:1, color:clr(1), shortName:'EPYC ' + model};
+  }
+
+  // ── AMD Threadripper ──
+  if (/Threadripper\s+PRO\s+[7-9]/i.test(n)) return {gen:4, color:clr(3), shortName:'TR PRO (Zen4)'};
+  if (/Threadripper\s+PRO\s+5/i.test(n)) return {gen:3, color:clr(2), shortName:'TR PRO 5xxx (Zen3)'};
+  if (/Threadripper\s+PRO\s+3/i.test(n)) return {gen:2, color:clr(1), shortName:'TR PRO 3xxx (Zen2)'};
+  if (/Threadripper\s+3/i.test(n)) return {gen:2, color:clr(1), shortName:'TR 3xxx (Zen2)'};
+
+  // ── Intel Xeon — classify by model number ──
+  // Xeon 6xxx (Granite Rapids, DDR5, Gen5) — green
+  if (/Xeon.*\s6[7-9]\d{2}|Xeon.*\s67\d{2}/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:5, color:clr(3), shortName:(m?m[1]:'Xeon GNR') + ' (DDR5)'};
+  }
+  // Xeon Gold 6[5-6]xx / Platinum 8[5-6]xx (Emerald Rapids, DDR5)
+  if (/Xeon.*(6[56]\d{2}|8[56]\d{2})/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:4, color:clr(3), shortName:(m?m[1]:'Xeon EMR') + ' (DDR5)'};
+  }
+  // Xeon Gold 6[4]xx / Platinum 8[4]xx (Sapphire Rapids, DDR5)
+  if (/Xeon.*(64\d{2}|84\d{2})/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:4, color:clr(2), shortName:(m?m[1]:'Xeon SPR') + ' (DDR5)'};
+  }
+  // Xeon Platinum 83xx (Ice Lake, DDR4)
+  if (/Xeon.*83\d{2}/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:2, color:clr(1), shortName:(m?m[1]:'Xeon ICX') + ' (DDR4)'};
+  }
+  // Xeon Platinum 82xx / 8273CL (Cascade Lake / Cooper Lake / Ice Lake, DDR4)
+  if (/Xeon.*82\d{2}|Xeon.*8273/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:2, color:clr(1), shortName:(m?m[1]:'Xeon CLX') + ' (DDR4)'};
+  }
+  // Xeon Platinum 81xx (Skylake-SP, DDR4, old)
+  if (/Xeon.*81\d{2}/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:1, color:clr(0), shortName:(m?m[1]:'Xeon SKX') + ' (DDR4)'};
+  }
+  // Xeon Gold 6[0-3]xx (Skylake/Cascade Lake, DDR4)
+  if (/Xeon.*Gold\s+6[0-3]\d{2}/i.test(n)) {
+    const m = n.match(/(Xeon[^,]*?\S+)/i);
+    return {gen:1, color:clr(0), shortName:(m?m[1]:'Xeon CLX') + ' (DDR4)'};
+  }
+  // Xeon E7 — old (DDR3)
+  if (/E7-\d{4}/i.test(n)) {
+    return {gen:0, color:clr(0), shortName:'Xeon E7 (DDR3)'};
+  }
+  // Xeon E5 — old
+  if (/E5-\d{4}/i.test(n)) {
+    const hasV = n.match(/v(\d)/);
+    const ver = hasV ? parseInt(hasV[1]) : 0;
+    if (ver <= 3) return {gen:0, color:clr(0), shortName:'Xeon E5 v' + ver + ' (DDR3)'};
+    return {gen:1, color:clr(0), shortName:'Xeon E5 v' + ver + ' (DDR4)'};
+  }
+  // Xeon Phi — very old, wrong arch
+  if (/Phi/i.test(n)) {
+    return {gen:0, color:clr(0), shortName:'Xeon Phi (MCDRAM)'};
+  }
+  // Fallback
+  return {gen:1, color:clr(1), shortName:name.length > 30 ? name.substring(0, 28) + '..' : name};
+}
+
+function coresColor(cores) {
+  if (cores >= 64) return clr(3);
+  if (cores >= 32) return clr(3);
+  if (cores >= 24) return clr(2);
+  if (cores >= 16) return clr(1);
+  return clr(0);
+}
+
+function ramColorMB(mb) {
+  const gb = mb / 1024;
+  if (gb >= 300) return clr(3);
+  if (gb >= 240) return clr(2);
+  if (gb >= 128) return clr(1);
+  return clr(0);
+}
+
+function pcieColor(bw) {
+  if (bw >= 20) return clr(3);
+  if (bw >= 14) return clr(2);
+  if (bw >= 8) return clr(1);
+  return clr(0);
+}
+
+function dlColor(mbps) {
+  if (mbps >= 1500) return clr(3);
+  if (mbps >= 800) return clr(2);
+  if (mbps >= 300) return clr(1);
+  return clr(0);
+}
+
+function cc(color, text) {
+  return `<span style="color:${color}">${text}</span>`;
+}
+
+async function searchOffers() {
+  if (offersLoading) return;
+  offersLoading = true;
+  const el = document.getElementById('offers-content');
+  el.innerHTML = '<div class="offers-loading">Searching vast.ai offers...</div>';
+
+  try {
+    const filter = document.getElementById('offers-filter').value.trim();
+    const url = filter ? `${API}/api/offers?filter=${encodeURIComponent(filter)}` : `${API}/api/offers`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(await r.text());
+    offersData = await r.json();
+    document.getElementById('offers-count').textContent = offersData.offers.length;
+    renderOffers();
+  } catch(e) {
+    el.innerHTML = `<div class="offers-loading" style="color:var(--red)">Search failed: ${esc(e.message)}</div>`;
+  } finally {
+    offersLoading = false;
+  }
+}
+
+// Track the visible (filtered+sorted) offers for bulk ops
+let visibleOffers = [];
+
+function renderOffers() {
+  if (!offersData) return;
+  const el = document.getElementById('offers-content');
+  const infoEl = document.getElementById('offers-info');
+
+  let offers = offersData.offers || [];
+  const hideBad = document.getElementById('offers-hide-bad').checked;
+  if (hideBad) offers = offers.filter(o => !o.is_bad_host);
+
+  // Sort
+  offers = [...offers].sort((a, b) => {
+    let va = getOfferSortVal(a, offersSortCol);
+    let vb = getOfferSortVal(b, offersSortCol);
+    if (typeof va === 'string') return va.localeCompare(vb) * offersSortDir;
+    return ((va||0) - (vb||0)) * offersSortDir;
+  });
+
+  visibleOffers = offers;
+
+  // Prune selection to visible non-bad offers
+  const visibleIDs = new Set(offers.filter(o => !o.is_bad_host).map(o => o.id));
+  for (const id of selectedOffers) { if (!visibleIDs.has(id)) selectedOffers.delete(id); }
+
+  infoEl.textContent = `${offers.length} offers shown` + (hideBad && offersData.total > offers.length ? ` (${offersData.total - offers.length} bad hosts hidden)` : '');
+
+  if (offers.length === 0) {
+    el.innerHTML = '<div class="empty">No offers found matching filters</div>';
+    return;
+  }
+
+  // Bulk toolbar
+  let html = '';
+  if (selectedOffers.size > 0) {
+    html += `<div class="bulk-toolbar">`;
+    html += `<span class="sel-count">${selectedOffers.size} selected</span>`;
+    html += `<button class="btn btn-sm btn-bulk-deploy" onclick="bulkDeploy()">Deploy Selected</button>`;
+    html += `<button class="btn btn-sm btn-bulk-ignore" onclick="bulkIgnore()">Ignore Selected</button>`;
+    html += `<button class="btn btn-sm" onclick="selectedOffers.clear();renderOffers()">Clear</button>`;
+    html += `<span class="bulk-progress" id="bulk-progress"></span>`;
+    html += `</div>`;
+  }
+
+  const allNonBad = offers.filter(o => !o.is_bad_host);
+  const allChecked = allNonBad.length > 0 && allNonBad.every(o => selectedOffers.has(o.id));
+
+  html += '<table class="offers-table"><thead><tr>';
+  for (const c of OFFER_COLUMNS) {
+    if (c.key === '_check') {
+      html += `<th style="width:30px"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="toggleAllOffers(this.checked)"></th>`;
+      continue;
+    }
+    const arrow = offersSortCol === c.key ? (offersSortDir > 0 ? ' ^' : ' v') : '';
+    const click = c.sort === false ? '' : ` onclick="sortOffers('${c.key}')"`;
+    const align = c.align === 'right' ? ' class="text-right"' : '';
+    html += `<th${align}${click}>${c.label}${arrow}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const o of offers) {
+    const badCls = o.is_bad_host ? ' class="bad-host-row"' : '';
+    const cpu = cpuGen(o.cpu_name);
+    html += `<tr${badCls}>`;
+    // Checkbox
+    if (o.is_bad_host) {
+      html += `<td></td>`;
+    } else {
+      html += `<td><input type="checkbox" ${selectedOffers.has(o.id) ? 'checked' : ''} onclick="event.stopPropagation();toggleOffer(${o.id})"></td>`;
+    }
+    // GPU — color by generation
+    html += `<td>${cc(gpuColor(o.gpu_name), esc(o.gpu_name||'-'))}</td>`;
+    // #GPU
+    html += `<td class="text-right">${o.num_gpus}</td>`;
+    // VRAM
+    html += `<td class="text-right">${o.gpu_ram ? fmtMB(o.gpu_ram) : '-'}</td>`;
+    // CPU — short name with generation color
+    html += `<td class="nowrap" title="${esc(o.cpu_name||'')}">${cc(cpu.color, esc(cpu.shortName))}</td>`;
+    // Cores
+    html += `<td class="text-right">${cc(coresColor(o.cpu_cores), o.cpu_cores||'-')}</td>`;
+    // RAM (in MB from API)
+    const ramGB = o.cpu_ram ? (o.cpu_ram/1024) : 0;
+    html += `<td class="text-right">${o.cpu_ram ? cc(ramColorMB(o.cpu_ram), ramGB.toFixed(0)+'GB') : '-'}</td>`;
+    // PCIe BW
+    html += `<td class="text-right">${o.pcie_bw > 0 ? cc(pcieColor(o.pcie_bw), o.pcie_bw.toFixed(1)) : '-'}</td>`;
+    // $/hr
+    html += `<td class="text-right">$${o.dph_total.toFixed(3)}</td>`;
+    // DL Mbps
+    html += `<td class="text-right">${o.inet_down > 0 ? cc(dlColor(o.inet_down), o.inet_down.toFixed(0)) : '-'}</td>`;
+    // Reliability
+    html += `<td class="text-right">${o.reliability2 > 0 ? (o.reliability2*100).toFixed(0)+'%' : '-'}</td>`;
+    // Location
+    html += `<td class="nowrap">${esc(o.geolocation||'')} ${o.country_code?'('+esc(o.country_code)+')':''}</td>`;
+
+    // Known perf
+    html += '<td class="nowrap">';
+    if (o.is_bad_host) {
+      html += `<span class="perf-badge perf-bad" style="cursor:pointer" title="Click to unmark. ${esc(o.bad_reason||'Bad host')}" onclick="event.stopPropagation();unignoreHost(${o.machine_id})">BAD</span>`;
+    }
+    if (o.known_perf) {
+      const rate = o.known_perf.bench_rate;
+      const cls = rate >= 40 ? 'perf-good' : rate >= 25 ? 'perf-ok' : 'perf-bad';
+      html += `<span class="perf-badge ${cls}">${rate.toFixed(1)} p/h</span>`;
+    }
+    html += '</td>';
+
+    // Deploy / Ignore buttons
+    html += '<td class="nowrap">';
+    if (!o.is_bad_host) {
+      html += `<button class="btn btn-sm btn-deploy" onclick="openDeployDialog(${o.id}, '${esc(o.gpu_name)}', ${o.num_gpus}, ${o.dph_total}, '${esc(o.geolocation||'')}', ${o.host_id}, ${o.machine_id})">Deploy</button> `;
+      html += `<button class="btn btn-sm btn-danger" onclick="ignoreHost(${o.machine_id}, '${esc(o.gpu_name)}', '${esc(o.geolocation||'')}')">Ignore</button>`;
+    }
+    html += '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function toggleOffer(id) {
+  if (selectedOffers.has(id)) selectedOffers.delete(id);
+  else selectedOffers.add(id);
+  renderOffers();
+}
+
+function toggleAllOffers(checked) {
+  if (checked) {
+    for (const o of visibleOffers) { if (!o.is_bad_host) selectedOffers.add(o.id); }
+  } else {
+    selectedOffers.clear();
+  }
+  renderOffers();
+}
+
+async function bulkDeploy() {
+  const ids = [...selectedOffers];
+  if (ids.length === 0) return;
+  const offers = ids.map(id => visibleOffers.find(o => o.id === id)).filter(Boolean);
+
+  const maxCPP = parseFloat(localStorage.getItem('vast_max_cpp')) || 0.008;
+  const disk = parseInt(localStorage.getItem('vast_disk')) || 250;
+
+  const summary = offers.map(o => `${o.num_gpus}x ${o.gpu_name} @ $${o.dph_total.toFixed(3)}/hr (mid:${o.machine_id})`).join('\n');
+  if (!confirm(`Deploy ${offers.length} instances?\nMax $/proof: $${maxCPP}\nDisk: ${disk}GB\n\n${summary}`)) return;
+
+  const progEl = document.getElementById('bulk-progress');
+  let ok = 0, fail = 0;
+  for (let i = 0; i < offers.length; i++) {
+    const o = offers[i];
+    if (progEl) progEl.textContent = `Deploying ${i+1}/${offers.length}...`;
+    const minRate = Math.ceil(o.dph_total / maxCPP);
+    try {
+      const r = await fetch(API + '/api/deploy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({offer_id: o.id, machine_id: o.machine_id || 0, min_rate: minRate, disk: disk})
+      });
+      const resp = await r.json();
+      if (resp.ok) { ok++; } else { fail++; }
+    } catch(e) { fail++; }
+  }
+  selectedOffers.clear();
+  toast(`Bulk deploy: ${ok} ok, ${fail} failed`);
+  if (progEl) progEl.textContent = '';
+  renderOffers();
+  setTimeout(refresh, 3000);
+}
+
+async function bulkIgnore() {
+  const ids = [...selectedOffers];
+  if (ids.length === 0) return;
+  const offers = ids.map(id => visibleOffers.find(o => o.id === id)).filter(Boolean);
+  // Deduplicate by machine_id
+  const machines = new Map();
+  for (const o of offers) {
+    if (!machines.has(o.machine_id)) {
+      machines.set(o.machine_id, {gpuName: o.gpu_name, location: o.geolocation || ''});
+    }
+  }
+
+  if (!confirm(`Mark ${machines.size} machine(s) as bad?\n\n${[...machines.entries()].map(([mid, m]) => `mid:${mid} (${m.gpuName}, ${m.location})`).join('\n')}`)) return;
+
+  let ok = 0;
+  for (const [mid, m] of machines) {
+    const reason = `Not good enough (${m.gpuName}, ${m.location})`;
+    try {
+      await fetch(API + '/bad-host', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({machine_id: String(mid), reason: reason})
+      });
+      if (offersData) {
+        for (const o of offersData.offers) {
+          if (o.machine_id === mid) { o.is_bad_host = true; o.bad_reason = reason; }
+        }
+      }
+      ok++;
+    } catch(e) {}
+  }
+  selectedOffers.clear();
+  toast(`Ignored ${ok} machine(s)`);
+  renderOffers();
+  refresh();
+}
+
+function getOfferSortVal(o, col) {
+  switch(col) {
+    case 'gpu': return o.gpu_name || '';
+    case 'num_gpus': return o.num_gpus || 0;
+    case 'gpu_ram': return o.gpu_ram || 0;
+    case 'cpu': return cpuGen(o.cpu_name).gen || 0;
+    case 'cpu_cores': return o.cpu_cores || 0;
+    case 'cpu_ram': return o.cpu_ram || 0;
+    case 'pcie_bw': return o.pcie_bw || 0;
+    case 'dph_total': return o.dph_total || 0;
+    case 'inet_down': return o.inet_down || 0;
+    case 'reliability': return o.reliability2 || 0;
+    case 'geolocation': return o.geolocation || '';
+    default: return 0;
+  }
+}
+
+function sortOffers(col) {
+  if (offersSortCol === col) { offersSortDir *= -1; }
+  else { offersSortCol = col; offersSortDir = 1; }
+  renderOffers();
+}
+
+function fmtMB(mb) {
+  if (mb >= 1024) return (mb/1024).toFixed(0) + 'GB';
+  return mb + 'MB';
+}
+
+let deployDPH = 0;
+
+let deployMachineID = null;
+
+// Restore saved settings from localStorage
+function getSavedMaxCPP() { return parseFloat(localStorage.getItem('vast_max_cpp')) || 0.008; }
+function getSavedDisk() { return parseInt(localStorage.getItem('vast_disk')) || 250; }
+
+function openDeployDialog(offerID, gpuName, numGPUs, dph, location, hostID, machineID) {
+  deployOfferID = offerID;
+  deployMachineID = machineID || null;
+  deployDPH = dph;
+  const info = document.getElementById('deploy-offer-info');
+  info.innerHTML = `
+    <div>Offer <span class="mono">#${offerID}</span> — Machine <span class="mono">${machineID}</span></div>
+    <div><strong>${numGPUs}x ${esc(gpuName)}</strong> — ${esc(location)}</div>
+    <div>Cost: <strong>$${dph.toFixed(3)}/hr</strong> ($${(dph*24).toFixed(2)}/day)</div>
+  `;
+  // Load saved settings
+  const maxCPP = getSavedMaxCPP();
+  document.getElementById('deploy-max-cpp').value = maxCPP;
+  document.getElementById('deploy-disk').value = getSavedDisk();
+  // Auto-calculate min_rate from dph / max_cost_per_proof
+  const minRate = Math.ceil(dph / maxCPP);
+  document.getElementById('deploy-min-rate').value = minRate;
+  document.getElementById('deploy-cost-per-proof').textContent = maxCPP.toFixed(3);
+  document.getElementById('deploy-dialog').style.display = 'flex';
+  document.getElementById('deploy-max-cpp').focus();
+}
+
+async function unignoreHost(machineId) {
+  try {
+    await fetch(API + `/bad-host/${machineId}`, {method: 'DELETE'});
+    toast('Machine unmarked');
+    if (offersData) {
+      for (const o of offersData.offers) {
+        if (o.machine_id === machineId) { o.is_bad_host = false; o.bad_reason = ''; }
+      }
+    }
+    renderOffers();
+    refresh();
+  } catch(e) { toast('Failed: ' + e.message, true); }
+}
+
+async function ignoreHost(machineId, gpuName, location) {
+  const reason = `Not good enough (${gpuName}, ${location})`;
+  if (!confirm(`Mark machine ${machineId} as bad?\n\n${reason}`)) return;
+  try {
+    await fetch(API + '/bad-host', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({machine_id: String(machineId), reason: reason})
+    });
+    toast('Machine ignored');
+    if (offersData) {
+      for (const o of offersData.offers) {
+        if (o.machine_id === machineId) { o.is_bad_host = true; o.bad_reason = reason; }
+      }
+    }
+    renderOffers();
+    refresh();
+  } catch(e) { toast('Failed: ' + e.message, true); }
+}
+
+function recalcMinRate() {
+  const maxCPP = parseFloat(document.getElementById('deploy-max-cpp').value) || 0.008;
+  localStorage.setItem('vast_max_cpp', maxCPP.toString());
+  if (deployDPH > 0 && maxCPP > 0) {
+    document.getElementById('deploy-min-rate').value = Math.ceil(deployDPH / maxCPP);
+    document.getElementById('deploy-cost-per-proof').textContent = maxCPP.toFixed(3);
+  }
+}
+
+function saveDisk() {
+  const disk = parseInt(document.getElementById('deploy-disk').value) || 250;
+  localStorage.setItem('vast_disk', disk.toString());
+}
+
+function closeDeployDialog() {
+  document.getElementById('deploy-dialog').style.display = 'none';
+  deployOfferID = null;
+}
+
+async function confirmDeploy() {
+  if (!deployOfferID) return;
+  const btn = document.getElementById('deploy-confirm-btn');
+  btn.disabled = true;
+  btn.textContent = 'Deploying...';
+
+  const minRate = parseFloat(document.getElementById('deploy-min-rate').value) || 30;
+  const disk = parseInt(document.getElementById('deploy-disk').value) || 250;
+  // Persist settings
+  const maxCPP = parseFloat(document.getElementById('deploy-max-cpp').value) || 0.008;
+  localStorage.setItem('vast_max_cpp', maxCPP.toString());
+  localStorage.setItem('vast_disk', disk.toString());
+
+  try {
+    const r = await fetch(API + '/api/deploy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({offer_id: deployOfferID, machine_id: deployMachineID || 0, min_rate: minRate, disk: disk})
+    });
+    const resp = await r.json();
+    if (resp.ok) {
+      toast(`Deployed! Instance ID: ${resp.instance_id || 'pending'}`);
+      closeDeployDialog();
+      // Refresh instances after a short delay to let vast process the creation
+      setTimeout(refresh, 3000);
+    } else {
+      toast('Deploy failed: ' + (resp.message || 'unknown error'), true);
+    }
+  } catch(e) {
+    toast('Deploy failed: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Deploy';
+  }
+}
+
+// ── cuzk Status Polling ────────────────────────────────────
+
+let cuzkTimer = null;
+let cuzkPollUUID = null;
+let cuzkLastData = null;  // cached last successful response to avoid flash on re-render
+
+function startCuzkPolling() {
+  if (!expandedUUID || !data) return;
+  const inst = data.instances.find(i => i.uuid === expandedUUID);
+  if (!inst || (inst.state !== 'running' && inst.state !== 'bench_done')) return;
+  if (!inst.ssh_cmd) return;
+  cuzkPollUUID = expandedUUID;
+  fetchCuzkStatus(cuzkPollUUID);
+  cuzkTimer = setInterval(() => {
+    if (cuzkPollUUID) fetchCuzkStatus(cuzkPollUUID);
+  }, 1500);
+}
+
+function stopCuzkPolling() {
+  if (cuzkTimer) { clearInterval(cuzkTimer); cuzkTimer = null; }
+  cuzkPollUUID = null;
+  cuzkLastData = null;
+}
+
+async function fetchCuzkStatus(uuid) {
+  const el = document.getElementById(`cuzk-${uuid}`);
+  if (!el) { stopCuzkPolling(); return; }
+  try {
+    const r = await fetch(API + `/api/cuzk-status/${uuid}`);
+    const d = await r.json();
+    if (d.error) {
+      el.innerHTML = `<div class="cuzk-body cuzk-err">cuzk: ${esc(d.error)}</div>`;
+      cuzkLastData = null;
+      return;
+    }
+    cuzkLastData = d;
+    el.innerHTML = renderCuzkPanel(d);
+  } catch(e) {
+    el.innerHTML = `<div class="cuzk-body cuzk-err">cuzk: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderCuzkPanel(d) {
+  const upH = Math.floor(d.uptime_secs / 3600);
+  const upM = Math.floor((d.uptime_secs % 3600) / 60);
+  const upStr = upH > 0 ? `${upH}h ${upM}m` : `${upM}m`;
+
+  let html = `<div class="cuzk-header"><h3>cuzk Engine</h3><span class="uptime">uptime ${upStr}</span></div>`;
+  html += '<div class="cuzk-body">';
+
+  // Row 1: Memory + Synthesis + Counters
+  html += '<div class="cuzk-row">';
+
+  // Memory gauge
+  const mem = d.memory;
+  const usedGiB = (mem.used_bytes / 1073741824).toFixed(1);
+  const totalGiB = (mem.total_bytes / 1073741824).toFixed(0);
+  const pct = mem.total_bytes > 0 ? (mem.used_bytes / mem.total_bytes * 100) : 0;
+  const memColor = pct > 85 ? 'var(--red)' : pct > 60 ? 'var(--yellow)' : 'var(--green)';
+  html += '<div class="cuzk-section" style="min-width:280px">';
+  html += '<h4>Memory Budget</h4>';
+  html += `<div class="mem-gauge"><div class="mem-gauge-fill" style="width:${pct.toFixed(1)}%;background:${memColor}"></div>`;
+  html += `<div class="mem-gauge-text">${usedGiB} / ${totalGiB} GiB (${pct.toFixed(0)}%)</div></div>`;
+  html += '</div>';
+
+  // Synthesis
+  html += '<div class="cuzk-section" style="min-width:140px;flex:0">';
+  html += '<h4>Synthesis</h4>';
+  html += `<div class="counter-row"><span class="counter-item"><span class="cv">${d.synthesis.active}</span> / ${d.synthesis.max_concurrent} active</span></div>`;
+  html += '</div>';
+
+  // Counters
+  html += '<div class="cuzk-section" style="min-width:260px">';
+  html += '<h4>Counters</h4>';
+  html += '<div class="counter-row">';
+  html += `<span class="counter-item" style="color:var(--green)">done <span class="cv">${d.counters.total_completed}</span></span>`;
+  html += `<span class="counter-item" style="color:var(--red)">fail <span class="cv">${d.counters.total_failed}</span></span>`;
+  html += `<span class="counter-item">queue <span class="cv">${d.counters.queue_depth}</span></span>`;
+  // Per-kind
+  for (const [k,v] of Object.entries(d.counters.completed_by_kind || {})) {
+    html += `<span class="counter-item" style="color:var(--text2)">${esc(k)} <span class="cv">${v}</span></span>`;
+  }
+  html += '</div></div>';
+  html += '</div>'; // end cuzk-row
+
+  // Row 2: Pipelines (the main visualization)
+  if (d.pipelines && d.pipelines.length > 0) {
+    html += '<div class="cuzk-section" style="min-width:100%">';
+    html += '<h4>Active Pipelines</h4>';
+    for (const job of d.pipelines) {
+      html += '<div class="pipeline-job">';
+      const elapsed = job.started_secs_ago.toFixed(0);
+      html += `<div class="pipeline-job-hdr">`;
+      html += `<span class="jid">${esc(job.job_id.substring(0,8))}</span>`;
+      html += `<span class="kind">${esc(job.proof_kind)}</span>`;
+      html += `<span class="elapsed">${elapsed}s</span>`;
+      html += `<span style="color:var(--green)">${job.partitions_done}/${job.total_partitions} done</span>`;
+      html += '</div>';
+      html += '<div class="partition-grid">';
+      for (const p of job.partitions) {
+        const cls = `p-${p.state}`;
+        let timeStr = '';
+        if (p.state === 'synthesizing' && p.synth_ms != null) {
+          timeStr = fmtMs(p.synth_ms) + ' synth';
+        } else if (p.state === 'synth_done' && p.synth_ms != null) {
+          timeStr = fmtMs(p.synth_ms) + ' synth';
+        } else if (p.state === 'gpu' && p.gpu_ms != null) {
+          timeStr = fmtMs(p.gpu_ms) + ' gpu';
+        } else if (p.state === 'done') {
+          timeStr = (p.synth_ms != null ? fmtMs(p.synth_ms) : '?') + '+' + (p.gpu_ms != null ? fmtMs(p.gpu_ms) : '?');
+        } else if (p.state === 'failed') {
+          timeStr = 'FAIL';
+        }
+        html += `<div class="partition-cell ${cls}">`;
+        html += `<span class="p-idx">P${p.index}</span>`;
+        html += `<span class="p-time">${timeStr}</span>`;
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+    html += '</div>';
+  }
+
+  // Row 3: GPU Workers + Allocations + Buffers
+  html += '<div class="cuzk-row">';
+
+  // GPU workers
+  html += '<div class="cuzk-section">';
+  html += '<h4>GPU Workers</h4>';
+  html += '<div class="gpu-workers">';
+  for (const w of d.gpu_workers) {
+    const cls = w.state === 'proving' ? 'proving' : 'idle';
+    let detail = `GPU ${w.gpu_ordinal}`;
+    if (w.state === 'proving' && w.busy_secs != null) {
+      detail = `${w.busy_secs.toFixed(1)}s`;
+      if (w.current_partition != null) detail = `P${w.current_partition} ${detail}`;
+    }
+    html += `<div class="gpu-worker ${cls}">`;
+    html += `<div class="gw-label">W${w.worker_id} ${w.state}</div>`;
+    html += `<div class="gw-detail">${detail}</div>`;
+    html += '</div>';
+  }
+  html += '</div></div>';
+
+  // Allocations
+  html += '<div class="cuzk-section">';
+  html += '<h4>Allocations</h4>';
+  html += '<div class="alloc-list">';
+  for (const a of (d.allocations.srs || [])) {
+    const gib = (a.bytes / 1073741824).toFixed(1);
+    const ev = a.evictable ? '' : ' (in-use)';
+    html += `<div class="alloc-item"><span class="alloc-name">SRS ${esc(a.circuit_id)}</span> ${gib} GiB${ev}</div>`;
+  }
+  for (const a of (d.allocations.pce || [])) {
+    const gib = (a.bytes / 1073741824).toFixed(1);
+    html += `<div class="alloc-item"><span class="alloc-name">PCE ${esc(a.circuit_id)}</span> ${gib} GiB</div>`;
+  }
+  if (!(d.allocations.srs||[]).length && !(d.allocations.pce||[]).length) {
+    html += '<span class="text-muted">none loaded</span>';
+  }
+  html += '</div></div>';
+
+  // Buffers
+  html += '<div class="cuzk-section" style="flex:0;min-width:180px">';
+  html += '<h4>Buffers</h4>';
+  const b = d.buffers;
+  html += `<div class="counter-row" style="flex-direction:column;gap:2px">`;
+  html += `<span class="counter-item">synth <span class="cv">${b.synth_in_flight}</span></span>`;
+  html += `<span class="counter-item">prove <span class="cv">${b.provers_in_flight}</span></span>`;
+  html += `<span class="counter-item">aux <span class="cv">${b.aux_in_flight}</span> shell <span class="cv">${b.shells_in_flight}</span></span>`;
+  html += '</div></div>';
+
+  html += '</div>'; // end cuzk-row
+  html += '</div>'; // end cuzk-body
+  return html;
+}
+
+function fmtMs(ms) {
+  if (ms == null) return '?';
+  if (ms < 1000) return ms + 'ms';
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+// ── Init ───────────────────────────────────────────────────
+
+refresh();
+
+setInterval(() => {
+  countdown--;
+  document.getElementById('countdown').textContent = Math.max(0, countdown);
+  if (countdown <= 0) refresh();
+}, 1000);
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); refresh(); }
+  if (e.key === 'Escape') {
+    if (deployOfferID) { closeDeployDialog(); return; }
+    if (expandedUUID) { stopCuzkPolling(); expandedUUID = null; logFilter = 'all'; renderInstances(); }
+  }
+  if (e.key === 'o' || e.key === 'O') { e.preventDefault(); togglePanel('offers'); }
+  if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePanel('mlog'); }
+  if (e.key === 'b' || e.key === 'B') { e.preventDefault(); togglePanel('bhosts'); }
+});
+</script>
+</body>
+</html>
