@@ -187,16 +187,19 @@ impl DispatchPacer {
             integral_error: 0.0,
             last_pi_update: now,
             // Gains tuned for normalized error (error/target ∈ [-2, +1]).
-            // With gpu_eff ~0.5s and target=8:
-            //   P at half-empty (error=0.5): correction = 0.5*0.5 = 0.25 → rate_mult 1.25
-            //   P at empty (error=1.0):      correction = 0.5*1.0 = 0.50 → rate_mult 1.50
-            //   P at overfull (error=-1.0):   correction = 0.5*(-1.0) = -0.50 → rate_mult 0.50
-            // I adds slow drift: at steady error=0.5, integral grows 0.02*0.5=0.01/s,
-            //   reaching 1.0 after 100s → ki*1.0 = 0.02 additional correction.
+            //
+            // P (kp=0.5): immediate response to queue depth error.
+            //   half-empty → +25% rate, empty → +50%, overfull → -50%
+            //
+            // I (ki=0.001): very slow trim that takes minutes to saturate.
+            //   Integral accumulates norm_error*dt (≈ ±0.5/s typical).
+            //   At error=0.5: reaches max (100) in ~200s (3.3 min).
+            //   Max correction: ki*100 = ±0.10 — gentle persistent nudge.
+            //   Asymmetric: negative cap (-20) limits slowdown authority.
             kp: 0.5,
-            ki: 0.02,
-            max_integral_pos: 2.0,   // allows up to ki*2 = 0.04 extra correction
-            max_integral_neg: -0.5,  // barely slows down — backoff is P's job
+            ki: 0.001,
+            max_integral_pos: 100.0,  // slow to saturate, max correction +0.10
+            max_integral_neg: -20.0,  // max correction -0.02
             bootstrap_remaining: target,
             rebootstrap_count: 0,
             total_dispatched: 0,
@@ -1427,7 +1430,11 @@ impl Engine {
             // Monotonic counter for pipeline age ordering.
             let next_job_seq = Arc::new(AtomicU64::new(0));
 
-            let synth_worker_count = max_partitions_in_budget.min(64).max(4);
+            let max_parallel = {
+                let cfg = self.config.pipeline.max_parallel_synthesis;
+                if cfg == 0 { 18 } else { cfg as usize }
+            };
+            let synth_worker_count = max_partitions_in_budget.min(max_parallel).max(2);
 
             // ── GPU queue target + dispatch pacer ────────────────────────
             //
