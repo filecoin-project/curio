@@ -139,11 +139,22 @@ struct DispatchPacer {
     synth_warmup: u64,
 
     // PI state
+    //
+    // Error is normalized: (target - ema_waiting) / target, giving a
+    // range of roughly [-2, +1] in normal operation. This makes the
+    // gains independent of the target value.
+    //
+    // The integral is asymmetrically clamped: the negative limit is
+    // much smaller than the positive limit. Going negative means
+    // "dispatch slower than GPU rate" which is rarely correct — it
+    // drains the pipeline. The positive limit allows sustained fast
+    // dispatch to fill the pipe.
     integral_error: f64,
     last_pi_update: Instant,
     kp: f64,
     ki: f64,
-    max_integral: f64,
+    max_integral_pos: f64,  // positive limit (dispatch faster)
+    max_integral_neg: f64,  // negative limit (dispatch slower — small!)
 
     // Bootstrap: dispatch `target` items at moderate spacing
     bootstrap_remaining: usize,
@@ -175,9 +186,17 @@ impl DispatchPacer {
             synth_warmup: 8,
             integral_error: 0.0,
             last_pi_update: now,
-            kp: 0.1,
-            ki: 0.008,
-            max_integral: 20.0,
+            // Gains tuned for normalized error (error/target ∈ [-2, +1]).
+            // With gpu_eff ~0.5s and target=8:
+            //   P at half-empty (error=0.5): correction = 0.5*0.5 = 0.25 → rate_mult 1.25
+            //   P at empty (error=1.0):      correction = 0.5*1.0 = 0.50 → rate_mult 1.50
+            //   P at overfull (error=-1.0):   correction = 0.5*(-1.0) = -0.50 → rate_mult 0.50
+            // I adds slow drift: at steady error=0.5, integral grows 0.02*0.5=0.01/s,
+            //   reaching 1.0 after 100s → ki*1.0 = 0.02 additional correction.
+            kp: 0.5,
+            ki: 0.02,
+            max_integral_pos: 2.0,   // allows up to ki*2 = 0.04 extra correction
+            max_integral_neg: -0.5,  // barely slows down — backoff is P's job
             bootstrap_remaining: target,
             rebootstrap_count: 0,
             total_dispatched: 0,
@@ -229,10 +248,11 @@ impl DispatchPacer {
         self.ema_waiting =
             self.alpha_waiting * (waiting as f64) + (1.0 - self.alpha_waiting) * self.ema_waiting;
 
-        // --- PI integral ---
+        // --- PI integral (normalized error, asymmetric clamp) ---
         let dt = now.duration_since(self.last_pi_update).as_secs_f64().max(0.001);
-        let error = self.target - self.ema_waiting;
-        self.integral_error = (self.integral_error + error * dt).clamp(-self.max_integral, self.max_integral);
+        let norm_error = (self.target - self.ema_waiting) / self.target;
+        self.integral_error = (self.integral_error + norm_error * dt)
+            .clamp(self.max_integral_neg, self.max_integral_pos);
         self.last_pi_update = now;
     }
 
@@ -254,11 +274,11 @@ impl DispatchPacer {
             return Duration::from_secs(3);
         }
 
-        // PI control
-        let error = self.target - self.ema_waiting;
-        let correction = self.kp * error + self.ki * self.integral_error;
+        // PI control (normalized error)
+        let norm_error = (self.target - self.ema_waiting) / self.target;
+        let correction = self.kp * norm_error + self.ki * self.integral_error;
         let base_interval_s = self.ema_gpu_processing_s / self.num_gpu_workers as f64;
-        let rate_mult = (1.0 + correction).clamp(0.1, 5.0);
+        let rate_mult = (1.0 + correction).clamp(0.3, 3.0);
         let pi_interval_s = base_interval_s / rate_mult;
 
         Duration::from_millis((pi_interval_s * 1000.0).clamp(50.0, 60000.0) as u64)
@@ -274,13 +294,18 @@ impl DispatchPacer {
         !self.gpu_rate_known && self.bootstrap_remaining == 0
     }
 
-    /// Check if we should re-enter bootstrap (pipeline drained).
-    /// Condition: GPU is calibrated, not already bootstrapping, and the
-    /// queue has been sustained-empty (ema_waiting < 1).
-    fn should_rebootstrap(&self) -> bool {
+    /// Check if we should re-enter bootstrap (pipeline truly drained).
+    ///
+    /// Only triggers when ALL dispatched items have completed GPU processing
+    /// (nothing in synthesis, nothing in GPU queue). This prevents re-bootstrap
+    /// spam when items are still in the synthesis pipeline — they'll arrive
+    /// at the GPU queue eventually, so re-bootstrapping would just waste time
+    /// and budget.
+    fn should_rebootstrap(&self, gpu_count: u64) -> bool {
         self.gpu_rate_known
             && self.bootstrap_remaining == 0
             && self.ema_waiting < 1.0
+            && self.total_dispatched <= gpu_count // pipeline truly empty
     }
 
     /// Re-enter bootstrap to fill the pipeline after it drained.
@@ -1483,7 +1508,7 @@ impl Engine {
 
                             // Re-enter bootstrap when pipeline drains between batches.
                             // GPU rate EMA is preserved; integral is reset (stale).
-                            if pacer.should_rebootstrap() {
+                            if pacer.should_rebootstrap(count) {
                                 pacer.enter_rebootstrap();
                                 tracing::info!(
                                     rebootstrap = pacer.rebootstrap_count,
@@ -1621,8 +1646,11 @@ impl Engine {
                         // Periodic logging
                         if target > 0 && pacer.total_dispatched % 5 == 0 {
                             let interval = pacer.interval();
+                            let in_flight = pacer.total_dispatched.saturating_sub(
+                                gpu_count.load(AtomicOrdering::Acquire));
                             tracing::info!(
                                 total = pacer.total_dispatched,
+                                in_flight = in_flight,
                                 waiting = gpu_work_queue_for_dispatch.len(),
                                 ema_waiting = format!("{:.1}", pacer.ema_waiting),
                                 gpu_proc_ms = format!("{:.0}", pacer.ema_gpu_processing_s * 1000.0),
