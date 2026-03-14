@@ -104,11 +104,36 @@ To ensure that this retry behavior is achieved scheduling of the three tasks und
 
 # Dataset Termination
 
-## FWS Termination
+## FWSS Termination
 
 ## TODO: more categories
 
 # Payment Settlement
+
+Curio provides automated settlement of payments made to a storage providers' addresses on the filecoin-pay payment system.  It accomplishes this through the coordinated efforts of two components: the `Settle` task and the `SettleWatcher` curio chain schedule callback.
+
+Because the full settlement of payments is an important precondition for the full termination of an FWSS managed PDP data set this subsystem interacts closely with the PDP data set termination pipeline.
+
+## Settle Task 
+
+The settle task is scheduled twice a day through the IAmBored entrypoint.  Upon waking up the settle task queries the `eth_keys` table for the first keys it finds with role == `pdp`.  The task then queries the provider registry to learn the payee address.  `Settle` task then delegates to the `filecoinpayment` library method `SettleLockupPeriod` to attempt to settle all rails in need of settlement that are paying out to the payee address using the FWSS contract as the rail's operator contract.
+
+`SettleLockupPeriod` uses eth call methods on the filecoin-pay contract to lookup all rails operator and payee.  The method's purpose is to periodically settle payment rails paying out to the payee address.  To achieve this gas and local-resource efficiently the method schedules settlement as lazily as safely possible.  It settles rails that have any possibility of client default between this run of the task and the next expected run in 12 hours.  To determine this condition each rail's `settledUpTo` and `lockupPeriod` value is inspected.  When a rail has not been settled for over one `lockupPeriod` the client can be in default.  `SettleLockupPeriod` settles all rails that are within one day of meeting this condition.  Additionally all termianted rails in the process of finishing out their last `lockupPeriod` of life are marked for settlement.  For more about the details of termination and lockup periods and how this exactly determines default risk see the filecoin-pay [documentation](https://github.com/FilOzone/filecoin-pay/blob/main/README.md#per-rail-lockup-the-guarantee-mechanism).
+
+Using `multicall.Multicall3Call` the task settles rails in batches of 10 and atomically adds the tx hashes to `message_waits_eth` and the settlement tracking table `filecoin_payment_transactions`.
+
+## Settle Watcher
+
+The settle is a chain handler triggered on new blocks.  It waits for `filecoin_payment_transactions` table entries to be marked as confirmed by `message_waits_eth` and then verifies that settlement worked correctly and runs follow on work.
+
+If the settle transaction fails on chain then watcher logs an error. Each rail is checked for three end of life conditions:
+1. The rail has been terminated on chain, potentially by the client, and the local database state must be updated with `EnsureServiceTermination`
+2. The rail is past the 1 month safety threshold / grace period and by curio policy should be terminated to begin end of service.  Again this happens with a call to `EnsureServiceTermination`
+3. The rail has previously been terminated and is now finalized, i.e. settled through the entire lockup period.  In this case the watcher calls `ensureDataSetDeletion` to unlock the final gate of the service termination pipeline
+
+For a more complete description of the fwss service termination pipeline see [the section above](#fwss-termination)
+
+After processing a settlement verification without error the watcher removes the associated entry from the `filecoin_payment_transactions` table for single time processing.  In the case of unrecoverable errors the watcher will not remove the transaction from the next processing queue and log an error for very aggressive log signalling that something is wrong.
 
 # PDP Harmony Tasks
 
