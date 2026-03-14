@@ -285,6 +285,22 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_synthesis_concurrency")]
     pub synthesis_concurrency: u32,
 
+    /// Maximum number of partition syntheses running in parallel.
+    ///
+    /// Each synthesis consumes ~14 GiB (PoRep) or ~9 GiB (SnapDeals) of
+    /// memory plus significant CPU time. Too many concurrent syntheses
+    /// causes CPU contention and memory bandwidth saturation (especially
+    /// on DDR5 systems), making each synthesis slower and reducing overall
+    /// throughput.
+    ///
+    /// - 0 = use default (18)
+    /// - N = at most N syntheses running simultaneously
+    ///
+    /// The memory budget still provides backpressure — this is an additional
+    /// CPU-aware concurrency limit on top of the budget.
+    #[serde(default = "PipelineConfig::default_max_parallel_synthesis")]
+    pub max_parallel_synthesis: u32,
+
     /// Pipelined partition proving (Phase 6).
     ///
     /// Controls how many synthesized partitions can be queued for the GPU
@@ -339,6 +355,9 @@ impl PipelineConfig {
     fn default_synthesis_concurrency() -> u32 {
         1 // sequential by default for backward compatibility
     }
+    fn default_max_parallel_synthesis() -> u32 {
+        18 // sweet spot for DDR5 systems with 64 cores
+    }
     fn default_slot_size() -> u32 {
         0 // disabled by default for backward compatibility
     }
@@ -353,6 +372,7 @@ impl Default for PipelineConfig {
             enabled: Self::default_enabled(),
             synthesis_lookahead: Self::default_synthesis_lookahead(),
             synthesis_concurrency: Self::default_synthesis_concurrency(),
+            max_parallel_synthesis: Self::default_max_parallel_synthesis(),
             slot_size: Self::default_slot_size(),
             max_gpu_queue_depth: Self::default_max_gpu_queue_depth(),
         }
