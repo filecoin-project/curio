@@ -236,12 +236,8 @@ jobs:
       - name: Start PostgreSQL container
         id: start-postgres
         run: |
-          # Start PostgreSQL container with Curio-compatible user/db (matches Yugabyte defaults)
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
-            -e POSTGRES_USER=yugabyte \
-            -e POSTGRES_PASSWORD=yugabyte \
-            -e POSTGRES_DB=yugabyte \
-            postgres:16
+          # Start with default postgres user; create step adds yugabyte (avoids init-restart race)
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d postgres:16
 
       - name: Wait for PostgreSQL to start
         run: |
@@ -255,18 +251,34 @@ jobs:
       - name: Create yugabyte user and database
         run: |
           # Ensure default db 'yugabyte' accessible by yugabyte user with yugabyte password
-          docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -v ON_ERROR_STOP=1 -c "
-            DO \$\$
-            BEGIN
-              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
-                CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
-              END IF;
-              IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'yugabyte') THEN
-                CREATE DATABASE yugabyte OWNER yugabyte;
-              END IF;
-            END
-            \$\$;
-          "
+          # Wait until postgres accepts queries (avoids "shutting down" if connect during restart)
+          until docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -c "SELECT 1" >/dev/null 2>&1; do
+            echo "Waiting for postgres to accept queries..."
+            sleep 1
+          done
+          # Retry create in case of transient "shutting down"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -v ON_ERROR_STOP=1 -c "
+              DO \$\$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
+                  CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
+                END IF;
+                IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'yugabyte') THEN
+                  CREATE DATABASE yugabyte OWNER yugabyte;
+                END IF;
+              END
+              \$\$;
+            "; then
+              echo "yugabyte user/database ready"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 2s..."
+            sleep 2
+          done
+          echo "Failed to create yugabyte user/database after 10 attempts"
+          exit 1
+        shell: bash
 
       - name: Get PostgreSQL container IP
         id: get-pg-ip
