@@ -245,12 +245,28 @@ jobs:
 
       - name: Wait for PostgreSQL to start
         run: |
-          until docker exec ${{ env.CONTAINER_NAME }} pg_isready -U yugabyte -d yugabyte; do
+          until docker exec ${{ env.CONTAINER_NAME }} pg_isready -U postgres; do
             echo "Waiting for PostgreSQL..."
             sleep 1;
           done
           echo "PostgreSQL is ready"
         shell: bash
+
+      - name: Create yugabyte user and database
+        run: |
+          # Ensure default db 'yugabyte' accessible by yugabyte user with yugabyte password
+          docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -v ON_ERROR_STOP=1 -c "
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
+                CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
+              END IF;
+              IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'yugabyte') THEN
+                CREATE DATABASE yugabyte OWNER yugabyte;
+              END IF;
+            END
+            \$\$;
+          "
 
       - name: Get PostgreSQL container IP
         id: get-pg-ip
