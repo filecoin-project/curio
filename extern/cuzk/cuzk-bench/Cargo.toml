@@ -1,0 +1,49 @@
+[package]
+name = "cuzk-bench"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Testing and benchmarking utility for the cuzk proving daemon"
+
+[[bin]]
+name = "cuzk-bench"
+path = "src/main.rs"
+
+[dependencies]
+cuzk-proto = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+uuid = { workspace = true }
+hex = "0.4"
+tower = "0.4"
+hyper-util = "0.1"
+
+# Optional: for gen-vanilla subcommand (CPU-only vanilla proof generation)
+filecoin-proofs-api = { workspace = true, optional = true }
+cid = { workspace = true, optional = true }
+
+# Optional: for synth-bench subcommand (in-process synthesis microbenchmark)
+cuzk-core = { workspace = true, optional = true }
+
+# Optional: for pce-bench subcommand (PCE extraction + evaluation benchmark)
+cuzk-pce = { workspace = true, optional = true }
+
+# For malloc_trim (RSS management in benchmarks)
+libc = "0.2"
+
+# BLS12-381 field types (for PCE round-trip verification)
+blstrs = { workspace = true, optional = true }
+
+[features]
+default = []
+gen-vanilla = ["filecoin-proofs-api", "cid"]
+synth-bench = ["cuzk-core"]
+pce-bench = ["cuzk-core", "cuzk-pce", "blstrs"]

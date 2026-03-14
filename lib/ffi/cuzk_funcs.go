@@ -1,0 +1,247 @@
+package ffi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
+	proof2 "github.com/filecoin-project/go-state-types/proof"
+
+	"github.com/filecoin-project/curio/lib/cuzk"
+	"github.com/filecoin-project/curio/lib/storiface"
+)
+
+// c1OutputWrapper is the JSON envelope the cuzk Rust server expects for PoRep C2.
+// The Rust side deserializes this as C1OutputWrapper { SectorNum, Phase1Out, SectorSize }.
+// Phase1Out is base64-encoded because Go's encoding/json encodes []byte as base64,
+// which matches the Rust expectation of a base64 string containing the inner
+// SealCommitPhase1Output JSON.
+type c1OutputWrapper struct {
+	SectorNum  int64  `json:"SectorNum"`
+	Phase1Out  []byte `json:"Phase1Out"`
+	SectorSize uint64 `json:"SectorSize"`
+}
+
+// wrapC1Output wraps raw SealCommitPhase1Output JSON bytes in the C1OutputWrapper
+// envelope expected by the cuzk Rust server.
+func wrapC1Output(c1JSON []byte, sectorNumber uint64, sectorSize uint64) ([]byte, error) {
+	wrapper := c1OutputWrapper{
+		SectorNum:  int64(sectorNumber),
+		Phase1Out:  c1JSON,
+		SectorSize: sectorSize,
+	}
+	return json.Marshal(wrapper)
+}
+
+// PoRepSnarkCuzk generates the vanilla proof locally (needs sector data on disk),
+// then delegates the SNARK computation to the cuzk daemon via gRPC.
+// The proof is verified locally after cuzk returns.
+func (sb *SealCalls) PoRepSnarkCuzk(ctx context.Context, cuzkClient *cuzk.Client, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+	// Step 1: Generate vanilla proof locally (requires sector cache on disk)
+	vproof, err := sb.Sectors.storage.GeneratePoRepVanillaProof(ctx, sn, sealed, unsealed, ticket, seed)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to generate vanilla proof: %w", err)
+	}
+
+	// Step 2: Submit vanilla proof to cuzk for SNARK computation
+	ssize, err := sn.ProofType.SectorSize()
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector size: %w", err)
+	}
+
+	// Wrap the raw SealCommitPhase1Output JSON in the C1OutputWrapper envelope
+	// that the cuzk Rust server expects. Go's json.Marshal base64-encodes the
+	// Phase1Out []byte field, matching the Rust serde expectation.
+	wrapped, err := wrapC1Output(vproof, uint64(sn.ID.Number), uint64(ssize))
+	if err != nil {
+		return nil, xerrors.Errorf("wrapping C1 output for cuzk: %w", err)
+	}
+
+	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+		RequestId:       fmt.Sprintf("porep-%d-%d", sn.ID.Miner, sn.ID.Number),
+		ProofKind:       cuzk.ProofKind_POREP_SEAL_COMMIT,
+		SectorSize:      uint64(ssize),
+		RegisteredProof: uint64(sn.ProofType),
+		Priority:        cuzk.Priority_NORMAL,
+		VanillaProof:    wrapped,
+		SectorNumber:    uint64(sn.ID.Number),
+		MinerId:         uint64(sn.ID.Miner),
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("cuzk porep prove failed: %w", err)
+	}
+
+	proof := resp.Proof
+
+	if len(proof) == 0 {
+		return nil, xerrors.Errorf("cuzk returned empty proof bytes")
+	}
+
+	log.Infow("cuzk porep proof received",
+		"sector", sn.ID,
+		"proofLen", len(proof),
+		"totalMs", resp.TotalMs,
+		"gpuMs", resp.GpuComputeMs)
+
+	// Step 3: Verify proof locally
+	ok, err := ffi.VerifySeal(proof2.SealVerifyInfo{
+		SealProof:             sn.ProofType,
+		SectorID:              sn.ID,
+		DealIDs:               nil,
+		Randomness:            ticket,
+		InteractiveRandomness: seed,
+		Proof:                 proof,
+		SealedCID:             sealed,
+		UnsealedCID:           unsealed,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to verify cuzk proof (proofLen=%d): %w", len(proof), err)
+	}
+	if !ok {
+		return nil, xerrors.Errorf("cuzk porep proof failed to validate (proofLen=%d, sealProof=%d, miner=%d, sector=%d)", len(proof), sn.ProofType, sn.ID.Miner, sn.ID.Number)
+	}
+
+	return proof, nil
+}
+
+// ProveUpdateCuzk reads the snap vanilla proof from storage, then delegates
+// the SNARK computation to the cuzk daemon via gRPC.
+func (sb *SealCalls) ProveUpdateCuzk(ctx context.Context, cuzkClient *cuzk.Client, proofType abi.RegisteredUpdateProof, sector storiface.SectorRef, key, sealed, unsealed cid.Cid) ([]byte, error) {
+	// Step 1: Read snap vanilla proofs from storage
+	jsonb, err := sb.Sectors.storage.ReadSnapVanillaProof(ctx, sector)
+	if err != nil {
+		return nil, xerrors.Errorf("read snap vanilla proof: %w", err)
+	}
+
+	var vproofs [][]byte
+	if err := json.Unmarshal(jsonb, &vproofs); err != nil {
+		return nil, xerrors.Errorf("unmarshal snap vanilla proof: %w", err)
+	}
+
+	// Step 2: Pack vanilla proofs for cuzk
+	ssize, err := sector.ProofType.SectorSize()
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector size: %w", err)
+	}
+
+	// Extract raw 32-byte commitments from CIDs.
+	// cid.Bytes() returns the full CID (40 bytes with multicodec/multihash prefix),
+	// but the Rust daemon expects raw 32-byte commitment digests.
+	commROld, err := commcid.CIDToReplicaCommitmentV1(key)
+	if err != nil {
+		return nil, xerrors.Errorf("extracting comm_r_old from CID: %w", err)
+	}
+	commRNew, err := commcid.CIDToReplicaCommitmentV1(sealed)
+	if err != nil {
+		return nil, xerrors.Errorf("extracting comm_r_new from CID: %w", err)
+	}
+	commDNew, err := commcid.CIDToDataCommitmentV1(unsealed)
+	if err != nil {
+		return nil, xerrors.Errorf("extracting comm_d_new from CID: %w", err)
+	}
+
+	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+		RequestId:       fmt.Sprintf("snap-%d-%d", sector.ID.Miner, sector.ID.Number),
+		ProofKind:       cuzk.ProofKind_SNAP_DEALS_UPDATE,
+		SectorSize:      uint64(ssize),
+		RegisteredProof: uint64(proofType),
+		Priority:        cuzk.Priority_NORMAL,
+		VanillaProofs:   vproofs,
+		SectorNumber:    uint64(sector.ID.Number),
+		MinerId:         uint64(sector.ID.Miner),
+		CommROld:        commROld,
+		CommRNew:        commRNew,
+		CommDNew:        commDNew,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("cuzk snap prove failed: %w", err)
+	}
+
+	return resp.Proof, nil
+}
+
+// WindowPoStCuzk sends per-sector vanilla proofs to the cuzk daemon for SNARK
+// computation, returning the single-partition PoStProof. The vanilla proofs
+// must already be generated locally (reading challenge data from sealed sectors).
+func WindowPoStCuzk(ctx context.Context, cuzkClient *cuzk.Client, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, vanillaProofs [][]byte, partitionIdx int) (proof2.PoStProof, error) {
+	ssize, err := proofType.SectorSize()
+	if err != nil {
+		return proof2.PoStProof{}, xerrors.Errorf("getting sector size from post proof type: %w", err)
+	}
+
+	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+		RequestId:       fmt.Sprintf("wdpost-%d-%d-%d", minerID, partitionIdx, randomness[:8]),
+		ProofKind:       cuzk.ProofKind_WINDOW_POST_PARTITION,
+		SectorSize:      uint64(ssize),
+		RegisteredProof: uint64(proofType),
+		Priority:        cuzk.Priority_HIGH,
+		VanillaProofs:   vanillaProofs,
+		MinerId:         uint64(minerID),
+		Randomness:      randomness,
+		PartitionIndex:  uint32(partitionIdx),
+	})
+	if err != nil {
+		return proof2.PoStProof{}, xerrors.Errorf("cuzk window post prove failed: %w", err)
+	}
+
+	if len(resp.Proof) == 0 {
+		return proof2.PoStProof{}, xerrors.Errorf("cuzk returned empty window post proof")
+	}
+
+	log.Infow("cuzk window post proof received",
+		"miner", minerID,
+		"partition", partitionIdx,
+		"proofLen", len(resp.Proof),
+		"totalMs", resp.TotalMs,
+		"gpuMs", resp.GpuComputeMs)
+
+	return proof2.PoStProof{
+		PoStProof:  proofType,
+		ProofBytes: resp.Proof,
+	}, nil
+}
+
+// WinningPoStCuzk sends per-sector vanilla proofs to the cuzk daemon for SNARK
+// computation, returning the WinningPoSt proof. This is time-critical —
+// must complete within the epoch window.
+func WinningPoStCuzk(ctx context.Context, cuzkClient *cuzk.Client, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, vanillaProofs [][]byte) ([]proof2.PoStProof, error) {
+	ssize, err := proofType.SectorSize()
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector size from post proof type: %w", err)
+	}
+
+	resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+		RequestId:       fmt.Sprintf("winpost-%d-%x", minerID, randomness[:8]),
+		ProofKind:       cuzk.ProofKind_WINNING_POST,
+		SectorSize:      uint64(ssize),
+		RegisteredProof: uint64(proofType),
+		Priority:        cuzk.Priority_CRITICAL,
+		VanillaProofs:   vanillaProofs,
+		MinerId:         uint64(minerID),
+		Randomness:      randomness,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("cuzk winning post prove failed: %w", err)
+	}
+
+	if len(resp.Proof) == 0 {
+		return nil, xerrors.Errorf("cuzk returned empty winning post proof")
+	}
+
+	log.Infow("cuzk winning post proof received",
+		"miner", minerID,
+		"proofLen", len(resp.Proof),
+		"totalMs", resp.TotalMs,
+		"gpuMs", resp.GpuComputeMs)
+
+	return []proof2.PoStProof{{
+		PoStProof:  proofType,
+		ProofBytes: resp.Proof,
+	}}, nil
+}

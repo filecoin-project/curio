@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
@@ -67,12 +68,12 @@ var log = logging.Logger("curio/deps")
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
 	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
 	as *multictladdr.MultiAddressSelector, addresses *config.Dynamic[map[dtypes.MinerAddress]bool], db *harmonydb.DB,
-	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
+	stor paths.Store, idx paths.SectorIndex, max int, cuzkClient *cuzk.Client) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
 	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, pc.SingleCheckTimeout, pc.PartitionCheckTimeout)
 
-	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout)
+	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout, cuzkClient)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -171,6 +172,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		return senderEth
 	}
 
+	// Initialize cuzk client if configured (shared across PoSt and sealing tasks)
+	var cuzkClient *cuzk.Client
+	if cfg.Cuzk.Address != "" {
+		cuzkClient = cuzk.NewClient(cfg.Cuzk.Address, cfg.Cuzk.MaxPending, cfg.Cuzk.ProveTimeout)
+		log.Infow("cuzk proving daemon enabled", "addr", cfg.Cuzk.Address, "maxPending", cfg.Cuzk.MaxPending, "proveTimeout", cfg.Cuzk.ProveTimeout)
+	}
+
 	///////////////////////////////////////////////////////////////////////
 	///// Task Selection
 	///////////////////////////////////////////////////////////////////////
@@ -180,7 +188,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if cfg.Subsystems.EnableWindowPost {
 			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
 				ctx, cfg.Fees, cfg.Proving, full, verif, asyncParams(), sender, chainSched,
-				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
+				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks, cuzkClient)
 
 			if err != nil {
 				return nil, err
@@ -190,7 +198,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		if cfg.Subsystems.EnableWinningPost {
 			store := dependencies.Stor
-			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
+			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs, cuzkClient)
 			inclCkTask := winning.NewInclusionCheckTask(db, full)
 			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
 
@@ -227,7 +235,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	var p2Active sealsupra.P2Active
 	if hasAnySealingTask {
-		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover, cuzkClient)
 		if err != nil {
 			return nil, err
 		}
@@ -389,8 +397,10 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover,
+	cuzkClient *cuzk.Client) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
 	var activeTasks []harmonytask.TaskInterface
+
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
@@ -454,7 +464,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, precommitTask)
 	}
 	if cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableRemoteProofs {
-		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks)
+		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, porepTask)
 	}
 	if cfg.Subsystems.EnableMoveStorage {
@@ -495,7 +505,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, scrubCommRTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
-		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
@@ -505,7 +515,7 @@ func addSealingTasks(
 
 	if cfg.Subsystems.EnableProofShare {
 		requestProofsTask := proofshare.NewTaskRequestProofs(db, full, asyncParams())
-		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
+		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks, cuzkClient)
 		submitTask := proofshare.NewTaskSubmit(db, full)
 		autosettleTask := proofshare.NewTaskAutosettle(db, full, sender)
 		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask, autosettleTask)

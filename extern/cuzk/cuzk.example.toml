@@ -1,0 +1,159 @@
+# cuzk daemon configuration
+#
+# Copy to /data/zk/cuzk.toml or pass via --config flag.
+# All fields have sensible defaults — this file only needs to
+# contain values you want to override.
+
+[daemon]
+# Listen address. TCP or Unix domain socket.
+# TCP:   "0.0.0.0:9820"
+# UDS:   "unix:///run/curio/cuzk.sock"
+listen = "0.0.0.0:9820"
+
+# HTTP status API listen address (for debug UI polling).
+# Serves GET /status returning JSON with pipeline, GPU worker, and memory state.
+# Empty string or omitted = disabled.
+# status_listen = "0.0.0.0:9821"
+
+[srs]
+# Directory containing Filecoin proof parameter files (.params, .vk).
+# Must contain the relevant v28-*.params files for the proof types you run.
+# Download with: curio fetch-params 32
+param_cache = "/data/zk/params"
+
+# NOTE: The 'preload' field is deprecated and ignored. SRS entries are now
+# loaded on demand when the first proof of each circuit type arrives. Budget
+# is automatically managed — no manual preload configuration needed.
+
+[memory]
+# Total memory budget for all cuzk allocations (SRS + PCE + working set).
+# "auto" = detect from /proc/meminfo MemTotal - safety_margin (recommended).
+# Or specify explicitly: "256GiB", "512GiB", etc.
+#
+# This single budget replaces the old pinned_budget and working_memory_budget.
+# All memory consumers (SRS, PCE, partition synthesis) share one pool and
+# concurrency is automatically determined by available budget.
+total_budget = "auto"
+
+# Safety margin subtracted from total_budget when using "auto".
+# Reserves space for OS, kernel, other processes.
+safety_margin = "5GiB"
+
+# Minimum idle time before SRS/PCE entries become eviction candidates.
+# Entries are only evicted when the budget is under pressure AND idle
+# for at least this duration. Set higher for stable workloads, lower
+# for mixed workloads that frequently switch circuit types.
+eviction_min_idle = "5m"
+
+# NOTE: The 'pinned_budget' and 'working_memory_budget' fields are deprecated
+# and ignored. Use 'total_budget' instead for unified budget management.
+
+[gpus]
+# GPU ordinals to use. Empty = auto-detect all GPUs.
+# Example: [0, 1] to use only the first two GPUs.
+devices = []
+
+# CPU threads for the GPU-side work (b_g2_msm, preprocessing).
+# 0 = auto-detect (all CPUs).
+#
+# With budget-gated partition pipelining, synthesis workers and b_g2_msm
+# compete for DDR5 bandwidth and L3 cache. Reducing the pool from all-cores
+# to 32 threads cuts b_g2_msm's bucket RAM from ~1.1 GiB to ~192 MB,
+# dramatically reducing L3 cache interference with synthesis.
+#
+# b_g2_msm slows from ~0.5s to ~1.7s but runs outside the GPU lock (Phase 12
+# split API), so this does NOT affect GPU throughput.
+#
+# Recommended: 32 for machines with high-concurrency workloads.
+# Use 0 (auto) only for low-concurrency or single-proof workloads.
+gpu_threads = 32
+
+# Number of GPU worker tasks per physical GPU (dual-worker interlock).
+#
+# With 2 workers, one worker's CPU preprocessing overlaps with the other's
+# CUDA kernel execution on the same GPU. Only the CUDA kernel region is
+# serialized by a per-GPU mutex — CPU work (preprocessing, b_g2_msm,
+# proof assembly, Rust bookkeeping) runs freely in parallel.
+#
+# This eliminates the 10-200ms GPU idle gaps between partition proves:
+#   Worker A: [CPU prep][══ CUDA ══][b_g2+epilogue][CPU prep][══ CUDA ══]
+#   Worker B:           [CPU prep──][══ CUDA ══][b_g2+epilogue][CPU prep]
+#   GPU:                [████ A ████][████ B ████][████ A ████][████ B ██]
+#
+#   1 = single worker — use on low-memory systems where the GPU is already
+#       synthesis-starved. Adds no memory overhead.
+#   2 = dual-worker interlock — recommended when synthesis can keep the GPU
+#       channel saturated. ~6% throughput gain over gw=1.
+#   3+ = diminishing returns (CPU ~1.3s < CUDA ~2.1s, so 2 workers suffice)
+gpu_workers_per_device = 2
+
+[scheduler]
+# Max proofs to batch into a single GPU invocation (same circuit type).
+#
+# Cross-sector batching for PoRep C2 and SnapDeals. When multiple same-type
+# proof requests arrive, the engine accumulates them into a batch and
+# processes all sectors in a single synthesis + GPU pass.
+#
+# Set to 1 to disable batching.
+# Set to 2-3 on large-memory machines for higher throughput.
+# WinningPoSt and WindowPoSt bypass batching regardless of this setting.
+max_batch_size = 1
+
+# Max time (ms) to wait for batch to fill before flushing.
+# When a batchable proof request arrives and the batch is not yet full,
+# the engine waits up to this duration for more same-type requests.
+# Set to 0 to flush immediately (lower latency, less batching).
+# Set to 30000-60000 for proofshare nodes with steady workload.
+max_batch_wait_ms = 10000
+
+# Reorder NORMAL-priority queue to group by circuit type.
+# This reduces SRS context switches on GPUs with limited VRAM.
+sort_by_type = true
+
+[synthesis]
+# CPU threads for circuit synthesis (rayon global pool). 0 = auto (all CPUs).
+# Controls the rayon thread pool used by bellperson synthesis and PCE SpMV.
+threads = 0
+
+# NOTE: The 'partition_workers' field is deprecated and ignored. Partition
+# concurrency is now managed automatically by the memory budget. On a 256 GiB
+# machine, ~7 PoRep partitions can run concurrently; on 512 GiB, ~12.
+# No manual tuning needed.
+
+[pipeline]
+# Enable pipelined synthesis → GPU proving.
+# When enabled, a dedicated synthesis task pre-synthesizes proofs on CPU
+# and feeds them to GPU workers via a bounded channel. This allows CPU
+# synthesis of proof N+1 to overlap with GPU proving of proof N:
+#
+#   Synthesis:  [=== proof N ===][=== proof N+1 ===][=== proof N+2 ===]
+#   GPU:                         [=== proof N ===]  [=== proof N+1 ===]
+#
+# Steady-state throughput = max(synth_time, gpu_time) per proof.
+# For PoRep 32G: ~55s/proof (synthesis-bound) vs ~91s sequential.
+#
+# When disabled, falls back to monolithic Phase 1 proving (no overlap).
+enabled = true
+
+# Max pre-synthesized proofs buffered between synthesis and GPU stages.
+# Auto-scaled based on memory budget. This is a minimum — the engine will
+# use max(this, budget/partition_size) capped at 32.
+synthesis_lookahead = 1
+
+# Number of concurrent CPU synthesis tasks.
+#
+# When synthesis takes longer than GPU proving (e.g. 39s synth vs 27s GPU),
+# the GPU idles between proofs with a single synthesis task. With 2
+# concurrent synthesis tasks, the GPU can be kept fully saturated.
+#
+#   1 = sequential synthesis (default, lower memory)
+#   2 = recommended for single-GPU machines with >=400 GiB RAM
+synthesis_concurrency = 1
+
+[logging]
+# Log level: trace, debug, info, warn, error
+# Can also be overridden via RUST_LOG env var.
+level = "info"
+
+# Log format: unset for human-readable, "json" for structured.
+# format = "json"

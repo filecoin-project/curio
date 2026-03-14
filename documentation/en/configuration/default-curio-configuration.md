@@ -1125,4 +1125,34 @@ description: The default curio configuration
     # type: time.Duration
     #Slack = "1h0m0s"
 
+
+# Cuzk configures integration with the cuzk proving daemon.
+# When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+# to an external cuzk daemon over gRPC instead of using local GPU resources.
+#
+# type: CuzkConfig
+[Cuzk]
+
+  # Address of the cuzk daemon gRPC endpoint.
+  # Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+  # Empty string disables cuzk integration. (Default: "")
+  #
+  # type: string
+  #Address = ""
+
+  # MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+  # before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+  # queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+  # (Default: 10)
+  #
+  # type: int
+  #MaxPending = 10
+
+  # ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+  # If the proof is not completed within this duration, the task will be retried.
+  # Time duration string (e.g., "30m", "1h"). (Default: "30m")
+  #
+  # type: time.Duration
+  #ProveTimeout = "30m0s"
+
 ```
