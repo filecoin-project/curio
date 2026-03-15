@@ -233,6 +233,7 @@ func New(
 		go h.Adder(h.AddTask)
 	}
 	go e.poller()
+	go e.singletonRunNowPoller()
 
 	return e, nil
 }
@@ -565,4 +566,47 @@ func Reg(t TaskInterface) bool {
 
 func (e *TaskEngine) RunningCount(name string) int {
 	return int(e.taskMap[name].Max.Active())
+}
+
+const singletonRunNowPollInterval = 30 * time.Second
+
+// singletonRunNowPoller is a single goroutine per node that polls the DB
+// for singleton tasks with run_now_request=true. When found, it sets the
+// corresponding atomic flag so that SingletonTaskAdder bypasses its interval
+// on the next IAmBored cycle.
+// This is one query per node per 30s regardless of the number of singleton tasks.
+func (e *TaskEngine) singletonRunNowPoller() {
+	timer := time.NewTimer(singletonRunNowPollInterval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-timer.C:
+			timer.Reset(singletonRunNowPollInterval)
+		}
+
+		var requested []struct {
+			TaskName string `db:"task_name"`
+		}
+		err := e.db.Select(e.ctx, &requested,
+			`SELECT task_name FROM harmony_task_singletons WHERE run_now_request = TRUE`)
+		if err != nil {
+			log.Errorw("singletonRunNowPoller: failed to query", "error", err)
+			continue
+		}
+
+		if len(requested) == 0 {
+			continue
+		}
+
+		flags := singletonRunNowFlags()
+		for _, r := range requested {
+			if f, ok := flags[r.TaskName]; ok {
+				f.Store(true)
+				log.Infow("singleton run-now request detected", "task", r.TaskName)
+			}
+		}
+	}
 }
