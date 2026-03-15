@@ -20,11 +20,16 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 )
 
-func envElse(env, els string) string {
-	if v := os.Getenv(env); v != "" {
+// indexstoreHost returns the host for CQL connections. Prefers CURIO_DB_HOST_CQL
+// when set (CI with separate Postgres+Scylla), else CURIO_HARMONYDB_HOSTS.
+func indexstoreHost() string {
+	if v := os.Getenv("CURIO_DB_HOST_CQL"); v != "" {
 		return v
 	}
-	return els
+	if v := os.Getenv("CURIO_HARMONYDB_HOSTS"); v != "" {
+		return v
+	}
+	return "127.0.0.1"
 }
 
 func TestNewIndexStore(t *testing.T) {
@@ -33,7 +38,7 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore, err := NewIndexStore([]string{indexstoreHost()}, 9042, cfg)
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 
