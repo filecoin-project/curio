@@ -2,57 +2,130 @@ package harmonytask
 
 import (
 	"errors"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/passcall"
 )
 
+// singletonRunNow is a global registry mapping task names to atomic flags.
+// The global poller in TaskEngine sets a flag when run_now_request=true is
+// found in the DB; SingletonTaskAdder checks the flag to bypass its interval.
+var singletonRunNow struct {
+	mu    sync.Mutex
+	flags map[string]*atomic.Bool
+}
+
+func init() {
+	singletonRunNow.flags = make(map[string]*atomic.Bool)
+}
+
+// registerSingletonRunNow returns the atomic.Bool for a given task name,
+// creating one if it doesn't exist yet.
+func registerSingletonRunNow(taskName string) *atomic.Bool {
+	singletonRunNow.mu.Lock()
+	defer singletonRunNow.mu.Unlock()
+
+	if f, ok := singletonRunNow.flags[taskName]; ok {
+		return f
+	}
+	f := &atomic.Bool{}
+	singletonRunNow.flags[taskName] = f
+	return f
+}
+
+// singletonRunNowFlags returns the current map of registered flags.
+// Used by the global poller goroutine.
+func singletonRunNowFlags() map[string]*atomic.Bool {
+	singletonRunNow.mu.Lock()
+	defer singletonRunNow.mu.Unlock()
+
+	// Return a shallow copy to avoid holding the lock
+	out := make(map[string]*atomic.Bool, len(singletonRunNow.flags))
+	for k, v := range singletonRunNow.flags {
+		out[k] = v
+	}
+	return out
+}
+
 func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddTaskFunc) error {
-	return passcall.Every(minInterval, func(add AddTaskFunc) error {
-		taskName := task.TypeDetails().Name
+	// taskName and runNowFlag are resolved lazily to avoid infinite recursion:
+	// SingletonTaskAdder is called from TypeDetails(), which would call
+	// task.TypeDetails().Name, which calls SingletonTaskAdder again.
+	var taskName string
+	var runNowFlag *atomic.Bool
+	var initOnce sync.Once
+
+	var lastCall time.Time
+	var lk sync.Mutex
+
+	return func(add AddTaskFunc) error {
+		initOnce.Do(func() {
+			taskName = task.TypeDetails().Name
+			runNowFlag = registerSingletonRunNow(taskName)
+		})
+
+		lk.Lock()
+		defer lk.Unlock()
+
+		// Check if the global poller signaled a run-now request.
+		// Swap to false so we only bypass the interval once.
+		runNowTriggered := runNowFlag.Swap(false)
+
+		if !runNowTriggered && time.Since(lastCall) < minInterval {
+			return nil
+		}
+		lastCall = time.Now()
 
 		add(func(taskID TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 			var existingTaskID *int64
 			var lastRunTime time.Time
+			var runNowRequest bool
 			var shouldRun bool
 
 			now := time.Now()
 
 			// Query to check the existing task entry
-			err = tx.QueryRow(`SELECT task_id, last_run_time FROM harmony_task_singletons WHERE task_name = $1`, taskName).Scan(&existingTaskID, &lastRunTime)
+			err = tx.QueryRow(`SELECT task_id, last_run_time, run_now_request FROM harmony_task_singletons WHERE task_name = $1`, taskName).Scan(&existingTaskID, &lastRunTime, &runNowRequest)
 			if errors.Is(err, pgx.ErrNoRows) {
-				// No existing record → Task should run
+				// No existing record -> Task should run
 				shouldRun = true
 			} else if err != nil {
 				return false, err // Return actual error
-			} else if existingTaskID == nil {
-				// No existing record → Task should run
-				shouldRun = lastRunTime.Add(minInterval).Before(now)
 			} else {
-				// make sure the task is still active
-				var htTaskID *int64
-				err = tx.QueryRow(`SELECT id FROM harmony_task WHERE id = $1 AND name = $2`, existingTaskID, taskName).Scan(&htTaskID)
-				if errors.Is(err, pgx.ErrNoRows) {
-					// Task no longer exists, should run
-					shouldRun = lastRunTime.Add(minInterval).Before(now)
-				} else if err != nil {
-					return false, err
-				} else {
-					shouldRun = htTaskID == nil && lastRunTime.Add(minInterval).Before(now)
+				taskIsRunning := false
+
+				if existingTaskID != nil {
+					// make sure the task is still active
+					var htTaskID *int64
+					err = tx.QueryRow(`SELECT id FROM harmony_task WHERE id = $1 AND name = $2`, existingTaskID, taskName).Scan(&htTaskID)
+					if errors.Is(err, pgx.ErrNoRows) {
+						taskIsRunning = false
+					} else if err != nil {
+						return false, err
+					} else {
+						taskIsRunning = htTaskID != nil
+					}
 				}
+
+				if !taskIsRunning {
+					shouldRun = runNowRequest || lastRunTime.Add(minInterval).Before(now)
+				}
+				// If task IS running, leave run_now_request set so it fires
+				// after the current run completes on the next cycle.
 			}
 
 			if !shouldRun {
 				return false, nil
 			}
 
-			// Conditionally insert or update the task entry
+			// Conditionally insert or update the task entry, clearing run_now_request
 			n, err := tx.Exec(`
-                INSERT INTO harmony_task_singletons (task_name, task_id, last_run_time)
-				VALUES ($1, $2, $3)
+                INSERT INTO harmony_task_singletons (task_name, task_id, last_run_time, run_now_request)
+				VALUES ($1, $2, $3, FALSE)
 				ON CONFLICT (task_name) DO UPDATE
 				SET task_id = 
 					CASE 
@@ -70,12 +143,13 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 					CASE 
 						WHEN harmony_task_singletons.task_id IS DISTINCT FROM $2 THEN $3 -- Only update when task_id changes
 						ELSE harmony_task_singletons.last_run_time -- Keep the existing value
-					END`, taskName, taskID, now)
+					END,
+					run_now_request = FALSE`, taskName, taskID, now)
 			if err != nil {
 				return false, err
 			}
 			return n > 0, nil
 		})
 		return nil
-	})
+	}
 }

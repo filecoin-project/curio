@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 )
 
@@ -184,4 +186,36 @@ func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]*H
 	}
 
 	return history, nil
+}
+
+type SingletonInfo struct {
+	TaskName      string     `db:"task_name" json:"TaskName"`
+	TaskID        NullInt64  `db:"task_id" json:"TaskID"`
+	LastRunTime   *time.Time `db:"last_run_time" json:"LastRunTime"`
+	RunNowRequest bool       `db:"run_now_request" json:"RunNowRequest"`
+}
+
+func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*SingletonInfo, error) {
+	var info []SingletonInfo
+	err := a.deps.DB.Select(ctx, &info,
+		`SELECT task_name, task_id, last_run_time, run_now_request FROM harmony_task_singletons WHERE task_name = $1`, taskName)
+	if err != nil {
+		return nil, err
+	}
+	if len(info) == 0 {
+		return nil, nil
+	}
+	return &info[0], nil
+}
+
+func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
+	n, err := a.deps.DB.Exec(ctx,
+		`UPDATE harmony_task_singletons SET run_now_request = TRUE WHERE task_name = $1`, taskName)
+	if err != nil {
+		return xerrors.Errorf("setting run_now_request: %w", err)
+	}
+	if n == 0 {
+		return xerrors.Errorf("task %q is not a registered singleton", taskName)
+	}
+	return nil
 }
