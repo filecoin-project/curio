@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -77,13 +78,19 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		SpID      uint64 `db:"sp_id"`
 		SectorNum uint64 `db:"sector_num"`
 
+		CurSealedCID string `db:"cur_sealed_cid"`
+
 		Expiration *uint64 `db:"expiration_epoch"`
 
 		Partition *uint64 `db:"partition"`
 		Deadline  *uint64 `db:"deadline"`
+
+		InSnapPipeline bool `db:"in_snap_pipeline"`
 	}
 
-	if err := s.db.Select(ctx, &sectors, "select sp_id, sector_num, expiration_epoch, partition, deadline from sectors_meta ORDER BY sp_id, sector_num"); err != nil {
+	if err := s.db.Select(ctx, &sectors, `SELECT sm.sp_id, sm.sector_num, sm.cur_sealed_cid, sm.expiration_epoch, sm.partition, sm.deadline,
+		EXISTS(SELECT 1 FROM sectors_snap_pipeline snp WHERE snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num) AS in_snap_pipeline
+		FROM sectors_meta sm ORDER BY sm.sp_id, sm.sector_num`); err != nil {
 		return false, xerrors.Errorf("get sector list: %w", err)
 	}
 
@@ -177,6 +184,38 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			_, err := s.db.Exec(ctx, "update sectors_meta set expiration_epoch = $1 where sp_id = $2 and sector_num = $3", si.Expiration, sector.SpID, sector.SectorNum)
 			if err != nil {
 				return false, xerrors.Errorf("updating sector expiration: %w", err)
+			}
+		}
+
+		// Reconcile cur_sealed_cid against chain state.
+		// If the sector was snapped on-chain but the metadata update failed,
+		// cur_sealed_cid will be stale. Fix it here if the sector is not
+		// currently in the snap pipeline (in-progress snaps are left alone).
+		chainSealedCID := si.SealedCID.String()
+		if sector.CurSealedCID != chainSealedCID && !sector.InSnapPipeline {
+			dbCurSealedCID, err := cid.Decode(sector.CurSealedCID)
+			if err != nil {
+				log.Errorw("failed to decode cur_sealed_cid from db", "sp", sector.SpID, "sector", sector.SectorNum, "cid", sector.CurSealedCID, "error", err)
+			} else {
+				// Verify this looks like a snap that landed on-chain:
+				// SectorKeyCID is set (snap happened) and matches the DB's stale cur_sealed_cid (which is the original pre-snap sealed CID)
+				if si.SectorKeyCID != nil && *si.SectorKeyCID == dbCurSealedCID {
+					log.Warnw("reconciling cur_sealed_cid from chain (snap metadata was not written)",
+						"sp", sector.SpID, "sector", sector.SectorNum,
+						"db_cur_sealed_cid", sector.CurSealedCID, "chain_sealed_cid", chainSealedCID,
+						"chain_sector_key_cid", si.SectorKeyCID.String())
+
+					_, err := s.db.Exec(ctx, "UPDATE sectors_meta SET cur_sealed_cid = $1 WHERE sp_id = $2 AND sector_num = $3",
+						chainSealedCID, sector.SpID, sector.SectorNum)
+					if err != nil {
+						return false, xerrors.Errorf("updating cur_sealed_cid for sp %d sector %d: %w", sector.SpID, sector.SectorNum, err)
+					}
+				} else {
+					log.Errorw("cur_sealed_cid mismatch with chain but does not look like a missed snap update",
+						"sp", sector.SpID, "sector", sector.SectorNum,
+						"db_cur_sealed_cid", sector.CurSealedCID, "chain_sealed_cid", chainSealedCID,
+						"chain_sector_key_cid", si.SectorKeyCID)
+				}
 			}
 		}
 
