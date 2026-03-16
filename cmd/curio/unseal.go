@@ -1,25 +1,35 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-padreader"
+
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/reqcontext"
@@ -33,6 +43,7 @@ var unsealCmd = &cli.Command{
 		unsealInfoCmd,
 		listUnsealPipelineCmd,
 		setTargetUnsealStateCmd,
+		setTargetUnsealStateByPiecesCmd,
 		unsealCheckCmd,
 	},
 }
@@ -465,6 +476,332 @@ var setTargetUnsealStateCmd = &cli.Command{
 		fmt.Printf("Successfully set target unseal state to %v for SP %d, sector %d\n", targetStateStr, spID, sectorNum)
 		return nil
 	},
+}
+
+var setTargetUnsealStateByPiecesCmd = &cli.Command{
+	Name:      "set-target-by-pieces",
+	Usage:     translations.T("Set the target unseal state for sectors containing the given piece CIDs"),
+	ArgsUsage: "<piece-cid> [piece-cid ...]",
+	Description: translations.T(`Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.
+   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).
+   Use --stdin to read piece CIDs one per line from stdin (for large lists).`),
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "target-state",
+			Usage: translations.T("Target state: true (ensure unsealed), false (ensure no unsealed copy), or none"),
+			Value: true,
+		},
+		&cli.BoolFlag{
+			Name:  "stdin",
+			Usage: translations.T("Read piece CIDs one per line from stdin instead of from arguments"),
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		fromStdin := cctx.Bool("stdin")
+		if !fromStdin && cctx.Args().Len() == 0 {
+			return cli.ShowSubcommandHelp(cctx)
+		}
+
+		targetState := (cctx.Bool("target-state"))
+
+		pieceCids, err := collectPieceCids(cctx, fromStdin)
+		if err != nil {
+			return err
+		}
+		if len(pieceCids) == 0 {
+			return xerrors.New("no piece CIDs provided (use arguments or --stdin with one CID per line)")
+		}
+
+		ctx := reqcontext.ReqContext(cctx)
+		dep, err := deps.GetDepsCLI(ctx, cctx)
+		if err != nil {
+			return err
+		}
+
+		// Batch-resolve pieces to sectors; then pick minimal set of sectors (prefer sectors with most desired pieces)
+		plan, err := piecesToSectorsBatched(ctx, dep.DB, pieceCids)
+		if err != nil {
+			return err
+		}
+
+		if len(plan.NoDeal) > 0 {
+			fmt.Printf("Pieces with no deal in market_piece_deal (%d):\n", len(plan.NoDeal))
+			for _, pc := range plan.NoDeal {
+				fmt.Printf("  %s\n", pc)
+			}
+		}
+
+		if len(plan.AlreadyTargeted) > 0 {
+			fmt.Printf("Pieces already in sectors targeted for unseal (%d sector(s)):\n", len(plan.AlreadyTargeted))
+			for sid, pieces := range plan.AlreadyTargeted {
+				fmt.Printf("  SP %d sector %d: %v\n", sid.SpID, sid.SectorNum, pieces)
+			}
+		}
+
+		if len(plan.SpIdToSectorNum) == 0 {
+			fmt.Println("No new sectors need to be unsealed.")
+			return nil
+		}
+
+		fmt.Printf("Sectors selected for unseal (%d sector(s)):\n", plan.TotalSectors())
+		for sid, pieces := range plan.SectorIdToPieces {
+			fmt.Printf("  SP %d sector %d: %v\n", sid.SpID, sid.SectorNum, pieces)
+		}
+
+		for spID, sectorNums := range plan.SpIdToSectorNum {
+			_, err = dep.DB.Exec(ctx, `
+				UPDATE sectors_meta
+				SET target_unseal_state = $1
+				WHERE sp_id = $2 AND sector_num = ANY($3::bigint[])
+			`, targetState, spID, sectorNums)
+			if err != nil {
+				return xerrors.Errorf("failed to update sectors for SP %d: %w", spID, err)
+			}
+		}
+
+		fmt.Printf("Successfully set target unseal state for %d sector(s)\n", plan.TotalSectors())
+		return nil
+	},
+}
+
+// collectPieceCids returns piece CIDs from args or from stdin (one per line) when fromStdin is true.
+func collectPieceCids(cctx *cli.Context, fromStdin bool) ([]cid.Cid, error) {
+	if fromStdin {
+		return collectPieceCidsFromReader(os.Stdin)
+	}
+	out := make([]cid.Cid, 0, cctx.Args().Len())
+	for i := 0; i < cctx.Args().Len(); i++ {
+		pc, err := cid.Parse(cctx.Args().Get(i))
+		if err != nil {
+			return nil, xerrors.Errorf("invalid piece CID %q: %w", cctx.Args().Get(i), err)
+		}
+		out = append(out, pc)
+	}
+	return out, nil
+}
+
+func collectPieceCidsFromReader(r io.Reader) ([]cid.Cid, error) {
+	var out []cid.Cid
+	scanner := bufio.NewScanner(r)
+	// Allow large lines (CIDs are bounded; default bufio max is 64KB)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		pc, err := cid.Parse(line)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid piece CID %q: %w", line, err)
+		}
+		out = append(out, pc)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, xerrors.Errorf("reading stdin: %w", err)
+	}
+	return out, nil
+}
+
+type unsealSectorID struct {
+	SpID      int64
+	SectorNum int64
+}
+
+// unsealPlan is the result of piecesToSectorsBatched.
+type unsealPlan struct {
+	// Piece CIDs (v1 strings) not found in market_piece_deal.
+	NoDeal []string
+	// Sectors already set to target_unseal_state=true, mapped to the requested pieces they contain.
+	AlreadyTargeted map[unsealSectorID][]string
+	// Sectors chosen to be unsealed, mapped to the requested pieces they will cover.
+	SectorIdToPieces map[unsealSectorID][]string
+	// SpIdToSectorNum is WillUnseal grouped by SP for the UPDATE query.
+	SpIdToSectorNum map[int64][]int64
+}
+
+func (p *unsealPlan) TotalSectors() int {
+	n := 0
+	for _, secs := range p.SpIdToSectorNum {
+		n += len(secs)
+	}
+	return n
+}
+
+// piecesToSectorsBatched resolves all piece CIDs to sectors in batch, then returns a minimal set of
+// sectors to unseal so every piece is covered at least once, preferring sectors that contain the
+// most requested pieces (fewer sectors to unseal).
+func piecesToSectorsBatched(ctx context.Context, db *harmonydb.DB, pieceCids []cid.Cid) (*unsealPlan, error) {
+	if len(pieceCids) == 0 {
+		return &unsealPlan{}, nil
+	}
+
+	// sizeByV1Cid: piece CID v1 string -> padded size.
+	// v2 CIDs encode the raw size directly; v1 CIDs need a DB lookup.
+	// Using a map provides deduplication — a CID always has the same size.
+	sizeByV1Cid := make(map[string]int64, len(pieceCids))
+	var v1CidsForSize []string
+
+	for _, pc := range pieceCids {
+		if commcidv2.IsPieceCidV2(pc) {
+			pcid1, rawSize, err := commcid.PieceCidV1FromV2(pc)
+			if err != nil {
+				return nil, xerrors.Errorf("piece CID v2 to v1 %s: %w", pc, err)
+			}
+			sizeByV1Cid[pcid1.String()] = int64(padreader.PaddedSize(rawSize).Padded())
+		} else if _, seen := sizeByV1Cid[pc.String()]; !seen {
+			sizeByV1Cid[pc.String()] = 0
+			v1CidsForSize = append(v1CidsForSize, pc.String())
+		}
+	}
+
+	// Batch lookup sizes for v1 CIDs whose size is not encoded in the CID.
+	if len(v1CidsForSize) > 0 {
+		var sizeRows []struct {
+			PieceCid string `db:"piece_cid"`
+			Size     int64  `db:"piece_size"`
+		}
+		err := db.Select(ctx, &sizeRows, `
+			SELECT c.piece_cid,
+			       COALESCE(m.piece_size, p.piece_padded_size, 0) AS piece_size
+			FROM unnest($1::text[]) AS c(piece_cid)
+			LEFT JOIN LATERAL (
+			    SELECT piece_size
+			    FROM market_piece_metadata
+			    WHERE piece_cid = c.piece_cid
+			    ORDER BY piece_size DESC LIMIT 1
+			) m ON true
+			LEFT JOIN LATERAL (
+			    SELECT piece_padded_size
+			    FROM parked_pieces
+			    WHERE piece_cid = c.piece_cid
+			    ORDER BY piece_padded_size DESC LIMIT 1
+			) p ON true
+		`, v1CidsForSize)
+		if err != nil {
+			return nil, xerrors.Errorf("piece size lookup: %w", err)
+		}
+		for _, r := range sizeRows {
+			if r.Size <= 0 {
+				return nil, xerrors.Errorf("piece size not found for %s (not in market_piece_metadata or parked_pieces)", r.PieceCid)
+			}
+			sizeByV1Cid[r.PieceCid] = r.Size
+		}
+	}
+
+	// Build parallel arrays for the SQL JOIN.
+	cidsArr := make([]string, 0, len(sizeByV1Cid))
+	sizesArr := make([]int64, 0, len(sizeByV1Cid))
+	for c, s := range sizeByV1Cid {
+		cidsArr = append(cidsArr, c)
+		sizesArr = append(sizesArr, s)
+	}
+
+	// Fetch all (sector, piece) rows for the requested pieces, and whether each sector is already
+	// targeted for unseal — one query instead of two.
+	var rows []struct {
+		SpID              int64  `db:"sp_id"`
+		SectorNum         int64  `db:"sector_num"`
+		PieceCid          string `db:"piece_cid"`
+		TargetUnsealState *bool  `db:"target_unseal_state"`
+	}
+	err := db.Select(ctx, &rows, `
+		SELECT mpd.sp_id,
+		       mpd.sector_num,
+		       mpd.piece_cid,
+		       sm.target_unseal_state
+		FROM market_piece_deal mpd
+		JOIN unnest($1::text[], $2::bigint[]) AS p(piece_cid, piece_length)
+		  ON mpd.piece_cid = p.piece_cid
+		 AND mpd.piece_length = p.piece_length
+		LEFT JOIN sectors_meta sm
+		  ON sm.sp_id = mpd.sp_id
+		 AND sm.sector_num = mpd.sector_num
+		WHERE mpd.sp_id != -1
+	`, cidsArr, sizesArr)
+	if err != nil {
+		return nil, xerrors.Errorf("market_piece_deal batch lookup: %w", err)
+	}
+
+	// Track which requested pieces appear in at least one deal row.
+	piecesWithDeals := make(map[string]struct{})
+	for _, r := range rows {
+		piecesWithDeals[r.PieceCid] = struct{}{}
+	}
+
+	// Pieces with no deal.
+	var noDeal []string
+	for pc := range sizeByV1Cid {
+		if _, ok := piecesWithDeals[pc]; !ok {
+			noDeal = append(noDeal, pc)
+		}
+	}
+	sort.Strings(noDeal)
+
+	// sector -> set of piece CIDs it contains; CID string is sufficient since size is deterministic.
+	sectorPieces := make(map[unsealSectorID]map[string]struct{})
+	// Sectors already targeted for unseal and the requested pieces they contain.
+	alreadyTargeted := make(map[unsealSectorID][]string)
+	// Pieces already covered by sectors already targeted for unseal.
+	covered := make(map[string]struct{})
+
+	for _, r := range rows {
+		sid := unsealSectorID{SpID: r.SpID, SectorNum: r.SectorNum}
+		if r.TargetUnsealState != nil && *r.TargetUnsealState {
+			alreadyTargeted[sid] = append(alreadyTargeted[sid], r.PieceCid)
+			covered[r.PieceCid] = struct{}{}
+			continue
+		}
+		if sectorPieces[sid] == nil {
+			sectorPieces[sid] = make(map[string]struct{})
+		}
+		sectorPieces[sid][r.PieceCid] = struct{}{}
+	}
+
+	removeCoveredPieces := func() {
+		for sid, pieces := range sectorPieces {
+			for pc := range pieces {
+				if _, ok := covered[pc]; ok {
+					delete(sectorPieces[sid], pc)
+					if len(sectorPieces[sid]) == 0 {
+						delete(sectorPieces, sid)
+					}
+				}
+			}
+		}
+	}
+	removeCoveredPieces()
+
+	sectorIdToPieces := make(map[unsealSectorID][]string)
+	spIdToSectorNum := make(map[int64][]int64)
+
+	// Sort sectors by number of desired pieces (desc), then greedily pick a minimal covering set.
+	for len(sectorPieces) > 0 {
+		sectorsByCount := make([]unsealSectorID, 0, len(sectorPieces))
+		for sid := range sectorPieces {
+			sectorsByCount = append(sectorsByCount, sid)
+		}
+		sort.SliceStable(sectorsByCount, func(i, j int) bool {
+			return len(sectorPieces[sectorsByCount[i]]) > len(sectorPieces[sectorsByCount[j]])
+		})
+		// Poor-man's bin-sorting: pick the sector with the most desired pieces that isn't already covered
+		// Better combos may exist that result in a smaller set of sectors to unseal,
+		// but it's near-optimal & good enough for SPs not wanting to unseal more precisely.
+
+		sid := sectorsByCount[0]            // grab the biggest one
+		for pc := range sectorPieces[sid] { // mark all pieces as covered
+			sectorIdToPieces[sid] = append(sectorIdToPieces[sid], pc)
+			covered[pc] = struct{}{}
+		}
+		sort.Strings(sectorIdToPieces[sid])
+		spIdToSectorNum[sid.SpID] = append(spIdToSectorNum[sid.SpID], sid.SectorNum)
+		removeCoveredPieces()
+	}
+
+	return &unsealPlan{
+		NoDeal:           noDeal,
+		AlreadyTargeted:  alreadyTargeted,
+		SectorIdToPieces: sectorIdToPieces,
+		SpIdToSectorNum:  spIdToSectorNum,
+	}, nil
 }
 
 func formatNullableInt64(v *int64) string {
