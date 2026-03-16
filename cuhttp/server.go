@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/market/denylist"
 	mhttp "github.com/filecoin-project/curio/market/http"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
@@ -284,9 +285,12 @@ func (c cache) Delete(ctx context.Context, key string) error {
 var _ autocert.Cache = cache{}
 
 func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps) (*chi.Mux, error) {
-	// Attach retrievals
-	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
-	retrieval.Router(r, rp)
+	// Create denylist filter for retrieval endpoints
+	df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
+
+	// Attach retrievals with denylist filtering at both URL and blockstore level
+	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
+	retrieval.Router(r, rp, df)
 
 	// Attach IPNI
 	ipp, err := ipni_provider.NewProvider(d)
