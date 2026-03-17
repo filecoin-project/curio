@@ -38,6 +38,69 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
+  start-databases:
+    runs-on: [self-hosted, docker]
+    needs: [setup-params]
+    outputs:
+      pg_ip: ${{ steps.get-ips.outputs.pg_ip }}
+      scylla_ip: ${{ steps.get-ips.outputs.scylla_ip }}
+    steps:
+      - name: Remove old shared DB containers from previous runs
+        run: |
+          docker rm -f postgres-curio-ci-${{ github.run_id }} 2>/dev/null || true
+          docker rm -f scylla-curio-ci-${{ github.run_id }} 2>/dev/null || true
+
+      - name: Start shared PostgreSQL container
+        run: |
+          docker run --name postgres-curio-ci-${{ github.run_id }} -d --shm-size=256mb \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            postgres:15
+          for i in $(seq 1 30); do
+            if docker exec postgres-curio-ci-${{ github.run_id }} pg_isready -U postgres 2>/dev/null; then
+              echo "PostgreSQL ready"
+              break
+            fi
+            [ $i -eq 30 ] && { echo "PostgreSQL failed to start"; docker logs postgres-curio-ci-${{ github.run_id }} 2>&1; exit 1; }
+            sleep 1
+          done
+
+      - name: Create yugabyte user and database
+        run: |
+          docker exec postgres-curio-ci-${{ github.run_id }} psql -U postgres -v ON_ERROR_STOP=1 -c "
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
+                CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
+              END IF;
+            END
+            \$\$;
+          "
+          docker exec postgres-curio-ci-${{ github.run_id }} psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='yugabyte'" | grep -q 1 || \
+            docker exec postgres-curio-ci-${{ github.run_id }} psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE yugabyte OWNER yugabyte"
+
+      - name: Start shared ScyllaDB container
+        run: |
+          docker run --name scylla-curio-ci-${{ github.run_id }} -d \
+            scylladb/scylla:latest \
+            --smp 1 --memory 1G --overprovisioned 1
+          for i in $(seq 1 60); do
+            if docker exec scylla-curio-ci-${{ github.run_id }} cqlsh -e "DESCRIBE KEYSPACES" 2>/dev/null; then
+              echo "ScyllaDB ready"
+              break
+            fi
+            [ $i -eq 60 ] && { echo "ScyllaDB failed to start"; exit 1; }
+            sleep 2
+          done
+
+      - name: Get database IPs
+        id: get-ips
+        run: |
+          PG_IP=$(docker inspect postgres-curio-ci-${{ github.run_id }} --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          SCYLLA_IP=$(docker inspect scylla-curio-ci-${{ github.run_id }} --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "pg_ip=$PG_IP" >> $GITHUB_OUTPUT
+          echo "scylla_ip=$SCYLLA_IP" >> $GITHUB_OUTPUT
+          echo "Shared Postgres: $PG_IP:5432, Scylla: $SCYLLA_IP:9042"
+
   build-mainnet:
     runs-on: ubuntu-latest
     needs: [ci-lint]
@@ -185,13 +248,9 @@ jobs:
 
   test:
     runs-on: [self-hosted, docker]
-    needs: [setup-params]
-    env:
-      CONTAINER_NAME: postgres-${{ github.run_id }}-${{ matrix.test-suite.name }}
-      SCYLLA_CONTAINER_NAME: scylla-${{ github.run_id }}-${{ matrix.test-suite.name }}
+    needs: [setup-params, start-databases]
     strategy:
-      fail-fast: false  # Continue running even if one test fails
-      max-parallel: 2   # Limit concurrent Postgres+Scylla containers per runner
+      fail-fast: false  # Tests share one Postgres+Scylla; no container limits needed
       matrix:
         test-suite:
           - name: test-all
@@ -234,152 +293,16 @@ jobs:
           make deps
         shell: bash
 
-      - name: Start PostgreSQL container
-        id: start-postgres
-        run: |
-          # Start with default postgres user; create step adds yugabyte (avoids init-restart race)
-          # Omit --rm so crashed containers persist for debugging; cleanup step removes them
-          docker run --name ${{ env.CONTAINER_NAME }} -d --shm-size=256mb \
-            -e POSTGRES_HOST_AUTH_METHOD=trust \
-            postgres:15
-          # Verify container started and stays running (fail fast if it crashes)
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if ! docker ps -q -f "name=${{ env.CONTAINER_NAME }}" | head -1 | xargs -r docker inspect -f '{{.State.Running}}' 2>/dev/null | grep -q true; then
-              if [ "$i" = 10 ]; then
-                echo "ERROR: Container ${{ env.CONTAINER_NAME }} failed to start or crashed."
-                echo "Container logs:"
-                docker logs ${{ env.CONTAINER_NAME }} 2>&1 || true
-                docker ps -a
-                exit 1
-              fi
-              sleep 1
-            else
-              break
-            fi
-          done
-
-      - name: Wait for PostgreSQL to start
-        env:
-          CN: ${{ env.CONTAINER_NAME }}
-        run: |
-          set -e
-          # Wait for container to appear (Postgres init can take 15-20s when many start in parallel)
-          for i in $(seq 1 30); do
-            if docker ps -q -f "name=^${CN}$" | grep -q .; then
-              break
-            fi
-            if [ "$i" = 30 ]; then
-              echo "ERROR: Container ${CN} not running (start failed or crashed)."
-              echo "Container logs:"
-              docker logs "${CN}" 2>&1 || true
-              docker ps -a
-              exit 1
-            fi
-            sleep 1
-          done
-          CNT=0
-          while [ $CNT -lt 60 ]; do
-            if ! docker ps | grep -qF "${CN}"; then
-              echo "ERROR: Container ${CN} disappeared (crashed)."
-              echo "Container logs:"
-              docker logs "${CN}" 2>&1 || true
-              docker ps -a
-              exit 1
-            fi
-            EXEC_OUT=$(docker exec "${CN}" pg_isready -U postgres 2>&1) || true
-            if echo "$EXEC_OUT" | grep -q "No such container"; then
-              echo "ERROR: Container ${CN} does not exist."
-              docker ps -a
-              exit 1
-            fi
-            if echo "$EXEC_OUT" | grep -q "accepting connections"; then
-              echo "PostgreSQL is ready"
-              exit 0
-            fi
-            echo "Waiting for PostgreSQL... ($CNT)"
-            sleep 1
-            CNT=$((CNT + 1))
-          done
-          echo "ERROR: PostgreSQL did not become ready within 60s"
-          exit 1
-        shell: bash
-
-      - name: Create yugabyte user and database
-        run: |
-          # Ensure default db 'yugabyte' accessible by yugabyte user with yugabyte password
-          if ! docker inspect ${{ env.CONTAINER_NAME }} >/dev/null 2>&1; then
-            echo "ERROR: Container ${{ env.CONTAINER_NAME }} does not exist."
-            exit 1
-          fi
-          # Wait until postgres accepts queries (avoids "shutting down" if connect during restart)
-          until docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -c "SELECT 1" >/dev/null 2>&1; do
-            if ! docker inspect ${{ env.CONTAINER_NAME }} >/dev/null 2>&1; then
-              echo "ERROR: Container disappeared (crashed?)."
-              exit 1
-            fi
-            echo "Waiting for postgres to accept queries..."
-            sleep 1
-          done
-          # Retry create in case of transient "shutting down"
-          # CREATE DATABASE cannot run inside a DO block; run user and database separately
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -v ON_ERROR_STOP=1 -c "
-              DO \$\$
-              BEGIN
-                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
-                  CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
-                END IF;
-              END
-              \$\$;
-            " && \
-            (docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='yugabyte'" | grep -q 1 || \
-             docker exec ${{ env.CONTAINER_NAME }} psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE yugabyte OWNER yugabyte") && \
-            { echo "yugabyte user/database ready"; exit 0; }
-            echo "Attempt $i failed, retrying in 2s..."
-            sleep 2
-          done
-          echo "Failed to create yugabyte user/database after 10 attempts"
-          exit 1
-        shell: bash
-
-      - name: Get PostgreSQL container IP
-        id: get-pg-ip
-        run: |
-          PG_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "pg_ip=$PG_IP" >> $GITHUB_OUTPUT
-
-      - name: Start ScyllaDB container
-        id: start-scylla
-        run: |
-          docker run --rm --name ${{ env.SCYLLA_CONTAINER_NAME }} -d \
-            scylladb/scylla:latest \
-            --smp 1 --memory 1G --overprovisioned 1
-
-      - name: Wait for ScyllaDB to start
-        run: |
-          until docker exec ${{ env.SCYLLA_CONTAINER_NAME }} cqlsh -e "DESCRIBE KEYSPACES" 2>/dev/null; do
-            echo "Waiting for ScyllaDB..."
-            sleep 2
-          done
-          echo "ScyllaDB is ready"
-        shell: bash
-
-      - name: Get ScyllaDB container IP
-        id: get-scylla-ip
-        run: |
-          SCYLLA_IP=$(docker inspect $SCYLLA_CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "scylla_ip=$SCYLLA_IP" >> $GITHUB_OUTPUT
-
       - name: Run tests with coverage
         env:
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-pg-ip.outputs.pg_ip }}
-          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-pg-ip.outputs.pg_ip }}
-          CURIO_DB_HOST_CQL: ${{ steps.get-scylla-ip.outputs.scylla_ip }}
+          CURIO_HARMONYDB_HOSTS: ${{ needs.start-databases.outputs.pg_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ needs.start-databases.outputs.pg_ip }}
+          CURIO_DB_HOST_CQL: ${{ needs.start-databases.outputs.scylla_ip }}
           CURIO_HARMONYDB_PORT: "5432"
           LOTUS_HARMONYDB_PORT: "5432"
           FFI_USE_OPENCL: 1
         run: |
-          echo "Using PostgreSQL Container IP: ${{env.CURIO_HARMONYDB_HOSTS}} (port 5432), ScyllaDB: ${{env.CURIO_DB_HOST_CQL}} (port 9042)"
+          echo "Using shared PostgreSQL: ${{env.CURIO_HARMONYDB_HOSTS}} (port 5432), ScyllaDB: ${{env.CURIO_DB_HOST_CQL}} (port 9042)"
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           export CURIO_DB_HOST_CQL=${{ env.CURIO_DB_HOST_CQL }}
@@ -395,12 +318,6 @@ jobs:
           name: coverage-${{ matrix.test-suite.name }}
           path: coverage/${{ matrix.test-suite.name }}.out
           retention-days: 1
-
-      - name: Stop database containers
-        if: always()  # Ensure this run even if the tests fail
-        run: |
-          docker stop ${{ env.CONTAINER_NAME }} || true
-          docker stop ${{ env.SCYLLA_CONTAINER_NAME }} || true
 
   lint:
     runs-on: ubuntu-latest
@@ -822,6 +739,16 @@ jobs:
           echo "![Coverage Badge](https://img.shields.io/badge/coverage-${{ steps.coverage.outputs.total-coverage }}-${{ steps.coverage.outputs.badge-color }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY
+
+  stop-databases:
+    runs-on: [self-hosted, docker]
+    needs: [test]
+    if: always() && needs.test.result != 'cancelled'
+    steps:
+      - name: Stop shared database containers
+        run: |
+          docker rm -f postgres-curio-ci-${{ github.run_id }} 2>/dev/null || true
+          docker rm -f scylla-curio-ci-${{ github.run_id }} 2>/dev/null || true
 
   required-checks-passed:
     needs: [ci-lint, build-mainnet, build-calibnet, build-debug, build-2k, build-forest, test, lint, gofmt, build-supraseal-ubuntu24, gen-check, mod-tidy-check, coverage-report]
