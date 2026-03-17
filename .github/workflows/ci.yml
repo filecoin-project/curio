@@ -191,6 +191,7 @@ jobs:
       SCYLLA_CONTAINER_NAME: scylla-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
       fail-fast: false  # Continue running even if one test fails
+      max-parallel: 2   # Limit concurrent Postgres+Scylla containers per runner
       matrix:
         test-suite:
           - name: test-all
@@ -238,12 +239,14 @@ jobs:
         run: |
           # Start with default postgres user; create step adds yugabyte (avoids init-restart race)
           # Omit --rm so crashed containers persist for debugging; cleanup step removes them
-          docker run --name ${{ env.CONTAINER_NAME }} -d postgres:16
+          docker run --name ${{ env.CONTAINER_NAME }} -d --shm-size=256mb postgres:15
           # Verify container started and stays running (fail fast if it crashes)
           for i in 1 2 3 4 5 6 7 8 9 10; do
             if ! docker ps -q -f "name=${{ env.CONTAINER_NAME }}" | head -1 | xargs -r docker inspect -f '{{.State.Running}}' 2>/dev/null | grep -q true; then
               if [ "$i" = 10 ]; then
                 echo "ERROR: Container ${{ env.CONTAINER_NAME }} failed to start or crashed."
+                echo "Container logs:"
+                docker logs ${{ env.CONTAINER_NAME }} 2>&1 || true
                 docker ps -a
                 exit 1
               fi
@@ -267,6 +270,8 @@ jobs:
             fi
             if [ "$i" = 10 ]; then
               echo "ERROR: Container ${CN} not running (start failed or crashed)."
+              echo "Container logs:"
+              docker logs "${CN}" 2>&1 || true
               docker ps -a
               exit 1
             fi
@@ -276,6 +281,8 @@ jobs:
           while [ $CNT -lt 60 ]; do
             if ! docker ps | grep -qF "${CN}"; then
               echo "ERROR: Container ${CN} disappeared (crashed)."
+              echo "Container logs:"
+              docker logs "${CN}" 2>&1 || true
               docker ps -a
               exit 1
             fi
