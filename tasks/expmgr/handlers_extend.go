@@ -273,11 +273,11 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	totalSectors := 0
 
 	for dlPart, sectorNums := range sectorsByDlPart {
-		if totalSectors >= MaxExtendsPerMessage {
+		if totalSectors >= MaxExtendsPerRound {
 			log.Warnw("hit max sectors per message limit",
 				"preset", cfg.Name,
 				"sp_id", cfg.SpID,
-				"limit", MaxExtendsPerMessage)
+				"limit", MaxExtendsPerRound)
 			break
 		}
 
@@ -331,7 +331,7 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 		numbersToExtend := make([]abi.SectorNumber, 0, len(sectorNums))
 
 		for _, sn := range sectorNums {
-			if totalSectors >= MaxExtendsPerMessage {
+			if totalSectors >= MaxExtendsPerRound {
 				break
 			}
 
@@ -434,11 +434,31 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			// If drop_claims=false, we already filtered these out at query time
 			// If drop_claims=true, check if we need to process individual claims
 			if !cfg.DropClaims {
-				// This shouldn't happen due to query filtering, but just in case
-				log.Warnw("sector with short claims in non-drop-claims mode",
-					"sector", sn,
-					"min_claim_epoch", dbSector.MinClaim,
-					"target_expiration", targetExpEpoch)
+				// Check if claims are actually short (MaxClaim < targetExpEpoch)
+				// The SQL query filters on min_claim_epoch, but sectors with all claims
+				// long enough can still reach here with non-nil claim fields.
+				// Only skip if the max claim is actually shorter than the target.
+				if dbSector.MaxClaim != nil && abi.ChainEpoch(*dbSector.MaxClaim) < targetExpEpoch {
+					log.Warnw("sector with short claims in non-drop-claims mode, skipping",
+						"sector", sn,
+						"max_claim_epoch", *dbSector.MaxClaim,
+						"target_expiration", targetExpEpoch)
+					continue
+				}
+
+				// All claims live long enough, maintain all
+				claimIds := claimIdsBySector[sn]
+				if len(claimIds) > 0 {
+					sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
+						SectorNumber:   sn,
+						MaintainClaims: claimIds,
+						DropClaims:     []verifreg.ClaimId{},
+					})
+				} else {
+					sectorsWithoutClaims.Set(uint64(sn))
+				}
+				numbersToExtend = append(numbersToExtend, sn)
+				totalSectors++
 				continue
 			}
 
@@ -577,16 +597,20 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 	for i, msg := range msgs {
 		msgCid, err := e.sender.Send(ctx, msg, mss, fmt.Sprintf("expmgr-extend-%s", cfg.Name))
 		if err != nil {
+			if len(sentCids) > 0 {
+				log.Errorw("failed to send message, proceeding with already sent messages",
+					"preset", cfg.Name,
+					"sp_id", cfg.SpID,
+					"failed_index", i,
+					"total_messages", len(msgs),
+					"sent_so_far", len(sentCids),
+					"error", err)
+				break
+			}
 			return false, xerrors.Errorf("sending message %d: %w", i, err)
 		}
 
 		sentCids = append(sentCids, msgCid)
-
-		// Insert into message_waits
-		_, err = e.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, msgCid.String())
-		if err != nil {
-			return false, xerrors.Errorf("inserting message %d into message_waits: %w", i, err)
-		}
 
 		log.Infow("sent extension message",
 			"preset", cfg.Name,
@@ -598,28 +622,78 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			"miner", maddr)
 	}
 
-	// Update the database with the first message CID (trigger will update last_message_landed_at when it lands)
+	trackedCid := sentCids[len(sentCids)-1]
+
+	// Update the database with the last message CID before inserting into message_waits,
+	// so the landing trigger can't race-miss the update.
 	_, err = e.db.Exec(ctx, `
 		UPDATE sectors_exp_manager_sp
 		SET last_message_cid = $2,
 		    last_run_at = CURRENT_TIMESTAMP
 		WHERE sp_id = $1 AND preset_name = $3
-	`, cfg.SpID, sentCids[0].String(), cfg.Name)
+	`, cfg.SpID, trackedCid.String(), cfg.Name)
 	if err != nil {
 		return false, xerrors.Errorf("updating sectors_exp_manager_sp: %w", err)
+	}
+
+	for i, sc := range sentCids {
+		_, err = e.db.Exec(ctx, `INSERT INTO message_waits (signed_message_cid) VALUES ($1)`, sc.String())
+		if err != nil {
+			return false, xerrors.Errorf("inserting message %d into message_waits: %w", i, err)
+		}
 	}
 
 	log.Infow("completed extend action",
 		"preset", cfg.Name,
 		"sp_id", cfg.SpID,
 		"total_messages_sent", len(sentCids),
-		"tracked_message_cid", sentCids[0].String())
+		"tracked_message_cid", trackedCid.String())
 
 	return true, nil
 }
 
+func countParamsExtensions(params *miner.ExtendSectorExpiration2Params) (uint64, error) {
+	var total uint64
+	for _, ext := range params.Extensions {
+		count, err := ext.Sectors.Count()
+		if err != nil {
+			return 0, xerrors.Errorf("counting sectors bitfield: %w", err)
+		}
+		total += count
+	}
+	return total, nil
+}
+
 func (e *ExpMgrTask) buildExtendMessage(ctx context.Context, cfg extendPresetConfig, maddr, worker address.Address, params *miner.ExtendSectorExpiration2Params) ([]*types.Message, error) {
-	var err error
+	extCount, err := countParamsExtensions(params)
+	if err != nil {
+		return nil, xerrors.Errorf("counting params extensions: %w", err)
+	}
+
+	if extCount > MaxExtendPerMessage {
+		log.Infow("pre-splitting message before gas estimation",
+			"preset", cfg.Name,
+			"sp_id", cfg.SpID,
+			"extension_count", extCount,
+			"max_per_message", MaxExtendPerMessage)
+
+		splitParamsList, err := splitParams(params)
+		if err != nil {
+			return nil, xerrors.Errorf("pre-splitting params: %w", err)
+		}
+
+		var allMessages []*types.Message
+		for i, sp := range splitParamsList {
+			msgs, err := e.buildExtendMessage(ctx, cfg, maddr, worker, sp)
+			if err != nil {
+				return nil, xerrors.Errorf("building pre-split message %d: %w", i, err)
+			}
+			allMessages = append(allMessages, msgs...)
+		}
+
+		return allMessages, nil
+	}
+
 	sp, err := actors.SerializeParams(params)
 	if err != nil {
 		return nil, xerrors.Errorf("serializing params: %w", err)
