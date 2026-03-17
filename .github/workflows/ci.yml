@@ -39,7 +39,7 @@ jobs:
         shell: bash
 
   start-databases:
-    runs-on: [self-hosted, docker]
+    runs-on: [self-hosted, docker, db-host]  # db-host pins to same runner so test jobs can reach Postgres
     needs: [setup-params]
     outputs:
       pg_ip: ${{ steps.get-ips.outputs.pg_ip }}
@@ -247,7 +247,7 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker]
+    runs-on: [self-hosted, docker, db-host]  # Must match start-databases so tests can reach shared Postgres
     needs: [setup-params, start-databases]
     strategy:
       fail-fast: false  # Tests share one Postgres+Scylla; no container limits needed
@@ -741,7 +741,7 @@ jobs:
           echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY
 
   stop-databases:
-    runs-on: [self-hosted, docker]
+    runs-on: [self-hosted, docker, db-host]  # Same host as start-databases for cleanup
     needs: [test]
     if: always() && needs.test.result != 'cancelled'
     steps:
