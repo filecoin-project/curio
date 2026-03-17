@@ -237,20 +237,64 @@ jobs:
         id: start-postgres
         run: |
           # Start with default postgres user; create step adds yugabyte (avoids init-restart race)
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d postgres:16
+          # Omit --rm so crashed containers persist for debugging; cleanup step removes them
+          docker run --name ${{ env.CONTAINER_NAME }} -d postgres:16
+          # Verify container started and stays running (fail fast if it crashes)
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if ! docker ps -q -f "name=${{ env.CONTAINER_NAME }}" | head -1 | xargs -r docker inspect -f '{{.State.Running}}' 2>/dev/null | grep -q true; then
+              if [ "$i" = 10 ]; then
+                echo "ERROR: Container ${{ env.CONTAINER_NAME }} failed to start or crashed."
+                docker ps -a
+                exit 1
+              fi
+              sleep 1
+            else
+              break
+            fi
+          done
 
       - name: Wait for PostgreSQL to start
+        env:
+          CN: ${{ env.CONTAINER_NAME }}
         run: |
-          if ! docker inspect ${{ env.CONTAINER_NAME }} >/dev/null 2>&1; then
-            echo "ERROR: Container ${{ env.CONTAINER_NAME }} does not exist. Start step may have failed or container exited."
-            docker ps -a
-            exit 1
-          fi
-          until docker exec ${{ env.CONTAINER_NAME }} pg_isready -U postgres; do
-            echo "Waiting for PostgreSQL..."
-            sleep 1;
+          set -e
+          # Fail fast if container never existed or already crashed (avoid endless loop)
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if docker ps | grep -qF "${CN}"; then
+              if docker ps | grep -qF "${CN}"; then
+                break
+              fi
+            fi
+            if [ "$i" = 10 ]; then
+              echo "ERROR: Container ${CN} not running (start failed or crashed)."
+              docker ps -a
+              exit 1
+            fi
+            sleep 1
           done
-          echo "PostgreSQL is ready"
+          CNT=0
+          while [ $CNT -lt 60 ]; do
+            if ! docker ps | grep -qF "${CN}"; then
+              echo "ERROR: Container ${CN} disappeared (crashed)."
+              docker ps -a
+              exit 1
+            fi
+            EXEC_OUT=$(docker exec "${CN}" pg_isready -U postgres 2>&1) || true
+            if echo "$EXEC_OUT" | grep -q "No such container"; then
+              echo "ERROR: Container ${CN} does not exist."
+              docker ps -a
+              exit 1
+            fi
+            if echo "$EXEC_OUT" | grep -q "accepting connections"; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($CNT)"
+            sleep 1
+            CNT=$((CNT + 1))
+          done
+          echo "ERROR: PostgreSQL did not become ready within 60s"
+          exit 1
         shell: bash
 
       - name: Create yugabyte user and database
