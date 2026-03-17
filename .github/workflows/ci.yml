@@ -263,14 +263,12 @@ jobs:
           CN: ${{ env.CONTAINER_NAME }}
         run: |
           set -e
-          # Fail fast if container never existed or already crashed (avoid endless loop)
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if docker ps | grep -qF "${CN}"; then
-              if docker ps | grep -qF "${CN}"; then
-                break
-              fi
+          # Wait for container to appear (Postgres init can take 15-20s when many start in parallel)
+          for i in $(seq 1 30); do
+            if docker ps -q -f "name=^${CN}$" | grep -q .; then
+              break
             fi
-            if [ "$i" = 10 ]; then
+            if [ "$i" = 30 ]; then
               echo "ERROR: Container ${CN} not running (start failed or crashed)."
               echo "Container logs:"
               docker logs "${CN}" 2>&1 || true
