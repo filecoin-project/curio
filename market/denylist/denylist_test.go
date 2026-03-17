@@ -2,14 +2,17 @@ package denylist
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
 
@@ -77,7 +80,7 @@ func TestCIDToHash_DifferentCIDs(t *testing.T) {
 
 func TestDecodeDenylist(t *testing.T) {
 	input := `[{"anchor":"abc123"},{"anchor":"def456"},{"anchor":""}]`
-	hashes, err := decodeDenylist(strings.NewReader(input))
+	hashes, _, err := decodeDenylist(strings.NewReader(input), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +98,7 @@ func TestDecodeDenylist(t *testing.T) {
 
 func TestDecodeDenylist_Empty(t *testing.T) {
 	input := `[]`
-	hashes, err := decodeDenylist(strings.NewReader(input))
+	hashes, _, err := decodeDenylist(strings.NewReader(input), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +108,7 @@ func TestDecodeDenylist_Empty(t *testing.T) {
 }
 
 func TestDecodeDenylist_InvalidJSON(t *testing.T) {
-	_, err := decodeDenylist(strings.NewReader(`not json`))
+	_, _, err := decodeDenylist(strings.NewReader(`not json`), "")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -152,6 +155,32 @@ func TestFilter_IsDenied(t *testing.T) {
 	}
 	if denied2 {
 		t.Fatal("expected CID to not be denied")
+	}
+}
+
+func TestFilter_IsDenied_PieceCIDv2MatchesPieceCIDv1Hash(t *testing.T) {
+	commD := sha256.Sum256([]byte("piece-v2-denylist-equivalence"))
+
+	pieceCIDv1, err := commcid.DataCommitmentV1ToCID(commD[:])
+	if err != nil {
+		t.Fatalf("failed to create PieceCIDv1: %v", err)
+	}
+	pieceCIDv2, err := commcid.PieceCidV2FromV1(pieceCIDv1, 127)
+	if err != nil {
+		t.Fatalf("failed to create PieceCIDv2: %v", err)
+	}
+
+	h := CIDToHash(pieceCIDv1)
+	f := &Filter{}
+	m := map[string]struct{}{h: {}}
+	f.hashes.Store(&m)
+
+	denied, ready := f.IsDenied(pieceCIDv2)
+	if !ready {
+		t.Fatal("expected ready")
+	}
+	if !denied {
+		t.Fatal("expected PieceCIDv2 to be denied when PieceCIDv1 hash is denylisted")
 	}
 }
 
@@ -413,5 +442,84 @@ func TestNewFilter_DynamicReload(t *testing.T) {
 			t.Fatal("CID was not denied after dynamic config reload")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestLoadDenylists_PeriodicUnchangedPreservesHashesAndSkipsGet(t *testing.T) {
+	c := makeCIDv1("already-blocked")
+	h := CIDToHash(c)
+	const etag = "\"bafy-unchanged\""
+
+	var getCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("etag", etag)
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.Method == http.MethodGet {
+			getCount.Add(1)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer ts.Close()
+
+	f := &Filter{}
+	current := map[string]struct{}{h: {}}
+	f.hashes.Store(&current)
+	servers := map[string]string{ts.URL: etag}
+	f.servers.Store(&servers)
+
+	f.loadDenylists(context.Background(), servers, false)
+
+	if getCount.Load() != 0 {
+		t.Fatalf("expected no GET on unchanged etag, got %d", getCount.Load())
+	}
+	denied, ready := f.IsDenied(c)
+	if !ready {
+		t.Fatal("expected ready")
+	}
+	if !denied {
+		t.Fatal("expected existing hash to remain denylisted on unchanged etag")
+	}
+}
+
+func TestLoadDenylists_PeriodicChangedEmptyListUpdatesEtag(t *testing.T) {
+	const oldEtag = "\"bafy-old\""
+	const newEtag = "\"bafy-new\""
+
+	var getCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodHead:
+			w.Header().Set("etag", newEtag)
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			getCount.Add(1)
+			w.Header().Set("etag", newEtag)
+			_, _ = w.Write([]byte("[]"))
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer ts.Close()
+
+	f := &Filter{}
+	servers := map[string]string{ts.URL: oldEtag}
+	f.servers.Store(&servers)
+
+	f.loadDenylists(context.Background(), servers, false)
+
+	if getCount.Load() != 1 {
+		t.Fatalf("expected 1 GET on changed etag, got %d", getCount.Load())
+	}
+	updated := f.servers.Load()
+	if updated == nil {
+		t.Fatal("expected servers map to be stored")
+	}
+	if (*updated)[ts.URL] != newEtag {
+		t.Fatalf("expected etag to update to %s, got %s", newEtag, (*updated)[ts.URL])
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/commcidv2"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multibase"
@@ -21,7 +23,7 @@ import (
 var log = logging.Logger("denylist")
 
 // refreshInterval is how often the denylist is re-fetched from servers.
-const refreshInterval = 5 * time.Minute
+const refreshInterval = time.Hour
 
 // Filter manages denylist state and provides CID filtering.
 // It fetches denylists from configured servers on startup and stores
@@ -33,8 +35,8 @@ type Filter struct {
 	// nil means denylists have not been loaded yet (server not ready).
 	hashes atomic.Pointer[map[string]struct{}]
 
-	// servers holds the current server list for periodic refresh.
-	servers atomic.Pointer[[]string]
+	// servers holds the current server list and etag (CID) for the last successful fetch for periodic refresh.
+	servers atomic.Pointer[map[string]string]
 
 	ctx context.Context
 }
@@ -51,17 +53,15 @@ type denylistEntry struct {
 func NewFilter(ctx context.Context, servers *config.Dynamic[[]string]) *Filter {
 	f := &Filter{ctx: ctx}
 	// hashes starts as nil (not loaded yet)
+	f.storeServerList(servers.Get())
 
-	s := servers.Get()
-	f.servers.Store(&s)
-	go f.loadDenylists(ctx, s)
+	go f.loadDenylists(ctx, *f.servers.Load(), true)
 
 	// Re-fetch denylists when the server list changes at runtime
 	servers.OnChange(func() {
 		log.Infow("denylist servers config changed, reloading")
-		s := servers.Get()
-		f.servers.Store(&s)
-		f.loadDenylists(ctx, s)
+		f.storeServerList(servers.Get())
+		f.loadDenylists(ctx, *f.servers.Load(), true)
 	})
 
 	// Periodically refresh the denylist
@@ -70,26 +70,48 @@ func NewFilter(ctx context.Context, servers *config.Dynamic[[]string]) *Filter {
 	return f
 }
 
+func (f *Filter) storeServerList(servers []string) {
+	m := make(map[string]string)
+	for _, server := range servers {
+		m[server] = ""
+	}
+
+	f.servers.Store(&m)
+}
+
 // NewFilterForTest creates a Filter from a static server list (no dynamic config).
 // This is intended for use in tests only.
 func NewFilterForTest(ctx context.Context, servers []string) *Filter {
 	f := &Filter{ctx: ctx}
-	f.servers.Store(&servers)
-	go f.loadDenylists(ctx, servers)
+	f.storeServerList(servers)
+	go f.loadDenylists(ctx, *f.servers.Load(), true)
 	return f
 }
 
 // loadDenylists fetches all configured denylist servers and merges
 // their entries into a single set, then atomically stores it.
-func (f *Filter) loadDenylists(ctx context.Context, servers []string) {
+func (f *Filter) loadDenylists(ctx context.Context, servers map[string]string, fetchNow bool) {
 	merged := make(map[string]struct{})
+	if !fetchNow {
+		if current := f.hashes.Load(); current != nil {
+			for h := range *current {
+				merged[h] = struct{}{}
+			}
+		}
+	}
+	updatedServers := make(map[string]string, len(servers))
 
-	for _, serverURL := range servers {
-		entries, err := fetchDenylist(ctx, serverURL)
+	for serverURL, etag := range servers {
+		entries, newEtag, err := fetchDenylist(ctx, serverURL, etag, fetchNow)
 		if err != nil {
 			log.Errorw("failed to fetch denylist", "url", serverURL, "error", err)
+			updatedServers[serverURL] = etag
 			continue
 		}
+		if newEtag == "" {
+			newEtag = etag
+		}
+		updatedServers[serverURL] = newEtag
 		for _, h := range entries {
 			merged[h] = struct{}{}
 		}
@@ -97,6 +119,7 @@ func (f *Filter) loadDenylists(ctx context.Context, servers []string) {
 	}
 
 	f.hashes.Store(&merged)
+	f.servers.Store(&updatedServers)
 	log.Infow("denylist filter ready", "totalEntries", len(merged))
 }
 
@@ -115,54 +138,75 @@ func (f *Filter) refreshLoop(ctx context.Context) {
 				continue
 			}
 			log.Debugw("periodic denylist refresh")
-			f.loadDenylists(ctx, *s)
+			f.loadDenylists(ctx, *s, false)
 		}
 	}
 }
 
 // fetchDenylist fetches a denylist JSON file from the given URL using
 // streaming JSON decoding to handle large datasets efficiently.
-func fetchDenylist(ctx context.Context, url string) ([]string, error) {
+func fetchDenylist(ctx context.Context, url, cid string, fetchNow bool) ([]string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
+	if !fetchNow {
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+		if err != nil {
+			return nil, "", fmt.Errorf("creating request: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, "", fmt.Errorf("fetching denylist: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return nil, "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+		if resp.Header.Get("etag") == cid {
+			log.Infow("denylist unchanged, skipping fetch", "url", url, "etag", cid)
+			return []string{}, cid, nil
+		}
+	}
+
+	log.Infow("fetching denylist", "url", url)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, "", fmt.Errorf("creating request: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetching denylist: %w", err)
+		return nil, "", fmt.Errorf("fetching denylist: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return decodeDenylist(resp.Body)
+	return decodeDenylist(resp.Body, resp.Header.Get("etag"))
 }
 
 // decodeDenylist uses streaming JSON decoding to parse a denylist from
 // a reader. The format is a JSON array of objects with an "anchor" field.
-func decodeDenylist(r io.Reader) ([]string, error) {
+func decodeDenylist(r io.Reader, etag string) ([]string, string, error) {
 	dec := json.NewDecoder(r)
 
 	// Read opening bracket
 	tok, err := dec.Token()
 	if err != nil {
-		return nil, fmt.Errorf("reading opening token: %w", err)
+		return nil, etag, fmt.Errorf("reading opening token: %w", err)
 	}
 	if delim, ok := tok.(json.Delim); !ok || delim != '[' {
-		return nil, fmt.Errorf("expected opening '[', got %v", tok)
+		return nil, etag, fmt.Errorf("expected opening '[', got %v", tok)
 	}
 
 	var hashes []string
 	for dec.More() {
 		var entry denylistEntry
 		if err := dec.Decode(&entry); err != nil {
-			return nil, fmt.Errorf("decoding entry: %w", err)
+			return nil, etag, fmt.Errorf("decoding entry: %w", err)
 		}
 		if entry.Anchor != "" {
 			hashes = append(hashes, entry.Anchor)
@@ -172,13 +216,13 @@ func decodeDenylist(r io.Reader) ([]string, error) {
 	// Read closing bracket
 	tok, err = dec.Token()
 	if err != nil {
-		return nil, fmt.Errorf("reading closing token: %w", err)
+		return nil, etag, fmt.Errorf("reading closing token: %w", err)
 	}
 	if delim, ok := tok.(json.Delim); !ok || delim != ']' {
-		return nil, fmt.Errorf("expected closing ']', got %v", tok)
+		return nil, etag, fmt.Errorf("expected closing ']', got %v", tok)
 	}
 
-	return hashes, nil
+	return hashes, etag, nil
 }
 
 // IsReady returns true if the denylists have been loaded.
@@ -197,6 +241,19 @@ func (f *Filter) IsDenied(c cid.Cid) (denied bool, ready bool) {
 
 	h := CIDToHash(c)
 	_, found := (*hashesPtr)[h]
+	if found {
+		return true, true
+	}
+
+	if commcidv2.IsPieceCidV2(c) {
+		// Piece CID v2 can represent the same piece as a v1 CID.
+		// Check the v1-equivalent hash so denylisting by PieceCIDv1 also blocks /piece/{PieceCIDv2}.
+		if pieceCIDv1, _, err := commcid.PieceCidV1FromV2(c); err == nil {
+			hv1 := CIDToHash(pieceCIDv1)
+			_, found = (*hashesPtr)[hv1]
+		}
+	}
+
 	return found, true
 }
 
