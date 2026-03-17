@@ -239,7 +239,9 @@ jobs:
         run: |
           # Start with default postgres user; create step adds yugabyte (avoids init-restart race)
           # Omit --rm so crashed containers persist for debugging; cleanup step removes them
-          docker run --name ${{ env.CONTAINER_NAME }} -d --shm-size=256mb postgres:15
+          docker run --name ${{ env.CONTAINER_NAME }} -d --shm-size=256mb \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            postgres:15
           # Verify container started and stays running (fail fast if it crashes)
           for i in 1 2 3 4 5 6 7 8 9 10; do
             if ! docker ps -q -f "name=${{ env.CONTAINER_NAME }}" | head -1 | xargs -r docker inspect -f '{{.State.Running}}' 2>/dev/null | grep -q true; then
