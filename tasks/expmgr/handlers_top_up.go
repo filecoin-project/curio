@@ -460,12 +460,12 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 
 			// Validate sector metadata against on-chain state
 			if err := validateSectorAgainstChain(sn, dbSector, si, claimsMap, claimIdsBySector); err != nil {
-				log.Errorw("sector metadata validation failed, bailing for this SP",
+				log.Errorw("sector metadata validation failed, skipping sector",
 					"preset", cfg.Name,
 					"sp_id", cfg.SpID,
 					"sector", sn,
 					"error", err)
-				return true, nil
+				continue
 			}
 
 			// Handle claims using pre-crawled data
