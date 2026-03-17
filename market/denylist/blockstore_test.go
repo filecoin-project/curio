@@ -8,60 +8,9 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+
+	"github.com/filecoin-project/lotus/blockstore"
 )
-
-// memBlockstore is a trivial in-memory blockstore for testing.
-type memBlockstore struct {
-	data map[cid.Cid]blocks.Block
-}
-
-func newMemBlockstore() *memBlockstore {
-	return &memBlockstore{data: make(map[cid.Cid]blocks.Block)}
-}
-
-func (m *memBlockstore) Has(_ context.Context, c cid.Cid) (bool, error) {
-	_, ok := m.data[c]
-	return ok, nil
-}
-
-func (m *memBlockstore) Get(_ context.Context, c cid.Cid) (blocks.Block, error) {
-	b, ok := m.data[c]
-	if !ok {
-		return nil, errors.New("not found")
-	}
-	return b, nil
-}
-
-func (m *memBlockstore) GetSize(_ context.Context, c cid.Cid) (int, error) {
-	b, ok := m.data[c]
-	if !ok {
-		return 0, errors.New("not found")
-	}
-	return len(b.RawData()), nil
-}
-
-func (m *memBlockstore) Put(_ context.Context, b blocks.Block) error {
-	m.data[b.Cid()] = b
-	return nil
-}
-
-func (m *memBlockstore) PutMany(_ context.Context, bs []blocks.Block) error {
-	for _, b := range bs {
-		m.data[b.Cid()] = b
-	}
-	return nil
-}
-
-func (m *memBlockstore) DeleteBlock(_ context.Context, c cid.Cid) error {
-	delete(m.data, c)
-	return nil
-}
-
-func (m *memBlockstore) AllKeysChan(_ context.Context) (<-chan cid.Cid, error) {
-	ch := make(chan cid.Cid)
-	close(ch)
-	return ch, nil
-}
 
 func makeBlock(data string) blocks.Block {
 	hash, _ := mh.Sum([]byte(data), mh.SHA2_256, -1)
@@ -71,7 +20,7 @@ func makeBlock(data string) blocks.Block {
 }
 
 func TestFilteredBlockstore_AllowedBlock(t *testing.T) {
-	inner := newMemBlockstore()
+	inner := blockstore.NewMemory()
 	b := makeBlock("allowed data")
 	_ = inner.Put(context.Background(), b)
 
@@ -110,7 +59,7 @@ func TestFilteredBlockstore_AllowedBlock(t *testing.T) {
 }
 
 func TestFilteredBlockstore_DeniedBlock(t *testing.T) {
-	inner := newMemBlockstore()
+	inner := blockstore.NewMemory()
 	b := makeBlock("blocked data")
 	_ = inner.Put(context.Background(), b)
 
@@ -141,7 +90,7 @@ func TestFilteredBlockstore_DeniedBlock(t *testing.T) {
 }
 
 func TestFilteredBlockstore_NotReady(t *testing.T) {
-	inner := newMemBlockstore()
+	inner := blockstore.NewMemory()
 	b := makeBlock("some data")
 	_ = inner.Put(context.Background(), b)
 
@@ -169,7 +118,7 @@ func TestFilteredBlockstore_NotReady(t *testing.T) {
 }
 
 func TestFilteredBlockstore_PassThroughMethods(t *testing.T) {
-	inner := newMemBlockstore()
+	inner := blockstore.NewMemory()
 	b := makeBlock("pass-through data")
 
 	f := &Filter{}
