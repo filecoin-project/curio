@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/filecoin-project/lotus/blockstore"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+
+	"github.com/filecoin-project/lotus/blockstore"
 )
 
 func makeBlock(data string) blocks.Block {
