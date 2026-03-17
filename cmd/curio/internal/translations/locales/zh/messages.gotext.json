@@ -3087,6 +3087,30 @@
       "translation": "工作钱包：{Expr}",
       "message": "Worker Wallet: {Expr}",
       "placeholder": null
+    },
+    {
+      "id": "Read piece CIDs one per line from stdin instead of from arguments",
+      "translation": "从标准输入逐行读取数据块 CID，而非从参数中读取",
+      "message": "Read piece CIDs one per line from stdin instead of from arguments",
+      "placeholder": null
+    },
+    {
+      "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "translation": "通过 market_piece_deal 将每个数据块 CID 解析为扇区，然后为这些扇区设置 target_unseal_state。\n   支持数据块 CID v1 或 v2。使用 --target-state 指定所需状态（true、false 或 none）。一次性提交所有 CID 可减少需要解封的扇区数量（当数据块分布在多个扇区时）。\n   对于大量列表，请使用 --stdin 从标准输入逐行读取数据块 CID。",
+      "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for sectors containing the given piece CIDs",
+      "translation": "为包含指定数据块 CID 的扇区设置目标解封状态",
+      "message": "Set the target unseal state for sectors containing the given piece CIDs",
+      "placeholder": null
+    },
+    {
+      "id": "Target state: true (ensure unsealed), false (ensure no unsealed copy), or none",
+      "translation": "目标状态：true（确保已解封）、false（确保无解封副本）或 none",
+      "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy), or none",
+      "placeholder": null
     }
   ]
 }
