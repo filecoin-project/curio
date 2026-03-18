@@ -1,6 +1,7 @@
 package pdp
 
 import (
+	"context"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -14,6 +15,7 @@ import (
 // Returns true if indexing is needed, false otherwise.
 // This is a read-only check that can be done outside a transaction for existing datasets.
 func CheckIfIndexingNeeded(
+	ctx context.Context,
 	ethClient *ethclient.Client,
 	dataSetId uint64,
 ) (bool, error) {
@@ -25,14 +27,14 @@ func CheckIfIndexingNeeded(
 	}
 
 	// Get the listener (record keeper) address for this data set
-	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, new(big.Int).SetUint64(dataSetId))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(contract.EthCallOpts(ctx), new(big.Int).SetUint64(dataSetId))
 	if err != nil {
 		log.Errorw("Failed to get listener address for data set", "error", err, "dataSetId", dataSetId)
 		return false, err
 	}
 
 	// Check if the withIPFSIndexing metadata exists
-	mustIndex, _, err := contract.GetDataSetMetadataAtKey(listenerAddr, ethClient, new(big.Int).SetUint64(dataSetId), "withIPFSIndexing")
+	mustIndex, _, err := contract.GetDataSetMetadataAtKey(ctx, listenerAddr, ethClient, new(big.Int).SetUint64(dataSetId), "withIPFSIndexing")
 	if err != nil {
 		// Hard to differentiate between unsupported listener type OR internal error
 		// So we log and skip indexing attempt
@@ -119,24 +121,22 @@ func CheckIfIndexingNeededFromExtraData(extraData []byte) (bool, error) {
 	return false, nil
 }
 
-// EnableIndexingForPiecesInTx marks the specified pieces as needing indexing within a transaction.
+// EnableIndexingForPiecesInTx marks the specified piecerefs as needing indexing within a transaction.
 func EnableIndexingForPiecesInTx(
 	tx *harmonydb.Tx,
 	serviceLabel string,
-	subPieceCids []string,
+	subPieceRefIDs []int64,
 ) error {
 	log.Debugw("Marking subpieces as needing indexing (in transaction)",
 		"serviceLabel", serviceLabel,
-		"subPieceCount", len(subPieceCids))
+		"subPieceCount", len(subPieceRefIDs))
 
-	// Note: it's possible to update a duplicate piece that has already completed the indexing step
-	// but task_pdp_indexing handles pieces that have already been indexed smoothly
 	_, err := tx.Exec(`
 		UPDATE pdp_piecerefs
 		SET needs_indexing = TRUE
 		WHERE service = $1
-			AND piece_cid = ANY($2)
+			AND id = ANY($2)
 			AND needs_indexing = FALSE
-	`, serviceLabel, subPieceCids)
+	`, serviceLabel, subPieceRefIDs)
 	return err
 }

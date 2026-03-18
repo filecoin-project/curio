@@ -14,13 +14,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	logger "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
-
-var logCreate = logger.Logger("pdp/create")
 
 // handleCreateDataSetAndAddPieces handles the creation of a new data set and adding pieces at the same time
 func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *http.Request) {
@@ -83,16 +80,16 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	// Check if indexing is needed by decoding the extraData
 	mustIndex, err := CheckIfIndexingNeededFromExtraData(extraDataBytes)
 	if err != nil {
-		logCreate.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
+		log.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
 		mustIndex = false
 	}
 	if mustIndex {
-		logCreate.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
+		log.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
 	}
 
-	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
-		logCreate.Warnf("Failed to process AddPieces request data: %+v", err)
+		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -128,12 +125,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		logCreate.Errorf("Failed to send transaction: %+v", err)
+		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	txHashLower := strings.ToLower(txHash.Hex())
-	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
+	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
@@ -151,8 +148,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 		// Enable indexing if the extraData indicates indexing is needed
 		if mustIndex {
-			logCreate.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
-			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
+			log.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
+			subPieceRefIDs := make([]int64, 0, len(subPieceInfoMap))
+			for _, info := range subPieceInfoMap {
+				subPieceRefIDs = append(subPieceRefIDs, info.PDPPieceRefID)
+			}
+			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceRefIDs); err != nil {
 				return false, err
 			}
 		}
@@ -161,13 +162,13 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		logCreate.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
+		log.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if !comm {
-		logCreate.Error("Failed to commit database transaction")
+		log.Error("Failed to commit database transaction")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -185,7 +186,7 @@ func decodeExtraData(extraDataString *string) ([]byte, error) {
 	extraDataHexStr := *extraDataString
 	decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
 	if err != nil {
-		logCreate.Errorf("Failed to decode hex extraData: %v", err)
+		log.Errorf("Failed to decode hex extraData: %v", err)
 		return nil, err
 	}
 	return decodedBytes, nil
@@ -292,13 +293,13 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		logCreate.Errorf("Failed to send transaction: %+v", err)
+		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	// Step 6: Insert into message_waits_eth and pdp_data_set_creates
 	txHashLower := strings.ToLower(txHash.Hex())
-	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
+	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
@@ -314,13 +315,13 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		logCreate.Errorf("Failed to insert database tracking records: %+v", err)
+		log.Errorf("Failed to insert database tracking records: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if !comm {
-		logCreate.Error("Failed to commit database transaction")
+		log.Error("Failed to commit database transaction")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -333,7 +334,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 // insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
 func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string) error {
 	// Insert into message_waits_eth
-	logCreate.Debugw("Inserting into message_waits_eth",
+	log.Debugw("Inserting into message_waits_eth",
 		"txHash", txHashHex,
 		"status", "pending")
 	n, err := tx.Exec(`
@@ -341,7 +342,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
             VALUES ($1, $2)
         `, txHashHex, "pending")
 	if err != nil {
-		logCreate.Errorw("Failed to insert into message_waits_eth",
+		log.Errorw("Failed to insert into message_waits_eth",
 			"txHash", txHashHex,
 			"error", err)
 		return err
@@ -352,7 +353,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 	}
 
 	// Insert into pdp_data_set_creates
-	logCreate.Debugw("Inserting into pdp_data_set_creates",
+	log.Debugw("Inserting into pdp_data_set_creates",
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	n, err = tx.Exec(`
@@ -360,7 +361,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
             VALUES ($1, $2)
         `, txHashHex, serviceLabel)
 	if err != nil {
-		logCreate.Errorw("Failed to insert into pdp_data_set_creates",
+		log.Errorw("Failed to insert into pdp_data_set_creates",
 			"txHash", txHashHex,
 			"error", err)
 		return err
@@ -370,7 +371,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_creates, got %d", n)
 	}
 
-	logCreate.Infow("Successfully inserted transaction tracking records",
+	log.Infow("Successfully inserted transaction tracking records",
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	return nil
