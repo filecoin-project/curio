@@ -333,12 +333,12 @@ type bytesReadCloser struct {
 
 func (b *bytesReadCloser) Close() error { return nil }
 
-func (r *memPieceReader) GetPieceReader(_ context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, abi.UnpaddedPieceSize, error) {
+func (r *memPieceReader) GetPieceReader(_ context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
 	data, ok := r.data[pieceCid.String()]
 	if !ok {
 		return nil, 0, fmt.Errorf("piece not found: %s", pieceCid)
 	}
-	return &bytesReadCloser{bytes.NewReader(data)}, abi.UnpaddedPieceSize(len(data)), nil
+	return &bytesReadCloser{bytes.NewReader(data)}, uint64(len(data)), nil
 }
 
 // memProofCache implements proof.ProofCache backed by in-memory snapshot data.

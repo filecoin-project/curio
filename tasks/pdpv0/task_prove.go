@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
@@ -555,18 +556,20 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 		return nil, xerrors.Errorf("subPiece size exceeds maximum: %d", subPieceSize)
 	}
 
-	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidObj)
+	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidObj, false)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get subPiece reader: %w", err)
 	}
 
 	var r io.Reader = subPieceReader
 
-	if unssize.Padded() > subPieceSize {
-		return nil, xerrors.Errorf("subPiece size mismatch: %d > %d", unssize.Padded(), subPieceSize)
-	} else if unssize.Padded() < subPieceSize {
+	cpsize := padreader.PaddedSize(unssize).Padded()
+
+	if cpsize > subPieceSize {
+		return nil, xerrors.Errorf("subPiece size mismatch: %d > %d", cpsize, subPieceSize)
+	} else if cpsize < subPieceSize {
 		// pad with zeros
-		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subPieceSize-unssize.Padded())))
+		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subPieceSize-cpsize)))
 	}
 
 	defer func() {
@@ -584,12 +587,12 @@ type cprPieceReader struct {
 	cpr *cachedreader.CachedPieceReader
 }
 
-func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, abi.UnpaddedPieceSize, error) {
+func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
 	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCid)
 	if err != nil {
 		return nil, 0, xerrors.Errorf("failed to derive v1 CID from v2: %w", err)
 	}
-	return r.cpr.GetSharedPieceReader(ctx, pieceCidV1)
+	return r.cpr.GetSharedPieceReader(ctx, pieceCidV1, false)
 }
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.
@@ -936,12 +939,8 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 // Maybe a few more changes around streaming Tree building for proofs.
 //
 // ref: https://github.com/filecoin-project/curio/pull/997/changes/2fad382258860a32504cb7427946ffcde6f78b68#r2812100187
-func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	id := ids[0]
-	return &id, nil
+func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {

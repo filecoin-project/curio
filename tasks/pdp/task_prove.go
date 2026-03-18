@@ -391,9 +391,9 @@ type cprPieceReader struct {
 	cpr *cachedreader.CachedPieceReader
 }
 
-func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, abi.UnpaddedPieceSize, error) {
+func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
 	rdr, size, err := r.cpr.GetSharedPieceReader(ctx, pieceCid, false)
-	return rdr, abi.UnpaddedPieceSize(size), err
+	return rdr,size, err
 }
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.
