@@ -39,7 +39,7 @@ type SendTaskETH struct {
 }
 
 func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.TODO()
+	ctx := context.Background()
 
 	// Get transaction from the database
 	var dbTx struct {
@@ -111,11 +111,15 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	}()
 
+	// Set a timeout on the eth transaction
+	ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
+	defer cancel()
+
 	var signedTx *types.Transaction
 
 	if !dbTx.Nonce.Valid {
 		// Get the latest nonce
-		pendingNonce, err := s.client.PendingNonceAt(ctx, fromAddress)
+		pendingNonce, err := s.client.PendingNonceAt(ethCtx, fromAddress)
 		if err != nil {
 			return false, xerrors.Errorf("getting pending nonce: %w", err)
 		}
@@ -137,7 +141,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		tx = types.NewTransaction(assignedNonce, *tx.To(), tx.Value(), tx.Gas(), tx.GasPrice(), tx.Data())
 
 		// Sign the transaction
-		signedTx, err = s.signTransaction(ctx, fromAddress, tx)
+		signedTx, err = s.signTransaction(ethCtx, fromAddress, tx)
 		if err != nil {
 			return false, xerrors.Errorf("signing transaction: %w", err)
 		}
@@ -170,7 +174,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	// Send the transaction
-	err = s.client.SendTransaction(ctx, signedTx)
+	err = s.client.SendTransaction(ethCtx, signedTx)
 
 	// Persist send result
 	var sendSuccess = err == nil
