@@ -215,14 +215,9 @@ jobs:
         id: pg
         run: |
           PG_NAME="postgres-curio-ci-${{ github.run_id }}"
-          if docker inspect "$PG_NAME" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
-            echo "Reusing existing PostgreSQL container"
-          else
-            docker rm -f "$PG_NAME" 2>/dev/null || true
-            docker run --name "$PG_NAME" -d --shm-size=256mb \
-              -e POSTGRES_HOST_AUTH_METHOD=trust \
-              postgres:15
-          fi
+          docker run --name "$PG_NAME" -d --shm-size=256mb \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            postgres:15 2>/dev/null || echo "Container already exists, reusing"
           for i in $(seq 1 30); do
             if docker exec "$PG_NAME" pg_isready -U postgres 2>/dev/null; then
               echo "PostgreSQL ready"
@@ -237,23 +232,24 @@ jobs:
       - name: Ensure yugabyte user and database
         run: |
           PG_NAME="postgres-curio-ci-${{ github.run_id }}"
-          docker exec "$PG_NAME" psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='yugabyte'" | grep -q 1 || \
-            docker exec "$PG_NAME" psql -U postgres -c "CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte'"
-          docker exec "$PG_NAME" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='yugabyte'" | grep -q 1 || \
-            docker exec "$PG_NAME" psql -U postgres -c "CREATE DATABASE yugabyte OWNER yugabyte"
+          docker exec "$PG_NAME" psql -U postgres -c "
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
+                CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
+              END IF;
+            END
+            \$\$;
+          " || true
+          docker exec "$PG_NAME" psql -U postgres -c "CREATE DATABASE yugabyte OWNER yugabyte" 2>/dev/null || true
 
       - name: Start or reuse shared ScyllaDB
         id: scylla
         run: |
           SCYLLA_NAME="scylla-curio-ci-${{ github.run_id }}"
-          if docker inspect "$SCYLLA_NAME" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
-            echo "Reusing existing ScyllaDB container"
-          else
-            docker rm -f "$SCYLLA_NAME" 2>/dev/null || true
-            docker run --name "$SCYLLA_NAME" -d \
-              scylladb/scylla:latest \
-              --smp 1 --memory 1G --overprovisioned 1
-          fi
+          docker run --name "$SCYLLA_NAME" -d \
+            scylladb/scylla:latest \
+            --smp 1 --memory 1G --overprovisioned 1 2>/dev/null || echo "Container already exists, reusing"
           for i in $(seq 1 60); do
             if docker exec "$SCYLLA_NAME" cqlsh -e "DESCRIBE KEYSPACES" 2>/dev/null; then
               echo "ScyllaDB ready"
