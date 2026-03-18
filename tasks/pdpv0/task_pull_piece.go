@@ -2,6 +2,7 @@ package pdpv0
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -26,8 +27,24 @@ import (
 	"github.com/filecoin-project/curio/pdp"
 )
 
-// PullPiecePollInterval is how often to poll for new pull items
-var PullPiecePollInterval = 10 * time.Second
+var (
+	// PullPiecePollInterval is how often to poll for new pull items
+	PullPiecePollInterval = 10 * time.Second
+
+	// PullTotalBudget is the maximum wall-clock time from pull request creation
+	// before the item is marked as permanently failed. Prevents infinite retry
+	// loops when Harmony tasks exhaust MaxFailures and the item re-enters the
+	// queue with a fresh task (ON DELETE SET NULL on task_id).
+	PullTotalBudget = 1 * time.Hour
+
+	// PullAttemptTimeout is the maximum duration for a single download attempt.
+	PullAttemptTimeout = 30 * time.Minute
+
+	// PullIdleReadTimeout cancels a download if no bytes are received for this
+	// duration, detecting stalled connections that hold TCP sockets open
+	// without transferring data.
+	PullIdleReadTimeout = 2 * time.Minute
+)
 
 // PDPPullPieceTask downloads pieces from external SPs, verifies CommP,
 // and stores them in custore:// for StorePiece to pick up.
@@ -67,7 +84,24 @@ func (t *PDPPullPieceTask) pollPullItems(ctx context.Context) {
 	ticker := time.NewTicker(PullPiecePollInterval)
 	defer ticker.Stop()
 
+	budgetInterval := fmt.Sprintf("%d Seconds", int(PullTotalBudget.Seconds()))
+
 	for {
+		// Mark expired items as permanently failed before looking for new work.
+		n, err := t.db.Exec(ctx, `
+			UPDATE pdp_piece_pull_items fi
+			SET failed = TRUE, fail_reason = 'pull budget exceeded'
+			FROM pdp_piece_pulls pp
+			WHERE pp.id = fi.fetch_id
+			AND fi.task_id IS NULL AND fi.failed = FALSE
+			AND pp.created_at <= NOW() - $1::interval
+		`, budgetInterval)
+		if err != nil {
+			log.Errorf("failed to expire pull items: %s", err)
+		} else if n > 0 {
+			log.Infow("PDPv0_PullPiece: expired stale pull items", "count", n)
+		}
+
 		var items []struct {
 			FetchID      int64  `db:"fetch_id"`
 			PieceCid     string `db:"piece_cid"`
@@ -79,17 +113,20 @@ func (t *PDPPullPieceTask) pollPullItems(ctx context.Context) {
 		// 1. Have no task assigned (task_id IS NULL)
 		// 2. Have not permanently failed
 		// 3. Do NOT already have a parked_pieces entry (pull already completed)
-		err := t.db.Select(ctx, &items, `
+		// 4. Pull request is within the total time budget
+		err = t.db.Select(ctx, &items, `
 			SELECT fi.fetch_id, fi.piece_cid, fi.piece_raw_size, fi.source_url
 			FROM pdp_piece_pull_items fi
+			JOIN pdp_piece_pulls pp ON pp.id = fi.fetch_id
 			WHERE fi.task_id IS NULL AND fi.failed = FALSE
+			AND pp.created_at > NOW() - $1::interval
 			AND NOT EXISTS (
-				SELECT 1 FROM parked_pieces pp
-				WHERE pp.piece_cid = fi.piece_cid
-				AND pp.long_term = TRUE
-				AND pp.cleanup_task_id IS NULL
+				SELECT 1 FROM parked_pieces pp2
+				WHERE pp2.piece_cid = fi.piece_cid
+				AND pp2.long_term = TRUE
+				AND pp2.cleanup_task_id IS NULL
 			)
-		`)
+		`, budgetInterval)
 		if err != nil {
 			log.Errorf("failed to query pull items: %s", err)
 			select {
@@ -120,15 +157,18 @@ func (t *PDPPullPieceTask) pollPullItems(ctx context.Context) {
 				n, err := tx.Exec(`
 					UPDATE pdp_piece_pull_items fi
 					SET task_id = $1
-					WHERE fi.fetch_id = $2 AND fi.piece_cid = $3
+					FROM pdp_piece_pulls pp
+					WHERE pp.id = fi.fetch_id
+					AND fi.fetch_id = $2 AND fi.piece_cid = $3
 					AND fi.task_id IS NULL AND fi.failed = FALSE
+					AND pp.created_at > NOW() - $4::interval
 					AND NOT EXISTS (
-						SELECT 1 FROM parked_pieces pp
-						WHERE pp.piece_cid = fi.piece_cid
-						AND pp.long_term = TRUE
-						AND pp.cleanup_task_id IS NULL
+						SELECT 1 FROM parked_pieces pp2
+						WHERE pp2.piece_cid = fi.piece_cid
+						AND pp2.long_term = TRUE
+						AND pp2.cleanup_task_id IS NULL
 					)
-				`, id, fetchID, pieceCid)
+				`, id, fetchID, pieceCid, budgetInterval)
 				if err != nil {
 					return false, xerrors.Errorf("updating pull item task_id: %w", err)
 				}
@@ -289,11 +329,9 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 
 	log.Debugw("PDPv0_PullPiece: downloading piece from source", "sourceURL", sourceURL, "expectedSize", expectedSize, "expectedCid", expectedCid)
 
-	// 1 hour timeout for entire pull operation
-	ctx, cancel := context.WithTimeout(ctx, time.Hour)
+	ctx, cancel := context.WithTimeout(ctx, PullAttemptTimeout)
 	defer cancel()
 
-	// Create HTTP client with header timeout
 	client := &http.Client{
 		Transport: &http.Transport{
 			ResponseHeaderTimeout: 2 * time.Minute,
@@ -315,8 +353,13 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 		return uuid.UUID{}, xerrors.Errorf("HTTP status %d from source", resp.StatusCode)
 	}
 
+	// Wrap body with idle-read detection: if no bytes arrive within
+	// PullIdleReadTimeout the context is cancelled, aborting the download.
+	idleReader := newIdleTimeoutReader(resp.Body, PullIdleReadTimeout, cancel)
+	defer idleReader.stop()
+
 	// Limit reader to expected size + 1 to detect oversized data
-	dataReader := io.LimitReader(resp.Body, expectedSize+1)
+	dataReader := io.LimitReader(idleReader, expectedSize+1)
 
 	// Create commp calculator
 	cp := &commp.Calc{}
@@ -404,3 +447,35 @@ var (
 	_ harmonytask.TaskInterface = &PDPPullPieceTask{}
 	_                           = harmonytask.Reg(&PDPPullPieceTask{})
 )
+
+// idleTimeoutReader wraps an io.Reader and cancels a context if no successful
+// reads occur within the timeout. Each Read that returns n > 0 resets the
+// timer. This detects stalled HTTP transfers where the TCP connection stays
+// open but no data flows.
+type idleTimeoutReader struct {
+	r      io.Reader
+	timer  *time.Timer
+	cancel context.CancelFunc
+	idle   time.Duration
+}
+
+func newIdleTimeoutReader(r io.Reader, timeout time.Duration, cancel context.CancelFunc) *idleTimeoutReader {
+	return &idleTimeoutReader{
+		r:      r,
+		timer:  time.AfterFunc(timeout, cancel),
+		cancel: cancel,
+		idle:   timeout,
+	}
+}
+
+func (r *idleTimeoutReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.timer.Reset(r.idle)
+	}
+	return n, err
+}
+
+func (r *idleTimeoutReader) stop() {
+	r.timer.Stop()
+}
