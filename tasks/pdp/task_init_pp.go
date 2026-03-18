@@ -134,7 +134,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
-	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ipp.ethClient)
+	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ipp.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
