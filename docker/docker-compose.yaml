@@ -37,6 +37,42 @@ services:
       curio-net:
         ipv4_address: 172.20.0.2
 
+  contracts-bootstrap:
+    container_name: contracts-bootstrap
+    image: ${CONTRACTS_BOOTSTRAP_IMAGE}
+    init: true
+    depends_on:
+      - lotus
+    environment:
+      - FILECOIN_SERVICES_REPO=${FILECOIN_SERVICES_REPO}
+      - FILECOIN_SERVICES_REF=${FILECOIN_SERVICES_REF}
+      - MULTICALL3_REPO=${MULTICALL3_REPO}
+      - MULTICALL3_REF=${MULTICALL3_REF}
+      - CONTRACT_SOURCE_MODE=${CONTRACT_SOURCE_MODE}
+      - FILECOIN_SERVICES_LOCAL_PATH=/opt/local-src/filecoin-services
+      - MULTICALL3_LOCAL_PATH=/opt/local-src/multicall3
+      - CONTRACT_SERVICE_NAME=${CONTRACT_SERVICE_NAME}
+      - CONTRACT_SERVICE_DESCRIPTION=${CONTRACT_SERVICE_DESCRIPTION}
+      - CONTRACT_DEPLOYER_PASSWORD=${CONTRACT_DEPLOYER_PASSWORD}
+      - DEPLOYER_FUND_AMOUNT_FIL=${DEPLOYER_FUND_AMOUNT_FIL}
+      - FORCE_REDEPLOY=${FORCE_REDEPLOY}
+      - CONTRACT_ENV_FILE=/var/lib/contracts/curio-devnet.env
+      - CONTRACT_ADDRESSES_FILE=/var/lib/contracts/contract_addresses.json
+      - GENESIS_PRESEAL_KEY=/var/lib/genesis/pre-seal-t01000.key
+      - LOTUS_RPC_URL=http://lotus:1234/rpc/v1
+      - CHAIN_ID=31415926
+    restart: "no"
+    logging: *default-logging
+    volumes:
+      - ./data/contracts:/var/lib/contracts:rw
+      - ./data/lotus:/var/lib/lotus:ro
+      - ./data/genesis:/var/lib/genesis:ro
+      - ${FILECOIN_SERVICES_LOCAL_DIR}:/opt/local-src/filecoin-services:ro
+      - ${MULTICALL3_LOCAL_DIR}:/opt/local-src/multicall3:ro
+    networks:
+      curio-net:
+        ipv4_address: 172.20.0.8
+
   lotus-miner:
     container_name: lotus-miner
     image: ${LOTUS_MINER_IMAGE}
@@ -65,6 +101,9 @@ services:
     container_name: curio
     image: ${CURIO_IMAGE}
     init: true
+    depends_on:
+      contracts-bootstrap:
+        condition: service_completed_successfully
     ports:
       - "12300:12300" # API
       - "4701:4701" # UI
@@ -72,12 +111,14 @@ services:
     environment:
       - CURIO_REPO_PATH=/var/lib/curio
       - CURIO_HARMONYDB_HOSTS=yugabyte
+      - CONTRACT_ENV_FILE=/var/lib/contracts/curio-devnet.env
     restart: unless-stopped
     logging: *default-logging
     volumes:
       - ./data/curio:/var/lib/curio:rw
       - ./data/lotus:/var/lib/lotus:ro
       - ./data/lotus-miner:/var/lib/lotus-miner:ro
+      - ./data/contracts:/var/lib/contracts:ro
       - ${FIL_PROOFS_PARAMETER_CACHE}:/var/tmp/filecoin-proof-parameters:rw
     networks:
       curio-net:
