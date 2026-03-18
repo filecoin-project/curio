@@ -243,6 +243,11 @@ jobs:
           " || true
           docker exec "$PG_NAME" psql -U postgres -c "CREATE DATABASE yugabyte OWNER yugabyte" 2>/dev/null || true
 
+      - name: Ensure host AIO limit for ScyllaDB
+        run: |
+          docker run --rm --privileged alpine sh -c \
+            'cur=$(cat /proc/sys/fs/aio-max-nr); echo "Current aio-max-nr: $cur"; if [ "$cur" -lt 1048576 ]; then echo 1048576 > /proc/sys/fs/aio-max-nr && echo "Set aio-max-nr to 1048576"; else echo "Already sufficient"; fi'
+
       - name: Start or reuse shared ScyllaDB
         id: scylla
         run: |
