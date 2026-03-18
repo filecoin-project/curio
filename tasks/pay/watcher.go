@@ -14,7 +14,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
-	"github.com/filecoin-project/curio/lib/pdp"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
@@ -164,7 +163,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 		if view.EndEpoch.Int64() > 0 {
 			// Termination is also detected by proving-task error handling, so a
 			// transient DB failure here just delays cleanup rather than losing it.
-			if err := pdp.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
+			if err := FWSS.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
 				log.Warnw("failed to ensure service termination", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
 			}
 			// When finalized, schedule dataset deletion. This may be the last
@@ -184,7 +183,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Cl
 
 		if thresholdWithGrace.Uint64() < current {
 			log.Infow("Rail soon to default, terminating dataSet", "dataSetId", dataSet.Int64(), "railId", railId, "settleTxHash", settle.Hash)
-			if err := pdp.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
+			if err := FWSS.EnsureServiceTermination(ctx, db, dataSet.Int64()); err != nil {
 				log.Warnw("failed to ensure service termination for defaulting rail", "dataSetId", dataSet.Int64(), "railId", railId, "error", err)
 			}
 		}

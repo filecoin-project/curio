@@ -86,8 +86,8 @@ func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	return true, nil
 }
 
-func (s *SettleTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (s *SettleTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (s *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {

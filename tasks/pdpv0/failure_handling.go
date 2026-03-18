@@ -6,7 +6,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/pdp"
+	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 )
 
 const (
@@ -136,7 +136,7 @@ func HandleProvingSendError(ctx context.Context, db *harmonydb.DB, dataSetId int
 		}
 		log.Warnw("Dataset unrecoverable, stopping proving attempts",
 			"dataSetId", dataSetId, "error", sendErr)
-		if termErr := pdp.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
+		if termErr := FWSS.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
 			log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
 		}
 		return true, nil
@@ -151,7 +151,7 @@ func HandleProvingSendError(ctx context.Context, db *harmonydb.DB, dataSetId int
 		if unrecoverable {
 			log.Warnw("Dataset unrecoverable after repeated contract reverts",
 				"dataSetId", dataSetId, "error", sendErr)
-			if termErr := pdp.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
+			if termErr := FWSS.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
 				log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
 			}
 		}
