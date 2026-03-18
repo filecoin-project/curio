@@ -38,69 +38,6 @@ jobs:
         run: lotus fetch-params 8388608
         shell: bash
 
-  start-databases:
-    runs-on: [self-hosted, docker, db-host]  # db-host pins to same runner so test jobs can reach Postgres
-    needs: [setup-params]
-    outputs:
-      pg_ip: ${{ steps.get-ips.outputs.pg_ip }}
-      scylla_ip: ${{ steps.get-ips.outputs.scylla_ip }}
-    steps:
-      - name: Remove old shared DB containers from previous runs
-        run: |
-          docker rm -f postgres-curio-ci-${{ github.run_id }} 2>/dev/null || true
-          docker rm -f scylla-curio-ci-${{ github.run_id }} 2>/dev/null || true
-
-      - name: Start shared PostgreSQL container
-        run: |
-          docker run --name postgres-curio-ci-${{ github.run_id }} -d --shm-size=256mb \
-            -e POSTGRES_HOST_AUTH_METHOD=trust \
-            postgres:15
-          for i in $(seq 1 30); do
-            if docker exec postgres-curio-ci-${{ github.run_id }} pg_isready -U postgres 2>/dev/null; then
-              echo "PostgreSQL ready"
-              break
-            fi
-            [ $i -eq 30 ] && { echo "PostgreSQL failed to start"; docker logs postgres-curio-ci-${{ github.run_id }} 2>&1; exit 1; }
-            sleep 1
-          done
-
-      - name: Create yugabyte user and database
-        run: |
-          docker exec postgres-curio-ci-${{ github.run_id }} psql -U postgres -v ON_ERROR_STOP=1 -c "
-            DO \$\$
-            BEGIN
-              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'yugabyte') THEN
-                CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte';
-              END IF;
-            END
-            \$\$;
-          "
-          docker exec postgres-curio-ci-${{ github.run_id }} psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='yugabyte'" | grep -q 1 || \
-            docker exec postgres-curio-ci-${{ github.run_id }} psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE yugabyte OWNER yugabyte"
-
-      - name: Start shared ScyllaDB container
-        run: |
-          docker run --name scylla-curio-ci-${{ github.run_id }} -d \
-            scylladb/scylla:latest \
-            --smp 1 --memory 1G --overprovisioned 1
-          for i in $(seq 1 60); do
-            if docker exec scylla-curio-ci-${{ github.run_id }} cqlsh -e "DESCRIBE KEYSPACES" 2>/dev/null; then
-              echo "ScyllaDB ready"
-              break
-            fi
-            [ $i -eq 60 ] && { echo "ScyllaDB failed to start"; exit 1; }
-            sleep 2
-          done
-
-      - name: Get database IPs
-        id: get-ips
-        run: |
-          PG_IP=$(docker inspect postgres-curio-ci-${{ github.run_id }} --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          SCYLLA_IP=$(docker inspect scylla-curio-ci-${{ github.run_id }} --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "pg_ip=$PG_IP" >> $GITHUB_OUTPUT
-          echo "scylla_ip=$SCYLLA_IP" >> $GITHUB_OUTPUT
-          echo "Shared Postgres: $PG_IP:5432, Scylla: $SCYLLA_IP:9042"
-
   build-mainnet:
     runs-on: ubuntu-latest
     needs: [ci-lint]
@@ -247,10 +184,10 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker, db-host]  # Must match start-databases so tests can reach shared Postgres
-    needs: [setup-params, start-databases]
+    runs-on: [self-hosted, docker]
+    needs: [setup-params]
     strategy:
-      fail-fast: false  # Tests share one Postgres+Scylla; no container limits needed
+      fail-fast: false
       matrix:
         test-suite:
           - name: test-all
@@ -274,6 +211,60 @@ jobs:
           - name: test-itest-transaction-db-usage
             target: "./itests/transaction_db_usage_test.go"
     steps:
+      - name: Start or reuse shared PostgreSQL
+        id: pg
+        run: |
+          PG_NAME="postgres-curio-ci-${{ github.run_id }}"
+          if docker inspect "$PG_NAME" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
+            echo "Reusing existing PostgreSQL container"
+          else
+            docker rm -f "$PG_NAME" 2>/dev/null || true
+            docker run --name "$PG_NAME" -d --shm-size=256mb \
+              -e POSTGRES_HOST_AUTH_METHOD=trust \
+              postgres:15
+          fi
+          for i in $(seq 1 30); do
+            if docker exec "$PG_NAME" pg_isready -U postgres 2>/dev/null; then
+              echo "PostgreSQL ready"
+              break
+            fi
+            [ $i -eq 30 ] && { echo "PostgreSQL failed to start"; docker logs "$PG_NAME" 2>&1; exit 1; }
+            sleep 1
+          done
+          PG_IP=$(docker inspect "$PG_NAME" --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "pg_ip=$PG_IP" >> $GITHUB_OUTPUT
+
+      - name: Ensure yugabyte user and database
+        run: |
+          PG_NAME="postgres-curio-ci-${{ github.run_id }}"
+          docker exec "$PG_NAME" psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='yugabyte'" | grep -q 1 || \
+            docker exec "$PG_NAME" psql -U postgres -c "CREATE ROLE yugabyte WITH LOGIN PASSWORD 'yugabyte'"
+          docker exec "$PG_NAME" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='yugabyte'" | grep -q 1 || \
+            docker exec "$PG_NAME" psql -U postgres -c "CREATE DATABASE yugabyte OWNER yugabyte"
+
+      - name: Start or reuse shared ScyllaDB
+        id: scylla
+        run: |
+          SCYLLA_NAME="scylla-curio-ci-${{ github.run_id }}"
+          if docker inspect "$SCYLLA_NAME" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
+            echo "Reusing existing ScyllaDB container"
+          else
+            docker rm -f "$SCYLLA_NAME" 2>/dev/null || true
+            docker run --name "$SCYLLA_NAME" -d \
+              scylladb/scylla:latest \
+              --smp 1 --memory 1G --overprovisioned 1
+          fi
+          for i in $(seq 1 60); do
+            if docker exec "$SCYLLA_NAME" cqlsh -e "DESCRIBE KEYSPACES" 2>/dev/null; then
+              echo "ScyllaDB ready"
+              break
+            fi
+            [ $i -eq 60 ] && { echo "ScyllaDB failed to start"; docker logs "$SCYLLA_NAME" 2>&1; exit 1; }
+            sleep 2
+          done
+          SCYLLA_IP=$(docker inspect "$SCYLLA_NAME" --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "scylla_ip=$SCYLLA_IP" >> $GITHUB_OUTPUT
+
       - uses: actions/checkout@v4
 
       - name: Setup Go
@@ -295,19 +286,14 @@ jobs:
 
       - name: Run tests with coverage
         env:
-          CURIO_HARMONYDB_HOSTS: ${{ needs.start-databases.outputs.pg_ip }}
-          LOTUS_HARMONYDB_HOSTS: ${{ needs.start-databases.outputs.pg_ip }}
-          CURIO_DB_HOST_CQL: ${{ needs.start-databases.outputs.scylla_ip }}
+          CURIO_HARMONYDB_HOSTS: ${{ steps.pg.outputs.pg_ip }}
+          LOTUS_HARMONYDB_HOSTS: ${{ steps.pg.outputs.pg_ip }}
+          CURIO_DB_HOST_CQL: ${{ steps.scylla.outputs.scylla_ip }}
           CURIO_HARMONYDB_PORT: "5432"
           LOTUS_HARMONYDB_PORT: "5432"
           FFI_USE_OPENCL: 1
         run: |
-          echo "Using shared PostgreSQL: ${{env.CURIO_HARMONYDB_HOSTS}} (port 5432), ScyllaDB: ${{env.CURIO_DB_HOST_CQL}} (port 9042)"
-          export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export CURIO_DB_HOST_CQL=${{ env.CURIO_DB_HOST_CQL }}
-          export CURIO_HARMONYDB_PORT=5432
-          export LOTUS_HARMONYDB_PORT=5432
+          echo "Shared PostgreSQL: $CURIO_HARMONYDB_HOSTS:5432, ScyllaDB: $CURIO_DB_HOST_CQL:9042"
           mkdir -p coverage
           go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
 
@@ -741,7 +727,7 @@ jobs:
           echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY
 
   stop-databases:
-    runs-on: [self-hosted, docker, db-host]  # Same host as start-databases for cleanup
+    runs-on: [self-hosted, docker]
     needs: [test]
     if: always() && needs.test.result != 'cancelled'
     steps:
