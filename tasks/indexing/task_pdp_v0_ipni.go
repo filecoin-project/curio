@@ -132,7 +132,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("marshaling piece info: %w", err)
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid)
+	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -298,8 +298,8 @@ func (P *PDPV0IPNITask) recordCompletion(ctx context.Context, taskID harmonytask
 	return nil
 }
 
-func (P *PDPV0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+func (P *PDPV0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {

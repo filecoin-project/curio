@@ -1,15 +1,10 @@
 package indexing
 
 import (
-	"bufio"
 	"context"
-	"errors"
-	"fmt"
-	"io"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	carv2 "github.com/ipld/go-car/v2"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -87,7 +82,7 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return true, nil
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid)
+	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -166,15 +161,14 @@ func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmony
 	return nil
 }
 
-func (P *PDPIndexingV0Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (P *PDPIndexingV0Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	// We just accept all tasks
 	// Note that this differs from markets v2 code which does a local storage check on the piece.
 	//
 	// If we are ever in an instance where the shared piece reader is expected to go to sector storage and will actually benefit from these local checks
 	// then we should be using markets v2 code because then we'll be in a shared datasource world.  In the rare case where an SP is handling PDP and PoRep on
 	// a cluster and just so happens to have a collision then the network overhead of moving a piece around will be small.
-	id := ids[0]
-	return &id, nil
+	return ids, nil
 }
 
 func (P *PDPIndexingV0Task) TypeDetails() harmonytask.TaskTypeDetails {
@@ -242,44 +236,3 @@ func (P *PDPIndexingV0Task) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPIndexingV0Task{}
 var _ = harmonytask.Reg(&PDPIndexingV0Task{})
-
-func IndexCAR(r io.Reader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
-	// ZeroLengthSectionAsEOF is not strictly needed here as it exists for the PoRep case where
-	// padding pieces with zero bytes to get them to be a larger size is reasonable. This isn't
-	// expected to be the case with PDP, but we'll stay consistent.
-	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(r, buffSize), carv2.ZeroLengthSectionAsEOF(true))
-	if err != nil {
-		return 0, false, fmt.Errorf("getting block reader over piece: %w", err)
-	}
-
-	var blocks int64
-	var interrupted bool
-
-	for {
-		blockMetadata, err := blockReader.SkipNext()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return blocks, interrupted, fmt.Errorf("generating index for piece: %w", err)
-		}
-
-		blocks++
-
-		select {
-		case recs <- indexstore.Record{
-			Cid:    blockMetadata.Cid,
-			Offset: blockMetadata.SourceOffset,
-			Size:   blockMetadata.Size,
-		}:
-		case <-addFail:
-			interrupted = true
-		}
-
-		if interrupted {
-			break
-		}
-	}
-
-	return blocks, interrupted, nil
-}
