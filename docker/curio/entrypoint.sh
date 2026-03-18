@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 set -e
+
+if [[ -n "${CONTRACT_ENV_FILE:-}" ]]; then
+  echo "Waiting for contract env file at $CONTRACT_ENV_FILE ..."
+  retries=0
+  while [[ ! -f "$CONTRACT_ENV_FILE" ]]; do
+    retries=$((retries + 1))
+    if [[ $retries -gt 120 ]]; then
+      echo "Contract env file not found after 120s: $CONTRACT_ENV_FILE"
+      exit 1
+    fi
+    sleep 1
+  done
+
+  # shellcheck disable=SC1090
+  source "$CONTRACT_ENV_FILE"
+  echo "Loaded contract env file: $CONTRACT_ENV_FILE"
+fi
+
 echo CURIO_REPO_PATH=$CURIO_REPO_PATH
 echo Wait for lotus is ready ...
 lotus wait-api
@@ -92,4 +110,3 @@ fi
 
 echo Starting curio node ...
 exec curio run --nosync --name devnet --layers seal,post,market,gui
-
