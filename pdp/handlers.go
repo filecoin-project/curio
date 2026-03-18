@@ -624,7 +624,7 @@ func (p *PDPService) handleDeleteDataSet(w http.ResponseWriter, r *http.Request)
 	// ### DEL /data-sets/{set id}
 	// Remove the specified data set entirely
 
-	http.Error(w, "Not implemented", http.StatusNotImplemented)
+	http.Error(w, "dataset deletion not yet implemented", http.StatusNotImplemented)
 }
 
 // handleGetPieceAdditionStatus handles GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}
