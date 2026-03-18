@@ -1,24 +1,21 @@
 package indexing
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"errors"
-	"fmt"
-	"io"
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/ipfs/go-cid"
-	carv2 "github.com/ipld/go-car/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-varint"
+	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -29,8 +26,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
@@ -43,17 +38,17 @@ const (
 
 type PDPV0IPNITask struct {
 	db  *harmonydb.DB
-	cpr *cachedreader.CachedPieceReader
 	cfg *config.CurioConfig
 	max taskhelp.Limiter
+	idx *indexstore.IndexStore
 }
 
-func NewPDPV0IPNITask(db *harmonydb.DB, sc *ffi.SealCalls, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *PDPV0IPNITask {
+func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *PDPV0IPNITask {
 	return &PDPV0IPNITask{
 		db:  db,
-		cpr: cpr,
 		cfg: cfg,
 		max: max,
+		idx: idx,
 	}
 }
 
@@ -132,36 +127,43 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("marshaling piece info: %w", err)
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid, false)
-	if err != nil {
-		return false, xerrors.Errorf("getting piece reader: %w", err)
-	}
-	defer func() {
-		_ = reader.Close()
-	}()
-
-	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
-	if err != nil {
-		return false, fmt.Errorf("getting block reader over piece: %w", err)
-	}
-
 	chk := chunker.NewInitialChunker()
+	offset := multihash.Multihash{0}
+	ostr := offset.String()
 
-	blockMetadata, err := blockReader.SkipNext()
-	for err == nil {
-		// CAR sections are [varint (length), CID, blockData]
-		combinedSize := blockMetadata.Size + uint64(blockMetadata.ByteLen())
-		lenSize := uint64(varint.UvarintSize(combinedSize))
-		sectionSize := combinedSize + lenSize
-		if err := chk.Accept(blockMetadata.Hash(), int64(blockMetadata.SourceOffset), sectionSize); err != nil {
-			return false, xerrors.Errorf("accepting block: %w", err)
+	for {
+		// Get the next EntriesChunkSize+1 (16384+1) entries for chunking
+		// Use pcidv2 as indexStore will internally get us the correct index gainst v1 or v2 as present
+		mhs, err := P.idx.GetPieceHashRange(ctx, pcidV2, offset, chunker.EntriesChunkSize+1, false)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece hashes: %w", err)
 		}
 
-		blockMetadata, err = blockReader.SkipNext()
-	}
-	if !errors.Is(err, io.EOF) {
-		return false, xerrors.Errorf("reading block: %w", err)
+		if offset.String() == ostr && len(mhs) == 0 {
+			return false, xerrors.Errorf("no index record found for piece %s", pcidV2.String())
+		}
+
+		if len(mhs) <= chunker.EntriesChunkSize && len(mhs) > 0 {
+			// Send EntriesChunkSize (16384) or less entries for chunking
+			err = chk.Accept(mhs)
+			if err != nil {
+				return false, xerrors.Errorf("adding index to chunk: %w", err)
+			}
+			break
+		}
+
+		if len(mhs) == chunker.EntriesChunkSize+1 {
+			// Send EntriesChunkSize (16384) entries for chunking
+			err = chk.Accept(mhs[:len(mhs)-1])
+			if err != nil {
+				return false, xerrors.Errorf("adding index to chunk: %w", err)
+			}
+			// Use the last entry as the offset for the next iteration
+			offset = mhs[len(mhs)-1]
+			continue
+		}
+
+		return false, xerrors.Errorf("number of index records is not expected: %d", len(mhs))
 	}
 
 	// make sure we still own the task before writing to the database
@@ -169,7 +171,9 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, nil
 	}
 
-	lnk, err := chk.Finish(ctx, P.db, pcid)
+	// Note: Till now we were saving everything with pcid1 and from now on it would be pcid2
+	// server-chunker is backward compatible-aware so older pcid1 should still be served fine
+	lnk, err := chk.Finish(ctx, P.db, pcidV2, false)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
@@ -182,7 +186,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	_, err = P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var prev string
 		err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("querying previous head: %w", err)
 		}
 
