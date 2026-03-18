@@ -103,7 +103,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		if !has {
 			log.Debugw("PDPv0_SaveCache: building PDP layer cache", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "rawSize", task.RawSize)
 			cp := savecache.NewCommPWithSize(task.RawSize)
-			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcidV1)
+			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcidV1, false)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
 			}
@@ -167,11 +167,8 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	return &ids[0], nil
+func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
