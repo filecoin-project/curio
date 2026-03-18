@@ -374,9 +374,8 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 	return stashID, nil
 }
 
-func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
+	return ids, nil
 }
 
 func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
