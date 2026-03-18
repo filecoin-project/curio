@@ -4,6 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/passcall"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
@@ -11,10 +15,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
@@ -45,12 +47,23 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	ctx := context.Background()
 
 	var tasks []struct {
-		ID       int64  `db:"id"`
-		PieceCID string `db:"piece_cid"`
-		PieceRef int64  `db:"piece_ref"`
+		ID        int64               `db:"id"`
+		PieceCID  string              `db:"piece_cid"`
+		PieceSize abi.PaddedPieceSize `db:"piece_padded_size"`
+		RawSize   uint64              `db:"piece_raw_size"`
 	}
 
-	err = P.db.Select(ctx, &tasks, `SELECT id, piece_cid, piece_ref FROM pdp_piecerefs WHERE indexing_task_id = $1 AND needs_indexing = TRUE`, taskID)
+	err = P.db.Select(ctx, &tasks, `SELECT
+										pr.id,
+										pr.piece_cid,
+										pp.piece_padded_size,
+										pp.piece_raw_size
+									FROM
+										pdp_piecerefs pr
+									JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
+									JOIN parked_pieces pp ON ppr.piece_id = pp.id
+									WHERE indexing_task_id = $1 
+									  AND needs_indexing = TRUE`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting PDP pending indexing tasks: %w", err)
 	}
@@ -65,9 +78,20 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	hasIndex, err := P.indexStore.CheckHasPiece(ctx, pcid)
+	pcid2, err := commcid.PieceCidV2FromV1(pcid, task.RawSize)
+	if err != nil {
+		return false, xerrors.Errorf("converting piece CID to v2: %w", err)
+	}
+
+	hasIndex, err := P.indexStore.CheckHasPiece(ctx, pcid2)
 	if err != nil {
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
+	}
+	if !hasIndex{
+		hasIndex, err = P.indexStore.CheckHasPiece(ctx, pcid)
+		if err != nil {
+			return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
+		}
 	}
 	if hasIndex {
 		// Piece already indexed so either:
@@ -82,7 +106,8 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return true, nil
 	}
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid, false)
+	// Fetch with pcid2, it should automatically give us correct pieceReader
+	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2, false)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -93,8 +118,7 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	startTime := time.Now()
 
 	// Note: These are not technically PDP config values, but we can share them with porep deal cfg
-	dealCfg := P.cfg.Market.StorageMarketConfig
-	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
+	chanSize := P.insertConcurrency * P.insertBatchSize
 
 	recs := make(chan indexstore.Record, chanSize)
 	var blocks int64
