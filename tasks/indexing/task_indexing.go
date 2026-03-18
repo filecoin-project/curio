@@ -529,8 +529,8 @@ type IndexReader interface {
 }
 
 // IndexAggregateV2 indexes an AggregateTypeV2 piece: the tail index section is parsed with
-// datasegmentv2.ParseIndexSection (same as exa-gateway sector Finalize). For each blob entry we index by
-// PieceCidV2 and, when present, by the CID mapping; entries with ACL set are skipped.
+// datasegmentv2.ParseIndexSection (same as exa-gateway sector Finalize). For each blob entry we take
+// the content CID from the index (entry.DataCID()) and insert one record per piece; entries with ACL set are skipped.
 func IndexAggregateV2(
 	pieceCid cid.Cid,
 	reader IndexReader,
@@ -546,20 +546,10 @@ func IndexAggregateV2(
 		return 0, nil, false, xerrors.New("V2 tail index section has no entries")
 	}
 
-	// Blob entries: all but the last, which is the MulticodecCIDMappingSection descriptor.
-	blobCount := len(idx.Entries)
-	if blobCount > 0 && idx.Entries[blobCount-1] != nil && idx.Entries[blobCount-1].Multicodec == datasegmentv2.MulticodecCIDMappingSection {
-		blobCount--
-	}
-	if blobCount == 0 {
-		return 0, nil, false, xerrors.New("V2 tail index section has no blob entries")
-	}
-
 	var interrupted bool
-	records := make([]indexstore.Record, 0, blobCount*2+1) // *2 for possible mapping CIDs, +1 for piece root
+	records := make([]indexstore.Record, 0, len(idx.Entries)+1)
 
-	// Index the aggregate piece CID itself so HEAD/GET /ipfs/<piece_cid> can resolve (otherwise
-	// PiecesContainingMultihash(piece_cid.Hash()) returns no rows and retrieval returns 404).
+	// Index the aggregate piece CID itself so HEAD/GET /ipfs/<piece_cid> can resolve.
 	rootRec := indexstore.Record{Cid: pieceCid, Offset: 0, Size: uint64(rawSize)}
 	records = append(records, rootRec)
 	select {
@@ -571,25 +561,21 @@ func IndexAggregateV2(
 		return 0, nil, true, nil
 	}
 
-	for i := 0; i < blobCount; i++ {
-		entry := idx.Entries[i]
+	// For each entry, get the piece's content CID from the index and insert one record.
+	for i, entry := range idx.Entries {
 		if entry == nil {
 			continue
 		}
-		if entry.Multicodec == datasegmentv2.MulticodecCIDMappingSection {
-			continue
-		}
 		if entry.ACLType != 0 {
-			continue // skip ACL entries: do not index them
+			continue // skip ACL entries
 		}
-
-		pc2, err := entry.PieceCIDV2()
+		contentCid, err := entry.DataCID()
 		if err != nil {
-			log.Warnw("IndexAggregateV2: skip entry without valid PieceCidV2", "index", i, "err", err)
+			log.Warnw("IndexAggregateV2: skip entry without valid DataCID", "index", i, "err", err)
 			continue
 		}
 		rec := indexstore.Record{
-			Cid:    pc2,
+			Cid:    contentCid,
 			Offset: entry.UnpaddedOffset(),
 			Size:   entry.UnpaddedLength(),
 		}
@@ -601,24 +587,6 @@ func IndexAggregateV2(
 		}
 		if interrupted {
 			break
-		}
-
-		// Index by mapping CID when present (same offset/size as segment).
-		if i < len(idx.CidMappings) && idx.CidMappings[i] != nil && idx.CidMappings[i].Defined() {
-			mappingRec := indexstore.Record{
-				Cid:    *idx.CidMappings[i],
-				Offset: entry.UnpaddedOffset(),
-				Size:   entry.UnpaddedLength(),
-			}
-			records = append(records, mappingRec)
-			select {
-			case recs <- mappingRec:
-			case <-addFail:
-				interrupted = true
-			}
-			if interrupted {
-				break
-			}
 		}
 	}
 

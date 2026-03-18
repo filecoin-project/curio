@@ -110,8 +110,8 @@ github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hC
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
 github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da/go.mod h1:Q73ZrmVTwzkszR9V5SSuryQ31EELlFMUz1kKyl939pY=
 github.com/armon/go-radix v0.0.0-20180808171621-7fddfc383310/go.mod h1:ufUuZ+zHj4x4TnLV4JWEpy2hxWSpsRywHrMgIH9cCH8=
-github.com/aurorainfra/go-data-segment v0.0.0-20260304020038-35bee1705eb2 h1:XdKqTv84xlG393vRgqNPVPGNMgSuvKJPvSpiZVbH22g=
-github.com/aurorainfra/go-data-segment v0.0.0-20260304020038-35bee1705eb2/go.mod h1:7D5A7NV4agZZ9a0UsS4ffFeXqNnTX2XnMgzFyDiUikM=
+github.com/aurorainfra/go-data-segment v0.0.0-20260318020633-8d6c0f5e6f83 h1:RhtEVivPrFyZC84SXisVCxEFKPK8/8XYmyIa2QjuWAY=
+github.com/aurorainfra/go-data-segment v0.0.0-20260318020633-8d6c0f5e6f83/go.mod h1:hR5wTHilEOd6xvHWMGFMu7dQivpyWkccsmeq19EjYnM=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
