@@ -14,6 +14,8 @@ import (
 	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
 
+	ltypes "github.com/filecoin-project/curio/api/types"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-jsonrpc/auth"
@@ -23,10 +25,6 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
-
-	ltypes "github.com/filecoin-project/curio/api/types"
-	"github.com/filecoin-project/curio/lib/storiface"
-
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
