@@ -192,24 +192,16 @@ jobs:
         test-suite:
           - name: test-all
             target: "`go list ./... | grep -v curio/itests`"
-          - name: test-itest-alertnow
-            target: "./itests/alertnow_test.go"
           - name: test-itest-curio
             target: "./itests/curio_test.go"
-          - name: test-itest-dynamic-config
-            target: "./itests/dyncfg_test.go"
-          - name: test-itest-harmonyDB
-            target: "./itests/harmonydb_test.go"
-          - name: test-itest-market-dynamic-config
+          - name: test-itest-market
             target: "./itests/market_deal_dynamic_test.go"
-          - name: test-itest-pdp-prove
-            target: "./itests/pdp_prove_test.go"
-          - name: test-itest-retrievals-test
-            target: "./itests/retrievals_test.go"
-          - name: test-itest-sql-idempotent-test
-            target: "./itests/sql_idempotent_test.go"
-          - name: test-itest-transaction-db-usage
-            target: "./itests/transaction_db_usage_test.go"
+          - name: test-itest-retrieval-pdp-tx
+            target: './itests/ -run "TestRetrievals|TestPDPProving|TestNoDBCallsInsideTransactions"'
+          - name: test-itest-dyncfg-alert
+            target: './itests/ -run "TestDynamicConfig|TestAlertNow"'
+          - name: test-itest-sql-harmonydb
+            target: './itests/ -run "TestSQLIdempotent|TestCrud|TestTransaction|TestPartialWalk|TestDowngradeTo"'
     steps:
       - name: Start or reuse shared PostgreSQL
         id: pg
