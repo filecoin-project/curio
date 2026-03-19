@@ -28,13 +28,13 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -345,16 +345,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		{
-			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
+			u, err := urlhelper.GetExternalURL(&I.cfg.HTTP)
 			if err != nil {
-				return false, xerrors.Errorf("parsing announce address domain: %w", err)
-			}
-			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-				ls := strings.Split(I.cfg.HTTP.ListenAddress, ":")
-				u, err = url.Parse(fmt.Sprintf("http://%s:%s", I.cfg.HTTP.DomainName, ls[1]))
-				if err != nil {
-					return false, xerrors.Errorf("parsing announce address domain: %w", err)
-				}
+				return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
 			}
 
 			addr, err := FromURLWithPort(u)

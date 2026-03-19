@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -157,6 +158,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders(cfg.CSP))
 	chiRouter.Use(corsHeaders) // allows market calls from other domains
+
+	corsOrigin := "https://" + cfg.DomainName
+	if devURL := os.Getenv("DEV_CURIO_EXTERNAL_URL"); devURL != "" {
+		corsOrigin = devURL
+	}
+	chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{corsOrigin})))
 
 	// Set up the compression middleware with custom compression levels
 	compressionMw, err := compressionMiddleware(&cfg.CompressionLevels)
