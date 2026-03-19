@@ -377,7 +377,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, err
 			log.Warnf("failed to dial eth client: %s", err)
 			continue
 		}
-		client := ethclient.NewClient(rpcClient)
+		client := &ethchain.ChainErrorWrap{EthClient: ethclient.NewClient(rpcClient)}
 		_, err = client.BlockNumber(cctx.Context)
 		if err != nil {
 			log.Warnf("failed to get eth block number: %s", err)
