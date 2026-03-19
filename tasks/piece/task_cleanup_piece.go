@@ -54,7 +54,6 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 		}
 
 		for _, pieceID := range pieceIDs {
-			pieceID := pieceID
 
 			// create a task for each piece
 			c.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {

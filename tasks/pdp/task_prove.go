@@ -319,7 +319,7 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 		return nil, xerrors.Errorf("failed to find root IDs: %w", err)
 	}
 
-	for i := 0; i < numChallenges; i++ {
+	for i := range numChallenges {
 		piece := pieceId[i]
 
 		proof, err := p.proveRoot(ctx, dataSetID, piece.PieceId.Int64(), piece.Offset.Int64())

@@ -18,7 +18,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -230,7 +230,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	}
 
 	var slotOffs []uint64
-	for i := 0; i < pipelines; i++ {
+	for i := range pipelines {
 		slot := slotSize * uint64(i)
 		log.Infow("batch slot", "slot", slot, "machine", machineHostAndPort)
 		slotOffs = append(slotOffs, slot)
@@ -674,10 +674,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 			sectorsForSP = remainingToSeal
 		} else {
 			// Proportional allocation based on weight
-			sectorsForSP = (toSeal * schedule.Weight) / totalWeight
-			if sectorsForSP > schedule.ToSeal {
-				sectorsForSP = schedule.ToSeal
-			}
+			sectorsForSP = min((toSeal*schedule.Weight)/totalWeight, schedule.ToSeal)
 			if sectorsForSP > remainingToSeal {
 				sectorsForSP = remainingToSeal
 			}

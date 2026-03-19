@@ -196,7 +196,7 @@ func (n *Node) GetProvidedOrDefaultWallet(ctx context.Context, provided string) 
 	return walletAddr, nil
 }
 
-func PrintJson(obj interface{}) error {
+func PrintJson(obj any) error {
 	resJson, err := json.MarshalIndent(obj, "", "  ")
 	if err != nil {
 		return xerrors.Errorf("marshalling json: %w", err)
@@ -552,7 +552,7 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	}
 
 	if cctx.Bool("json") {
-		out := map[string]interface{}{
+		out := map[string]any{
 			"dealUuid":           dealUuid.String(),
 			"provider":           maddr.String(),
 			"clientWallet":       walletAddr.String(),
@@ -627,7 +627,7 @@ func dealProposal(ctx context.Context, n *Node, clientAddr address.Address, root
 	}, nil
 }
 
-func doRpc(ctx context.Context, s inet.Stream, req interface{}, resp interface{}) error {
+func doRpc(ctx context.Context, s inet.Stream, req any, resp any) error {
 	errc := make(chan error)
 	go func() {
 		if err := cborutil.WriteCborRPC(s, req); err != nil {
@@ -651,7 +651,7 @@ func doRpc(ctx context.Context, s inet.Stream, req interface{}, resp interface{}
 	}
 }
 
-func doHttp(urls []*url.URL, deal interface{}, response interface{}) error {
+func doHttp(urls []*url.URL, deal any, response any) error {
 	reqbuf := new(bytes.Buffer)
 	err := cborutil.WriteCborRPC(reqbuf, deal)
 	if err != nil {
@@ -786,7 +786,7 @@ var walletNew = &cli.Command{
 		}
 
 		if cctx.Bool("json") {
-			out := map[string]interface{}{
+			out := map[string]any{
 				"address": nk.String(),
 			}
 			_ = PrintJson(out) //nolint:errcheck
@@ -860,7 +860,7 @@ var walletList = &cli.Command{
 		}
 
 		// List of Maps whose keys are defined above. One row = one list element = one wallet
-		var wallets []map[string]interface{}
+		var wallets []map[string]any
 
 		for _, addr := range addrs {
 			if cctx.Bool("addr-only") {
@@ -869,7 +869,7 @@ var walletList = &cli.Command{
 				a, err := api.StateGetActor(ctx, addr, chain_types.EmptyTSK)
 				if err != nil {
 					if !strings.Contains(err.Error(), "actor not found") {
-						wallet := map[string]interface{}{
+						wallet := map[string]any{
 							addressKey: addr,
 							errorKey:   err,
 						}
@@ -882,7 +882,7 @@ var walletList = &cli.Command{
 					}
 				}
 
-				wallet := map[string]interface{}{
+				wallet := map[string]any{
 					addressKey: addr,
 					balanceKey: chain_types.FIL(a.Balance),
 					nonceKey:   a.Nonce,
@@ -915,7 +915,7 @@ var walletList = &cli.Command{
 					marketLockedValue := chain_types.FIL(mbal.Locked)
 					// structure is different for these particular keys so we have to distinguish the cases here
 					if cctx.Bool("json") {
-						wallet[marketKey] = map[string]interface{}{
+						wallet[marketKey] = map[string]any{
 							"available": marketAvailValue,
 							"locked":    marketLockedValue,
 						}
@@ -947,9 +947,9 @@ var walletList = &cli.Command{
 
 			if cctx.Bool("json") {
 				// get a new list of wallets with json keys instead of tablewriter keys
-				var jsonWallets []map[string]interface{}
+				var jsonWallets []map[string]any
 				for _, wallet := range wallets {
-					jsonWallet := make(map[string]interface{})
+					jsonWallet := make(map[string]any)
 					for k, v := range wallet {
 						jsonWallet[tableKeysToJsonKeys[k]] = v
 					}
@@ -1017,7 +1017,7 @@ var walletBalance = &cli.Command{
 		if balance.Equals(chain_types.NewInt(0)) {
 			warningMessage := "may display 0 if chain sync in progress"
 			if cctx.Bool("json") {
-				out := map[string]interface{}{
+				out := map[string]any{
 					"balance": chain_types.FIL(balance),
 					"warning": warningMessage,
 				}
@@ -1027,7 +1027,7 @@ var walletBalance = &cli.Command{
 			}
 		} else {
 			if cctx.Bool("json") {
-				out := map[string]interface{}{
+				out := map[string]any{
 					"balance": chain_types.FIL(balance),
 				}
 				return PrintJson(out)
@@ -1073,7 +1073,7 @@ var walletExport = &cli.Command{
 		}
 
 		if cctx.Bool("json") {
-			out := map[string]interface{}{
+			out := map[string]any{
 				"key": hex.EncodeToString(b),
 			}
 			return PrintJson(out)
@@ -1198,7 +1198,7 @@ var walletImport = &cli.Command{
 		}
 
 		if cctx.Bool("json") {
-			out := map[string]interface{}{
+			out := map[string]any{
 				"address": addr,
 			}
 			return PrintJson(out)
@@ -1225,7 +1225,7 @@ var walletGetDefault = &cli.Command{
 		}
 
 		if cctx.Bool("json") {
-			out := map[string]interface{}{
+			out := map[string]any{
 				"address": addr.String(),
 			}
 			return PrintJson(out)
@@ -1318,7 +1318,7 @@ var walletSign = &cli.Command{
 		sigBytes := append([]byte{byte(sig.Type)}, sig.Data...)
 
 		if cctx.Bool("json") {
-			out := map[string]interface{}{
+			out := map[string]any{
 				"signature": hex.EncodeToString(sigBytes),
 			}
 			err := PrintJson(out)
@@ -1537,11 +1537,11 @@ var dealStatusCmd = &cli.Command{
 		}
 
 		if cctx.Bool("json") {
-			out := map[string]interface{}{}
+			out := map[string]any{}
 			if resp.Error != "" {
 				out["error"] = resp.Error
 			} else {
-				out = map[string]interface{}{
+				out = map[string]any{
 					"dealUuid":     resp.DealUUID.String(),
 					"provider":     maddr.String(),
 					"clientWallet": walletAddr.String(),

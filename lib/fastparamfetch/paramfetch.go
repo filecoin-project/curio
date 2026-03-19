@@ -132,10 +132,8 @@ func (ft *fetch) getFsLock() bool {
 }
 
 func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFile) {
-	ft.wg.Add(1)
 
-	go func() {
-		defer ft.wg.Done()
+	ft.wg.Go(func() {
 
 		path := filepath.Join(getParamDir(), name)
 
@@ -182,7 +180,7 @@ func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFil
 				}
 			}
 		}
-	}()
+	})
 }
 
 func hasTrustableExtension(path string) bool {

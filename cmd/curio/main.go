@@ -81,7 +81,6 @@ func main() {
 	}()
 
 	for _, cmd := range local {
-		cmd := cmd
 		originBefore := cmd.Before
 		cmd.Before = func(cctx *cli.Context) error {
 			if jaeger != nil {

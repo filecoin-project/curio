@@ -318,7 +318,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		ddo := deal.Products.DDOV1
 		data := deal.Data
 
-		var allocationID interface{}
+		var allocationID any
 		if ddo.AllocationId != nil {
 			allocationID = *ddo.AllocationId
 		} else {

@@ -283,7 +283,6 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 
 	sectorList := make([]sectorListEntry, 0, len(tasks))
 	for _, task := range tasks {
-		task := task
 
 		task.CreateTime = task.CreateTime.Local()
 

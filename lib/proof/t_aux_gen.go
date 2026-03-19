@@ -58,7 +58,7 @@ func EnsureTauxForType(spt abi.RegisteredSealProof, path string) error {
 		},
 	}
 
-	for i := 0; i < 11; i++ {
+	for i := range 11 {
 		taux.Labels.Labels = append(taux.Labels.Labels, StoreConfig{
 			Path:          path,
 			ID:            fmt.Sprintf("layer-%d", i+1),

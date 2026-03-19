@@ -9,7 +9,7 @@ on:
       - '**'
 
 env:
-  GO_VERSION: "1.24.7"
+  GO_VERSION: "1.26.0"
 
 jobs:
   ci-lint:
@@ -262,6 +262,7 @@ jobs:
           CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
           LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
           FFI_USE_OPENCL: 1
+          GOTOOLCHAIN: local
         run: |
           echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
           export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
@@ -306,7 +307,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.6.2
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.10.1
         shell: bash
 
       - name: Lint
@@ -657,6 +658,10 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Set GOTOOLCHAIN for coverage tools
+        run: echo "GOTOOLCHAIN=local" >> $GITHUB_ENV
 
       - name: Download all coverage artifacts
         uses: actions/download-artifact@v4

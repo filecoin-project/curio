@@ -523,9 +523,9 @@ func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 	return nil
 }
 
-func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]interface{} {
+func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]any {
 	// Parse the original config into a raw map
-	var rawConfig map[string]interface{}
+	var rawConfig map[string]any
 	err := toml.Unmarshal([]byte(originalConfig), &rawConfig)
 	if err != nil {
 		log.Warnw("Failed to parse original config for unknown fields", "error", err)
@@ -539,7 +539,7 @@ func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[strin
 	}
 
 	// Identify unrecognized fields
-	unrecognizedFields := map[string]interface{}{}
+	unrecognizedFields := map[string]any{}
 	for key, value := range rawConfig {
 		if _, recognized := recognizedKeys[key]; !recognized {
 			unrecognizedFields[key] = value
@@ -566,9 +566,9 @@ func removeUnknownEntries(array1, array2 []toml.Key) []toml.Key {
 	return result
 }
 
-func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]interface{}) (string, error) {
+func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]any) (string, error) {
 	// Parse the updated config into a raw map
-	var updatedConfigMap map[string]interface{}
+	var updatedConfigMap map[string]any
 	err := toml.Unmarshal([]byte(updatedConfig), &updatedConfigMap)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse updated config: %w", err)

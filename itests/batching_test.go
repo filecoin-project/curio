@@ -31,7 +31,7 @@ func TestBatching(t *testing.T) {
 		const numSectors int64 = 20
 		const maxBatch int = 10
 
-		for i := int64(0); i < numSectors; i++ {
+		for i := range numSectors {
 			_, err := db.Exec(ctx, `INSERT INTO sectors_sdr_pipeline (
 				sp_id, sector_number, reg_seal_proof,
 				after_sdr, after_tree_d, after_tree_c, after_tree_r, after_synth,
@@ -118,7 +118,7 @@ func TestBatching(t *testing.T) {
 			maxBatch   int   = 10
 		)
 
-		for i := int64(0); i < numSectors; i++ {
+		for i := range numSectors {
 			_, err := db.Exec(ctx, `INSERT INTO sectors_sdr_pipeline (
 				sp_id, sector_number, reg_seal_proof,
 				after_sdr, after_tree_d, after_tree_c, after_tree_r, after_synth,
@@ -222,11 +222,9 @@ func runBatchRace(
 	var barrier, wg sync.WaitGroup
 	barrier.Add(numWorkers)
 
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		w := w
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			barrier.Done()
 			barrier.Wait()
 
@@ -266,7 +264,7 @@ func runBatchRace(
 				}
 				return
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

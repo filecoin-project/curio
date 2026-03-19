@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -197,14 +198,7 @@ func taskFailureCheck(al *alerts) {
 	}
 
 	sealingTasks := []string{"SDR", "TreeD", "TreeRC", "PreCommitSubmit", "PoRep", "Finalize", "MoveStorage", "CommitSubmit", "WdPost", "ParkPiece"}
-	contains := func(s []string, e string) bool {
-		for _, a := range s {
-			if a == e {
-				return true
-			}
-		}
-		return false
-	}
+	contains := slices.Contains[[]string, string]
 
 	// Alerts for any sealing pipeline failures. Other tasks should have at least 5 failures for an alert
 	for name, count := range tmap {
@@ -337,10 +331,9 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 
 	// Get unique layers in use
 	for _, machine := range machineDetails {
-		machine := machine
 		// Split the Layers field into individual layers
-		layers := strings.Split(machine.Layers, ",")
-		for _, layer := range layers {
+		layers := strings.SplitSeq(machine.Layers, ",")
+		for layer := range layers {
 			layer = strings.TrimSpace(layer)
 			if _, exists := layerMap[layer]; !exists && layer != "" {
 				layerMap[layer] = true
@@ -445,10 +438,7 @@ func wdPostCheck(al *alerts) {
 	}
 
 	// Calculate from epoch for last AlertMangerInterval
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
-	if from < 0 {
-		from = 0
-	}
+	from := max(head.Height()-abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
 	_, miners, err := al.getAddresses()
 	if err != nil {
@@ -625,10 +615,7 @@ func wnPostCheck(al *alerts) {
 	}
 
 	// Calculate from epoch for last AlertMangerInterval
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
-	if from < 0 {
-		from = 0
-	}
+	from := max(head.Height()-abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
 	var wnDetails []struct {
 		Miner    int64          `db:"sp_id"`

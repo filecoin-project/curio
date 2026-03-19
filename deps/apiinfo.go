@@ -154,7 +154,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 		healthyLk.Lock()
 		defer healthyLk.Unlock()
 
-		for i := 0; i < providerCount; i++ {
+		for i := range providerCount {
 			idx := (start + i) % providerCount
 			if !unhealthyProviders[idx] {
 				return idx
@@ -179,7 +179,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 			var wg sync.WaitGroup
 			wg.Add(providerCount)
 
-			for i := 0; i < providerCount; i++ {
+			for i := range providerCount {
 				go func(i int) {
 					defer wg.Done()
 
@@ -305,7 +305,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 }
 
 func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, errorTypes []error, f func(isRetry bool) (T, error)) (result T, err error) {
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		if i > 0 {
 			clog.Debugw("Retrying after error:", err)
 			time.Sleep(initialBackoff)

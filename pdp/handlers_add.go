@@ -19,7 +19,7 @@ import (
 	logger "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -171,7 +171,7 @@ func (p *PDPService) transformAddPiecesRequest(ctx context.Context, serviceLabel
 
 			// Use GenerateUnsealedCID to generate PieceCid from subPieces
 			proofType := abi.RegisteredSealProof_StackedDrg64GiBV1_1 // Proof type sets max piece size, nothing else
-			generatedPieceCid, err := nonffi.GenerateUnsealedCID(proofType, pieceInfos)
+			generatedPieceCid, _, err := commputils.PieceAggregateCommP(proofType, pieceInfos)
 			if err != nil {
 				return false, fmt.Errorf("failed to generate PieceCid: %v", err)
 			}
