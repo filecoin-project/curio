@@ -268,7 +268,7 @@ var messageKeyToIndex = map[string]int{
 	"Redeem a provider voucher (provider role)":             225,
 	"Remove a named config layer.":                          226,
 	"Remove unsealed copies of sector containing this deal": 227,
-	"Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).": 228,
+	"Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).": 228,
 	"SP ID to compute WindowPoSt for":            229,
 	"Seal (fast storage for sealing operations)": 230,
 	"Sector Size: %s":                            231,
@@ -283,7 +283,7 @@ var messageKeyToIndex = map[string]int{
 	"Set log level": 240,
 	"Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr\n": 241,
 	"Set the target unseal state for a sector": 242,
-	"Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.\n": 243,
+	"Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.\n": 243,
 	"Set the target unseal state for sectors containing the given piece CIDs": 244,
 	"Setting up PDP wallet...": 245,
 	"Setup SPDK for batch sealing (configures hugepages and binds NVMe devices)": 246,
@@ -314,7 +314,7 @@ var messageKeyToIndex = map[string]int{
 	"Storage type for %s":                          271,
 	"Store (long-term storage for sealed sectors)": 272,
 	"Supra consensus testing utilities":            273,
-	"Target state: true (ensure unsealed), false (ensure no unsealed copy), or none":                                                                                                                     274,
+	"Target state: true (ensure unsealed), false (ensure no unsealed copy)":                                                                                                                              274,
 	"Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.":                                                               275,
 	"The '%s' layer stores common configuration. All curio instances can include it in their %s argument.":                                                                                               276,
 	"This interactive tool creates a new miner actor and creates the basic configuration layer for it.":                                                                                                  277,
@@ -491,52 +491,52 @@ var enIndex = []uint32{ // 384 elements
 	0x0000272b, 0x0000273d, 0x0000277f, 0x00002794,
 	// Entry E0 - FF
 	0x000027a4, 0x000027cb, 0x000027f5, 0x00002812,
-	0x00002848, 0x000029da, 0x000029fa, 0x00002a25,
-	0x00002a38, 0x00002a5c, 0x00002b7f, 0x00002b96,
-	0x00002bd0, 0x00002be5, 0x00002bf4, 0x00002c0b,
-	0x00002c4c, 0x00002c5a, 0x00002e58, 0x00002e81,
-	0x00003207, 0x0000324f, 0x00003268, 0x000032b3,
-	0x000033b3, 0x000033d6, 0x000033e5, 0x000033f9,
-	0x00003413, 0x00003436, 0x00003469, 0x00003497,
+	0x00002848, 0x000029d3, 0x000029f3, 0x00002a1e,
+	0x00002a31, 0x00002a55, 0x00002b78, 0x00002b8f,
+	0x00002bc9, 0x00002bde, 0x00002bed, 0x00002c04,
+	0x00002c45, 0x00002c53, 0x00002e51, 0x00002e7a,
+	0x000031f7, 0x0000323f, 0x00003258, 0x000032a3,
+	0x000033a3, 0x000033c6, 0x000033d5, 0x000033e9,
+	0x00003403, 0x00003426, 0x00003459, 0x00003487,
 	// Entry 100 - 11F
-	0x000034b1, 0x000034c7, 0x00003546, 0x0000356c,
-	0x00003589, 0x000035c4, 0x000035de, 0x000035fb,
-	0x00003603, 0x00003619, 0x000038c9, 0x0000393d,
-	0x0000396b, 0x0000397e, 0x00003993, 0x000039b2,
-	0x000039c9, 0x000039f6, 0x00003a18, 0x00003a67,
-	0x00003aec, 0x00003b57, 0x00003bb9, 0x00003bfb,
-	0x00003c6a, 0x00003d2d, 0x00003d68, 0x00003da1,
-	0x00003e01, 0x00003e27, 0x00003e63, 0x00003eb0,
+	0x000034a1, 0x000034b7, 0x00003536, 0x0000355c,
+	0x00003579, 0x000035b4, 0x000035ce, 0x000035eb,
+	0x000035f3, 0x00003609, 0x000038b9, 0x0000392d,
+	0x0000395b, 0x0000396e, 0x00003983, 0x000039a2,
+	0x000039b9, 0x000039e6, 0x00003a08, 0x00003a4e,
+	0x00003ad3, 0x00003b3e, 0x00003ba0, 0x00003be2,
+	0x00003c51, 0x00003d14, 0x00003d4f, 0x00003d88,
+	0x00003de8, 0x00003e0e, 0x00003e4a, 0x00003e97,
 	// Entry 120 - 13F
-	0x00003ece, 0x00003ee1, 0x00003f07, 0x00003f2d,
-	0x00003f62, 0x00003f89, 0x00003fbe, 0x00003fe0,
-	0x00003ff4, 0x00004029, 0x0000406e, 0x0000407e,
-	0x000040a3, 0x000040c1, 0x000040e5, 0x0000410b,
-	0x00004119, 0x00004131, 0x00004153, 0x00004183,
-	0x0000419e, 0x000041b3, 0x000041f5, 0x00004203,
-	0x00004212, 0x00004252, 0x00004285, 0x000042c2,
-	0x00004313, 0x0000434e, 0x0000438c, 0x000043c2,
+	0x00003eb5, 0x00003ec8, 0x00003eee, 0x00003f14,
+	0x00003f49, 0x00003f70, 0x00003fa5, 0x00003fc7,
+	0x00003fdb, 0x00004010, 0x00004055, 0x00004065,
+	0x0000408a, 0x000040a8, 0x000040cc, 0x000040f2,
+	0x00004100, 0x00004118, 0x0000413a, 0x0000416a,
+	0x00004185, 0x0000419a, 0x000041dc, 0x000041ea,
+	0x000041f9, 0x00004239, 0x0000426c, 0x000042a9,
+	0x000042fa, 0x00004335, 0x00004373, 0x000043a9,
 	// Entry 140 - 15F
-	0x0000440e, 0x00004424, 0x00004435, 0x00004442,
-	0x0000444a, 0x0000446a, 0x00004471, 0x0000447e,
-	0x0000449b, 0x000044af, 0x000044e6, 0x00004527,
-	0x00004541, 0x00004569, 0x000045bc, 0x000045e7,
-	0x00004602, 0x00004613, 0x0000463b, 0x00004659,
-	0x00004673, 0x00004691, 0x000046b3, 0x000046d0,
-	0x000046eb, 0x000046ff, 0x0000470d, 0x00004745,
-	0x00004767, 0x00004788, 0x000047ac, 0x000047d9,
+	0x000043f5, 0x0000440b, 0x0000441c, 0x00004429,
+	0x00004431, 0x00004451, 0x00004458, 0x00004465,
+	0x00004482, 0x00004496, 0x000044cd, 0x0000450e,
+	0x00004528, 0x00004550, 0x000045a3, 0x000045ce,
+	0x000045e9, 0x000045fa, 0x00004622, 0x00004640,
+	0x0000465a, 0x00004678, 0x0000469a, 0x000046b7,
+	0x000046d2, 0x000046e6, 0x000046f4, 0x0000472c,
+	0x0000474e, 0x0000476f, 0x00004793, 0x000047c0,
 	// Entry 160 - 17F
-	0x0000480d, 0x0000484b, 0x00004865, 0x00004870,
-	0x00004884, 0x0000489d, 0x000048dd, 0x000048f7,
-	0x00004952, 0x0000496d, 0x0000499c, 0x000049b3,
-	0x000049c9, 0x00004a04, 0x00004a22, 0x00004a3d,
-	0x00004a53, 0x00004a77, 0x00004a88, 0x00004ad5,
-	0x00004adf, 0x00004b09, 0x00004b41, 0x00004b55,
-	0x00004bb3, 0x00004bd5, 0x00004c01, 0x00004c19,
-	0x00004c35, 0x00004c7a, 0x00004cc2, 0x00004d0a,
+	0x000047f4, 0x00004832, 0x0000484c, 0x00004857,
+	0x0000486b, 0x00004884, 0x000048c4, 0x000048de,
+	0x00004939, 0x00004954, 0x00004983, 0x0000499a,
+	0x000049b0, 0x000049eb, 0x00004a09, 0x00004a24,
+	0x00004a3a, 0x00004a5e, 0x00004a6f, 0x00004abc,
+	0x00004ac6, 0x00004af0, 0x00004b28, 0x00004b3c,
+	0x00004b9a, 0x00004bbc, 0x00004be8, 0x00004c00,
+	0x00004c1c, 0x00004c61, 0x00004ca9, 0x00004cf1,
 } // Size: 1560 bytes
 
-const enData string = "" + // Size: 19722 bytes
+const enData string = "" + // Size: 19697 bytes
 	"\x04\x03   \x00\x22\x02Then export its private key with:\x02(debug tool)" +
 	" Copy LM sector metadata into Curio DB\x02(for init) limit storage space" +
 	" for sectors (expensive for very large paths!)\x02(for init) path weight" +
@@ -694,145 +694,145 @@ const enData string = "" + // Size: 19722 bytes
 	" sector containing this deal\x02Resolve each piece CID to sector(s) via " +
 	"market_piece_deal, then set target_unseal_state for those sectors.\x0a  " +
 	" Accepts piece CID v1 or v2. Use --target-state to specify the desired s" +
-	"tate (true, false, or none). Request all at once to minimize the sectors" +
-	" needed to be unsealed (if you have pieces stored in multiple sectors)." +
-	"\x0a   Use --stdin to read piece CIDs one per line from stdin (for large" +
-	" lists).\x02SP ID to compute WindowPoSt for\x02Seal (fast storage for se" +
-	"aling operations)\x02Sector Size: %[1]s\x04\x00\x01 \x1f\x02Sector selec" +
-	"tion failed: %[1]s\x02Sectors can be stored across many filesystem paths" +
-	". These\x0acommands provide ways to manage the storage a Curio node will" +
-	" use to store sectors\x0along term for proving (references as 'store') a" +
-	"s well as how sectors will be\x0astored while moving through the sealing" +
-	" pipeline (references as 'seal').\x02Select the Sector Size\x02Select th" +
-	"e location of your lotus-miner config directory?\x02Sender Wallet: %[1]s" +
-	"\x02Sender address\x02Service sender address\x02Set a config layer or th" +
-	"e base by providing a filename or stdin.\x02Set log level\x04\x00\x01" +
-	"\x0a\xf8\x03\x02Set the log level for logging systems:\x0a\x0a   The sys" +
-	"tem flag can be specified multiple times.\x0a\x0a   eg) log set-level --" +
-	"system chain --system chainxchg debug\x0a\x0a   Available Levels:\x0a   " +
-	"debug\x0a   info\x0a   warn\x0a   error\x0a\x0a   Environment Variables:" +
-	"\x0a   GOLOG_LOG_LEVEL - Default log level for all log systems\x0a   GOL" +
-	"OG_LOG_FMT   - Change output log format (json, nocolor)\x0a   GOLOG_FILE" +
-	"      - Write logs to file\x0a   GOLOG_OUTPUT    - Specify whether to ou" +
-	"tput to file, stderr, stdout or a combination, i.e. file+stderr\x02Set t" +
-	"he target unseal state for a sector\x04\x00\x01\x0a\x80\x07\x02Set the t" +
-	"arget unseal state for a specific sector.\x0a   <miner-id>: The storage " +
-	"provider ID\x0a   <sector-number>: The sector number\x0a   <target-state" +
-	">: The target state (true, false, or none)\x0a\x0a   The unseal target s" +
-	"tate indicates to curio how an unsealed copy of the sector should be mai" +
-	"ntained.\x0a\x09   If the target state is true, curio will ensure that t" +
-	"he sector is unsealed.\x0a\x09   If the target state is false, curio wil" +
-	"l ensure that there is no unsealed copy of the sector.\x0a\x09   If the " +
-	"target state is none, curio will not change the current state of the sec" +
-	"tor.\x0a\x0a   Currently when the curio will only start new unseal proce" +
-	"sses when the target state changes from another state to true.\x0a\x0a  " +
-	" When the target state is false, and an unsealed sector file exists, the" +
-	" GC mark step will create a removal mark\x0a   for the unsealed sector f" +
-	"ile. The file will only be removed after the removal mark is accepted." +
-	"\x02Set the target unseal state for sectors containing the given piece C" +
-	"IDs\x02Setting up PDP wallet...\x02Setup SPDK for batch sealing (configu" +
-	"res hugepages and binds NVMe devices)\x02Setup SPDK for batch sealing op" +
-	"erations.\x0a\x0aThis command automatically:\x0a- Downloads SPDK if not " +
-	"already available\x0a- Configures 1GB hugepages (36 pages minimum)\x0a- " +
-	"Binds NVMe devices for use with SupraSeal\x0a\x0aRequires root/sudo acce" +
-	"ss for SPDK setup operations.\x02Setup non-Storage Provider cluster\x02S" +
-	"kip PDP setup\x02Skip optional steps\x02Skip wallet setup for now\x02Spe" +
-	"cify actor address for the deal\x02Specify actor address to start sealin" +
-	"g sectors for\x02Specify wallet address to send the funds from\x02Start " +
-	"Curio web interface\x02Start a Curio process\x02Start an instance of Cur" +
-	"io web interface. \x0a\x09This creates the 'web' layer if it does not ex" +
-	"ist, then calls run with that layer.\x02Start new sealing operations man" +
-	"ually\x02Start sealing new CC sectors\x02Start sealing sectors for all a" +
-	"ctors now (not on schedule)\x04\x00\x01\x0a\x15\x02Step Complete: %[1]s" +
-	"\x02Stop a running Curio process\x02Storage\x02Storage Configuration\x04" +
-	"\x00\x04\x0a   \xa7\x05\x02Storage can be attached to a Curio node using" +
-	" this command. The storage volume\x0alist is stored local to the Curio n" +
-	"ode in storage.json set in curio run. We do not\x0arecommend manually mo" +
-	"difying this value without further understanding of the\x0astorage syste" +
-	"m.\x0a\x0aEach storage volume contains a configuration file which descri" +
-	"bes the\x0acapabilities of the volume. When the '--init' flag is provide" +
-	"d, this file will\x0abe created using the additional flags.\x0a\x0aWeigh" +
-	"t\x0aA high weight value means data will be more likely to be stored in " +
-	"this path\x0a\x0aSeal\x0aData for the sealing process will be stored her" +
-	"e\x0a\x0aStore\x0aFinalized sectors that will be moved here for long ter" +
-	"m storage and be proven\x0aover time\x02Storage path %[1]s added as %[2]" +
-	"s. You'll need to initialize it with: curio cli storage attach --init --" +
-	"%[3]s %[4]s\x02Storage path %[1]s removed from configuration\x02Storage " +
-	"path added\x02Storage path deleted\x02Storage paths for this server:\x02" +
-	"Storage type for %[1]s\x02Store (long-term storage for sealed sectors)" +
-	"\x02Supra consensus testing utilities\x02Target state: true (ensure unse" +
-	"aled), false (ensure no unsealed copy), or none\x02Test the windowpost s" +
-	"cheduler by running it on the next available curio. If tasks fail all re" +
-	"tries, you will need to ctrl+c to exit.\x02The '%[1]s' layer stores comm" +
-	"on configuration. All curio instances can include it in their %[2]s argu" +
-	"ment.\x02This interactive tool creates a new miner actor and creates the" +
-	" basic configuration layer for it.\x02This interactive tool migrates lot" +
-	"us-miner to Curio in 5 minutes.\x02This interactive tool sets up a non-S" +
-	"torage Provider cluster for protocols like PDP, Snark market, and others" +
-	".\x02This process is partially idempotent. Once a new miner actor has be" +
-	"en created and subsequent steps fail, the user need to run 'curio config" +
-	" new-cluster < miner ID >' to finish the configuration.\x02This setup do" +
-	"es not create or migrate a Filecoin SP actor.\x02This will configure PDP" +
-	" settings for your Curio cluster.\x02To run Curio: With machine or cgrou" +
-	"p isolation, use the command (with example layer selection):\x02To start" +
-	" Curio with PDP enabled, run:\x02To start the cluster, run: curio run --" +
-	"layers basic-cluster\x02To start, ensure your sealing pipeline is draine" +
-	"d and shut-down lotus-miner.\x04\x00\x01 \x19\x02To work with the config" +
-	":\x02Tool Box for Curio\x04\x00\x01 !\x02Try the web interface with %[1]" +
-	"s\x02Uncordon a machine, resume scheduling\x02Unmigratable sectors found" +
-	". Do you want to continue?\x02Update data for messages in wait queue\x02" +
-	"Updated DB with message data missing from chain node\x02Use existing key" +
-	", ending in %[1]s\x02Use synthetic PoRep\x04\x00\x01 0\x02Use the arrow " +
-	"keys to navigate: ↓ ↑ → ←\x02Username for connecting to the Postgres dat" +
-	"abase in Yugabyte cluster\x02Username: %[1]s\x02Using existing PDP walle" +
-	"t key: %[1]s\x02Utility functions for testing\x02Validate a client vouch" +
-	"er signature\x02Validate a provider voucher signature\x02Voucher nonce" +
-	"\x02Voucher signature (hex)\x02Wait for Curio api to come online\x02Wher" +
-	"e should we save your database config file?\x02Withdrawal amount (in FIL" +
-	")\x02Worker Wallet: %[1]s\x02YYYYMMDD when your cluster had the preferre" +
-	"d schema. Ex: 20251128\x02Yes, continue\x02Yes, delete it\x02You can add" +
-	" other layers for per-machine configuration changes.\x02You can create a" +
-	" new delegated wallet using Lotus:\x02You can now migrate your market no" +
-	"de (%[1]s), if applicable.\x02You can now start using Curio for protocol" +
-	"s like PDP, Snark markets, and others.\x02You can set up the wallet late" +
-	"r using the Curio GUI or CLI\x02You need a delegated Filecoin wallet add" +
-	"ress to use with PDP.\x02Your non-SP cluster has been configured success" +
-	"fully.\x02Zen3 and later supports two sectors per thread, set to false f" +
-	"or older CPUs\x02[SP actor address...]\x02[deadline index]\x02[layer nam" +
-	"e]\x02[level]\x02[miner address] [sector number]\x02[path]\x02[sectorSiz" +
-	"e]\x02`URL` to send the request to\x02a layer's file name\x02a list of l" +
-	"ayers to be interpreted as the final config\x02allow overwrite of existi" +
-	"ng layer if source is a different layer\x02attach local storage path\x02" +
-	"check how many entries need to be fixed\x02comma or space separated list" +
-	" of layers to be interpreted (base is always applied)\x02could not get A" +
-	"PI info for FullNode: %[1]w\x02curio run --layers=gui,pdp\x02custom node" +
-	" name\x04\x00\x01 #\x02deadline to compute WindowPoSt for\x02depends on " +
-	"output being a TTY\x02detach local storage path\x02do not interpret sour" +
-	"ce layer\x02don't check full-node sync status\x02don't comment default v" +
-	"alues\x02duration to wait till fail\x02edit a config layer\x02editor to " +
-	"use\x02enables very verbose mode, useful for debugging the CLI\x02find s" +
-	"ector in the storage system\x02generate ipni chunks from a file\x02gener" +
-	"ate vanilla proof for a sector\x02host address and port the gui will lis" +
-	"ten on\x02host address and port the worker api will listen on\x02indicat" +
-	"es that deal index should not be announced to the IPNI\x02initialize the" +
-	" path first\x02layer name\x02limit to log system\x02list local storage p" +
-	"aths\x02list of layers to be interpreted (atop defaults). Default: base" +
-	"\x02location of boost.db file\x02lotus wallet export <address> | xxd -r " +
-	"-p | jq -r '.PrivateKey' | base64 -d | xxd -p -c 32\x02lotus wallet new " +
-	"delegated\x02machine host:port (curio run --listen address)\x02manage op" +
-	"en file limit\x02manage sector storage\x02maximum fee in FIL user is wil" +
-	"ling to pay for this message\x02only list local storage paths\x02only ru" +
-	"n init, then return\x02output in json format\x02partition to compute Win" +
-	"dowPoSt for\x02path group names\x02path groups allowed to pull data from" +
-	" this path (allow all if not specified)\x02piece-cid\x02redeclare sector" +
-	"s in a local storage path\x02save the whole config into the layer, not j" +
-	"ust the diff\x02source config layer\x02start epoch by when the deal shou" +
-	"ld be proved by provider on-chain (default: 2 days from now)\x02start se" +
-	"aling a deal sector early\x02title of the config layer (req'd for stdin)" +
-	"\x02true if --source is set\x02use color in display output\x02yugabyte h" +
-	"osts to connect to over cassandra interface eg '127.0.0.1'\x02yugabyte p" +
-	"assword to connect to over cassandra interface eg 'cassandra'\x02yugabyt" +
-	"e username to connect to over cassandra interface eg 'cassandra'"
+	"tate (true or false). Request all at once to minimize the sectors needed" +
+	" to be unsealed (if you have pieces stored in multiple sectors).\x0a   U" +
+	"se --stdin to read piece CIDs one per line from stdin (for large lists)." +
+	"\x02SP ID to compute WindowPoSt for\x02Seal (fast storage for sealing op" +
+	"erations)\x02Sector Size: %[1]s\x04\x00\x01 \x1f\x02Sector selection fai" +
+	"led: %[1]s\x02Sectors can be stored across many filesystem paths. These" +
+	"\x0acommands provide ways to manage the storage a Curio node will use to" +
+	" store sectors\x0along term for proving (references as 'store') as well " +
+	"as how sectors will be\x0astored while moving through the sealing pipeli" +
+	"ne (references as 'seal').\x02Select the Sector Size\x02Select the locat" +
+	"ion of your lotus-miner config directory?\x02Sender Wallet: %[1]s\x02Sen" +
+	"der address\x02Service sender address\x02Set a config layer or the base " +
+	"by providing a filename or stdin.\x02Set log level\x04\x00\x01\x0a\xf8" +
+	"\x03\x02Set the log level for logging systems:\x0a\x0a   The system flag" +
+	" can be specified multiple times.\x0a\x0a   eg) log set-level --system c" +
+	"hain --system chainxchg debug\x0a\x0a   Available Levels:\x0a   debug" +
+	"\x0a   info\x0a   warn\x0a   error\x0a\x0a   Environment Variables:\x0a " +
+	"  GOLOG_LOG_LEVEL - Default log level for all log systems\x0a   GOLOG_LO" +
+	"G_FMT   - Change output log format (json, nocolor)\x0a   GOLOG_FILE     " +
+	" - Write logs to file\x0a   GOLOG_OUTPUT    - Specify whether to output " +
+	"to file, stderr, stdout or a combination, i.e. file+stderr\x02Set the ta" +
+	"rget unseal state for a sector\x04\x00\x01\x0a\xf7\x06\x02Set the target" +
+	" unseal state for a specific sector.\x0a   <miner-id>: The storage provi" +
+	"der ID\x0a   <sector-number>: The sector number\x0a   <target-state>: Th" +
+	"e target state (true, false)\x0a\x0a   The unseal target state indicates" +
+	" to curio how an unsealed copy of the sector should be maintained.\x0a" +
+	"\x09   If the target state is true, curio will ensure that the sector is" +
+	" unsealed.\x0a\x09   If the target state is false, curio will ensure tha" +
+	"t there is no unsealed copy of the sector.\x0a\x09   If the target state" +
+	" is none, curio will not change the current state of the sector.\x0a\x0a" +
+	"   Currently when the curio will only start new unseal processes when th" +
+	"e target state changes from another state to true.\x0a\x0a   When the ta" +
+	"rget state is false, and an unsealed sector file exists, the GC mark ste" +
+	"p will create a removal mark\x0a   for the unsealed sector file. The fil" +
+	"e will only be removed after the removal mark is accepted.\x02Set the ta" +
+	"rget unseal state for sectors containing the given piece CIDs\x02Setting" +
+	" up PDP wallet...\x02Setup SPDK for batch sealing (configures hugepages " +
+	"and binds NVMe devices)\x02Setup SPDK for batch sealing operations.\x0a" +
+	"\x0aThis command automatically:\x0a- Downloads SPDK if not already avail" +
+	"able\x0a- Configures 1GB hugepages (36 pages minimum)\x0a- Binds NVMe de" +
+	"vices for use with SupraSeal\x0a\x0aRequires root/sudo access for SPDK s" +
+	"etup operations.\x02Setup non-Storage Provider cluster\x02Skip PDP setup" +
+	"\x02Skip optional steps\x02Skip wallet setup for now\x02Specify actor ad" +
+	"dress for the deal\x02Specify actor address to start sealing sectors for" +
+	"\x02Specify wallet address to send the funds from\x02Start Curio web int" +
+	"erface\x02Start a Curio process\x02Start an instance of Curio web interf" +
+	"ace. \x0a\x09This creates the 'web' layer if it does not exist, then cal" +
+	"ls run with that layer.\x02Start new sealing operations manually\x02Star" +
+	"t sealing new CC sectors\x02Start sealing sectors for all actors now (no" +
+	"t on schedule)\x04\x00\x01\x0a\x15\x02Step Complete: %[1]s\x02Stop a run" +
+	"ning Curio process\x02Storage\x02Storage Configuration\x04\x00\x04\x0a  " +
+	" \xa7\x05\x02Storage can be attached to a Curio node using this command." +
+	" The storage volume\x0alist is stored local to the Curio node in storage" +
+	".json set in curio run. We do not\x0arecommend manually modifying this v" +
+	"alue without further understanding of the\x0astorage system.\x0a\x0aEach" +
+	" storage volume contains a configuration file which describes the\x0acap" +
+	"abilities of the volume. When the '--init' flag is provided, this file w" +
+	"ill\x0abe created using the additional flags.\x0a\x0aWeight\x0aA high we" +
+	"ight value means data will be more likely to be stored in this path\x0a" +
+	"\x0aSeal\x0aData for the sealing process will be stored here\x0a\x0aStor" +
+	"e\x0aFinalized sectors that will be moved here for long term storage and" +
+	" be proven\x0aover time\x02Storage path %[1]s added as %[2]s. You'll nee" +
+	"d to initialize it with: curio cli storage attach --init --%[3]s %[4]s" +
+	"\x02Storage path %[1]s removed from configuration\x02Storage path added" +
+	"\x02Storage path deleted\x02Storage paths for this server:\x02Storage ty" +
+	"pe for %[1]s\x02Store (long-term storage for sealed sectors)\x02Supra co" +
+	"nsensus testing utilities\x02Target state: true (ensure unsealed), false" +
+	" (ensure no unsealed copy)\x02Test the windowpost scheduler by running i" +
+	"t on the next available curio. If tasks fail all retries, you will need " +
+	"to ctrl+c to exit.\x02The '%[1]s' layer stores common configuration. All" +
+	" curio instances can include it in their %[2]s argument.\x02This interac" +
+	"tive tool creates a new miner actor and creates the basic configuration " +
+	"layer for it.\x02This interactive tool migrates lotus-miner to Curio in " +
+	"5 minutes.\x02This interactive tool sets up a non-Storage Provider clust" +
+	"er for protocols like PDP, Snark market, and others.\x02This process is " +
+	"partially idempotent. Once a new miner actor has been created and subseq" +
+	"uent steps fail, the user need to run 'curio config new-cluster < miner " +
+	"ID >' to finish the configuration.\x02This setup does not create or migr" +
+	"ate a Filecoin SP actor.\x02This will configure PDP settings for your Cu" +
+	"rio cluster.\x02To run Curio: With machine or cgroup isolation, use the " +
+	"command (with example layer selection):\x02To start Curio with PDP enabl" +
+	"ed, run:\x02To start the cluster, run: curio run --layers basic-cluster" +
+	"\x02To start, ensure your sealing pipeline is drained and shut-down lotu" +
+	"s-miner.\x04\x00\x01 \x19\x02To work with the config:\x02Tool Box for Cu" +
+	"rio\x04\x00\x01 !\x02Try the web interface with %[1]s\x02Uncordon a mach" +
+	"ine, resume scheduling\x02Unmigratable sectors found. Do you want to con" +
+	"tinue?\x02Update data for messages in wait queue\x02Updated DB with mess" +
+	"age data missing from chain node\x02Use existing key, ending in %[1]s" +
+	"\x02Use synthetic PoRep\x04\x00\x01 0\x02Use the arrow keys to navigate:" +
+	" ↓ ↑ → ←\x02Username for connecting to the Postgres database in Yugabyte" +
+	" cluster\x02Username: %[1]s\x02Using existing PDP wallet key: %[1]s\x02U" +
+	"tility functions for testing\x02Validate a client voucher signature\x02V" +
+	"alidate a provider voucher signature\x02Voucher nonce\x02Voucher signatu" +
+	"re (hex)\x02Wait for Curio api to come online\x02Where should we save yo" +
+	"ur database config file?\x02Withdrawal amount (in FIL)\x02Worker Wallet:" +
+	" %[1]s\x02YYYYMMDD when your cluster had the preferred schema. Ex: 20251" +
+	"128\x02Yes, continue\x02Yes, delete it\x02You can add other layers for p" +
+	"er-machine configuration changes.\x02You can create a new delegated wall" +
+	"et using Lotus:\x02You can now migrate your market node (%[1]s), if appl" +
+	"icable.\x02You can now start using Curio for protocols like PDP, Snark m" +
+	"arkets, and others.\x02You can set up the wallet later using the Curio G" +
+	"UI or CLI\x02You need a delegated Filecoin wallet address to use with PD" +
+	"P.\x02Your non-SP cluster has been configured successfully.\x02Zen3 and " +
+	"later supports two sectors per thread, set to false for older CPUs\x02[S" +
+	"P actor address...]\x02[deadline index]\x02[layer name]\x02[level]\x02[m" +
+	"iner address] [sector number]\x02[path]\x02[sectorSize]\x02`URL` to send" +
+	" the request to\x02a layer's file name\x02a list of layers to be interpr" +
+	"eted as the final config\x02allow overwrite of existing layer if source " +
+	"is a different layer\x02attach local storage path\x02check how many entr" +
+	"ies need to be fixed\x02comma or space separated list of layers to be in" +
+	"terpreted (base is always applied)\x02could not get API info for FullNod" +
+	"e: %[1]w\x02curio run --layers=gui,pdp\x02custom node name\x04\x00\x01 #" +
+	"\x02deadline to compute WindowPoSt for\x02depends on output being a TTY" +
+	"\x02detach local storage path\x02do not interpret source layer\x02don't " +
+	"check full-node sync status\x02don't comment default values\x02duration " +
+	"to wait till fail\x02edit a config layer\x02editor to use\x02enables ver" +
+	"y verbose mode, useful for debugging the CLI\x02find sector in the stora" +
+	"ge system\x02generate ipni chunks from a file\x02generate vanilla proof " +
+	"for a sector\x02host address and port the gui will listen on\x02host add" +
+	"ress and port the worker api will listen on\x02indicates that deal index" +
+	" should not be announced to the IPNI\x02initialize the path first\x02lay" +
+	"er name\x02limit to log system\x02list local storage paths\x02list of la" +
+	"yers to be interpreted (atop defaults). Default: base\x02location of boo" +
+	"st.db file\x02lotus wallet export <address> | xxd -r -p | jq -r '.Privat" +
+	"eKey' | base64 -d | xxd -p -c 32\x02lotus wallet new delegated\x02machin" +
+	"e host:port (curio run --listen address)\x02manage open file limit\x02ma" +
+	"nage sector storage\x02maximum fee in FIL user is willing to pay for thi" +
+	"s message\x02only list local storage paths\x02only run init, then return" +
+	"\x02output in json format\x02partition to compute WindowPoSt for\x02path" +
+	" group names\x02path groups allowed to pull data from this path (allow a" +
+	"ll if not specified)\x02piece-cid\x02redeclare sectors in a local storag" +
+	"e path\x02save the whole config into the layer, not just the diff\x02sou" +
+	"rce config layer\x02start epoch by when the deal should be proved by pro" +
+	"vider on-chain (default: 2 days from now)\x02start sealing a deal sector" +
+	" early\x02title of the config layer (req'd for stdin)\x02true if --sourc" +
+	"e is set\x02use color in display output\x02yugabyte hosts to connect to " +
+	"over cassandra interface eg '127.0.0.1'\x02yugabyte password to connect " +
+	"to over cassandra interface eg 'cassandra'\x02yugabyte username to conne" +
+	"ct to over cassandra interface eg 'cassandra'"
 
 var koIndex = []uint32{ // 384 elements
 	// Entry 0 - 1F
@@ -1060,4 +1060,4 @@ var zhIndex = []uint32{ // 384 elements
 
 const zhData string = ""
 
-// Total table size 24402 bytes (23KiB); checksum: 7F6D11D
+// Total table size 24377 bytes (23KiB); checksum: 5591ED58

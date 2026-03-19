@@ -3111,6 +3111,24 @@
       "translation": "目标状态：true（确保已解封）、false（确保无解封副本）或 none",
       "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy), or none",
       "placeholder": null
+    },
+    {
+      "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "translation": "通过 market_piece_deal 将每个数据块 CID 解析到对应的扇区，然后设置这些扇区的 target_unseal_state。\n   支持数据块 CID v1 或 v2。使用 --target-state 指定目标状态（true 或 false）。一次性请求所有数据块可以最小化需要解封的扇区数量（如果您的数据块存储在多个扇区中）。\n   对于大量列表，使用 --stdin 从标准输入逐行读取数据块 CID。",
+      "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "设置特定扇区的解封目标状态。\n   \u003cminer-id\u003e：存储提供者 ID\n   \u003csector-number\u003e：扇区编号\n   \u003ctarget-state\u003e：目标状态（true、false）\n\n   解封目标状态指示 curio 如何维护扇区的解封副本。\n\t   如果目标状态为 true，curio 将确保该扇区已解封。\n\t   如果目标状态为 false，curio 将确保不存在该扇区的解封副本。\n\t   如果目标状态为 none，curio 不会更改扇区的当前状态。\n\n   目前 curio 仅在目标状态从其他状态变更为 true 时才会启动新的解封流程。\n\n   当目标状态为 false 且存在解封的扇区文件时，GC 标记步骤将为该解封扇区文件创建删除标记。文件仅在删除标记被接受后才会被移除。",
+      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "placeholder": null
+    },
+    {
+      "id": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+      "translation": "目标状态：true（确保已解封）、false（确保无解封副本）",
+      "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+      "placeholder": null
     }
   ]
 }

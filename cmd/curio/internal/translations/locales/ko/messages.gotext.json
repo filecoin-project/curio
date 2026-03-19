@@ -3141,6 +3141,24 @@
       "translation": "목표 상태: true(언실 보장), false(언실 사본 없음 보장), 또는 none",
       "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy), or none",
       "placeholder": null
+    },
+    {
+      "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "translation": "market_piece_deal을 통해 각 피스 CID를 섹터에 매핑한 후, 해당 섹터의 target_unseal_state를 설정합니다.\n   피스 CID v1 또는 v2를 지원합니다. --target-state를 사용하여 원하는 상태(true 또는 false)를 지정하세요. 여러 섹터에 저장된 피스가 있는 경우, 한 번에 모두 요청하면 봉인 해제가 필요한 섹터 수를 최소화할 수 있습니다.\n   대량 목록의 경우 --stdin을 사용하여 stdin에서 한 줄에 하나씩 피스 CID를 읽습니다.",
+      "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "특정 섹터의 봉인 해제 목표 상태를 설정합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호\n   \u003ctarget-state\u003e: 목표 상태 (true, false)\n\n   봉인 해제 목표 상태는 curio가 섹터의 봉인 해제된 사본을 어떻게 관리할지 나타냅니다.\n\t   목표 상태가 true이면, curio는 해당 섹터가 봉인 해제되도록 보장합니다.\n\t   목표 상태가 false이면, curio는 해당 섹터의 봉인 해제된 사본이 없도록 보장합니다.\n\t   목표 상태가 none이면, curio는 현재 섹터 상태를 변경하지 않습니다.\n\n   현재 curio는 목표 상태가 다른 상태에서 true로 변경될 때만 새로운 봉인 해제 프로세스를 시작합니다.\n\n   목표 상태가 false이고 봉인 해제된 섹터 파일이 존재하는 경우, GC 마크 단계에서 봉인 해제된 섹터 파일에 대한 제거 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다.",
+      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "placeholder": null
+    },
+    {
+      "id": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+      "translation": "목표 상태: true (봉인 해제 보장), false (봉인 해제 사본 없음 보장)",
+      "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+      "placeholder": null
     }
   ]
 }

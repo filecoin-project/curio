@@ -180,6 +180,8 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 			return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
 		}
 		pieceSize = padreader.PaddedSize(rawSize).Padded()
+	} else if !commcidv2.IsCidV1PieceCid(pieceCid) {
+		return nil, 0, xerrors.Errorf("unsupported piece CID format %s (only v1 and v2 supported)", pieceCid)
 	} else {
 		var pieceSizeRaw int64
 		err := cpr.db.QueryRow(ctx, `SELECT COALESCE(

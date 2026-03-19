@@ -23,9 +23,9 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/lib/piecesunseal"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecesunseal"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
@@ -405,7 +405,7 @@ var setTargetUnsealStateCmd = &cli.Command{
 	Description: translations.T(`Set the target unseal state for a specific sector.
    <miner-id>: The storage provider ID
    <sector-number>: The sector number
-   <target-state>: The target state (true, false, or none)
+   <target-state>: The target state (true, false)
 
    The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.
 	   If the target state is true, curio will ensure that the sector is unsealed.
@@ -449,7 +449,7 @@ var setTargetUnsealStateCmd = &cli.Command{
 		case "none":
 			targetState = nil
 		default:
-			return xerrors.Errorf("invalid target-state: must be true, false, or none")
+			return xerrors.Errorf("invalid target-state: must be true or false")
 		}
 
 		ctx := reqcontext.ReqContext(cctx)
@@ -477,12 +477,12 @@ var setTargetUnsealStateByPiecesCmd = &cli.Command{
 	Usage:     translations.T("Set the target unseal state for sectors containing the given piece CIDs"),
 	ArgsUsage: "<piece-cid> [piece-cid ...]",
 	Description: translations.T(`Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.
-   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).
+   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).
    Use --stdin to read piece CIDs one per line from stdin (for large lists).`),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "target-state",
-			Usage: translations.T("Target state: true (ensure unsealed), false (ensure no unsealed copy), or none"),
+			Usage: translations.T("Target state: true (ensure unsealed), false (ensure no unsealed copy)"),
 			Value: true,
 		},
 		&cli.BoolFlag{

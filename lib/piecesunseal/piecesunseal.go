@@ -61,9 +61,13 @@ func PiecesToSectorsBatch(ctx context.Context, db *harmonydb.DB, pieceCids []cid
 				return nil, xerrors.Errorf("piece CID v2 to v1 %s: %w", pc, err)
 			}
 			sizeByV1Cid[pcid1.String()] = int64(padreader.PaddedSize(rawSize).Padded())
-		} else if _, seen := sizeByV1Cid[pc.String()]; !seen {
-			sizeByV1Cid[pc.String()] = 0
-			v1CidsForSize = append(v1CidsForSize, pc.String())
+		} else if commcidv2.IsCidV1PieceCid(pc) {
+			if _, seen := sizeByV1Cid[pc.String()]; !seen {
+				sizeByV1Cid[pc.String()] = 0
+				v1CidsForSize = append(v1CidsForSize, pc.String())
+			}
+		} else {
+			return nil, xerrors.Errorf("unsupported piece CID format %s (only v1 and v2 supported)", pc)
 		}
 	}
 
@@ -208,7 +212,7 @@ func PiecesToSectorsBatch(ctx context.Context, db *harmonydb.DB, pieceCids []cid
 	return &Plan{
 		NoDeal:           noDeal,
 		AlreadyTargeted:  alreadyTargeted,
-		SectorIdToPieces:  sectorIdToPieces,
+		SectorIdToPieces: sectorIdToPieces,
 		SpIdToSectorNum:  spIdToSectorNum,
 	}, nil
 }
