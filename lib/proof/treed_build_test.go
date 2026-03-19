@@ -355,7 +355,7 @@ func hexPrint32LDedup(r io.Reader) string {
 				duplicateLine = false
 			}
 			// Convert to hex and output
-			outStr.WriteString(fmt.Sprintf("%08x: %s\n", offset, toHex(buffer)))
+			fmt.Fprintf(&outStr, "%08x: %s\n", offset, toHex(buffer))
 
 			// Update prevLine
 			if len(prevLine) != 32 {
@@ -378,7 +378,7 @@ func hexPrint32LDedup(r io.Reader) string {
 func toHex(data []byte) string {
 	var hexStr strings.Builder
 	for _, b := range data {
-		hexStr.WriteString(fmt.Sprintf("%02x ", b))
+		fmt.Fprintf(&hexStr, "%02x ", b)
 	}
 	return hexStr.String()
 }

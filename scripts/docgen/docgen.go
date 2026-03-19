@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/ipfs/go-cid"
+	"golang.org/x/tools/go/packages"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc/auth"
@@ -510,20 +511,59 @@ func ParseApiASTInfo(apiFile, iface, pkg, dir string) (comments map[string]strin
 		fmt.Println("filepath absolute error: ", err, "file:", apiFile)
 		return
 	}
-	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments)
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax,
+		Dir:  apiDir,
+		Fset: fset,
+		ParseFile: func(fs *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			var srcAny any
+			if src != nil {
+				srcAny = src
+			}
+			return parser.ParseFile(fs, filename, srcAny, parser.AllErrors|parser.ParseComments)
+		},
+	}
+	pkgsList, err := packages.Load(cfg, ".")
 	if err != nil {
-		fmt.Println("parse error: ", err)
+		fmt.Println("packages load error: ", err)
+		return
+	}
+	packages.PrintErrors(pkgsList)
+
+	var apPkg *packages.Package
+	for _, p := range pkgsList {
+		if p.Name == pkg {
+			apPkg = p
+			break
+		}
+	}
+	if apPkg == nil || len(apPkg.Syntax) == 0 {
+		fmt.Println("package not found or has no syntax:", pkg)
 		return
 	}
 
-	ap := pkgs[pkg]
-
-	f := ap.Files[apiFile]
+	var f *ast.File
+	for i, gf := range apPkg.GoFiles {
+		gfAbs, absErr := filepath.Abs(gf)
+		if absErr != nil {
+			continue
+		}
+		if filepath.Clean(gfAbs) == filepath.Clean(apiFile) {
+			f = apPkg.Syntax[i]
+			break
+		}
+	}
+	if f == nil {
+		fmt.Println("source file not in loaded package:", apiFile)
+		return
+	}
 
 	cmap := ast.NewCommentMap(fset, f, f.Comments)
 
 	v := &Visitor{iface, make(map[string]ast.Node)}
-	ast.Walk(v, ap)
+	for _, syn := range apPkg.Syntax {
+		ast.Walk(v, syn)
+	}
 
 	comments = make(map[string]string)
 	groupDocs = make(map[string]string)
