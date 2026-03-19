@@ -30,13 +30,6 @@ var (
 	consecutiveNewlinesRegex = regexp.MustCompile(`\n\s*\n`)
 )
 
-type fileContent struct {
-	path     string
-	original []byte
-	current  []byte
-	changed  bool
-}
-
 func main() {
 	numWorkers := runtime.NumCPU()
 
@@ -51,27 +44,9 @@ func main() {
 
 	fmt.Printf("Processing %d changed Go file(s)\n", len(changedFiles))
 
-	// Read all file contents in parallel
-	fileContents, err := readFilesParallel(changedFiles, numWorkers)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Error reading files: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Because we have multiple ways of separating imports, we have to imports.Process for each one
-	// but imports.LocalPrefix is a global, so we have to set it for each group and process files
-	// in parallel.
-	for _, prefix := range groupByPrefixes {
-		imports.LocalPrefix = prefix
-		if err := processFilesParallel(fileContents, numWorkers); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Error processing files with prefix %s: %v\n", prefix, err)
-			os.Exit(1)
-		}
-	}
-
-	// Write modified files in parallel
-	if err := writeFilesParallel(fileContents, numWorkers); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Error writing files: %v\n", err)
+	imports.LocalPrefix = strings.Join(groupByPrefixes, ",")
+	if err := processFiles(changedFiles, numWorkers); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Error processing files: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -156,85 +131,35 @@ func getAllGoFiles() []string {
 	return files
 }
 
-func readFilesParallel(files []string, numWorkers int) ([]*fileContent, error) {
-	fileContents := make([]*fileContent, len(files))
-
+// processFiles runs a goroutine per file: read → collapse → imports.Process → write (if changed).
+func processFiles(files []string, numWorkers int) error {
 	var g errgroup.Group
 	g.SetLimit(numWorkers)
 
-	for i, path := range files {
+	for _, path := range files {
+		path := path
 		g.Go(func() error {
 			content, err := os.ReadFile(path)
 			if err != nil {
 				return xerrors.Errorf("reading %s: %w", path, err)
 			}
-
-			// Collapse is a cheap operation to do here
-			collapsed := collapseImportNewlines(content)
-			fileContents[i] = &fileContent{
-				path:     path,
-				original: content,
-				current:  collapsed,
-				changed:  !bytes.Equal(content, collapsed),
-			}
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	return fileContents, nil
-}
-
-func processFilesParallel(fileContents []*fileContent, numWorkers int) error {
-	var g errgroup.Group
-	g.SetLimit(numWorkers)
-
-	for _, file := range fileContents {
-		if file == nil {
-			continue
-		}
-		g.Go(func() error {
-			formatted, err := imports.Process(file.path, file.current, nil)
+			collapsed := importBlockRegex.ReplaceAllFunc(content, func(importBlock []byte) []byte {
+				// Replace consecutive newlines with a single newline within the import block
+				return consecutiveNewlinesRegex.ReplaceAll(importBlock, newline)
+			})
+			formatted, err := imports.Process(path, collapsed, nil)
 			if err != nil {
-				return xerrors.Errorf("processing %s: %w", file.path, err)
+				return xerrors.Errorf("processing %s: %w", path, err)
 			}
-
-			if !bytes.Equal(file.current, formatted) {
-				file.current = formatted
-				file.changed = true
+			if bytes.Equal(content, formatted) {
+				return nil
 			}
-			return nil
-		})
-	}
-
-	return g.Wait()
-}
-
-func writeFilesParallel(fileContents []*fileContent, numWorkers int) error {
-	var g errgroup.Group
-	g.SetLimit(numWorkers)
-
-	for _, file := range fileContents {
-		if file == nil || !file.changed {
-			continue
-		}
-		g.Go(func() error {
-			if err := os.WriteFile(file.path, file.current, 0666); err != nil {
-				return xerrors.Errorf("writing %s: %w", file.path, err)
+			if err := os.WriteFile(path, formatted, 0666); err != nil {
+				return xerrors.Errorf("writing %s: %w", path, err)
 			}
 			return nil
 		})
 	}
 
 	return g.Wait()
-}
-
-func collapseImportNewlines(content []byte) []byte {
-	return importBlockRegex.ReplaceAllFunc(content, func(importBlock []byte) []byte {
-		// Replace consecutive newlines with a single newline within the import block
-		return consecutiveNewlinesRegex.ReplaceAll(importBlock, newline)
-	})
 }
