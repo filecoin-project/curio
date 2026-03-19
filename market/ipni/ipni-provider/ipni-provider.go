@@ -3,6 +3,7 @@ package ipni_provider
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -512,6 +513,9 @@ func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, er
 	var headStr string
 	err := p.db.QueryRow(ctx, `SELECT head FROM ipni_head WHERE provider = $1`, provider).Scan(&headStr)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return cid.Undef, nil
+		}
 		return cid.Undef, xerrors.Errorf("querying previous head: %w", err)
 	}
 
@@ -535,6 +539,10 @@ func (p *Provider) publishHead(ctx context.Context) {
 		c, err := p.getHeadCID(ctx, provider)
 		if err != nil {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
+			continue
+		}
+		if c == cid.Undef {
+			log.Debugw("No head CID found for provider", "provider", provider)
 			continue
 		}
 		log.Infow("Publishing head for provider", "provider", provider, "cid", c.String())
