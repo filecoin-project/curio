@@ -18,7 +18,7 @@ func PaymentContractAddress() (common.Address, error) {
 		return common.HexToAddress(PaymentContractCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(PaymentContractMainnet), nil
-	case build.Build2k:
+	case build.Build2k, build.BuildDebug:
 		if addr := os.Getenv("CURIO_DEVNET_PAYMENTS_ADDRESS"); addr != "" {
 			return common.HexToAddress(addr), nil
 		}

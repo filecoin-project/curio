@@ -18,6 +18,9 @@ git clone --branch v1.1.0 --depth 1 https://github.com/FilOzone/filecoin-service
 git -C filecoin-services submodule update --init --recursive
 
 git clone --depth 1 https://github.com/mds1/multicall3.git
+git -C multicall3 submodule update --init --recursive
+
+cd ../../
 ```
 
 `docker/.env` defaults use `CONTRACT_SOURCE_MODE=local`, so runtime clone/download is skipped.
