@@ -393,7 +393,7 @@ type cprPieceReader struct {
 
 func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
 	rdr, size, err := r.cpr.GetSharedPieceReader(ctx, pieceCid, false)
-	return rdr,size, err
+	return rdr, size, err
 }
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.

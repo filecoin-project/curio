@@ -26,7 +26,7 @@ const (
 	// defaultEthCallTimeout is the timeout for sets of Ethereum client calls per transaction
 	// (i.e. receipt and transaction data)
 	defaultEthCallTimeout = 30 * time.Second
- 	MinEthConfidence = 1
+	MinEthConfidence      = 1
 )
 
 // EthClient is an interface for the Ethereum client operations we need

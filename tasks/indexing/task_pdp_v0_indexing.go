@@ -4,19 +4,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/passcall"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
@@ -87,7 +88,7 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	if err != nil {
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
 	}
-	if !hasIndex{
+	if !hasIndex {
 		hasIndex, err = P.indexStore.CheckHasPiece(ctx, pcid)
 		if err != nil {
 			return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
