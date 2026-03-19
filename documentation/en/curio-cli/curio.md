@@ -1122,11 +1122,12 @@ USAGE:
    curio unseal [command options]
 
 COMMANDS:
-   info              Get information about unsealed data
-   list-sectors      List data from the sectors_unseal_pipeline and sectors_meta tables
-   set-target-state  Set the target unseal state for a sector
-   check             Check data integrity in unsealed sector files
-   help, h           Shows a list of commands or help for one command
+   info                  Get information about unsealed data
+   list-sectors          List data from the sectors_unseal_pipeline and sectors_meta tables
+   set-target-state      Set the target unseal state for a sector
+   set-target-by-pieces  Set the target unseal state for sectors containing the given piece CIDs
+   check                 Check data integrity in unsealed sector files
+   help, h               Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -1170,7 +1171,7 @@ DESCRIPTION:
    Set the target unseal state for a specific sector.
       <miner-id>: The storage provider ID
       <sector-number>: The sector number
-      <target-state>: The target state (true, false, or none)
+      <target-state>: The target state (true, false)
 
       The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.
         If the target state is true, curio will ensure that the sector is unsealed.
@@ -1185,6 +1186,25 @@ DESCRIPTION:
 
 OPTIONS:
    --help, -h  show help
+```
+
+### curio unseal set-target-by-pieces
+```
+NAME:
+   curio unseal set-target-by-pieces - Set the target unseal state for sectors containing the given piece CIDs
+
+USAGE:
+   curio unseal set-target-by-pieces [command options] <piece-cid> [piece-cid ...]
+
+DESCRIPTION:
+   Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.
+      Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).
+      Use --stdin to read piece CIDs one per line from stdin (for large lists).
+
+OPTIONS:
+   --target-state  Target state: true (ensure unsealed), false (ensure no unsealed copy) (default: true)
+   --stdin         Read piece CIDs one per line from stdin instead of from arguments (default: false)
+   --help, -h      show help
 ```
 
 ### curio unseal check
