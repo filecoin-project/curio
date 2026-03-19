@@ -212,6 +212,8 @@ jobs:
             target: "./itests/sql_idempotent_test.go"
           - name: test-itest-transaction-db-usage
             target: "./itests/transaction_db_usage_test.go"
+          - name: test-itest-pieces-unseal
+            target: "./itests/pieces_unseal_test.go"
     steps:
       - uses: actions/checkout@v4
 
