@@ -64,6 +64,7 @@ func CurioHandler(
 	remote http.HandlerFunc,
 	a api.Curio,
 	prometheusSD http.Handler,
+	dependencies *deps.Deps,
 	permissioned bool) http.Handler {
 	mux := mux.NewRouter()
 	readerHandler, readerServerOpt := rpcenc.ReaderParamDecoder()
@@ -81,6 +82,9 @@ func CurioHandler(
 
 	mux.Handle("/rpc/v0", rpcServer)
 	mux.Handle("/rpc/streams/v0/push/{uuid}", readerHandler)
+	if dependencies.PeerHTTP != nil {
+		mux.Handle("/peer/v1", dependencies.PeerHTTP) // Peer-to-peer HTTP POST communication
+	}
 	mux.PathPrefix("/remote").HandlerFunc(remote)
 	mux.Handle("/debug/metrics", metrics.Exporter())
 	mux.Handle("/debug/service-discovery", prometheusSD)
@@ -474,6 +478,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 			return payload.Allow, nil
 		}
 	}
+
 	// Serve the RPC.
 	srv := &http.Server{
 		Handler: CurioHandler(
@@ -481,6 +486,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 			remoteHandler,
 			&CurioAPI{dependencies, dependencies.Si, shutdownChan},
 			prometheusServiceDiscovery(ctx, dependencies),
+			dependencies,
 			permissioned),
 		ReadHeaderTimeout: time.Minute * 3,
 		BaseContext: func(listener net.Listener) context.Context {
