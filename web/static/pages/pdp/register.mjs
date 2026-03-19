@@ -122,6 +122,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
             return;
         }
 
+        if (!this.isValidLocation(location)) {
+            alert('Location must be in the format: "C=US;ST=California;L=San Francisco".');
+            return;
+        }
+
         try {
             await RPCCall('FSRegister', [name, description, location]);
             this.showRegisterModal = false;
