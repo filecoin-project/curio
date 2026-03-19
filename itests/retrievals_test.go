@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/bits"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,6 +49,7 @@ import (
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/testutils"
+	"github.com/filecoin-project/curio/market/denylist"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -119,6 +122,18 @@ func TestRetrievals(t *testing.T) {
 	baseCfg.HTTP.DelegateTLS = true
 	baseCfg.HTTP.DomainName = "localhost"
 	baseCfg.HTTP.ListenAddress = httpAddr
+	denylistData := []byte("[]")
+	denylistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("etag", "\"retrievals-itest-denylist\"")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		_, _ = w.Write(denylistData)
+	}))
+	defer denylistServer.Close()
+	baseCfg.HTTP.DenylistServers = config.NewDynamic([]string{denylistServer.URL})
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
@@ -142,6 +157,7 @@ func TestRetrievals(t *testing.T) {
 		aggregateSubpieceFixture,
 		aggregateSiblingFixture,
 	})
+	denylistedFixture := createPieceFixture(t, dir, 448)
 	parkNoDealFixture := createPieceFixture(t, dir, 320)
 	parkWithDealFixture := createPieceFixture(t, dir, 384)
 
@@ -212,6 +228,42 @@ func TestRetrievals(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, addAggregateIndexFromPiece(t, ctx, idxStore, aggregateFixture, aggregateSubPieces))
+
+	// Denylisted fixture: retrievable piece/root used to assert HTTP 451 for both /piece and /ipfs paths.
+	denylistedSectorNum := abi.SectorNumber(201)
+	require.NoError(t, writeUnsealedSectorFixture(dir, abi.ActorID(mid), denylistedSectorNum, abi.SectorSize(sectorSize), denylistedFixture))
+	_, err = db.Exec(ctx, `INSERT INTO sectors_meta (
+		sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
+		orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
+		seed_epoch, seed_value
+	) VALUES ($1, $2, $3, 0, $4, $5, $6, $5, $6, 0, $4)
+	ON CONFLICT (sp_id, sector_num) DO NOTHING`,
+		mid, int64(denylistedSectorNum), sealProof, []byte{0}, denylistedFixture.PieceCIDV1.String(), denylistedFixture.PieceCIDV1.String())
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		"mk12-denylist-itest",
+		denylistedFixture.PieceCIDV1.String(),
+		true,
+		mid,
+		int64(denylistedSectorNum),
+		int64(0),
+		int64(denylistedFixture.PieceSize),
+		denylistedFixture.RawSize,
+		true,
+		nil,
+		false,
+		int64(0),
+	)
+	require.NoError(t, err)
+	require.NoError(t, addIndexFromCAR(ctx, idxStore, denylistedFixture.PieceCIDV2, denylistedFixture.CarBytes))
+
+	denylistData, err = json.Marshal([]struct {
+		Anchor string `json:"anchor"`
+	}{
+		{Anchor: denylist.CIDToHash(denylistedFixture.PieceCIDV1)},
+		{Anchor: denylist.CIDToHash(denylistedFixture.RootCID)},
+	})
+	require.NoError(t, err)
 
 	// Park-only fixture: no market_piece_deal binding.
 	var parkOnlyPieceID int64
@@ -338,6 +390,29 @@ func TestRetrievals(t *testing.T) {
 		require.Equal(t, http.StatusOK, status)
 		require.Equal(t, parkWithDealFixture.CarBytes, body)
 		assertPieceResponseHeaders(t, headers, parkWithDealFixture.PieceCIDV1.String(), len(parkWithDealFixture.CarBytes))
+	})
+
+	t.Run("denylist blocks /piece path", func(t *testing.T) {
+		require.Eventually(t, func() bool {
+			status, _ := httpGet(t, baseURL, "/piece/"+denylistedFixture.PieceCIDV1.String(), nil)
+			return status == http.StatusUnavailableForLegalReasons
+		}, 15*time.Second, 250*time.Millisecond)
+	})
+
+	t.Run("denylist blocks /piece path with pieceCIDv2", func(t *testing.T) {
+		require.Eventually(t, func() bool {
+			status, _ := httpGet(t, baseURL, "/piece/"+denylistedFixture.PieceCIDV2.String(), nil)
+			return status == http.StatusUnavailableForLegalReasons
+		}, 15*time.Second, 250*time.Millisecond)
+	})
+
+	t.Run("denylist blocks /ipfs path", func(t *testing.T) {
+		require.Eventually(t, func() bool {
+			status, _ := httpGet(t, baseURL, "/ipfs/"+denylistedFixture.RootCID.String(), map[string]string{
+				"Accept": "application/vnd.ipld.car",
+			})
+			return status == http.StatusUnavailableForLegalReasons
+		}, 15*time.Second, 250*time.Millisecond)
 	})
 }
 
