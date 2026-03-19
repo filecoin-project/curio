@@ -15,10 +15,9 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multibase"
 
-	commcid "github.com/filecoin-project/go-fil-commcid"
-
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/commcidv2"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 )
 
 var log = logging.Logger("denylist")

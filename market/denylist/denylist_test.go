@@ -15,9 +15,8 @@ import (
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
 
-	commcid "github.com/filecoin-project/go-fil-commcid"
-
 	"github.com/filecoin-project/curio/deps/config"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 )
 
 // makeCIDv0 creates a CIDv0 from a string for testing.

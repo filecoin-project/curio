@@ -18,11 +18,6 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/go-jsonrpc/auth"
-	"github.com/filecoin-project/go-state-types/abi"
-
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
@@ -33,7 +28,10 @@ import (
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
-
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
+	"github.com/filecoin-project/go-jsonrpc/auth"
+	"github.com/filecoin-project/go-state-types/abi"
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/cli/spcli/createminer"
