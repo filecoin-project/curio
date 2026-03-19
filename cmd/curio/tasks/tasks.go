@@ -321,9 +321,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
 			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
 
-			pdpSync := pdp.NewPDPSyncTask(db, ethClient)
+			//pdpSync := pdp.NewPDPSyncTask(db, ethClient)
 
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask, pdpSync)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}
 
 		// Enable PDP v0 subsystem

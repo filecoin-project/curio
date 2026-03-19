@@ -114,7 +114,7 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 		}
 
 		// Update pdp_data_set_creates to set data_set_created = TRUE
-		_, err = db.Exec(ctx, `
+		_, err = tx.Exec(`
         UPDATE pdp_data_set_creates
         SET data_set_created = TRUE
         WHERE create_message_hash = $1

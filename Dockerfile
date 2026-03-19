@@ -83,7 +83,8 @@ RUN go install github.com/ethereum/go-ethereum/cmd/geth@latest \
 #####################################
 FROM ubuntu:24.04 AS curio-all-in-one
 
-RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget nodejs npm
+RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install nodejs -y
 
 # Install Foundry
 RUN curl -L https://foundry.paradigm.xyz | bash \

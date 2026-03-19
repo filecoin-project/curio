@@ -177,29 +177,26 @@ main() {
   [[ "$deployer_eth_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "failed to derive deployer EVM address"
   printf '%s\n' "$deployer_eth_address" > "$deployer_eth_file"
 
-  local default_wallet fund_cid default_wallet_balance
-  default_wallet="$(lotus wallet default 2>/dev/null | tr -d '\r\n' || true)"
-  default_wallet_balance="$(lotus wallet balance "$default_wallet" 2>/dev/null | awk '{print $1}' | tr -d '\r\n' || true)"
+  local default_wallet fund_cid default_wallet_balance wallet_wait_tries
+  default_wallet=""
+  default_wallet_balance=""
+  wallet_wait_tries=0
 
-  if [[ -z "$default_wallet" || -z "$default_wallet_balance" || "$default_wallet_balance" == "0" || "$default_wallet_balance" == "0.0" ]]; then
-    [[ -f "$genesis_preseal_key" ]] || die "no funded default wallet and pre-seal key not found at $genesis_preseal_key"
-    log "Default wallet has no spendable balance; importing pre-seal key for funding"
-
-    local import_output imported_addr
-    if import_output="$(lotus wallet import --as-default "$genesis_preseal_key" 2>&1)"; then
-      echo "$import_output"
-    else
-      echo "$import_output"
-      imported_addr="$(echo "$import_output" | awk -F"wallet-|'" 'NF>1 {print $2}' | tail -n1 | tr -d '\r\n')"
-      [[ -n "$imported_addr" ]] || die "failed to import pre-seal key and could not extract existing address"
-      lotus wallet set-default "$imported_addr" >/dev/null
-    fi
-
+  log "Waiting for default wallet to have spendable balance..."
+  while true; do
     default_wallet="$(lotus wallet default 2>/dev/null | tr -d '\r\n' || true)"
     default_wallet_balance="$(lotus wallet balance "$default_wallet" 2>/dev/null | awk '{print $1}' | tr -d '\r\n' || true)"
-    [[ -n "$default_wallet" ]] || die "failed to set a default funding wallet"
-    [[ -n "$default_wallet_balance" && "$default_wallet_balance" != "0" && "$default_wallet_balance" != "0.0" ]] || die "funding wallet has zero balance"
-  fi
+
+    if [[ -n "$default_wallet" && -n "$default_wallet_balance" && "$default_wallet_balance" != "0" && "$default_wallet_balance" != "0.0" ]]; then
+      break
+    fi
+
+    wallet_wait_tries=$((wallet_wait_tries + 1))
+    if (( wallet_wait_tries > 180 )); then
+      die "default wallet did not get spendable balance in time"
+    fi
+    sleep 1
+  done
 
   log "Funding deployer EVM wallet $deployer_eth_address from $default_wallet with $deployer_fund_amount_fil FIL"
   fund_cid="$(lotus send --from "$default_wallet" "$deployer_eth_address" "$deployer_fund_amount_fil" | awk '/^bafy/{print $1}' | tail -n1 | tr -d '\r\n')"
@@ -268,16 +265,37 @@ main() {
   [[ -f "$deploy_script" ]] || die "filecoin-services deploy script not found (expected tools/warm-storage-deploy-all.sh or tools/deploy-all-warm-storage.sh)"
   bash "$deploy_script"
 
-  local pdp_verifier_address
-  local fwss_address
-  local service_registry_address
-  pdp_verifier_address="$(jq -r --arg chain "$chain_id" '.[$chain].PDP_VERIFIER_PROXY_ADDRESS // empty' deployments.json)"
-  fwss_address="$(jq -r --arg chain "$chain_id" '.[$chain].FWSS_PROXY_ADDRESS // empty' deployments.json)"
-  service_registry_address="$(jq -r --arg chain "$chain_id" '.[$chain].SERVICE_PROVIDER_REGISTRY_PROXY_ADDRESS // empty' deployments.json)"
+  local pdp_verifier_proxy_address
+  local pdp_verifier_implementation_address
+  local fwss_proxy_address
+  local fwss_implementation_address
+  local fwss_view_address
+  local service_registry_proxy_address
+  local service_registry_implementation_address
+  local filecoin_pay_address
+  local session_key_registry_address
+  local endorsements_address
+  pdp_verifier_proxy_address="$(jq -r --arg chain "$chain_id" '.[$chain].PDP_VERIFIER_PROXY_ADDRESS // empty' deployments.json)"
+  pdp_verifier_implementation_address="$(jq -r --arg chain "$chain_id" '.[$chain].PDP_VERIFIER_IMPLEMENTATION_ADDRESS // empty' deployments.json)"
+  fwss_proxy_address="$(jq -r --arg chain "$chain_id" '.[$chain].FWSS_PROXY_ADDRESS // empty' deployments.json)"
+  fwss_implementation_address="$(jq -r --arg chain "$chain_id" '.[$chain].FWSS_IMPLEMENTATION_ADDRESS // empty' deployments.json)"
+  fwss_view_address="$(jq -r --arg chain "$chain_id" '.[$chain].FWSS_VIEW_ADDRESS // empty' deployments.json)"
+  service_registry_proxy_address="$(jq -r --arg chain "$chain_id" '.[$chain].SERVICE_PROVIDER_REGISTRY_PROXY_ADDRESS // empty' deployments.json)"
+  service_registry_implementation_address="$(jq -r --arg chain "$chain_id" '.[$chain].SERVICE_PROVIDER_REGISTRY_IMPLEMENTATION_ADDRESS // empty' deployments.json)"
+  filecoin_pay_address="$(jq -r --arg chain "$chain_id" '.[$chain].FILECOIN_PAY_ADDRESS // empty' deployments.json)"
+  session_key_registry_address="$(jq -r --arg chain "$chain_id" '.[$chain].SESSION_KEY_REGISTRY_ADDRESS // empty' deployments.json)"
+  endorsements_address="$(jq -r --arg chain "$chain_id" '.[$chain].ENDORSEMENT_SET_ADDRESS // empty' deployments.json)"
 
-  [[ "$pdp_verifier_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing PDP verifier address in deployments.json"
-  [[ "$fwss_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing FWSS address in deployments.json"
-  [[ "$service_registry_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing Service Registry address in deployments.json"
+  [[ "$pdp_verifier_proxy_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing PDP verifier proxy address in deployments.json"
+  [[ "$pdp_verifier_implementation_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing PDP verifier implementation address in deployments.json"
+  [[ "$fwss_proxy_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing FWSS proxy address in deployments.json"
+  [[ "$fwss_implementation_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing FWSS implementation address in deployments.json"
+  [[ "$fwss_view_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing FWSS view address in deployments.json"
+  [[ "$service_registry_proxy_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing Service Registry proxy address in deployments.json"
+  [[ "$service_registry_implementation_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing Service Registry implementation address in deployments.json"
+  [[ "$filecoin_pay_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing FilecoinPay address in deployments.json"
+  [[ "$session_key_registry_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing SessionKeyRegistry address in deployments.json"
+  [[ "$endorsements_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "missing Endorsements address in deployments.json"
 
   local filecoin_services_commit
   filecoin_services_commit="$(git -C "$filecoin_services_dir" rev-parse HEAD 2>/dev/null | tr -d '\r\n' || true)"
@@ -318,9 +336,16 @@ main() {
     --arg chain_id "$chain_id" \
     --arg deployer_fil "$deployer_fil_address" \
     --arg deployer_eth "$deployer_eth_address" \
-    --arg pdp_verifier "$pdp_verifier_address" \
-    --arg fwss "$fwss_address" \
-    --arg service_registry "$service_registry_address" \
+    --arg pdp_verifier "$pdp_verifier_proxy_address" \
+    --arg pdp_verifier_impl "$pdp_verifier_implementation_address" \
+    --arg fwss "$fwss_proxy_address" \
+    --arg fwss_impl "$fwss_implementation_address" \
+    --arg fwss_view "$fwss_view_address" \
+    --arg service_registry "$service_registry_proxy_address" \
+    --arg service_registry_impl "$service_registry_implementation_address" \
+    --arg filecoin_pay "$filecoin_pay_address" \
+    --arg session_key_registry "$session_key_registry_address" \
+    --arg endorsements "$endorsements_address" \
     --arg usdfc "$usdfc_address" \
     --arg multicall3 "$multicall3_address" \
     --arg fs_repo "$filecoin_services_repo" \
@@ -338,8 +363,18 @@ main() {
       },
       contracts: {
         pdp_verifier: $pdp_verifier,
+        pdp_verifier_proxy: $pdp_verifier,
+        pdp_verifier_implementation: $pdp_verifier_impl,
         filecoin_warm_storage_service: $fwss,
+        filecoin_warm_storage_service_proxy: $fwss,
+        filecoin_warm_storage_service_implementation: $fwss_impl,
+        filecoin_warm_storage_service_state_view: $fwss_view,
         service_provider_registry: $service_registry,
+        service_provider_registry_proxy: $service_registry,
+        service_provider_registry_implementation: $service_registry_impl,
+        filecoin_pay_v1: $filecoin_pay,
+        session_key_registry: $session_key_registry,
+        endorsements: $endorsements,
         usdfc: $usdfc,
         multicall3: $multicall3
       },
@@ -359,9 +394,16 @@ main() {
 
   cat > "$env_file" <<EOF
 # Generated by docker/contracts-bootstrap/entrypoint.sh on $(date -u +'%Y-%m-%dT%H:%M:%SZ')
-export CURIO_DEVNET_PDP_VERIFIER_ADDRESS="$pdp_verifier_address"
-export CURIO_DEVNET_FWSS_ADDRESS="$fwss_address"
-export CURIO_DEVNET_SERVICE_REGISTRY_ADDRESS="$service_registry_address"
+export CURIO_DEVNET_PDP_VERIFIER_ADDRESS="$pdp_verifier_proxy_address"
+export CURIO_DEVNET_PDP_VERIFIER_IMPLEMENTATION_ADDRESS="$pdp_verifier_implementation_address"
+export CURIO_DEVNET_FWSS_ADDRESS="$fwss_proxy_address"
+export CURIO_DEVNET_FWSS_IMPLEMENTATION_ADDRESS="$fwss_implementation_address"
+export CURIO_DEVNET_FWSS_STATE_VIEW_ADDRESS="$fwss_view_address"
+export CURIO_DEVNET_SERVICE_REGISTRY_ADDRESS="$service_registry_proxy_address"
+export CURIO_DEVNET_SERVICE_REGISTRY_IMPLEMENTATION_ADDRESS="$service_registry_implementation_address"
+export CURIO_DEVNET_FILECOIN_PAY_ADDRESS="$filecoin_pay_address"
+export CURIO_DEVNET_SESSION_KEY_REGISTRY_ADDRESS="$session_key_registry_address"
+export CURIO_DEVNET_ENDORSEMENTS_ADDRESS="$endorsements_address"
 export CURIO_DEVNET_USDFC_ADDRESS="$usdfc_address"
 export CURIO_DEVNET_MULTICALL3_ADDRESS="$multicall3_address"
 EOF

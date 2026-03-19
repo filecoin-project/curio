@@ -101,9 +101,6 @@ services:
     container_name: curio
     image: ${CURIO_IMAGE}
     init: true
-    depends_on:
-      contracts-bootstrap:
-        condition: service_completed_successfully
     ports:
       - "12300:12300" # API
       - "4701:4701" # UI
@@ -118,7 +115,7 @@ services:
       - ./data/curio:/var/lib/curio:rw
       - ./data/lotus:/var/lib/lotus:ro
       - ./data/lotus-miner:/var/lib/lotus-miner:ro
-      - ./data/contracts:/var/lib/contracts:ro
+      - ./data/contracts:/var/lib/contracts:rw
       - ${FIL_PROOFS_PARAMETER_CACHE}:/var/tmp/filecoin-proof-parameters:rw
     networks:
       curio-net:
@@ -159,6 +156,7 @@ services:
       - ./data/lotus:/var/lib/lotus:ro
       - ./data/lotus-miner:/var/lib/lotus-miner:ro
       - ${FIL_PROOFS_PARAMETER_CACHE}:/var/tmp/filecoin-proof-parameters:rw
+      - ./data/contracts:/var/lib/contracts:rw
     networks:
       curio-net:
         ipv4_address: 172.20.0.6
