@@ -128,15 +128,15 @@ All three mechanisms funnel through `harmonytask.AddTask()`, which atomically in
 
 | Task Name | Struct | File | Trigger |
 |-----------|--------|------|---------|
-| `PDPv0_InitPP` | `InitProvingPeriodTask` | `tasks/pdp/task_init_pp.go` | Chain handler |
-| `PDPv0_ProvPeriod` | `NextProvingPeriodTask` | `tasks/pdp/task_next_pp.go` | Chain handler |
-| `PDPv0_Prove` | `ProveTask` | `tasks/pdp/task_prove.go` | Chain handler |
-| `PDPv0_Notify` | `PDPNotifyTask` | `tasks/pdp/notify_task.go` | Polling (2s) |
-| `PDPv0_PullPiece` | `PDPPullPieceTask` | `tasks/pdp/task_pull_piece.go` | Polling (10s) |
-| `PDPv0_Indexing` | `PDPIndexingTask` | `tasks/indexing/task_pdp_indexing.go` | IAmBored (3s) |
-| `PDPv0_IPNI` | `PDPIPNITask` | `tasks/indexing/task_pdp_ipni.go` | IAmBored (30s) |
-| `PDPv0_TermFWSS` | `TerminateFWSSTask` | `tasks/pdp/task_terminate_fwss.go` | IAmBored (1 min) |
-| `PDPv0_DelDataSet` | `DeleteDataSetTask` | `tasks/pdp/task_delete_data_set.go` | IAmBored (1 hour) |
+| `PDPv0_InitPP` | `InitProvingPeriodTask` | `tasks/pdpv0/task_init_pp.go` | Chain handler |
+| `PDPv0_ProvPeriod` | `NextProvingPeriodTask` | `tasks/pdpv0/task_next_pp.go` | Chain handler |
+| `PDPv0_Prove` | `ProveTask` | `tasks/pdpv0/task_prove.go` | Chain handler |
+| `PDPv0_Notify` | `PDPNotifyTask` | `tasks/pdpv0/notify_task.go` | Polling (2s) |
+| `PDPv0_PullPiece` | `PDPPullPieceTask` | `tasks/pdpv0/task_pull_piece.go` | Polling (10s) |
+| `PDPv0_Indexing` | `PDPIndexingTask` | `tasks/indexing/task_pdp_v0_indexing.go` | IAmBored (3s) |
+| `PDPv0_IPNI` | `PDPIPNITask` | `tasks/indexing/task_pdp_v0_ipni.go` | IAmBored (30s) |
+| `PDPv0_TermFWSS` | `TerminateFWSSTask` | `tasks/pdpv0/task_terminate_fwss.go` | IAmBored (1 min) |
+| `PDPv0_DelDataSet` | `DeleteDataSetTask` | `tasks/pdpv0/task_delete_data_set.go` | IAmBored (1 hour) |
 | `Settle` | `SettleTask` | `tasks/pay/settle_task.go` | IAmBored (12 hours) |
 
 ## Chain-Handler Watchers
@@ -145,10 +145,10 @@ These are not harmony tasks but chain-event handlers registered via `chainsched.
 
 | Watcher | File | Description |
 |---------|------|-------------|
-| `DataSetWatch` | `tasks/pdp/dataset_watch.go` | Runs `processPendingDataSetCreates` then `processPendingDataSetPieceAdds` sequentially. Extracts `DataSetCreated` and `PiecesAdded` events from transaction receipts. Sets `init_ready=TRUE` on first piece addition. |
-| `TerminateServiceWatcher` | `tasks/pdp/watch_fwss_terminate.go` | Monitors `terminateService` transaction completion. Retrieves `PdpEndEpoch` from the FWSS contract and updates `service_termination_epoch` in `pdp_delete_data_set`. |
-| `DataSetDeleteWatcher` | `tasks/pdp/watch_data_set_delete.go` | Monitors `deleteDataSet` transaction completion. Verifies dataset is no longer live on-chain, then deletes the `pdp_data_sets` row (CASCADE deletes pieces and prove tasks). |
-| `PieceDeleteWatcher` | `tasks/pdp/watch_piece_delete.go` | Monitors piece removal transaction completion. Marks pieces as `removed=TRUE`, cleans up `pdp_piecerefs` after a 24-hour grace period, and publishes IPNI removal advertisements. |
+| `DataSetWatch` | `tasks/pdpv0/dataset_watch.go` | Runs `processPendingDataSetCreates` then `processPendingDataSetPieceAdds` sequentially. Extracts `DataSetCreated` and `PiecesAdded` events from transaction receipts. Sets `init_ready=TRUE` on first piece addition. |
+| `TerminateServiceWatcher` | `tasks/pdpv0/watch_fwss_terminate.go` | Monitors `terminateService` transaction completion. Retrieves `PdpEndEpoch` from the FWSS contract and updates `service_termination_epoch` in `pdp_delete_data_set`. |
+| `DataSetDeleteWatcher` | `tasks/pdpv0/watch_data_set_delete.go` | Monitors `deleteDataSet` transaction completion. Verifies dataset is no longer live on-chain, then deletes the `pdp_data_sets` row (CASCADE deletes pieces and prove tasks). |
+| `PieceDeleteWatcher` | `tasks/pdpv0/watch_piece_delete.go` | Cleans up orphaned PDP piece refs and, when appropriate, publishes IPNI removal advertisements. The earlier liveness-driven deletion of `pdp_data_set_pieces` rows is currently disabled while removed-piece proving behavior is investigated. |
 | `SettleWatcher` | `tasks/pay/watcher.go` | Monitors settlement transaction completion. Verifies settlement status on-chain via the FWSS contract. Detects terminated or defaulting rails and triggers service termination and dataset deletion via `pdp.EnsureServiceTermination` and `ensureDataSetDeletion`. |
 
 # Task Dependency Tree
@@ -194,9 +194,21 @@ There are two paths for getting pieces into the system:
 
 ## Piece Removal
 
-1. Client calls `removePieces()` via HTTP, which sends a `PDPVerifier.removePieces()` transaction.
-2. When the transaction lands, **PieceDeleteWatcher** marks the pieces as `removed = TRUE` in `pdp_data_set_pieces`.
-3. After a 24-hour grace period, the watcher cleans up `pdp_piecerefs` and `parked_piece_refs`, and publishes IPNI removal advertisements.
+Piece removal is intentionally split into three distinct phases: enqueue the deletion on-chain, fold that deletion into the next proving-period transition, and only then clean up local indexing / piece-reference state.
+
+1. Client calls `DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId}`. The handler verifies service ownership, packs `PDPVerifier.schedulePieceDeletions(setId, [pieceId], extraData)`, sends the transaction with `SenderETH`, inserts the tx into `message_waits_eth`, and stores that tx hash in `pdp_data_set_pieces.rm_message_hash`.
+2. The delete request does not immediately remove the matching rows from `pdp_data_set_pieces`. Until the request is observed later in the lifecycle, the piece still exists locally with `removed = FALSE`.
+3. At the end of **PDPv0_ProvPeriod**, `processPendingPieceDeletes()` scans the current dataset for rows with `rm_message_hash IS NOT NULL`, `removed = FALSE`, and a confirmed tx in `message_waits_eth`.
+4. For each such row, Curio resolves the result as follows:
+   - If the delete tx failed, or if the receipt state is otherwise unusable, Curio clears `rm_message_hash` and leaves the piece live locally.
+   - If `PDPVerifier.getScheduledRemovals(setId)` still contains the piece id, Curio sets `pdp_data_set_pieces.removed = TRUE`.
+   - If the piece id is no longer in the scheduled-removals queue, Curio calls `PDPVerifier.pieceLive(setId, pieceId)`. If the piece is already non-live on-chain, Curio also sets `removed = TRUE`. If it is still live, Curio treats the local delete tracking as stale, clears `rm_message_hash`, and logs a warning. This is the path that protects against the issue discussed in [#924](https://github.com/filecoin-project/curio/issues/924) / [PR #947 comment](https://github.com/filecoin-project/curio/pull/947#issuecomment-3922533942), where fast task execution and short reorgs can otherwise create repeated log spam.
+5. `removed = TRUE` is only a local tombstone. It does not by itself delete the matching `pdp_data_set_pieces` rows, and it does not decrement `pdp_piecerefs.data_set_refcount` because that refcount is maintained by `INSERT` / `DELETE` / `pdp_pieceref`-changing `UPDATE` triggers on `pdp_data_set_pieces`.
+6. There is code in `tasks/pdpv0/watch_piece_delete.go` to do the next step: `_processPendingCleanup()` re-checks `pieceLive()` and deletes `pdp_data_set_pieces` rows whose pieces are no longer live on-chain. Those physical `DELETE`s are what would fire the refcount trigger and make the piece eligible for ref-based cleanup. However, that cleanup is currently disabled in the watcher registration because the team is still investigating observations that removed pieces can correlate with proving failures and excessive ETH RPC load.
+7. The still-enabled part of **PieceDeleteWatcher** only operates on orphaned `pdp_piecerefs` rows where `data_set_refcount = 0` and the ref is at least 24 hours old (`pdp_piecerefs.created_at <= now - 24h`). For each orphan it deletes the `pdp_piecerefs` row and its `parked_piece_refs` row. When the orphaned ref was also the last PDP reference for that `piece_cid`, and the prior advertisement state shows that a removal still needs to be announced, Curio publishes an IPNI removal advertisement and removes the local index entry for the piece.
+8. In practice this means that ordinary per-piece removal currently stops at `removed = TRUE` from the local dataset-row perspective. The later orphan cleanup path still runs for rows that become unreferenced through some other mechanism, most notably whole-dataset deletion, where deleting the `pdp_data_sets` row cascades through `pdp_data_set_pieces`, drops the piece refcounts, and then allows the orphan cleanup logic to remove `pdp_piecerefs`, `parked_piece_refs`, IPNI state, and indexes.
+
+TODO: Confirm the intended steady-state once `_processPendingCleanup()` is re-enabled or replaced. The current implementation deliberately leaves removed rows in `pdp_data_set_pieces` while this behavior is being debugged.
 
 ## Error Recovery
 
