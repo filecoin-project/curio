@@ -23,6 +23,7 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/piecesunseal"
@@ -558,6 +559,14 @@ var setTargetUnsealStateByPiecesCmd = &cli.Command{
 	},
 }
 
+// validatePieceCIDV1OrV2 rejects unknown commitment shapes (e.g. hypothetical piece CID v3).
+func validatePieceCIDV1OrV2(c cid.Cid) error {
+	if commcidv2.IsPieceCidV2(c) || commcidv2.IsCidV1PieceCid(c) {
+		return nil
+	}
+	return xerrors.Errorf("unsupported CID %s (only piece CID v1 and v2 are supported)", c)
+}
+
 // collectPieceCids returns piece CIDs from args or from stdin (one per line) when fromStdin is true.
 func collectPieceCids(cctx *cli.Context, fromStdin bool) ([]cid.Cid, error) {
 	if fromStdin {
@@ -568,6 +577,9 @@ func collectPieceCids(cctx *cli.Context, fromStdin bool) ([]cid.Cid, error) {
 		pc, err := cid.Parse(cctx.Args().Get(i))
 		if err != nil {
 			return nil, xerrors.Errorf("invalid piece CID %q: %w", cctx.Args().Get(i), err)
+		}
+		if err := validatePieceCIDV1OrV2(pc); err != nil {
+			return nil, err
 		}
 		out = append(out, pc)
 	}
@@ -586,6 +598,9 @@ func collectPieceCidsFromReader(r io.Reader) ([]cid.Cid, error) {
 		pc, err := cid.Parse(line)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid piece CID %q: %w", line, err)
+		}
+		if err := validatePieceCIDV1OrV2(pc); err != nil {
+			return nil, err
 		}
 		out = append(out, pc)
 	}
@@ -647,6 +662,9 @@ var unsealCheckCmd = &cli.Command{
 		unsealedCid, err := dealdata.UnsealedCidFromPieces(ctx, dep.DB, int64(spID), sectorNum)
 		if err != nil {
 			return xerrors.Errorf("getting deal data CID: %w", err)
+		}
+		if err := validatePieceCIDV1OrV2(unsealedCid); err != nil {
+			return err
 		}
 		fmt.Printf("Expected unsealed CID: %s\n", unsealedCid)
 
