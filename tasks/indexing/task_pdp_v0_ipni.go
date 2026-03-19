@@ -10,7 +10,6 @@ import (
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
-	"github.com/ipni/go-libipni/maurl"
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -215,7 +214,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
 			}
 
-			addr, err := maurl.FromURL(u)
+			addr, err := FromURLWithPort(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
