@@ -19,8 +19,32 @@ CREATE TABLE IF NOT EXISTS pdp_delete_data_set (
     terminated BOOLEAN NOT NULL DEFAULT FALSE
 );
 
-ALTER TABLE pdp_data_set_pieces ADD COLUMN rm_message_hash TEXT DEFAULT NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'pdp_data_set_pieces'
+          AND table_schema = current_schema()
+          AND column_name = 'rm_message_hash'
+    ) THEN
+        ALTER TABLE pdp_data_set_pieces ADD COLUMN IF NOT EXISTS rm_message_hash TEXT DEFAULT NULL;
+    END IF;
+END
+$$;
 
-ALTER TABLE pdp_data_set_pieces ADD COLUMN removed BOOLEAN DEFAULT FALSE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'pdp_data_set_pieces'
+          AND table_schema = current_schema()
+          AND column_name = 'removed'
+    ) THEN
+        ALTER TABLE pdp_data_set_pieces ADD COLUMN IF NOT EXISTS removed BOOLEAN DEFAULT FALSE;
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS pdp_piecerefs_piece_cid_idx ON pdp_piecerefs (piece_cid);
