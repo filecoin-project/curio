@@ -1,4 +1,4 @@
-CREATE TABLE pdp_piece_streaming_uploads (
+CREATE TABLE IF NOT EXISTS pdp_piece_streaming_uploads (
     id UUID PRIMARY KEY NOT NULL,
     service TEXT NOT NULL, -- pdp_services.id
 

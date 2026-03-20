@@ -33,7 +33,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
 		return
 	}
 
@@ -45,35 +45,35 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 	var reqBody RequestBody
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid JSON in request body: "+err.Error(), err)
 		return
 	}
 
 	if reqBody.RecordKeeper == "" {
-		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "recordKeeper address is required", err)
 		return
 	}
 
 	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
 	if recordKeeperAddr == (common.Address{}) {
-		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid recordKeeper address", err)
 		return
 	}
 
 	// Check if the recordkeeper is in the whitelist for public services
 	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
-		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		httpServerError(w, http.StatusForbidden, "recordKeeper address not allowed for public service", err)
 		return
 	}
 
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
-		http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData format (must be hex encoded)", err)
 		return
 	}
 	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
 		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSetAndAddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
-		http.Error(w, errMsg, http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
 
@@ -90,25 +90,25 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
-		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
 		return
 	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
-		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get contract ABI: "+err.Error(), err)
 		return
 	}
 
 	data, err := abiData.Pack("addPieces", new(big.Int), recordKeeperAddr, pieceDataArray, extraDataBytes)
 	if err != nil {
-		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}
 
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address: "+err.Error(), err)
 		return
 	}
 
@@ -124,7 +124,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	reason := "pdp-create-and-add"
 	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to send transaction: "+err.Error(), err)
 		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
@@ -163,13 +163,13 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 	if err != nil {
 		log.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
 	if !comm {
 		log.Error("Failed to commit database transaction")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
@@ -202,7 +202,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
 		return
 	}
 
@@ -214,7 +214,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Failed to read request body: "+err.Error(), err)
 		return
 	}
 	defer func() {
@@ -223,43 +223,43 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	var reqBody RequestBody
 	if err := json.Unmarshal(body, &reqBody); err != nil {
-		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid JSON in request body: "+err.Error(), err)
 		return
 	}
 
 	if reqBody.RecordKeeper == "" {
-		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "recordKeeper address is required", err)
 		return
 	}
 
 	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
 	if recordKeeperAddr == (common.Address{}) {
-		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid recordKeeper address", err)
 		return
 	}
 
 	// Check if the recordkeeper is in the whitelist for public services
 	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
-		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		httpServerError(w, http.StatusForbidden, "recordKeeper address not allowed for public service", err)
 		return
 	}
 
 	// Decode extraData if provided
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
-		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData format (must be hex encoded): "+err.Error(), err)
 		return
 	}
 	if len(extraDataBytes) > MaxCreateDataSetExtraDataSize {
 		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSet (%d bytes)", len(extraDataBytes), MaxCreateDataSetExtraDataSize)
-		http.Error(w, errMsg, http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
 
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address: "+err.Error(), err)
 		return
 	}
 
@@ -267,14 +267,14 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
-		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get contract ABI: "+err.Error(), err)
 		return
 	}
 
 	// Pack the method call data
 	data, err := abiData.Pack("createDataSet", recordKeeperAddr, extraDataBytes)
 	if err != nil {
-		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}
 
@@ -292,7 +292,8 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	reason := "pdp-mkdataset"
 	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to send transaction: "+err.Error(), err)
+
 		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
@@ -316,13 +317,13 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	if err != nil {
 		log.Errorf("Failed to insert database tracking records: %+v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
 	if !comm {
 		log.Error("Failed to commit database transaction")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 

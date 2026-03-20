@@ -1,0 +1,2 @@
+-- Lets keep this data around.
+-- DROP TABLE IF EXISTS pdp_piece_streaming_uploads;
