@@ -1203,36 +1203,73 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 			if err != nil {
 				return false, xerrors.Errorf("failed to get piece metadata: %w", err)
 			}
-			if count != 1 {
-				return false, xerrors.Errorf("expected to find a single piece metadata entry for piece cid %s", pieceCID.PieceCID)
-			}
-			// Get raw size from market_piece_deal table for this piece CID.
-			// Old migrations can contain raw_size = 0; skip those rows.
-			var rawSize uint64
-			err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND raw_size > 0 LIMIT 1`, pieceCID.PieceCID).Scan(&rawSize)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					log.Warnw("raw_size missing, skipping piece CID migration", "piece_cid", pieceCID.PieceCID)
+			if count == 1 {
+				// Get raw size from market_piece_deal table for this piece CID.
+				// Old migrations can contain raw_size = 0; skip those rows.
+				var rawSize uint64
+				err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND raw_size > 0 LIMIT 1`, pieceCID.PieceCID).Scan(&rawSize)
+				if err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						log.Warnw("raw_size missing, skipping piece CID migration", "piece_cid", pieceCID.PieceCID)
+						return false, nil
+					}
+					return false, xerrors.Errorf("failed to get piece deal: %w", err)
+				}
+				if rawSize < 127 {
+					log.Warnw("raw_size too small, skipping piece CID migration", "piece_cid", pieceCID.PieceCID, "raw_size", rawSize)
 					return false, nil
 				}
-				return false, xerrors.Errorf("failed to get piece deal: %w", err)
-			}
-			if rawSize < 127 {
-				log.Warnw("raw_size too small, skipping piece CID migration", "piece_cid", pieceCID.PieceCID, "raw_size", rawSize)
-				return false, nil
-			}
 
-			pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
-			if err != nil {
-				return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
-			}
+				pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
+				if err != nil {
+					return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
+				}
 
-			// Update ipni_chunks table with correct entry
-			_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+				// Update ipni_chunks table with correct entry
+				_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+				}
+				return true, nil
+
 			}
-			return true, nil
+			if count == 0 {
+				// This could be a PDPv0 advertisement
+				var infos []struct {
+					PieceSize abi.PaddedPieceSize `db:"piece_padded_size"`
+					RawSize   uint64              `db:"piece_raw_size"`
+				}
+				err = tx.Select(&infos, `
+									SELECT
+										pp.piece_padded_size,
+										pp.piece_raw_size
+									FROM
+										pdp_piecerefs pr
+									JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
+									JOIN parked_pieces pp ON ppr.piece_id = pp.id
+									WHERE
+										pr.piece_cid = $1 LIMIT 1`, pieceCID.PieceCID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to get piece info: %w", err)
+				}
+				if len(infos) == 1 {
+					info := infos[0]
+					if padreader.PaddedSize(info.RawSize).Padded() != info.PieceSize {
+						return false, xerrors.Errorf("raw size does not match padded size for piece cid %s", pieceCID.PieceCID)
+					}
+					pcid2, err := commcid.PieceCidV2FromV1(pcid, info.RawSize)
+					if err != nil {
+						return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
+					}
+					// Update ipni_chunks table with correct entry
+					_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
+					if err != nil {
+						return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+					}
+					return true, nil
+				}
+			}
+			return false, xerrors.Errorf("expected to find a single piece metadata entry or PDPv0 pieceref entry for piece cid %s", pieceCID.PieceCID)
 		}, harmonydb.OptionRetry())
 		if err != nil {
 			log.Errorf("failed to commit transaction: %s", err)
