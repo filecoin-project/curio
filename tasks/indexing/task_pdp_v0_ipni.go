@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	PDP_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
+	PDP_v0_SP_ID = -2 // This is the SP ID for PDP in the IPNI table
 )
 
 type PDPV0IPNITask struct {
@@ -76,7 +76,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 									CROSS JOIN ipni_peerid ipni_peer
 									WHERE
 										pr.ipni_task_id = $1
-										AND ipni_peer.sp_id = $2`, taskID, PDP_SP_ID)
+										AND ipni_peer.sp_id = $2`, taskID, PDP_v0_SP_ID)
 	if err != nil {
 		return false, xerrors.Errorf("getting ipni task params: %w", err)
 	}
@@ -190,7 +190,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v0_SP_ID).Scan(&privKey)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get private ipni-libp2p key: %w", err)
 		}
@@ -254,7 +254,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 
 		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, task.PieceCID, task.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcidV2.String(), task.PieceCID, task.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
 		if err != nil {
@@ -371,10 +371,10 @@ func (P *PDPV0IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTa
 
 func (P *PDPV0IPNITask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-// The ipni provider key for pdp is at PDP_SP_ID
+// The ipni provider key for pdp is at PDP_v0_SP_ID
 func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
 	var peerID string
-	err := tx.QueryRow(`SELECT peer_id FROM ipni_peerid WHERE sp_id = $1`, PDP_SP_ID).Scan(&peerID)
+	err := tx.QueryRow(`SELECT peer_id FROM ipni_peerid WHERE sp_id = $1`, PDP_v0_SP_ID).Scan(&peerID)
 	if err != nil {
 		if err != pgx.ErrNoRows {
 			return "", xerrors.Errorf("failed to get private libp2p key: %w", err)
@@ -397,7 +397,7 @@ func PDPInitProvider(tx *harmonydb.Tx) (peer.ID, error) {
 		}
 		peerID = pid.String()
 
-		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, peerID, PDP_SP_ID)
+		n, err := tx.Exec(`INSERT INTO ipni_peerid (priv_key, peer_id, sp_id) VALUES ($1, $2, $3)`, privKey, peerID, PDP_v0_SP_ID)
 		if err != nil {
 			return "", xerrors.Errorf("failed to insert the key into DB: %w", err)
 		}

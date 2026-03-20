@@ -242,7 +242,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		LEFT JOIN ipni_ad_fetches af ON af.ad_cid = i.ad_cid
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
-	`, pieceCidV1Str, serviceLabel, indexing.PDP_SP_ID).Scan(
+	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID).Scan(
 		&result.PieceCID,
 		&result.PieceRawSize,
 		&result.CreatedAt,

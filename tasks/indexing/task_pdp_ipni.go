@@ -35,6 +35,8 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/types"
 )
 
+const PDP_v1_SP_ID = -1
+
 type PDPIPNITask struct {
 	db  *harmonydb.DB
 	cfg *config.CurioConfig
@@ -149,7 +151,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			}
 
 			var privKey []byte
-			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, -1).Scan(&privKey)
+			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
 			}
@@ -326,7 +328,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, -1).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
 		}
@@ -510,7 +512,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 			var privKey []byte
 			var peerIDStr string
-			err = tx.QueryRow(`SELECT priv_key, peer_id FROM ipni_peerid WHERE sp_id = $1`, -1).Scan(&privKey, &peerIDStr)
+			err = tx.QueryRow(`SELECT priv_key, peer_id FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey, &peerIDStr)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to get private libp2p key for PDP: %w", err)
@@ -532,7 +534,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 					return false, xerrors.Errorf("getting peer ID: %w", err)
 				}
 
-				n, err := tx.Exec(`INSERT INTO ipni_peerid (sp_id, priv_key, peer_id) VALUES ($1, $2, $3) ON CONFLICT(sp_id) DO NOTHING `, -1, privKey, pid.String())
+				n, err := tx.Exec(`INSERT INTO ipni_peerid (sp_id, priv_key, peer_id) VALUES ($1, $2, $3) ON CONFLICT(sp_id) DO NOTHING `, PDP_v1_SP_ID, privKey, pid.String())
 				if err != nil {
 					return false, xerrors.Errorf("failed to insert the key into DB: %w", err)
 				}
