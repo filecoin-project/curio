@@ -2,7 +2,7 @@
 --
 -- Provides idempotency and piece tracking for pull requests.
 -- Status is derived dynamically from parked_pieces, not stored here.
-CREATE TABLE pdp_piece_pulls (
+CREATE TABLE IF NOT EXISTS pdp_piece_pulls (
     id BIGSERIAL PRIMARY KEY,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE,
     extra_data_hash BYTEA NOT NULL,  -- sha256(extraData) for idempotency
@@ -14,7 +14,7 @@ CREATE TABLE pdp_piece_pulls (
 );
 
 -- Tracks individual pieces within a pull request
-CREATE TABLE pdp_piece_pull_items (
+CREATE TABLE IF NOT EXISTS pdp_piece_pull_items (
     fetch_id BIGINT NOT NULL REFERENCES pdp_piece_pulls(id) ON DELETE CASCADE,
     piece_cid TEXT NOT NULL,        -- PieceCIDv1 (for joins with parked_pieces)
     piece_raw_size BIGINT NOT NULL, -- raw size to reconstruct PieceCIDv2 for API
@@ -27,4 +27,4 @@ CREATE TABLE pdp_piece_pull_items (
 );
 
 -- Index for cleanup queries
-CREATE INDEX idx_pdp_piece_pulls_created_at ON pdp_piece_pulls(created_at);
+CREATE INDEX IF NOT EXISTS idx_pdp_piece_pulls_created_at ON pdp_piece_pulls(created_at);

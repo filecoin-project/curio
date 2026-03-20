@@ -7,6 +7,7 @@ BEGIN
     SELECT 1
     FROM information_schema.columns
     WHERE table_name = 'pdp_delete_data_set'
+      AND table_schema = current_schema()
       AND column_name = 'delete_data_set_task_id'
       AND is_nullable = 'NO'
   ) THEN

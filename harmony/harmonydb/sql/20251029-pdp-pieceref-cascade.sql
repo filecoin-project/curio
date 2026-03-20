@@ -15,11 +15,25 @@ BEGIN
 END $$;
 
 -- 2. Create the new foreign key constraint with correct name and ON DELETE behavior
-ALTER TABLE pdp_data_set_piece_adds
-    ADD CONSTRAINT pdp_data_set_piece_adds_pdp_pieceref_fkey
-    FOREIGN KEY (pdp_pieceref)
-    REFERENCES pdp_piecerefs(id)
-    ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'pdp_data_set_piece_adds_pdp_pieceref_fkey'
+          AND conrelid = 'pdp_data_set_piece_adds'::regclass
+          AND confdeltype = 'c'
+    ) THEN
+        ALTER TABLE pdp_data_set_piece_adds
+            DROP CONSTRAINT IF EXISTS pdp_data_set_piece_adds_pdp_pieceref_fkey;
+        ALTER TABLE pdp_data_set_piece_adds
+            ADD CONSTRAINT pdp_data_set_piece_adds_pdp_pieceref_fkey
+            FOREIGN KEY (pdp_pieceref)
+            REFERENCES pdp_piecerefs(id)
+            ON DELETE CASCADE;
+    END IF;
+END
+$$;
 
 
 -- ===== MODIFY pdp_data_set_pieces FOREIGN KEY =====
@@ -39,10 +53,22 @@ BEGIN
 END $$;
 
 -- 4. Create the new foreign key constraint with correct name and ON DELETE behavior
-ALTER TABLE pdp_data_set_pieces
-    ADD CONSTRAINT pdp_data_set_pieces_pdp_pieceref_fkey
-    FOREIGN KEY (pdp_pieceref)
-    REFERENCES pdp_piecerefs(id)
-    ON DELETE CASCADE;
-
-COMMIT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'pdp_data_set_pieces_pdp_pieceref_fkey'
+          AND conrelid = 'pdp_data_set_pieces'::regclass
+          AND confdeltype = 'c'
+    ) THEN
+        ALTER TABLE pdp_data_set_pieces
+            DROP CONSTRAINT IF EXISTS pdp_data_set_pieces_pdp_pieceref_fkey;
+        ALTER TABLE pdp_data_set_pieces
+            ADD CONSTRAINT pdp_data_set_pieces_pdp_pieceref_fkey
+            FOREIGN KEY (pdp_pieceref)
+            REFERENCES pdp_piecerefs(id)
+            ON DELETE CASCADE;
+    END IF;
+END
+$$;
