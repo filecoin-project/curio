@@ -200,6 +200,7 @@ jobs:
       fail-fast: false
       matrix:
         test-suite: ${{ fromJson(needs.prepare-test-matrix.outputs.matrix) }}
+
     steps:
       - name: Start or reuse shared PostgreSQL
         id: pg

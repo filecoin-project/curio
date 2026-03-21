@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
@@ -20,8 +23,10 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/piecesunseal"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
@@ -33,6 +38,7 @@ var unsealCmd = &cli.Command{
 		unsealInfoCmd,
 		listUnsealPipelineCmd,
 		setTargetUnsealStateCmd,
+		setTargetUnsealStateByPiecesCmd,
 		unsealCheckCmd,
 	},
 }
@@ -400,7 +406,7 @@ var setTargetUnsealStateCmd = &cli.Command{
 	Description: translations.T(`Set the target unseal state for a specific sector.
    <miner-id>: The storage provider ID
    <sector-number>: The sector number
-   <target-state>: The target state (true, false, or none)
+   <target-state>: The target state (true, false)
 
    The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.
 	   If the target state is true, curio will ensure that the sector is unsealed.
@@ -444,7 +450,7 @@ var setTargetUnsealStateCmd = &cli.Command{
 		case "none":
 			targetState = nil
 		default:
-			return xerrors.Errorf("invalid target-state: must be true, false, or none")
+			return xerrors.Errorf("invalid target-state: must be true or false")
 		}
 
 		ctx := reqcontext.ReqContext(cctx)
@@ -465,6 +471,143 @@ var setTargetUnsealStateCmd = &cli.Command{
 		fmt.Printf("Successfully set target unseal state to %v for SP %d, sector %d\n", targetStateStr, spID, sectorNum)
 		return nil
 	},
+}
+
+var setTargetUnsealStateByPiecesCmd = &cli.Command{
+	Name:      "set-target-by-pieces",
+	Usage:     translations.T("Set the target unseal state for sectors containing the given piece CIDs"),
+	ArgsUsage: "<piece-cid> [piece-cid ...]",
+	Description: translations.T(`Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.
+   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).
+   Use --stdin to read piece CIDs one per line from stdin (for large lists).`),
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "target-state",
+			Usage: translations.T("Target state: true (ensure unsealed), false (ensure no unsealed copy)"),
+			Value: true,
+		},
+		&cli.BoolFlag{
+			Name:  "stdin",
+			Usage: translations.T("Read piece CIDs one per line from stdin instead of from arguments"),
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		fromStdin := cctx.Bool("stdin")
+		if !fromStdin && cctx.Args().Len() == 0 {
+			return cli.ShowSubcommandHelp(cctx)
+		}
+
+		targetState := (cctx.Bool("target-state"))
+
+		pieceCids, err := collectPieceCids(cctx, fromStdin)
+		if err != nil {
+			return err
+		}
+		if len(pieceCids) == 0 {
+			return xerrors.New("no piece CIDs provided (use arguments or --stdin with one CID per line)")
+		}
+
+		ctx := reqcontext.ReqContext(cctx)
+		dep, err := deps.GetDepsCLI(ctx, cctx)
+		if err != nil {
+			return err
+		}
+
+		// Batch-resolve pieces to sectors; then pick minimal set of sectors (prefer sectors with most desired pieces)
+		plan, err := piecesunseal.PiecesToSectorsBatch(ctx, dep.DB, pieceCids)
+		if err != nil {
+			return err
+		}
+
+		if len(plan.NoDeal) > 0 {
+			fmt.Printf("Pieces with no deal in market_piece_deal (%d):\n", len(plan.NoDeal))
+			for _, pc := range plan.NoDeal {
+				fmt.Printf("  %s\n", pc)
+			}
+		}
+
+		if len(plan.AlreadyTargeted) > 0 {
+			fmt.Printf("Pieces already in sectors targeted for unseal (%d sector(s)):\n", len(plan.AlreadyTargeted))
+			for sid, pieces := range plan.AlreadyTargeted {
+				fmt.Printf("  SP %d sector %d: %v\n", sid.SpID, sid.SectorNum, pieces)
+			}
+		}
+
+		if len(plan.SpIdToSectorNum) == 0 {
+			fmt.Println("No new sectors need to be unsealed.")
+			return nil
+		}
+
+		fmt.Printf("Sectors selected for unseal (%d sector(s)):\n", plan.TotalSectors())
+		for sid, pieces := range plan.SectorIdToPieces {
+			fmt.Printf("  SP %d sector %d: %v\n", sid.SpID, sid.SectorNum, pieces)
+		}
+
+		for spID, sectorNums := range plan.SpIdToSectorNum {
+			_, err = dep.DB.Exec(ctx, `
+				UPDATE sectors_meta
+				SET target_unseal_state = $1
+				WHERE sp_id = $2 AND sector_num = ANY($3::bigint[])
+			`, targetState, spID, sectorNums)
+			if err != nil {
+				return xerrors.Errorf("failed to update sectors for SP %d: %w", spID, err)
+			}
+		}
+
+		fmt.Printf("Successfully set target unseal state for %d sector(s)\n", plan.TotalSectors())
+		return nil
+	},
+}
+
+// validatePieceCIDV1OrV2 rejects unknown commitment shapes (e.g. hypothetical piece CID v3).
+func validatePieceCIDV1OrV2(c cid.Cid) error {
+	if commcidv2.IsPieceCidV2(c) || commcidv2.IsCidV1PieceCid(c) {
+		return nil
+	}
+	return xerrors.Errorf("unsupported CID %s (only piece CID v1 and v2 are supported)", c)
+}
+
+// collectPieceCids returns piece CIDs from args or from stdin (one per line) when fromStdin is true.
+func collectPieceCids(cctx *cli.Context, fromStdin bool) ([]cid.Cid, error) {
+	if fromStdin {
+		return collectPieceCidsFromReader(os.Stdin)
+	}
+	out := make([]cid.Cid, 0, cctx.Args().Len())
+	for i := 0; i < cctx.Args().Len(); i++ {
+		pc, err := cid.Parse(cctx.Args().Get(i))
+		if err != nil {
+			return nil, xerrors.Errorf("invalid piece CID %q: %w", cctx.Args().Get(i), err)
+		}
+		if err := validatePieceCIDV1OrV2(pc); err != nil {
+			return nil, err
+		}
+		out = append(out, pc)
+	}
+	return out, nil
+}
+
+func collectPieceCidsFromReader(r io.Reader) ([]cid.Cid, error) {
+	var out []cid.Cid
+	scanner := bufio.NewScanner(r)
+	// Allow large lines (CIDs are bounded; default bufio max is 64KB)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		pc, err := cid.Parse(line)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid piece CID %q: %w", line, err)
+		}
+		if err := validatePieceCIDV1OrV2(pc); err != nil {
+			return nil, err
+		}
+		out = append(out, pc)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, xerrors.Errorf("reading stdin: %w", err)
+	}
+	return out, nil
 }
 
 func formatNullableInt64(v *int64) string {
@@ -519,6 +662,9 @@ var unsealCheckCmd = &cli.Command{
 		unsealedCid, err := dealdata.UnsealedCidFromPieces(ctx, dep.DB, int64(spID), sectorNum)
 		if err != nil {
 			return xerrors.Errorf("getting deal data CID: %w", err)
+		}
+		if err := validatePieceCIDV1OrV2(unsealedCid); err != nil {
+			return err
 		}
 		fmt.Printf("Expected unsealed CID: %s\n", unsealedCid)
 
