@@ -7,10 +7,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
 
@@ -21,7 +21,7 @@ type DataSetCreate struct {
 
 // processPendingDataSetCreates finalises data set creation best on transactions logs
 // it is called from proofset_watch.go
-func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	// Query for pdp_data_set_creates entries where ok = TRUE and data_set_created = FALSE
 	var dataSetCreates []DataSetCreate
 
@@ -57,7 +57,7 @@ func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClie
 	return nil
 }
 
-func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCreate, ethClient *ethclient.Client) error {
+func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCreate, ethClient ethchain.EthClient) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	log.Debugw("Fetching tx_receipt from message_waits_eth", "txHash", psc.CreateMessageHash)
@@ -161,7 +161,7 @@ func extractDataSetIdFromReceipt(receipt *types.Receipt) (int64, error) {
 	return 0, xerrors.Errorf("DataSetCreated event not found in receipt")
 }
 
-func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {
+func getProvingPeriodChallengeWindow(ctx context.Context, ethClient ethchain.EthClient, listenerAddr common.Address) (uint64, uint64, error) {
 	// Get the proving schedule from the listener (handles view contract indirection)
 	schedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ethClient)
 	if err != nil {

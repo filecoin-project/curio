@@ -6,17 +6,17 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-func NewDataSetDeleteWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
+func NewDataSetDeleteWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingDeletes(ctx, db, ethClient)
 		if err != nil {
@@ -28,7 +28,7 @@ func NewDataSetDeleteWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs 
 	}
 }
 
-func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processPendingDeletes(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var deletes []struct {
 		ID      int64        `db:"id"`
 		TxHash  string       `db:"delete_tx_hash"`

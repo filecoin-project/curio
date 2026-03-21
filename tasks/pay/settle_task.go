@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -22,11 +22,11 @@ var log = logging.Logger("filecoin-pay-settle")
 
 type SettleTask struct {
 	db        *harmonydb.DB
-	ethClient *ethclient.Client
+	ethClient ethchain.EthClient
 	sender    *message.SenderETH
 }
 
-func NewSettleTask(db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *SettleTask {
+func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *SettleTask {
 	return &SettleTask{
 		db:        db,
 		ethClient: ethClient,

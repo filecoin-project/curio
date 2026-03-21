@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/kr/pretty"
@@ -39,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -175,7 +175,7 @@ type Deps struct {
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
-	EthClient         *lazy.Lazy[*ethclient.Client]
+	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
 }
 
@@ -262,7 +262,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.EthClient == nil {
-		deps.EthClient = lazy.MakeLazy(func() (*ethclient.Client, error) {
+		deps.EthClient = lazy.MakeLazy[ethchain.EthClient](func() (ethchain.EthClient, error) {
 			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 				cfgApiInfo = []string{v}
@@ -601,7 +601,7 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[*ethclient.Client], error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, *lazy.Lazy[ethchain.EthClient], error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
@@ -624,7 +624,7 @@ func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.Curi
 		return nil, nil, nil, nil, nil, err
 	}
 
-	ethClient := lazy.MakeLazy(func() (*ethclient.Client, error) {
+	ethClient := lazy.MakeLazy(func() (ethchain.EthClient, error) {
 		return GetEthClient(cctx, cfgApiInfo)
 	})
 
