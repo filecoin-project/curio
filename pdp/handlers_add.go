@@ -258,43 +258,49 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
 		return
 	}
 
 	// Step 2: Extract dataSetId from the URL
 	dataSetIdStr := chi.URLParam(r, "dataSetId")
 	if dataSetIdStr == "" {
-		http.Error(w, "Missing data set ID in URL", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Missing data set ID in URL", err)
 		return
 	}
 
 	// Convert dataSetId to uint64
 	dataSetIdUint64, err := strconv.ParseUint(dataSetIdStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid data set ID format", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid data set ID format", err)
 		return
 	}
 
 	// check if the data set belongs to the service in pdp_data_sets
 	var dataSetService string
+	var unrecoverable *int64
 	err = p.db.QueryRow(ctx, `
-			SELECT service
+			SELECT service, unrecoverable_proving_failure_epoch
 			FROM pdp_data_sets
 			WHERE id = $1
-		`, dataSetIdUint64).Scan(&dataSetService)
+		`, dataSetIdUint64).Scan(&dataSetService, &unrecoverable)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "Data set not found", http.StatusNotFound)
+			httpServerError(w, http.StatusNotFound, "Data set not found", err)
 			return
 		}
-		http.Error(w, "Failed to retrieve data set: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to retrieve data set: "+err.Error(), err)
 		return
 	}
 
 	if dataSetService != serviceLabel {
 		// same as when actually not found to avoid leaking information in obvious ways
-		http.Error(w, "Data set not found", http.StatusNotFound)
+		httpServerError(w, http.StatusNotFound, "Data set not found", err)
+		return
+	}
+
+	if unrecoverable != nil {
+		http.Error(w, "Data set has been terminated due to unrecoverable proving failure", http.StatusConflict)
 		return
 	}
 
@@ -312,7 +318,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	var payload AddPiecesPayload
 	err = json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
-		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid request body: "+err.Error(), err)
 		return
 	}
 	defer func() {
@@ -320,18 +326,18 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}()
 
 	if len(payload.Pieces) == 0 {
-		http.Error(w, "At least one piece must be provided", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "At least one piece must be provided", err)
 		return
 	}
 
 	extraDataBytes, err := decodeExtraData(payload.ExtraData)
 	if err != nil {
-		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData format (must be hex encoded): "+err.Error(), err)
 		return
 	}
 	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
 		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for AddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
-		http.Error(w, errMsg, http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
 
@@ -339,14 +345,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, payload.Pieces)
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
-		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
 	}
 
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
-		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get contract ABI: "+err.Error(), err)
 		return
 	}
 
@@ -355,14 +361,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// The extraDataBytes variable is now correctly populated above
 	data, err := abiData.Pack("addPieces", dataSetId, common.Address{}, pieceDataArray, extraDataBytes)
 	if err != nil {
-		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}
 
 	// Step 7: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address: "+err.Error(), err)
 		return
 	}
 
@@ -380,7 +386,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	mustIndex, err := CheckIfIndexingNeeded(ctx, p.ethClient, dataSetIdUint64)
 	if err != nil {
 		log.Errorw("Failed to check indexing requirements", "error", err, "dataSetId", dataSetId)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 	if mustIndex {
@@ -391,8 +397,8 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	reason := "pdp-addpieces"
 	txHash, err := p.sender.Send(workCtx, fromAddress, txEth, reason)
 	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
 		log.Errorf("Failed to send transaction: %+v", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to send transaction: "+err.Error(), err)
 		return
 	}
 
@@ -450,13 +456,13 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	if err != nil {
 		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
 	if !comm {
 		log.Errorw("Failed to commit database transaction", "txHash", txHashLower)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 

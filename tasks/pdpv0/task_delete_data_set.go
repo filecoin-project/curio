@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -21,11 +21,11 @@ import (
 
 type DeleteDataSetTask struct {
 	db        *harmonydb.DB
-	ethClient *ethclient.Client
+	ethClient ethchain.EthClient
 	sender    *message.SenderETH
 }
 
-func NewDeleteDataSetTask(db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *DeleteDataSetTask {
+func NewDeleteDataSetTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *DeleteDataSetTask {
 	return &DeleteDataSetTask{
 		db:        db,
 		ethClient: ethClient,
