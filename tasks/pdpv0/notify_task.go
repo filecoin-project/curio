@@ -158,7 +158,7 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		// Insert into pdp_piecerefs
 		// Set needs_save_cache=TRUE for large pieces to enable proactive caching
 		needsSaveCache := upload.PieceRawSize >= MinSizeForCache
-		_, err = t.db.Exec(ctx, `
+		_, err = tx.Exec(`
         INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
         VALUES ($1, $2, $3, NOW(), $4)`,
 			upload.Service, upload.PieceCID, upload.PieceRef, needsSaveCache)
