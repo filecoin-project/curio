@@ -21,7 +21,6 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync"
 	"github.com/ipni/go-libipni/dagsync/ipnisync/head"
 	"github.com/ipni/go-libipni/ingest/schema"
-	"github.com/ipni/go-libipni/maurl"
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -175,7 +174,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		for pid := range keyMap {
 			u := *u
 			u.Path = path.Join(u.Path, pid)
-			addr, err := maurl.FromURL(&u)
+			addr, err := urlhelper.FromURLWithPort(&u)
 			if err != nil {
 				return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
