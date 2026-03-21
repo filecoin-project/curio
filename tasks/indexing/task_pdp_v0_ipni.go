@@ -214,7 +214,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
 			}
 
-			addr, err := FromURLWithPort(u)
+			addr, err := urlhelper.FromURLWithPort(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}

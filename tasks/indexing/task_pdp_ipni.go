@@ -352,7 +352,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 				return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
 			}
 
-			addr, err := FromURLWithPort(u)
+			addr, err := urlhelper.FromURLWithPort(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
