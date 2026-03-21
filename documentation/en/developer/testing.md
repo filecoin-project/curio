@@ -16,7 +16,7 @@ FFI_USE_OPENCL=1 make deps
 
 # 3. Run tests (make test-dbs-up prints this invocation for copy-paste)
 CURIO_HARMONYDB_HOSTS=127.0.0.1 CURIO_HARMONYDB_PORT=5432 CURIO_DB_HOST_CQL=127.0.0.1 \
-  go test -v -tags='fvm,nosupraseal' -timeout 30m ./itests/ -run TestName
+  go test -v -tags='fvm,nosupraseal' -timeout 30m ./itest/ittestgroup1/ -run TestName
 ```
 
 ## Make targets
@@ -25,7 +25,19 @@ CURIO_HARMONYDB_HOSTS=127.0.0.1 CURIO_HARMONYDB_PORT=5432 CURIO_DB_HOST_CQL=127.
 |--------|-------------|
 | `make test-dbs-up` | Start or reuse Postgres and ScyllaDB containers |
 | `make test-dbs-down` | Remove both containers |
-| `make test` | Build deps and run all itests (sets DB env vars automatically) |
+| `make test` | Build deps and run all packages under `./itest/...` (sets DB env vars automatically) |
+
+## Layout: `itest/ittestgroupN/`
+
+Integration tests are split into **parallel CI shards** under `itest/ittestgroup1/`,
+`itest/ittestgroup2/`, … Each directory is its own Go package (`package ittestgroup1`,
+etc.). Shared helpers live in `itest/helpers/`.
+
+- **Adding a test** to an existing group: add `*_test.go` in that folder only; CI
+  picks up groups automatically via `.github/scripts/emit-test-matrix.sh`.
+- **Adding a new parallel shard**: create `itest/ittestgroup6/` (next free number),
+  set `package ittestgroup6`, import `github.com/filecoin-project/curio/itest/helpers`
+  if needed. No workflow edits required.
 
 ## Environment variables
 
@@ -49,15 +61,13 @@ Containers are created with `docker run` on first use and restarted with
 ## Running individual test suites
 
 ```bash
-# HarmonyDB SQL tests (Postgres only)
+# HarmonyDB SQL tests (Postgres only) — see itest/ittestgroup5/
 CURIO_HARMONYDB_HOSTS=127.0.0.1 CURIO_HARMONYDB_PORT=5432 \
-  go test -v -tags='fvm,nosupraseal' -timeout 5m \
-  -run "TestCrud|TestTransaction|TestSQLIdempotent" ./itests/
+  go test -v -tags='fvm,nosupraseal' -timeout 5m ./itest/ittestgroup5/
 
-# PDP proving tests (ScyllaDB indexstore)
+# PDP proving tests (ScyllaDB indexstore) — see itest/ittestgroup3/
 CURIO_HARMONYDB_HOSTS=127.0.0.1 CURIO_HARMONYDB_PORT=5432 CURIO_DB_HOST_CQL=127.0.0.1 \
-  go test -v -tags='fvm,nosupraseal' -timeout 5m \
-  -run "TestPDPProving" ./itests/
+  go test -v -tags='fvm,nosupraseal' -timeout 5m ./itest/ittestgroup3/ -run TestPDPProving
 
 # Indexstore unit tests (ScyllaDB only, no FFI needed)
 CURIO_DB_HOST_CQL=127.0.0.1 go test -v -timeout 5m ./market/indexstore/

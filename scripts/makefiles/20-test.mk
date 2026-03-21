@@ -32,7 +32,7 @@ test-dbs-up:
 	@echo "Test databases running. To run tests:"
 	@echo ""
 	@echo "  $(TEST_DB_ENV) \\"
-	@echo "    go test -v -tags='fvm,nosupraseal' -timeout 30m ./itests/ -run TestName"
+	@echo "    go test -v -tags='fvm,nosupraseal' -timeout 30m ./itest/ittestgroupN/ -run TestName"
 	@echo ""
 	@echo "Containers persist across runs. Use 'make test-dbs-down' to remove them."
 .PHONY: test-dbs-up
@@ -47,7 +47,7 @@ test-deps: $(BUILD_DEPS)
 .PHONY: test-deps
 
 test: test-deps
-	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
+	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm" -timeout 30m ./itest/...
 .PHONY: test
 
 coverage: cov

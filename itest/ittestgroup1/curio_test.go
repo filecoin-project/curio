@@ -1,4 +1,4 @@
-package itests
+package ittestgroup1
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/itests/helpers"
+	"github.com/filecoin-project/curio/itest/helpers"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"

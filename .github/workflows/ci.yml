@@ -30,6 +30,16 @@ jobs:
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
 
+  prepare-test-matrix:
+    runs-on: ubuntu-latest
+    needs: [ci-lint]
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set-matrix
+        run: bash .github/scripts/emit-test-matrix.sh
+
   setup-params:
     runs-on: [self-hosted, docker]
     needs: [ci-lint]
@@ -185,23 +195,11 @@ jobs:
 
   test:
     runs-on: [self-hosted, docker]
-    needs: [setup-params]
+    needs: [setup-params, prepare-test-matrix]
     strategy:
       fail-fast: false
       matrix:
-        test-suite:
-          - name: test-all
-            target: "`go list ./... | grep -v curio/itests`"
-          - name: test-itest-curio
-            target: "./itests/curio_test.go"
-          - name: test-itest-market
-            target: "./itests/market_deal_dynamic_test.go"
-          - name: test-itest-retrieval-pdp-tx
-            target: './itests/ -run "TestRetrievals|TestPDPProving|TestNoDBCallsInsideTransactions"'
-          - name: test-itest-dyncfg-alert
-            target: './itests/ -run "TestDynamicConfig|TestAlertNow"'
-          - name: test-itest-sql-harmonydb
-            target: './itests/ -run "TestSQLIdempotent|TestCrud|TestTransaction|TestPartialWalk|TestDowngradeTo"'
+        test-suite: ${{ fromJson(needs.prepare-test-matrix.outputs.matrix) }}
     steps:
       - name: Start or reuse shared PostgreSQL
         id: pg
@@ -288,7 +286,13 @@ jobs:
         run: |
           echo "Shared PostgreSQL: $CURIO_HARMONYDB_HOSTS:5432, ScyllaDB: $CURIO_DB_HOST_CQL:9042"
           mkdir -p coverage
-          go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
+          NAME="${{ matrix.test-suite.name }}"
+          if [ "${{ matrix.test-suite.kind }}" = "pkg-list" ]; then
+            PKGS=$(go list ./... | grep -v '/itest/')
+            go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile="coverage/${NAME}.out" -covermode=atomic $PKGS
+          else
+            go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile="coverage/${NAME}.out" -covermode=atomic "${{ matrix.test-suite.target }}"
+          fi
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

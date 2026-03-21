@@ -1,4 +1,4 @@
-package itests
+package ittestgroup3
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/itests/helpers"
+	"github.com/filecoin-project/curio/itest/helpers"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
