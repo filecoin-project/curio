@@ -726,7 +726,7 @@ jobs:
   stop-databases:
     runs-on: [self-hosted, docker]
     needs: [test]
-    if: always() && needs.test.result != 'cancelled'
+    if: always()
     steps:
       - name: Stop shared database containers
         run: |
