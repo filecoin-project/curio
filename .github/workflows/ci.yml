@@ -181,6 +181,8 @@ jobs:
             target: "./itests/alertnow_test.go"
           - name: test-itest-pdp-prove-test
             target: "./itests/pdp_prove_test.go"
+          - name: test-itest-transaction-db-usage
+            target: "./itests/transaction_db_usage_test.go"
     steps:
       - uses: actions/checkout@v4
 
