@@ -452,6 +452,7 @@ func constructCurioWithMarketDeps(ctx context.Context, t *testing.T, dir string,
 	var machines []string
 	require.NoError(t, db.Select(ctx, &machines, `select host_and_port from harmony_machines`))
 	require.Len(t, machines, 1)
+	helpers.WaitForTCP(t, machines[0], 30*time.Second)
 
 	laddr, err := net.ResolveTCPAddr("tcp", machines[0])
 	require.NoError(t, err)

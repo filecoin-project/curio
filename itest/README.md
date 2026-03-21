@@ -1,5 +1,7 @@
 # Integration tests (`itest/`)
 
+**Run locally:** see [Local integration testing](../documentation/en/developer/testing.md) (`make test-dbs-up`, then `make test`).
+
 - **`itest/helpers/`** — shared utilities (DB env, CLI test contexts). Import as
   `github.com/filecoin-project/curio/itest/helpers`.
 - **`itest/ittestgroup1/` … `ittestgroup5/`** — parallel test shards. Each folder is

@@ -383,6 +383,8 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	require.NoError(t, err)
 
 	require.Len(t, machines, 1)
+	helpers.WaitForTCP(t, machines[0], 30*time.Second)
+
 	laddr, err := net.ResolveTCPAddr("tcp", machines[0])
 	require.NoError(t, err)
 

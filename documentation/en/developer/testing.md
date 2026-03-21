@@ -14,7 +14,10 @@ make test-dbs-up
 # 2. Build FFI dependencies (needed once, or after submodule updates)
 FFI_USE_OPENCL=1 make deps
 
-# 3. Run tests (make test-dbs-up prints this invocation for copy-paste)
+# 3. Run all integration tests (DB env vars are set by the Makefile)
+make test
+
+# Or run one shard / one test (same env as make test; tags may differ from CI)
 CURIO_HARMONYDB_HOSTS=127.0.0.1 CURIO_HARMONYDB_PORT=5432 CURIO_DB_HOST_CQL=127.0.0.1 \
   go test -v -tags='fvm,nosupraseal' -timeout 30m ./itest/ittestgroup1/ -run TestName
 ```
