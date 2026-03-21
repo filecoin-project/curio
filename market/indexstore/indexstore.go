@@ -747,7 +747,7 @@ func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer 
 
 func (i *IndexStore) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (bool, int, error) {
 	var layerIdx int
-	if err := i.session.Query(`SELECT LayerIndex FROM pdp_cache_layer WHERE PieceCid = ? LIMIT 1`, pieceCidV2.Bytes()).WithContext(ctx).Scan(&layerIdx); err != nil {
+	if err := i.session.Query(`SELECT LayerIndex FROM pdp_cache_layer WHERE PieceCid = ? LIMIT 1 ALLOW FILTERING`, pieceCidV2.Bytes()).WithContext(ctx).Scan(&layerIdx); err != nil {
 		if errors.Is(err, gocql.ErrNotFound) {
 			return false, 0, nil
 		}

@@ -1,4 +1,4 @@
-package itests
+package ittestgroup4
 
 import (
 	"context"

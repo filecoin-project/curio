@@ -1,4 +1,4 @@
-package itests
+package ittestgroup5
 
 import (
 	"context"
@@ -100,7 +100,7 @@ func TestBatching(t *testing.T) {
 			total += c
 		}
 		require.Equal(t, 2, len(sectorCounts), "expected 2 committed batches for %d sectors with maxBatch=%d", numSectors, maxBatch)
-		require.Equal(t, numSectors, total, "all sectors should be assigned")
+		require.Equal(t, int(numSectors), total, "all sectors should be assigned")
 
 		var emptyTasks int
 		err := db.QueryRow(ctx, `SELECT COUNT(*) FROM harmony_task ht
@@ -190,7 +190,7 @@ func TestBatching(t *testing.T) {
 			total += c
 		}
 		require.Equal(t, 2, len(sectorCounts), "expected 2 committed batches for %d sectors with maxBatch=%d", numSectors, maxBatch)
-		require.Equal(t, numSectors, total, "all sectors should be assigned")
+		require.Equal(t, int(numSectors), total, "all sectors should be assigned")
 
 		var emptyTasks int
 		err := db.QueryRow(ctx, `SELECT COUNT(*) FROM harmony_task ht

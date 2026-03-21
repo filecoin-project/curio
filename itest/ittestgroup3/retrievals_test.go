@@ -1,4 +1,4 @@
-package itests
+package ittestgroup3
 
 import (
 	"bytes"
@@ -43,7 +43,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/itests/helpers"
+	"github.com/filecoin-project/curio/itest/helpers"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -98,7 +98,7 @@ func TestRetrievals(t *testing.T) {
 	require.NoError(t, err)
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{helpers.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, 9042, config.DefaultCurioConfig())
 	require.NoError(t, err)
 	require.NoError(t, idxStore.Start(ctx, true))
 
@@ -452,6 +452,7 @@ func constructCurioWithMarketDeps(ctx context.Context, t *testing.T, dir string,
 	var machines []string
 	require.NoError(t, db.Select(ctx, &machines, `select host_and_port from harmony_machines`))
 	require.Len(t, machines, 1)
+	helpers.WaitForTCP(t, machines[0], 30*time.Second)
 
 	laddr, err := net.ResolveTCPAddr("tcp", machines[0])
 	require.NoError(t, err)
