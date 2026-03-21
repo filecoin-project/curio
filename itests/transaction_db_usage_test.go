@@ -658,9 +658,10 @@ func collectDBCallsInTxContext(body *ast.BlockStmt, txParamNames map[string]stru
 			elseActive := copyNameSet(activeTx)
 
 			if txName, op, ok := txNilCompare(s.Cond, txParamNames); ok {
-				if op == token.EQL {
+				switch op {
+				case token.EQL:
 					delete(thenActive, txName)
-				} else if op == token.NEQ {
+				case token.NEQ:
 					delete(elseActive, txName)
 				}
 			}
