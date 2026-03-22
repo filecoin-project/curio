@@ -185,7 +185,7 @@ func TestDealPipelineVariants(t *testing.T) {
 
 	dir, err := os.MkdirTemp(os.TempDir(), "curio-deal-pipeline")
 	require.NoError(t, err)
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	capi, engineTerm, closure, finishCh := constructCurioWithMarketAndSeal(ctx, t, dir, db, idxStore, full, maddr, baseCfg)
 	defer engineTerm()
