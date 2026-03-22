@@ -28,7 +28,7 @@ import (
 func TestPDPProving(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
-	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, 9042, cfg)
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, helpers.IndexstorePort(), cfg)
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)

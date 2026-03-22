@@ -83,7 +83,7 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, 9042, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, helpers.IndexstorePort(), config.DefaultCurioConfig())
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestMarketDealSystemBasic(t *testing.T) {
 	require.NoError(t, err)
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, 9042, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.IndexstoreHost()}, helpers.IndexstorePort(), config.DefaultCurioConfig())
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
