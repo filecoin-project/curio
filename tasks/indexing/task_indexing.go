@@ -715,7 +715,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 				
 				  SELECT dp.indexing_task_id, dp.should_index AS need_indexing, l.storage_id
 				  FROM market_mk12_deal_pipeline dp
-				  JOIN sector_location l
+				  LEFT JOIN sector_location l
 					ON l.miner_id = dp.sp_id
 				   AND l.sector_num = dp.sector
 				   AND l.sector_filetype = 1
