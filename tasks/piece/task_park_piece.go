@@ -260,7 +260,7 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 		return nil, nil
 	}
 
-	capacity := p.maxInPark - count - running
+	capacity := min(p.maxInPark-count-running, len(ids))
 	return ids[:capacity], nil
 }
 
