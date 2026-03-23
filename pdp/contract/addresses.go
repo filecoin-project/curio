@@ -65,7 +65,7 @@ func ContractAddresses() PDPContracts {
 				FWSService: common.HexToAddress("0x8408502033C418E1bbC97cE9ac48E5528F371A9f"), // FWSS Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0
 			},
 		}
-	case build.Build2k:
+	case build.Build2k, build.BuildDebug:
 		result, err := pdpContracts.get(func() (PDPContracts, error) {
 			pdpVerifier := os.Getenv("CURIO_DEVNET_PDP_VERIFIER_ADDRESS")
 			if pdpVerifier == "" {
@@ -131,7 +131,7 @@ func ServiceRegistryAddress() (common.Address, error) {
 		return common.HexToAddress(ServiceRegistryCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(ServiceRegistryMainnet), nil
-	case build.Build2k:
+	case build.Build2k, build.BuildDebug:
 		return serviceRegistry.get(func() (common.Address, error) {
 			if addr := os.Getenv("CURIO_DEVNET_SERVICE_REGISTRY_ADDRESS"); addr != "" {
 				return common.HexToAddress(addr), nil
@@ -152,7 +152,7 @@ func USDFCAddress() (common.Address, error) {
 		return common.HexToAddress(USDFCAddressCalibnet), nil
 	case build.BuildMainnet:
 		return common.HexToAddress(USDFCAddressMainnet), nil
-	case build.Build2k:
+	case build.Build2k, build.BuildDebug:
 		return usdfc.get(func() (common.Address, error) {
 			if addr := os.Getenv("CURIO_DEVNET_USDFC_ADDRESS"); addr != "" {
 				return common.HexToAddress(addr), nil

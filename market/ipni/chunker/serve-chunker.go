@@ -187,26 +187,32 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	if !yes {
 		var rawSize int64
 		var singlePiece bool
-		err := p.db.QueryRow(ctx, `WITH meta AS (
-											  SELECT piece_size
-											  FROM market_piece_metadata
-											  WHERE piece_cid = $1
-											),
-											exact AS (
-											  SELECT COUNT(*) AS n, MIN(piece_size) AS piece_size
-											  FROM meta
-											),
-											raw AS (
-											  SELECT MAX(mpd.raw_size) AS raw_size
-											  FROM market_piece_deal mpd
-											  WHERE mpd.piece_cid   = $1
-												AND mpd.piece_length = (SELECT piece_size FROM exact)
-												AND mpd.raw_size > 0
-												AND (SELECT n FROM exact) = 1
-											)
-											SELECT
-											  COALESCE((SELECT raw_size FROM raw), 0)        AS raw_size,
-											  ((SELECT n FROM exact) = 1)                    AS has_single_metadata;`, pieceCidv2.String()).Scan(&rawSize, &singlePiece)
+		err := p.db.QueryRow(ctx, `WITH parked AS (
+												  SELECT MAX(pp.piece_raw_size) AS raw_size
+												  FROM parked_pieces pp
+												  WHERE pp.piece_cid = $1
+													AND pp.piece_raw_size > 0
+												),
+												meta AS (
+												  SELECT piece_size
+												  FROM market_piece_metadata
+												  WHERE piece_cid = $1
+												),
+												exact AS (
+												  SELECT COUNT(*) AS n, MIN(piece_size) AS piece_size
+												  FROM meta
+												),
+												raw AS (
+												  SELECT MAX(mpd.raw_size) AS raw_size
+												  FROM market_piece_deal mpd
+												  WHERE mpd.piece_cid   = $1
+													AND mpd.piece_length = (SELECT piece_size FROM exact)
+													AND mpd.raw_size > 0
+													AND (SELECT n FROM exact) = 1
+												)
+												SELECT
+												  COALESCE((SELECT raw_size FROM parked), (SELECT raw_size FROM raw), 0) AS raw_size,
+												  ((SELECT raw_size FROM parked) IS NOT NULL OR (SELECT n FROM exact) = 1) AS has_single_metadata;`, pieceCidv2.String()).Scan(&rawSize, &singlePiece)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get piece metadata: %w", err)
 		}

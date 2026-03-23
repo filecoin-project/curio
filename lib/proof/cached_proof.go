@@ -19,7 +19,7 @@ import (
 // (io.ReaderAt) to allow section-based reads for cached proofs.
 // The caller is responsible for closing the reader.
 type PieceReader interface {
-	GetPieceReader(ctx context.Context, pieceCid cid.Cid) (SectionReadCloser, abi.UnpaddedPieceSize, error)
+	GetPieceReader(ctx context.Context, pieceCid cid.Cid) (SectionReadCloser, uint64, error)
 }
 
 // SectionReadCloser is a reader that supports both sequential and random access.

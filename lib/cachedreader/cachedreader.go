@@ -229,7 +229,14 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 	if len(deals) == 0 {
 		if retrieval {
-			return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+			var isPDP bool
+			err = cpr.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1);`, pieceCid.String()).Scan(&isPDP)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to query pdp_piecerefs for piece cid %s: %w", pieceCid, err)
+			}
+			if !isPDP {
+				return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
+			}
 		}
 		reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, nil, &pieceCid, &pieceSize)
 		if err != nil {

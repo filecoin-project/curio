@@ -333,7 +333,7 @@ func (s *{{$name}}Stub) {{.Num}}({{.NamedParams}}) ({{.Results}}) {
 
 {{range .Infos}}var _ {{.Num}} = new({{.Num}}Struct)
 {{end}}
-
+var _ = fmt.Sprintf
 `)
 	if err != nil {
 		return err
