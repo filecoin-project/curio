@@ -22,14 +22,16 @@ import (
 func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	var pdp_complete, ddo_complete sql.NullBool
 	var pdp_error, ddo_error sql.NullString
+	var ddo_deal_id sql.NullInt64
 
 	err := m.DB.QueryRow(ctx, `SELECT
 									  (pdp_v1->>'complete')::boolean AS pdp_complete,
 									  (pdp_v1->>'error')::text AS pdp_error,
 									  (ddo_v1->>'complete')::boolean AS ddo_complete,
-									  (ddo_v1->>'error')::text AS ddo_error
+									  (ddo_v1->>'error')::text AS ddo_error,
+									(ddo_v1->>'deal_id')::bigint AS ddo_deal_id
 									FROM market_mk20_deal
-									WHERE id = $1;`, id.String()).Scan(&pdp_complete, &pdp_error, &ddo_complete, &ddo_error)
+									WHERE id = $1;`, id.String()).Scan(&pdp_complete, &pdp_error, &ddo_complete, &ddo_error, &ddo_deal_id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &DealStatus{
@@ -116,6 +118,9 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.DDOV1.State = DealStateFailed
 			ret.Response.DDOV1.ErrorMsg = ddo_error.String
 		}
+		if ddo_deal_id.Valid {
+			ret.Response.DDOV1.ChainDealID = ddo_deal_id.Int64
+		}
 
 		if !ddo_complete.Bool && (!ddo_error.Valid || ddo_error.String == "") {
 			state, err := m.getDDOStatus(ctx, id)
@@ -161,6 +166,9 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 		if ddo_error.Valid && ddo_error.String != "" {
 			ret.Response.DDOV1.State = DealStateFailed
 			ret.Response.DDOV1.ErrorMsg = ddo_error.String
+		}
+		if ddo_deal_id.Valid {
+			ret.Response.DDOV1.ChainDealID = ddo_deal_id.Int64
 		}
 
 		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {

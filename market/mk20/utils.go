@@ -446,6 +446,9 @@ type DealStatusResponse struct {
 
 	// ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.
 	ErrorMsg string `json:"errorMsg"`
+
+	// ChainDealID is the on-chain market deal id when available (DDO flow).
+	ChainDealID int64 `json:"chainDealId,omitempty"`
 }
 
 // DealProductStatusResponse represents the status response for deal products with their respective deal statuses.
