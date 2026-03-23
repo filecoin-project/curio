@@ -8,4 +8,3 @@ This section contains technical references intended for Curio developers and adv
 
 - [API](api.md)
 - [Build and Make Variables](make-variables.md)
-- [Local Integration Testing](testing.md)

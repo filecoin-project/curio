@@ -20,8 +20,8 @@ build/.*
 **/.venv
 scratchpad
 
-# go test -c in an itest group package
-/itest/**/*.test
+# to ensure tests build: itests/ go test -c .
+/itests/itests.test
 
 # The following files are checked into git and result
 # in dirty git state if removed from the docker context

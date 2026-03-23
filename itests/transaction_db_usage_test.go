@@ -1,4 +1,4 @@
-package ittestgroup3
+package itests
 
 import (
 	"bytes"
