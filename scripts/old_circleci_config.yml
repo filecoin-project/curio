@@ -341,23 +341,23 @@ workflows:
       - test:
           name: test-itest-curio
           suite: test-itest-curio
-          target: "./itest/ittestgroup1/"
+          target: "./itests/curio_test.go"
           get-params: true
           resource_class: 2xlarge
       - test:
           name: test-all
-          target: "`go list ./... | grep -v '/itest/' | grep -v market/indexstore`"
+          target: "`go list ./... | grep -v curio/itests | grep -v market/indexstore`"
           suite: test-all
           resource_class: 2xlarge
       - test:
           name: test-itest-harmonyDB
           suite: test-itest-harmonyDB
-          target: "./itest/ittestgroup5/"
+          target: "./itests/harmonydb_test.go"
           resource_class: 2xlarge
       - test:
           name: test-itest-alertnow
           suite: test-itest-alertnow
-          target: "./itest/ittestgroup4/"
+          target: "./itests/alertnow_test.go"
           resource_class: 2xlarge
       - test:
           name: test-idxStore

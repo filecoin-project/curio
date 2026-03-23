@@ -1,4 +1,4 @@
-package ittestgroup4
+package itests
 
 import (
 	"testing"

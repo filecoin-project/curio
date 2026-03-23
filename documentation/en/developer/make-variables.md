@@ -389,7 +389,7 @@ If you override internal variables, do so only when actively developing the Make
 
 Current state in this repository:
 
-- `make test` Runs `go test -v -tags="cgo,fvm" -timeout 30m ./itest/...`. It can be used to run integration tests locally.
+- `make test` Runs `go test -v -tags="cgo,fvm" -timeout 30m ./itests/...`. It can be used to run integration tests locally.
 
 ## Safe override recipes
 
