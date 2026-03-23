@@ -28,7 +28,7 @@ The Curio HTTP Server is a secure, flexible, and high-performance HTTP server de
 
 ### 4. **Built-in Middleware**
 
-* **Compression**: Utilizes the `httpcompression` package to support GZIP, Brotli, and Deflate, optimizing bandwidth usage based on configurable compression levels.
+* **Compression**: Uses stdlib `compress/gzip` for GZIP compression. `GzipLevel` in config (1–9) controls compression level; `BrotliLevel` and `DeflateLevel` are accepted in config but ignored (gzip-only for minimal binary size).
 * **Logging**: Logs every incoming request with details such as request method, path, and duration, aiding in easier debugging and monitoring.
 * **CORS Support**: Conditional CORS support based on configuration for handling cross-origin requests securely.
 

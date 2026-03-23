@@ -30,6 +30,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	inet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
+	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	"github.com/mitchellh/go-homedir"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/oklog/ulid"
@@ -82,6 +84,7 @@ func Setup(cfgdir string) (*Node, error) {
 	}
 
 	h, err := libp2p.New(
+		libp2p.ChainOptions(libp2p.Transport(tcp.NewTCPTransport), libp2p.Transport(ws.New)),
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
 		libp2p.Identity(peerkey),
 	)
