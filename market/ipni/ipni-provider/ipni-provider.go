@@ -399,6 +399,9 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		// TODO: Remove this monstrosity
 		// Log advertisement fetch for indexing status tracking
 		go func() {
+			if p.keys[providerID].SPID > 0 {
+				return
+			}
 			logCtx := context.Background()
 			_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b.String())
 			if err != nil {
@@ -463,6 +466,9 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		// TODO: Remove this monstrosity
 		// Log advertisement fetch for indexing status tracking
 		go func() {
+			if p.keys[providerID].SPID > 0 {
+				return
+			}
 			logCtx := context.Background()
 			_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b.String())
 			if err != nil {
