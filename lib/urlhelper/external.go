@@ -2,11 +2,13 @@ package urlhelper
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
 
 	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
@@ -83,4 +85,67 @@ func GetExternalHTTPAddr(c *config.HTTPConfig) (multiaddr.Multiaddr, error) {
 	}
 
 	return multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%s/%s", u.Hostname(), port, protocol))
+}
+
+func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
+	h := u.Hostname()
+	var addr *multiaddr.Multiaddr
+	if n := net.ParseIP(h); n != nil {
+		ipAddr, err := manet.FromIP(n)
+		if err != nil {
+			return nil, err
+		}
+		addr = &ipAddr
+	} else {
+		// domain name
+		ma, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_DNS).Name, h)
+		if err != nil {
+			return nil, err
+		}
+		mab := multiaddr.Cast(ma.Bytes())
+		addr = &mab
+	}
+	pv := u.Port()
+	if pv != "" {
+		port, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, pv)
+		if err != nil {
+			return nil, err
+		}
+		wport := multiaddr.Join(*addr, port)
+		addr = &wport
+	} else {
+		// default ports for http and https
+		var port *multiaddr.Component
+		var err error
+		switch u.Scheme {
+		case "http":
+			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "80")
+			if err != nil {
+				return nil, err
+			}
+		case "https":
+			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "443")
+		}
+		if err != nil {
+			return nil, err
+		}
+		wport := multiaddr.Join(*addr, port)
+		addr = &wport
+	}
+
+	http, err := multiaddr.NewComponent(u.Scheme, "")
+	if err != nil {
+		return nil, err
+	}
+
+	joint := multiaddr.Join(*addr, http)
+	if u.Path != "" {
+		httppath, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_HTTP_PATH).Name, url.PathEscape(u.Path))
+		if err != nil {
+			return nil, err
+		}
+		joint = multiaddr.Join(joint, httppath)
+	}
+
+	return joint, nil
 }
