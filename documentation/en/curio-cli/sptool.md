@@ -949,8 +949,8 @@ OPTIONS:
    --provider value                               storage provider on-chain address
    --pcidv2 value                                 pcidv2 of the CAR file
    --duration value                               duration of the deal in epochs (default: 518400)
-   --contract-address value                       contract address of the deal
-   --contract-verify-method value                 contract verify method of the deal
+   --market-address value                         market contract address of the deal
+   --market-deal-id value                         market deal ID (default: 0)
    --allocation value                             allocation id of the deal (default: 0)
    --indexing                                     indicates that an deal should be indexed (default: true)
    --wallet value                                 wallet address to be used to initiate the deal

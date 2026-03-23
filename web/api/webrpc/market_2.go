@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
@@ -551,12 +550,9 @@ func (a *WebRPC) MK20BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 	return nil
 }
 
-func (a *WebRPC) AddMarketContract(ctx context.Context, contract, abiString string) error {
+func (a *WebRPC) AddMarketContract(ctx context.Context, contract string, allowed bool) error {
 	if contract == "" {
 		return fmt.Errorf("empty contract")
-	}
-	if abiString == "" {
-		return fmt.Errorf("empty abi")
 	}
 
 	if !strings.HasPrefix(contract, "0x") {
@@ -567,16 +563,9 @@ func (a *WebRPC) AddMarketContract(ctx context.Context, contract, abiString stri
 		return fmt.Errorf("invalid contract address")
 	}
 
-	ethabi, err := eabi.JSON(strings.NewReader(abiString))
-	if err != nil {
-		return fmt.Errorf("invalid abi: %w", err)
-	}
+	// TODO: Verify that contract address exists on chain and if it supports CurioABI
 
-	if len(ethabi.Methods) == 0 {
-		return fmt.Errorf("invalid abi: no methods")
-	}
-
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, abi) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, contract, abiString)
+	n, err := a.deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, allowed) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, contract, allowed)
 	if err != nil {
 		return xerrors.Errorf("failed to add contract: %w", err)
 	}
@@ -586,13 +575,9 @@ func (a *WebRPC) AddMarketContract(ctx context.Context, contract, abiString stri
 	return nil
 }
 
-func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract, abiString string) error {
+func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract string, allowed bool) error {
 	if contract == "" {
 		return fmt.Errorf("empty contract")
-	}
-
-	if abiString == "" {
-		return fmt.Errorf("empty abi")
 	}
 
 	if !strings.HasPrefix(contract, "0x") {
@@ -603,18 +588,9 @@ func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract, abiString s
 		return fmt.Errorf("invalid contract address")
 	}
 
-	ethabi, err := eabi.JSON(strings.NewReader(abiString))
-	if err != nil {
-		return fmt.Errorf("invalid abi: %w", err)
-	}
-
-	if len(ethabi.Methods) == 0 {
-		return fmt.Errorf("invalid abi: no methods")
-	}
-
 	// Check if contract exists in DB
 	var count int
-	err = a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ddo_contracts WHERE address = $1`, contract).Scan(&count)
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ddo_contracts WHERE address = $1`, contract).Scan(&count)
 	if err != nil {
 		return xerrors.Errorf("failed to check contract: %w", err)
 	}
@@ -622,13 +598,13 @@ func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract, abiString s
 		return fmt.Errorf("contract does not exist")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `UPDATE ddo_contracts SET abi = $2 WHERE address = $1`, contract, abiString)
+	n, err := a.deps.DB.Exec(ctx, `UPDATE ddo_contracts SET allowed = $2 WHERE address = $1`, contract, allowed)
 	if err != nil {
-		return xerrors.Errorf("failed to update contract ABI: %w", err)
+		return xerrors.Errorf("failed to update contract status: %w", err)
 	}
 
 	if n == 0 {
-		return fmt.Errorf("failed to update the contract ABI")
+		return fmt.Errorf("failed to update the contract status")
 	}
 
 	return nil
@@ -648,19 +624,19 @@ func (a *WebRPC) RemoveMarketContract(ctx context.Context, contract string) erro
 	return nil
 }
 
-func (a *WebRPC) ListMarketContracts(ctx context.Context) (map[string]string, error) {
+func (a *WebRPC) ListMarketContracts(ctx context.Context) (map[string]bool, error) {
 	var contracts []struct {
 		Address string `db:"address"`
-		Abi     string `db:"abi"`
+		Allowed bool   `db:"allowed"`
 	}
-	err := a.deps.DB.Select(ctx, &contracts, `SELECT address, abi FROM ddo_contracts`)
+	err := a.deps.DB.Select(ctx, &contracts, `SELECT address, allowed FROM ddo_contracts`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get contracts from DB: %w", err)
 	}
 
-	contractMap := make(map[string]string)
+	contractMap := make(map[string]bool)
 	for _, contract := range contracts {
-		contractMap[contract.Address] = contract.Abi
+		contractMap[contract.Address] = contract.Allowed
 	}
 
 	return contractMap, nil

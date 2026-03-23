@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -130,7 +132,7 @@ func APIRouter(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
 	mux.Use(AuthMiddleware(mdh.db, mdh.cfg))
-	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
+	mux.Method("POST", "/deal", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
 	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
 	mux.Method("POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
 	mux.Method("GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
@@ -190,7 +192,7 @@ func swaggerJson(w http.ResponseWriter, r *http.Request) {
 }
 
 // mk20deal handles HTTP requests to process MK20 deals, parses the request body, validates it, and executes the deal logic.
-// @Router /store [post]
+// @Router /deal [post]
 // @Summary Make a mk20 deal
 // @Description Make a mk20 deal
 // @BasePath /market/mk20
@@ -323,18 +325,26 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 // @Failure 200 {object} mk20.SupportedContracts "Array of contract addresses supported by a system or application."
 // @Failure 500 {string} string "Internal Server Error"
 func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *http.Request) {
+	var ddoContracts []struct {
+		Address string `db:"address"`
+	}
+	err := mdh.db.Select(r.Context(), &ddoContracts, "SELECT address FROM ddo_contracts WHERE allowed = TRUE")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			log.Errorw("no supported contracts found")
+			http.Error(w, "no supported contracts found", http.StatusNotFound)
+			return
+		}
+		log.Errorw("failed to get supported contracts", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	var contracts mk20.SupportedContracts
-	//err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM ddo_contracts")
-	//if err != nil {
-	//	if errors.Is(err, pgx.ErrNoRows) {
-	//		log.Errorw("no supported contracts found")
-	//		http.Error(w, "no supported contracts found", http.StatusNotFound)
-	//		return
-	//	}
-	//	log.Errorw("failed to get supported contracts", "err", err)
-	//	w.WriteHeader(http.StatusInternalServerError)
-	//	return
-	//}
+	if len(ddoContracts) > 0 {
+		for _, contract := range ddoContracts {
+			contracts.Contracts = append(contracts.Contracts, contract.Address)
+		}
+	}
 	w.WriteHeader(http.StatusOK)
 	// Write a json array
 	resp, err := json.Marshal(contracts)
@@ -648,7 +658,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 // @Summary Update the deal details of existing deals.
 // @Description Useful for adding adding additional products and updating PoRep duration
 // @BasePath /market/mk20
-// @Router /update/{id} [get]
+// @Router /update/{id} [post]
 // @Param id path string true "id"
 // @Accept json
 // @Param body body mk20.Deal true "mk20.Deal in json format"

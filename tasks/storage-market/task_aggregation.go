@@ -213,19 +213,16 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = TRUE`, pi.PieceCIDV1.String(), pi.Size).Scan(&pid)
 		if err == nil {
 			// If piece exists then check if we can access the data
-			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
-			if err != nil {
-				// If piece does not exist then we will park it otherwise fail here
-				if !errors.Is(err, storiface.ErrSectorNotFound) {
-					// We should fail here because any subsequent operation which requires access to data will also fail
-					// till this error is fixed
-					return false, fmt.Errorf("failed to get piece reader: %w", err)
-				}
+			pr, rerr := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
+			if rerr == nil {
+				defer func() { _ = pr.Close() }()
+				pieceParked = true
+			} else if errors.Is(rerr, storiface.ErrSectorNotFound) {
+				// Stale parked piece row: reuse row id, but rewrite piece bytes.
+				pieceParked = false
+			} else {
+				return false, fmt.Errorf("failed to get piece reader: %w", rerr)
 			}
-			defer func() {
-				_ = pr.Close()
-			}()
-			pieceParked = true
 			parkedPieceID = pid
 		} else {
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -330,7 +327,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
             offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-			id, spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+			id, spid, ddo.MarketAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
 			false, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 			data.Format.Aggregate.Type, data.Format.Aggregate.Type)
 		if err != nil {
