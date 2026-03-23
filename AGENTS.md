@@ -26,6 +26,16 @@ This repository uses modular AI context files under [`scripts/ai-context/`](scri
 - Treat prompt files under `scripts/ai-context/prompt/` as maintenance-only, not runtime context.
 - Never add machine-specific local absolute paths or local-editor URIs to repository files; use repo-relative paths only.
 
+## Required Verification Before Finalizing Code Edits
+- Trigger: run this only when the user indicates the coding pass is done (for example: "finalize").
+- For Go/backend/codegen-affecting edits, run these from repo root:
+1. `LANG=en-US FFI_USE_OPENCL=1 make gen`
+2. `golangci-lint run -v --timeout 15m --concurrency 4`
+- `make gen` is the canonical generation/import-format path; do not run separate formatting passes by default.
+- Do not rerun expensive checks unless code changed after the last verify run or the user asks for rerun.
+- Do not claim checks passed unless they were actually run.
+- If any check cannot be run (missing tool/dependency/environment/time), state that explicitly with the failing command.
+
 ## Prompt Templates (Context Maintenance)
 - Prompt templates are in [`scripts/ai-context/prompt/`](scripts/ai-context/prompt/).
 - Prompt files are for creating/updating context docs, not for normal runtime coding chats.
