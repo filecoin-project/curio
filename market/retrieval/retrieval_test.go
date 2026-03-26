@@ -157,6 +157,29 @@ func TestRouterSetup(t *testing.T) {
 	require.Contains(t, w.Body.String(), "Version")
 }
 
+func TestPiecePathHeadRouting(t *testing.T) {
+	ctx := context.Background()
+
+	// Create minimal LinkSystem for router setup
+	store := &trustlesstestutil.CorrectedMemStore{
+		ParentStore: &memstore.Store{Bag: make(map[string][]byte)},
+	}
+	lsys := cidlink.DefaultLinkSystem()
+	lsys.SetReadStorage(store)
+	lsys.SetWriteStorage(store)
+	lsys.TrustedStorage = true
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	mux := chi.NewMux()
+	Router(mux, provider)
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rctx := chi.NewRouteContext()
+		matched := mux.Match(rctx, method, "/piece/bafkqaaa")
+		require.True(t, matched, "%s should match /piece/{cid}", method)
+	}
+}
+
 // TestTrustlessGatewaySentinel tests the special sentinel CID (bafkqaaa - identity empty CID)
 // which is used as a probe for trustless gateway conformance
 func TestTrustlessGatewaySentinel(t *testing.T) {

@@ -248,6 +248,7 @@ func Router(mux *chi.Mux, rp *Provider) {
 		r.Group(func(r chi.Router) {
 			r.Use(limiterMiddleware(pieceRequestLimiter))
 			r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
+			r.Head(piecePrefix+"{cid}", rp.handleByPieceCid)
 		})
 
 		// IPFS endpoints with limiter
