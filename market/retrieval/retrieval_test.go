@@ -659,3 +659,26 @@ func TestDagScopeCAR(t *testing.T) {
 			"CAR blocks should be in traversal order matching fixture")
 	})
 }
+
+func TestPiecePathHeadRouting(t *testing.T) {
+	ctx := context.Background()
+
+	// Create minimal LinkSystem for router setup
+	store := &trustlesstestutil.CorrectedMemStore{
+		ParentStore: &memstore.Store{Bag: make(map[string][]byte)},
+	}
+	lsys := cidlink.DefaultLinkSystem()
+	lsys.SetReadStorage(store)
+	lsys.SetWriteStorage(store)
+	lsys.TrustedStorage = true
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	mux := chi.NewMux()
+	Router(mux, provider, testDenyFilter())
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rctx := chi.NewRouteContext()
+		matched := mux.Match(rctx, method, "/piece/bafkqaaa")
+		require.True(t, matched, "%s should match /piece/{cid}", method)
+	}
+}

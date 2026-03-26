@@ -30,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/lib/lists"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/indexing"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
@@ -681,8 +682,8 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	}
 
 	for i := range pieceDeals {
-		if pieceDeals[i].SpId == -1 {
-			pieceDeals[i].Miner = "PDP"
+		if pieceDeals[i].SpId == indexing.PDP_v1_SP_ID {
+			pieceDeals[i].Miner = "PDP V1"
 		} else {
 			addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
 			if err != nil {

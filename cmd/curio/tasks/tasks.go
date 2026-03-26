@@ -44,7 +44,9 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
+	"github.com/filecoin-project/curio/tasks/pay"
 	"github.com/filecoin-project/curio/tasks/pdp"
+	"github.com/filecoin-project/curio/tasks/pdpv0"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
@@ -293,6 +295,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			return nil, err
 		}
 
+		// Enable PDP v1 subsystem
 		if cfg.Subsystems.EnablePDP {
 			es := getSenderEth()
 			sdeps.EthSender = es
@@ -318,19 +321,45 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
 			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
 
-			pdpSync := pdp.NewPDPSyncTask(db, ethClient)
+			//pdpSync := pdp.NewPDPSyncTask(db, ethClient)
 
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask, pdpSync)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
+		}
+
+		// Enable PDP v0 subsystem
+		if cfg.Subsystems.EnablePDP {
+			es := getSenderEth()
+
+			pdpv0.NewDataSetWatch(db, must.One(dependencies.EthClient.Val()), chainSched)
+
+			pay.NewSettleWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewDataSetDeleteWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdpv0.NewPieceDeleteWatcher(&cfg.HTTP, db, must.One(dependencies.EthClient.Val()), chainSched, iStore)
+
+			pdpProveTask := pdpv0.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
+			pdpNextProvingPeriodTask := pdpv0.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdpv0.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpNotifTask := pdpv0.NewPDPNotifyTask(ctx, db)
+			pdpPullPieceTask := pdpv0.NewPDPPullPieceTask(ctx, db, lstor, 4)
+
+			pdpTerminate := pdpv0.NewTerminateServiceTask(db, must.One(dependencies.EthClient.Val()), senderEth)
+			pdpDelete := pdpv0.NewDeleteDataSetTask(db, must.One(dependencies.EthClient.Val()), senderEth)
+			payTask := pay.NewSettleTask(db, must.One(dependencies.EthClient.Val()), senderEth) // Move this to a common section once PDP v1 is live
+			pdpSaveCacheTask := pdpv0.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
+			activeTasks = append(activeTasks, pdpProveTask, pdpNotifTask, pdpPullPieceTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpTerminate, pdpDelete, payTask, pdpSaveCacheTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, cfg, idxMax, iStore)
-		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
-		pdpIPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
+		pdpv1IdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpv1IPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
-		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask, fixRawSizeTask)
+		pdpv0IndexingTask := indexing.NewPDPV0IndexingTask(db, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpv0IpniTask := indexing.NewPDPV0IPNITask(db, cfg, idxMax, iStore)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpv1IdxTask, pdpv1IPNITask, fixRawSizeTask, pdpv0IndexingTask, pdpv0IpniTask)
 
 		if cfg.HTTP.Enable {
 			if !cfg.Subsystems.EnableDealMarket {

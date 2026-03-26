@@ -245,6 +245,7 @@ func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(pieceRequestLimiter))
 			r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
+			r.Head(piecePrefix+"{cid}", rp.handleByPieceCid)
 		})
 
 		// IPFS endpoints with denylist and limiter

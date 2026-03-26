@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
@@ -27,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -48,7 +48,7 @@ type MK20 struct {
 	miners             *config.Dynamic[[]address.Address]
 	DB                 *harmonydb.DB
 	api                MK20API
-	ethClient          *ethclient.Client
+	ethClient          ethchain.EthClient
 	si                 paths.SectorIndex
 	cfg                *config.CurioConfig
 	sm                 *config.Dynamic[map[address.Address]abi.SectorSize]
@@ -58,7 +58,7 @@ type MK20 struct {
 	unknowClient       bool
 }
 
-func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
+func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient ethchain.EthClient, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
 	ctx := context.Background()
 
 	// Ensure MinChunk size and max chunkSize is a power of 2
