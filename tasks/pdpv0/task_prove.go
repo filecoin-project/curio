@@ -561,20 +561,23 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 		return nil, xerrors.Errorf("failed to get subPiece reader: %w", err)
 	}
 
-	var r io.Reader = subPieceReader
-
-	cpsize := padreader.PaddedSize(unssize).Padded()
-
-	if cpsize > subPieceSize {
-		return nil, xerrors.Errorf("subPiece size mismatch: %d > %d", cpsize, subPieceSize)
-	} else if cpsize < subPieceSize {
-		// pad with zeros
-		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subPieceSize-cpsize)))
-	}
-
 	defer func() {
 		_ = subPieceReader.Close()
 	}()
+
+	var r io.Reader = subPieceReader
+
+	cpsize := padreader.PaddedSize(unssize)
+
+	if cpsize.Padded() != subPieceSize {
+		return nil, xerrors.Errorf("subPiece size mismatch: %d > %d", cpsize, subPieceSize)
+	}
+
+	// Pad the reader to .Unpadded() bytes
+	if unssize < uint64(subPieceSize.Unpadded()) {
+		// pad with zeros
+		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(uint64(subPieceSize.Unpadded())-unssize)))
+	}
 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }

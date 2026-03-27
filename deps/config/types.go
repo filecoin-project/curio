@@ -121,8 +121,8 @@ func DefaultCurioConfig() *CurioConfig {
 					MaximumChunkSize:          256 * 1024 * 1024, // 256 MiB
 				},
 				IPNI: IPNIConfig{
-					ServiceURL:         []string{"https://cid.contact"},
-					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
+					ServiceURL:         []string{"https://cid.contact", "https://filecoinpin.contact"},
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce", "https://filecoinpin.contact/ingest/announce"},
 				},
 			},
 		},

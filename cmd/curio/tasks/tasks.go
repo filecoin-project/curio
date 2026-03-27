@@ -362,9 +362,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpv1IdxTask, pdpv1IPNITask, fixRawSizeTask, pdpv0IndexingTask, pdpv0IpniTask)
 
 		if cfg.HTTP.Enable {
-			if !cfg.Subsystems.EnableDealMarket {
-				return nil, xerrors.New("deal market must be enabled on HTTP server")
-			}
+			// TODO: Put this back once PDPv1 is also being used
+			//if !cfg.Subsystems.EnableDealMarket {
+			//	return nil, xerrors.New("deal market must be enabled on HTTP server")
+			//}
 			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)

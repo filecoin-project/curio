@@ -490,11 +490,20 @@ func Routes(r *chi.Mux, p *Provider) {
 	r.Get(IPNIRoutePath+"{providerId}"+IPNIPath+"{cid}", p.handleGet)
 }
 
-func RemoveCidContact(slice []*url.URL) []*url.URL {
-	target := "cid.contact"
+const (
+	CIDContactFilter = "cid.contact"
+	PinFilter        = "filecoinpin.contact"
+)
+
+func FilterAnnounceURLs(slice []*url.URL, filter []string) []*url.URL {
 
 	return lo.Filter(slice, func(item *url.URL, index int) bool {
-		return !strings.Contains(item.Host, target)
+		for _, f := range filter {
+			if strings.Contains(item.String(), f) {
+				return false
+			}
+		}
+		return true
 	})
 }
 
@@ -503,7 +512,7 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 
 	// Remove cid.contact from announceURLs if the build is debug or testnet
 	if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
-		urls := RemoveCidContact(p.announceURLs)
+		urls := FilterAnnounceURLs(p.announceURLs, []string{CIDContactFilter, PinFilter})
 		if len(urls) == 0 {
 			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
 			return
@@ -613,7 +622,14 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 		Timeout:   1 * time.Minute,
 	}
 
-	httpSender, err := httpsender.New(p.announceURLs, p.keys[peer].ID, httpsender.WithClient(c))
+	// Don't announce PoRep Ads to Filecoin Pin indexer
+	a := p.announceURLs
+
+	if p.keys[peer].SPID > 0 {
+		a = FilterAnnounceURLs(a, []string{PinFilter})
+	}
+
+	httpSender, err := httpsender.New(a, p.keys[peer].ID, httpsender.WithClient(c))
 	if err != nil {
 		return fmt.Errorf("cannot create http announce sender: %w", err)
 	}

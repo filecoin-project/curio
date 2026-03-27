@@ -618,6 +618,17 @@ func wdPostCheck(al *alerts) {
 func wnPostCheck(al *alerts) {
 	Name := "WinningPost"
 	al.alertMap[Name] = &alertOut{}
+
+	_, miners, err := al.getAddresses()
+	if err != nil {
+		al.alertMap[Name].err = err
+		return
+	}
+
+	if len(miners) == 0 {
+		return
+	}
+
 	head, err := al.api.ChainHead(al.ctx)
 	if err != nil {
 		al.alertMap[Name].err = err
@@ -670,12 +681,6 @@ func wnPostCheck(al *alerts) {
 	expected := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
 	if (head.Height() - abi.ChainEpoch(expected)) < 0 {
 		expected = int64(head.Height())
-	}
-
-	_, miners, err := al.getAddresses()
-	if err != nil {
-		al.alertMap[Name].err = err
-		return
 	}
 
 	const slack = 4

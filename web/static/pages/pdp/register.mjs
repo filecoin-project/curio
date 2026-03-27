@@ -40,6 +40,11 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
           position: fixed; inset: 0; background: rgba(0,0,0,0.6);
           display: flex; align-items: center; justify-content: center; z-index: 1050;
         }
+        .modal-backdrop.scrollable {
+          align-items: flex-start;
+          overflow-y: auto;
+          padding: 1rem 0;
+        }
         .modal-card {
           background: #1f1f1f; color: #fff; border-radius: .5rem; width: 40rem; max-width: 95vw;
           box-shadow: 0 1rem 3rem rgba(0,0,0,.3);
@@ -52,6 +57,25 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
         .kv-table th { width: 28%; }
         .badge { font-size: .85rem; }
         .muted { color: #9aa0a6; }
+        .capability-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: .5rem;
+          flex-wrap: wrap;
+        }
+        .capability-item-text {
+          flex: 1 1 12rem;
+          min-width: 0;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+        .capability-item-actions {
+          display: flex;
+          gap: .35rem;
+          flex: 0 0 auto;
+        }
          `;
 
     constructor() {
@@ -206,6 +230,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
 
     editCapability(key) {
         const value = prompt(`Edit value for key "${key}":`, this.capabilities[key]);
+        if (value === null) return;
         this.capabilities = {...this.capabilities, [key]: value};
     }
 
@@ -455,7 +480,7 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                 ` : ''}
 
                 ${this.showUpdatePDPModal ? html`
-                    <div class="modal-backdrop" @click=${(e) => { if (e.target === e.currentTarget) this.closeUpdatePDP(); }}>
+                    <div class="modal-backdrop scrollable" @click=${(e) => { if (e.target === e.currentTarget) this.closeUpdatePDP(); }}>
                         <div class="modal-card">
                             <div class="modal-header d-flex justify-content-between align-items-center">
                                 <h5 class="m-0">Update PDP Offering</h5>
@@ -552,9 +577,9 @@ customElements.define('fs-registry-info', class FSRegistryInfo extends LitElemen
                                     <button type="button" class="btn btn-sm btn-primary mb-2" @click=${this.addCapability}>Add Capability</button>
                                     <ul class="list-group">
                                         ${Object.entries(this.capabilities).map(([key, value]) => html`
-                                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                                <span><strong>${key}</strong>: ${value}</span>
-                                                <span>
+                                            <li class="list-group-item capability-item">
+                                                <span class="capability-item-text"><strong>${key}</strong>: ${value}</span>
+                                                <span class="capability-item-actions">
                                                     <button type="button" class="btn btn-sm btn-warning" @click=${() => this.editCapability(key)}>Edit</button>
                                                     <button type="button" class="btn btn-sm btn-danger" @click=${() => this.removeCapability(key)}>Remove</button>
                                                 </span>
