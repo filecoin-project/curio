@@ -18,7 +18,7 @@ func TestServeContentHeadRequest(t *testing.T) {
 	http.ServeContent(w, req, "", lastModified, bytes.NewReader([]byte("0123456789")))
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
@@ -34,10 +34,10 @@ func TestServeContentRangeRequestReturnsPartial(t *testing.T) {
 	req.Header.Set("Range", "bytes=2-4")
 	w := httptest.NewRecorder()
 
-	http.ServeContent(w, req,"", lastModified, bytes.NewReader([]byte("0123456789")))
+	http.ServeContent(w, req, "", lastModified, bytes.NewReader([]byte("0123456789")))
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
