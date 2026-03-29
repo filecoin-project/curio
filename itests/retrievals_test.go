@@ -346,6 +346,7 @@ func TestRetrievals(t *testing.T) {
 	t.Run("mk12 piece retrieval range by pieceCIDv2", func(t *testing.T) {
 		rangeStart := 0
 		rangeEnd := 63
+		require.Greater(t, len(mk12Fixture.CarBytes), rangeEnd)
 		status, body, headers := httpRequestWithHeaders(t, http.MethodGet, baseURL, "/piece/"+mk12Fixture.PieceCIDV2.String(), map[string]string{
 			"Range": fmt.Sprintf("bytes=%d-%d", rangeStart, rangeEnd),
 		})
