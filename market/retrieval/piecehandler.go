@@ -14,7 +14,6 @@ import (
 	"go.opencensus.io/stats"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
@@ -59,7 +58,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get a reader over the piece
-	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
+	reader, _, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
 		if errors.Is(err, cachedreader.ErrNotFound) {
@@ -86,7 +85,9 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setHeaders(w, originalPieceCid, contentType)
-	serveContent(w, r, size, reader)
+	// Note that the last modified time is a constant value because the data
+	// in a piece identified by a cid will never change.
+	http.ServeContent(w, r, "", lastModified, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
@@ -106,21 +107,6 @@ func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
 				fmt.Sprintf(`inline; filename="%s"; filename*=UTF-8''%s`, filename, encoded))
 		}
 	}
-	w.Header().Set("Etag", pieceCid.String())
+	w.Header().Set("ETag", fmt.Sprintf(`"%s"`, pieceCid.String()))
 
-}
-
-func serveContent(res http.ResponseWriter, req *http.Request, size abi.UnpaddedPieceSize, content io.ReadSeeker) {
-	// Note that the last modified time is a constant value because the data
-	// in a piece identified by a cid will never change.
-
-	if req.Method == http.MethodHead {
-		// For an HTTP HEAD request ServeContent doesn't send any data (just headers)
-		http.ServeContent(res, req, "", time.Time{}, nil)
-		return
-	}
-
-	// Send the content
-	res.Header().Set("Content-Length", fmt.Sprintf("%d", size))
-	http.ServeContent(res, req, "", lastModified, content)
 }
