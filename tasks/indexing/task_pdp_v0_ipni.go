@@ -253,7 +253,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			return false, xerrors.Errorf("converting advertisement to link: %w", err)
 		}
 
-		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcidV2.String(), task.PieceCID, task.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
@@ -261,7 +261,7 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			return false, xerrors.Errorf("adding advertisement to the database: %w", err)
 		}
 
-		err = P.recordCompletion(ctx, taskID, task.ID)
+		err = P.recordCompletion(tx, taskID, task.ID)
 		if err != nil {
 			return false, xerrors.Errorf("recording IPNI task completion: %w", err)
 		}
@@ -278,26 +278,15 @@ func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return true, nil
 }
 
-func (P *PDPV0IPNITask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64) error {
-	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-
-		n, err := tx.Exec(`UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL
+func (P *PDPV0IPNITask) recordCompletion(tx *harmonydb.Tx, taskID harmonytask.TaskID, id int64) error {
+	n, err := tx.Exec(`UPDATE pdp_piecerefs SET needs_ipni = FALSE, ipni_task_id = NULL
 									WHERE id = $1 AND ipni_task_id = $2`, id, taskID)
-		if err != nil {
-			return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("store indexing success: updated %d rows", n)
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
 	if err != nil {
-		return xerrors.Errorf("committing transaction: %w", err)
+		return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 	}
-	if !comm {
-		return xerrors.Errorf("failed to commit transaction")
+	if n != 1 {
+		return xerrors.Errorf("store indexing success: updated %d rows", n)
 	}
-
 	return nil
 }
 

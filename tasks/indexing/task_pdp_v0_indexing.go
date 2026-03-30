@@ -164,23 +164,14 @@ func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool
 }
 
 func (P *PDPIndexingV0Task) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id int64, needsIPNI bool) error {
-	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
-		n, err := tx.Exec(`UPDATE pdp_piecerefs SET needs_indexing = FALSE, needs_ipni = $3, indexing_task_id = NULL 
+	n, err := P.db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_indexing = FALSE, needs_ipni = $3, indexing_task_id = NULL 
 									WHERE id = $1 AND indexing_task_id = $2`, id, taskID, needsIPNI)
-		if err != nil {
-			return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("store indexing success: updated %d rows", n)
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
 	if err != nil {
-		return xerrors.Errorf("committing transaction: %w", err)
+		return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 	}
-	if !comm {
-		return xerrors.Errorf("failed to commit transaction")
+	if n != 1 {
+		return xerrors.Errorf("store indexing success: updated %d rows", n)
 	}
 
 	return nil

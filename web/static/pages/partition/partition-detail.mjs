@@ -444,6 +444,7 @@ customElements.define('partition-detail', class PartitionDetail extends LitEleme
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+            <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
             
             <h1>Partition ${this.data.partition} - Deadline ${this.data.deadline} - ${this.data.sp_address}</h1>
             

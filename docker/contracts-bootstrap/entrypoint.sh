@@ -224,6 +224,7 @@ main() {
     git -C "$filecoin_services_dir" submodule update --init --recursive
   fi
 
+  [[ -d "$filecoin_services_dir/service_contracts" ]] || die "filecoin-services checkout missing service_contracts at '$filecoin_services_dir/service_contracts' (source: '$filecoin_services_local_path')"
   pushd "$filecoin_services_dir/service_contracts" >/dev/null
   if [[ "$contract_source_mode" == "local" ]]; then
     [[ -f "lib/pdp/src/PDPVerifier.sol" ]] || die "local filecoin-services checkout is missing lib/pdp (run submodule update in local source)"
