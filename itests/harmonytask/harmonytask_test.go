@@ -34,6 +34,7 @@ func (d *deadConn) Close() error                    { return nil }
 type testTask struct {
 	name          string
 	cost          resources.Resources
+	storage       resources.Storage // optional; when set, becomes Cost.Storage (disk claim path)
 	maxN          int
 	maxFail       uint
 	retryWait     func(int) time.Duration
@@ -87,9 +88,13 @@ func (t *testTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEngin
 }
 
 func (t *testTask) TypeDetails() harmonytask.TaskTypeDetails {
+	cost := t.cost
+	if t.storage != nil {
+		cost.Storage = t.storage
+	}
 	ttd := harmonytask.TaskTypeDetails{
 		Name:          t.name,
-		Cost:          t.cost,
+		Cost:          cost,
 		MaxFailures:   t.maxFail,
 		RetryWait:     t.retryWait,
 		TimeSensitive: t.timeSensitive,
@@ -148,6 +153,17 @@ func cleanupTasks(tasks ...*testTask) func() {
 func makeEngine(t *testing.T, db *harmonydb.DB, impls []harmonytask.TaskInterface, host string) *harmonytask.TaskEngine {
 	t.Helper()
 	e, err := harmonytask.New(db, impls, host, &deadPeerConnector{})
+	require.NoError(t, err)
+	t.Cleanup(func() { e.GracefullyTerminate() })
+	return e
+}
+
+// makeEngineWithResources registers fixed machine capacity (via resources.RegisterWithResources) then builds the engine.
+func makeEngineWithResources(t *testing.T, db *harmonydb.DB, impls []harmonytask.TaskInterface, host string, res resources.Resources) *harmonytask.TaskEngine {
+	t.Helper()
+	reg, err := resources.RegisterWithResources(db, host, res)
+	require.NoError(t, err)
+	e, err := harmonytask.NewWithReg(db, impls, host, &deadPeerConnector{}, reg)
 	require.NoError(t, err)
 	t.Cleanup(func() { e.GracefullyTerminate() })
 	return e
@@ -647,6 +663,95 @@ func TestPeeringThreeNodeRouting(t *testing.T) {
 }
 
 // ===== Preemption / Interrupt Tests =====
+
+// noopTestStorage exercises the storage Claim path in task_type_handler without I/O.
+type noopTestStorage struct{}
+
+func (noopTestStorage) HasCapacity() bool { return true }
+
+func (noopTestStorage) Claim(taskID int) (func() error, error) {
+	_ = taskID
+	return func() error { return nil }, nil
+}
+
+// TestTimeSensitiveRunsAheadOfMixedClaimingWork caps CPU so two storage-claiming tasks and
+// two ordinary tasks fill the machine; a TimeSensitive task must preempt and run quickly,
+// then everyone completes after being re-scheduled.
+func TestTimeSensitiveRunsAheadOfMixedClaimingWork(t *testing.T) {
+	db := getDB(t)
+
+	runUntilPreemptOrDone := func(doneCh chan harmonytask.TaskID, onPreempt chan<- harmonytask.TaskID) func(context.Context, harmonytask.TaskID, func() bool) (bool, error) {
+		return func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+			select {
+			case <-ctx.Done():
+				if onPreempt != nil {
+					select {
+					case onPreempt <- id:
+					default:
+					}
+				}
+				return false, ctx.Err()
+			case <-time.After(20 * time.Second):
+				doneCh <- id
+				return true, nil
+			}
+		}
+	}
+
+	// Any preempted background task (claimer or filler) — ordering among same-age tasks can vary slightly.
+	preempted := make(chan harmonytask.TaskID, 4)
+
+	claim := newTestTaskWithOpts("MixClaim", 2, resources.Resources{Cpu: 2, Ram: 1 << 20}, false)
+	claim.storage = noopTestStorage{}
+	claim.doFunc = runUntilPreemptOrDone(claim.doneCh, preempted)
+
+	filler := newTestTaskWithOpts("MixFill", 8, resources.Resources{Cpu: 1, Ram: 1 << 20}, false)
+	filler.doFunc = runUntilPreemptOrDone(filler.doneCh, preempted)
+
+	ts := newTestTaskWithOpts("MixTS", 1, resources.Resources{Cpu: 2, Ram: 1 << 20}, true)
+	ts.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		ts.doneCh <- id
+		return true, nil
+	}
+
+	t.Cleanup(cleanupTasks(claim, filler, ts))
+
+	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{claim, filler, ts}, "mixts:1000",
+		resources.Resources{Cpu: 6, Ram: 1 << 30, Gpu: 0})
+	speedUpPolling(e)
+
+	e.AddTaskByName("MixClaim", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	e.AddTaskByName("MixClaim", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	e.AddTaskByName("MixFill", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	e.AddTaskByName("MixFill", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	time.Sleep(700 * time.Millisecond)
+
+	tsStart := time.Now()
+	e.AddTaskByName("MixTS", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+
+	_ = waitForTask(t, ts.doneCh, taskTimeout)
+	require.Less(t, time.Since(tsStart), 5*time.Second,
+		"TimeSensitive should start without waiting for background work to finish voluntarily")
+
+	time.Sleep(300 * time.Millisecond) // let preempted Do() paths signal
+
+	preemptCount := 0
+	for {
+		select {
+		case id := <-preempted:
+			require.Greater(t, int(id), 0)
+			preemptCount++
+		default:
+			goto drained
+		}
+	}
+drained:
+	require.GreaterOrEqual(t, preemptCount, 1, "machine was full; TimeSensitive needs a preemption")
+
+	waitForNamedSuccessCount(t, db, "MixTS", 1, taskTimeout)
+	waitForNamedSuccessCount(t, db, "MixClaim", 2, taskTimeout)
+	waitForNamedSuccessCount(t, db, "MixFill", 2, taskTimeout)
+}
 
 // TestPreemptionFreesResourcesForTimeSensitive verifies that when a TimeSensitive
 // task arrives but resources are exhausted, a non-TimeSensitive running task is

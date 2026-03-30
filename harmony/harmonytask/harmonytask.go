@@ -157,7 +157,7 @@ type TaskID int
 
 // New creates all the task definitions. Note that TaskEngine
 // knows nothing about the tasks themselves and serves to be a
-// generic container for common work
+// generic container for common work. It registers this host's probed resources in the database.
 func New(
 	db *harmonydb.DB,
 	impls []TaskInterface,
@@ -167,6 +167,20 @@ func New(
 	reg, err := resources.Register(db, hostnameAndPort)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get resources: %w", err)
+	}
+	return NewWithReg(db, impls, hostnameAndPort, peerConnector, reg)
+}
+
+// NewWithReg is like New but uses an existing *resources.Reg (from resources.Register or RegisterWithResources).
+func NewWithReg(
+	db *harmonydb.DB,
+	impls []TaskInterface,
+	hostnameAndPort string,
+	peerConnector PeerConnectorInterface,
+	reg *resources.Reg) (*TaskEngine, error) {
+
+	if reg == nil {
+		return nil, fmt.Errorf("harmonytask.NewWithReg: reg is nil")
 	}
 	ctx, grace := context.WithCancel(context.Background())
 	e := &TaskEngine{
