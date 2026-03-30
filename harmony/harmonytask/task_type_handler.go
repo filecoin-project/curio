@@ -128,6 +128,8 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		return false
 	}
 
+	tIDs = reorderTaskIDsByPostedOrder(tasks, tIDs)
+
 	headroomUntilMax := h.Max.Headroom()
 	if maxAcceptable > headroomUntilMax {
 		maxAcceptable = headroomUntilMax
@@ -145,6 +147,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		}
 		return false // Lets not hammer Tasks we know are failing.
 	})
+	tIDs = reorderTaskIDsByPostedOrder(tasks, tIDs)
 
 	// if recovering we don't need to try to claim anything because those tasks are already claimed by us
 	if from != WorkSourceRecover {
@@ -479,4 +482,29 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 		}
 	}
 	return headroom, nil
+}
+
+// reorderTaskIDsByPostedOrder sorts accepted IDs by the order they appear in tasks (posted_time FIFO from the DB/poller).
+func reorderTaskIDsByPostedOrder(tasks []task, ids []TaskID) []TaskID {
+	if len(ids) <= 1 {
+		return ids
+	}
+	want := make(map[TaskID]struct{}, len(ids))
+	for _, id := range ids {
+		want[id] = struct{}{}
+	}
+	out := make([]TaskID, 0, len(ids))
+	for _, t := range tasks {
+		if _, ok := want[t.ID]; ok {
+			out = append(out, t.ID)
+			delete(want, t.ID)
+		}
+	}
+	for _, id := range ids {
+		if _, ok := want[id]; ok {
+			out = append(out, id)
+			delete(want, id)
+		}
+	}
+	return out
 }

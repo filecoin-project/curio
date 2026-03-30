@@ -182,7 +182,7 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 	peerCount := len(e.peering.m[h.Name])
 	e.peering.peersLock.RUnlock()
 
-	e.peering.TellOthersMessage(h.Name, messageRenderPreemptCost{
+	e.peering.TellOthersMessage(h.Name, peeringMessagePreemptCost{
 		TaskType: h.Name,
 		TaskID:   tID,
 		Cost:     plan.totalCost,
@@ -221,13 +221,13 @@ decide:
 	}
 }
 
-type messageRenderPreemptCost struct {
+type peeringMessagePreemptCost struct {
 	TaskType string
 	TaskID   TaskID
 	Cost     time.Duration
 }
 
-func (m messageRenderPreemptCost) Render() []byte {
+func (m peeringMessagePreemptCost) Render() []byte {
 	return binary.BigEndian.AppendUint64(
 		binary.BigEndian.AppendUint64(
 			[]byte(fmt.Sprintf("%c:%s:", messageTypePreemptCost, m.TaskType)),

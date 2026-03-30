@@ -24,7 +24,7 @@ func TestPreemptCostMessage(t *testing.T) {
 	p := &peering{h: engine}
 	them := peer{id: 99}
 
-	msg := messageRenderPreemptCost{TaskType: "WinPost", TaskID: 123, Cost: 5 * time.Second}.Render()
+	msg := peeringMessagePreemptCost{TaskType: "WinPost", TaskID: 123, Cost: 5 * time.Second}.Render()
 	t.Logf("wire bytes (%d): %q", len(msg), msg)
 
 	err := p.handlePeerMessage("test-peer", them, msg)
@@ -41,7 +41,7 @@ func TestPreemptCostMessage(t *testing.T) {
 
 // TestPreemptCostMessageWireFormat verifies the exact byte layout of preempt cost messages.
 func TestPreemptCostMessageWireFormat(t *testing.T) {
-	msg := messageRenderPreemptCost{TaskType: "WdPost", TaskID: 42, Cost: 3 * time.Second}.Render()
+	msg := peeringMessagePreemptCost{TaskType: "WdPost", TaskID: 42, Cost: 3 * time.Second}.Render()
 	require.Equal(t, byte('c'), msg[0], "first byte should be messageTypePreemptCost")
 	require.Equal(t, byte(':'), msg[1])
 	require.Contains(t, string(msg), "WdPost")
@@ -112,7 +112,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 	}{
 		{
 			name:     "NewTask with retries",
-			render:   func() []byte { return messageRenderNewTask{TaskType: "Seal", TaskID: 100, Retries: 3}.Render() },
+			render:   func() []byte { return peeringMessageNewTask{TaskType: "Seal", TaskID: 100, Retries: 3}.Render() },
 			wantType: "Seal",
 			wantID:   100,
 			wantSrc:  schedulerSourcePeerNewTask,
@@ -120,7 +120,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 		},
 		{
 			name:     "NewTask zero retries",
-			render:   func() []byte { return messageRenderNewTask{TaskType: "SDR", TaskID: 999, Retries: 0}.Render() },
+			render:   func() []byte { return peeringMessageNewTask{TaskType: "SDR", TaskID: 999, Retries: 0}.Render() },
 			wantType: "SDR",
 			wantID:   999,
 			wantSrc:  schedulerSourcePeerNewTask,
@@ -129,7 +129,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 		{
 			name: "TaskSend as NewTask",
 			render: func() []byte {
-				return messageRenderTaskSend{MessageType: messageTypeNewTask, TaskType: "WinPost", TaskID: 7}.Render()
+				return peeringMessageTaskSend{MessageType: messageTypeNewTask, TaskType: "WinPost", TaskID: 7}.Render()
 			},
 			wantType: "WinPost",
 			wantID:   7,
@@ -139,7 +139,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 		{
 			name: "Reserve",
 			render: func() []byte {
-				return messageRenderTaskSend{MessageType: messageTypeReserve, TaskType: "Snap", TaskID: 55}.Render()
+				return peeringMessageTaskSend{MessageType: messageTypeReserve, TaskType: "Snap", TaskID: 55}.Render()
 			},
 			wantType: "Snap",
 			wantID:   55,
@@ -148,7 +148,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 		{
 			name: "Started",
 			render: func() []byte {
-				return messageRenderTaskSend{MessageType: messageTypeStarted, TaskType: "WdPost", TaskID: 12}.Render()
+				return peeringMessageTaskSend{MessageType: messageTypeStarted, TaskType: "WdPost", TaskID: 12}.Render()
 			},
 			wantType: "WdPost",
 			wantID:   12,
@@ -183,7 +183,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 // TestMessageRenderWireFormat verifies the exact byte layout of rendered messages.
 func TestMessageRenderWireFormat(t *testing.T) {
 	t.Run("TaskSend", func(t *testing.T) {
-		msg := messageRenderTaskSend{MessageType: messageTypeReserve, TaskType: "ABC", TaskID: 1}.Render()
+		msg := peeringMessageTaskSend{MessageType: messageTypeReserve, TaskType: "ABC", TaskID: 1}.Render()
 		require.Equal(t, byte('r'), msg[0], "first byte should be message type")
 		require.Equal(t, byte(':'), msg[1])
 		require.Equal(t, "ABC", string(msg[2:5]))
@@ -192,10 +192,10 @@ func TestMessageRenderWireFormat(t *testing.T) {
 	})
 
 	t.Run("NewTask", func(t *testing.T) {
-		msg := messageRenderNewTask{TaskType: "XY", TaskID: 2, Retries: 5}.Render()
+		msg := peeringMessageNewTask{TaskType: "XY", TaskID: 2, Retries: 5, Posted: time.Unix(1, 2).UTC()}.Render()
 		require.Equal(t, byte('t'), msg[0])
 		require.Equal(t, "XY", string(msg[2:4]))
-		require.Len(t, msg, 5+8+2, "header + 8 byte taskID + 2 byte retries")
+		require.Len(t, msg, 5+8+2+8, "header + taskID + retries + posted UnixNano")
 	})
 }
 

@@ -2,6 +2,7 @@ package harmonytask
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"strings"
@@ -176,12 +177,14 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 		if len(parts[2]) >= 10 {
 			retries = int(binary.BigEndian.Uint16(parts[2][8:10]))
 		}
+		postedTime := postedTimeFromNewTaskPayload(p, taskID, taskType, parts[2])
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   taskID,
-			TaskType: taskType,
-			Source:   schedulerSourcePeerNewTask,
-			PeerID:   them.id,
-			Retries:  retries,
+			TaskID:     taskID,
+			TaskType:   taskType,
+			Source:     schedulerSourcePeerNewTask,
+			PeerID:     them.id,
+			Retries:    retries,
+			PostedTime: postedTime,
 		}
 	case messageTypeReserve:
 		p.h.schedulerChannel <- schedulerEvent{
@@ -234,7 +237,16 @@ const (
 )
 
 func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {
-	p.TellOthersMessage(task, messageRenderTaskSend{MessageType: messagetype, TaskType: task, TaskID: tID})
+	if messagetype == messageTypeNewTask {
+		p.TellNewTask(task, tID, 0, time.Now().UTC())
+		return
+	}
+	p.TellOthersMessage(task, peeringMessageTaskSend{MessageType: messagetype, TaskType: task, TaskID: tID})
+}
+
+// TellNewTask notifies peers of a new task including wall time for FIFO scheduling.
+func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted time.Time) {
+	p.TellOthersMessage(task, peeringMessageNewTask{TaskType: task, TaskID: tID, Retries: retries, Posted: posted})
 }
 
 func (p *peering) TellOthersMessage(taskType string, r messageRenderer) {
@@ -255,24 +267,51 @@ type messageRenderer interface {
 	Render() []byte
 }
 
-type messageRenderNewTask struct {
+type peeringMessageNewTask struct {
 	TaskType string
 	TaskID   TaskID
 	Retries  int
+	Posted   time.Time // wall time when the task row was posted; zero encodes as 0 ns for legacy receivers
 }
 
-func (m messageRenderNewTask) Render() []byte {
-	return binary.BigEndian.AppendUint16(
-		binary.BigEndian.AppendUint64(
-			[]byte(fmt.Sprintf("%c:%s:", messageTypeNewTask, m.TaskType)), uint64(m.TaskID)), uint16(m.Retries))
+func (m peeringMessageNewTask) Render() []byte {
+	ns := m.Posted.UnixNano()
+	if ns < 0 {
+		ns = 0
+	}
+	payload := binary.BigEndian.AppendUint64([]byte{}, uint64(m.TaskID))
+	payload = binary.BigEndian.AppendUint16(payload, uint16(m.Retries))
+	payload = binary.BigEndian.AppendUint64(payload, uint64(ns))
+	return append([]byte(fmt.Sprintf("%c:%s:", messageTypeNewTask, m.TaskType)), payload...)
 }
 
-type messageRenderTaskSend struct {
+func postedTimeFromNewTaskPayload(p *peering, taskID TaskID, taskType string, payload []byte) time.Time {
+	if len(payload) >= 18 {
+		ns := int64(binary.BigEndian.Uint64(payload[10:18]))
+		if ns > 0 {
+			return time.Unix(0, ns).UTC()
+		}
+	}
+	ctx := context.Background()
+	if p.h != nil && p.h.ctx != nil {
+		ctx = p.h.ctx
+	}
+	if p.h != nil && p.h.db != nil {
+		var posted time.Time
+		err := p.h.db.QueryRow(ctx, `SELECT posted_time FROM harmony_task WHERE id = $1 AND name = $2`, taskID, taskType).Scan(&posted)
+		if err == nil {
+			return posted.UTC()
+		}
+	}
+	return time.Now().UTC()
+}
+
+type peeringMessageTaskSend struct {
 	MessageType messageType
 	TaskType    string
 	TaskID      TaskID
 }
 
-func (m messageRenderTaskSend) Render() []byte {
+func (m peeringMessageTaskSend) Render() []byte {
 	return binary.BigEndian.AppendUint64([]byte(fmt.Sprintf("%c:%s:", m.MessageType, m.TaskType)), uint64(m.TaskID))
 }

@@ -3,6 +3,7 @@ package harmonytask
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -19,7 +20,8 @@ type schedulerEvent struct {
 	Source   schedulerSource
 	PeerID   int64
 	Retries  int
-	Success  bool // for schedulerSourceTaskCompleted: true = done, false = cancelled/failed
+	PostedTime time.Time // for new-task events; FIFO within a task type
+	Success  bool        // for schedulerSourceTaskCompleted: true = done, false = cancelled/failed
 }
 
 type schedulerSource byte
@@ -47,14 +49,19 @@ type taskSchedule struct {
 
 func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
 	sched.reservedTask = 0
-	if len(sched.hasID) > 0 {
-		for _, t := range sched.hasID {
-			if !t.ReservedElsewhere {
-				sched.reservedTask = t.ID
-				reserveTask(t.ID)
-				break
-			}
+	var best *task
+	for _, t := range sched.hasID {
+		if t.ReservedElsewhere {
+			continue
 		}
+		if best == nil || taskLessByPostedTime(t, *best) {
+			tt := t
+			best = &tt
+		}
+	}
+	if best != nil {
+		sched.reservedTask = best.ID
+		reserveTask(best.ID)
 	}
 }
 
@@ -97,14 +104,22 @@ func (e *TaskEngine) startScheduler() {
 				switch event.Source {
 				case schedulerSourceAdded:
 					if _, ok := availableTasks[event.TaskType]; ok { // we maybe not run this task.
-						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
+						pt := event.PostedTime
+						if pt.IsZero() {
+							pt = time.Now().UTC()
+						}
+						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 							tryStartNow(event.TaskType)
 						} else {
 							bundleCollector(event.TaskType)
 						}
 					}
-					e.peering.TellOthers(messageTypeNewTask, event.TaskType, event.TaskID)
+					pt := event.PostedTime
+					if pt.IsZero() {
+						pt = time.Now().UTC()
+					}
+					e.peering.TellNewTask(event.TaskType, event.TaskID, event.Retries, pt)
 				case schedulerSourcePeerNewTask:
 					t, ok := availableTasks[event.TaskType]
 					if !ok {
@@ -114,7 +129,11 @@ func (e *TaskEngine) startScheduler() {
 						t.choked = true
 						continue
 					}
-					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), Retries: event.Retries}
+					pt := event.PostedTime
+					if pt.IsZero() {
+						pt = time.Now().UTC()
+					}
+					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
 						tryStartNow(event.TaskType)
 					} else {
@@ -271,13 +290,27 @@ func (t taskSourceLocal) GetTasks(taskName string) []task {
 	taskObject := t.availableTasks[taskName]
 	tasks := []task{}
 	if taskObject.reservedTask != 0 {
-		tasks = append(tasks, taskObject.hasID[taskObject.reservedTask])
+		if rt, ok := taskObject.hasID[taskObject.reservedTask]; ok {
+			tasks = append(tasks, rt)
+		}
 	}
-	for taskID, task := range taskObject.hasID {
+	for taskID, tk := range taskObject.hasID {
 		if taskObject.reservedTask == taskID {
 			continue
 		}
-		tasks = append(tasks, task)
+		tasks = append(tasks, tk)
+	}
+	if len(tasks) == 0 {
+		return tasks
+	}
+	if taskObject.reservedTask != 0 && len(tasks) > 1 {
+		sort.Slice(tasks[1:], func(i, j int) bool {
+			return taskLessByPostedTime(tasks[1+i], tasks[1+j])
+		})
+	} else {
+		sort.Slice(tasks, func(i, j int) bool {
+			return taskLessByPostedTime(tasks[i], tasks[j])
+		})
 	}
 	return tasks
 }
@@ -326,7 +359,7 @@ type taskSourceDb struct {
 
 func (t taskSourceDb) GetTasks(taskName string) []task {
 	tasks := []task{}
-	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, retries FROM harmony_task WHERE name = $1 AND owner_id IS NULL LIMIT $2`, taskName, chokePoint+1)
+	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, posted_time, retries FROM harmony_task WHERE name = $1 AND owner_id IS NULL ORDER BY posted_time ASC, id ASC LIMIT $2`, taskName, chokePoint+1)
 	if err != nil {
 		log.Errorw("failed to get tasks from db", "error", err)
 		return nil
@@ -379,4 +412,23 @@ func bundler() (bundler func(string), bundleSleep <-chan string) {
 			t.Reset(bundleCollectionTimeout)
 		}
 	}, output
+}
+
+// taskLessByPostedTime defines FIFO order for the same task type: older posted_time first; unknown
+// posted_time (zero) is treated as newest so DB-backed ordering wins once polled.
+func taskLessByPostedTime(a, b task) bool {
+	aUnk := a.PostedTime.IsZero()
+	bUnk := b.PostedTime.IsZero()
+	switch {
+	case aUnk && bUnk:
+		return a.ID < b.ID
+	case aUnk:
+		return false
+	case bUnk:
+		return true
+	case a.PostedTime.Equal(b.PostedTime):
+		return a.ID < b.ID
+	default:
+		return a.PostedTime.Before(b.PostedTime)
+	}
 }

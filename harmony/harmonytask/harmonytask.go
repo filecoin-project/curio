@@ -229,9 +229,10 @@ func NewWithReg(
 			Name       string
 			UpdateTime time.Time
 			Retries    int
+			PostedTime time.Time `db:"posted_time"`
 		}
 
-		err := db.Select(e.ctx, &taskRet, `SELECT id, name, update_time, retries from harmony_task WHERE owner_id=$1`, e.ownerID)
+		err := db.Select(e.ctx, &taskRet, `SELECT id, name, update_time, retries, posted_time FROM harmony_task WHERE owner_id=$1`, e.ownerID)
 		if err != nil {
 			return nil, err
 		}
@@ -244,7 +245,7 @@ func NewWithReg(
 		for _, w := range taskRet {
 			// edge-case: if old assignments are not available tasks, unlock them.
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(WorkSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
+			if h == nil || !h.considerWork(WorkSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
 				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.ownerID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
@@ -296,6 +297,7 @@ func (e *TaskEngine) GracefullyTerminate() {
 type task struct {
 	ID                TaskID    `db:"id"`
 	UpdateTime        time.Time `db:"update_time"`
+	PostedTime        time.Time `db:"posted_time"`
 	Retries           int       `db:"retries"`
 	ReservedElsewhere bool
 }
@@ -474,11 +476,12 @@ func (e *TaskEngine) RunningCount(name string) int {
 func (e *TaskEngine) AddTaskByName(name string, extra func(TaskID, *harmonydb.Tx) (bool, error)) {
 	var tID TaskID
 	retryWait := time.Millisecond * 100
-retryAddTask:
+	var postedAt time.Time
+	retryAddTask:
 	_, err := e.db.BeginTransaction(e.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// create taskID (from DB)
 		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
-          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id`, name, e.ownerID).Scan(&tID)
+          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id, posted_time`, name, e.ownerID).Scan(&tID, &postedAt)
 		if err != nil {
 			return false, fmt.Errorf("could not insert into harmonyTask: %w", err)
 		}
@@ -508,12 +511,13 @@ retryAddTask:
 
 	// Can this node do this task?
 	if tID > 0 && nil != e.taskMap[name] {
-		go func() {
+		go func(posted time.Time) {
 			e.schedulerChannel <- schedulerEvent{
-				TaskID:   tID,
-				TaskType: name,
-				Source:   schedulerSourceAdded,
+				TaskID:     tID,
+				TaskType:   name,
+				Source:     schedulerSourceAdded,
+				PostedTime: posted,
 			}
-		}()
+		}(postedAt)
 	}
 }
