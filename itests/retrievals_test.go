@@ -336,6 +336,29 @@ func TestRetrievals(t *testing.T) {
 		assertPieceResponseHeaders(t, headers, mk12Fixture.PieceCIDV2.String(), len(mk12Fixture.CarBytes))
 	})
 
+	t.Run("mk12 piece retrieval HEAD by pieceCIDv2", func(t *testing.T) {
+		status, body, headers := httpRequestWithHeaders(t, http.MethodHead, baseURL, "/piece/"+mk12Fixture.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Empty(t, body)
+		assertPieceResponseHeaders(t, headers, mk12Fixture.PieceCIDV2.String(), len(mk12Fixture.CarBytes))
+	})
+
+	t.Run("mk12 piece retrieval range by pieceCIDv2", func(t *testing.T) {
+		rangeStart := 0
+		rangeEnd := 63
+		require.Greater(t, len(mk12Fixture.CarBytes), rangeEnd)
+		status, body, headers := httpRequestWithHeaders(t, http.MethodGet, baseURL, "/piece/"+mk12Fixture.PieceCIDV2.String(), map[string]string{
+			"Range": fmt.Sprintf("bytes=%d-%d", rangeStart, rangeEnd),
+		})
+		require.Equal(t, http.StatusPartialContent, status)
+
+		expected := mk12Fixture.CarBytes[rangeStart : rangeEnd+1]
+		require.Equal(t, expected, body)
+		require.Equal(t, fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, len(mk12Fixture.CarBytes)), headers.Get("Content-Range"))
+		require.Equal(t, strconv.Itoa(len(expected)), headers.Get("Content-Length"))
+		require.Equal(t, "bytes", headers.Get("Accept-Ranges"))
+	})
+
 	t.Run("ipfs style retrieval", func(t *testing.T) {
 		status, body, headers := httpGetWithHeaders(t, baseURL, "/ipfs/"+mk12Fixture.RootCID.String(), map[string]string{
 			"Accept": "application/vnd.ipld.car",
@@ -722,7 +745,9 @@ func assertPieceResponseHeaders(t *testing.T, headers http.Header, pieceCID stri
 
 	require.Equal(t, "Accept-Encoding", headers.Get("Vary"))
 	require.Equal(t, "public, max-age=29030400, immutable", headers.Get("Cache-Control"))
-	require.Equal(t, pieceCID, headers.Get("Etag"))
+	etag := headers.Get("Etag")
+	require.NotEmpty(t, etag)
+	require.True(t, etag == pieceCID || etag == fmt.Sprintf(`"%s"`, pieceCID), "unexpected ETag header %q", etag)
 	require.Equal(t, strconv.Itoa(expectedBodyLen), headers.Get("Content-Length"))
 	require.NotEmpty(t, headers.Get("Content-Type"))
 	require.Equal(t, "bytes", headers.Get("Accept-Ranges"))
@@ -744,7 +769,13 @@ func httpGet(t *testing.T, baseURL, path string, headers map[string]string) (int
 func httpGetWithHeaders(t *testing.T, baseURL, path string, headers map[string]string) (int, []byte, http.Header) {
 	t.Helper()
 
-	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	return httpRequestWithHeaders(t, http.MethodGet, baseURL, path, headers)
+}
+
+func httpRequestWithHeaders(t *testing.T, method, baseURL, path string, headers map[string]string) (int, []byte, http.Header) {
+	t.Helper()
+
+	req, err := http.NewRequest(method, baseURL+path, nil)
 	require.NoError(t, err)
 	req.Header.Set("Accept-Encoding", "identity")
 	for k, v := range headers {
