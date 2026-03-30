@@ -3,8 +3,7 @@
 ## Summary
 
 Replaces the polling-only task scheduler with an event-driven scheduler that
-uses peer-to-peer RPC to notify other nodes about new tasks, reservations,
-and work starts. Removes the `Follows` mechanism in favor of explicit
+uses peer-to-peer RPC to notify other nodes about new tasks and work starts. Removes the `Follows` mechanism in favor of explicit
 `AddTaskByName` calls. Adds integration tests for the scheduler and peering.
 
 ### Key changes
@@ -16,7 +15,7 @@ and work starts. Removes the `Follows` mechanism in favor of explicit
   configurable interval.
 - **Peering layer** (`peering.go`): on startup, each node connects to all
   known `harmony_machines` peers, performs an identity + capability handshake,
-  then exchanges binary task messages (`new`, `reserve`, `started`).
+  then exchanges binary task messages (`new`, `started`, preempt cost).
 - **PeerHTTP transport** (`lib/harmony_peer_http/`): HTTP POST based peer
   communication mounted at `/peer/v1`. Each message is a single POST with
   `X-Peer-ID` header.

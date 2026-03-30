@@ -186,13 +186,6 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			Retries:    retries,
 			PostedTime: postedTime,
 		}
-	case messageTypeReserve:
-		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   taskID,
-			TaskType: taskType,
-			Source:   schedulerSourcePeerReserved,
-			PeerID:   them.id,
-		}
 	case messageTypeStarted:
 		p.h.schedulerChannel <- schedulerEvent{
 			TaskID:   taskID,
@@ -230,7 +223,6 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 type messageType byte
 
 const (
-	messageTypeReserve     messageType = 'r'
 	messageTypeNewTask     messageType = 't'
 	messageTypeStarted     messageType = 's'
 	messageTypePreemptCost messageType = 'c'

@@ -295,11 +295,10 @@ func (e *TaskEngine) GracefullyTerminate() {
 }
 
 type task struct {
-	ID                TaskID    `db:"id"`
-	UpdateTime        time.Time `db:"update_time"`
-	PostedTime        time.Time `db:"posted_time"`
-	Retries           int       `db:"retries"`
-	ReservedElsewhere bool
+	ID         TaskID    `db:"id"`
+	UpdateTime time.Time `db:"update_time"`
+	PostedTime time.Time `db:"posted_time"`
+	Retries    int       `db:"retries"`
 }
 
 // pollerTryAllWork attempts to start tasks from the given taskSource.

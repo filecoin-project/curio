@@ -30,7 +30,6 @@ const (
 	schedulerSourceAdded schedulerSource = iota
 	schedulerSourcePeerNewTask
 	schedulerSourcePeerStarted
-	schedulerSourcePeerReserved // FUTURE PR: schedulerSourcePeerReserved
 	schedulerSourceTaskCompleted
 	schedulerSourceTaskStarted
 	schedulerSourceInitialPoll
@@ -44,25 +43,6 @@ type taskSchedule struct {
 	hasID  map[TaskID]task
 	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
 	// In this state, we try what we have, and go to DB if we need more.
-	reservedTask TaskID // This will be ran when resources are available. 0 for none.
-}
-
-func (sched *taskSchedule) ReserveNext(reserveTask func(TaskID)) {
-	sched.reservedTask = 0
-	var best *task
-	for _, t := range sched.hasID {
-		if t.ReservedElsewhere {
-			continue
-		}
-		if best == nil || taskLessByPostedTime(t, *best) {
-			tt := t
-			best = &tt
-		}
-	}
-	if best != nil {
-		sched.reservedTask = best.ID
-		reserveTask(best.ID)
-	}
 }
 
 func (e *TaskEngine) startScheduler() {
@@ -85,14 +65,8 @@ func (e *TaskEngine) startScheduler() {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
 		tryStartNow := func(taskName string) {
-			shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
-			if err != nil {
+			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel}); err != nil {
 				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
-				return
-			}
-			if shouldReserve != 0 {
-				availableTasks[taskName].reservedTask = shouldReserve
-				e.peering.TellOthers(messageTypeReserve, taskName, shouldReserve)
 			}
 		}
 		for {
@@ -142,11 +116,6 @@ func (e *TaskEngine) startScheduler() {
 				case schedulerSourceTaskStarted:
 					avail := availableTasks[event.TaskType]
 					delete(avail.hasID, event.TaskID)
-					if avail.reservedTask == event.TaskID && e.taskMap[event.TaskType].TimeSensitive { // FUTURE: "stress" reservations will not reserve the next task.
-						avail.ReserveNext(func(taskID TaskID) {
-							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
-						})
-					}
 					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
 				case schedulerSourcePeerStarted:
 					avail, ok := availableTasks[event.TaskType]
@@ -154,29 +123,11 @@ func (e *TaskEngine) startScheduler() {
 						continue
 					}
 					delete(avail.hasID, event.TaskID)
-					if avail.reservedTask == event.TaskID {
-						avail.ReserveNext(func(taskID TaskID) {
-							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
-						})
-					}
 				case schedulerSourceTaskCompleted:
 					err := e.waterfall(taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
 					if err != nil {
 						log.Errorw("failed to full waterfall", "error", err)
 						continue
-					}
-				case schedulerSourcePeerReserved: // FUTURE: apply and respect reservations for anti-starve common tasks.
-					avail, ok := availableTasks[event.TaskType]
-					if !ok {
-						continue
-					}
-					if event.PeerID > int64(e.ownerID) && avail.reservedTask == event.TaskID {
-						t := avail.hasID[event.TaskID]
-						t.ReservedElsewhere = true
-						avail.hasID[event.TaskID] = t
-						avail.ReserveNext(func(taskID TaskID) {
-							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
-						})
 					}
 				case schedulerSourceStartTimeSensitive:
 					h := e.taskMap[event.TaskType]
@@ -217,10 +168,9 @@ func (e *TaskEngine) startScheduler() {
 
 type taskSource interface {
 	GetTasks(taskName string) []task
-	ReserveTask(taskName string, taskID TaskID)
 }
 
-func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
+func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) error {
 
 	h := e.taskMap[taskName]
 	if h != nil && h.TimeSensitive {
@@ -235,15 +185,15 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 		err := e.waterfall(taskSource, eventEmitter)
 		if err != nil {
 			log.Errorw("failed to try waterfall", "error", err)
-			return 0, err
+			return err
 		}
 	}
 
-	return 0, nil
+	return nil
 }
 
 // Waterfall is the main function that will start tasks.
-// It will start tasks from the taskSource and reserve tasks as we go.
+// It will start tasks from the taskSource.
 // It must be called only by the scheduler.
 func (e *TaskEngine) waterfall(taskSource taskSource, eventEmitter eventEmitter) error {
 
@@ -288,36 +238,17 @@ type taskSourceLocal struct {
 
 func (t taskSourceLocal) GetTasks(taskName string) []task {
 	taskObject := t.availableTasks[taskName]
-	tasks := []task{}
-	if taskObject.reservedTask != 0 {
-		if rt, ok := taskObject.hasID[taskObject.reservedTask]; ok {
-			tasks = append(tasks, rt)
-		}
-	}
-	for taskID, tk := range taskObject.hasID {
-		if taskObject.reservedTask == taskID {
-			continue
-		}
+	tasks := make([]task, 0, len(taskObject.hasID))
+	for _, tk := range taskObject.hasID {
 		tasks = append(tasks, tk)
 	}
 	if len(tasks) == 0 {
 		return tasks
 	}
-	if taskObject.reservedTask != 0 && len(tasks) > 1 {
-		sort.Slice(tasks[1:], func(i, j int) bool {
-			return taskLessByPostedTime(tasks[1+i], tasks[1+j])
-		})
-	} else {
-		sort.Slice(tasks, func(i, j int) bool {
-			return taskLessByPostedTime(tasks[i], tasks[j])
-		})
-	}
+	sort.Slice(tasks, func(i, j int) bool {
+		return taskLessByPostedTime(tasks[i], tasks[j])
+	})
 	return tasks
-}
-
-func (t taskSourceLocal) ReserveTask(taskName string, taskID TaskID) {
-	t.availableTasks[taskName].reservedTask = taskID
-	t.peering.TellOthers(messageTypeReserve, taskName, taskID)
 }
 
 // Emits are called from other threads, so we cannot change t.availableTasks.
@@ -364,25 +295,15 @@ func (t taskSourceDb) GetTasks(taskName string) []task {
 		log.Errorw("failed to get tasks from db", "error", err)
 		return nil
 	}
-	previousReservedTask := t.availableTasks[taskName].reservedTask
 	newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
 		return t.ID, t
 	})
-	if _, ok := newHas[previousReservedTask]; !ok {
-		previousReservedTask = 0
-	}
 	t.availableTasks[taskName] = &taskSchedule{
-		hasID:        newHas,
-		choked:       len(tasks) > chokePoint,
-		reservedTask: previousReservedTask,
+		hasID:  newHas,
+		choked: len(tasks) > chokePoint,
 	}
 
 	return tasks
-}
-
-func (t taskSourceDb) ReserveTask(taskName string, taskID TaskID) {
-	t.availableTasks[taskName].reservedTask = taskID
-	t.peering.TellOthers(messageTypeReserve, taskName, taskID)
 }
 
 const bundleCollectionTimeout = time.Millisecond * 10

@@ -137,15 +137,6 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 			wantRet:  0,
 		},
 		{
-			name: "Reserve",
-			render: func() []byte {
-				return peeringMessageTaskSend{MessageType: messageTypeReserve, TaskType: "Snap", TaskID: 55}.Render()
-			},
-			wantType: "Snap",
-			wantID:   55,
-			wantSrc:  schedulerSourcePeerReserved,
-		},
-		{
 			name: "Started",
 			render: func() []byte {
 				return peeringMessageTaskSend{MessageType: messageTypeStarted, TaskType: "WdPost", TaskID: 12}.Render()
@@ -183,8 +174,8 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 // TestMessageRenderWireFormat verifies the exact byte layout of rendered messages.
 func TestMessageRenderWireFormat(t *testing.T) {
 	t.Run("TaskSend", func(t *testing.T) {
-		msg := peeringMessageTaskSend{MessageType: messageTypeReserve, TaskType: "ABC", TaskID: 1}.Render()
-		require.Equal(t, byte('r'), msg[0], "first byte should be message type")
+		msg := peeringMessageTaskSend{MessageType: messageTypeStarted, TaskType: "ABC", TaskID: 1}.Render()
+		require.Equal(t, byte('s'), msg[0], "first byte should be message type")
 		require.Equal(t, byte(':'), msg[1])
 		require.Equal(t, "ABC", string(msg[2:5]))
 		require.Equal(t, byte(':'), msg[5])
@@ -270,7 +261,7 @@ func TestTellOthersDelivery(t *testing.T) {
 	})
 
 	t.Run("UnicastToSubset", func(t *testing.T) {
-		p.TellOthers(messageTypeReserve, "TaskB", TaskID(88))
+		p.TellOthers(messageTypeStarted, "TaskB", TaskID(88))
 		time.Sleep(50 * time.Millisecond)
 
 		msg2, err := remote2.ReceiveMessage()
@@ -283,7 +274,7 @@ func TestTellOthersDelivery(t *testing.T) {
 		ev := <-ch
 		require.Equal(t, "TaskB", ev.TaskType)
 		require.Equal(t, TaskID(88), ev.TaskID)
-		require.Equal(t, schedulerSourcePeerReserved, ev.Source)
+		require.Equal(t, schedulerSourcePeerStarted, ev.Source)
 
 		select {
 		case msg := <-remote1.recvCh:
