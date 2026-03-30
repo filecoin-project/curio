@@ -68,6 +68,11 @@ type TaskTypeDetails struct {
 
 	// Should block shutdown until completion..
 	TimeSensitive bool
+
+	// May Follow is a list of task names whose completion may trigger this task to be scheduled.
+	// This does not cause triggering, instead it reduces pipeline latency.
+	// Longest paths' end are ran earliest when the oldest task is in that pipeline.
+	MayFollow []string
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -476,7 +481,7 @@ func (e *TaskEngine) AddTaskByName(name string, extra func(TaskID, *harmonydb.Tx
 	var tID TaskID
 	retryWait := time.Millisecond * 100
 	var postedAt time.Time
-	retryAddTask:
+retryAddTask:
 	_, err := e.db.BeginTransaction(e.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// create taskID (from DB)
 		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
