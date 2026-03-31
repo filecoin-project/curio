@@ -74,17 +74,18 @@ func (t *TaskClientUpload) adderSnap(add harmonytask.AddTaskFunc) {
 
 				// claim [sectors] pipeline entries
 				var sectors []struct {
-					SpID         int64         `db:"sp_id"`
-					SectorNumber int64         `db:"sector_number"`
-					TaskIDProve  sql.NullInt64 `db:"task_id_prove"`
+					SpID            int64         `db:"sp_id"`
+					SectorNumber    int64         `db:"sector_number"`
+					TaskIDProve     sql.NullInt64 `db:"task_id_prove"`
+					UpdateSealedCid string        `db:"update_sealed_cid"`
 				}
 
 				cutoffTime := time.Now().Add(-time.Duration(minPendingSeconds) * time.Second)
 				log.Infow("TaskClientUpload.adderSnap() querying for sectors with cutoff time", "cutoffTime", cutoffTime)
 
-				err = tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_prove FROM sectors_snap_pipeline
-												LEFT JOIN harmony_task ht on sectors_snap_pipeline.task_id_prove = ht.id
-												WHERE after_prove = FALSE AND task_id_prove IS NOT NULL AND ht.owner_id IS NULL AND ht.name = 'UpdateProve' AND ht.posted_time < $1 LIMIT 1`, cutoffTime)
+				err = tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_prove, update_sealed_cid FROM sectors_snap_pipeline
+											LEFT JOIN harmony_task ht on sectors_snap_pipeline.task_id_prove = ht.id
+											WHERE after_prove = FALSE AND task_id_prove IS NOT NULL AND ht.owner_id IS NULL AND ht.name = 'UpdateProve' AND ht.posted_time < $1 LIMIT 1`, cutoffTime)
 				if err != nil {
 					log.Errorw("TaskClientUpload.adderSnap() failed to query sectors", "error", err)
 					return false, xerrors.Errorf("getting tasks: %w", err)
@@ -117,13 +118,25 @@ func (t *TaskClientUpload) adderSnap(add harmonytask.AddTaskFunc) {
 					}
 				}
 
+				// Remove any stale requests for this sector with a different sealed CID
+				// (CommR changed due to retry with new data)
+				_, err = tx.Exec(`
+				DELETE FROM proofshare_client_requests
+				WHERE sp_id = $1 AND sector_num = $2 AND request_type = 'snap' AND sealed_cid != $3
+			`, sectors[0].SpID, sectors[0].SectorNumber, sectors[0].UpdateSealedCid)
+				if err != nil {
+					log.Errorw("TaskClientUpload.adderSnap() failed to delete stale proofshare_client_requests", "error", err, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)
+					return false, xerrors.Errorf("failed to delete stale proofshare_client_requests: %w", err)
+				}
+
 				// Insert proofshare_client_requests
 				// NOTE: the on-conflict spec allows the task to be retried in the sector-pipeline, essentially making the proofshare task/pipeline idempotent
+				// The sealed_cid (CommR) is included in the idempotency key so that retries with different data generate new proofs
 				_, err = tx.Exec(`
-					INSERT INTO proofshare_client_requests (sp_id, sector_num, request_type, task_id_upload, request_partition_cost, created_at)
-					VALUES ($1, $2, 'snap', $3, 16, current_timestamp)
-					ON CONFLICT (sp_id, sector_num, request_type) DO UPDATE SET task_id_upload = $3, done = false
-				`, sectors[0].SpID, sectors[0].SectorNumber, taskID)
+				INSERT INTO proofshare_client_requests (sp_id, sector_num, request_type, sealed_cid, task_id_upload, request_partition_cost, created_at)
+				VALUES ($1, $2, 'snap', $3, $4, 16, current_timestamp)
+				ON CONFLICT (sp_id, sector_num, request_type, sealed_cid) DO UPDATE SET task_id_upload = $4, done = false
+			`, sectors[0].SpID, sectors[0].SectorNumber, sectors[0].UpdateSealedCid, taskID)
 				if err != nil {
 					log.Errorw("TaskClientUpload.adderSnap() failed to insert proofshare_client_requests", "error", err, "taskID", taskID, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)
 					return false, xerrors.Errorf("failed to insert proofshare_client_requests: %w", err)

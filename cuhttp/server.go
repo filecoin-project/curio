@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -69,7 +70,7 @@ func secureHeaders(csp string) func(http.Handler) http.Handler {
 func corsHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
 		// Expose Location header for PDP Piece upload
 		w.Header().Set("Access-Control-Expose-Headers", "Location")
@@ -157,6 +158,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders(cfg.CSP))
 	chiRouter.Use(corsHeaders) // allows market calls from other domains
+
+	corsOrigin := "https://" + cfg.DomainName
+	if devURL := os.Getenv("DEV_CURIO_EXTERNAL_URL"); devURL != "" {
+		corsOrigin = devURL
+	}
+	chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{corsOrigin})))
 
 	// Set up the compression middleware with custom compression levels
 	compressionMw, err := compressionMiddleware(&cfg.CompressionLevels)

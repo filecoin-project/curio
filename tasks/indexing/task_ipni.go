@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"strings"
 	"time"
 
@@ -19,8 +17,6 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -28,13 +24,13 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -345,19 +341,12 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		{
-			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
+			u, err := urlhelper.GetExternalURL(&I.cfg.HTTP)
 			if err != nil {
-				return false, xerrors.Errorf("parsing announce address domain: %w", err)
-			}
-			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-				ls := strings.Split(I.cfg.HTTP.ListenAddress, ":")
-				u, err = url.Parse(fmt.Sprintf("http://%s:%s", I.cfg.HTTP.DomainName, ls[1]))
-				if err != nil {
-					return false, xerrors.Errorf("parsing announce address domain: %w", err)
-				}
+				return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
 			}
 
-			addr, err := FromURLWithPort(u)
+			addr, err := urlhelper.FromURLWithPort(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
@@ -674,66 +663,3 @@ func (I *IPNITask) GetSpid(db *harmonydb.DB, taskID int64) string {
 
 var _ = harmonytask.Reg(&IPNITask{})
 var _ harmonytask.TaskInterface = &IPNITask{}
-
-func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
-	h := u.Hostname()
-	var addr *multiaddr.Multiaddr
-	if n := net.ParseIP(h); n != nil {
-		ipAddr, err := manet.FromIP(n)
-		if err != nil {
-			return nil, err
-		}
-		addr = &ipAddr
-	} else {
-		// domain name
-		ma, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_DNS).Name, h)
-		if err != nil {
-			return nil, err
-		}
-		mab := multiaddr.Cast(ma.Bytes())
-		addr = &mab
-	}
-	pv := u.Port()
-	if pv != "" {
-		port, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, pv)
-		if err != nil {
-			return nil, err
-		}
-		wport := multiaddr.Join(*addr, port)
-		addr = &wport
-	} else {
-		// default ports for http and https
-		var port *multiaddr.Component
-		var err error
-		switch u.Scheme {
-		case "http":
-			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "80")
-			if err != nil {
-				return nil, err
-			}
-		case "https":
-			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "443")
-		}
-		if err != nil {
-			return nil, err
-		}
-		wport := multiaddr.Join(*addr, port)
-		addr = &wport
-	}
-
-	http, err := multiaddr.NewComponent(u.Scheme, "")
-	if err != nil {
-		return nil, err
-	}
-
-	joint := multiaddr.Join(*addr, http)
-	if u.Path != "" {
-		httppath, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_HTTP_PATH).Name, url.PathEscape(u.Path))
-		if err != nil {
-			return nil, err
-		}
-		joint = multiaddr.Join(joint, httppath)
-	}
-
-	return joint, nil
-}

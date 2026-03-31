@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"io"
 	"math/big"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/oklog/ulid"
@@ -20,6 +20,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-keccak"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -27,6 +28,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -35,13 +37,14 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
 
 const LeafSize = proof.NODE_SIZE
 
 type ProveTask struct {
 	db        *harmonydb.DB
-	ethClient *ethclient.Client
+	ethClient ethchain.EthClient
 	sender    *message.SenderETH
 	cpr       *cachedreader.CachedPieceReader
 	fil       ProveTaskChainApi
@@ -57,7 +60,7 @@ type ProveTaskChainApi interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)                                                                              //perm:read
 }
 
-func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *ProveTask {
+func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient ethchain.EthClient, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
@@ -391,9 +394,9 @@ type cprPieceReader struct {
 	cpr *cachedreader.CachedPieceReader
 }
 
-func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, abi.UnpaddedPieceSize, error) {
+func (r *cprPieceReader) GetPieceReader(ctx context.Context, pieceCid cid.Cid) (proof.SectionReadCloser, uint64, error) {
 	rdr, size, err := r.cpr.GetSharedPieceReader(ctx, pieceCid, false)
-	return rdr, abi.UnpaddedPieceSize(size), err
+	return rdr, size, err
 }
 
 // idxProofCache adapts IndexStore to the proof.ProofCache interface.
@@ -452,20 +455,19 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 	if pi.RawSize >= MinSizeForCache {
 		cachedProof, cacheErr := proof.GenerateCachedProof(ctx, &cprPieceReader{cpr: p.cpr}, &idxProofCache{idx: p.idx}, pcid, challengedLeaf)
 		if cacheErr != nil {
-			log.Warnw("cached proof generation failed, falling back to full memtree", "piece", pcid, "error", cacheErr)
-		} else if cachedProof == nil {
+			log.Errorw("cached proof generation failed", "piece", pcid, "error", cacheErr)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate cached proof: %w", cacheErr)
+		}
+		if cachedProof == nil {
 			log.Warnw("no proving cache found, triggering save cache", "piece", pcid)
 			if scErr := p.startSaveCache(ctx, dealID); scErr != nil {
 				return contract.IPDPTypesProof{}, xerrors.Errorf("failed to start save cache task: %w", scErr)
 			}
-		} else {
-			mProof = cachedProof
+			return contract.IPDPTypesProof{}, xerrors.Errorf("no proving cache found")
 		}
-	}
-
-	// Full memtree fallback for small pieces or when cache is unavailable
-	if mProof == nil {
-		reader, _, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
+		mProof = cachedProof
+	} else {
+		reader, rawSize, err := p.cpr.GetSharedPieceReader(ctx, pcid, false)
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
 		}
@@ -473,7 +475,23 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 			_ = reader.Close()
 		}()
 
-		memTree, err := proof.BuildSha254Memtree(reader, pi.Size.Unpadded())
+		if rawSize != pi.RawSize {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("piece size mismatch: expected %d, got %d", pi.RawSize, rawSize)
+		}
+
+		if padreader.PaddedSize(rawSize).Padded() != pi.Size {
+			return contract.IPDPTypesProof{}, xerrors.Errorf("piece size mismatch: expected %d, got %d", pi.Size, padreader.PaddedSize(rawSize))
+		}
+
+		var r io.Reader = reader
+
+		// Pad the reader to .Unpadded() bytes
+		if rawSize < uint64(pi.Size.Unpadded()) {
+			// pad with zeros
+			r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(uint64(pi.Size.Unpadded())-rawSize)))
+		}
+
+		memTree, err := proof.BuildSha254Memtree(r, pi.Size.Unpadded())
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}

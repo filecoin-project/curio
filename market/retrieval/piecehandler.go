@@ -46,7 +46,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get a reader over the piece
-	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid, true)
+	reader, _, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid, true)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
 		if errors.Is(err, cachedreader.ErrNoDeal) {
@@ -72,17 +72,19 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, pieceCid, contentType, int64(size))
-	serveContent(w, r, reader)
+	setHeaders(w, pieceCid, contentType)
+
+	// Note that the last modified time is a constant value because the data
+	// in a piece identified by a cid will never change.
+	http.ServeContent(w, r, "", lastModified, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 
 }
 
-func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string, size int64) {
+func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
 	w.Header().Set("Vary", "Accept-Encoding")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
 	w.Header().Set("Content-Type", contentType)
 	if contentType != "application/octet-stream" {
@@ -95,20 +97,5 @@ func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string, siz
 				fmt.Sprintf(`inline; filename="%s"; filename*=UTF-8''%s`, filename, encoded))
 		}
 	}
-	w.Header().Set("Etag", pieceCid.String())
-
-}
-
-func serveContent(res http.ResponseWriter, req *http.Request, content io.ReadSeeker) {
-	// Note that the last modified time is a constant value because the data
-	// in a piece identified by a cid will never change.
-
-	if req.Method == http.MethodHead {
-		// For an HTTP HEAD request ServeContent doesn't send any data (just headers)
-		http.ServeContent(res, req, "", time.Time{}, nil)
-		return
-	}
-
-	// Send the content
-	http.ServeContent(res, req, "", lastModified, content)
+	w.Header().Set("ETag", fmt.Sprintf(`"%s"`, pieceCid.String()))
 }
