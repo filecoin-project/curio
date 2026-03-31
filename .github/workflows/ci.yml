@@ -196,24 +196,30 @@ jobs:
             target: "`go list ./... | grep -v curio/itests`"
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
+          - name: test-itest-batching
+            target: "./itests/batching_test.go"
           - name: test-itest-curio
             target: "./itests/curio_test.go"
+          - name: test-itest-deal-e2e
+            target: "./itests/deal_e2e_test.go"
           - name: test-itest-dynamic-config
             target: "./itests/dyncfg_test.go"
           - name: test-itest-harmonyDB
             target: "./itests/harmonydb_test.go"
-          - name: test-itest-market-dynamic-config
-            target: "./itests/market_deal_dynamic_test.go"
+          - name: test-itest-park-piece
+            target: "./itests/park_piece_test.go"
           - name: test-itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
+          - name: test-itest-pieces-unseal
+            target: "./itests/pieces_unseal_test.go"
           - name: test-itest-retrievals-test
             target: "./itests/retrievals_test.go"
           - name: test-itest-sql-idempotent-test
             target: "./itests/sql_idempotent_test.go"
+          - name: test-itest-timestamp-tz
+            target: "./itests/timestamp_tz_test.go"
           - name: test-itest-transaction-db-usage
             target: "./itests/transaction_db_usage_test.go"
-          - name: test-itest-pieces-unseal
-            target: "./itests/pieces_unseal_test.go"
     steps:
       - uses: actions/checkout@v4
 
