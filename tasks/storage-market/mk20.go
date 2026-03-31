@@ -651,11 +651,12 @@ func (d *CurioStorageDealMarket) processMk20Pieces(ctx context.Context, piece MK
 // If the pieces are part of an aggregation deal then we download for short term otherwise,
 // we download for long term to avoid the need to have unsealed copy
 func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK20PipelinePiece) error {
-	n, err := d.db.Exec(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1)
+	var n int
+	err := d.db.QueryRow(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1).Scan(&n)
 	if err != nil {
-		log.Errorf("failed to mark PDP downloaded piece: %v", err)
+		log.Errorf("failed to mark DDO downloaded piece: %v", err)
 	}
-	log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
+	log.Debugf("Successfully marked %d pieces as downloaded", n)
 
 	//if !piece.Downloaded && piece.Started {
 	//	_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
