@@ -184,8 +184,7 @@ func (t *TaskRequestProofs) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.T
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskRequestProofs) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// This is a singleton task which runs essentially as long as it needs
 	// until the queue gains high water mark.

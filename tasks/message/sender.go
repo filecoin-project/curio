@@ -81,8 +81,7 @@ type SendTask struct {
 	db *harmonydb.DB
 }
 
-func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.TODO()
+func (s *SendTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// get message from db
 
@@ -265,7 +264,6 @@ func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 20,
 		},
 		MaxFailures: 1000,
-		Follows:     nil,
 		RetryWait: func(retries int) time.Duration {
 			return min(time.Second*time.Duration(retries), time.Second*10)
 		},

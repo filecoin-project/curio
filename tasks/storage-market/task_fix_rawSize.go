@@ -35,8 +35,7 @@ func NewFixRawSize(db *harmonydb.DB, sc *ffi.SealCalls, pieceProvider *pieceprov
 	}
 }
 
-func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (f *FixRawSize) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var id, pieceCidStr string
 	var spID, sectorNumer, pieceOffset, pieceSize, proof int64

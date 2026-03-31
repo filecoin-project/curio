@@ -42,8 +42,7 @@ func (t *TaskAutosettle) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 	return ids, nil
 }
 
-func (t *TaskAutosettle) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskAutosettle) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// 1. check that autosettle is enabled
 	var enabled bool

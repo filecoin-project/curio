@@ -97,8 +97,7 @@ type Payment struct {
 }
 
 // Do implements harmonytask.TaskInterface.
-func (t *TaskClientSend) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TaskClientSend) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// get our wallet id
 	var walletID int64

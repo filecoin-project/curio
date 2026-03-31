@@ -63,8 +63,7 @@ func NewPSDTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sender *message.Se
 	}
 }
 
-func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (p *PSDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var bdeals []struct {
 		Prop  json.RawMessage `db:"proposal"`

@@ -96,10 +96,10 @@ func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier st
 	return t
 }
 
-func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *WinPostTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WinPostTask.Do()", "taskID", taskID)
 
-	ctx := deps.OnSingleNode(context.Background())
+	ctx = deps.OnSingleNode(ctx)
 
 	type BlockCID struct {
 		CID string

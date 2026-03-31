@@ -87,14 +87,12 @@ func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	return t, nil
 }
 
-func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (w *WdPostRecoverDeclareTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WdPostRecoverDeclareTask.Do()", "taskID", taskID)
-	ctx := context.Background()
 
 	var spID, pps, dlIdx, partIdx uint64
 
-	err = w.db.QueryRow(context.Background(),
-		`Select sp_id, proving_period_start, deadline_index, partition_index
+	err = w.db.QueryRow(ctx, `Select sp_id, proving_period_start, deadline_index, partition_index
 			from wdpost_recovery_tasks 
 			where task_id = $1`, taskID).Scan(
 		&spID, &pps, &dlIdx, &partIdx,
@@ -104,7 +102,7 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 		return false, err
 	}
 
-	head, err := w.api.ChainHead(context.Background())
+	head, err := w.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("WdPostRecoverDeclareTask.Do() failed to get chain head: %v", err)
 		return false, err
@@ -123,7 +121,7 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 		return false, err
 	}
 
-	partitions, err := w.api.StateMinerPartitions(context.Background(), maddr, dlIdx, head.Key())
+	partitions, err := w.api.StateMinerPartitions(ctx, maddr, dlIdx, head.Key())
 	if err != nil {
 		log.Errorf("WdPostRecoverDeclareTask.Do() failed to get partitions: %v", err)
 		return false, err

@@ -42,7 +42,7 @@ func NewStorageEndpointGC(si paths.SectorIndex, remote *paths.Remote, db *harmon
 	}
 }
 
-func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (s *StorageEndpointGC) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	/*
 		1. Get all storage paths + urls (endpoints)
 		2. Ping each url, record results
@@ -51,8 +51,6 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		4.2 Remove storage paths with no URLs remaining
 		4.2.1 in the same transaction remove sector refs to the dead path
 	*/
-
-	ctx := context.Background()
 
 	var pathRefs []struct {
 		StorageID     storiface.ID `db:"storage_id"`

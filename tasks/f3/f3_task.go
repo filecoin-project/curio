@@ -66,9 +66,9 @@ func NewF3Task(db *harmonydb.DB, api F3ParticipationAPI, actors *config.Dynamic[
 	}
 }
 
-func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (f *F3Task) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Ensure that all chain calls are made on the same node (the first call will determine the node)
-	ctx := deps.OnSingleNode(context.Background())
+	ctx = deps.OnSingleNode(ctx)
 
 	var spID int64
 	err = f.db.QueryRow(ctx, "SELECT sp_id FROM f3_tasks WHERE task_id = $1", taskID).Scan(&spID)

@@ -38,8 +38,7 @@ func NewSyntheticProofTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls, 
 	}
 }
 
-func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SyntheticProofTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -213,7 +212,6 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 5,
-		Follows:     nil,
 	}
 
 	return res

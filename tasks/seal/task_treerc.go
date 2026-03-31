@@ -39,8 +39,7 @@ func NewTreeRCTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTree
 	}
 }
 
-func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *TreeRCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -169,7 +168,6 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTSealed, storiface.FTCache, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 3,
-		Follows:     nil,
 	}
 }
 

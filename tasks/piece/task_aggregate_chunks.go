@@ -39,8 +39,7 @@ func NewAggregateChunksTask(db *harmonydb.DB, remote *paths.Remote, sc *ffi.Seal
 	}
 }
 
-func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (a *AggregateChunksTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var chunks []struct {
 		ID    string `db:"id"`

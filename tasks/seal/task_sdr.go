@@ -63,8 +63,7 @@ func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls
 	}
 }
 
-func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (s *SDRTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var sectorParamsArr []struct {
 		SpID         int64                   `db:"sp_id"`
@@ -198,7 +197,6 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
-		Follows:     nil,
 	}
 
 	if IsDevnet {

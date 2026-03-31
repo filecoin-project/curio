@@ -38,14 +38,12 @@ func NewMoveStorageTask(sp *SealPoller, sc *ffi2.SealCalls, db *harmonydb.DB, ma
 	}
 }
 
-func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
 		RegSealProof int64 `db:"reg_seal_proof"`
 	}
-
-	ctx := context.Background()
 
 	err = m.db.Select(ctx, &tasks, `
 		SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID)

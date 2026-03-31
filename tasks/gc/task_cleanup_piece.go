@@ -36,11 +36,9 @@ func NewPieceCleanupTask(db *harmonydb.DB, indexStore *indexstore.IndexStore) *P
 	}
 }
 
-func (p *PieceCleanupTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (p *PieceCleanupTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// TODO: Plug this into PoRep 1.2 and 2.0 clean up as well
 	// TODO: Remove Deal from MK12 and Mk20?
-
-	ctx := context.Background()
 
 	var tasks []struct {
 		ID       string        `db:"id"`

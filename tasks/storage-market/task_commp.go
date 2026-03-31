@@ -50,8 +50,7 @@ func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCall
 	}
 }
 
-func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (c *CommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	var pieces []struct {
 		Pcid      string          `db:"piece_cid"`
