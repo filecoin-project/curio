@@ -13,10 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	lru "github.com/hashicorp/golang-lru/arc/v2"
 	blocks "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
-	ipld "github.com/ipld/go-ipld-prime"
+	"github.com/ipld/go-ipld-prime"
 	"github.com/snadrus/must"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -24,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/market/denylist"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 
@@ -59,11 +59,16 @@ const (
 
 var RetrievalBlockCache = must.One(lru.NewARC[blockstore.MhString, blocks.Block](4096))
 
-func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *Provider {
+func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, df *denylist.Filter) *Provider {
 	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
-	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(bs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
 
-	lsys := storeutil.LinkSystemForBlockstore(cbs)
+	// Wrap the blockstore with denylist filtering so every block fetch
+	// (including interior DAG nodes) is checked against the denylist.
+	fbs := denylist.NewFilteredBlockstore(bs, df)
+
+	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(fbs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
+
+	lsys := LinkSystemForBlockstore(cbs)
 	fr := frisbii.NewHttpIpfs(ctx, lsys)
 
 	return &Provider{
@@ -230,29 +235,33 @@ func metricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func Router(mux *chi.Mux, rp *Provider) {
+func Router(mux *chi.Mux, rp *Provider, df *denylist.Filter) {
 	// Group retrieval routes with metrics middleware
 	mux.Group(func(r chi.Router) {
 		r.Use(metricsMiddleware)
 
-		// Piece endpoint with limiter
+		// Piece endpoint with denylist and limiter
 		r.Group(func(r chi.Router) {
+			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(pieceRequestLimiter))
 			r.Get(piecePrefix+"{cid}", rp.handleByPieceCid)
+			r.Head(piecePrefix+"{cid}", rp.handleByPieceCid)
 		})
 
-		// IPFS endpoints with limiter
+		// IPFS endpoints with denylist and limiter
 		r.Group(func(r chi.Router) {
+			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(ipfsHeadRequestLimiter))
 			r.Head(ipfsPrefix+"*", rp.fr.ServeHTTP)
 		})
 
 		r.Group(func(r chi.Router) {
+			r.Use(denylist.Middleware(df))
 			r.Use(limiterMiddleware(ipfsRequestLimiter))
 			r.Get(ipfsPrefix+"*", rp.fr.ServeHTTP)
 		})
 
-		// Info endpoint without limiter
+		// Info endpoint without limiter or denylist
 		r.Get(infoPage, handleInfo)
 	})
 }

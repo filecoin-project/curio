@@ -3,7 +3,6 @@ package seal
 import (
 	"context"
 	"database/sql"
-	"math"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -21,7 +20,6 @@ import (
 )
 
 func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
-	// Exit early if the poller is set i.e. precommit task is not enabled on the node
 	if !s.pollers[pollerPrecommitMsg].IsSet() {
 		return
 	}
@@ -32,40 +30,85 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 		return
 	}
 
-	slackEpoch := int64(math.Ceil(s.cfg.preCommit.Slack.Seconds() / float64(build.BlockDelaySecs)))
+	slackEpochs := SlackEpochs(s.cfg.preCommit.Slack, build.BlockDelaySecs)
+	timeout := s.cfg.preCommit.Timeout
+	maxBatch := s.cfg.preCommit.MaxPreCommitBatch
+	currentHeight := int64(ts.Height())
 
 	s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-		var updatedCount int64
-		var reason string
-
-		log.Debugw("Trying to assign a precommit batch",
-			"slack_epoch", slackEpoch,
-			"current_height", ts.Height(),
-			"max_batch", s.cfg.preCommit.MaxPreCommitBatch,
-			"new_task_id", id,
-			"timeout_secs", s.cfg.preCommit.Timeout.Seconds(),
-			"timeout_at", time.Now().Add(s.cfg.preCommit.Timeout).UTC().Format(time.RFC3339),
-			"randomness_lookback", policy.MaxPreCommitRandomnessLookback,
-		)
-
-		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_precommit_msgs($1, $2, $3, $4, $5, $6)`,
-			policy.MaxPreCommitRandomnessLookback,  // p_randomnessLookBack BIGINT,  -- policy.MaxPreCommitRandomnessLookback
-			slackEpoch,                             // p_slack_epoch        BIGINT,  -- "Slack" epoch to compare against a sector's start_epoch
-			ts.Height(),                            // p_current_height     BIGINT,  -- Current on-chain height
-			s.cfg.preCommit.MaxPreCommitBatch,      // p_max_batch          INT,     -- Max number of sectors per batch
-			id,                                     // p_new_task_id        BIGINT,  -- Task ID to assign if a batch is chosen
-			int(s.cfg.preCommit.Timeout.Seconds()), // p_timeout_secs  	   INT      -- Timeout in seconds for earliest_ready_at check
-		).Scan(&updatedCount, &reason)
+		var rows []BatchRow
+		err := tx.Select(&rows, `
+			WITH initial AS (
+				SELECT
+					p.sp_id,
+					p.sector_number,
+					COALESCE(
+						(SELECT MIN(LEAST(s.f05_deal_start_epoch, s.direct_start_epoch))
+						 FROM sectors_sdr_initial_pieces s
+						 WHERE s.sp_id = p.sp_id AND s.sector_number = p.sector_number),
+						p.ticket_epoch + $1
+					) AS start_epoch,
+					COALESCE(p.precommit_ready_at, '1970-01-01 00:00:00+00'::TIMESTAMPTZ) AS ready_at,
+					p.reg_seal_proof
+				FROM sectors_sdr_pipeline p
+				WHERE p.after_synth = TRUE
+					AND p.task_id_precommit_msg IS NULL
+					AND p.after_precommit_msg = FALSE
+			),
+			numbered AS (
+				SELECT l.*,
+					ROW_NUMBER() OVER (
+						PARTITION BY l.sp_id, l.reg_seal_proof
+						ORDER BY l.start_epoch
+					) AS rn
+				FROM initial l
+			)
+			SELECT
+				sp_id,
+				sector_number,
+				start_epoch,
+				ready_at,
+				reg_seal_proof,
+				FLOOR((rn - 1)::NUMERIC / $2)::BIGINT AS batch_index
+			FROM numbered
+			ORDER BY sp_id, reg_seal_proof, batch_index, start_epoch`,
+			policy.MaxPreCommitRandomnessLookback,
+			s.cfg.preCommit.MaxPreCommitBatch)
 		if err != nil {
-			return false, err
+			return false, xerrors.Errorf("getting precommit batch candidates: %w", err)
 		}
 
-		if updatedCount > 0 {
-			log.Debugf("Assigned %d sectors to precommit batch with taskID %d with reason %s", updatedCount, id, reason)
-			return true, nil
-		} else {
-			log.Debugf("No precommit batch assigned for ID %d", id)
+		if len(rows) == 0 {
+			return false, nil
 		}
+
+		now := time.Now()
+		for _, batch := range GroupBatchRows(rows) {
+			result := EvalBatchTimeout(batch.EarliestReady, timeout, batch.MinStartEpoch, slackEpochs, currentHeight, now, len(batch.SectorNums), maxBatch)
+			if !result.ShouldFire {
+				continue
+			}
+
+			n, err := tx.Exec(`
+				UPDATE sectors_sdr_pipeline
+				SET task_id_precommit_msg = $1
+				WHERE sp_id = $2
+					AND reg_seal_proof = $3
+					AND sector_number = ANY($4::bigint[])
+					AND after_synth = TRUE
+					AND task_id_precommit_msg IS NULL
+					AND after_precommit_msg = FALSE`,
+				id, batch.SpID, batch.RegSealProof, batch.SectorNums)
+			if err != nil {
+				return false, xerrors.Errorf("assigning precommit batch: %w", err)
+			}
+
+			if n > 0 {
+				log.Infow("Assigned precommit batch", "task_id", id, "sectors", n, "reason", result.Reason)
+				return true, nil
+			}
+		}
+
 		return false, nil
 	})
 }

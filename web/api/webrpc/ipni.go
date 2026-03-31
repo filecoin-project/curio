@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,13 +12,14 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/lists"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
 )
@@ -98,7 +100,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	var pcid, pcid2 cid.Cid
 	var psize int64
 
-	if details.SpID == -1 {
+	if details.SpID <= 0 {
 		var pi itype.PdpIpniContext
 		err = pi.Unmarshal(details.ContextID)
 		if err != nil {
@@ -120,17 +122,24 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 
 		pcid = pi.PieceCID
 		psize = int64(pi.Size)
+		pcid2 = pi.PieceCID
 
 		// Get RawSize from market_piece_deal to calculate PieceCidV2
 		var rawSize uint64
-		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 AND raw_size > 0 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to get raw size: %w", err)
-		}
-
-		pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get commp: %w", err)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, xerrors.Errorf("failed to get raw size: %w", err)
+			}
+			log.Warnw("raw_size missing, using piece cid v1", "piece_cid", pi.PieceCID)
+		} else if rawSize >= 127 {
+			pcid2, err = commcid.PieceCidV2FromV1(pi.PieceCID, rawSize)
+			if err != nil {
+				log.Warnw("failed to generate piece cid v2, using piece cid v1", "piece_cid", pi.PieceCID, "raw_size", rawSize, "err", err)
+				pcid2 = pi.PieceCID
+			}
+		} else {
+			log.Warnw("raw_size unavailable, using piece cid v1", "piece_cid", pi.PieceCID, "raw_size", rawSize)
 		}
 	}
 
@@ -138,7 +147,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	details.PieceSize = psize
 	details.PieceCidV2 = pcid2.String()
 
-	if details.SpID == -1 {
+	if details.SpID <= 0 {
 		details.Miner = "PDP"
 	} else {
 		maddr, err := address.NewIDAddress(uint64(details.SpID))
@@ -243,7 +252,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 	}
 
 	for i := range summary {
-		if summary[i].SpId == -1 {
+		if summary[i].SpId <= 0 {
 			summary[i].Miner = "PDP"
 		} else {
 			maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
@@ -279,7 +288,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 		return nil, fmt.Errorf("failed to fetch IPNI configuration: %w", err)
 	}
 
-	for _, service := range lo.Uniq(services) {
+	for _, service := range lists.UniqNoAlloc(services) {
 		for _, d := range summary {
 			url := service + "/providers/" + d.PeerID
 			resp, err := http.Get(url)

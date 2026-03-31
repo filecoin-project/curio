@@ -1,87 +1,129 @@
 /*
-Package harmonytask implements a pure (no task logic), distributed
-task manager. This clean interface allows a task implementer to completely
-avoid being concerned with task scheduling and management.
-It's based on the idea of tasks as small units of work broken from other
-work by hardware, parallelizabilty, reliability, or any other reason.
-Workers will be Greedy: vaccuuming up their favorite jobs from a list.
-Once 1 task is accepted, harmonydb tries to get other task runner
-machines to accept work (round robin) before trying again to accept.
+Package harmonytask implements a pure (no task logic), distributed task
+manager. This clean interface lets task implementers avoid scheduling and
+cluster coordination; they only implement work units.
 
-The task system is designed to first take "any" work we are capable of doing,
-up to the limit of our resources. Then as work queues, it will reserve
-resources for tasks it soft-claims (reserves) so high-priority tasks can run
-and not be starved. This allows clusters to respect the run order of tasks.
-Order priority may starve lower priority tasks, so within a priority class,
-we should prefer the oldest tasks first.
+Tasks are small pieces of work split out by hardware limits, parallelism,
+reliability, or other reasons.
 
-	ex: prio: prio.P0 |  prio.LessThan(‘x’, ‘y’,’z’) | prio.PipelineOrder(‘a1’,’b2’,’c3’)
+The hot path is event-driven scheduling with peer-to-peer coordination: nodes
+tell each other about new work, reservations, and starts over HTTP so the
+cluster reacts in milliseconds without waiting for a database round-trip for
+every change. The database still drives authoritative claims (UPDATE ...
+SKIP LOCKED) and holds the queue. A background DB poller remains as a safety
+net and for periodic housekeeping (e.g. POLL_RARELY), and the poller
+goroutine also runs heavier queries such as precomputing CanAccept caches and
+node cordon/restart flags, so not all work is “push-driven.”
 
-As this requires tasks to start serially, we also do not use mutexes for
-CanAccept() / tryWork().
+The task system tries to run any work the node can do up to resource limits.
+As queues build, it can reserve resources for soft-claimed (reserved) tasks
+so higher-priority work is not starved and clusters can respect run order.
+Ordering priority may starve lower priorities, so within a class prefer the
+oldest tasks first.
 
-Polling is too db-heavy, so nodes contact each other to share work, reserve,
-and announce acceptance of work. The actual claim happens in the database.
+	ex: prio: prio.P0 | prio.LessThan('x', 'y', 'z') | prio.PipelineOrder('a1', 'b2', 'c3')
 
-*
-Mental Model:
+The scheduler is single-threaded on the decision path, so CanAccept() and
+resource accounting do not need mutexes between it and tryWork.
 
-	Things that block tasks:
-		- task not registered for any running server
-		- max was specified and reached
-		- resource exhaustion
-		- CanAccept() interface (per-task implmentation) does not accept it.
-	Ways tasks start:
-		- DB Read every 3 seconds
-		- Task was added (to db) by this process
-	Ways tasks get added:
-	    - Async Listener task (for chain, etc)
-		- Followers: Tasks get added because another task completed
-	When Follower collectors run:
-	    - If both sides are process-local, then this process will pick it up.
-		- If properly registered already, the http endpoint will be tried to start it.
-		- Otherwise, at the listen interval during db scrape it will be found.
-	How duplicate tasks are avoided:
-	    - that's up to the task definition, but probably a unique key
+# Architecture Overview
 
-*
-To use:
-1.Implement TaskInterface for a new task.
-2. Have New() receive this & all other ACTIVE implementations.
-*
-*
-As we are not expecting DBAs in this database, it's important to know
-what grows uncontrolled. The only growing harmony_* table is
-harmony_task_history (somewhat quickly). These will need a
-clean-up for after the task data could never be acted upon.
-but the design **requires** extraInfo tables to grow until the task's
-info could not possibly be used by a following task, including slow
-release rollout. This would normally be in the order of months old.
-*
-Other possible enhancements include more collaborative coordination
-to assign a task to machines closer to the data.
+The system is built around three cooperating layers:
 
-__Database_Behavior__
-harmony_task is the list of work that has not been completed.
+ 1. **Scheduler** (scheduler.go) — A single-threaded event loop that
+    maintains an in-memory map of available tasks and decides when to
+    attempt work. Events arrive from local task additions, peer
+    notifications, task completions, and a background DB poller. The
+    single-threaded design avoids mutex contention on the hot path and
+    keeps CanAccept() versus resource accounting consistent.
 
-	AddTaskFunc manages the additions, but is designed to have its
-	transactions failed-out on overlap with a similar task already written.
-	It's up to the TaskInterface implementer to discover this overlap via
-	some other table it uses (since overlap can mean very different things).
+ 2. **Peering** (peering.go) — On startup each node connects to every
+    known peer (from harmony_machines) over HTTP. Peers exchange JSON
+    messages for verbs such as newTask, reserve, and started. That
+    replaces the old “poll the DB every few seconds per task type” steady
+    state with push-style notifications, cutting average task-start
+    latency for latency-sensitive pipelines.
 
-harmony_task_history
+ 3. **TaskEngine** (harmonytask.go) — The public API and glue. It owns
+    the handler registry, the scheduler channel, and the peering
+    instance. AddTaskByName writes to the DB, emits a scheduler event,
+    and the scheduler broadcasts to peers without blocking the caller on
+    network I/O.
 
-	This holds transactions that completed or saw too many retries. It also
-	serves as input for subsequent (follower) tasks to kick off. This is not
-	done machine-internally because a follower may not be on the same machine
-	as the previous task.
+# Key Design Decisions
 
-harmony_task_machines
+**Peers and events first; polling second.** Historically the stack polled the
+DB often for every task type (O(nodes × task_types) queries per interval).
+Normal operation is now driven by local adds, peer notifications, and task
+completions. DB polling is a fallback (e.g. POLL_RARELY ≈ 30s) so nodes
+eventually discover work if a notification is missed. Steady-state DB load
+drops sharply; polling did not disappear entirely because the poller still
+backs discovery and other periodic work.
 
-	Managed by lib/harmony/resources, this is a reference to machines registered
-	via the resources. This registration does not obligate the machine to
-	anything, but serves as a discovery mechanism. Paths are hostnames + ports
-	which are presumed to support http, but this assumption is only used by
-	the task system.
+**Offloading work from the scheduler thread.** The scheduler thread must stay
+responsive. Heavy work runs elsewhere:
+  - DB queries run on a background poller goroutine.
+  - CanAccept() is pre-computed on the poller and cached on handlers (e.g.
+    SetAcceptCache with mutex).
+  - Node flag checks (cordon/restart) run on the poller goroutine.
+  - Task execution runs in per-task goroutines.
+  - Peer HTTP calls are fire-and-forget from goroutines.
+
+**Bundling rapid events.** When many tasks land at once (e.g. a batch of
+sector jobs), a bundler coalesces them into one scheduling attempt after a
+short quiet period (~10ms), avoiding redundant CanAccept + claim cycles per
+row.
+
+**Reservations.** A node can reserve the next task of a type so that when
+the current task finishes, the reserved one can start without competing for
+capacity — important for time-sensitive pipelines (e.g. WindowPost).
+
+NOTE: The reservation protocol is not fully realized cluster-wide. If every
+node reserves one task of the same type independently, the cluster can hold
+capacity on N nodes for work only one node will run. A future extension may
+coordinate reservations across peers.
+
+# Mental Model
+
+Things that block tasks:
+  - Task type not registered on any running node
+  - Max concurrency reached (per-type or shared limiters)
+  - Resource exhaustion (CPU, RAM, GPU, storage)
+  - CanAccept() refuses (task-specific logic, e.g. wrong miner)
+
+Ways tasks start (event sources):
+  - Peer notification: another node added or announced work (fast path)
+  - Local addition: this process called AddTaskByName (immediate)
+  - Task completion: freed resources trigger re-evaluation
+  - DB poll fallback: background poller finds unclaimed work (safety net)
+
+Ways tasks get added:
+  - Adder() goroutine: each task type's listener (chain events, etc.)
+  - IAmBored: idle capacity triggers speculative work creation
+  - External: any code path calling AddTaskByName
+
+How duplicate tasks are avoided:
+  - Unique constraints on extra-info tables (task-specific)
+  - SKIP LOCKED in the claim query prevents double-claiming
+
+# Database Tables
+
+harmony_task: The queue of uncompleted work. Rows are INSERT'd by
+AddTaskByName (owner_id=NULL) and claimed via UPDATE SET owner_id
+with SKIP LOCKED. Completed tasks are DELETE'd; failed tasks have
+owner_id reset to NULL with retries incremented.
+
+harmony_task_history: Audit log of completed and permanently-failed
+tasks. Grows continuously and needs periodic cleanup.
+
+harmony_machines / harmony_machine_details: Node registry managed by
+lib/harmony/resources. Used for peer discovery, resource tracking,
+and the cordon/restart flag mechanism.
+
+# Usage
+
+ 1. Implement TaskInterface for each task type.
+ 2. Pass all active implementations to New().
+ 3. The engine handles scheduling, peering, retries, and cleanup.
 */
 package harmonytask

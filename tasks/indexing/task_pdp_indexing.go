@@ -207,13 +207,13 @@ func (P *PDPIndexingTask) Do(ctx context.Context, taskID harmonytask.TaskID, sti
 func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id, PieceCID string, size, rawSize, pieceRef int64, indexed bool) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		_, err = tx.Exec(`SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			id, PieceCID, false, -1, -1, nil, size, rawSize, indexed, pieceRef, false, 0)
+			id, PieceCID, false, PDP_v1_SP_ID, -1, nil, size, rawSize, indexed, pieceRef, false, 0)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", id, err)
 		}
 
 		if P.cfg.Market.StorageMarketConfig.IPNI.Disable {
-			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+			n, err := tx.Exec(`UPDATE pdp_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
                                      complete = TRUE WHERE id = $1 AND indexing_task_id = $2`, id, taskID)
 			if err != nil {
 				return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)

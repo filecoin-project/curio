@@ -591,6 +591,7 @@ type ConfigText struct {
 // GetConfigs returns the configs in the order of the layers
 func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]ConfigText, error) {
 	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
+	layers = lo.Uniq(layers)                     // Deduplicate while preserving user-specified order
 	inputMap := map[string]int{}
 	for i, layer := range layers {
 		inputMap[layer] = i

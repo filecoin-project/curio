@@ -7,7 +7,7 @@ USAGE:
    sptool [global options] command [command options]
 
 VERSION:
-   1.27.3-rc1
+   1.27.3
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -500,6 +500,7 @@ COMMANDS:
    spark        Manage Smart Contract PeerID used by Spark
    mk12-client  mk12 client for Curio
    mk20-client  mk20 client for Curio
+   stats        Curio Node Stats
    help, h      Shows a list of commands or help for one command
 
 OPTIONS:
@@ -1043,4 +1044,16 @@ OPTIONS:
    --id value        deal id
    --wallet value    wallet address to be used to initiate the deal
    --help, -h        show help
+```
+
+### sptool toolbox stats
+```
+NAME:
+   sptool toolbox stats - Curio Node Stats
+
+USAGE:
+   sptool toolbox stats [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```

@@ -187,36 +187,48 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	if !yes {
 		var rawSize int64
 		var singlePiece bool
-		err := p.db.QueryRow(ctx, `WITH meta AS (
-											  SELECT piece_size
-											  FROM market_piece_metadata
-											  WHERE piece_cid = $1
-											),
-											exact AS (
-											  SELECT COUNT(*) AS n, MIN(piece_size) AS piece_size
-											  FROM meta
-											),
-											raw AS (
-											  SELECT MAX(mpd.raw_size) AS raw_size
-											  FROM market_piece_deal mpd
-											  WHERE mpd.piece_cid   = $1
-												AND mpd.piece_length = (SELECT piece_size FROM exact)
-												AND (SELECT n FROM exact) = 1
-											)
-											SELECT
-											  COALESCE((SELECT raw_size FROM raw), 0)        AS raw_size,
-											  ((SELECT n FROM exact) = 1)                    AS has_single_metadata;`, pieceCidv2.String()).Scan(&rawSize, &singlePiece)
+		err := p.db.QueryRow(ctx, `WITH parked AS (
+												  SELECT MAX(pp.piece_raw_size) AS raw_size
+												  FROM parked_pieces pp
+												  WHERE pp.piece_cid = $1
+													AND pp.piece_raw_size > 0
+												),
+												meta AS (
+												  SELECT piece_size
+												  FROM market_piece_metadata
+												  WHERE piece_cid = $1
+												),
+												exact AS (
+												  SELECT COUNT(*) AS n, MIN(piece_size) AS piece_size
+												  FROM meta
+												),
+												raw AS (
+												  SELECT MAX(mpd.raw_size) AS raw_size
+												  FROM market_piece_deal mpd
+												  WHERE mpd.piece_cid   = $1
+													AND mpd.piece_length = (SELECT piece_size FROM exact)
+													AND mpd.raw_size > 0
+													AND (SELECT n FROM exact) = 1
+												)
+												SELECT
+												  COALESCE((SELECT raw_size FROM parked), (SELECT raw_size FROM raw), 0) AS raw_size,
+												  ((SELECT raw_size FROM parked) IS NOT NULL OR (SELECT n FROM exact) = 1) AS has_single_metadata;`, pieceCidv2.String()).Scan(&rawSize, &singlePiece)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get piece metadata: %w", err)
 		}
 		if !singlePiece {
 			return nil, fmt.Errorf("more than 1 piece metadata found for piece cid %s, please use piece cid v2", pieceCidv2.String())
 		}
-		pcid2, err := commcid.PieceCidV2FromV1(pieceCidv2, uint64(rawSize))
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert piece cid v1 to v2: %w", err)
+		if rawSize >= 127 {
+			pcid2, err := commcid.PieceCidV2FromV1(pieceCidv2, uint64(rawSize))
+			if err != nil {
+				log.Warnw("failed to convert piece cid v1 to v2, using piece cid v1", "piece_cid", pieceCidv2, "raw_size", rawSize, "err", err)
+			} else {
+				pieceCidv2 = pcid2
+			}
+		} else {
+			log.Warnw("raw_size unavailable, using piece cid v1", "piece_cid", pieceCidv2, "raw_size", rawSize)
 		}
-		pieceCidv2 = pcid2
 	}
 
 	if leave, ok := p.noSkipCache.Get(pieceCidv2); !ok || time.Now().After(leave) {
@@ -315,21 +327,24 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piecev2 cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(piecev2)
-	if err != nil {
-		return nil, xerrors.Errorf("getting piece CID v2 from piece CID v2: %w", err)
+	pieceCid := piecev2
+	if commcidv2.IsPieceCidV2(piecev2) {
+		var err error
+		pieceCid, _, err = commcid.PieceCidV1FromV2(piecev2)
+		if err != nil {
+			return nil, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
+		}
 	}
 
-	size := padreader.PaddedSize(rawSize).Padded()
-
-	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piecev2, false)
-	defer func(reader storiface.Reader) {
-		_ = reader.Close()
-	}(reader)
+	reader, rawSize, err := p.cpr.GetSharedPieceReader(ctx, piecev2, false)
+	size := int64(padreader.PaddedSize(rawSize).Padded())
 
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read piece %s of size %d for ipni chunk %s reconstruction: %w", pieceCid, size, chunk, err)
 	}
+	defer func(reader storiface.Reader) {
+		_ = reader.Close()
+	}(reader)
 
 	_, err = reader.Seek(startOff, io.SeekStart)
 	if err != nil {
@@ -387,14 +402,8 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	pieceCid, rawSize, err := commcid.PieceCidV1FromV2(piecev2)
-	if err != nil {
-		return nil, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
-	}
-
-	size := padreader.PaddedSize(rawSize).Padded()
-
 	var mhs []multihash.Multihash
+	var err error
 
 	// Handle exception for PDP piece announcement with FilecoinPieceHttp{} metadata
 	if numBlocks == 1 {
@@ -433,7 +442,7 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev
 		return nil, err
 	}
 
-	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", pieceCid, "size", size, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
+	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piecev2, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
 }

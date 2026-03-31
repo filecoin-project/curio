@@ -18,7 +18,19 @@ import (
 	"github.com/ipld/go-ipld-prime/storage/memstore"
 	trustlesstestutil "github.com/ipld/go-trustless-utils/testutil"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/curio/market/denylist"
 )
+
+// testDenyFilter returns a ready denylist filter with an empty denylist for use in tests.
+func testDenyFilter() *denylist.Filter {
+	f := denylist.NewFilterForTest(context.Background(), nil)
+	// Wait for the filter to become ready (the goroutine stores the empty map)
+	for !f.IsReady() {
+		// spin until ready
+	}
+	return f
+}
 
 // TestIPFSPathRouting verifies that the IPFS router accepts full paths including nested components
 // Note that Frisbii already has a full Trustless Gateway test suite and runs against the gateway
@@ -56,7 +68,7 @@ func TestIPFSPathRouting(t *testing.T) {
 
 	// Set up router
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	testCases := []struct {
 		name         string
@@ -146,7 +158,7 @@ func TestRouterSetup(t *testing.T) {
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	// Test that non-IPFS routes work
 	req := httptest.NewRequest(http.MethodGet, "/info", nil)
@@ -183,7 +195,7 @@ func TestTrustlessGatewaySentinel(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	testCases := []struct {
 		name   string
@@ -245,7 +257,7 @@ func TestTrustlessGatewayHeaders(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	t.Run("CAR response headers", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipfs/"+rootEnt.Root.String(), nil)
@@ -295,7 +307,7 @@ func TestTrustlessGatewayAcceptHeader(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	t.Run("Missing Accept header returns 400", func(t *testing.T) {
 		// Note that Frisbii will be forgiving about a wildcard Accept header,
@@ -347,7 +359,7 @@ func TestTrustlessGatewayQueryParameters(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	testCases := []struct {
 		name       string
@@ -444,7 +456,7 @@ func TestRawBlockRetrieval(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	// Test retrieval of each individual block
 	for i, c := range allCIDs {
@@ -504,7 +516,7 @@ func TestMissingBlockReturns404(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	// Create a CID that doesn't exist in the store
 	nonExistentCID := "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
@@ -578,7 +590,7 @@ func TestDagScopeCAR(t *testing.T) {
 
 	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
 	mux := chi.NewMux()
-	Router(mux, provider)
+	Router(mux, provider, testDenyFilter())
 
 	t.Run("dag-scope=block returns single block CAR", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipfs/"+dirRootEnt.Root.String()+"?dag-scope=block", nil)
@@ -646,4 +658,27 @@ func TestDagScopeCAR(t *testing.T) {
 		require.Equal(t, allCIDs, carCIDs,
 			"CAR blocks should be in traversal order matching fixture")
 	})
+}
+
+func TestPiecePathHeadRouting(t *testing.T) {
+	ctx := context.Background()
+
+	// Create minimal LinkSystem for router setup
+	store := &trustlesstestutil.CorrectedMemStore{
+		ParentStore: &memstore.Store{Bag: make(map[string][]byte)},
+	}
+	lsys := cidlink.DefaultLinkSystem()
+	lsys.SetReadStorage(store)
+	lsys.SetWriteStorage(store)
+	lsys.TrustedStorage = true
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	mux := chi.NewMux()
+	Router(mux, provider, testDenyFilter())
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rctx := chi.NewRouteContext()
+		matched := mux.Match(rctx, method, "/piece/bafkqaaa")
+		require.True(t, matched, "%s should match /piece/{cid}", method)
+	}
 }

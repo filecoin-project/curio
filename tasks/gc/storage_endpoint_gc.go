@@ -63,6 +63,11 @@ func (s *StorageEndpointGC) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		return false, xerrors.Errorf("getting path metadata: %w", err)
 	}
 
+	if len(pathRefs) == 0 {
+		log.Debugw("no storage paths configured, nothing to GC")
+		return true, nil
+	}
+
 	type pingResult struct {
 		storageID storiface.ID
 		url       string

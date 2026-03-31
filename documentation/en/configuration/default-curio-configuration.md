@@ -567,19 +567,19 @@ description: The default curio configuration
   #DelegateTLS = false
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #ReadTimeout = "10s"
+  #ReadTimeout = "30m0s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #IdleTimeout = "1h0m0s"
+  #IdleTimeout = "30m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
   #
   # type: time.Duration
   #ReadHeaderTimeout = "5s"
@@ -614,6 +614,15 @@ description: The default curio configuration
   #
   # type: string
   #CSP = "inline"
+
+  # DenylistServers is a list of URLs pointing to denylist.json files.
+  # Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+  # Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+  # will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+  # Updates will affect running instances.
+  #
+  # type: []string
+  #DenylistServers = ["https://badbits.dwebops.pub/denylist.json"]
 
   # CompressionLevels hold the compression level for various compression methods supported by the server
   #
@@ -798,13 +807,13 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact"]
+      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
 
     # Indexing configuration for deal indexing
     #
@@ -1065,6 +1074,13 @@ description: The default curio configuration
     # type: time.Duration
     #Slack = "6h0m0s"
 
+    # Maximum number of sectors per precommit batch message. The batch will be submitted
+    # immediately when this many sectors are ready, without waiting for the timeout.
+    # 0 = use the protocol maximum. (Default: 0)
+    #
+    # type: int
+    #MaxBatch = 0
+
   # Commit batching configuration
   #
   # type: CommitBatchingConfig
@@ -1087,6 +1103,13 @@ description: The default curio configuration
     #
     # type: time.Duration
     #Slack = "1h0m0s"
+
+    # Maximum number of sectors per commit batch message. The batch will be submitted
+    # immediately when this many sectors are ready, without waiting for the timeout.
+    # 0 = use the protocol maximum. (Default: 0)
+    #
+    # type: int
+    #MaxBatch = 0
 
   # Snap Deals batching configuration
   #

@@ -1,8 +1,7 @@
 package harmonytask
 
 import (
-	"encoding/binary"
-	"fmt"
+	"encoding/json"
 	"sort"
 	"time"
 
@@ -182,11 +181,21 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 	peerCount := len(e.peering.m[h.Name])
 	e.peering.peersLock.RUnlock()
 
-	e.peering.TellOthersMessage(h.Name, messageRenderPreemptCost{
+	other, err := json.Marshal(messagePreemptCostOther{Cost: plan.totalCost})
+	if err != nil {
+		log.Errorw("failed to marshal preempt cost other", "error", err)
+		return
+	}
+	bytes, err := json.Marshal(messagePreemptCost{
 		TaskType: h.Name,
 		TaskID:   tID,
-		Cost:     plan.totalCost,
+		Other:    other,
 	})
+	if err != nil {
+		log.Errorw("failed to marshal preempt cost message", "error", err)
+		return
+	}
+	e.peering.tellOtherBytes(h.Name, bytes)
 
 	if peerCount == 0 {
 		log.Infow("only worker for time-sensitive task, preempting", "task", h.Name, "taskID", tID, "cost", plan.totalCost)
@@ -221,16 +230,12 @@ decide:
 	}
 }
 
-type messageRenderPreemptCost struct {
+type messagePreemptCost struct {
 	TaskType string
 	TaskID   TaskID
-	Cost     time.Duration
+	Other    json.RawMessage
 }
 
-func (m messageRenderPreemptCost) Render() []byte {
-	return binary.BigEndian.AppendUint64(
-		binary.BigEndian.AppendUint64(
-			[]byte(fmt.Sprintf("%c:%s:", messageTypePreemptCost, m.TaskType)),
-			uint64(m.TaskID)),
-		uint64(m.Cost))
+type messagePreemptCostOther struct {
+	Cost time.Duration
 }

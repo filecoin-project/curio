@@ -14,12 +14,12 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/itests/helpers"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/curio/tasks/pdp"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
@@ -28,7 +28,7 @@ import (
 func TestPDPProving(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
-	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
@@ -199,7 +199,7 @@ func TestPDPProving(t *testing.T) {
 		Proof: append(subTreeProof.Proof, proofs.Proof...),
 	}
 
-	verified := pdp.Verify(out, rd, uint64(challenge))
+	verified := proof.VerifyProof(out.Leaf, out.Proof, rd, uint64(challenge))
 	require.True(t, verified)
 
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
