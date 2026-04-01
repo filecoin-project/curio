@@ -25,12 +25,7 @@ func TestPreemptCostMessage(t *testing.T) {
 	p := &peering{h: engine}
 	them := peer{id: 99}
 
-	other, err := json.Marshal(messagePreemptCostOther{Cost: 5 * time.Second})
-	if err != nil {
-		log.Errorw("failed to marshal preempt cost other", "error", err)
-		return
-	}
-	msg, err := json.Marshal(messagePreemptCost{TaskType: "WinPost", TaskID: 123, Other: other})
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 123, messagePreemptCostOther{Cost: 5 * time.Second, TaskType: "WinPost"})
 	require.NoError(t, err)
 	t.Logf("wire bytes (%d): %q", len(msg), msg)
 
@@ -46,19 +41,22 @@ func TestPreemptCostMessage(t *testing.T) {
 	}
 }
 
-// TestPreemptCostMessageWireFormat verifies the exact byte layout of preempt cost messages.
+// TestPreemptCostMessageWireFormat verifies preempt cost messages use the PeerMessage envelope.
 func TestPreemptCostMessageWireFormat(t *testing.T) {
-	other, err := json.Marshal(messagePreemptCostOther{Cost: 3 * time.Second})
-	if err != nil {
-		log.Errorw("failed to marshal preempt cost other", "error", err)
-		return
-	}
-	msg, err := json.Marshal(messagePreemptCost{TaskType: "WdPost", TaskID: 42, Other: other})
+
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 42, messagePreemptCostOther{Cost: 3 * time.Second, TaskType: "WdPost"})
 	require.NoError(t, err)
-	require.Equal(t, messageTypePreemptCost, messageType(msg[0]))
-	require.Equal(t, "WdPost", messagePreemptCost{TaskType: "WdPost", TaskID: 42, Other: other}.TaskType)
-	require.Equal(t, TaskID(42), messagePreemptCost{TaskType: "WdPost", TaskID: 42, Other: other}.TaskID)
-	require.Equal(t, 3*time.Second, messagePreemptCost{TaskType: "WdPost", TaskID: 42, Other: other}.Other)
+
+	var envelope PeerMessage
+	require.NoError(t, json.Unmarshal(msg, &envelope))
+	require.Equal(t, string(messageTypePreemptCost), envelope.Verb)
+	require.Equal(t, TaskID(42), envelope.TaskID)
+
+	var inner messagePreemptCostOther
+	require.NoError(t, json.Unmarshal(envelope.Other, &inner))
+	require.Equal(t, "WdPost", inner.TaskType)
+	require.Equal(t, TaskID(42), envelope.TaskID)
+	require.Equal(t, 3*time.Second, inner.Cost)
 }
 
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====

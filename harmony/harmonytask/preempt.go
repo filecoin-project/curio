@@ -1,7 +1,6 @@
 package harmonytask
 
 import (
-	"encoding/json"
 	"sort"
 	"time"
 
@@ -181,16 +180,7 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 	peerCount := len(e.peering.m[h.Name])
 	e.peering.peersLock.RUnlock()
 
-	other, err := json.Marshal(messagePreemptCostOther{Cost: plan.totalCost})
-	if err != nil {
-		log.Errorw("failed to marshal preempt cost other", "error", err)
-		return
-	}
-	bytes, err := json.Marshal(messagePreemptCost{
-		TaskType: h.Name,
-		TaskID:   tID,
-		Other:    other,
-	})
+	bytes, err := marshalPeerMessage(messageTypePreemptCost, tID, messagePreemptCostOther{Cost: plan.totalCost, TaskType: h.Name})
 	if err != nil {
 		log.Errorw("failed to marshal preempt cost message", "error", err)
 		return
@@ -230,12 +220,7 @@ decide:
 	}
 }
 
-type messagePreemptCost struct {
-	TaskType string
-	TaskID   TaskID
-	Other    json.RawMessage
-}
-
 type messagePreemptCostOther struct {
-	Cost time.Duration
+	TaskType string
+	Cost     time.Duration
 }

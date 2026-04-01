@@ -282,17 +282,13 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			PeerID:   them.id,
 		}
 	case messageTypePreemptCost:
-		var preemptCost messagePreemptCost
-		if err := json.Unmarshal(envelope.Other, &preemptCost); err != nil {
-			return xerrors.Errorf("failed to unmarshal preempt cost from peer %s: %w", peerAddr, err)
-		}
 		var other messagePreemptCostOther
-		if err := json.Unmarshal(preemptCost.Other, &other); err != nil {
+		if err := json.Unmarshal(envelope.Other, &other); err != nil {
 			return xerrors.Errorf("failed to unmarshal preempt cost other from peer %s: %w", peerAddr, err)
 		}
 
 		resp := preemptCostResponse{PeerID: them.id, Cost: other.Cost}
-		taskID := preemptCost.TaskID
+		taskID := envelope.TaskID
 		p.h.preemptCostMu.Lock()
 		ch := p.h.preemptCostChs[taskID]
 		if ch != nil {
