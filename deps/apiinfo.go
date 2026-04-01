@@ -280,6 +280,8 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 						*preferredProvider = pp
 					}
 
+					noteChainRPC(field.Name)
+
 					result := providerFuncs[*preferredProvider].Call(args)
 					if result[len(result)-1].IsNil() {
 						return result, nil
