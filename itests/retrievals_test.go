@@ -118,6 +118,10 @@ func TestRetrievals(t *testing.T) {
 
 	httpAddr := helpers.FreeListenAddr(t)
 	baseCfg.Subsystems.EnableDealMarket = true
+	// Do not register piece parking / DropPiece / move-storage cleanup. Those tasks are unrelated
+	// to these HTTP retrieval assertions and can race with parked_pieces fixtures (scheduler timing).
+	baseCfg.Subsystems.EnableParkPiece = false
+	baseCfg.Subsystems.EnableMoveStorage = false
 	baseCfg.HTTP.Enable = true
 	baseCfg.HTTP.DelegateTLS = true
 	baseCfg.HTTP.DomainName = "localhost"
@@ -266,6 +270,8 @@ func TestRetrievals(t *testing.T) {
 	require.NoError(t, err)
 
 	// Park-only fixture: no market_piece_deal binding.
+	// Placeholder parked_piece_refs row matches the production invariant that rows without refs are
+	// eligible for cleanup; refs alone do not create market_piece_deal rows.
 	var parkOnlyPieceID int64
 	require.NoError(t, db.QueryRow(ctx, `
 		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
@@ -276,6 +282,12 @@ func TestRetrievals(t *testing.T) {
 		parkNoDealFixture.RawSize,
 	).Scan(&parkOnlyPieceID))
 	require.NoError(t, writeParkedPieceFixture(dir, parkOnlyPieceID, parkNoDealFixture.CarBytes))
+	_, err = db.Exec(ctx, `
+		INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+		VALUES ($1, $2, $3::jsonb, TRUE)`,
+		parkOnlyPieceID, "", "{}",
+	)
+	require.NoError(t, err)
 
 	// Parked piece with deal binding (ULID id + piece_ref).
 	var parkWithDealPieceID int64
