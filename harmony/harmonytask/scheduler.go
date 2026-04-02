@@ -277,7 +277,7 @@ func (e *TaskEngine) startScheduler() {
 					}
 					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-						if  err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
+						if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
 						}
 					} else {
