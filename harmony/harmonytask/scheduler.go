@@ -36,14 +36,12 @@ type schedulerEvent struct {
 // schedulerSource identifies the origin of a scheduler event. Each source
 // triggers different state-management logic in the scheduler event loop:
 //   - Added/PeerNewTask: add to available tasks, trigger scheduling
-//   - TaskStarted/PeerStarted: remove from available tasks, update reservations
+//   - TaskStarted/PeerStarted: remove from available tasks
 //   - TaskCompleted: trigger scheduling (freed resources may allow new work)
 //   - DBPoll: wholesale replacement of the available task map
-//   - PeerReserved: mark task as reserved by another node (resource hold)
 type schedulerSource byte
 
 const (
-	schedulerSourceTaskStarted
 	schedulerSourceAdded         schedulerSource = iota // this node added a task via AddTaskByName
 	schedulerSourcePeerNewTask                          // a peer notified us about a new task
 	schedulerSourcePeerStarted                          // a peer claimed and started a task
@@ -62,10 +60,7 @@ const (
 const chokePoint = 1000
 
 // taskSchedule tracks the available (unowned) tasks of a single type
-// within the scheduler's in-memory state. It supports reservations:
-// a node can earmark the next task it intends to run, holding resources
-// aside so the task can start immediately when capacity frees up.
-// NOTE: cluster-wide reservation coordination is incomplete — see doc.go.
+// within the scheduler's in-memory state.
 type taskSchedule struct {
 	hasID  map[TaskID]task
 	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
@@ -93,20 +88,15 @@ type taskSchedule struct {
 //     considerWork (which does a single fast SQL UPDATE for claiming).
 //
 // The event loop handles each source differently:
-//   - DBPoll: replaces the entire available-tasks map with fresh DB state,
-//     preserves valid reservations, and triggers scheduling if new tasks
-//     appeared.
+//   - DBPoll: replaces the entire available-tasks map with fresh DB state
+//     and triggers scheduling if new tasks appeared.
 //   - Added: inserts the task into the local map, broadcasts to peers.
 //     TimeSensitive tasks trigger immediate scheduling; others are bundled.
 //   - PeerNewTask: same as Added but from a remote node (no broadcast).
-//   - TaskStarted: removes the task from available, advances resource
-//     reservations, broadcasts "started" to peers.
+//   - TaskStarted: removes the task from available, broadcasts "started" to peers.
 //   - PeerStarted: same as TaskStarted but from a remote node.
 //   - TaskCompleted: triggers scheduling since freed resources may allow
 //     new work to start.
-//   - PeerReserved: a peer is holding resources for this task. If they
-//     have a higher machine ID (deterministic tie-break), we yield and
-//     reserve a different task. (Protocol is incomplete — see doc.go.)
 //
 // The bundler coalesces rapid-fire non-TimeSensitive events (e.g., batch
 // Adder calls producing many tasks) into a single scheduling attempt after
@@ -219,14 +209,13 @@ func (e *TaskEngine) startScheduler() {
 				case schedulerSourceDBPoll:
 					// Replace the entire available-tasks map with the DB snapshot.
 					// This garbage-collects stale entries (tasks claimed/deleted by
-					// others) while preserving reservations that are still valid.
+					// others).
 					hasNew := false
 					for taskName, tasks := range event.DBTasks {
 						sched := availableTasks[taskName]
 						if sched == nil {
 							continue
 						}
-						prevReserved := sched.reservedTask
 						newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
 							return t.ID, t
 						})
@@ -235,21 +224,10 @@ func (e *TaskEngine) startScheduler() {
 								hasNew = true
 							}
 						}
-						newSched := &taskSchedule{
-							hasID:        newHas,
-							choked:       len(tasks) > chokePoint,
-							reservedTask: prevReserved,
+						availableTasks[taskName] = &taskSchedule{
+							hasID:  newHas,
+							choked: len(tasks) > chokePoint,
 						}
-						// If our previously reserved task was claimed by someone else
-						// (no longer in DB results), pick a new reservation.
-						if prevReserved != 0 {
-							if _, ok := newHas[prevReserved]; !ok {
-								newSched.ReserveNext(func(taskID TaskID) {
-									e.peering.TellOthers(messageTypeReserve, taskName, taskID)
-								})
-							}
-						}
-						availableTasks[taskName] = newSched
 					}
 
 					if hasNew {
@@ -269,7 +247,7 @@ func (e *TaskEngine) startScheduler() {
 						}
 						availableTasks[event.TaskType].hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
 						if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-							if _, err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
+							if err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 								log.Errorw("failed tryAllWork", "error", err)
 							}
 						} else {
@@ -299,7 +277,7 @@ func (e *TaskEngine) startScheduler() {
 					}
 					t.hasID[event.TaskID] = task{ID: event.TaskID, UpdateTime: time.Now(), PostedTime: pt, Retries: event.Retries}
 					if h := e.taskMap[event.TaskType]; h != nil && h.TimeSensitive {
-						if _, err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
+						if  err := e.tryStartTask(event.TaskType, ts, ee); err != nil {
 							log.Errorw("failed tryAllWork", "error", err)
 						}
 					} else {
@@ -308,16 +286,14 @@ func (e *TaskEngine) startScheduler() {
 
 				case schedulerSourceTaskStarted:
 					// A local goroutine claimed and started a task. Remove from
-					// available set and advance the resource reservation for
-					// TimeSensitive types to keep the next task ready to go.
+					// available set and notify peers.
 					avail := availableTasks[event.TaskType]
 					delete(avail.hasID, event.TaskID)
 					e.peering.TellOthers(messageTypeStarted, event.TaskType, event.TaskID)
 
 				case schedulerSourcePeerStarted:
 					// A peer started a task. Remove from our available set so we
-					// don't try to claim it. If it was our reserved task, pick
-					// a new one to hold resources for.
+					// don't try to claim it.
 					avail, ok := availableTasks[event.TaskType]
 					if !ok {
 						continue
@@ -394,9 +370,7 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 }
 
 // taskSourceLocal serves tasks from the scheduler's in-memory available-tasks
-// map. GetTasks returns the reserved task first (the one this node is holding
-// resources for), then all remaining tasks. This ordering ensures the
-// resource-reserved task gets first shot at CanAccept and claiming.
+// map. GetTasks returns tasks sorted by posted time (FIFO within the type).
 type taskSourceLocal struct {
 	availableTasks map[string]*taskSchedule
 	peering        *peering
@@ -448,22 +422,6 @@ func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
 		Source:   schedulerSourceTaskCompleted,
 		Success:  success,
 	}
-}
-
-// expects single-threaded caller of
-
-func (t taskSourceDb) GetTasks(taskName string) []task {
-	tasks := []task{}
-	err := t.db.Select(context.Background(), &tasks, `SELECT id, update_time, posted_time, retries FROM harmony_task WHERE name = $1 AND owner_id IS NULL ORDER BY posted_time ASC, id ASC LIMIT $2`, taskName, chokePoint+1)
-	newHas := lo.Associate(tasks, func(t task) (TaskID, task) {
-		return t.ID, t
-	})
-	t.availableTasks[taskName] = &taskSchedule{
-		hasID:  newHas,
-		choked: len(tasks) > chokePoint,
-	}
-
-	return tasks
 }
 
 // pollAllTaskTypes queries the DB for all unowned tasks across all registered

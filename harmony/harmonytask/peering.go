@@ -1,13 +1,10 @@
 package harmonytask
 
 import (
-	"bytes"
-	"context"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/xerrors"
 )
@@ -15,36 +12,38 @@ import (
 // PeerMessage is the JSON envelope for all peer-to-peer messages.
 // The protocol is simple by design: each message is a self-contained JSON
 // object sent over the transport (HTTP POST in production, channel pipes
-// in tests). The three-field structure keeps serialization overhead minimal
-// while being extensible via the Other field for verb-specific payloads.
+// in tests). The three-field structure keeps serialization overhead minimal;
+// verb-specific fields live in taskOther (identity uses hostAndPort; preempt
+// uses cost; newTask uses retries and posted; others use taskType alone).
 type PeerMessage struct {
-	Verb   string          `json:"verb"`
-	TaskID TaskID          `json:"taskID,omitempty"`
-	Other  json.RawMessage `json:"other,omitempty"`
+	Verb   string    `json:"verb"`
+	TaskID TaskID    `json:"taskID,omitempty"`
+	Other  taskOther `json:"other,omitempty"`
 }
 
-type identityOther struct {
-	HostAndPort string `json:"hostAndPort"`
-}
-
+// taskOther is the only payload shape for PeerMessage.Other. Fields are
+// used depending on Verb: identity (hostAndPort), newTask (taskType, retries,
+// posted), started (taskType), preemptCost (taskType, cost).
 type taskOther struct {
-	TaskType string `json:"taskType"`
-	Retries  int    `json:"retries,omitempty"`
+	TaskType    string        `json:"taskType,omitempty"`
+	Retries     int           `json:"retries,omitempty"`
+	Posted      time.Time     `json:"posted,omitempty"`
+	HostAndPort string        `json:"hostAndPort,omitempty"`
+	Cost        time.Duration `json:"cost,omitempty"`
 }
 
 // messageType identifies the kind of peer-to-peer message.
-// The protocol supports three task-related verbs plus identity handshake:
+// The protocol supports task-related verbs plus identity handshake:
 //   - identity: exchanged on connection to establish peer address mapping
 //   - newTask: broadcast when a task is added, so peers can attempt to claim it
-//   - reserve: broadcast when a node holds resources for a task (incomplete protocol)
 //   - started: broadcast when a node begins executing a task, so peers can
 //     remove it from their available-tasks map and stop attempting to claim it
+//   - preemptCost: time-sensitive preemption cost comparison (see preempt.go)
 type messageType string
 
 const (
 	messageTypeIdentity    messageType = "identity"
 	messageTypeNewTask     messageType = "newTask"
-	messageTypeReserve     messageType = "reserve"
 	messageTypeStarted     messageType = "started"
 	messageTypePreemptCost messageType = "preemptCost"
 )
@@ -83,8 +82,8 @@ type peer struct {
 // to relevant peers in fire-and-forget goroutines. Incoming messages from
 // peers are converted into schedulerEvents and pushed to the scheduler channel.
 //
-// Message types: newTask (work available), reserve (resource hold — protocol
-// incomplete, see doc.go), started (task claimed and running).
+// Message types: newTask (work available), started (task claimed and running),
+// preemptCost (time-sensitive preemption bidding).
 //
 // Peer lifecycle:
 //  1. On startup, startPeering queries harmony_machines for known peers
@@ -165,7 +164,7 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 	log.Infow("handling peer connection", "peer", peerAddr)
 
 	// Send identity so the remote peer knows our address.
-	idMsg, err := marshalPeerMessage(messageTypeIdentity, 0, identityOther{HostAndPort: p.h.hostAndPort})
+	idMsg, err := marshalPeerMessage(messageTypeIdentity, 0, taskOther{HostAndPort: p.h.hostAndPort})
 	if err != nil {
 		log.Warnw("failed to marshal identity", "peer", peerAddr, "error", err)
 		return
@@ -254,29 +253,20 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 		return xerrors.Errorf("invalid JSON message from peer: %w", err)
 	}
 
-	var other taskOther
-	if len(envelope.Other) > 0 {
-		if err := json.Unmarshal(envelope.Other, &other); err != nil {
-			return xerrors.Errorf("failed to unmarshal task other from peer %s: %w", peerAddr, err)
-		}
-		postedTime := postedTimeFromNewTaskPayload(p, taskID, taskType, parts[2])
-		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:     taskID,
-			TaskType:   taskType,
-			Source:     schedulerSourcePeerNewTask,
-			PeerID:     them.id,
-			Retries:    retries,
-			PostedTime: postedTime,
-	}
+	other := envelope.Other
 
 	switch messageType(envelope.Verb) {
+	case messageTypeIdentity:
+		// Handshake only; no scheduler event.
+		return nil
 	case messageTypeNewTask:
 		p.h.schedulerChannel <- schedulerEvent{
-			TaskID:   envelope.TaskID,
-			TaskType: other.TaskType,
-			Source:   schedulerSourcePeerNewTask,
-			PeerID:   them.id,
-			Retries:  other.Retries,
+			TaskID:     envelope.TaskID,
+			TaskType:   other.TaskType,
+			Source:     schedulerSourcePeerNewTask,
+			PeerID:     them.id,
+			Retries:    other.Retries,
+			PostedTime: other.Posted,
 		}
 	case messageTypeStarted:
 		p.h.schedulerChannel <- schedulerEvent{
@@ -286,11 +276,6 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			PeerID:   them.id,
 		}
 	case messageTypePreemptCost:
-		var other messagePreemptCostOther
-		if err := json.Unmarshal(envelope.Other, &other); err != nil {
-			return xerrors.Errorf("failed to unmarshal preempt cost other from peer %s: %w", peerAddr, err)
-		}
-
 		resp := preemptCostResponse{PeerID: them.id, Cost: other.Cost}
 		taskID := envelope.TaskID
 		p.h.preemptCostMu.Lock()
@@ -313,36 +298,21 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 	return nil
 }
 
-type messageType byte
-
-const (
-	messageTypeNewTask     messageType = 't'
-	messageTypeStarted     messageType = 's'
-	messageTypePreemptCost messageType = 'c'
-)
-
-func (p *peering) TellOthers(messagetype messageType, task string, tID TaskID) {
-	if messagetype == messageTypeNewTask {
-		p.TellNewTask(task, tID, 0, time.Now().UTC())
-		return
-	}
-	p.TellOthersMessage(task, peeringMessageTaskSend{MessageType: messagetype, TaskType: task, TaskID: tID})
-}
-
 // TellNewTask notifies peers of a new task including wall time for FIFO scheduling.
 func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted time.Time) {
-	p.TellOthersMessage(task, peeringMessageNewTask{TaskType: task, TaskID: tID, Retries: retries, Posted: posted})
+	msg, err := marshalPeerMessage(messageTypeNewTask, tID, taskOther{TaskType: task, Retries: retries, Posted: posted})
+	if err != nil {
+		log.Errorw("failed to marshal new task message", "error", err)
+		return
+	}
+	p.tellOtherBytes(task, msg)
 }
 
-func marshalPeerMessage(verb messageType, taskID TaskID, other any) ([]byte, error) {
-	otherBytes, err := json.Marshal(other)
-	if err != nil {
-		return nil, fmt.Errorf("marshal other: %w", err)
-	}
+func marshalPeerMessage(verb messageType, taskID TaskID, other taskOther) ([]byte, error) {
 	return json.Marshal(PeerMessage{
 		Verb:   string(verb),
 		TaskID: taskID,
-		Other:  otherBytes,
+		Other:  other,
 	})
 }
 
