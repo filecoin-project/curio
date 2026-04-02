@@ -31,7 +31,7 @@ var (
 
 // ServiceProviderRegistryStorageMetaData contains all meta data concerning the ServiceProviderRegistryStorage contract.
 var ServiceProviderRegistryStorageMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"function\",\"name\":\"activeProductTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"activeProviderCount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addressToProviderId\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"value\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providerProducts\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"productData\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providers\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"},{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
+	ABI: "[{\"type\":\"function\",\"name\":\"activeProductTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"activeProviderCount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addressToProviderId\",\"inputs\":[{\"name\":\"providerAddress\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productCapabilities\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"key\",\"type\":\"string\",\"internalType\":\"string\"}],\"outputs\":[{\"name\":\"value\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"productTypeProviderCount\",\"inputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"count\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providerProducts\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"}],\"outputs\":[{\"name\":\"productType\",\"type\":\"uint8\",\"internalType\":\"enumServiceProviderRegistryStorage.ProductType\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"providers\",\"inputs\":[{\"name\":\"providerId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"serviceProvider\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"payee\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"name\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"description\",\"type\":\"string\",\"internalType\":\"string\"},{\"name\":\"isActive\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"}]",
 }
 
 // ServiceProviderRegistryStorageABI is the input ABI used to generate the binding from.
@@ -275,16 +275,16 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSessi
 
 // ProductCapabilities is a free data retrieval call binding the contract method 0x4368bafb.
 //
-// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(string value)
-func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) ProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8, key string) (string, error) {
+// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(bytes value)
+func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) ProductCapabilities(opts *bind.CallOpts, providerId *big.Int, productType uint8, key string) ([]byte, error) {
 	var out []interface{}
 	err := _ServiceProviderRegistryStorage.contract.Call(opts, &out, "productCapabilities", providerId, productType, key)
 
 	if err != nil {
-		return *new(string), err
+		return *new([]byte), err
 	}
 
-	out0 := *abi.ConvertType(out[0], new(string)).(*string)
+	out0 := *abi.ConvertType(out[0], new([]byte)).(*[]byte)
 
 	return out0, err
 
@@ -292,15 +292,15 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 
 // ProductCapabilities is a free data retrieval call binding the contract method 0x4368bafb.
 //
-// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(string value)
-func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageSession) ProductCapabilities(providerId *big.Int, productType uint8, key string) (string, error) {
+// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(bytes value)
+func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageSession) ProductCapabilities(providerId *big.Int, productType uint8, key string) ([]byte, error) {
 	return _ServiceProviderRegistryStorage.Contract.ProductCapabilities(&_ServiceProviderRegistryStorage.CallOpts, providerId, productType, key)
 }
 
 // ProductCapabilities is a free data retrieval call binding the contract method 0x4368bafb.
 //
-// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(string value)
-func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSession) ProductCapabilities(providerId *big.Int, productType uint8, key string) (string, error) {
+// Solidity: function productCapabilities(uint256 providerId, uint8 productType, string key) view returns(bytes value)
+func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSession) ProductCapabilities(providerId *big.Int, productType uint8, key string) ([]byte, error) {
 	return _ServiceProviderRegistryStorage.Contract.ProductCapabilities(&_ServiceProviderRegistryStorage.CallOpts, providerId, productType, key)
 }
 
@@ -337,10 +337,9 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSessi
 
 // ProviderProducts is a free data retrieval call binding the contract method 0x6bf6d74f.
 //
-// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bytes productData, bool isActive)
+// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bool isActive)
 func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) ProviderProducts(opts *bind.CallOpts, providerId *big.Int, productType uint8) (struct {
 	ProductType uint8
-	ProductData []byte
 	IsActive    bool
 }, error) {
 	var out []interface{}
@@ -348,7 +347,6 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 
 	outstruct := new(struct {
 		ProductType uint8
-		ProductData []byte
 		IsActive    bool
 	})
 	if err != nil {
@@ -356,8 +354,7 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 	}
 
 	outstruct.ProductType = *abi.ConvertType(out[0], new(uint8)).(*uint8)
-	outstruct.ProductData = *abi.ConvertType(out[1], new([]byte)).(*[]byte)
-	outstruct.IsActive = *abi.ConvertType(out[2], new(bool)).(*bool)
+	outstruct.IsActive = *abi.ConvertType(out[1], new(bool)).(*bool)
 
 	return *outstruct, err
 
@@ -365,10 +362,9 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 
 // ProviderProducts is a free data retrieval call binding the contract method 0x6bf6d74f.
 //
-// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bytes productData, bool isActive)
+// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bool isActive)
 func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageSession) ProviderProducts(providerId *big.Int, productType uint8) (struct {
 	ProductType uint8
-	ProductData []byte
 	IsActive    bool
 }, error) {
 	return _ServiceProviderRegistryStorage.Contract.ProviderProducts(&_ServiceProviderRegistryStorage.CallOpts, providerId, productType)
@@ -376,10 +372,9 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageSession) Pr
 
 // ProviderProducts is a free data retrieval call binding the contract method 0x6bf6d74f.
 //
-// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bytes productData, bool isActive)
+// Solidity: function providerProducts(uint256 providerId, uint8 productType) view returns(uint8 productType, bool isActive)
 func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSession) ProviderProducts(providerId *big.Int, productType uint8) (struct {
 	ProductType uint8
-	ProductData []byte
 	IsActive    bool
 }, error) {
 	return _ServiceProviderRegistryStorage.Contract.ProviderProducts(&_ServiceProviderRegistryStorage.CallOpts, providerId, productType)
@@ -387,14 +382,13 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSessi
 
 // Providers is a free data retrieval call binding the contract method 0x50f3fc81.
 //
-// Solidity: function providers(uint256 providerId) view returns(address serviceProvider, address payee, string name, string description, bool isActive, uint256 providerId)
+// Solidity: function providers(uint256 providerId) view returns(address serviceProvider, address payee, string name, string description, bool isActive)
 func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Providers(opts *bind.CallOpts, providerId *big.Int) (struct {
 	ServiceProvider common.Address
 	Payee           common.Address
 	Name            string
 	Description     string
 	IsActive        bool
-	ProviderId      *big.Int
 }, error) {
 	var out []interface{}
 	err := _ServiceProviderRegistryStorage.contract.Call(opts, &out, "providers", providerId)
@@ -405,7 +399,6 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 		Name            string
 		Description     string
 		IsActive        bool
-		ProviderId      *big.Int
 	})
 	if err != nil {
 		return *outstruct, err
@@ -416,7 +409,6 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 	outstruct.Name = *abi.ConvertType(out[2], new(string)).(*string)
 	outstruct.Description = *abi.ConvertType(out[3], new(string)).(*string)
 	outstruct.IsActive = *abi.ConvertType(out[4], new(bool)).(*bool)
-	outstruct.ProviderId = *abi.ConvertType(out[5], new(*big.Int)).(**big.Int)
 
 	return *outstruct, err
 
@@ -424,28 +416,26 @@ func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCaller) Pro
 
 // Providers is a free data retrieval call binding the contract method 0x50f3fc81.
 //
-// Solidity: function providers(uint256 providerId) view returns(address serviceProvider, address payee, string name, string description, bool isActive, uint256 providerId)
+// Solidity: function providers(uint256 providerId) view returns(address serviceProvider, address payee, string name, string description, bool isActive)
 func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageSession) Providers(providerId *big.Int) (struct {
 	ServiceProvider common.Address
 	Payee           common.Address
 	Name            string
 	Description     string
 	IsActive        bool
-	ProviderId      *big.Int
 }, error) {
 	return _ServiceProviderRegistryStorage.Contract.Providers(&_ServiceProviderRegistryStorage.CallOpts, providerId)
 }
 
 // Providers is a free data retrieval call binding the contract method 0x50f3fc81.
 //
-// Solidity: function providers(uint256 providerId) view returns(address serviceProvider, address payee, string name, string description, bool isActive, uint256 providerId)
+// Solidity: function providers(uint256 providerId) view returns(address serviceProvider, address payee, string name, string description, bool isActive)
 func (_ServiceProviderRegistryStorage *ServiceProviderRegistryStorageCallerSession) Providers(providerId *big.Int) (struct {
 	ServiceProvider common.Address
 	Payee           common.Address
 	Name            string
 	Description     string
 	IsActive        bool
-	ProviderId      *big.Int
 }, error) {
 	return _ServiceProviderRegistryStorage.Contract.Providers(&_ServiceProviderRegistryStorage.CallOpts, providerId)
 }

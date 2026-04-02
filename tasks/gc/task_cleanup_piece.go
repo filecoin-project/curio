@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
-	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/lists"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -202,8 +202,8 @@ func (p *PieceCleanupTask) Do(ctx context.Context, taskID harmonytask.TaskID, st
 			return false, xerrors.Errorf("failed to parse piece deal ID %s: %w, %w", pieceDeal.ID, err, serr)
 
 		}
-		lo.Uniq(mk12List)
-		lo.Uniq(mk20List)
+		mk12List = lists.UniqNoAllocByteArray(mk12List)
+		mk20List = lists.UniqNoAllocByteArray(mk20List)
 		if isMK12 {
 			rmAccounce := true
 			if len(mk12List) > 1 {

@@ -1,6 +1,7 @@
 package harmonytask
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -10,9 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPreemptCostMessage verifies that messageRenderPreemptCost produces bytes
-// that handlePeerMessage correctly parses and routes into preemptCostChs.
-// When preemptCostChs has a channel for the taskID, the response is delivered there.
+// TestPreemptCostMessage verifies preempt cost bytes are parsed and routed into preemptCostChs.
 func TestPreemptCostMessage(t *testing.T) {
 	engine := &TaskEngine{
 		schedulerChannel: make(chan schedulerEvent, 10),
@@ -24,10 +23,11 @@ func TestPreemptCostMessage(t *testing.T) {
 	p := &peering{h: engine}
 	them := peer{id: 99}
 
-	msg := peeringMessagePreemptCost{TaskType: "WinPost", TaskID: 123, Cost: 5 * time.Second}.Render()
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 123, taskOther{Cost: 5 * time.Second, TaskType: "WinPost"})
+	require.NoError(t, err)
 	t.Logf("wire bytes (%d): %q", len(msg), msg)
 
-	err := p.handlePeerMessage("test-peer", them, msg)
+	err = p.handlePeerMessage("test-peer", them, msg)
 	require.NoError(t, err)
 
 	select {
@@ -39,13 +39,17 @@ func TestPreemptCostMessage(t *testing.T) {
 	}
 }
 
-// TestPreemptCostMessageWireFormat verifies the exact byte layout of preempt cost messages.
+// TestPreemptCostMessageWireFormat verifies preempt cost messages use the PeerMessage envelope.
 func TestPreemptCostMessageWireFormat(t *testing.T) {
-	msg := peeringMessagePreemptCost{TaskType: "WdPost", TaskID: 42, Cost: 3 * time.Second}.Render()
-	require.Equal(t, byte('c'), msg[0], "first byte should be messageTypePreemptCost")
-	require.Equal(t, byte(':'), msg[1])
-	require.Contains(t, string(msg), "WdPost")
-	require.GreaterOrEqual(t, len(msg), 16, "need at least 8 byte taskID + 8 byte cost")
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 42, taskOther{Cost: 3 * time.Second, TaskType: "WdPost"})
+	require.NoError(t, err)
+
+	var envelope PeerMessage
+	require.NoError(t, json.Unmarshal(msg, &envelope))
+	require.Equal(t, string(messageTypePreemptCost), envelope.Verb)
+	require.Equal(t, TaskID(42), envelope.TaskID)
+	require.Equal(t, "WdPost", envelope.Other.TaskType)
+	require.Equal(t, 3*time.Second, envelope.Other.Cost)
 }
 
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====
@@ -95,16 +99,22 @@ func (c *pipeConn) Close() error {
 
 // ===== Message Format Tests =====
 
-// TestMessageRenderRoundTrip verifies that every message type renders to bytes
+// TestMessageRoundTrip verifies that every handled message type marshals to JSON
 // that handlePeerMessage can parse back into the correct schedulerEvent.
-func TestMessageRenderRoundTrip(t *testing.T) {
+func TestMessageRoundTrip(t *testing.T) {
 	ch := make(chan schedulerEvent, 10)
 	p := &peering{h: &TaskEngine{schedulerChannel: ch}}
 	them := peer{id: 42}
 
+	mustMarshal := func(verb messageType, taskID TaskID, other taskOther) []byte {
+		msg, err := marshalPeerMessage(verb, taskID, other)
+		require.NoError(t, err)
+		return msg
+	}
+
 	tests := []struct {
 		name     string
-		render   func() []byte
+		msg      []byte
 		wantType string
 		wantID   TaskID
 		wantSrc  schedulerSource
@@ -112,7 +122,7 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 	}{
 		{
 			name:     "NewTask with retries",
-			render:   func() []byte { return peeringMessageNewTask{TaskType: "Seal", TaskID: 100, Retries: 3}.Render() },
+			msg:      mustMarshal(messageTypeNewTask, 100, taskOther{TaskType: "Seal", Retries: 3}),
 			wantType: "Seal",
 			wantID:   100,
 			wantSrc:  schedulerSourcePeerNewTask,
@@ -120,27 +130,23 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 		},
 		{
 			name:     "NewTask zero retries",
-			render:   func() []byte { return peeringMessageNewTask{TaskType: "SDR", TaskID: 999, Retries: 0}.Render() },
+			msg:      mustMarshal(messageTypeNewTask, 999, taskOther{TaskType: "SDR"}),
 			wantType: "SDR",
 			wantID:   999,
 			wantSrc:  schedulerSourcePeerNewTask,
 			wantRet:  0,
 		},
 		{
-			name: "TaskSend as NewTask",
-			render: func() []byte {
-				return peeringMessageTaskSend{MessageType: messageTypeNewTask, TaskType: "WinPost", TaskID: 7}.Render()
-			},
+			name:     "NewTask WinPost",
+			msg:      mustMarshal(messageTypeNewTask, 7, taskOther{TaskType: "WinPost"}),
 			wantType: "WinPost",
 			wantID:   7,
 			wantSrc:  schedulerSourcePeerNewTask,
 			wantRet:  0,
 		},
 		{
-			name: "Started",
-			render: func() []byte {
-				return peeringMessageTaskSend{MessageType: messageTypeStarted, TaskType: "WdPost", TaskID: 12}.Render()
-			},
+			name:     "Started",
+			msg:      mustMarshal(messageTypeStarted, 12, taskOther{TaskType: "WdPost"}),
 			wantType: "WdPost",
 			wantID:   12,
 			wantSrc:  schedulerSourcePeerStarted,
@@ -149,10 +155,9 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			msg := tt.render()
-			t.Logf("wire bytes (%d): %q", len(msg), msg)
+			t.Logf("wire JSON (%d): %s", len(tt.msg), tt.msg)
 
-			err := p.handlePeerMessage("test-peer", them, msg)
+			err := p.handlePeerMessage("test-peer", them, tt.msg)
 			require.NoError(t, err)
 
 			select {
@@ -171,22 +176,38 @@ func TestMessageRenderRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMessageRenderWireFormat verifies the exact byte layout of rendered messages.
-func TestMessageRenderWireFormat(t *testing.T) {
-	t.Run("TaskSend", func(t *testing.T) {
-		msg := peeringMessageTaskSend{MessageType: messageTypeStarted, TaskType: "ABC", TaskID: 1}.Render()
-		require.Equal(t, byte('s'), msg[0], "first byte should be message type")
-		require.Equal(t, byte(':'), msg[1])
-		require.Equal(t, "ABC", string(msg[2:5]))
-		require.Equal(t, byte(':'), msg[5])
-		require.Len(t, msg, 6+8, "header + 8 byte taskID")
+// TestMessageWireFormat verifies that marshalled messages are valid JSON with expected fields.
+func TestMessageWireFormat(t *testing.T) {
+	t.Run("NewTaskWithRetries", func(t *testing.T) {
+		msg, err := marshalPeerMessage(messageTypeNewTask, 2, taskOther{TaskType: "XY", Retries: 5})
+		require.NoError(t, err)
+
+		var envelope PeerMessage
+		require.NoError(t, json.Unmarshal(msg, &envelope))
+		require.Equal(t, "newTask", envelope.Verb)
+		require.Equal(t, TaskID(2), envelope.TaskID)
+		require.Equal(t, "XY", envelope.Other.TaskType)
+		require.Equal(t, 5, envelope.Other.Retries)
 	})
 
-	t.Run("NewTask", func(t *testing.T) {
-		msg := peeringMessageNewTask{TaskType: "XY", TaskID: 2, Retries: 5, Posted: time.Unix(1, 2).UTC()}.Render()
-		require.Equal(t, byte('t'), msg[0])
-		require.Equal(t, "XY", string(msg[2:4]))
-		require.Len(t, msg, 5+8+2+8, "header + taskID + retries + posted UnixNano")
+	t.Run("Started", func(t *testing.T) {
+		msg, err := marshalPeerMessage(messageTypeStarted, 42, taskOther{TaskType: "WdPost"})
+		require.NoError(t, err)
+
+		var envelope PeerMessage
+		require.NoError(t, json.Unmarshal(msg, &envelope))
+		require.Equal(t, "started", envelope.Verb)
+		require.Equal(t, TaskID(42), envelope.TaskID)
+		require.Equal(t, "WdPost", envelope.Other.TaskType)
+	})
+
+	t.Run("Identity", func(t *testing.T) {
+		msg, err := marshalPeerMessage(messageTypeIdentity, 0, taskOther{HostAndPort: "host:1234"})
+		require.NoError(t, err)
+		var envelope PeerMessage
+		require.NoError(t, json.Unmarshal(msg, &envelope))
+		require.Equal(t, "identity", envelope.Verb)
+		require.Equal(t, "host:1234", envelope.Other.HostAndPort)
 	})
 }
 
@@ -201,10 +222,10 @@ func TestHandlePeerMessageRejectsGarbage(t *testing.T) {
 		msg  []byte
 	}{
 		{"empty", []byte{}},
-		{"no colons", []byte("hello")},
-		{"one colon only", []byte("t:short")},
-		{"unknown type", []byte("x:task:12345678")},
-		{"payload too short", []byte("t:task:abc")},
+		{"not json", []byte("hello")},
+		{"invalid json", []byte("{bad")},
+		{"unknown verb", []byte(`{"verb":"explode","taskID":1,"other":{"taskType":"X"}}`)},
+		{"missing verb", []byte(`{"taskID":1,"other":{"taskType":"X"}}`)},
 	}
 
 	for _, tt := range tests {

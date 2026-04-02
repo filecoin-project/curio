@@ -3,7 +3,6 @@ package itests
 import (
 	"context"
 	"encoding/base64"
-	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -30,9 +29,9 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/itests/helpers"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -63,7 +62,7 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	blockTime := 100 * time.Millisecond
 	esemble.BeginMining(blockTime)
 
-	full.WaitTillChain(ctx, kit.HeightAtLeast(15))
+	_ = full.WaitTillChain(ctx, kit.HeightAtLeast(15))
 
 	err := miner.LogSetLevel(ctx, "*", "ERROR")
 	require.NoError(t, err)
@@ -84,7 +83,7 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
@@ -118,6 +117,11 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 
 	// Enable market subsystems
 	baseCfg.Subsystems.EnableDealMarket = true
+	baseCfg.HTTP.Enable = true
+	baseCfg.HTTP.DelegateTLS = true
+	baseCfg.HTTP.DomainName = "localhost"
+	baseCfg.HTTP.ListenAddress = helpers.FreeListenAddr(t)
+	baseCfg.HTTP.DenylistServers = config.NewDynamic([]string{})
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 
@@ -154,11 +158,11 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	t.Logf("Created second miner: %s", maddr2)
 
 	// Update the config to add the second miner to the existing addresses
-	var updatedCfg config.CurioConfig
+	updatedCfg := config.DefaultCurioConfig()
 	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
 	require.NoError(t, err)
 
-	_, err = deps.LoadConfigWithUpgrades(baseText, &updatedCfg)
+	_, err = deps.LoadConfigWithUpgrades(baseText, updatedCfg)
 	require.NoError(t, err)
 
 	// Add the second miner to the addresses
@@ -169,10 +173,10 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	}
 
 	// Write the updated config back
-	cb, err = config.ConfigUpdate(&updatedCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+	cb, err = config.ConfigUpdate(updatedCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
 
-	_, err = db.Exec(ctx, `UPDATE harmony_config SET config = $1 WHERE title = 'base'`, string(cb))
+	_, err = db.Exec(ctx, `UPDATE harmony_config SET config = $1, timestamp = NOW() WHERE title = 'base'`, string(cb))
 	require.NoError(t, err)
 
 	t.Logf("Updated config to include second miner")
@@ -182,16 +186,12 @@ func TestMarketDealDynamicMinerUpdate(t *testing.T) {
 	// the miners Dynamic config would not be updated, and the market system
 	// would not know about maddr2
 
-	// Wait for config reload (config polling happens regularly)
-	time.Sleep(5 * time.Second)
-
-	// Verify that the second miner is now recognized by the market system
+	// Wait for config reload and verify that the second miner is recognized.
+	// Dynamic config polling runs periodically, so this is not immediate.
 	t.Logf("Verifying second miner is recognized by market system")
-	err = verifyMinerInMarketSystem(ctx, db, maddr2)
-	if err != nil {
-		// This is where the test would fail without the bug fix
-		t.Fatalf("Second miner not recognized by market system: %v. This indicates the bug where maddrs.OnChange(forMiners) is missing.", err)
-	}
+	require.Eventually(t, func() bool {
+		return verifyMinerInMarketSystem(ctx, db, maddr2) == nil
+	}, 90*time.Second, 1*time.Second, "Second miner not recognized by market system. This indicates the bug where maddrs.OnChange(forMiners) is missing.")
 
 	t.Logf("SUCCESS: Second miner is properly recognized by market system")
 
@@ -247,7 +247,7 @@ func verifyMinerInMarketSystem(ctx context.Context, db *harmonydb.DB, maddr addr
 func ConstructCurioWithMarket(ctx context.Context, t *testing.T, dir string, db *harmonydb.DB, idx *indexstore.IndexStore, full v1api.FullNode, maddr address.Address, cfg *config.CurioConfig) (api.Curio, func(), jsonrpc.ClientCloser, <-chan struct{}) {
 	ffiselect.IsTest = true
 
-	cctx, err := createMarketCliContext(dir)
+	cctx, err := helpers.CreateMarketCliContext(dir)
 	require.NoError(t, err)
 
 	shutdownChan := make(chan struct{})
@@ -338,79 +338,6 @@ func ConstructCurioWithMarket(ctx context.Context, t *testing.T, dir string, db 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
 }
 
-func createMarketCliContext(dir string) (*cli.Context, error) {
-	// Define flags for the command
-	flags := []cli.Flag{
-		&cli.StringFlag{
-			Name:    "listen",
-			Usage:   "host address and port the worker api will listen on",
-			Value:   "0.0.0.0:12300",
-			EnvVars: []string{"LOTUS_WORKER_LISTEN"},
-		},
-		&cli.BoolFlag{
-			Name:  "nosync",
-			Usage: "don't check full-node sync status",
-		},
-		&cli.BoolFlag{
-			Name:   "halt-after-init",
-			Usage:  "only run init, then return",
-			Hidden: true,
-		},
-		&cli.BoolFlag{
-			Name:  "manage-fdlimit",
-			Usage: "manage open file limit",
-			Value: true,
-		},
-		&cli.StringFlag{
-			Name:  "storage-json",
-			Usage: "path to json file containing storage config",
-			Value: "~/.curio/storage.json",
-		},
-		&cli.StringSliceFlag{
-			Name:    "layers",
-			Aliases: []string{"l", "layer"},
-			Usage:   "list of layers to be interpreted (atop defaults)",
-		},
-		&cli.StringFlag{
-			Name:    deps.FlagRepoPath,
-			EnvVars: []string{"CURIO_REPO_PATH"},
-			Value:   "~/.curio",
-		},
-	}
-
-	// Set up the command with flags
-	command := &cli.Command{
-		Name:  "simulate",
-		Flags: flags,
-		Action: func(c *cli.Context) error {
-			return nil
-		},
-	}
-
-	// Create a FlagSet and populate it
-	set := flag.NewFlagSet("test", flag.ContinueOnError)
-	for _, f := range flags {
-		if err := f.Apply(set); err != nil {
-			return nil, xerrors.Errorf("Error applying flag: %s\n", err)
-		}
-	}
-
-	rflag := fmt.Sprintf("--%s=%s", deps.FlagRepoPath, dir)
-
-	// Parse the flags with test values (including market layer)
-	err := set.Parse([]string{rflag, "--listen=0.0.0.0:12345", "--nosync", "--manage-fdlimit", "--layers=seal,market"})
-	if err != nil {
-		return nil, xerrors.Errorf("Error setting flag: %s\n", err)
-	}
-
-	// Create a cli.Context from the FlagSet
-	app := cli.NewApp()
-	ctx := cli.NewContext(app, set, nil)
-	ctx.Command = command
-
-	return ctx, nil
-}
-
 // TestMarketDealSystemBasic is a simpler test that just verifies the market
 // deal system initializes properly with the OnChange callback in place
 func TestMarketDealSystemBasic(t *testing.T) {
@@ -447,7 +374,7 @@ func TestMarketDealSystemBasic(t *testing.T) {
 	require.NoError(t, err)
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{helpers.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
 	require.NoError(t, err)
 	err = idxStore.Start(ctx, true)
 	require.NoError(t, err)
@@ -473,6 +400,11 @@ func TestMarketDealSystemBasic(t *testing.T) {
 
 	// Enable market subsystems
 	baseCfg.Subsystems.EnableDealMarket = true
+	baseCfg.HTTP.Enable = true
+	baseCfg.HTTP.DelegateTLS = true
+	baseCfg.HTTP.DomainName = "localhost"
+	baseCfg.HTTP.ListenAddress = helpers.FreeListenAddr(t)
+	baseCfg.HTTP.DenylistServers = config.NewDynamic([]string{})
 	baseCfg.Batching.PreCommit.Timeout = time.Second
 	baseCfg.Batching.Commit.Timeout = time.Second
 

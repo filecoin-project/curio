@@ -22,6 +22,7 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 const keyspace = "curio"
@@ -50,8 +51,6 @@ type Record struct {
 	Offset uint64  `json:"offset"`
 	Size   uint64  `json:"size"`
 }
-
-var ErrNotFound = errors.New("not found")
 
 func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
 	cluster := gocql.NewCluster(hosts...)
@@ -397,13 +396,15 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 	}
 
 	if len(hashes) == 0 {
-		pcid1, _, err := commcid.PieceCidV1FromV2(piecev2)
-		if err != nil {
-			return nil, xerrors.Errorf("getting piece cid v1 from v2: %w", err)
-		}
-		hashes, err = getHashes(pcid1, start, num)
-		if err != nil {
-			return nil, err
+		if commcidv2.IsPieceCidV2(piecev2) {
+			pcid1, _, err := commcid.PieceCidV1FromV2(piecev2)
+			if err != nil {
+				return nil, xerrors.Errorf("getting piece cid v1 from v2: %w", err)
+			}
+			hashes, err = getHashes(pcid1, start, num)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

@@ -590,6 +590,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
                 <link rel="stylesheet" href="/ux/main.css">
+                <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
                 <div class="loading">Loading sector expiration data...</div>
             `;
         }
@@ -598,6 +599,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
             return html`
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
                 <link rel="stylesheet" href="/ux/main.css">
+                <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
                 <div class="error">${this.error}</div>
             `;
         }
@@ -605,6 +607,7 @@ customElements.define('sector-expiration', class SectorExpiration extends LitEle
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css">
+            <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
             ${this.renderExpirationCounts()}
             ${this.renderBucketModal()}
         `;

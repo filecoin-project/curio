@@ -1543,13 +1543,6 @@
             "fuzzy": true
         },
         {
-            "id": "Location of the service provider",
-            "message": "Location of the service provider",
-            "translation": "Location of the service provider",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Lotus-Miner to Curio Migration.",
             "message": "Lotus-Miner to Curio Migration.",
             "translation": "Lotus-Miner to Curio Migration.",
@@ -1609,13 +1602,6 @@
             "id": "Math Utils",
             "message": "Math Utils",
             "translation": "Math Utils",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Maximum piece size",
-            "message": "Maximum piece size",
-            "translation": "Maximum piece size",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -1688,13 +1674,6 @@
             "id": "Minimum number of hugepages required",
             "message": "Minimum number of hugepages required",
             "translation": "Minimum number of hugepages required",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Minimum piece size",
-            "message": "Minimum piece size",
-            "translation": "Minimum piece size",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2124,6 +2103,13 @@
             "fuzzy": true
         },
         {
+            "id": "Read piece CIDs one per line from stdin instead of from arguments",
+            "message": "Read piece CIDs one per line from stdin instead of from arguments",
+            "translation": "Read piece CIDs one per line from stdin instead of from arguments",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Really delete {PathToDelete}?",
             "message": "Really delete {PathToDelete}?",
             "translation": "Really delete {PathToDelete}?",
@@ -2162,13 +2148,6 @@
             "fuzzy": true
         },
         {
-            "id": "Register a PDP service provider with Filecoin Service Registry Contract",
-            "message": "Register a PDP service provider with Filecoin Service Registry Contract",
-            "translation": "Register a PDP service provider with Filecoin Service Registry Contract",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Remove a named config layer.",
             "message": "Remove a named config layer.",
             "translation": "Remove a named config layer.",
@@ -2179,6 +2158,13 @@
             "id": "Remove unsealed copies of sector containing this deal",
             "message": "Remove unsealed copies of sector containing this deal",
             "translation": "Remove unsealed copies of sector containing this deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+            "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+            "translation": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2276,20 +2262,6 @@
             "fuzzy": true
         },
         {
-            "id": "Service provider description",
-            "message": "Service provider description",
-            "translation": "Service provider description",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Service provider name",
-            "message": "Service provider name",
-            "translation": "Service provider name",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Service sender address",
             "message": "Service sender address",
             "translation": "Service sender address",
@@ -2325,9 +2297,16 @@
             "fuzzy": true
         },
         {
-            "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
-            "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
-            "translation": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translation": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set the target unseal state for sectors containing the given piece CIDs",
+            "message": "Set the target unseal state for sectors containing the given piece CIDs",
+            "translation": "Set the target unseal state for sectors containing the given piece CIDs",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2356,13 +2335,6 @@
             "id": "Setup non-Storage Provider cluster",
             "message": "Setup non-Storage Provider cluster",
             "translation": "Setup non-Storage Provider cluster",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset",
-            "message": "Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset",
-            "translation": "Shortest frequency interval in epochs at which the SP is willing to prove access to the stored dataset",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2575,13 +2547,6 @@
             "fuzzy": true
         },
         {
-            "id": "Storage price per TiB per month in USDFC, Default is 1 USDFC.",
-            "message": "Storage price per TiB per month in USDFC, Default is 1 USDFC.",
-            "translation": "Storage price per TiB per month in USDFC, Default is 1 USDFC.",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Storage type for {ExpandedPath}",
             "message": "Storage type for {ExpandedPath}",
             "translation": "Storage type for {ExpandedPath}",
@@ -2606,23 +2571,16 @@
             "fuzzy": true
         },
         {
-            "id": "Supports IPNI IPFS CID indexing",
-            "message": "Supports IPNI IPFS CID indexing",
-            "translation": "Supports IPNI IPFS CID indexing",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Supports IPNI piece CID indexing",
-            "message": "Supports IPNI piece CID indexing",
-            "translation": "Supports IPNI piece CID indexing",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Supra consensus testing utilities",
             "message": "Supra consensus testing utilities",
             "translation": "Supra consensus testing utilities",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+            "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+            "translation": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2736,13 +2694,6 @@
             "fuzzy": true
         },
         {
-            "id": "Token contract for payment (IERC20(address(0)) for FIL)",
-            "message": "Token contract for payment (IERC20(address(0)) for FIL)",
-            "translation": "Token contract for payment (IERC20(address(0)) for FIL)",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "Tool Box for Curio",
             "message": "Tool Box for Curio",
             "translation": "Tool Box for Curio",
@@ -2764,13 +2715,6 @@
                     "expr": "\"code.Render()\""
                 }
             ],
-            "fuzzy": true
-        },
-        {
-            "id": "URL of the service provider",
-            "message": "URL of the service provider",
-            "translation": "URL of the service provider",
-            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {
