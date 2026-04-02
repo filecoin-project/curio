@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask/treehelper"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
@@ -189,6 +191,8 @@ type TaskEngine struct {
 	preemptCostMu      sync.Mutex
 	preemptCostChs     map[TaskID]chan preemptCostResponse
 	preemptCostPending map[TaskID][]preemptCostResponse // buffered until channel registered
+
+	preferredTaskRunOrder map[string][]string
 }
 
 type TaskID int
@@ -245,6 +249,8 @@ func NewWithReg(
 	e.peering = startPeering(e, peerConnector)
 	e.lastCleanup.Store(time.Now())
 
+	mayFollows := make(map[string][]string)
+
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
@@ -268,7 +274,10 @@ func NewWithReg(
 
 		e.handlers = append(e.handlers, &h)
 		e.taskMap[h.Name] = &h
+		mayFollows[h.Name] = h.MayFollow
 	}
+
+	e.preferredTaskRunOrder = treehelper.FindPreferredTaskRunOrder(mayFollows)
 
 	// Resurrect tasks that were owned by this machine before a restart.
 	// These tasks are already claimed in the DB (owner_id = us) so considerWork
@@ -398,7 +407,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
 
 	}()
-	for _, v := range e.handlers {
+	for _, v := range oldestFirstSeq(e.taskMap, taskSource, e.preferredTaskRunOrder) {
 		if !schedulable {
 			for relatedTaskName := range v.SchedulingOverrides {
 				if len(taskSource.GetTasks(relatedTaskName)) > 0 {
@@ -459,6 +468,44 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		}
 	}
 	return nil
+}
+
+func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, preferredTaskRunOrder map[string][]string) []*taskTypeHandler {
+	type nameAndAge struct {
+		name string
+		age  time.Time
+	}
+	var oldestInOrder []nameAndAge
+	for name := range taskTypes {
+		tasks := ts.GetTasks(name)
+		if len(tasks) == 0 {
+			continue
+		}
+		oldestInOrder = append(oldestInOrder, nameAndAge{name: name, age: tasks[0].PostedTime})
+	}
+	sort.Slice(oldestInOrder, func(i, j int) bool {
+		return oldestInOrder[i].age.Before(oldestInOrder[j].age)
+	})
+
+	var result []*taskTypeHandler
+	alreadySeen := make(map[string]bool)
+	for _, na := range oldestInOrder {
+		if alreadySeen[na.name] {
+			continue
+		}
+		// Run downstream pipeline stages (pipeline end first), then this type.
+		for _, name := range preferredTaskRunOrder[na.name] {
+			if !alreadySeen[name] {
+				alreadySeen[name] = true
+				result = append(result, taskTypes[name])
+			}
+		}
+		if !alreadySeen[na.name] {
+			alreadySeen[na.name] = true
+			result = append(result, taskTypes[na.name])
+		}
+	}
+	return result
 }
 
 var rlog = logging.Logger("harmony-res")

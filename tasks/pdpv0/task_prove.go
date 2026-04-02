@@ -953,6 +953,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:          "PDPv0_Prove",
 		TimeSensitive: true,
+		MayFollow:     []string{"PDPv0_InitPP", "PDPv0_ProvPeriod", "PDPv0_PullPiece"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

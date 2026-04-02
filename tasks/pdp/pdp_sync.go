@@ -166,6 +166,7 @@ func (P *PDPSyncTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1),
 		Name: "PDPSync",
+		MayFollow: []string{"PDPProve"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

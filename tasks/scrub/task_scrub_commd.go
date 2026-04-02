@@ -106,6 +106,7 @@ func (c *ScrubCommDTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Task
 func (c *ScrubCommDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "ScrubCommDCheck",
+		MayFollow: []string{"CommP"},
 		Cost: resources.Resources{
 			Cpu: min(1, runtime.NumCPU()/4),
 			Ram: uint64(runtime.NumCPU())*(8<<20) + 128<<20,

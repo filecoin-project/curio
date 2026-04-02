@@ -367,6 +367,7 @@ func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
 		Name: "AggregateChunks",
+		MayFollow: []string{"ParkPiece", "StorePiece"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

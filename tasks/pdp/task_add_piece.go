@@ -172,6 +172,7 @@ func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
 		Name: "PDPAddPiece",
+		MayFollow: []string{"PDPCommP"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

@@ -201,6 +201,7 @@ func (t *TaskSubmit) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 func (t *TaskSubmit) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PShareSubmit",
+		MayFollow: []string{"PSProve"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

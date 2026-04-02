@@ -133,6 +133,7 @@ func (t *TaskClientUpload) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(t.max),
 		Name: "PSPutVanilla",
+		MayFollow: []string{"PoRep"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20,

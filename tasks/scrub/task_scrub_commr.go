@@ -137,6 +137,7 @@ func (c *ScrubCommRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 func (c *ScrubCommRTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "ScrubCommRCheck",
+		MayFollow: []string{"TreeRC", "UpdateEncode"},
 		Cost: resources.Resources{
 			Cpu: min(4, runtime.NumCPU()/2),
 			Gpu: 1,       // Requires GPU for supraseal TreeR

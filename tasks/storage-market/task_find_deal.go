@@ -315,6 +315,7 @@ func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(128),
 		Name: "FindDeal",
+		MayFollow: []string{"PSD", "SendMessage"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

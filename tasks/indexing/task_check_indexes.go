@@ -788,6 +788,7 @@ func (c *CheckIndexesTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (c *CheckIndexesTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "CheckIndex",
+		MayFollow: []string{"Indexing", "IPNI"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

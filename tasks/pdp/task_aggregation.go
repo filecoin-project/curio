@@ -323,6 +323,7 @@ func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
 		Name: "AggregatePDPDeal",
+		MayFollow: []string{"PDPAddPiece"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

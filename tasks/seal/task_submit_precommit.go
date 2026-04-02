@@ -356,6 +356,7 @@ func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1024),
 		Name: "PreCommitBatch",
+		MayFollow: []string{"SyntheticProofs"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

@@ -423,6 +423,7 @@ func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPIpni",
+		MayFollow: []string{"PDPIndexing"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

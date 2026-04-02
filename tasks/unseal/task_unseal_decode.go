@@ -164,6 +164,7 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 	res := harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(t.max),
 		Name: "UnsealDecode",
+		MayFollow: []string{"SDRKeyRegen"},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,

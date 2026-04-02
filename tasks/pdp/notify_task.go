@@ -120,6 +120,7 @@ func (t *PDPNotifyTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPNotify",
+		MayFollow: []string{"PDPAddPiece"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20, // 128MB

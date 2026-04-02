@@ -138,6 +138,7 @@ func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(c.max),
 		Name: "DropPiece",
+		MayFollow: []string{"MoveStorage", "UpdateStore"},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,

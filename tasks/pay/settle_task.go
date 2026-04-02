@@ -91,6 +91,7 @@ func (s *SettleTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 func (s *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "Settle",
+		MayFollow: []string{"SendTransaction"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

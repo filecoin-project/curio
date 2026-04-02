@@ -360,6 +360,7 @@ func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(c.max),
 		Name: "CommP",
+		MayFollow: []string{"ParkPiece"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

@@ -219,6 +219,7 @@ func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(128),
 		Name: "WdPostRecover",
+		MayFollow: []string{"WdPost"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

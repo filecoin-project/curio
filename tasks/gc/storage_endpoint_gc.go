@@ -276,6 +276,7 @@ func (s *StorageEndpointGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1),
 		Name: "StorageMetaGC",
+		MayFollow: []string{"MoveStorage", "UpdateStore"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

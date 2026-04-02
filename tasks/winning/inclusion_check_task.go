@@ -106,6 +106,7 @@ func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1),
 		Name: "WinInclCheck",
+		MayFollow: []string{"WinPost"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

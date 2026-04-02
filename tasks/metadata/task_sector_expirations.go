@@ -558,6 +558,7 @@ func (s *SectorMetadata) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1),
 		Name: "SectorMetadata",
+		MayFollow: []string{"CommitBatch", "UpdateBatch"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

@@ -362,6 +362,7 @@ func (a *AggregateDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
 		Name: "AggregateDeals",
+		MayFollow: []string{"FindDeal"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

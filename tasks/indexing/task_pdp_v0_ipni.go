@@ -295,6 +295,7 @@ func (P *PDPV0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPv0_IPNI",
+		MayFollow: []string{"PDPv0_Indexing"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,
