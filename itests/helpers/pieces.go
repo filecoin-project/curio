@@ -9,18 +9,21 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/testutils"
-	"github.com/filecoin-project/curio/market/mk20"
-	"github.com/filecoin-project/go-data-segment/datasegment"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/go-data-segment/datasegment"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/testutils"
+	"github.com/filecoin-project/curio/market/mk20"
+
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 )
 
 type PieceFixture struct {

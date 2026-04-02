@@ -6,9 +6,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/market/indexstore"
-	"github.com/stretchr/testify/require"
 )
 
 func EnvElse(env, els string) string {

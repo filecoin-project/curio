@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/curio/itests/helpers"
-	"github.com/filecoin-project/go-address"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/itests/helpers"
 )
 
 func TestDynamicConfig(t *testing.T) {
@@ -159,4 +160,3 @@ func TestMarketDynamicConfigMinerUpdate(t *testing.T) {
 	require.Contains(t, machineDetails[0].Miners, maddr1.String(), "first miner should be in machine details")
 	require.Contains(t, machineDetails[0].Miners, maddr2.String(), "second miner should be in machine details")
 }
-

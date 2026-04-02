@@ -6,8 +6,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 type mk12PipelineRow struct {

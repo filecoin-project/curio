@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/filecoin-project/curio/api"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/curio/api"
 )
 
 func RedeclareAllLocalStorage(ctx context.Context, t *testing.T, capi api.Curio) {

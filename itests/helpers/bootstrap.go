@@ -7,17 +7,20 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/createminer"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	lapi "github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/v1api"
-	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/createminer"
+
+	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api/v1api"
+	"github.com/filecoin-project/lotus/itests/kit"
 )
 
 func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...interface{}) (*kit.TestFullNode, *kit.TestMiner, *kit.Ensemble, string) {
@@ -35,12 +38,6 @@ func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...interface{}) (*
 	esemble.BeginMining(blockTime)
 
 	full.WaitTillChain(ctx, kit.HeightAtLeast(15))
-
-	err := miner.LogSetLevel(ctx, "*", "ERROR")
-	require.NoError(t, err)
-
-	err = full.LogSetLevel(ctx, "*", "ERROR")
-	require.NoError(t, err)
 
 	fapi, err := FullNodeAPIInfo(ctx, full, full.ListenAddr)
 	require.NoError(t, err)
