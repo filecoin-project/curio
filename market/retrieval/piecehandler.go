@@ -58,6 +58,9 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid500ResponseCount.M(1))
 		return
 	}
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, 512)
 	n, _ := reader.Read(buf)
