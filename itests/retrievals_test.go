@@ -840,59 +840,6 @@ func seedRetrievalFixtureTx(
 	})
 }
 
-func seedStandaloneParkedPiece(t *testing.T, ctx context.Context, dir string, db *harmonydb.DB, fixture helpers.PieceFixture) int64 {
-	t.Helper()
-
-	var pieceID int64
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		id, err := helpers.InsertCompletedParkedPiece(tx, fixture.PieceCIDV1.String(), fixture.PieceSize, fixture.RawSize, true)
-		if err != nil {
-			return false, err
-		}
-		pieceID = id
-		return true, nil
-	})
-	require.NoError(t, err)
-	require.True(t, committed)
-	require.NoError(t, helpers.WriteParkedPieceFixture(dir, pieceID, fixture.CarBytes))
-
-	return pieceID
-}
-
-func seedStandaloneParkedPieceRef(t *testing.T, ctx context.Context, db *harmonydb.DB, pieceID int64) int64 {
-	t.Helper()
-
-	var pieceRefID int64
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		refID, err := helpers.InsertParkedPieceRef(tx, pieceID, "", nil, true)
-		if err != nil {
-			return false, err
-		}
-		pieceRefID = refID
-		return true, nil
-	})
-	require.NoError(t, err)
-	require.True(t, committed)
-
-	return pieceRefID
-}
-
-func seedStandalonePDPPieceRef(t *testing.T, ctx context.Context, db *harmonydb.DB, serviceLabel, pieceCID string, pieceRefID int64) {
-	t.Helper()
-
-	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		if _, err := tx.Exec(`INSERT INTO pdp_services (pubkey, service_label) VALUES ($1, $2)`, []byte(serviceLabel), serviceLabel); err != nil {
-			return false, err
-		}
-		if _, err := tx.Exec(`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) VALUES ($1, $2, $3, NOW())`, serviceLabel, pieceCID, pieceRefID); err != nil {
-			return false, err
-		}
-		return true, nil
-	})
-	require.NoError(t, err)
-	require.True(t, committed)
-}
-
 func seedStandaloneMK20Deal(t *testing.T, ctx context.Context, db *harmonydb.DB, dealID string, fixture helpers.PieceFixture, pieceRefID any) {
 	t.Helper()
 

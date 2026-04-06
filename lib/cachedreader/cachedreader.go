@@ -416,7 +416,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 	// First check if we have a cached error for this piece
 	cpr.pieceErrorCacheMu.Lock()
-	if errorItem, found := cpr.pieceErrorCache.Get(pieceCid); found == true {
+	if errorItem, found := cpr.pieceErrorCache.Get(pieceCid); found {
 		cachedErr := errorItem.(*cachedError)
 		cpr.pieceErrorCacheMu.Unlock()
 		log.Debugw("returning cached error", "piececid", pieceCid, "err", cachedErr.err)
@@ -435,7 +435,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 	// Check if there is already a piece reader in the cache
 	cpr.pieceReaderCacheMu.Lock()
 	rr, found := cpr.pieceReaderCache.Get(pieceCid)
-	if found == false {
+	if !found {
 		// Cache miss - there is not yet a cached piece reader
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 			tag.Upsert(cacheTypeKey, "piece_reader"),
