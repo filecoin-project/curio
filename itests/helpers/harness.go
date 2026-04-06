@@ -96,7 +96,9 @@ func StartCurioHarness(
 
 	go func() {
 		err := rpc.ListenAndServe(ctx, dependencies, shutdownChan)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("failed to start the Curio RPC server: %v", err)
+		}
 	}()
 
 	finishCh := node.MonitorShutdown(shutdownChan)

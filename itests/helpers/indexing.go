@@ -74,7 +74,6 @@ func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexsto
 	}
 
 	for k, v := range aggidx {
-		fmt.Println("adding aggregate index", k, v)
 		if err := idx.InsertAggregateIndex(ctx, k, v); err != nil {
 			return fmt.Errorf("inserting aggregate index for %s: %w", k, err)
 		}
