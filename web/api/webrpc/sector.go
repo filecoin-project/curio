@@ -78,6 +78,20 @@ type SectorInfo struct {
 	// On-chain partition state (detailed)
 	PartitionState *SectorPartitionState
 
+	// On-chain data for DB comparison
+	OnChain           bool
+	ChainSealedCID    string // Current sealed CID from chain (SealedCID)
+	ChainSectorKeyCID string // Original pre-snap sealed CID from chain (SectorKeyCID), empty if not snapped
+	ChainExpiration   *int64
+	ChainIsSnap       bool   // true if SectorKeyCID is set on chain
+	DBExpirationEpoch *int64 // Original DB expiration before chain overwrite (for comparison display)
+
+	// Mismatch flags (DB vs chain)
+	MismatchSealedCID    bool // cur_sealed_cid != chain SealedCID
+	MismatchSectorKeyCID bool // orig_sealed_cid != chain SectorKeyCID (for snapped sectors on chain)
+	MismatchExpiration   bool // DB expiration != chain Expiration
+	MismatchIsSnap       bool // DB snap state disagrees with chain (e.g. chain says snapped but DB CIDs are equal)
+
 	Pieces      []SectorPieceMeta
 	Locations   []LocationTable
 	Tasks       []SectorInfoTaskSummary
@@ -794,6 +808,49 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			si.ExpirationEpoch = &expr
 		}
 		si.DealWeight = dealWeight
+
+		// Populate on-chain comparison fields
+		si.OnChain = true
+		si.ChainSealedCID = onChainInfo.SealedCID.String()
+		if onChainInfo.SectorKeyCID != nil {
+			si.ChainSectorKeyCID = onChainInfo.SectorKeyCID.String()
+			si.ChainIsSnap = true
+		}
+		chainExpr := int64(onChainInfo.Expiration)
+		si.ChainExpiration = &chainExpr
+
+		// Compute mismatches against DB values
+		if len(sectorMetas) > 0 {
+			dbMeta := sectorMetas[0]
+
+			// Preserve original DB expiration for comparison display
+			if dbMeta.ExpirationEpoch.Valid {
+				dbExp := dbMeta.ExpirationEpoch.Int64
+				si.DBExpirationEpoch = &dbExp
+			}
+
+			// cur_sealed_cid should match chain SealedCID
+			if dbMeta.UpdatedSealedCid != si.ChainSealedCID {
+				si.MismatchSealedCID = true
+			}
+
+			// For snapped sectors on chain: orig_sealed_cid should match chain SectorKeyCID
+			if si.ChainIsSnap && dbMeta.OrigSealedCid != si.ChainSectorKeyCID {
+				si.MismatchSectorKeyCID = true
+			}
+
+			// Expiration comparison (use original DB value, not the chain-overwritten one)
+			if dbMeta.ExpirationEpoch.Valid && dbMeta.ExpirationEpoch.Int64 != chainExpr {
+				si.MismatchExpiration = true
+			}
+
+			// Snap state: chain says snapped if SectorKeyCID != nil
+			// DB says snapped if orig_sealed_cid != cur_sealed_cid
+			dbIsSnap := dbMeta.OrigSealedCid != dbMeta.UpdatedSealedCid
+			if dbIsSnap != si.ChainIsSnap {
+				si.MismatchIsSnap = true
+			}
+		}
 	}
 
 	si.PipelinePoRep = sle

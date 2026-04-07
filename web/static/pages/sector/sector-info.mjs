@@ -312,6 +312,40 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             flex-wrap: wrap;
             align-items: center;
         }
+        .comparison-alert {
+            padding: 8px 14px;
+            border-radius: 4px;
+            margin-bottom: 12px;
+            font-size: 0.9em;
+            border: 1px solid;
+        }
+        .comparison-alert-ok {
+            background-color: rgba(75, 181, 67, 0.1);
+            border-color: #4BB543;
+            color: #4BB543;
+        }
+        .comparison-alert-mismatch {
+            background-color: rgba(220, 53, 69, 0.15);
+            border-color: #dc3545;
+            color: #ff6b6b;
+        }
+        .comparison-table th {
+            border-bottom: 2px solid #444;
+        }
+        .comparison-table .cid-cell {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .row-mismatch {
+            background-color: rgba(220, 53, 69, 0.15) !important;
+        }
+        .status-match {
+            color: #4BB543;
+        }
+        .status-mismatch {
+            color: #ff6b6b;
+            font-weight: 600;
+        }
     `];
 
     render() {
@@ -379,6 +413,73 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         </tr>
                 </table>
             </div>
+            ${this.data.OnChain ? html`
+                <div>
+                    <h3>DB vs Chain Comparison</h3>
+                    ${(this.data.MismatchSealedCID || this.data.MismatchSectorKeyCID || this.data.MismatchExpiration || this.data.MismatchIsSnap) ? html`
+                        <div class="comparison-alert comparison-alert-mismatch">
+                            Mismatches detected between local DB and on-chain state. This may indicate a snap deal metadata update failure.
+                        </div>
+                    ` : html`
+                        <div class="comparison-alert comparison-alert-ok">
+                            All checked fields match between DB and chain.
+                        </div>
+                    `}
+                    <table class="table table-dark table-sm comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>DB Value</th>
+                                <th>Chain Value</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="${this.data.MismatchSealedCID ? 'row-mismatch' : ''}">
+                                <td>Current Sealed CID</td>
+                                <td class="cid-cell" title="${this.data.UpdatedSealedCid}">${this.formatCid(this.data.UpdatedSealedCid)}</td>
+                                <td class="cid-cell" title="${this.data.ChainSealedCID}">${this.formatCid(this.data.ChainSealedCID)}</td>
+                                <td>${this.data.MismatchSealedCID
+                                    ? html`<span class="status-mismatch">MISMATCH</span>`
+                                    : html`<span class="status-match">Match</span>`}</td>
+                            </tr>
+                            ${this.data.ChainIsSnap ? html`
+                                <tr class="${this.data.MismatchSectorKeyCID ? 'row-mismatch' : ''}">
+                                    <td>Sector Key CID (orig sealed)</td>
+                                    <td class="cid-cell" title="${this.data.SealedCid}">${this.formatCid(this.data.SealedCid)}</td>
+                                    <td class="cid-cell" title="${this.data.ChainSectorKeyCID}">${this.formatCid(this.data.ChainSectorKeyCID)}</td>
+                                    <td>${this.data.MismatchSectorKeyCID
+                                        ? html`<span class="status-mismatch">MISMATCH</span>`
+                                        : html`<span class="status-match">Match</span>`}</td>
+                                </tr>
+                            ` : ''}
+                            <tr class="${this.data.MismatchIsSnap ? 'row-mismatch' : ''}">
+                                <td>Snap Deal Status</td>
+                                <td>${this.data.IsSnap ? 'Snapped (orig != cur)' : 'CC (orig = cur)'}</td>
+                                <td>${this.data.ChainIsSnap ? 'Snapped (SectorKeyCID set)' : 'CC (no SectorKeyCID)'}</td>
+                                <td>${this.data.MismatchIsSnap
+                                    ? html`<span class="status-mismatch">MISMATCH</span>`
+                                    : html`<span class="status-match">Match</span>`}</td>
+                            </tr>
+                            <tr class="${this.data.MismatchExpiration ? 'row-mismatch' : ''}">
+                                <td>Expiration Epoch</td>
+                                <td>${this.data.DBExpirationEpoch != null ? this.data.DBExpirationEpoch : 'N/A'}</td>
+                                <td>${this.data.ChainExpiration != null ? this.data.ChainExpiration : 'N/A'}</td>
+                                <td>${this.data.MismatchExpiration
+                                    ? html`<span class="status-mismatch">MISMATCH</span>`
+                                    : html`<span class="status-match">Match</span>`}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            ` : html`
+                <div>
+                    <h3>DB vs Chain Comparison</h3>
+                    <div class="comparison-alert" style="border-color: #666; color: #888;">
+                        Sector not found on chain. Comparison not available.
+                    </div>
+                </div>
+            `}
             ${this.data.PartitionState ? html`
                 <div>
                     <h3>On-Chain Partition State</h3>
