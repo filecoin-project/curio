@@ -8,5 +8,15 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ["self-hosted", "linux", "x64", "4xlarge"]
 
+    services:
+      yugabyte:
+        image: yugabytedb/yugabyte:latest
+        ports:
+          - 7000:7000
+          - 9000:9000
+          - 15433:15433
+          - 5433:5433
+          - 9042:9042 
+
     steps:
-    - run: echo "Hello, World!"
+    - run: docker ps
