@@ -25,7 +25,13 @@ import (
 )
 
 func (p *Provider) updateSparkContract(ctx context.Context) error {
-	for _, pInfo := range p.keys {
+	p.mu.RLock()
+	infos := make([]*peerInfo, 0, len(p.providerInfos))
+	for _, pInfo := range p.providerInfos {
+		infos = append(infos, pInfo)
+	}
+	p.mu.RUnlock()
+	for _, pInfo := range infos {
 		if pInfo.SPID <= 0 {
 			log.Debugf("spark does not yet support pdp data")
 			continue
