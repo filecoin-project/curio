@@ -90,6 +90,43 @@ func createRawPieceFixture(t *testing.T, raw []byte, root cid.Cid) PieceFixture 
 	}
 }
 
+// SelectFixtureRawBlockCandidate returns a deterministic block from the CAR payload,
+// preferring a non-root block when the fixture contains one.
+func SelectFixtureRawBlockCandidate(t *testing.T, fixture PieceFixture) (cid.Cid, []byte) {
+	t.Helper()
+
+	br, err := carv2.NewBlockReader(bytes.NewReader(fixture.CarBytes))
+	require.NoError(t, err)
+
+	rootSet := make(map[cid.Cid]struct{}, len(br.Roots))
+	for _, root := range br.Roots {
+		rootSet[root] = struct{}{}
+	}
+
+	var fallbackCID cid.Cid
+	var fallbackData []byte
+
+	for {
+		blk, err := br.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+
+		if !fallbackCID.Defined() {
+			fallbackCID = blk.Cid()
+			fallbackData = append([]byte(nil), blk.RawData()...)
+		}
+
+		if _, isRoot := rootSet[blk.Cid()]; !isRoot {
+			return blk.Cid(), append([]byte(nil), blk.RawData()...)
+		}
+	}
+
+	require.True(t, fallbackCID.Defined(), "fixture CAR must contain at least one block")
+	return fallbackCID, fallbackData
+}
+
 func CreateAggregateFixtureFromSubpieces(t *testing.T, subpieces []PieceFixture) (PieceFixture, []mk20.DataSource) {
 	t.Helper()
 

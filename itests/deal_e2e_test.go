@@ -1,12 +1,14 @@
 package itests
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -14,6 +16,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/ipld/go-ipld-prime/codec/dagjson"
+	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/ipni/go-libipni/dagsync/ipnisync"
+	"github.com/ipni/go-libipni/dagsync/ipnisync/head"
+	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/oklog/ulid"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
@@ -126,6 +133,7 @@ func TestDealPipelineFullPath(t *testing.T) {
 			{Subsystem: "storage-market", Level: "INFO"},
 		},
 	})
+	baseURL := "http://" + baseCfg.HTTP.ListenAddress
 
 	mk12IDs := mk12VariantIDs(variants)
 	mk20IDs := mk20VariantIDs(variants)
@@ -190,6 +198,9 @@ func TestDealPipelineFullPath(t *testing.T) {
 		if !v.mk20 {
 			assertInitialPieceModel(t, ctx, db, v)
 		}
+
+		assertVariantPieceRetrievals(t, baseURL, v)
+		assertVariantIPFSBlockRetrieval(t, baseURL, v)
 	}
 
 	// Ensure pipeline tables have no leftover incomplete rows after all assertions.
@@ -207,6 +218,8 @@ func TestDealPipelineFullPath(t *testing.T) {
 			assertVerifiedClaimForPiece(t, ctx, full, maddr, v.fixture.PieceCIDV1, v.name)
 		}
 	}
+
+	assertIPNIAds(t, ctx, db, spID, baseURL, variants)
 }
 
 // buildDealVariants defines the static deal matrix used by this E2E coverage test.
@@ -334,7 +347,7 @@ func seedVariantPipelines(
 					Offline:      v.offline,
 					SourceURL:    v.pieceRefURL,
 					Indexing:     v.shouldIndex,
-					Announce:     false,
+					Announce:     v.shouldIndex,
 					AllocationID: nil,
 					Duration:     dealDuration,
 				})
@@ -354,8 +367,7 @@ func seedVariantPipelines(
 					RawSize:       v.fixture.RawSize,
 					Offline:       false,
 					URL:           v.pieceRefURL,
-					ShouldIndex:   v.shouldIndex,
-					Announce:      false,
+					Announce:      v.shouldIndex,
 					FastRetrieval: v.shouldIndex,
 					Verified:      v.verified,
 					StartEpoch:    startEpoch,
@@ -374,8 +386,7 @@ func seedVariantPipelines(
 				RawSize:       v.fixture.RawSize,
 				Offline:       false,
 				URL:           v.pieceRefURL,
-				ShouldIndex:   v.shouldIndex,
-				Announce:      false,
+				Announce:      v.shouldIndex,
 				ClientPeerID:  clientPeerID,
 				FastRetrieval: v.shouldIndex,
 				Signed:        v.signed,
@@ -610,6 +621,36 @@ func assertVerifiedClaimForPiece(t *testing.T, ctx context.Context, full *kit.Te
 	require.True(t, found, "expected on-chain verified claim for variant %s piece %s", variant, pieceCID)
 }
 
+func assertVariantPieceRetrievals(t *testing.T, baseURL string, v *dealVariant) {
+	t.Helper()
+
+	pieceCIDs := []cid.Cid{v.fixture.PieceCIDV1, v.fixture.PieceCIDV2}
+	for _, pieceCID := range pieceCIDs {
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+pieceCID.String(), nil)
+		require.Equal(t, http.StatusOK, status, "expected /piece success for %s cid %s", v.name, pieceCID)
+		require.Equal(t, v.fixture.CarBytes, body, "unexpected /piece body for %s cid %s", v.name, pieceCID)
+		helpers.AssertPieceResponseHeaders(t, headers, pieceCID.String(), len(v.fixture.CarBytes))
+	}
+}
+
+func assertVariantIPFSBlockRetrieval(t *testing.T, baseURL string, v *dealVariant) {
+	t.Helper()
+
+	blockCID, blockData := helpers.SelectFixtureRawBlockCandidate(t, v.fixture)
+	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+blockCID.String(), map[string]string{
+		"Accept": "application/vnd.ipld.raw",
+	})
+
+	if v.shouldIndex {
+		require.Equal(t, http.StatusOK, status, "expected indexed /ipfs success for %s block %s", v.name, blockCID)
+		require.Equal(t, blockData, body, "unexpected /ipfs raw block body for %s block %s", v.name, blockCID)
+		require.Contains(t, headers.Get("Content-Type"), "application/vnd.ipld.raw", "unexpected /ipfs content type for %s block %s", v.name, blockCID)
+		return
+	}
+
+	require.Equal(t, http.StatusNotFound, status, "expected non-indexed /ipfs miss for %s block %s", v.name, blockCID)
+}
+
 // collectSectorRefs loads sector refs for diagnostics dumps when the test fails.
 func collectSectorRefs(ctx context.Context, db *harmonydb.DB, spID int64) ([]helpers.SectorRef, error) {
 	var rows []struct {
@@ -647,4 +688,94 @@ func mk20VariantIDs(variants []*dealVariant) []string {
 		}
 	}
 	return ids
+}
+
+func assertIPNIAds(t *testing.T, ctx context.Context, db *harmonydb.DB, minerID int64, httpURL string, variants []*dealVariant) {
+	t.Helper()
+
+	expectedAds := 0
+	for _, v := range variants {
+		if v.shouldIndex {
+			expectedAds++
+		}
+	}
+
+	var peerID string
+	err := db.QueryRow(ctx, `SELECT peer_id FROM ipni_peerid WHERE sp_id = $1`, minerID).Scan(&peerID)
+	require.NoError(t, err)
+	require.NotEmpty(t, peerID, "expected IPNI peer ID for miner %d", minerID)
+
+	headPath := fmt.Sprintf("/ipni-provider/%s/ipni/v1/ad/head", peerID)
+	err = helpers.WaitForCondition(ctx, 90*time.Second, time.Second, func() (bool, error) {
+		status, body, _ := helpers.HTTPGetWithHeaders(t, httpURL, headPath, nil)
+		if status == http.StatusNoContent {
+			return expectedAds == 0, nil
+		}
+		if status != http.StatusOK {
+			return false, fmt.Errorf("unexpected IPNI head status %d", status)
+		}
+
+		signedHead, err := head.Decode(bytes.NewReader(body))
+		if err != nil {
+			return false, fmt.Errorf("decode signed head: %w", err)
+		}
+
+		headLink, ok := signedHead.Head.(cidlink.Link)
+		if !ok {
+			return false, fmt.Errorf("unexpected signed head link type %T", signedHead.Head)
+		}
+
+		adCount, err := countIPNIAdsFromHead(t, httpURL, peerID, headLink.Cid)
+		if err != nil {
+			return false, err
+		}
+		if adCount != expectedAds {
+			t.Logf("IPNI ad count not ready yet: provider=%s have=%d want=%d", peerID, adCount, expectedAds)
+			return false, nil
+		}
+
+		return true, nil
+	})
+	require.NoError(t, err)
+}
+
+func countIPNIAdsFromHead(t *testing.T, httpURL, peerID string, headCID cid.Cid) (int, error) {
+	t.Helper()
+
+	if !headCID.Defined() {
+		return 0, nil
+	}
+
+	seen := make(map[string]struct{})
+	count := 0
+	current := headCID
+
+	for current.Defined() {
+		if _, ok := seen[current.String()]; ok {
+			return 0, fmt.Errorf("detected IPNI ad cycle at %s", current)
+		}
+		seen[current.String()] = struct{}{}
+
+		status, body, _ := helpers.HTTPGetWithHeaders(t, httpURL, fmt.Sprintf("/ipni-provider/%s/ipni/v1/ad/%s", peerID, current), map[string]string{
+			ipnisync.CidSchemaHeader: ipnisync.CidSchemaAdvertisement,
+		})
+		if status != http.StatusOK {
+			return 0, fmt.Errorf("unexpected IPNI ad status %d for %s", status, current)
+		}
+
+		builder := schema.AdvertisementPrototype.NewBuilder()
+		if err := dagjson.Decode(builder, bytes.NewReader(body)); err != nil {
+			return 0, fmt.Errorf("decode advertisement %s: %w", current, err)
+		}
+
+		ad, err := schema.UnwrapAdvertisement(builder.Build())
+		if err != nil {
+			return 0, fmt.Errorf("unwrap advertisement %s: %w", current, err)
+		}
+
+		count++
+		current = ad.PreviousCid()
+	}
+
+	return count, nil
 }

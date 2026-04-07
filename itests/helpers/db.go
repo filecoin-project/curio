@@ -87,9 +87,10 @@ func SetBaseConfigWithDefaults(t *testing.T, ctx context.Context, db *harmonydb.
 	baseCfg.Batching.Commit.Timeout = time.Second
 	baseCfg.Ingest.MaxDealWaitTime.Set(2 * time.Second)
 	baseCfg.Market.StorageMarketConfig.MK12.PublishMsgPeriod = time.Second
-	baseCfg.Market.StorageMarketConfig.MK12.ExpectedPoRepSealDuration = 2 * time.Minute
-	baseCfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration = 2 * time.Minute
-	baseCfg.Market.StorageMarketConfig.IPNI.Disable = true
+	baseCfg.Market.StorageMarketConfig.MK12.ExpectedPoRepSealDuration = 10 * time.Minute
+	baseCfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration = 10 * time.Minute
+	baseCfg.Market.StorageMarketConfig.IPNI.ServiceURL = []string{}
+	baseCfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs = []string{}
 
 	err = UpsertBaseConfig(ctx, db, baseCfg)
 	require.NoError(t, err)

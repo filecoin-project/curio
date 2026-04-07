@@ -149,7 +149,6 @@ type MK12F05PendingSeed struct {
 	RawSize       int64
 	Offline       bool
 	URL           string
-	ShouldIndex   bool
 	Announce      bool
 	ClientPeerID  string
 	FastRetrieval bool
@@ -194,7 +193,7 @@ func SeedMK12F05PendingDeal(tx *harmonydb.Tx, s MK12F05PendingSeed) error {
 		) VALUES ($1, $2, $3, $4, $5,
 			$6, $7, $8, $9, FALSE)`,
 		s.UUID, s.SPID, s.PieceCID, s.PieceSize, s.RawSize,
-		s.Offline, s.URL, s.ShouldIndex, s.Announce,
+		s.Offline, s.URL, s.FastRetrieval, s.Announce,
 	)
 	if err != nil {
 		return xerrors.Errorf("insert market_mk12_deal_pipeline row: %w", err)
@@ -215,7 +214,6 @@ type MK12DDOPendingSeed struct {
 	RawSize       int64
 	Offline       bool
 	URL           string
-	ShouldIndex   bool
 	Announce      bool
 	FastRetrieval bool
 	Verified      bool
@@ -252,7 +250,7 @@ func SeedMK12DDOPendingDeal(tx *harmonydb.Tx, s MK12DDOPendingSeed) error {
 		) VALUES ($1, $2, $3, $4, $5,
 			$6, $7, $8, $9, TRUE)`,
 		s.UUID, s.SPID, s.PieceCID, s.PieceSize, s.RawSize,
-		s.Offline, s.URL, s.ShouldIndex, s.Announce,
+		s.Offline, s.URL, s.FastRetrieval, s.Announce,
 	)
 	if err != nil {
 		return xerrors.Errorf("insert market_mk12_deal_pipeline row for ddo: %w", err)
