@@ -9,10 +9,8 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 
-	"github.com/filecoin-project/go-address"
-
 	"github.com/filecoin-project/curio/build"
-
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )

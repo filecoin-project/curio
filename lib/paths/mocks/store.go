@@ -15,11 +15,9 @@ import (
 	uuid "github.com/google/uuid"
 	cid "github.com/ipfs/go-cid"
 
-	abi "github.com/filecoin-project/go-state-types/abi"
-
 	partialfile "github.com/filecoin-project/curio/lib/partialfile"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
-
+	abi "github.com/filecoin-project/go-state-types/abi"
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
 

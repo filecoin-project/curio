@@ -26,7 +26,6 @@ import (
 	"github.com/filecoin-project/curio/market/denylist"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
-
 	"github.com/filecoin-project/lotus/blockstore"
 )
 
