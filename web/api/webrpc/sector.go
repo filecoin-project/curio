@@ -223,6 +223,7 @@ type SectorMeta struct {
 	// Bools (NullBool = 2 bytes each)
 	IsCC          NullBool `db:"is_cc"`               // 2 bytes
 	UnsealedState NullBool `db:"target_unseal_state"` // 2 bytes
+	HasSectorKey  bool     `db:"has_sector_key"`
 }
 
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
@@ -462,7 +463,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
        orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid, 
        msg_cid_precommit, msg_cid_commit, msg_cid_update, 
        expiration_epoch, deadline, partition, target_unseal_state, 
-       is_cc FROM sectors_meta 
+       is_cc, has_sector_key FROM sectors_meta 
              WHERE sp_id = $1 AND sector_num = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch sector metadata: %w", err)
@@ -479,11 +480,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		if sectormeta.UpdateCid.Valid {
 			si.UpdateMsg = sectormeta.UpdateCid.String
 		}
-		if sectormeta.IsCC.Valid {
-			si.IsSnap = !sectormeta.IsCC.Bool
-		} else {
-			si.IsSnap = false
-		}
+		si.IsSnap = sectormeta.HasSectorKey
 
 		if sectormeta.ExpirationEpoch.Valid {
 			e := sectormeta.ExpirationEpoch.Int64
@@ -845,9 +842,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			}
 
 			// Snap state: chain says snapped if SectorKeyCID != nil
-			// DB says snapped if orig_sealed_cid != cur_sealed_cid
-			dbIsSnap := dbMeta.OrigSealedCid != dbMeta.UpdatedSealedCid
-			if dbIsSnap != si.ChainIsSnap {
+			// DB says snapped if has_sector_key is true
+			if dbMeta.HasSectorKey != si.ChainIsSnap {
 				si.MismatchIsSnap = true
 			}
 		}

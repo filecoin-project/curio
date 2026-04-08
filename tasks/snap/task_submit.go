@@ -463,7 +463,7 @@ func (s *SubmitTask) transferUpdatedSectorData(ctx context.Context, spID int64, 
 		for sectorNum, cids := range transferMap {
 			sectorNum, cids := sectorNum, cids
 			n, err := tx.Exec(`UPDATE sectors_meta SET cur_sealed_cid = $1,
-	                        		cur_unsealed_cid = $2, msg_cid_update = $3
+	                        		cur_unsealed_cid = $2, msg_cid_update = $3, has_sector_key = TRUE
 	                        		WHERE sp_id = $4 AND sector_num = $5`, cids.sealed.String(), cids.unsealed.String(), mcid.String(), spID, sectorNum)
 
 			if err != nil {

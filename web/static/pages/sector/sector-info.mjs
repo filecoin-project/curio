@@ -455,7 +455,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                             ` : ''}
                             <tr class="${this.data.MismatchIsSnap ? 'row-mismatch' : ''}">
                                 <td>Snap Deal Status</td>
-                                <td>${this.data.IsSnap ? 'Snapped (orig != cur)' : 'CC (orig = cur)'}</td>
+                                <td>${this.data.IsSnap ? 'Snapped (has_sector_key)' : 'CC'}</td>
                                 <td>${this.data.ChainIsSnap ? 'Snapped (SectorKeyCID set)' : 'CC (no SectorKeyCID)'}</td>
                                 <td>${this.data.MismatchIsSnap
                                     ? html`<span class="status-mismatch">MISMATCH</span>`

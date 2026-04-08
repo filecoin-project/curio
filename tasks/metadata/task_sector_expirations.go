@@ -79,6 +79,7 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		SectorNum uint64 `db:"sector_num"`
 
 		CurSealedCID string `db:"cur_sealed_cid"`
+		HasSectorKey bool   `db:"has_sector_key"`
 
 		Expiration *uint64 `db:"expiration_epoch"`
 
@@ -88,7 +89,7 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		InSnapPipeline bool `db:"in_snap_pipeline"`
 	}
 
-	if err := s.db.Select(ctx, &sectors, `SELECT sm.sp_id, sm.sector_num, sm.cur_sealed_cid, sm.expiration_epoch, sm.partition, sm.deadline,
+	if err := s.db.Select(ctx, &sectors, `SELECT sm.sp_id, sm.sector_num, sm.cur_sealed_cid, sm.has_sector_key, sm.expiration_epoch, sm.partition, sm.deadline,
 		EXISTS(SELECT 1 FROM sectors_snap_pipeline snp WHERE snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num) AS in_snap_pipeline
 		FROM sectors_meta sm ORDER BY sm.sp_id, sm.sector_num`); err != nil {
 		return false, xerrors.Errorf("get sector list: %w", err)
@@ -104,9 +105,53 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		Deadline  uint64
 	}
 
-	const batchSize = 1000
+	type sectorKeyUpdate struct {
+		SpID         uint64
+		SectorNum    uint64
+		HasSectorKey bool
+	}
+
+	const batchSize = 100
 	updateBatch := make([]partitionUpdate, 0, batchSize)
 	total := 0
+
+	sectorKeyBatch := make([]sectorKeyUpdate, 0, batchSize)
+	sectorKeyTotal := 0
+
+	flushSectorKeyBatch := func() error {
+		if len(sectorKeyBatch) == 0 {
+			return nil
+		}
+
+		sectorKeyTotal += len(sectorKeyBatch)
+		log.Infow("updating has_sector_key", "total", sectorKeyTotal)
+
+		_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			batch := &pgx.Batch{}
+			for _, update := range sectorKeyBatch {
+				batch.Queue("UPDATE sectors_meta SET has_sector_key = $1 WHERE sp_id = $2 AND sector_num = $3",
+					update.HasSectorKey, update.SpID, update.SectorNum)
+			}
+
+			br, err := tx.SendBatch(ctx, batch)
+			if err != nil {
+				return false, xerrors.Errorf("failed to send has_sector_key batch: %w", err)
+			}
+			defer func() {
+				_ = br.Close()
+			}()
+
+			for i := 0; i < batch.Len(); i++ {
+				_, err := br.Exec()
+				if err != nil {
+					return false, xerrors.Errorf("executing has_sector_key batch update %d: %w", i, err)
+				}
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		return err
+	}
 
 	flushBatch := func() error {
 		if len(updateBatch) == 0 {
@@ -219,6 +264,30 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			}
 		}
 
+		// Reconcile has_sector_key from chain state.
+		// SectorKeyCID is set on-chain when a sector has been snap-upgraded.
+		// This is the authoritative source of truth; the DB column is kept in
+		// sync here. Skip sectors currently in the snap pipeline.
+		chainHasSectorKey := si.SectorKeyCID != nil
+		if sector.HasSectorKey != chainHasSectorKey && !sector.InSnapPipeline {
+			log.Infow("reconciling has_sector_key from chain",
+				"sp", sector.SpID, "sector", sector.SectorNum,
+				"db", sector.HasSectorKey, "chain", chainHasSectorKey)
+
+			sectorKeyBatch = append(sectorKeyBatch, sectorKeyUpdate{
+				SpID:         sector.SpID,
+				SectorNum:    sector.SectorNum,
+				HasSectorKey: chainHasSectorKey,
+			})
+
+			if len(sectorKeyBatch) >= batchSize {
+				if err := flushSectorKeyBatch(); err != nil {
+					return false, xerrors.Errorf("flushing has_sector_key batch: %w", err)
+				}
+				sectorKeyBatch = sectorKeyBatch[:0]
+			}
+		}
+
 		needsPartitionUpdate := false
 
 		if sector.Partition == nil || sector.Deadline == nil {
@@ -301,6 +370,9 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	// Flush any remaining updates
+	if err := flushSectorKeyBatch(); err != nil {
+		return false, xerrors.Errorf("flushing final has_sector_key batch: %w", err)
+	}
 	if err := flushBatch(); err != nil {
 		return false, xerrors.Errorf("flushing final batch: %w", err)
 	}
