@@ -340,12 +340,9 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("compute sealed cid: %w", err)
 	}
 
-	// Guard: reject zero-data snaps where the encode was a no-op.
-	// When deal data is all zeros, the encode formula out[i] = key[i] + 0*rho(i) = key[i]
-	// produces an identical replica, leaving CommR unchanged. This creates a sector
-	// where SealedCID == SectorKeyCID on chain, breaking snap detection assumptions.
 	if sealedCid == sectorKeyCid {
-		return cid.Undef, cid.Undef, xerrors.Errorf("snap encode produced identical CommR to sector key (%s); deal data is likely all zeros", sealedCid)
+		log.Warnw("snap encode produced identical CommR to sector key; deal data is likely all zeros",
+			"sectorID", sector.ID, "taskID", taskID, "commR", sealedCid)
 	}
 
 	// STEP 3: Generate update proofs
