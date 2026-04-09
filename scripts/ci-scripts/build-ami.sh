@@ -127,7 +127,7 @@ install_yugabytedb() {
   curl -fL --retry 5 --retry-delay 2 -o "${tarball}" "${YB_DOWNLOAD_URL}"
 
   log "Inspecting YugabyteDB archive layout"
-  topdir="$(tar -tzf "${tarball}" | sed 's#^\./##' | awk -F/ 'NF && $1 != "" { print $1; exit }')"
+  topdir="$(tar -tzf "${tarball}" | { read -r first; printf '%s\n' "${first#./}"; } | cut -d/ -f1)"
   [[ -n "${topdir}" ]] || die "Could not determine top-level directory from ${tarball}"
 
   log "Extracting YugabyteDB"
