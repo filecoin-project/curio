@@ -363,6 +363,7 @@ func (t *PDPPullPieceTask) downloadAndVerify(ctx context.Context, sourceURL stri
 
 	// Create commp calculator
 	cp := &commp.Calc{}
+	defer cp.Reset()
 	var readSize int64
 
 	// Write to stash while computing CommP
