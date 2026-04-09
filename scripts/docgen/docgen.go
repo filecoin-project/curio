@@ -510,7 +510,7 @@ func ParseApiASTInfo(apiFile, iface, pkg, dir string) (comments map[string]strin
 		fmt.Println("filepath absolute error: ", err, "file:", apiFile)
 		return
 	}
-	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments) //nolint:staticcheck // SA1019 codegen script, not worth migrating to go/packages
 	if err != nil {
 		fmt.Println("parse error: ", err)
 		return

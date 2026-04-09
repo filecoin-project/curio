@@ -126,7 +126,7 @@ func generate(path, pkg, outpkg, outfile string) error {
 	if err != nil {
 		return err
 	}
-	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments) //nolint:staticcheck // SA1019 codegen script, not worth migrating to go/packages
 	if err != nil {
 		return err
 	}
