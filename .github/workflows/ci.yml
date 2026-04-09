@@ -30,14 +30,6 @@ jobs:
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
 
-  setup-params:
-    runs-on: [self-hosted, docker]
-    needs: [ci-lint]
-    steps:
-      - name: Fetch parameters
-        run: lotus fetch-params 8388608
-        shell: bash
-
   build-mainnet:
     runs-on: ubuntu-latest
     needs: [ci-lint]
@@ -184,10 +176,7 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker]
-    needs: [setup-params]
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
+    runs-on: ["self-hosted", "linux", "x64", "2xlarge+curio"]
     strategy:
       fail-fast: false  # Continue running even if one test fails
       matrix:
@@ -240,38 +229,10 @@ jobs:
           make deps
         shell: bash
 
-      - name: Start YugabyteDB container with dynamic ports
-        id: start-yugabyte
-        run: |
-          # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-
-      - name: Wait for YugabyteDB to start
-        run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
-          done
-        shell: bash
-
-      - name: Get YugabyteDB container IP
-        id: get-yb-ip
-        run: |
-          # Retrieve internal bridge IP of YugabyteDB container
-          YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-
       - name: Run tests with coverage
         env:
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
-          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
           FFI_USE_OPENCL: 1
         run: |
-          echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
-          export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
           mkdir -p coverage
           go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
 
@@ -282,10 +243,6 @@ jobs:
           name: coverage-${{ matrix.test-suite.name }}
           path: coverage/${{ matrix.test-suite.name }}.out
           retention-days: 1
-
-      - name: Stop YugabyteDB container
-        if: always()  # Ensure this run even if the tests fail
-        run: docker stop ${{ env.CONTAINER_NAME }}
 
   lint:
     runs-on: ubuntu-latest
