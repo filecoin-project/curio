@@ -4,7 +4,7 @@ on:
   push:
 
 jobs:
-  greet:
+  build:
     # The type of runner that the job will run on
     runs-on: ["self-hosted", "linux", "x64", "2xlarge"]
 
@@ -14,5 +14,5 @@ jobs:
         ref: aws-ci
     - run: |
         chmod +x scripts/ci-scripts/build-ami.sh
-        ./scripts/ci-scripts/build-ami.sh
+        sudo ./scripts/ci-scripts/build-ami.sh
       shell: bash
