@@ -122,7 +122,7 @@ install_yugabytedb() {
 
   # Important:
   # Expand tmpdir at trap definition time, not at trap execution time.
-  trap 'rm -rf "${tmpdir}"' EXIT
+  trap 'rm -rf "'${tmpdir}'"' EXIT
 
   curl -fL --retry 5 --retry-delay 2 -o "${tarball}" "${YB_DOWNLOAD_URL}"
 
