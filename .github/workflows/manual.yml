@@ -10,8 +10,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
-      with:
-        ref: aws-ci
     - run: |
         chmod +x scripts/ci-scripts/build-ami.sh
         sudo ./scripts/ci-scripts/build-ami.sh
