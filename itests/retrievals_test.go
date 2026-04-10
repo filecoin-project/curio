@@ -338,6 +338,11 @@ func seedParkedRetrievalFixturesTx(tx *harmonydb.Tx, fixtures retrievalFixtures)
 		return retrievalParkedPieceIDs{}, err
 	}
 
+	_, err = helpers.InsertParkedPieceRef(tx, parkOnlyPieceID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
 	parkWithDealPieceID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.parkWithDeal.PieceCIDV1.String(), fixtures.parkWithDeal.PieceSize, fixtures.parkWithDeal.RawSize, true)
 	if err != nil {
 		return retrievalParkedPieceIDs{}, err
