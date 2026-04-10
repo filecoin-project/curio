@@ -177,6 +177,7 @@ jobs:
 
   test:
     runs-on: ["self-hosted", "linux", "x64", "2xlarge+curio"]
+    needs: [ci-lint]
     strategy:
       fail-fast: false  # Continue running even if one test fails
       matrix:
