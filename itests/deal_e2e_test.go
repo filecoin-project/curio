@@ -781,7 +781,6 @@ func countIPNIAdsFromHead(t *testing.T, httpURL, peerID string, headCID cid.Cid)
 			if current == headCID {
 				t.Logf("Found only one advertisement: %v", current)
 			}
-			return 0, nil
 		}
 		current = ad.PreviousCid()
 	}
