@@ -2,6 +2,7 @@ package lists
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"testing"
 
@@ -40,9 +41,7 @@ func TestUniqNoAlloc(t *testing.T) {
 		actual := UniqNoAlloc(test)
 		sortedActual := make([]int, len(actual))
 		copy(sortedActual, actual)
-		sort.Slice(sortedActual, func(i, j int) bool {
-			return sortedActual[i] < sortedActual[j]
-		})
+		slices.Sort(sortedActual)
 		require.Equal(t, expected, sortedActual, fmt.Sprintf("test %d: %v", i, actual))
 	}
 }

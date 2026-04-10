@@ -26,7 +26,7 @@ func (as *AlertingSystem) AddAlertType(name, id string) alertinginterface.AlertT
 	}
 }
 
-func (as *AlertingSystem) Raise(alert alertinginterface.AlertType, metadata map[string]interface{}) {
+func (as *AlertingSystem) Raise(alert alertinginterface.AlertType, metadata map[string]any) {
 	as.Lock()
 	defer as.Unlock()
 	as.Current[alert] = metadata

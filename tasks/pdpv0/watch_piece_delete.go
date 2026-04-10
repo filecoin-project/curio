@@ -152,7 +152,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 
 		var skipLoop bool
 		failed := true
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 				var refCount0 bool
 				err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0)`, piece.ID).Scan(&refCount0)

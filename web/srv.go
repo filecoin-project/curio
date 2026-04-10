@@ -235,20 +235,19 @@ func setupDevModeProxy(mx *mux.Router) error {
 
 func createReverseProxy(target *url.URL) *httputil.ReverseProxy {
 	log.Debugf("Creating reverse proxy")
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(req *httputil.ProxyRequest) {
+			log.Debugf("Directing request: %s %s", req.In.Method, req.In.URL.Path)
+			req.SetURL(target)
+			req.SetXForwarded()
+			req.Out.Host = req.In.Host
+			req.Out.URL.Path = path.Join(target.Path, req.In.URL.Path)
+			req.Out.URL.RawPath = ""
 
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		log.Debugf("Directing request: %s %s", req.Method, req.URL.Path)
-		originalDirector(req)
-		req.URL.Path = path.Join(target.Path, req.URL.Path)
-
-		if !strings.HasPrefix(req.URL.Path, "/") {
-			req.URL.Path = "/" + req.URL.Path
-		}
-
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
+			if !strings.HasPrefix(req.Out.URL.Path, "/") {
+				req.Out.URL.Path = "/" + req.Out.URL.Path
+			}
+		},
 	}
 
 	proxy.ModifyResponse = func(resp *http.Response) error {

@@ -112,7 +112,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	if task.Rm {
-		for attempt := 0; attempt < ipniHeadCASRetries; attempt++ {
+		for range ipniHeadCASRetries {
 			if !stillOwned() {
 				return false, nil
 			}
@@ -318,7 +318,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
 
-	for attempt := 0; attempt < ipniHeadCASRetries; attempt++ {
+	for range ipniHeadCASRetries {
 		if !stillOwned() {
 			return false, nil
 		}

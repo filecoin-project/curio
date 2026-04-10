@@ -68,8 +68,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 			return xerrors.Errorf("Failed to pack function call data: %w", err)
 		}
 
-		param := abi.CborBytes(callData)
-		getParams, err := actors.SerializeParams(&param)
+		getParams, err := actors.SerializeParams(new(abi.CborBytes(callData)))
 		if err != nil {
 			return xerrors.Errorf("failed to serialize params: %w", err)
 		}
@@ -248,6 +247,5 @@ func (p *Provider) getSparkParams(miner abi.ActorID, newPeer string, key crypto.
 		return nil, xerrors.Errorf("Failed to pack the `%s()` function call: %v", funcName, err)
 	}
 
-	param := abi.CborBytes(data)
-	return actors.SerializeParams(&param)
+	return actors.SerializeParams(new(abi.CborBytes(data)))
 }

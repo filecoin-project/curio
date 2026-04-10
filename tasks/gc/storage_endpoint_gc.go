@@ -82,11 +82,9 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	var resultThrottle = make(chan struct{}, MaxParallelEndpointChecks)
 
 	for _, pathRef := range pathRefs {
-		pathRef := pathRef
-		urls := strings.Split(pathRef.Urls, paths.URLSeparator)
+		urls := strings.SplitSeq(pathRef.Urls, paths.URLSeparator)
 
-		for _, url := range urls {
-			url := url
+		for url := range urls {
 
 			select {
 			case resultThrottle <- struct{}{}:
@@ -115,7 +113,7 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	// Wait for all pings to finish
-	for i := 0; i < MaxParallelEndpointChecks; i++ {
+	for range MaxParallelEndpointChecks {
 		select {
 		case resultThrottle <- struct{}{}:
 		case <-ctx.Done():
@@ -145,7 +143,7 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	committed, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		for _, pingResult := range pingResults {
-			var lastLive, lastDead, lastDeadReason interface{}
+			var lastLive, lastDead, lastDeadReason any
 			if pingResult.res.Error == nil {
 				lastLive = currentTime.UTC()
 				lastDead = nil
@@ -217,7 +215,6 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 		// Remove dead URLs from storage_path entries and handle path cleanup
 		for _, du := range deadURLs {
-			du := du
 			// Fetch the current URLs for the storage path
 			var URLs string
 			err = tx.QueryRow("SELECT urls FROM storage_path WHERE storage_id = $1", du.StorageID).Scan(&URLs)

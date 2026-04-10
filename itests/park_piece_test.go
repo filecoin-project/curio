@@ -84,7 +84,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 
 	// --- Partial capacity ---
 	// Fill storage to maxInPark-1 pieces so only 1 slot remains.
-	for i := 0; i < maxInPark-1; i++ {
+	for i := range maxInPark - 1 {
 		_, err := db.Exec(ctx, `INSERT INTO sector_location
 			(miner_id, sector_num, sector_filetype, storage_id, is_primary)
 			VALUES ($1, $2, $3, $4, $5)`,

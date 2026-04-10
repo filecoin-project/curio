@@ -23,9 +23,9 @@ import (
 	"github.com/filecoin-project/lotus/itests/kit"
 )
 
-func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...interface{}) (*kit.TestFullNode, *kit.TestMiner, *kit.Ensemble, string) {
+func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...any) (*kit.TestFullNode, *kit.TestMiner, *kit.Ensemble, string) {
 
-	finalOpts := append([]interface{}{
+	finalOpts := append([]any{
 		kit.LatestActorsAt(-1),
 		kit.PresealSectors(32),
 		kit.ThroughRPC(),
@@ -72,7 +72,7 @@ func FullNodeAPIInfo(ctx context.Context, full v1api.FullNode, listenAddr multia
 	return fmt.Sprintf("%s:%s", string(token), listenAddr.String()), nil
 }
 
-func BootstrapNetworkWithNewMiner(t *testing.T, ctx context.Context, minerSize string, opts ...interface{}) (*kit.TestFullNode, *kit.TestMiner, *harmonydb.DB, address.Address) {
+func BootstrapNetworkWithNewMiner(t *testing.T, ctx context.Context, minerSize string, opts ...any) (*kit.TestFullNode, *kit.TestMiner, *harmonydb.DB, address.Address) {
 	full, miner, _, fapi := BootstrapNetwork(t, ctx, opts...)
 
 	sharedITestID := harmonydb.ITestNewID()

@@ -304,8 +304,7 @@ func SeedMK20PendingDeal(tx *harmonydb.Tx, s MK20PendingSeed) error {
 
 	var allocationID *verifreg16.AllocationId
 	if s.AllocationID != nil {
-		alloc := verifreg16.AllocationId(*s.AllocationID)
-		allocationID = &alloc
+		allocationID = new(verifreg16.AllocationId(*s.AllocationID))
 	}
 
 	deal := &mk20.Deal{

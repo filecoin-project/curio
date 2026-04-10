@@ -180,7 +180,6 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	pieces = append(pieces, mpieces...)
 	pieceIndex := map[sectorID][]int{}
 	for i, piece := range pieces {
-		piece := piece
 		cur := pieceIndex[sectorID{mID: piece.Miner, sNum: uint64(piece.Sector)}]
 		pieceIndex[sectorID{mID: piece.Miner, sNum: uint64(piece.Sector)}] = append(cur, i)
 	}
@@ -403,7 +402,6 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 		}
 		infos := make([]sectorInfo, len(onChainInfo))
 		for i, info := range onChainInfo {
-			info := info
 			set, err := activebf.IsSet(uint64(info.SectorNumber))
 			if err != nil {
 				mx.Lock()

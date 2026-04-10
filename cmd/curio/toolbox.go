@@ -204,7 +204,7 @@ type FilfoxMsg struct {
 		ExitCode int    `json:"exitCode,omitempty"`
 		Return   string `json:"return,omitempty"`
 		GasUsed  int    `json:"gasUsed,omitempty"`
-	} `json:"receipt,omitempty"`
+	} `json:"receipt"`
 	Size    int    `json:"size,omitempty"`
 	Error   string `json:"error,omitempty"`
 	BaseFee string `json:"baseFee,omitempty"`
@@ -214,7 +214,7 @@ type FilfoxMsg struct {
 		MinerPenalty       string `json:"minerPenalty,omitempty"`
 		MinerTip           string `json:"minerTip,omitempty"`
 		Refund             string `json:"refund,omitempty"`
-	} `json:"fee,omitempty"`
+	} `json:"fee"`
 	Transfers []struct {
 		From   string `json:"from,omitempty"`
 		FromID string `json:"fromId,omitempty"`

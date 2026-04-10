@@ -102,8 +102,7 @@ func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
 		if err != nil {
 			return nil, err
 		}
-		mab := multiaddr.Cast(ma.Bytes())
-		addr = &mab
+		addr = new(multiaddr.Cast(ma.Bytes()))
 	}
 	pv := u.Port()
 	if pv != "" {
@@ -111,8 +110,7 @@ func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
 		if err != nil {
 			return nil, err
 		}
-		wport := multiaddr.Join(*addr, port)
-		addr = &wport
+		addr = new(multiaddr.Join(*addr, port))
 	} else {
 		// default ports for http and https
 		var port *multiaddr.Component
@@ -129,8 +127,7 @@ func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
 		if err != nil {
 			return nil, err
 		}
-		wport := multiaddr.Join(*addr, port)
-		addr = &wport
+		addr = new(multiaddr.Join(*addr, port))
 	}
 
 	http, err := multiaddr.NewComponent(u.Scheme, "")

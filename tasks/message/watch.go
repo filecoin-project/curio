@@ -205,8 +205,7 @@ func (mw *MessageWatcher) Stop(ctx context.Context) error {
 }
 
 func (mw *MessageWatcher) processHeadChange(ctx context.Context, revert *types.TipSet, apply *types.TipSet) error {
-	best := apply.Key()
-	mw.bestTs.Store(&best)
+	mw.bestTs.Store(new(apply.Key()))
 	select {
 	case mw.updateCh <- struct{}{}:
 	default:

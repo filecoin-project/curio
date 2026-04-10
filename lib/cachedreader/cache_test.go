@@ -109,7 +109,7 @@ func TestPieceCidKeyCache(t *testing.T) {
 	// Test case: Set expiration callback
 	t.Run("expiration callback", func(t *testing.T) {
 		callbackCalled := false
-		cache.SetExpirationReasonCallback(func(key string, reason ttlcache.EvictionReason, value interface{}) {
+		cache.SetExpirationReasonCallback(func(key string, reason ttlcache.EvictionReason, value any) {
 			callbackCalled = true
 		})
 

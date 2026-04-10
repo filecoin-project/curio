@@ -46,7 +46,6 @@ func TestBatching(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runBatchingModeTest(t, ctx, db, machineID, tc.mode, tc.taskName, tc.spID)
@@ -61,7 +60,7 @@ func runBatchingModeTest(t *testing.T, ctx context.Context, db *harmonydb.DB, ma
 	const numSectors int64 = 20
 	const maxBatch int = 10
 
-	for i := int64(0); i < numSectors; i++ {
+	for i := range numSectors {
 		if mode == "precommit" {
 			_, err := db.Exec(ctx, `INSERT INTO sectors_sdr_pipeline (
 				sp_id, sector_number, reg_seal_proof,
@@ -233,11 +232,8 @@ func runBatchRace(
 	var barrier, wg sync.WaitGroup
 	barrier.Add(numWorkers)
 
-	for w := 0; w < numWorkers; w++ {
-		w := w
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for w := range numWorkers {
+		wg.Go(func() {
 			barrier.Done()
 			barrier.Wait()
 
@@ -277,7 +273,7 @@ func runBatchRace(
 				}
 				return
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

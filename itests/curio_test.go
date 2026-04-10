@@ -1,7 +1,6 @@
 package itests
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -23,8 +22,7 @@ import (
 )
 
 func TestCurioHappyPath(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	full, _, db, maddr := helpers.BootstrapNetworkWithNewMiner(t, ctx, "2KiB")
 	defer db.ITestDeleteAll()

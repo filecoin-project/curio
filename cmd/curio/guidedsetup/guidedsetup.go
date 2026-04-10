@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -108,7 +109,7 @@ var GuidedsetupCmd = &cli.Command{
 	},
 }
 
-func setupCtrlC(say func(style lipgloss.Style, key message.Reference, a ...interface{})) {
+func setupCtrlC(say func(style lipgloss.Style, key message.Reference, a ...any)) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -205,8 +206,8 @@ var nonSPSteps = []nonSPStep{
 }
 
 type MigrationData struct {
-	T               func(key message.Reference, a ...interface{}) string
-	say             func(style lipgloss.Style, key message.Reference, a ...interface{})
+	T               func(key message.Reference, a ...any) string
+	say             func(style lipgloss.Style, key message.Reference, a ...any)
 	selectTemplates *promptui.SelectTemplates
 	MinerConfigPath string
 	DB              *harmonydb.DB
@@ -851,13 +852,7 @@ func optionalStorageStep(d *MigrationData) {
 			}
 
 			// Check if path already exists
-			exists := false
-			for _, p := range localPaths {
-				if p == expandedPath {
-					exists = true
-					break
-				}
-			}
+			exists := slices.Contains(localPaths, expandedPath)
 			if exists {
 				d.say(notice, "Path already exists")
 				continue

@@ -94,7 +94,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	if task.Rm {
-		for attempt := 0; attempt < ipniHeadCASRetries; attempt++ {
+		for range ipniHeadCASRetries {
 			if !stillOwned() {
 				return false, nil
 			}
@@ -305,7 +305,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	}
 
-	for attempt := 0; attempt < ipniHeadCASRetries; attempt++ {
+	for range ipniHeadCASRetries {
 		if !stillOwned() {
 			return false, nil
 		}
