@@ -89,26 +89,30 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	task := tasks[0]
 
 	if task.Complete {
-		log.Infow("IPNI task already complete", "task_id", taskID)
+		ilog.Infow("IPNI task already complete", "task_id", taskID)
 		return true, nil
 	}
 
 	if task.Rm {
-		comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var ads []struct {
-				ContextID []byte `db:"context_id"`
-				IsRm      bool   `db:"is_rm"`
-				Previous  string `db:"previous"`
-				Provider  string `db:"provider"`
-				Addresses string `db:"addresses"`
-				Metadata  []byte `db:"metadata"`
-				Pcid2     string `db:"piece_cid_v2"`
-				Pcid1     string `db:"piece_cid"`
-				Size      int64  `db:"piece_size"`
+		for attempt := 0; attempt < ipniHeadCASRetries; attempt++ {
+			if !stillOwned() {
+				return false, nil
 			}
+			comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				var ads []struct {
+					ContextID []byte `db:"context_id"`
+					IsRm      bool   `db:"is_rm"`
+					Previous  string `db:"previous"`
+					Provider  string `db:"provider"`
+					Addresses string `db:"addresses"`
+					Metadata  []byte `db:"metadata"`
+					Pcid2     string `db:"piece_cid_v2"`
+					Pcid1     string `db:"piece_cid"`
+					Size      int64  `db:"piece_size"`
+				}
 
-			// Get the latest Ad
-			err = tx.Select(&ads, `SELECT 
+				// Get the latest Ad
+				err = tx.Select(&ads, `SELECT 
 										context_id,
 										is_rm, 
 										previous, 
@@ -124,101 +128,104 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 										  ORDER BY order_number DESC
 										  LIMIT 1`, task.CtxID, task.Prov)
 
+				if err != nil {
+					return false, xerrors.Errorf("getting ad from DB: %w", err)
+				}
+
+				if len(ads) == 0 {
+					return false, xerrors.Errorf("not original ad found for removal ad")
+				}
+
+				if len(ads) > 1 {
+					return false, xerrors.Errorf("expected 1 ad but got %d", len(ads))
+				}
+
+				a := ads[0]
+
+				var prev string
+
+				err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return false, xerrors.Errorf("querying previous head: %w", err)
+				}
+
+				prevCID, err := cid.Parse(prev)
+				if err != nil {
+					return false, xerrors.Errorf("parsing previous CID: %w", err)
+				}
+
+				var privKey []byte
+				err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey)
+				if err != nil {
+					return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
+				}
+
+				pkey, err := crypto.UnmarshalPrivateKey(privKey)
+				if err != nil {
+					return false, xerrors.Errorf("unmarshaling private key: %w", err)
+				}
+
+				adv := schema.Advertisement{
+					PreviousID: cidlink.Link{Cid: prevCID},
+					Provider:   a.Provider,
+					Addresses:  strings.Split(a.Addresses, "|"),
+					Entries:    schema.NoEntries,
+					ContextID:  a.ContextID,
+					IsRm:       true,
+					Metadata:   a.Metadata,
+				}
+
+				err = adv.Sign(pkey)
+				if err != nil {
+					return false, xerrors.Errorf("signing the advertisement: %w", err)
+				}
+
+				err = adv.Validate()
+				if err != nil {
+					return false, xerrors.Errorf("validating the advertisement: %w", err)
+				}
+
+				adNode, err := adv.ToNode()
+				if err != nil {
+					return false, xerrors.Errorf("converting advertisement to node: %w", err)
+				}
+
+				ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
+				if err != nil {
+					return false, xerrors.Errorf("converting advertisement to link: %w", err)
+				}
+
+				var inserted bool
+				err = tx.QueryRow(`SELECT insert_ad_and_update_head_checked($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+					ad.(cidlink.Link).Cid.String(), adv.ContextID, a.Metadata, a.Pcid2, a.Pcid1, a.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+					adv.Signature, adv.Entries.String(), nullableText(prev)).Scan(&inserted)
+				if err != nil {
+					return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+				}
+				if !inserted {
+					return false, nil
+				}
+
+				n, err := tx.Exec(`UPDATE pdp_ipni_task SET complete = true WHERE task_id = $1`, taskID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("updated %d rows", n)
+				}
+
+				return true, nil
+			}, harmonydb.OptionRetry())
 			if err != nil {
-				return false, xerrors.Errorf("getting ad from DB: %w", err)
+				return false, xerrors.Errorf("store IPNI success: %w", err)
 			}
 
-			if len(ads) == 0 {
-				return false, xerrors.Errorf("not original ad found for removal ad")
+			if comm {
+				ilog.Infow("IPNI task complete", "task_id", taskID)
+				return true, nil
 			}
-
-			if len(ads) > 1 {
-				return false, xerrors.Errorf("expected 1 ad but got %d", len(ads))
-			}
-
-			a := ads[0]
-
-			var prev string
-
-			err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return false, xerrors.Errorf("querying previous head: %w", err)
-			}
-
-			prevCID, err := cid.Parse(prev)
-			if err != nil {
-				return false, xerrors.Errorf("parsing previous CID: %w", err)
-			}
-
-			var privKey []byte
-			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey)
-			if err != nil {
-				return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
-			}
-
-			pkey, err := crypto.UnmarshalPrivateKey(privKey)
-			if err != nil {
-				return false, xerrors.Errorf("unmarshaling private key: %w", err)
-			}
-
-			adv := schema.Advertisement{
-				PreviousID: cidlink.Link{Cid: prevCID},
-				Provider:   a.Provider,
-				Addresses:  strings.Split(a.Addresses, "|"),
-				Entries:    schema.NoEntries,
-				ContextID:  a.ContextID,
-				IsRm:       true,
-				Metadata:   a.Metadata,
-			}
-
-			err = adv.Sign(pkey)
-			if err != nil {
-				return false, xerrors.Errorf("signing the advertisement: %w", err)
-			}
-
-			err = adv.Validate()
-			if err != nil {
-				return false, xerrors.Errorf("validating the advertisement: %w", err)
-			}
-
-			adNode, err := adv.ToNode()
-			if err != nil {
-				return false, xerrors.Errorf("converting advertisement to node: %w", err)
-			}
-
-			ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
-			if err != nil {
-				return false, xerrors.Errorf("converting advertisement to link: %w", err)
-			}
-
-			_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-				ad.(cidlink.Link).Cid.String(), adv.ContextID, a.Metadata, a.Pcid2, a.Pcid1, a.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
-				adv.Signature, adv.Entries.String())
-
-			if err != nil {
-				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
-			}
-
-			n, err := tx.Exec(`UPDATE pdp_ipni_task SET complete = true WHERE task_id = $1`, taskID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("updated %d rows", n)
-			}
-
-			return true, nil
-		}, harmonydb.OptionRetry())
-		if err != nil {
-			return false, xerrors.Errorf("store IPNI success: %w", err)
 		}
-
-		if !comm {
-			return false, xerrors.Errorf("store IPNI success: failed to commit the transaction")
-		}
-
-		log.Infow("IPNI task complete", "task_id", taskID)
-		return true, nil
+		return false, xerrors.Errorf("store IPNI success: failed to commit after %d attempts", ipniHeadCASRetries)
 	}
 
 	pinfo := &types.PdpIpniContext{}
@@ -298,123 +305,127 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	}
 
-	// make sure we still own the task before writing ad chains
-	if !stillOwned() {
-		return false, nil
+	for attempt := 0; attempt < ipniHeadCASRetries; attempt++ {
+		if !stillOwned() {
+			return false, nil
+		}
+		comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			var prev string
+			err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return false, xerrors.Errorf("querying previous head: %w", err)
+			}
+
+			var md []byte
+			if pinfo.Payload {
+				mds := metadata.IpfsGatewayHttp{}
+				mdb, err := mds.MarshalBinary()
+				if err != nil {
+					return false, xerrors.Errorf("marshaling metadata: %w", err)
+				}
+				md = mdb
+			} else {
+				mds := metadata.FilecoinPieceHttp{}
+				mdb, err := mds.MarshalBinary()
+				if err != nil {
+					return false, xerrors.Errorf("marshaling metadata: %w", err)
+				}
+				md = mdb
+			}
+
+			var privKey []byte
+			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
+			}
+
+			pkey, err := crypto.UnmarshalPrivateKey(privKey)
+			if err != nil {
+				return false, xerrors.Errorf("unmarshaling private key: %w", err)
+			}
+
+			adv := schema.Advertisement{
+				Provider:  task.Prov,
+				Entries:   lnk,
+				ContextID: task.CtxID,
+				Metadata:  md,
+				IsRm:      task.Rm,
+			}
+
+			{
+				u, err := urlhelper.GetExternalURL(&P.cfg.HTTP)
+				if err != nil {
+					return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
+				}
+
+				addr, err := urlhelper.FromURLWithPort(u)
+				if err != nil {
+					return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
+				}
+
+				adv.Addresses = append(adv.Addresses, addr.String())
+			}
+
+			if prev != "" {
+				prevCID, err := cid.Parse(prev)
+				if err != nil {
+					return false, xerrors.Errorf("parsing previous CID: %w", err)
+				}
+
+				adv.PreviousID = cidlink.Link{Cid: prevCID}
+			}
+
+			err = adv.Sign(pkey)
+			if err != nil {
+				return false, xerrors.Errorf("signing the advertisement: %w", err)
+			}
+
+			err = adv.Validate()
+			if err != nil {
+				return false, xerrors.Errorf("validating the advertisement: %w", err)
+			}
+
+			adNode, err := adv.ToNode()
+			if err != nil {
+				return false, xerrors.Errorf("converting advertisement to node: %w", err)
+			}
+
+			ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
+			if err != nil {
+				return false, xerrors.Errorf("converting advertisement to link: %w", err)
+			}
+
+			var inserted bool
+			err = tx.QueryRow(`SELECT insert_ad_and_update_head_checked($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+				ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pieceCid.String(), size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+				adv.Signature, adv.Entries.String(), nullableText(prev)).Scan(&inserted)
+			if err != nil {
+				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+			}
+			if !inserted {
+				return false, nil
+			}
+
+			n, err := tx.Exec(`UPDATE pdp_ipni_task SET complete = true WHERE task_id = $1`, taskID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows", n)
+			}
+
+			return true, nil
+
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("store IPNI success: %w", err)
+		}
+		if comm {
+			ilog.Infow("IPNI task complete", "task_id", taskID)
+			return true, nil
+		}
 	}
-
-	_, err = P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		var prev string
-		err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return false, xerrors.Errorf("querying previous head: %w", err)
-		}
-
-		var md []byte
-		if pinfo.Payload {
-			mds := metadata.IpfsGatewayHttp{}
-			mdb, err := mds.MarshalBinary()
-			if err != nil {
-				return false, xerrors.Errorf("marshaling metadata: %w", err)
-			}
-			md = mdb
-		} else {
-			mds := metadata.FilecoinPieceHttp{}
-			mdb, err := mds.MarshalBinary()
-			if err != nil {
-				return false, xerrors.Errorf("marshaling metadata: %w", err)
-			}
-			md = mdb
-		}
-
-		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, PDP_v1_SP_ID).Scan(&privKey)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
-		}
-
-		pkey, err := crypto.UnmarshalPrivateKey(privKey)
-		if err != nil {
-			return false, xerrors.Errorf("unmarshaling private key: %w", err)
-		}
-
-		adv := schema.Advertisement{
-			Provider:  task.Prov,
-			Entries:   lnk,
-			ContextID: task.CtxID,
-			Metadata:  md,
-			IsRm:      task.Rm,
-		}
-
-		{
-			u, err := urlhelper.GetExternalURL(&P.cfg.HTTP)
-			if err != nil {
-				return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
-			}
-
-			addr, err := urlhelper.FromURLWithPort(u)
-			if err != nil {
-				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
-			}
-
-			adv.Addresses = append(adv.Addresses, addr.String())
-		}
-
-		if prev != "" {
-			prevCID, err := cid.Parse(prev)
-			if err != nil {
-				return false, xerrors.Errorf("parsing previous CID: %w", err)
-			}
-
-			adv.PreviousID = cidlink.Link{Cid: prevCID}
-		}
-
-		err = adv.Sign(pkey)
-		if err != nil {
-			return false, xerrors.Errorf("signing the advertisement: %w", err)
-		}
-
-		err = adv.Validate()
-		if err != nil {
-			return false, xerrors.Errorf("validating the advertisement: %w", err)
-		}
-
-		adNode, err := adv.ToNode()
-		if err != nil {
-			return false, xerrors.Errorf("converting advertisement to node: %w", err)
-		}
-
-		ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
-		if err != nil {
-			return false, xerrors.Errorf("converting advertisement to link: %w", err)
-		}
-
-		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pieceCid.String(), size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
-			adv.Signature, adv.Entries.String())
-
-		if err != nil {
-			return false, xerrors.Errorf("adding advertisement to the database: %w", err)
-		}
-
-		n, err := tx.Exec(`UPDATE pdp_ipni_task SET complete = true WHERE task_id = $1`, taskID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("updated %d rows", n)
-		}
-
-		return true, nil
-
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return false, xerrors.Errorf("store IPNI success: %w", err)
-	}
-
-	log.Infow("IPNI task complete", "task_id", taskID)
-
-	return true, nil
+	return false, xerrors.Errorf("store IPNI success: failed to commit after %d attempts", ipniHeadCASRetries)
 }
 
 func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
@@ -663,10 +674,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 
 			if err != nil {
-				log.Errorf("store IPNI success: updating pipeline: %w", err)
+				ilog.Errorf("store IPNI success: updating pipeline: %w", err)
 			}
 			if n != 1 {
-				log.Errorf("store IPNI success: updated %d rows", n)
+				ilog.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
 
@@ -679,10 +690,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				n, err = P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced_payload = TRUE WHERE id = $1`, *markCompletePayload)
 			}
 			if err != nil {
-				log.Errorf("store IPNI success: updating pipeline: %w", err)
+				ilog.Errorf("store IPNI success: updating pipeline: %w", err)
 			}
 			if n != 1 {
-				log.Errorf("store IPNI success: updated %d rows", n)
+				ilog.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
 

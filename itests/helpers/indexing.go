@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/indexing"

@@ -1,0 +1,3 @@
+DROP FUNCTION IF EXISTS insert_ad_and_update_head_checked(
+    TEXT, BYTEA, BYTEA, TEXT, TEXT, BIGINT, BOOLEAN, TEXT, TEXT, BYTEA, TEXT, TEXT
+);
