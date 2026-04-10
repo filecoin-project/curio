@@ -98,7 +98,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	task := tasks[0]
 
 	if task.Complete {
-		log.Infow("IPNI task already complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
+		ilog.Infow("IPNI task already complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 		return true, nil
 	}
 
@@ -226,7 +226,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			return false, xerrors.Errorf("store IPNI success: failed to commit the transaction")
 		}
 
-		log.Infow("IPNI task complete", "task_id", taskID)
+		ilog.Infow("IPNI task complete", "task_id", taskID)
 		return true, nil
 	}
 
@@ -406,7 +406,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("store IPNI success: %w", err)
 	}
 
-	log.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
+	ilog.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 
 	return true, nil
 }
@@ -638,10 +638,10 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			}
 
 			if err != nil {
-				log.Errorf("store IPNI success: updating pipeline (2): %s", err)
+				ilog.Errorf("store IPNI success: updating pipeline (2): %s", err)
 			}
 			if n != 1 {
-				log.Errorf("store IPNI success: updated %d rows", n)
+				ilog.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
 	}
@@ -655,7 +655,7 @@ func (I *IPNITask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
 	err := db.QueryRow(context.Background(), `SELECT sp_id FROM ipni_task WHERE task_id = $1`, taskID).Scan(&spid)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		ilog.Errorf("getting spid: %s", err)
 		return ""
 	}
 	return spid

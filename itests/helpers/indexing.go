@@ -3,9 +3,11 @@ package helpers
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -86,4 +88,23 @@ func AddAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexsto
 	}
 
 	return nil
+}
+
+func LogIPNIStatus(t *testing.T, ctx context.Context, db *harmonydb.DB) {
+	var ipnirows []struct {
+		AdCID      string         `db:"ad_cid"`
+		AsRm       bool           `db:"is_rm"`
+		Previous   sql.NullString `db:"previous"`
+		PieceCidv2 string         `db:"piece_cid_v2"`
+	}
+	err := db.Select(ctx, &ipnirows, `SELECT ad_cid, is_rm, previous, piece_cid_v2 FROM ipni`)
+	require.NoError(t, err)
+
+	for _, row := range ipnirows {
+		prev := ""
+		if row.Previous.Valid {
+			prev = row.Previous.String
+		}
+		t.Logf("IPNI: Ad: %s, rm: %v, previous: %s, piece cid v2: %s", row.AdCID, row.AsRm, prev, row.PieceCidv2)
+	}
 }

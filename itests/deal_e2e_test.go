@@ -219,6 +219,8 @@ func TestDealPipelineFullPath(t *testing.T) {
 		}
 	}
 
+	helpers.LogIPNIStatus(t, ctx, db)
+
 	assertIPNIAds(t, ctx, db, spID, baseURL, variants)
 }
 
@@ -774,6 +776,13 @@ func countIPNIAdsFromHead(t *testing.T, httpURL, peerID string, headCID cid.Cid)
 		}
 
 		count++
+		if !ad.PreviousCid().Defined() {
+			t.Logf("Reached the end of the IPNI ad chain: %d ads", count)
+			if current == headCID {
+				t.Logf("Found only one advertisement: %v", current)
+			}
+			return 0, nil
+		}
 		current = ad.PreviousCid()
 	}
 
