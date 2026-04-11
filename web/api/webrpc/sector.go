@@ -1186,17 +1186,20 @@ func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
 // Sector Dashboard API
 
 type SPSectorStats struct {
-	SpID       int64  `json:"sp_id"`
-	SPAddress  string `json:"sp_address"`
-	TotalCount int64  `json:"total_count"`
-	CCCount    int64  `json:"cc_count"`
-	NonCCCount int64  `json:"non_cc_count"`
+	SpID         int64  `json:"sp_id"`
+	SPAddress    string `json:"sp_address"`
+	TotalCount   int64  `json:"total_count"`
+	LiveCount    int64  `json:"live_count"`
+	NonLiveCount int64  `json:"non_live_count"`
+	CCCount      int64  `json:"cc_count"`
+	NonCCCount   int64  `json:"non_cc_count"`
 }
 
 func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
 	var stats []struct {
 		SpID       int64 `db:"sp_id"`
 		TotalCount int64 `db:"total_count"`
+		LiveCount  int64 `db:"live_count"`
 		CCCount    int64 `db:"cc_count"`
 	}
 
@@ -1204,6 +1207,7 @@ func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
 		SELECT 
 			sm.sp_id,
 			COUNT(*) as total_count,
+			COUNT(*) FILTER (WHERE sm.is_live = true) as live_count,
 			COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
 		FROM sectors_meta sm
 		GROUP BY sm.sp_id
@@ -1216,11 +1220,13 @@ func (a *WebRPC) SectorSPStats(ctx context.Context) ([]SPSectorStats, error) {
 	for _, s := range stats {
 		addr := must.One(address.NewIDAddress(uint64(s.SpID)))
 		result = append(result, SPSectorStats{
-			SpID:       s.SpID,
-			SPAddress:  addr.String(),
-			TotalCount: s.TotalCount,
-			CCCount:    s.CCCount,
-			NonCCCount: s.TotalCount - s.CCCount,
+			SpID:         s.SpID,
+			SPAddress:    addr.String(),
+			TotalCount:   s.TotalCount,
+			LiveCount:    s.LiveCount,
+			NonLiveCount: s.TotalCount - s.LiveCount,
+			CCCount:      s.CCCount,
+			NonCCCount:   s.TotalCount - s.CCCount,
 		})
 	}
 
@@ -1909,6 +1915,7 @@ type SectorExpBucketCount struct {
 	SPAddress    string `json:"sp_address"`
 	LessThanDays int    `json:"less_than_days" db:"less_than_days"`
 	TotalCount   int64  `json:"total_count" db:"total_count"`
+	LiveCount    int64  `json:"live_count" db:"live_count"`
 	CCCount      int64  `json:"cc_count" db:"cc_count"`
 	DealCount    int64  `json:"deal_count" db:"deal_count"`
 }
@@ -1924,6 +1931,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 		SpID         int64 `db:"sp_id"`
 		LessThanDays int   `db:"less_than_days"`
 		TotalCount   int64 `db:"total_count"`
+		LiveCount    int64 `db:"live_count"`
 		CCCount      int64 `db:"cc_count"`
 	}
 
@@ -1939,6 +1947,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 				sm.sp_id,
 				b.less_than_days,
 				COUNT(*) as total_count,
+				COUNT(*) FILTER (WHERE sm.is_live = true) as live_count,
 				COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
 			FROM sectors_meta sm
 			CROSS JOIN buckets b
@@ -1957,6 +1966,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 	var openEndedResults []struct {
 		SpID       int64 `db:"sp_id"`
 		TotalCount int64 `db:"total_count"`
+		LiveCount  int64 `db:"live_count"`
 		CCCount    int64 `db:"cc_count"`
 	}
 
@@ -1964,6 +1974,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 		SELECT 
 			sm.sp_id,
 			COUNT(*) as total_count,
+			COUNT(*) FILTER (WHERE sm.is_live = true) as live_count,
 			COUNT(*) FILTER (WHERE sm.is_cc = true) as cc_count
 		FROM sectors_meta sm
 		WHERE sm.expiration_epoch IS NOT NULL
@@ -1985,6 +1996,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 			SPAddress:    addr.String(),
 			LessThanDays: r.LessThanDays,
 			TotalCount:   r.TotalCount,
+			LiveCount:    r.LiveCount,
 			CCCount:      r.CCCount,
 			DealCount:    r.TotalCount - r.CCCount,
 		})
@@ -1998,6 +2010,7 @@ func (a *WebRPC) SectorExpBucketCounts(ctx context.Context) ([]SectorExpBucketCo
 			SPAddress:    addr.String(),
 			LessThanDays: -1, // Special marker for open-ended bucket
 			TotalCount:   r.TotalCount,
+			LiveCount:    r.LiveCount,
 			CCCount:      r.CCCount,
 			DealCount:    r.TotalCount - r.CCCount,
 		})
