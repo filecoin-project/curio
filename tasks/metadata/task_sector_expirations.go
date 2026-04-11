@@ -87,10 +87,14 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		Deadline  *uint64 `db:"deadline"`
 
 		InSnapPipeline bool `db:"in_snap_pipeline"`
+
+		IsLive   bool `db:"is_live"`
+		IsFaulty bool `db:"is_faulty"`
 	}
 
 	if err := s.db.Select(ctx, &sectors, `SELECT sm.sp_id, sm.sector_num, sm.cur_sealed_cid, sm.has_sector_key, sm.expiration_epoch, sm.partition, sm.deadline,
-		EXISTS(SELECT 1 FROM sectors_snap_pipeline snp WHERE snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num) AS in_snap_pipeline
+		EXISTS(SELECT 1 FROM sectors_snap_pipeline snp WHERE snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num) AS in_snap_pipeline,
+		sm.is_live, sm.is_faulty
 		FROM sectors_meta sm ORDER BY sm.sp_id, sm.sector_num`); err != nil {
 		return false, xerrors.Errorf("get sector list: %w", err)
 	}
@@ -188,13 +192,96 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return err
 	}
 
-	// Cache for loaded partitions: map[spID][deadline][partition] -> AllSectors bitfield
+	type liveStatusUpdate struct {
+		SpID      uint64
+		SectorNum uint64
+		IsLive    bool
+		IsFaulty  bool
+	}
+
+	liveStatusBatch := make([]liveStatusUpdate, 0, batchSize)
+	liveStatusTotal := 0
+
+	flushLiveStatusBatch := func() error {
+		if len(liveStatusBatch) == 0 {
+			return nil
+		}
+
+		liveStatusTotal += len(liveStatusBatch)
+		log.Infow("updating sector live/faulty status", "total", liveStatusTotal)
+
+		_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			batch := &pgx.Batch{}
+			for _, update := range liveStatusBatch {
+				batch.Queue("UPDATE sectors_meta SET is_live = $1, is_faulty = $2 WHERE sp_id = $3 AND sector_num = $4",
+					update.IsLive, update.IsFaulty, update.SpID, update.SectorNum)
+			}
+
+			br, err := tx.SendBatch(ctx, batch)
+			if err != nil {
+				return false, xerrors.Errorf("failed to send live status batch: %w", err)
+			}
+			defer func() {
+				_ = br.Close()
+			}()
+
+			for i := 0; i < batch.Len(); i++ {
+				_, err := br.Exec()
+				if err != nil {
+					return false, xerrors.Errorf("executing live status batch update %d: %w", i, err)
+				}
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		return err
+	}
+
+	// Cache for loaded partitions: map[spID][deadline][partition] -> partition bitfields
 	type partitionKey struct {
 		SpID      uint64
 		Deadline  uint64
 		Partition uint64
 	}
-	partitionCache := make(map[partitionKey]*bitfield.BitField)
+	type partitionBitfields struct {
+		allSectors    bitfield.BitField
+		liveSectors   bitfield.BitField
+		faultySectors bitfield.BitField
+	}
+	partitionCache := make(map[partitionKey]*partitionBitfields)
+
+	loadPartition := func(mst miner.State, pkey partitionKey) (*partitionBitfields, error) {
+		if cached, ok := partitionCache[pkey]; ok {
+			return cached, nil
+		}
+		dl, err := mst.LoadDeadline(pkey.Deadline)
+		if err != nil {
+			return nil, xerrors.Errorf("loading deadline %d: %w", pkey.Deadline, err)
+		}
+		part, err := dl.LoadPartition(pkey.Partition)
+		if err != nil {
+			return nil, xerrors.Errorf("loading partition %d: %w", pkey.Partition, err)
+		}
+		all, err := part.AllSectors()
+		if err != nil {
+			return nil, xerrors.Errorf("getting AllSectors: %w", err)
+		}
+		live, err := part.LiveSectors()
+		if err != nil {
+			return nil, xerrors.Errorf("getting LiveSectors: %w", err)
+		}
+		faulty, err := part.FaultySectors()
+		if err != nil {
+			return nil, xerrors.Errorf("getting FaultySectors: %w", err)
+		}
+		pf := &partitionBitfields{
+			allSectors:    all,
+			liveSectors:   live,
+			faultySectors: faulty,
+		}
+		partitionCache[pkey] = pf
+		return pf, nil
+	}
 
 	for _, sector := range sectors {
 		maddr, err := address.NewIDAddress(sector.SpID)
@@ -222,6 +309,21 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			return false, xerrors.Errorf("getting sector info: %w", err)
 		}
 		if si == nil {
+			// Sector not found on chain - mark as not live
+			if sector.IsLive {
+				liveStatusBatch = append(liveStatusBatch, liveStatusUpdate{
+					SpID:      sector.SpID,
+					SectorNum: sector.SectorNum,
+					IsLive:    false,
+					IsFaulty:  false,
+				})
+				if len(liveStatusBatch) >= batchSize {
+					if err := flushLiveStatusBatch(); err != nil {
+						return false, xerrors.Errorf("flushing live status batch: %w", err)
+					}
+					liveStatusBatch = liveStatusBatch[:0]
+				}
+			}
 			continue
 		}
 
@@ -290,9 +392,16 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 
 		needsPartitionUpdate := false
 
+		var havePartitionInfo bool
+		var effDeadline, effPartition uint64
+
 		if sector.Partition == nil || sector.Deadline == nil {
 			needsPartitionUpdate = true
 		} else {
+			effDeadline = *sector.Deadline
+			effPartition = *sector.Partition
+			havePartitionInfo = true
+
 			// Verify that the sector is actually in the partition's AllSectors bitfield
 			pkey := partitionKey{
 				SpID:      sector.SpID,
@@ -300,38 +409,14 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 				Partition: *sector.Partition,
 			}
 
-			allSectors, cached := partitionCache[pkey]
-			if !cached {
-				dl, err := mstate.LoadDeadline(*sector.Deadline)
-				if err != nil {
-					log.Warnw("failed to load deadline for partition verification",
-						"sp_id", sector.SpID, "sector", sector.SectorNum,
-						"deadline", *sector.Deadline, "error", err)
-					needsPartitionUpdate = true
-				} else {
-					part, err := dl.LoadPartition(*sector.Partition)
-					if err != nil {
-						log.Warnw("failed to load partition for verification",
-							"sp_id", sector.SpID, "sector", sector.SectorNum,
-							"deadline", *sector.Deadline, "partition", *sector.Partition, "error", err)
-						needsPartitionUpdate = true
-					} else {
-						bf, err := part.AllSectors()
-						if err != nil {
-							log.Warnw("failed to get AllSectors for partition verification",
-								"sp_id", sector.SpID, "sector", sector.SectorNum,
-								"deadline", *sector.Deadline, "partition", *sector.Partition, "error", err)
-							needsPartitionUpdate = true
-						} else {
-							allSectors = &bf
-							partitionCache[pkey] = allSectors
-						}
-					}
-				}
-			}
-
-			if allSectors != nil {
-				isSet, err := allSectors.IsSet(sector.SectorNum)
+			pInfo, err := loadPartition(mstate, pkey)
+			if err != nil {
+				log.Warnw("failed to load partition for verification",
+					"sp_id", sector.SpID, "sector", sector.SectorNum,
+					"deadline", *sector.Deadline, "partition", *sector.Partition, "error", err)
+				needsPartitionUpdate = true
+			} else {
+				isSet, err := pInfo.allSectors.IsSet(sector.SectorNum)
 				if err != nil {
 					log.Warnw("failed to check sector in AllSectors bitfield",
 						"sp_id", sector.SpID, "sector", sector.SectorNum, "error", err)
@@ -352,6 +437,10 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			}
 
 			if loc != nil {
+				effDeadline = loc.Deadline
+				effPartition = loc.Partition
+				havePartitionInfo = true
+
 				updateBatch = append(updateBatch, partitionUpdate{
 					SpID:      sector.SpID,
 					SectorNum: sector.SectorNum,
@@ -367,6 +456,46 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 				}
 			}
 		}
+
+		// Update is_live and is_faulty status from on-chain partition state
+		if havePartitionInfo {
+			pkey := partitionKey{SpID: sector.SpID, Deadline: effDeadline, Partition: effPartition}
+			pInfo, err := loadPartition(mstate, pkey)
+			if err != nil {
+				log.Warnw("failed to load partition for live/faulty check",
+					"sp_id", sector.SpID, "sector", sector.SectorNum, "error", err)
+			} else {
+				isLive, err := pInfo.liveSectors.IsSet(sector.SectorNum)
+				if err != nil {
+					log.Warnw("failed to check if sector is live",
+						"sp_id", sector.SpID, "sector", sector.SectorNum, "error", err)
+				} else {
+					isFaulty := false
+					if isLive {
+						isFaulty, err = pInfo.faultySectors.IsSet(sector.SectorNum)
+						if err != nil {
+							log.Warnw("failed to check if sector is faulty",
+								"sp_id", sector.SpID, "sector", sector.SectorNum, "error", err)
+							isFaulty = false
+						}
+					}
+					if isLive != sector.IsLive || isFaulty != sector.IsFaulty {
+						liveStatusBatch = append(liveStatusBatch, liveStatusUpdate{
+							SpID:      sector.SpID,
+							SectorNum: sector.SectorNum,
+							IsLive:    isLive,
+							IsFaulty:  isFaulty,
+						})
+						if len(liveStatusBatch) >= batchSize {
+							if err := flushLiveStatusBatch(); err != nil {
+								return false, xerrors.Errorf("flushing live status batch: %w", err)
+							}
+							liveStatusBatch = liveStatusBatch[:0]
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Flush any remaining updates
@@ -375,6 +504,9 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 	if err := flushBatch(); err != nil {
 		return false, xerrors.Errorf("flushing final batch: %w", err)
+	}
+	if err := flushLiveStatusBatch(); err != nil {
+		return false, xerrors.Errorf("flushing final live status batch: %w", err)
 	}
 
 	// Update verifreg claims

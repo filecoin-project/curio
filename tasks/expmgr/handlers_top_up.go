@@ -74,6 +74,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.is_cc = $4
 			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
 			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)`,
@@ -86,6 +88,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
 			  AND NOT EXISTS (SELECT 1 FROM open_sector_pieces osp WHERE osp.sp_id = sm.sp_id AND osp.sector_number = sm.sector_num)`,
 			cfg.SpID, int64(bucketAboveEpoch), int64(bucketBelowEpoch)).Scan(&count.Count)
@@ -139,6 +143,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND sm.is_cc = $4
@@ -157,6 +163,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND sm.is_cc = $4
@@ -174,6 +182,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $4)
@@ -191,6 +201,8 @@ func (e *ExpMgrTask) handleTopUp(ctx context.Context, cfg topUpPresetConfig) (bo
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
