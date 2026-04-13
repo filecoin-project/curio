@@ -122,12 +122,25 @@ install_yugabytedb() {
 
   # Important:
   # Expand tmpdir at trap definition time, not at trap execution time.
-  trap 'rm -rf "${tmpdir}"' EXIT
+  trap 'rm -rf "'${tmpdir}'"' EXIT
 
   curl -fL --retry 5 --retry-delay 2 -o "${tarball}" "${YB_DOWNLOAD_URL}"
 
   log "Inspecting YugabyteDB archive layout"
-  topdir="$(tar -tzf "${tarball}" | sed 's#^\./##' | awk -F/ 'NF && $1 != "" { print $1; exit }')"
+  topdir="$(
+    tar -tzf "${tarball}" \
+      | awk -F/ 'NF && $1 != "" && !seen {
+          name=$1
+          sub(/^\.\//, "", name)
+          if (name != "") {
+            print name
+            seen=1
+          }
+        }
+        END {
+          if (!seen) exit 1
+        }'
+  )"
   [[ -n "${topdir}" ]] || die "Could not determine top-level directory from ${tarball}"
 
   log "Extracting YugabyteDB"
