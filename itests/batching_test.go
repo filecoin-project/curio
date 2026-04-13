@@ -15,9 +15,8 @@ import (
 
 func TestBatching(t *testing.T) {
 	ctx := context.Background()
-
-	testID := harmonydb.ITestNewID()
-	db, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
+	
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	var machineID int

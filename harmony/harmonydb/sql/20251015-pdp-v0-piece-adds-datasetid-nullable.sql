@@ -1,7 +1,7 @@
 -- Changes the data_set column to be nullable in the pdp_data_set_piece_adds table to faciliate create-and-add workflow.
 -- Combined migration: make `data_set` nullable and adjust PK
--- New primary key: (add_message_hash HASH, add_message_index ASC)
--- Old primary key: (data_set HASH, add_message_hash ASC, add_message_index ASC)
+-- YugabyteDB primary key: (add_message_hash HASH, add_message_index ASC)
+-- PostgreSQL primary key: (add_message_hash, add_message_index)
 
 DO $$
 BEGIN
@@ -16,10 +16,16 @@ BEGIN
       DROP CONSTRAINT pdp_data_set_piece_adds_pk;
   END IF;
 
-  -- Step 2: Create new PK with add_message_hash as HASH key
-  ALTER TABLE pdp_data_set_piece_adds
-    ADD CONSTRAINT pdp_data_set_piece_adds_pk
-    PRIMARY KEY (add_message_hash HASH, add_message_index ASC);
+  -- Step 2: Create the backend-appropriate primary key
+  IF POSITION('-YB-' IN version()) > 0 THEN
+    EXECUTE 'ALTER TABLE pdp_data_set_piece_adds
+      ADD CONSTRAINT pdp_data_set_piece_adds_pk
+      PRIMARY KEY (add_message_hash HASH, add_message_index ASC)';
+  ELSE
+    EXECUTE 'ALTER TABLE pdp_data_set_piece_adds
+      ADD CONSTRAINT pdp_data_set_piece_adds_pk
+      PRIMARY KEY (add_message_hash, add_message_index)';
+  END IF;
 
   -- Step 3: Make `data_set` nullable if it is currently NOT NULL
   IF EXISTS (

@@ -36,23 +36,69 @@ func envElse(env, els string) string {
 	return els
 }
 
-func NewFromConfigWithITestID(t *testing.T, id harmonyquery.ITestID, fullMigrations bool) (*DB, error) {
-	sqlFS := &testUpgradeFS
-	if fullMigrations {
-		sqlFS = &upgradeFS
+type ItestOptions struct {
+	Hosts       []string
+	Database    string
+	Username    string
+	Password    string
+	Port        string
+	LoadBalance bool
+	ITestID     harmonyquery.ITestID
+	useTemplate bool
+}
+
+type ItestOpts func(opts *ItestOptions)
+
+func DefaultItestOptions() ItestOptions {
+	return ItestOptions{
+		Hosts:       []string{envElse(harmonyquery.DefaultHostEnv, "127.0.0.1")},
+		Database:    "yugabyte",
+		Username:    "yugabyte",
+		Password:    "yugabyte",
+		Port:        "5432",
+		LoadBalance: false,
+		useTemplate: true,
+		ITestID: ITestNewID(),
+	}
+}
+
+func ItestID(id harmonyquery.ITestID) ItestOpts {
+	return func(opts *ItestOptions) {
+		opts.ITestID = id
+	}
+}
+
+func YugabyteDB(yb bool) ItestOpts {
+	return func(opts *ItestOptions) {
+		opts.useTemplate = !yb
+		if yb {
+			opts.Port = "5433"
+		}
+	}
+}
+
+func (c *ItestOptions) HarnomyConfig() Config {
+	return Config{
+		Hosts:            c.Hosts,
+		Database:         c.Database,
+		Username:         c.Username,
+		Password:         c.Password,
+		Port:             c.Port,
+		LoadBalance:      c.LoadBalance,
+		ITestID:          c.ITestID,
+		UseTemplate:      c.useTemplate,
+		SqlEmbedFS:       &upgradeFS,
+		DowngradeEmbedFS: &downgradeFS,
+	}
+}
+
+func NewFromConfigWithITestID(t *testing.T, opts ...ItestOpts) (*DB, error) {
+	cfg := DefaultItestOptions()
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
-	db, err := NewFromConfig(Config{
-		Hosts:            []string{envElse(harmonyquery.DefaultHostEnv, "127.0.0.1")},
-		Database:         "yugabyte",
-		Username:         "yugabyte",
-		Password:         "yugabyte",
-		Port:             "5433",
-		LoadBalance:      false,
-		ITestID:          id,
-		SqlEmbedFS:       sqlFS,
-		DowngradeEmbedFS: &downgradeFS,
-	})
+	db, err := NewFromConfig(cfg.HarnomyConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +113,6 @@ var upgradeFS embed.FS
 
 //go:embed downgrade
 var downgradeFS embed.FS
-
-//go:embed sql/20230706-itest_scratch.sql
-var testUpgradeFS embed.FS
 
 // A function for clean, idempotent SQL upgrade testing.
 var ITestUpgradeFunc = harmonyquery.ITestUpgradeFunc

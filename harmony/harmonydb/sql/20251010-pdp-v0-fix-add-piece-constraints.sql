@@ -11,8 +11,14 @@ BEGIN
     WHERE conname = 'pdp_data_set_piece_adds_pk'
       AND conrelid = 'pdp_data_set_piece_adds'::regclass
   ) THEN
-    ALTER TABLE pdp_data_set_piece_adds
-      ADD CONSTRAINT pdp_data_set_piece_adds_pk
-      PRIMARY KEY (data_set HASH, add_message_hash ASC, add_message_index ASC);
+    IF POSITION('-YB-' IN version()) > 0 THEN
+      EXECUTE 'ALTER TABLE pdp_data_set_piece_adds
+        ADD CONSTRAINT pdp_data_set_piece_adds_pk
+        PRIMARY KEY (data_set HASH, add_message_hash ASC, add_message_index ASC)';
+    ELSE
+      EXECUTE 'ALTER TABLE pdp_data_set_piece_adds
+        ADD CONSTRAINT pdp_data_set_piece_adds_pk
+        PRIMARY KEY (data_set, add_message_hash, add_message_index)';
+    END IF;
   END IF;
 END $$;

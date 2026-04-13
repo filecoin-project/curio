@@ -82,9 +82,6 @@ func TestDealPipelineFullPath(t *testing.T) {
 		kit.Account(unverifiedClientKey, abi.NewTokenAmount(initialBigBalance)),
 	)
 
-	// Always clean DB rows inserted by this test.
-	defer db.ITestDeleteAll()
-
 	// Resolve SP id from miner address for pipeline seed rows.
 	minerID, err := address.IDFromAddress(maddr)
 	require.NoError(t, err)

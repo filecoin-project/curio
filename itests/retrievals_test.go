@@ -47,7 +47,6 @@ func TestRetrievals(t *testing.T) {
 	defer cancel()
 
 	full, _, db, maddr := helpers.BootstrapNetworkWithNewMiner(t, ctx, "2KiB")
-	defer db.ITestDeleteAll()
 
 	idxStore := helpers.NewIndexStore(ctx, t, config.DefaultCurioConfig())
 
