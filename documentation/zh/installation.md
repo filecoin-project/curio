@@ -128,7 +128,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### Go
 
-构建 Curio 需要安装 Go（最低版本以仓库根目录的 `GO_VERSION_MIN` 为准）。
+构建 Curio 需要安装 Go（最低版本以仓库根目录的 `go.mod` 为准）。
 
 示例（当前仓库最小版本为 **1.26.2**）：
 

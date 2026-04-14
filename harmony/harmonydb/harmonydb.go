@@ -77,7 +77,7 @@ func YugabyteDB(yb bool) ItestOpts {
 	}
 }
 
-func (c *ItestOptions) HarnomyConfig() Config {
+func (c *ItestOptions) HarmonyConfig() Config {
 	return Config{
 		Hosts:            c.Hosts,
 		Database:         c.Database,
@@ -98,7 +98,7 @@ func NewFromConfigWithITestID(t *testing.T, opts ...ItestOpts) (*DB, error) {
 		opt(&cfg)
 	}
 
-	db, err := NewFromConfig(cfg.HarnomyConfig())
+	db, err := NewFromConfig(cfg.HarmonyConfig())
 	if err != nil {
 		return nil, err
 	}

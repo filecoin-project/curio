@@ -46,9 +46,9 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 
 ***
 
-### :hammer: Install Go (match `GO_VERSION_MIN`)
+### :hammer: Install Go (match `go.mod`)
 
-Curio’s minimum Go version is set in the Curio repo at `GO_VERSION_MIN`.
+Curio’s minimum Go version is set in the Curio repo at `go.mod`.
 
 Example (current repo min is **1.26.2**):
 
