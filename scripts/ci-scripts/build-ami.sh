@@ -2,12 +2,13 @@
 set -Eeuo pipefail
 
 # -----------------------------------------------------------------------------
-# YugabyteDB AMI provisioning script for Ubuntu 24.04 x86_64
+# YugabyteDB + PostgreSQL AMI provisioning script for Ubuntu 24.04 x86_64
 #
 # Decisions baked into this script:
 # - OS target: Ubuntu 24.04
 # - Architecture: x86_64
 # - YugabyteDB version: 2025.2.2.2-b11
+# - PostgreSQL version: 18
 # - Install path: /usr/local/yugabyte
 # - Base dir: /var/lib/yugabytedb
 # - User/group: yugabyte:yugabyte
@@ -42,6 +43,25 @@ readonly SYSTEMD_UNIT_PATH="/etc/systemd/system/${YB_SERVICE_NAME}"
 readonly SYSCTL_CONF="/etc/sysctl.d/99-yugabytedb.conf"
 readonly LIMITS_CONF="/etc/security/limits.d/99-yugabytedb.conf"
 
+readonly PG_VERSION="18"
+readonly PG_CLUSTER="main"
+readonly PG_CLUSTER_UNIT="postgresql@${PG_VERSION}-${PG_CLUSTER}.service"
+readonly PG_LISTEN_IP="127.0.0.1"
+readonly PG_PORT="5432"
+readonly PG_ROLE_NAME="yugabyte"
+readonly PG_ROLE_PASSWORD="yugabyte"
+readonly PG_DEFAULT_DB="yugabyte"
+readonly PG_TEMPLATE_DB="itest_template"
+readonly PG_TEMPLATE_SMOKE_DB="itest_template_smoke"
+readonly PG_APT_KEYRING_DIR="/usr/share/postgresql-common/pgdg"
+readonly PG_APT_KEYRING="${PG_APT_KEYRING_DIR}/apt.postgresql.org.asc"
+readonly PG_APT_LIST="/etc/apt/sources.list.d/pgdg.list"
+readonly PG_CONF_DIR="/etc/postgresql/${PG_VERSION}/${PG_CLUSTER}"
+readonly PG_HBA_CONF="${PG_CONF_DIR}/pg_hba.conf"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+readonly HARMONY_SQL_DIR="${REPO_ROOT}/harmony/harmonydb/sql"
+
 log() {
   echo "[INFO] $*"
 }
@@ -75,6 +95,31 @@ apt_install() {
     procps \
     lsb-release \
     locales
+}
+
+install_postgresql_apt_repo() {
+  local version_codename
+
+  log "Configuring PostgreSQL Apt repository"
+  install -d "${PG_APT_KEYRING_DIR}"
+  curl -o "${PG_APT_KEYRING}" --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+  version_codename="$(
+    . /etc/os-release
+    printf '%s' "${VERSION_CODENAME}"
+  )"
+  printf 'deb [signed-by=%s] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' \
+    "${PG_APT_KEYRING}" \
+    "${version_codename}" > "${PG_APT_LIST}"
+
+  apt-get update -y
+}
+
+install_postgresql() {
+  log "Installing PostgreSQL ${PG_VERSION}"
+  apt-get install -y --no-install-recommends \
+    "postgresql-${PG_VERSION}" \
+    "postgresql-client-${PG_VERSION}"
 }
 
 setup_locale() {
@@ -340,6 +385,132 @@ validate_sql() {
     -Atqc "SELECT 1;" | grep -qx '1' || die "SQL validation failed"
 }
 
+configure_postgresql() {
+  log "Configuring PostgreSQL ${PG_VERSION}"
+  [[ -d "${PG_CONF_DIR}" ]] || die "PostgreSQL config directory ${PG_CONF_DIR} not found"
+  [[ -f "${PG_HBA_CONF}" ]] || die "PostgreSQL pg_hba.conf ${PG_HBA_CONF} not found"
+
+  pg_conftool "${PG_VERSION}" "${PG_CLUSTER}" set listen_addresses "'${PG_LISTEN_IP}'"
+  pg_conftool "${PG_VERSION}" "${PG_CLUSTER}" set port "${PG_PORT}"
+
+  python3 - <<PY
+from pathlib import Path
+path = Path("${PG_HBA_CONF}")
+text = path.read_text()
+managed = [
+    "host all all 127.0.0.1/32 scram-sha-256",
+    "host all all ::1/128 scram-sha-256",
+]
+lines = [line for line in text.splitlines() if line.strip() not in managed]
+path.write_text("\\n".join(managed + lines) + "\\n")
+PY
+
+  systemctl daemon-reload
+  systemctl enable "${PG_CLUSTER_UNIT}"
+  systemctl restart "${PG_CLUSTER_UNIT}"
+}
+
+validate_postgresql_service() {
+  log "Validating PostgreSQL cluster systemd state"
+  [[ "$(systemctl is-active "${PG_CLUSTER_UNIT}")" == "active" ]] || {
+    systemctl --no-pager --full status "${PG_CLUSTER_UNIT}" || true
+    die "${PG_CLUSTER_UNIT} is not active"
+  }
+}
+
+validate_postgresql_tcp() {
+  log "Waiting for TCP ${PG_LISTEN_IP}:${PG_PORT}"
+  wait_for_tcp "${PG_LISTEN_IP}" "${PG_PORT}" 90 2 || die "PostgreSQL TCP port ${PG_PORT} is not reachable"
+}
+
+postgres_superuser_sql() {
+  local database="$1"
+  local sql="$2"
+  sudo -u postgres -H psql \
+    -X \
+    -v ON_ERROR_STOP=1 \
+    -d "${database}" \
+    -Atqc "${sql}"
+}
+
+postgres_yugabyte_sql() {
+  local database="$1"
+  local sql="$2"
+  PGPASSWORD="${PG_ROLE_PASSWORD}" psql \
+    -X \
+    -v ON_ERROR_STOP=1 \
+    -h "${PG_LISTEN_IP}" \
+    -p "${PG_PORT}" \
+    -U "${PG_ROLE_NAME}" \
+    -d "${database}" \
+    -Atqc "${sql}"
+}
+
+postgres_yugabyte_file() {
+  local database="$1"
+  local file="$2"
+  PGPASSWORD="${PG_ROLE_PASSWORD}" psql \
+    -X \
+    -v ON_ERROR_STOP=1 \
+    -h "${PG_LISTEN_IP}" \
+    -p "${PG_PORT}" \
+    -U "${PG_ROLE_NAME}" \
+    -d "${database}" \
+    -f "${file}"
+}
+
+bootstrap_postgresql_cluster() {
+  log "Bootstrapping PostgreSQL roles and databases"
+
+  postgres_superuser_sql postgres "CREATE ROLE ${PG_ROLE_NAME} WITH LOGIN PASSWORD '${PG_ROLE_PASSWORD}' SUPERUSER CREATEDB CREATEROLE;"
+  postgres_superuser_sql postgres "CREATE DATABASE ${PG_DEFAULT_DB} WITH OWNER = ${PG_ROLE_NAME} TEMPLATE = template0;"
+  postgres_superuser_sql postgres "CREATE DATABASE ${PG_TEMPLATE_DB} WITH OWNER = ${PG_ROLE_NAME} TEMPLATE = template0 IS_TEMPLATE = true;"
+}
+
+load_harmony_schema_into_template() {
+  local file name entry
+
+  log "Loading Harmony schema into PostgreSQL template database"
+  [[ -d "${HARMONY_SQL_DIR}" ]] || die "Harmony SQL directory ${HARMONY_SQL_DIR} not found"
+
+  postgres_yugabyte_sql "${PG_TEMPLATE_DB}" "CREATE TABLE IF NOT EXISTS base (
+    id SERIAL PRIMARY KEY,
+    entry CHAR(12),
+    applied TIMESTAMP DEFAULT current_timestamp
+  );"
+
+  shopt -s nullglob
+  for file in "${HARMONY_SQL_DIR}"/*.sql; do
+    name="$(basename "${file}")"
+    entry="${name:0:8}"
+
+    log "Applying PostgreSQL template migration ${name}"
+    postgres_yugabyte_file "${PG_TEMPLATE_DB}" "${file}"
+    postgres_yugabyte_sql "${PG_TEMPLATE_DB}" "INSERT INTO base (entry) VALUES ('${entry}');"
+  done
+  shopt -u nullglob
+}
+
+validate_postgresql_sql() {
+  log "Running PostgreSQL SQL validation"
+  postgres_yugabyte_sql "${PG_DEFAULT_DB}" "SELECT 1;" | grep -qx '1' || die "PostgreSQL SQL validation failed"
+}
+
+validate_postgresql_template() {
+  local expected actual
+
+  log "Validating PostgreSQL template database"
+  postgres_yugabyte_sql "${PG_TEMPLATE_DB}" "SELECT 1;" | grep -qx '1' || die "Template database SQL validation failed"
+
+  expected="$(find "${HARMONY_SQL_DIR}" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+  actual="$(postgres_yugabyte_sql "${PG_TEMPLATE_DB}" "SELECT COUNT(*) FROM base;")"
+  [[ "${actual}" == "${expected}" ]] || die "Template migration count mismatch: expected ${expected}, got ${actual}"
+
+  postgres_superuser_sql postgres "CREATE DATABASE ${PG_TEMPLATE_SMOKE_DB} WITH OWNER = ${PG_ROLE_NAME} TEMPLATE = ${PG_TEMPLATE_DB};"
+  postgres_yugabyte_sql "${PG_TEMPLATE_SMOKE_DB}" "SELECT to_regclass('base') IS NOT NULL AND to_regclass('harmony_task') IS NOT NULL;" | grep -qx 't' || die "Template clone validation failed"
+  postgres_superuser_sql postgres "DROP DATABASE ${PG_TEMPLATE_SMOKE_DB};"
+}
+
 # -----------------------------------------------------------------------------
 # Install Lotus and prefetch Filecoin proof parameters
 # -----------------------------------------------------------------------------
@@ -386,8 +557,10 @@ main() {
   log "Installing OS dependencies"
   apt_install
 
+  # Setup Locale for YB
   setup_locale
 
+  # YB setup
   setup_time_sync
   create_yugabyte_user
   configure_dirs
@@ -397,11 +570,23 @@ main() {
   configure_thp_on_next_boot
   write_systemd_unit
   start_service
-
   validate_service
   validate_ysql_tcp
   validate_ui
   validate_sql
+
+  # Postgres setup
+  install_postgresql_apt_repo
+  install_postgresql
+  configure_postgresql
+  validate_postgresql_service
+  validate_postgresql_tcp
+  bootstrap_postgresql_cluster
+  validate_postgresql_sql
+  load_harmony_schema_into_template
+  validate_postgresql_template
+
+  # Params download
   install_lotus_and_fetch_params
 
   log "Provisioning completed successfully"
