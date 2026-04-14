@@ -18,6 +18,9 @@ jobs:
       shell: bash
     - run: |
         systemctl status postgresql@18-main.service
+      if: ${{ failure() }}
+      shell: bash
+    - run: |
         journalctl -xeu postgresql@18-main.service
       if: ${{ failure() }}
       shell: bash
