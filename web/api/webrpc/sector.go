@@ -385,7 +385,6 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	locs := []LocationTable{}
 
 	for i, loc := range sectorLocations {
-		loc := loc
 		if loc.FileType == storiface.FTUnsealed {
 			si.HasUnsealed = true
 		}
@@ -418,8 +417,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 		pathTypeStr = &pathType
 
-		fileType := loc.FileType.String()
-		fileTypeStr = &fileType
+		fileTypeStr = new(loc.FileType.String())
 
 		if i > 0 {
 			prevNonNilPathTypeLoc := i - 1
@@ -483,20 +481,16 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		si.IsSnap = sectormeta.HasSectorKey
 
 		if sectormeta.ExpirationEpoch.Valid {
-			e := sectormeta.ExpirationEpoch.Int64
-			si.ExpirationEpoch = &e
+			si.ExpirationEpoch = new(sectormeta.ExpirationEpoch.Int64)
 		}
 		if sectormeta.Deadline.Valid {
-			d := sectormeta.Deadline.Int64
-			si.Deadline = &d
+			si.Deadline = new(sectormeta.Deadline.Int64)
 		}
 		if sectormeta.Partition.Valid {
-			p := sectormeta.Partition.Int64
-			si.Partition = &p
+			si.Partition = new(sectormeta.Partition.Int64)
 		}
 		if sectormeta.UnsealedState.Valid {
-			u := sectormeta.UnsealedState.Bool
-			si.UnsealedState = &u
+			si.UnsealedState = new(sectormeta.UnsealedState.Bool)
 		}
 	}
 
@@ -633,12 +627,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		pieces[i].PieceParkCreatedAt = parkedPiece[0].CreatedAt.Local()
 		pieces[i].PieceParkComplete = parkedPiece[0].Complete
 		if parkedPiece[0].ParkTaskID.Valid {
-			t := parkedPiece[0].ParkTaskID.Int64
-			pieces[i].PieceParkTaskID = &t
+			pieces[i].PieceParkTaskID = new(parkedPiece[0].ParkTaskID.Int64)
 		}
 		if parkedPiece[0].CleanupTaskID.Valid {
-			c := parkedPiece[0].CleanupTaskID.Int64
-			pieces[i].PieceParkCleanupTaskID = &c
+			pieces[i].PieceParkCleanupTaskID = new(parkedPiece[0].CleanupTaskID.Int64)
 		}
 	}
 
@@ -792,11 +784,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 				return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
 			}
 
-			d := int64(part.Deadline)
-			si.Deadline = &d
+			si.Deadline = new(int64(part.Deadline))
 
-			p := int64(part.Partition)
-			si.Partition = &p
+			si.Partition = new(int64(part.Partition))
 		}
 
 		si.ActivationEpoch = onChainInfo.Activation
@@ -822,8 +812,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 			// Preserve original DB expiration for comparison display
 			if dbMeta.ExpirationEpoch.Valid {
-				dbExp := dbMeta.ExpirationEpoch.Int64
-				si.DBExpirationEpoch = &dbExp
+				si.DBExpirationEpoch = new(dbMeta.ExpirationEpoch.Int64)
 			}
 
 			// cur_sealed_cid should match chain SealedCID
@@ -1001,12 +990,10 @@ func (a *WebRPC) getSectorPartitionState(ctx context.Context, maddr address.Addr
 		}
 		epochsUntilOpen -= (head.Height() - dinfo.Open)
 
-		epochs := int64(epochsUntilOpen)
-		state.EpochsUntilProof = &epochs
+		state.EpochsUntilProof = new(int64(epochsUntilOpen))
 
 		hoursUntil := float64(epochsUntilOpen) * 30.0 / 3600.0
-		hoursStr := fmt.Sprintf("%.1f hours", hoursUntil)
-		state.HoursUntilProof = &hoursStr
+		state.HoursUntilProof = new(fmt.Sprintf("%.1f hours", hoursUntil))
 	}
 
 	return state, nil
@@ -1438,7 +1425,6 @@ func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, erro
 	deadlineInfoChan := make(chan deadlineInfo, len(stats))
 
 	for _, sp := range spMap {
-		sp := sp
 		eg.Go(func() error {
 			// Get deadlines for this miner
 			deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)
@@ -1801,15 +1787,13 @@ func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP,
 			Enabled:    r.Enabled,
 		}
 		if r.LastRunAt.Valid {
-			t := r.LastRunAt.Time.Format("2006-01-02 15:04:05")
-			item.LastRunAt = &t
+			item.LastRunAt = new(r.LastRunAt.Time.Format("2006-01-02 15:04:05"))
 		}
 		if r.LastMessageCID.Valid {
 			item.LastMessageCID = &r.LastMessageCID.String
 		}
 		if r.LastMessageLandedAt.Valid {
-			t := r.LastMessageLandedAt.Time.Format("2006-01-02 15:04:05")
-			item.LastMessageLandedAt = &t
+			item.LastMessageLandedAt = new(r.LastMessageLandedAt.Time.Format("2006-01-02 15:04:05"))
 		}
 		result = append(result, item)
 	}

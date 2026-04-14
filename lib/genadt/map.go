@@ -218,7 +218,7 @@ func New[M HamtMap, K any, R Keyer[K], V CborT](sub M) *Map[M, K, R, V] {
 	// V is already a pointer to a struct, so we .Elem twice to get the struct type.
 	m := &Map[M, K, R, V]{}
 	m.Sub = sub
-	m.VType = reflect.TypeOf((*V)(nil)).Elem().Elem()
+	m.VType = reflect.TypeFor[V]().Elem()
 	return m
 }
 

@@ -404,12 +404,12 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 	var wg sync.WaitGroup
 	wg.Add(int(partitionCount))
 
-	for partIdx := uint64(0); partIdx < partitionCount; partIdx++ {
+	for partIdx := range partitionCount {
 		go func(partIdx uint64) {
 			defer wg.Done()
 
 			sectors := make([]storiface.PostSectorChallenge, 0)
-			for i := uint64(0); i < maxPartitionSize; i++ {
+			for i := range maxPartitionSize {
 				si := i + partIdx*maxPartitionSize
 				if si >= uint64(len(postChallenges.Sectors)) {
 					break

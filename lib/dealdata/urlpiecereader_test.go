@@ -32,7 +32,6 @@ func TestUrlPieceReader_Read(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 
 		t.Run(tt.name, func(t *testing.T) {
 			reader := NewUrlReader(nil, ts.URL, http.Header{}, tt.rawSize, "test")

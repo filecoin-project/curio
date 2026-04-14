@@ -229,7 +229,7 @@ func DecodeInclusionPath[H HasherDomain](r io.Reader) (InclusionPath[H], error) 
 	}
 
 	out.Path = make([]PathElement[H], numElements)
-	for i := uint64(0); i < numElements; i++ {
+	for i := range numElements {
 		out.Path[i], err = DecodePathElement[H](r)
 		if err != nil {
 			return out, fmt.Errorf("failed to decode PathElement: %w", err)
@@ -249,7 +249,7 @@ func DecodePathElement[H HasherDomain](r io.Reader) (PathElement[H], error) {
 	}
 
 	out.Hashes = make([]H, numHashes)
-	for i := uint64(0); i < numHashes; i++ {
+	for i := range numHashes {
 		out.Hashes[i], err = DecodeHasherDomain[H](r)
 		if err != nil {
 			return out, fmt.Errorf("failed to decode HasherDomain: %w", err)
@@ -277,7 +277,7 @@ func DecodeReplicaColumnProof[H HasherDomain](r io.Reader) (ReplicaColumnProof[H
 		return out, fmt.Errorf("failed to read number of DRG parents: %w", err)
 	}
 	out.DrgParents = make([]ColumnProof[H], numDrgParents)
-	for i := uint64(0); i < numDrgParents; i++ {
+	for i := range numDrgParents {
 		out.DrgParents[i], err = DecodeColumnProof[H](r)
 		if err != nil {
 			return out, fmt.Errorf("failed to decode DRG parent: %w", err)
@@ -289,7 +289,7 @@ func DecodeReplicaColumnProof[H HasherDomain](r io.Reader) (ReplicaColumnProof[H
 		return out, fmt.Errorf("failed to read number of EXP parents: %w", err)
 	}
 	out.ExpParents = make([]ColumnProof[H], numExpParents)
-	for i := uint64(0); i < numExpParents; i++ {
+	for i := range numExpParents {
 		out.ExpParents[i], err = DecodeColumnProof[H](r)
 		if err != nil {
 			return out, fmt.Errorf("failed to decode EXP parent: %w", err)

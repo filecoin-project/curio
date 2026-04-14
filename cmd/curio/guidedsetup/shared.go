@@ -52,7 +52,7 @@ func (storageMiner) Type() string {
 	return "StorageMiner"
 }
 
-func (storageMiner) Config() interface{} {
+func (storageMiner) Config() any {
 	return config.DefaultStorageMiner()
 }
 
@@ -318,8 +318,7 @@ func cidPtrToStrptr(c *cid.Cid) *string {
 	if c == nil {
 		return nil
 	}
-	s := c.String()
-	return &s
+	return new(c.String())
 }
 
 func coalescePtrs[A any](a, b *A) *A {
@@ -440,16 +439,14 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 						if err != nil {
 							return false, xerrors.Errorf("error marshalling JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
 						}
-						ps := string(pam)
-						pamJSON = &ps
+						pamJSON = new(string(pam))
 					}
 					if piece.Impl().DealProposal != nil {
 						dealProposalJSON, err := json.Marshal(piece.Impl().DealProposal)
 						if err != nil {
 							return false, xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
 						}
-						dp := string(dealProposalJSON)
-						dealProposalJSONStr = &dp
+						dealProposalJSONStr = new(string(dealProposalJSON))
 					}
 
 				}

@@ -99,8 +99,7 @@ var deletePeer = &cli.Command{
 			log.Fatalf("Failed to pack function call data: %v", err)
 		}
 
-		getparam := abi.CborBytes(callData)
-		getParams, err := actors.SerializeParams(&getparam)
+		getParams, err := actors.SerializeParams(new(abi.CborBytes(callData)))
 		if err != nil {
 			return fmt.Errorf("failed to serialize params: %w", err)
 		}
@@ -177,8 +176,7 @@ var deletePeer = &cli.Command{
 
 		var params []byte
 
-		param := abi.CborBytes(data)
-		params, err = actors.SerializeParams(&param)
+		params, err = actors.SerializeParams(new(abi.CborBytes(data)))
 		if err != nil {
 			return fmt.Errorf("failed to serialize params: %w", err)
 		}

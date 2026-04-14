@@ -163,7 +163,7 @@ const (
 func createPaddedRetrievalFixture(t *testing.T, dir string, sourceSize int64) helpers.PieceFixture {
 	t.Helper()
 
-	for attempt := int64(0); attempt < 8; attempt++ {
+	for attempt := range int64(8) {
 		fixture := helpers.CreatePieceFixture(t, dir, sourceSize+attempt)
 		if fixture.RawSize < int64(fixture.PieceSize.Unpadded()) {
 			return fixture
@@ -230,7 +230,6 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 }
 
 func buildRetrievalSeedPlan(fixtures retrievalFixtures) []retrievalFixtureSeed {
-	rawSizeZero := int64(0)
 	return []retrievalFixtureSeed{
 		{
 			DealID:    "mk12-retrieval-itest",
@@ -259,7 +258,7 @@ func buildRetrievalSeedPlan(fixtures retrievalFixtures) []retrievalFixtureSeed {
 			DealID:          "mk12-zero-raw-size-itest",
 			SectorNum:       rawSizeZeroSectorNum,
 			Fixture:         fixtures.rawSizeZero,
-			RawSizeOverride: &rawSizeZero,
+			RawSizeOverride: new(int64(0)),
 		},
 		{
 			DealID:    "mk12-aggregate-retry-itest",
@@ -335,6 +334,11 @@ func seedRetrievalFixtures(
 
 func seedParkedRetrievalFixturesTx(tx *harmonydb.Tx, fixtures retrievalFixtures) (retrievalParkedPieceIDs, error) {
 	parkOnlyPieceID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.parkNoDeal.PieceCIDV1.String(), fixtures.parkNoDeal.PieceSize, fixtures.parkNoDeal.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	_, err = helpers.InsertParkedPieceRef(tx, parkOnlyPieceID, "", nil, true)
 	if err != nil {
 		return retrievalParkedPieceIDs{}, err
 	}

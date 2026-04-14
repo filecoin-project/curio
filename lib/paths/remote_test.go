@@ -420,7 +420,6 @@ func TestReader(t *testing.T) {
 	}
 
 	for name, tc := range tcs {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			// create go mock controller here
 			mockCtrl := gomock.NewController(t)
@@ -726,7 +725,6 @@ func TestCheckIsUnsealed(t *testing.T) {
 	}
 
 	for name, tc := range tcs {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			// create go mock controller here
 			mockCtrl := gomock.NewController(t)

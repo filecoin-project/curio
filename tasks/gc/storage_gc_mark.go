@@ -112,8 +112,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			}
 
 			if toRemove[decl.Miner] == nil {
-				bf := bitfield.New()
-				toRemove[decl.Miner] = &bf
+				toRemove[decl.Miner] = new(bitfield.New())
 
 				maddr, err := address.NewIDAddress(uint64(decl.Miner))
 				if err != nil {

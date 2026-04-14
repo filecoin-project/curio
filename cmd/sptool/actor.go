@@ -125,7 +125,7 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 					uses = append(uses, color.GreenString("post"))
 				}
 
-				tw.Write(map[string]interface{}{
+				tw.Write(map[string]any{
 					"name":    name,
 					"ID":      a,
 					"key":     kstr,
