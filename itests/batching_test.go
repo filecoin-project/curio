@@ -15,7 +15,7 @@ import (
 
 func TestBatching(t *testing.T) {
 	ctx := context.Background()
-	
+
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 

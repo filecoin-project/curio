@@ -390,7 +390,6 @@ configure_postgresql() {
   [[ -d "${PG_CONF_DIR}" ]] || die "PostgreSQL config directory ${PG_CONF_DIR} not found"
   [[ -f "${PG_HBA_CONF}" ]] || die "PostgreSQL pg_hba.conf ${PG_HBA_CONF} not found"
 
-  pg_conftool "${PG_VERSION}" "${PG_CLUSTER}" set listen_addresses "'${PG_LISTEN_IP}'"
   pg_conftool "${PG_VERSION}" "${PG_CLUSTER}" set port "${PG_PORT}"
 
   python3 - <<PY
