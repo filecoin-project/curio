@@ -12,5 +12,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
-    - run: ./scripts/ci-scripts/build-ami.sh
+    - run: |
+        sudo chmod +x ./scripts/ci-scripts/build-ami.sh
+        sudo ./scripts/ci-scripts/build-ami.sh
       shell: bash
