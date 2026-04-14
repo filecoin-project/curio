@@ -1,0 +1,15 @@
+name: Test AMI
+
+on:
+  pull_request:
+    paths:
+      - scripts/ci-scripts/build-ami.sh
+
+jobs:
+  build:
+    runs-on: ["self-hosted", "linux", "x64", "2xlarge"]
+
+    steps:
+    - uses: actions/checkout@v6
+    - run: ./scripts/ci-scripts/build-ami.sh
+      shell: bash
