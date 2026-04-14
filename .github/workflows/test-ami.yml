@@ -3,6 +3,7 @@ name: Test AMI
 on:
   pull_request:
     paths:
+      - .github/workflows/test-ami.yml
       - scripts/ci-scripts/build-ami.sh
 
 jobs:
