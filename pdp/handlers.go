@@ -32,8 +32,7 @@ import (
 )
 
 func httpServerError(w http.ResponseWriter, statusCode int, msg string, err error) {
-	var chainErr *api.ChainError
-	if errors.As(err, &chainErr) {
+	if chainErr, ok := errors.AsType[*api.ChainError](err); ok {
 		http.Error(w, chainErr.Error(), statusCode)
 		return
 	}

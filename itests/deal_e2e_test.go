@@ -281,8 +281,7 @@ func prepareVariantDealArtifacts(
 				Size:     v.fixture.PieceSize,
 				PieceCID: v.fixture.PieceCIDV1,
 			}, verifiedClientAddr, 0, 0)
-			aid := allocationID
-			v.allocationID = &aid
+			v.allocationID = new(allocationID)
 		// F05 MK12 variants require a signed deal proposal.
 		default:
 			providerCollateral, err := helpers.ProviderCollateralBounds(ctx, full, v.fixture.PieceSize, v.verified)

@@ -531,7 +531,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 	return json.Marshal(data)
 }
 
-func structToNestedMap(input interface{}) map[string]map[string]int64 {
+func structToNestedMap(input any) map[string]map[string]int64 {
 	result := map[string]map[string]int64{
 		"Running": {},
 		"Pending": {},

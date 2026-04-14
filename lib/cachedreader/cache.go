@@ -26,7 +26,7 @@ func newPieceCidKeyCache(ttl time.Duration, limit int, skipTTLExtension bool) *p
 	return &pieceCidKeyCache{cache: c}
 }
 
-func (m *pieceCidKeyCache) Get(pieceCid cid.Cid) (interface{}, bool) {
+func (m *pieceCidKeyCache) Get(pieceCid cid.Cid) (any, bool) {
 	keys := getCacheKeys(pieceCid)
 	for i := range keys {
 		v, err := m.cache.Get(keys[i])
@@ -38,7 +38,7 @@ func (m *pieceCidKeyCache) Get(pieceCid cid.Cid) (interface{}, bool) {
 	return nil, false
 }
 
-func (m *pieceCidKeyCache) Set(pieceCid cid.Cid, data interface{}) {
+func (m *pieceCidKeyCache) Set(pieceCid cid.Cid, data any) {
 	keys := getCacheKeys(pieceCid)
 	for i := range keys {
 		err := m.cache.Set(keys[i], data)

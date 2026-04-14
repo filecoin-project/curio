@@ -78,12 +78,10 @@ func (a *WebRPC) BalanceMgrRules(ctx context.Context) ([]BalanceMgrRule, error) 
 			rule.LastMsgCID = &lastMsgCID.String
 		}
 		if lastMsgSentAt.Valid {
-			s := lastMsgSentAt.Time.Format(time.RFC3339)
-			rule.LastMsgSentAt = &s
+			rule.LastMsgSentAt = new(lastMsgSentAt.Time.Format(time.RFC3339))
 		}
 		if lastMsgLandedAt.Valid {
-			s := lastMsgLandedAt.Time.Format(time.RFC3339)
-			rule.LastMsgLandedAt = &s
+			rule.LastMsgLandedAt = new(lastMsgLandedAt.Time.Format(time.RFC3339))
 		}
 		if taskID.Valid {
 			rule.TaskID = &taskID.Int64

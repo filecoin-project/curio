@@ -117,8 +117,7 @@ func getAddressAllowanceOnContract(ctx context.Context, api api.Gateway, wallet 
 	}
 
 	// Encode EVM calldata as Message parameters
-	allowanceParam := abi.CborBytes(calldata)
-	allowanceParams, err := actors.SerializeParams(&allowanceParam)
+	allowanceParams, err := actors.SerializeParams(new(abi.CborBytes(calldata)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize params: %w", err)
 	}
@@ -183,8 +182,7 @@ func buildTransferViaEVMParams(amount *big.Int, receiverParams []byte) ([]byte, 
 		return nil, fmt.Errorf("failed to serialize params: %w", err)
 	}
 
-	transferParam := abi.CborBytes(calldata)
-	transferParams, err := actors.SerializeParams(&transferParam)
+	transferParams, err := actors.SerializeParams(new(abi.CborBytes(calldata)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize params: %w", err)
 	}
@@ -227,10 +225,7 @@ func CreateAllocationViaEVMMsg(ctx context.Context, api api.Gateway, infos []Pie
 	// Batch allocationRequests to create message
 	var messages []*types.Message
 	for i := 0; i < len(allocationRequests); i += batchSize {
-		end := i + batchSize
-		if end > len(allocationRequests) {
-			end = len(allocationRequests)
-		}
+		end := min(i+batchSize, len(allocationRequests))
 		batch := allocationRequests[i:end]
 		arequest := &verifreg9.AllocationRequests{
 			Allocations: batch,
@@ -245,9 +240,7 @@ func CreateAllocationViaEVMMsg(ctx context.Context, api api.Gateway, infos []Pie
 			return nil, fmt.Errorf("failed to serialize the parameters: %w", err)
 		}
 
-		amount := big.Mul(bDataCap, builtin.TokenPrecision)
-
-		transferParams, error := buildTransferViaEVMParams(&amount, receiverParams)
+		transferParams, error := buildTransferViaEVMParams(new(big.Mul(bDataCap, builtin.TokenPrecision)), receiverParams)
 		if error != nil {
 			return nil, error
 		}

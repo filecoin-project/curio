@@ -66,7 +66,7 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 		idxStor:          idxStor,
 	}
 
-	expireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+	expireCallback := func(key string, reason ttlcache.EvictionReason, value any) {
 		log.Debugw("expire callback", "piececid", key, "reason", reason)
 
 		// Record eviction metric
@@ -93,7 +93,7 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 		log.Debugw("expire callback with refs > 0", "refs", r.refs, "piececid", key, "reason", reason)
 	}
 
-	errorExpireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+	errorExpireCallback := func(key string, reason ttlcache.EvictionReason, value any) {
 		log.Debugw("error cache expire callback", "piececid", key, "reason", reason)
 
 		// Record eviction metric
@@ -279,8 +279,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 		if dl.PieceRef.Valid {
 			// This is a MK20 deal, get from piece park
-			ref := dl.PieceRef.Int64
-			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
+			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, new(dl.PieceRef.Int64), nil, nil)
 			if err != nil {
 				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
 				continue

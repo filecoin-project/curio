@@ -18,8 +18,7 @@ import (
 )
 
 func TestDynamicConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sharedITestID := harmonydb.ITestNewID()
 	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)

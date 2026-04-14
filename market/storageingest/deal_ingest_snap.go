@@ -167,7 +167,6 @@ func (p *PieceIngesterSnap) Seal() error {
 			}
 
 			for _, sector := range openSectors {
-				sector := sector
 				if shouldSeal(sector) {
 					// Start sealing the sector
 					cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, mid, sector.number, p.minerDetails[mid].updateProof)
@@ -479,10 +478,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		return nil, nil, xerrors.Errorf("adding deal to sector: %w", err)
 	}
 
-	num := abi.SectorNumber(uint64(candidate.Sector))
-	rsp := abi.RegisteredSealProof(candidate.RegSealProof)
-
-	return &num, &rsp, nil
+	return new(abi.SectorNumber(uint64(candidate.Sector))), new(abi.RegisteredSealProof(candidate.RegSealProof)), nil
 }
 
 func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, *abi.SectorNumber, *abi.RegisteredSealProof, error) {
@@ -502,7 +498,6 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 	}
 
 	for _, sec := range openSectors {
-		sec := sec
 		// Check that each sector has unique pieces
 		var nextSector bool
 		for i := range sec.pieces {
@@ -608,7 +603,6 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 
 	sectorMap := map[abi.SectorNumber]*openSector{}
 	for _, pi := range pieces {
-		pi := pi
 		sector, ok := sectorMap[pi.Sector]
 		if !ok {
 			sectorMap[pi.Sector] = &openSector{
@@ -644,7 +638,6 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 	var os []*openSector
 
 	for _, v := range sectorMap {
-		v := v
 		os = append(os, v)
 	}
 
