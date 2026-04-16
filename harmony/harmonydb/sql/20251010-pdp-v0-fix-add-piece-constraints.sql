@@ -14,7 +14,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1
     FROM pg_constraint
-WHERE conname = 'pdp_data_set_piece_adds_pk'``
+    WHERE conname = 'pdp_data_set_piece_adds_pk'
       AND conrelid = to_regclass('pdp_data_set_piece_adds')
   ) THEN
     ALTER TABLE pdp_data_set_piece_adds
