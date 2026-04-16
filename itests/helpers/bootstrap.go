@@ -45,6 +45,7 @@ func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...any) (*kit.Test
 	require.NoError(t, miner.LogSetLevel(ctx, "miner", "ERROR"))
 	require.NoError(t, miner.LogSetLevel(ctx, "wdpost", "ERROR"))
 	require.NoError(t, miner.LogSetLevel(ctx, "advmgr", "ERROR"))
+	require.NoError(t, miner.LogSetLevel(ctx, "f3", "ERROR"))
 
 	require.NoError(t, full.LogSetLevel(ctx, "chain", "ERROR"))
 	require.NoError(t, full.LogSetLevel(ctx, "consensus-common", "ERROR"))
@@ -52,6 +53,7 @@ func BootstrapNetwork(t *testing.T, ctx context.Context, opts ...any) (*kit.Test
 	require.NoError(t, full.LogSetLevel(ctx, "chainstore", "ERROR"))
 	require.NoError(t, full.LogSetLevel(ctx, "messagepool", "ERROR"))
 	require.NoError(t, full.LogSetLevel(ctx, "fullnode", "ERROR"))
+	require.NoError(t, full.LogSetLevel(ctx, "f3", "ERROR"))
 
 	return full, miner, esemble, fapi
 }
@@ -75,10 +77,7 @@ func FullNodeAPIInfo(ctx context.Context, full v1api.FullNode, listenAddr multia
 func BootstrapNetworkWithNewMiner(t *testing.T, ctx context.Context, minerSize string, opts ...any) (*kit.TestFullNode, *kit.TestMiner, *harmonydb.DB, address.Address) {
 	full, miner, _, fapi := BootstrapNetwork(t, ctx, opts...)
 
-	sharedITestID := harmonydb.ITestNewID()
-	t.Logf("sharedITestID: %s", sharedITestID)
-
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	var titles []string

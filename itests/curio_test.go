@@ -25,7 +25,6 @@ func TestCurioHappyPath(t *testing.T) {
 	ctx := t.Context()
 
 	full, _, db, maddr := helpers.BootstrapNetworkWithNewMiner(t, ctx, "2KiB")
-	defer db.ITestDeleteAll()
 
 	baseCfg, err := helpers.SetBaseConfigWithDefaults(t, ctx, db)
 	require.NoError(t, err)
