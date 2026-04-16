@@ -149,7 +149,7 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(time.Minute*30, func(taskFunc harmonytask.AddTaskFunc) error {
 			return f.schedule(context.Background(), taskFunc)
 		}),
 	}
