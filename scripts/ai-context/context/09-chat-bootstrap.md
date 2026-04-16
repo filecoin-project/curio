@@ -2,6 +2,8 @@
 
 ## Purpose
 - Define a lightweight, repeatable way to start new AI chats without overloading context.
+- Curio is a clustered Filecoin Storage Provider runtime replacing lotus-miner, coordinated through YugabyteDB. Single binary, multi-node, multi-miner.
+- Define a lightweight, repeatable way to start new AI chats without overloading context.
 
 ## Core rule
 - Do not attach all prompts, all context files, and full repo text by default.

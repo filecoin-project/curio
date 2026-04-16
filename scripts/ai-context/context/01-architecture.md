@@ -30,8 +30,8 @@
 
 ## Pipelines and task coordination
 - Sealing pipeline is state-machine-driven via DB (`sectors_sdr_pipeline`) and advanced by `tasks/seal` pollers/tasks.
-- Canonical PoRep flow: SDR -> TreeD/TreeRC/Synthetic -> PreCommit submit -> PoRep -> Finalize -> MoveStorage -> Commit submit.
-- Snap flow is separate but integrated: UpdateEncode -> UpdateProve -> UpdateSubmit (+ storage/finalization tasks).
+- Canonical PoRep flow: SDR -> TreeD -> TreeC/TreeR -> Synthetic -> PreCommit msg -> PoRep -> Finalize -> MoveStorage -> Commit msg.
+- Snap flow is separate but integrated: UpdateEncode -> UpdateProve -> UpdateBatch/Submit (+ UpdateStore for move storage).
 - PoSt flow is chain-triggered:
 - `lib/chainsched` emits tipset updates;
 - WindowPoSt split into compute/recover/submit tasks;

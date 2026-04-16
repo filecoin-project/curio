@@ -29,7 +29,7 @@ This repository uses modular AI context files under [`scripts/ai-context/`](scri
 ## Required Verification Before Finalizing Code Edits
 - Trigger: run this only when the user indicates the coding pass is done (for example: "finalize").
 - For Go/backend/codegen-affecting edits, run these from repo root:
-1. `LANG=en-US FFI_USE_OPENCL=1 make gen`
+1. `LANG=en-US FFI_USE_OPENCL=1 make gen`  # OpenCL flag avoids CUDA build dependency during codegen
 2. `golangci-lint run -v --timeout 15m --concurrency 4`
 - `make gen` is the canonical generation/import-format path; do not run separate formatting passes by default.
 - Do not rerun expensive checks unless code changed after the last verify run or the user asks for rerun.
