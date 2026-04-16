@@ -15,7 +15,7 @@ BEGIN
     SELECT 1
     FROM pg_constraint
     WHERE conname = 'pdp_data_set_piece_adds_pk'
-      AND conrelid = 'pdp_data_set_piece_adds'::regclass
+      AND conrelid = to_regclass('pdp_data_set_piece_adds')
   ) THEN
     ALTER TABLE pdp_data_set_piece_adds
       DROP CONSTRAINT pdp_data_set_piece_adds_pk;
