@@ -5,7 +5,7 @@ BEGIN
       SELECT 1
       FROM pg_constraint c
       WHERE c.conname = 'pdp_data_set_piece_adds_pk'
-        AND c.conrelid = 'pdp_data_set_piece_adds'::regclass
+        AND c.conrelid = to_regclass('pdp_data_set_piece_adds')
         AND c.contype = 'p'
         AND pg_get_indexdef(c.conindid) LIKE
             '%USING lsm (add_message_hash HASH, add_message_index ASC)%'
