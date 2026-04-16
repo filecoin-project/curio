@@ -104,7 +104,7 @@ func getChangedFilesSinceMergeBase() []string {
 	// Filter to Go files, excluding extern/ and generated files
 	seen := make(map[string]bool)
 	var goFiles []string
-	for _, line := range strings.Split(allChanges, "\n") {
+	for line := range strings.SplitSeq(allChanges, "\n") {
 		path := strings.TrimSpace(line)
 		if path == "" || seen[path] {
 			continue

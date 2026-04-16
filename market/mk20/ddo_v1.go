@@ -140,8 +140,6 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth ethchain.Et
 		return -1, ErrServerInternalError, xerrors.Errorf("parsing abi: %w", err)
 	}
 
-	to := common.HexToAddress(d.ContractAddress)
-
 	// Get the method
 	method, exists := parsedABI.Methods[d.ContractVerifyMethod]
 	if !exists {
@@ -161,7 +159,7 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth ethchain.Et
 
 	// Build call message
 	msg := ethereum.CallMsg{
-		To:   &to,
+		To:   new(common.HexToAddress(d.ContractAddress)),
 		Data: callData,
 	}
 

@@ -122,7 +122,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 			hasConfigIssues = true
 
 			if dbi.alerting != nil {
-				dbi.alerting.Raise(dbi.pathAlerts[si.ID], map[string]interface{}{
+				dbi.alerting.Raise(dbi.pathAlerts[si.ID], map[string]any{
 					"message":   "bad path type in AllowTypes",
 					"path":      string(si.ID),
 					"idx":       id,
@@ -142,7 +142,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 			hasConfigIssues = true
 
 			if dbi.alerting != nil {
-				dbi.alerting.Raise(dbi.pathAlerts[si.ID], map[string]interface{}{
+				dbi.alerting.Raise(dbi.pathAlerts[si.ID], map[string]any{
 					"message":   "bad path type in DenyTypes",
 					"path":      string(si.ID),
 					"idx":       id,
@@ -442,10 +442,7 @@ func (dbi *DBIndex) BatchStorageDeclareSectors(ctx context.Context, declarations
 	subBatches := make([][]SectorDeclaration, numSubBatches)
 	for i := range subBatches {
 		start := i * subBatchSize
-		end := start + subBatchSize
-		if end > numDeclarations {
-			end = numDeclarations
-		}
+		end := min(start+subBatchSize, numDeclarations)
 		subBatches[i] = uniqueDeclarations[start:end]
 	}
 

@@ -824,7 +824,8 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 
 func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 	md := func(ctx context.Context, db *harmonydb.DB) {
-		n, err := db.Exec(ctx, `SELECT mk20_pdp_mark_downloaded($1)`, ProductNamePDPV1)
+		var n int
+		err := db.QueryRow(ctx, `SELECT mk20_pdp_mark_downloaded($1)`, ProductNamePDPV1).Scan(&n)
 		if err != nil {
 			log.Errorf("failed to mark PDP downloaded piece: %v", err)
 			return

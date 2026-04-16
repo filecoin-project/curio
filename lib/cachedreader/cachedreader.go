@@ -48,21 +48,14 @@ type CachedPieceReader struct {
 	idxStor *indexstore.IndexStore
 
 	pieceReaderCacheMu sync.Mutex
-	pieceReaderCache   *ttlcache.Cache // Cache for successful readers (10 minutes with TTL extension)
+	pieceReaderCache   *pieceCidKeyCache // Cache for successful readers (10 minutes with TTL extension)
 	pieceErrorCacheMu  sync.Mutex
-	pieceErrorCache    *ttlcache.Cache // Cache for errors (5 seconds without TTL extension)
+	pieceErrorCache    *pieceCidKeyCache // Cache for errors (5 seconds without TTL extension)
 }
 
 func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorReader, pieceParkReader *pieceprovider.PieceParkReader, idxStor *indexstore.IndexStore) *CachedPieceReader {
-	prCache := ttlcache.NewCache()
-	_ = prCache.SetTTL(PieceReaderCacheTTL)
-	prCache.SetCacheSizeLimit(MaxCachedReaders)
-	prCache.SkipTTLExtensionOnHit(false) // Enable TTL extension for successful readers
-
-	errorCache := ttlcache.NewCache()
-	_ = errorCache.SetTTL(PieceErrorCacheTTL)
-	errorCache.SetCacheSizeLimit(MaxCachedReaders)
-	errorCache.SkipTTLExtensionOnHit(true) // Disable TTL extension for errors
+	prCache := newPieceCidKeyCache(PieceReaderCacheTTL, MaxCachedReaders, false)  // Enable TTL extension for successful readers
+	errorCache := newPieceCidKeyCache(PieceErrorCacheTTL, MaxCachedReaders, true) // Disable TTL extension for errors
 
 	cpr := &CachedPieceReader{
 		db:               db,
@@ -73,7 +66,7 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 		idxStor:          idxStor,
 	}
 
-	expireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+	expireCallback := func(key string, reason ttlcache.EvictionReason, value any) {
 		log.Debugw("expire callback", "piececid", key, "reason", reason)
 
 		// Record eviction metric
@@ -91,13 +84,16 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 
 		if r.refs <= 0 {
 			r.cancel()
+			if r.reader != nil {
+				_ = r.reader.Close()
+			}
 			return
 		}
 
 		log.Debugw("expire callback with refs > 0", "refs", r.refs, "piececid", key, "reason", reason)
 	}
 
-	errorExpireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+	errorExpireCallback := func(key string, reason ttlcache.EvictionReason, value any) {
 		log.Debugw("error cache expire callback", "piececid", key, "reason", reason)
 
 		// Record eviction metric
@@ -147,6 +143,9 @@ func (r *cachedSectionReader) Close() error {
 		log.Debugw("canceling underlying section reader context as cache entry doesn't exist", "piececid", r.pieceCid)
 
 		r.cancel()
+		if r.reader != nil {
+			_ = r.reader.Close()
+		}
 	}
 
 	return nil
@@ -280,8 +279,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 
 		if dl.PieceRef.Valid {
 			// This is a MK20 deal, get from piece park
-			ref := dl.PieceRef.Int64
-			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
+			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, new(dl.PieceRef.Int64), nil, nil)
 			if err != nil {
 				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
 				continue
@@ -411,15 +409,16 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 	return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", merr)
 }
 
-func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	cacheKey := pieceCidV2.String()
+func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
+	// Note: Let's not infer the pieceCID v1 -> v2 for a cache key
+	// The calculation required is basically the same as below func so might as well run it
 
 	// First check if we have a cached error for this piece
 	cpr.pieceErrorCacheMu.Lock()
-	if errorItem, err := cpr.pieceErrorCache.Get(cacheKey); err == nil {
+	if errorItem, found := cpr.pieceErrorCache.Get(pieceCid); found {
 		cachedErr := errorItem.(*cachedError)
 		cpr.pieceErrorCacheMu.Unlock()
-		log.Debugw("returning cached error", "piececid", pieceCidV2, "err", cachedErr.err)
+		log.Debugw("returning cached error", "piececid", pieceCid, "err", cachedErr.err)
 
 		// Record cache hit for error cache
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
@@ -434,8 +433,8 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 	// Check if there is already a piece reader in the cache
 	cpr.pieceReaderCacheMu.Lock()
-	rr, err := cpr.pieceReaderCache.Get(cacheKey)
-	if err != nil {
+	rr, found := cpr.pieceReaderCache.Get(pieceCid)
+	if !found {
 		// Cache miss - there is not yet a cached piece reader
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 			tag.Upsert(cacheTypeKey, "piece_reader"),
@@ -444,11 +443,11 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		// Create a new one and add it to the cache
 		r = &cachedSectionReader{
 			cpr:      cpr,
-			pieceCid: pieceCidV2,
+			pieceCid: pieceCid,
 			ready:    make(chan struct{}),
 			refs:     1,
 		}
-		_ = cpr.pieceReaderCache.Set(cacheKey, r)
+		cpr.pieceReaderCache.Set(pieceCid, r)
 
 		// Record cache size
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
@@ -461,15 +460,15 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
 		defer close(r.ready)
 
-		reader, size, err := cpr.getPieceReaderFromAggregate(readerCtx, pieceCidV2, retrieval)
+		reader, size, err := cpr.getPieceReaderFromAggregate(readerCtx, pieceCid, retrieval)
 		if err != nil {
-			log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCidV2.String(), "err", err)
+			log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCid.String(), "err", err)
 
 			aerr := err
 
-			reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCidV2, retrieval)
+			reader, size, err = cpr.getPieceReaderFromMarketPieceDeal(readerCtx, pieceCid, retrieval)
 			if err != nil {
-				log.Errorw("failed to get piece reader", "piececid", pieceCidV2, "err", err)
+				log.Debugw("failed to get piece reader", "piececid", pieceCid, "err", err)
 				finalErr := fmt.Errorf("failed to get piece reader from aggregate, sector or piece park: %w, %w", aerr, err)
 
 				// Record error metric
@@ -479,7 +478,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 				// Cache the error in the error cache
 				cpr.pieceErrorCacheMu.Lock()
-				_ = cpr.pieceErrorCache.Set(cacheKey, &cachedError{err: finalErr, pieceCid: pieceCidV2})
+				cpr.pieceErrorCache.Set(pieceCid, &cachedError{err: finalErr, pieceCid: pieceCid})
 				// Record error cache size
 				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 					tag.Upsert(cacheTypeKey, "piece_error"),
@@ -488,7 +487,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 				// Remove the failed reader from the main cache
 				cpr.pieceReaderCacheMu.Lock()
-				_ = cpr.pieceReaderCache.Remove(cacheKey)
+				cpr.pieceReaderCache.Remove(pieceCid)
 				// Record updated cache size
 				_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 					tag.Upsert(cacheTypeKey, "piece_reader"),

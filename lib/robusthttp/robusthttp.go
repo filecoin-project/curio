@@ -131,7 +131,7 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 
 	var lastErr error
 
-	for i := 0; i < maxRetryCount; i++ {
+	for i := range maxRetryCount {
 		if r.cur == nil {
 			log.Debugw("Current response is nil, starting new request")
 

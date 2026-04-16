@@ -91,7 +91,7 @@ func NewSlotMgr(db *harmonydb.DB, machineHostAndPort string, slotOffs []uint64) 
 	sm.cond = sync.NewCond(&sm.lk)
 
 	// Expose entire slotmgr as expvar
-	expvar.Publish("slotmgr", expvar.Func(func() interface{} {
+	expvar.Publish("slotmgr", expvar.Func(func() any {
 		sm.lk.Lock()
 		defer sm.lk.Unlock()
 

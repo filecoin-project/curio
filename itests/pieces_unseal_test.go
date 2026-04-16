@@ -118,8 +118,7 @@ func TestPiecesToSectorsBatch(t *testing.T) {
 
 	insertSector(t, ctx, db, spID, 10, nil)
 	insertSector(t, ctx, db, spID, 11, nil)
-	trueVal := true
-	insertSector(t, ctx, db, spID, 12, &trueVal)
+	insertSector(t, ctx, db, spID, 12, new(true))
 
 	insertDeal(t, ctx, db, spID, 10, pieceA, pieceSize)
 	insertDeal(t, ctx, db, spID, 10, pieceB, pieceSize)

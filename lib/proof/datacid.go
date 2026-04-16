@@ -60,10 +60,7 @@ func (w *DataCidWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	for len(p) > 0 {
 		buffered := int(w.len % int64(len(w.buf)))
-		toBuffer := len(w.buf) - buffered
-		if toBuffer > len(p) {
-			toBuffer = len(p)
-		}
+		toBuffer := min(len(w.buf)-buffered, len(p))
 
 		copied := copy(w.buf[buffered:], p[:toBuffer])
 		p = p[copied:]
@@ -136,7 +133,7 @@ func (w *DataCidWriter) Sum() (DataCIDSize, error) {
 
 	// pad with zero pieces to power-of-two size
 	fillerLeaves := (1 << (bits.Len(uint(len(leaves) - 1)))) - len(leaves)
-	for i := 0; i < fillerLeaves; i++ {
+	for range fillerLeaves {
 		leaves = append(leaves, zerocomm.ZeroPieceCommitment(CommPBuf))
 	}
 
