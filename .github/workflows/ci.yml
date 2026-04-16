@@ -197,6 +197,8 @@ jobs:
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+        with:
+          skip: 'true'
 
       - name: Install FFI
         env:
