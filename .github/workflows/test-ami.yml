@@ -1,0 +1,26 @@
+name: Test AMI
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/test-ami.yml
+      - scripts/ci-scripts/build-ami.sh
+
+jobs:
+  build:
+    runs-on: ["self-hosted", "linux", "x64", "2xlarge"]
+
+    steps:
+    - uses: actions/checkout@v6
+    - run: |
+        sudo chmod +x ./scripts/ci-scripts/build-ami.sh
+        sudo ./scripts/ci-scripts/build-ami.sh
+      shell: bash
+    - run: |
+        sudo systemctl status postgresql@18-main.service
+      if: ${{ failure() }}
+      shell: bash
+    - run: |
+        sudo journalctl -xeu postgresql@18-main.service
+      if: ${{ failure() }}
+      shell: bash
