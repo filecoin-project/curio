@@ -234,7 +234,8 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 			// If piece does not exist then let's create one
 			err = tx.QueryRow(`
             INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
+            VALUES ($1, $2, $3, TRUE, TRUE) ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+			RETURNING id`,
 				pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID)
 			if err != nil {
 				return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)

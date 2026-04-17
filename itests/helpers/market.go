@@ -113,8 +113,8 @@ func InsertCompletedParkedPiece(tx *harmonydb.Tx, pieceCID string, pieceSize abi
 	var pieceID int64
 	err := tx.QueryRow(
 		`INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
-		 VALUES ($1, $2, $3, TRUE, $4)
-		 RETURNING id`,
+		 VALUES ($1, $2, $3, TRUE, $4) ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+			RETURNING id`,
 		pieceCID, pieceSize, rawSize, longTerm,
 	).Scan(&pieceID)
 	if err != nil {

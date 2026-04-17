@@ -263,7 +263,7 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		var parkedPieceID int64
 		err = tx.QueryRow(`
 			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-			VALUES ($1, $2, $3, TRUE)
+			VALUES ($1, $2, $3, TRUE) ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
 			RETURNING id
 		`, item.PieceCid, paddedSize, item.PieceRawSize).Scan(&parkedPieceID)
 		if err != nil {

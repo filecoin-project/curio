@@ -739,7 +739,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										existing_piece AS (
 										  SELECT id AS piece_id
 										  FROM parked_pieces
-										  WHERE piece_cid = $2 AND piece_padded_size = $3
+										  WHERE piece_cid = $2 AND piece_padded_size = $3 AND long_term = NOT (p.deal_aggregation > 0)
 										),
 										inserted_piece AS (
 										  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
