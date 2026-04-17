@@ -59,9 +59,7 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 func TestMoveShared(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
-	sharedITestID := harmonydb.ITestNewID()
-
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	index := paths.NewDBIndex(nil, db)
@@ -420,7 +418,6 @@ func TestReader(t *testing.T) {
 	}
 
 	for name, tc := range tcs {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			// create go mock controller here
 			mockCtrl := gomock.NewController(t)
@@ -726,7 +723,6 @@ func TestCheckIsUnsealed(t *testing.T) {
 	}
 
 	for name, tc := range tcs {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			// create go mock controller here
 			mockCtrl := gomock.NewController(t)

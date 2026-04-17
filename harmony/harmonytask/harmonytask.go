@@ -437,8 +437,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 	// handlers generate speculative work (e.g., new CC sectors). Runs in a
 	// goroutine to keep DB writes off the scheduler thread.
 	for _, v := range e.handlers {
-		v := v
-		if v, err := v.AssertMachineHasCapacity(); err != nil || v == 0 {
+		if _, err := v.AssertMachineHasCapacity(); err != nil {
 			continue
 		}
 		if v.IAmBored != nil {

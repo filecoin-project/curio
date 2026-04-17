@@ -79,8 +79,7 @@ func (c *ScrubCommRTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 	storeResult := func(ok bool, actualCID *cid.Cid, message string) error {
 		var actualStr *string
 		if actualCID != nil {
-			s := actualCID.String()
-			actualStr = &s
+			actualStr = new(actualCID.String())
 		}
 		_, err := c.db.Exec(ctx, `
 			UPDATE scrub_commr_check

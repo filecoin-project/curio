@@ -46,7 +46,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get a reader over the piece
-	reader, _, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid, true)
+	reader, rawSize, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid, true)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
 		if errors.Is(err, cachedreader.ErrNoDeal) {
@@ -58,6 +58,9 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid500ResponseCount.M(1))
 		return
 	}
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	buf := make([]byte, 512)
 	n, _ := reader.Read(buf)
@@ -74,9 +77,12 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 
 	setHeaders(w, pieceCid, contentType)
 
+	// Let's try to serve the original data without padding
+	sr := io.NewSectionReader(reader, 0, int64(rawSize))
+
 	// Note that the last modified time is a constant value because the data
 	// in a piece identified by a cid will never change.
-	http.ServeContent(w, r, "", lastModified, reader)
+	http.ServeContent(w, r, "", lastModified, sr)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))

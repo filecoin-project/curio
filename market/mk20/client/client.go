@@ -460,10 +460,7 @@ func (c *Client) DealChunkedUpload(ctx context.Context, dealID string, size, chu
 		// Try to upload missing chunks
 		for _, chunk := range status.MissingChunks {
 			start := int64(chunk-1) * chunkSize
-			end := start + chunkSize
-			if end > size {
-				end = size
-			}
+			end := min(start+chunkSize, size)
 			log.Debugw("uploading chunk", "start", start, "end", end)
 			buf := make([]byte, end-start)
 			_, err := r.ReadAt(buf, start)

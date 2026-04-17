@@ -2,6 +2,7 @@ package harmonytask
 
 import (
 	"errors"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,9 +46,7 @@ func singletonRunNowFlags() map[string]*atomic.Bool {
 
 	// Return a shallow copy to avoid holding the lock
 	out := make(map[string]*atomic.Bool, len(singletonRunNow.flags))
-	for k, v := range singletonRunNow.flags {
-		out[k] = v
-	}
+	maps.Copy(out, singletonRunNow.flags)
 	return out
 }
 

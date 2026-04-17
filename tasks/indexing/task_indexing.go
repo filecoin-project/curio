@@ -373,12 +373,9 @@ func parseDataSegmentIndex(unpaddedReader io.Reader) (datasegment.IndexData, err
 	concurrency := runtime.NumCPU()
 	chunkPerWorker := (numChunks + concurrency - 1) / concurrency
 
-	for w := 0; w < concurrency; w++ {
+	for w := range concurrency {
 		start := w * chunkPerWorker
-		end := (w + 1) * chunkPerWorker
-		if end > numChunks {
-			end = numChunks
-		}
+		end := min((w+1)*chunkPerWorker, numChunks)
 		wg.Add(1)
 		go func(start, end int) {
 			defer wg.Done()
@@ -393,7 +390,7 @@ func parseDataSegmentIndex(unpaddedReader io.Reader) (datasegment.IndexData, err
 
 	// Decode entries
 	allEntries := make([]datasegment.SegmentDesc, numChunks*2)
-	for i := 0; i < numChunks; i++ {
+	for i := range numChunks {
 		p := paddedData[i*paddedChunk : (i+1)*paddedChunk]
 
 		if err := allEntries[i*2+0].UnmarshalBinary(p[:datasegment.EntrySize]); err != nil {
@@ -416,12 +413,9 @@ func validateSegments(segments []datasegment.SegmentDesc) []datasegment.SegmentD
 	workers := runtime.NumCPU()
 	chunkSize := (entryCount + workers - 1) / workers
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > entryCount {
-			end = entryCount
-		}
+		end := min((w+1)*chunkSize, entryCount)
 		if start >= end {
 			break
 		}

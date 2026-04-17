@@ -262,7 +262,7 @@ func (a *AggregateChunksTask) Do(ctx context.Context, taskID harmonytask.TaskID,
 				ddo := deal.Products.DDOV1
 				dealID := deal.Identifier.String()
 
-				var allocationID interface{}
+				var allocationID any
 				if ddo.AllocationId != nil {
 					allocationID = *ddo.AllocationId
 				} else {
