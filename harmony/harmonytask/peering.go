@@ -98,7 +98,7 @@ type peering struct {
 	h             *TaskEngine
 	peerConnector PeerConnectorInterface
 
-	peersLock sync.RWMutex // protects the peers and m
+	peersLock sync.RWMutex // protects the peers and m (map of task type -> indexes into peers slice).
 	peers     []peer
 	m         map[string][]int // task type name -> indexes into peers slice
 }

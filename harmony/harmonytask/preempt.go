@@ -83,6 +83,7 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 		cutoff = i + 1
 	}
 
+	// If we still have a deficit, we can't preempt enough tasks to run this. Stop here.
 	if cpuDeficit > 0 || ramDeficit > 0 || gpuDeficit > 0 {
 		return nil
 	}
