@@ -119,8 +119,7 @@ func resetDatasetToInitPP(ctx context.Context, db *harmonydb.DB, dataSetId int64
 	return nil
 }
 
-func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (n *NextProvingPeriodTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Select the data set where challenge_request_task_id = taskID
 	var dataSetId int64
 

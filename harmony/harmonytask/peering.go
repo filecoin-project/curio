@@ -39,10 +39,11 @@ type taskOther struct {
 type messageType string
 
 const (
-	messageTypeIdentity messageType = "identity"
-	messageTypeNewTask  messageType = "newTask"
-	messageTypeReserve  messageType = "reserve"
-	messageTypeStarted  messageType = "started"
+	messageTypeIdentity    messageType = "identity"
+	messageTypeNewTask     messageType = "newTask"
+	messageTypeReserve     messageType = "reserve"
+	messageTypeStarted     messageType = "started"
+	messageTypePreemptCost messageType = "preemptCost"
 )
 
 // PeerConnectorInterface abstracts the transport layer for peer connections.
@@ -63,9 +64,11 @@ type PeerConnection interface {
 }
 
 type peer struct {
-	id    int64
-	addr  string
-	conn  PeerConnection
+	id   int64
+	addr string
+	conn PeerConnection
+	// peering is the main struct that manages the peering process.
+	// Capital functions are for taskEngine to call.
 	tasks map[string]bool // task types this peer can handle
 }
 
@@ -95,7 +98,7 @@ type peering struct {
 	h             *TaskEngine
 	peerConnector PeerConnectorInterface
 
-	peersLock sync.RWMutex
+	peersLock sync.RWMutex // protects the peers and m (map of task type -> indexes into peers slice).
 	peers     []peer
 	m         map[string][]int // task type name -> indexes into peers slice
 }
@@ -110,6 +113,7 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 		m:             make(map[string][]int),
 	}
 	p.peerConnector.SetOnConnect(p.handlePeer)
+	h.pollDuration.Store(POLL_RARELY)
 	go func() {
 		var knownPeers []string
 		if err := p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`); err != nil {
@@ -277,8 +281,30 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			Source:   schedulerSourcePeerStarted,
 			PeerID:   them.id,
 		}
+	case messageTypePreemptCost:
+		var other messagePreemptCostOther
+		if err := json.Unmarshal(envelope.Other, &other); err != nil {
+			return xerrors.Errorf("failed to unmarshal preempt cost other from peer %s: %w", peerAddr, err)
+		}
+
+		resp := preemptCostResponse{PeerID: them.id, Cost: other.Cost}
+		taskID := envelope.TaskID
+		p.h.preemptCostMu.Lock()
+		ch := p.h.preemptCostChs[taskID]
+		if ch != nil {
+			select {
+			case ch <- resp:
+			default:
+			}
+		} else {
+			if p.h.preemptCostPending == nil {
+				p.h.preemptCostPending = make(map[TaskID][]preemptCostResponse)
+			}
+			p.h.preemptCostPending[taskID] = append(p.h.preemptCostPending[taskID], resp)
+		}
+		p.h.preemptCostMu.Unlock()
 	default:
-		return xerrors.Errorf("unknown message verb from peer %s: %q", peerAddr, envelope.Verb)
+		return xerrors.Errorf("unknown message type from peer %s: %v", peerAddr, envelope)
 	}
 	return nil
 }

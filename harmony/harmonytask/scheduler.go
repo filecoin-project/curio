@@ -22,6 +22,8 @@ type schedulerEvent struct {
 	PeerID   int64 // set for peer-originated events; used for resource-reservation tie-breaking
 	Retries  int
 
+	Success bool // for schedulerSourceTaskCompleted: true = done, false = cancelled/failed
+
 	// DBTasks is populated only for schedulerSourceDBPoll events. It contains
 	// the complete snapshot of unowned tasks from the DB, keyed by task type.
 	// This replaces the scheduler's in-memory available task map, ensuring
@@ -46,6 +48,8 @@ const (
 	schedulerSourceTaskCompleted                        // a local task goroutine finished (success or failure)
 	schedulerSourceTaskStarted                          // a local task goroutine began execution
 	schedulerSourceDBPoll                               // background poller delivered fresh DB state
+	schedulerSourceInitialPoll
+	schedulerSourceStartTimeSensitive
 )
 
 // chokePoint caps the number of task IDs held in memory per task type.
@@ -138,7 +142,6 @@ func (e *TaskEngine) startScheduler() {
 			}
 		}
 	}()
-
 	// Goroutine 2: background DB poller.
 	// Runs CanAccept off the scheduler thread so the event loop stays fast.
 	// Checks node flags (cordon/restart) and delivers a complete task snapshot.
@@ -203,7 +206,6 @@ func (e *TaskEngine) startScheduler() {
 			}
 		}
 	}()
-
 	// Goroutine 3: the scheduler event loop (single-threaded, no blocking I/O).
 	go func() {
 		bundleCollector, bundleSleep := bundler()
@@ -211,9 +213,20 @@ func (e *TaskEngine) startScheduler() {
 		// availableTasks is the scheduler's authoritative view of unowned work.
 		// Populated by DB polls and incrementally updated by events.
 		// Only accessed from this goroutine — no locks needed.
-		availableTasks := map[string]*taskSchedule{}
+		availableTasks := map[string]*taskSchedule{} // TaskType -> TaskID -> bool FUTURE PR: mem savings.
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
+		}
+		tryStartNow := func(taskName string) {
+			shouldReserve, err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel})
+			if err != nil {
+				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
+				return
+			}
+			if shouldReserve != 0 {
+				availableTasks[taskName].reservedTask = shouldReserve
+				e.peering.TellOthers(messageTypeReserve, taskName, shouldReserve)
+			}
 		}
 		ts := taskSourceLocal{availableTasks, e.peering}
 		ee := eventEmitter{e.schedulerChannel}
@@ -359,21 +372,40 @@ func (e *TaskEngine) startScheduler() {
 							e.peering.TellOthers(messageTypeReserve, event.TaskType, taskID)
 						})
 					}
-
+				case schedulerSourceStartTimeSensitive:
+					h := e.taskMap[event.TaskType]
+					if h == nil {
+						continue
+					}
+					plan := e.computePreemptionPlan(h.Cost)
+					if plan == nil {
+						log.Debugw("preemption plan no longer viable", "task", event.TaskType, "taskID", event.TaskID)
+						continue
+					}
+					e.executePreemption(plan)
+					tasks := taskSourceLocal{availableTasks, e.peering}.GetTasks(event.TaskType)
+					if len(tasks) > 0 {
+						h.considerWork(WorkSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
+					}
+				case schedulerSourceInitialPoll:
+					if err := e.pollerTryAllWork(ts, ee); err != nil {
+						log.Errorw("failed tryAllWork", "error", err)
+					}
 				default:
 					log.Errorw("unknown scheduler source", "source", event.Source)
 				}
-
-			case <-bundleSleep:
-				// The bundler's quiet-period timer fired. All rapid-fire events
-				// for the same task type have been coalesced; now attempt scheduling.
+			case taskName := <-bundleSleep:
+				tryStartNow(taskName)
+			case <-time.After(e.pollDuration.Load().(time.Duration)): // fast life & early-gather at Go_1.26
 				if err := e.pollerTryAllWork(ts, ee); err != nil {
 					log.Errorw("failed tryAllWork", "error", err)
+					continue
 				}
 			}
+			// FUTURE: RetryWait could start timers.
 		}
 	}()
-}
+} // FUTURE Move all harmony_task writers to taskEngine.AddTask() to transmit over the RPC.
 
 // taskSource abstracts where the scheduler gets its list of available tasks.
 // The local implementation reads from the in-memory map; a DB-backed
@@ -384,12 +416,22 @@ type taskSource interface {
 }
 
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) (TaskID, error) {
-	_ = taskName // reserved for future fast-path optimization
 
-	err := e.pollerTryAllWork(taskSource, eventEmitter)
-	if err != nil {
-		log.Errorw("failed to try tryAllWork", "error", err)
-		return 0, err
+	h := e.taskMap[taskName]
+	if h != nil && h.TimeSensitive {
+		if _, capErr := h.AssertMachineHasCapacity(); capErr != nil {
+			if tasks := taskSource.GetTasks(taskName); len(tasks) > 0 {
+				for _, t := range tasks {
+					go e.preemptForTimeSensitive(h, t.ID)
+				}
+			}
+		}
+	} else {
+		err := e.pollerTryAllWork(taskSource, eventEmitter)
+		if err != nil {
+			log.Errorw("failed to try waterfall", "error", err)
+			return 0, err
+		}
 	}
 
 	return 0, nil
@@ -430,6 +472,7 @@ func (t taskSourceLocal) ReserveTask(taskName string, taskID TaskID) {
 // they cannot modify the scheduler's in-memory state directly. Instead,
 // they emit events that the scheduler processes on its own thread.
 //
+// Emits are called from other threads, so we cannot change t.availableTasks.
 // This pattern keeps the scheduler single-threaded (no locks on
 // availableTasks) while allowing concurrent task execution to communicate
 // state changes: a task starting (remove from available), completing
@@ -454,13 +497,15 @@ func (ee eventEmitter) EmitTaskNew(taskName string, task task) {
 		Retries:  task.Retries,
 	}
 }
-
-func (ee eventEmitter) EmitTaskCompleted(taskName string) {
+func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
 	ee.schedulerChannel <- schedulerEvent{
 		TaskType: taskName,
 		Source:   schedulerSourceTaskCompleted,
+		Success:  success,
 	}
 }
+
+// expects single-threaded caller of
 
 // pollAllTaskTypes queries the DB for all unowned tasks across all registered
 // task types in a single round-trip. This is the only DB read in the

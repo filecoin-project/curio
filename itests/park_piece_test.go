@@ -68,7 +68,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a real TaskEngine so RunningCount works.
-	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234")
+	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234", nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { engine.GracefullyTerminate() })
 

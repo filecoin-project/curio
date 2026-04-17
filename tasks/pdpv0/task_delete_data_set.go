@@ -33,9 +33,7 @@ func NewDeleteDataSetTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender
 	}
 }
 
-func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *DeleteDataSetTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var dataSetId int64
 	err = t.db.QueryRow(ctx, `SELECT id FROM pdp_delete_data_set WHERE delete_data_set_task_id = $1`, taskID).Scan(&dataSetId)
 	if err != nil {

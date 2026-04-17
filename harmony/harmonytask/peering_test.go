@@ -11,6 +11,54 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestPreemptCostMessage verifies that messageRenderPreemptCost produces bytes
+// that handlePeerMessage correctly parses and routes into preemptCostChs.
+// When preemptCostChs has a channel for the taskID, the response is delivered there.
+func TestPreemptCostMessage(t *testing.T) {
+	engine := &TaskEngine{
+		schedulerChannel: make(chan schedulerEvent, 10),
+		preemptCostChs:   make(map[TaskID]chan preemptCostResponse),
+	}
+	ch := make(chan preemptCostResponse, 1)
+	engine.preemptCostChs[TaskID(123)] = ch
+
+	p := &peering{h: engine}
+	them := peer{id: 99}
+
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 123, messagePreemptCostOther{Cost: 5 * time.Second, TaskType: "WinPost"})
+	require.NoError(t, err)
+	t.Logf("wire bytes (%d): %q", len(msg), msg)
+
+	err = p.handlePeerMessage("test-peer", them, msg)
+	require.NoError(t, err)
+
+	select {
+	case resp := <-ch:
+		require.Equal(t, int64(99), resp.PeerID)
+		require.Equal(t, 5*time.Second, resp.Cost)
+	case <-time.After(time.Second):
+		t.Fatal("no response on preempt cost channel")
+	}
+}
+
+// TestPreemptCostMessageWireFormat verifies preempt cost messages use the PeerMessage envelope.
+func TestPreemptCostMessageWireFormat(t *testing.T) {
+
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 42, messagePreemptCostOther{Cost: 3 * time.Second, TaskType: "WdPost"})
+	require.NoError(t, err)
+
+	var envelope PeerMessage
+	require.NoError(t, json.Unmarshal(msg, &envelope))
+	require.Equal(t, string(messageTypePreemptCost), envelope.Verb)
+	require.Equal(t, TaskID(42), envelope.TaskID)
+
+	var inner messagePreemptCostOther
+	require.NoError(t, json.Unmarshal(envelope.Other, &inner))
+	require.Equal(t, "WdPost", inner.TaskType)
+	require.Equal(t, TaskID(42), envelope.TaskID)
+	require.Equal(t, 3*time.Second, inner.Cost)
+}
+
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====
 
 func pipePair() (*pipeConn, *pipeConn) {

@@ -189,9 +189,7 @@ func (p *ProveTask) disableProving(ctx context.Context, dataSetId int64) error {
 	return nil
 }
 
-func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Retrieve data set and challenge epoch for the task
 	var dataSetId int64
 

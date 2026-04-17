@@ -194,9 +194,7 @@ type pullItemData struct {
 	SourceURL    string `db:"source_url"`
 }
 
-func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *PDPPullPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// Fetch task data
 	var items []pullItemData
 	err = t.db.Select(ctx, &items, `

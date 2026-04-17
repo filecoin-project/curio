@@ -44,9 +44,7 @@ func NewPDPV0IndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, c
 	}
 }
 
-func (P *PDPIndexingV0Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (P *PDPIndexingV0Task) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		ID        int64               `db:"id"`
 		PieceCID  string              `db:"piece_cid"`

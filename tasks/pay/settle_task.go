@@ -34,9 +34,7 @@ func NewSettleTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *messa
 	}
 }
 
-func (s *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (s *SettleTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var sender string
 	err = s.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' ORDER BY address ASC`).Scan(&sender)
 	if err != nil {

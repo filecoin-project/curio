@@ -51,9 +51,7 @@ func NewPDPV0IPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Li
 	}
 }
 
-func (P *PDPV0IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (P *PDPV0IPNITask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		ID       int64  `db:"id"`
 		PieceCID string `db:"piece_cid"`

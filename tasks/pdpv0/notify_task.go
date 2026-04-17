@@ -105,8 +105,7 @@ func (t *PDPNotifyTask) poll(ctx context.Context) {
 	}
 }
 
-func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *PDPNotifyTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 
 	// Fetch the pdp_piece_uploads entry associated with the taskID
 	var upload struct {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
+// Consts (except for unit test)
 // POLL_RARELY is the default DB poll interval. Under event-driven scheduling,
 // DB polling is a fallback safety net — most work is discovered via peer
 // notifications or local events. 30s keeps DB load minimal while ensuring
@@ -62,7 +64,7 @@ type TaskTypeDetails struct {
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
-	// This is starved on busy machines, so use it together "above and beyond" work only.
+	// This is starved on busy machines, so use it to gather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
 	// CanYield is true if the task should yield when the node is not schedulable.
@@ -176,6 +178,12 @@ type TaskEngine struct {
 	// WorkOrigin is set to a WorkSource* constant before calling CanAccept(),
 	// so task implementations can make decisions based on how work was discovered.
 	WorkOrigin string
+
+	// Preemption cost exchange: keyed by the specific TaskID being negotiated.
+	// Set during preemptForTimeSensitive, read by peering handler.
+	preemptCostMu      sync.Mutex
+	preemptCostChs     map[TaskID]chan preemptCostResponse
+	preemptCostPending map[TaskID][]preemptCostResponse // buffered until channel registered
 }
 
 type TaskID int
@@ -203,13 +211,27 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("cannot get resources: %w", err)
 	}
+	return NewWithReg(db, impls, hostnameAndPort, peerConnector, reg)
+}
+
+// NewWithReg is like New but uses an existing *resources.Reg (from resources.Register or RegisterWithResources).
+func NewWithReg(
+	db *harmonydb.DB,
+	impls []TaskInterface,
+	hostnameAndPort string,
+	peerConnector PeerConnectorInterface,
+	reg *resources.Reg) (*TaskEngine, error) {
+
+	if reg == nil {
+		return nil, fmt.Errorf("harmonytask.NewWithReg: reg is nil")
+	}
 	ctx, grace := context.WithCancel(context.Background())
 	e := &TaskEngine{
 		ctx:              ctx,
 		grace:            grace,
 		db:               db,
 		reg:              reg,
-		ownerID:          reg.MachineID,
+		ownerID:          reg.MachineID, // The current number representing "hostAndPort"
 		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
 		hostAndPort:      hostnameAndPort,
 		schedulerChannel: make(chan schedulerEvent, 100),
@@ -224,6 +246,7 @@ func New(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 			storageFailures: make(map[TaskID]time.Time),
+			runningTasks:    make(map[TaskID]*runningTaskInfo),
 		}
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)
@@ -291,8 +314,9 @@ func New(
 			})
 		}(h.Name)
 	}
-	go e.singletonRunNowPoller()
 	e.startScheduler()
+	e.schedulerChannel <- schedulerEvent{Source: schedulerSourceInitialPoll}
+	go e.singletonRunNowPoller()
 
 	return e, nil
 }
@@ -344,6 +368,7 @@ type task struct {
 // are invoked in separate goroutines to avoid blocking the scheduler with
 // DB writes from speculative work creation.
 func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
+	schedulable := !e.yieldBackground.Load()
 	if e.yieldBackground.Load() {
 		return nil
 	}
@@ -368,6 +393,15 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 
 	}()
 	for _, v := range e.handlers {
+		if !schedulable {
+			for relatedTaskName := range v.SchedulingOverrides {
+				if len(taskSource.GetTasks(relatedTaskName)) > 0 {
+					goto doScheduling
+				}
+			}
+			continue
+		}
+	doScheduling:
 		if capacity, err := v.AssertMachineHasCapacity(); err != nil || capacity == 0 {
 			if err != nil {
 				log.Debugf("skipped scheduling %s type tasks due to %s", v.Name, err.Error())
@@ -375,9 +409,6 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 			continue
 		}
 
-		// Filter out tasks that are still within their retry backoff window.
-		// This prevents hammering a task that just failed — the DB poll will
-		// re-surface it once the wait period elapses.
 		unownedTasks := lo.Filter(taskSource.GetTasks(v.Name), func(t task, _ int) bool {
 			if v.RetryWait == nil || t.Retries == 0 {
 				return true
@@ -397,6 +428,11 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		}
 	}
 
+	if !schedulable {
+		return nil
+	}
+
+	// if no work was accepted, are we bored? Then find work in priority order.
 	// IAmBored: when all known work is exhausted and capacity remains, let
 	// handlers generate speculative work (e.g., new CC sectors). Runs in a
 	// goroutine to keep DB writes off the scheduler thread.
@@ -582,6 +618,7 @@ func (e *TaskEngine) AddTaskByName(name string, extra func(TaskID, *harmonydb.Tx
 	retryWait := time.Millisecond * 100
 retryAddTask:
 	_, err := e.db.BeginTransaction(e.ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// create taskID (from DB)
 		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
           VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id`, name, e.ownerID).Scan(&tID)
 		if err != nil {
