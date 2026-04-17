@@ -7,8 +7,6 @@ import (
 	"os"
 	"runtime"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -20,80 +18,67 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/acceptcache"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/runregistry"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
 var log = logging.Logger("harmonytask")
 
-type PipelineTask interface {
+// pipelineTask lets a task expose the sector it relates to so harmony can
+// surface sector context in task history. It is an unexported, structural
+// interface: external implementations (e.g. sealing tasks) satisfy it by
+// having a matching GetSectorID method, without needing to reference this
+// type by name.
+type pipelineTask interface {
 	GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error)
-}
-type runningTaskInfo struct {
-	startTime time.Time
-	cancel    context.CancelFunc
-	preempted atomic.Bool
-	done      chan struct{} // closed when task goroutine exits
 }
 
 // taskTypeHandler wraps a TaskInterface with scheduling metadata and runtime
-// state. Each registered task type gets one handler instance. The handler
-// manages concurrency limits, resource accounting, CanAccept caching, and
-// storage failure tracking for its task type.
+// state for its task type. The fields fall into three disjoint access
+// regimes — each one clearly labeled below — so a reader can tell at a
+// glance how a given field is safe to touch.
 type taskTypeHandler struct {
+	// --- immutable after New ---
 	TaskInterface
 	TaskTypeDetails
 	TaskEngine *TaskEngine
 
-	runningTasks map[TaskID]*runningTaskInfo
-	runningLk    sync.Mutex
-
-	// for caching CanAccept() results to avoid unnecessary DB calls.
-	storageFailures map[TaskID]time.Time // taskID -> last failure time; prevents hammering known-bad storage
-
-	// CanAccept result cache: the background poller pre-computes CanAccept
-	// off the scheduler thread and writes results here via SetAcceptCache().
-	// The scheduler consumes them on the next considerWork call, avoiding a
-	// redundant (and potentially expensive) CanAccept call on the hot path.
-	// Entries expire after CAN_ACCEPT_CACHE_TTL to prevent stale decisions.
+	// --- scheduler-goroutine only (no locking, single-threaded invariant) ---
 	//
-	// acceptMu protects acceptedTasks and lastAcceptedTime because the
-	// background poller goroutine writes them while the scheduler goroutine
-	// reads/clears them. This is the only cross-thread state in the handler.
-	acceptMu         sync.Mutex
-	acceptedTasks    []TaskID
-	lastAcceptedTime time.Time
+	// storageFailures is only read/written from considerWork, which runs on
+	// the scheduler thread. The single-writer invariant is what makes this
+	// safe without a mutex.
+	storageFailures map[TaskID]time.Time
+
+	// --- concurrent state, encapsulated behind typed APIs ---
+	//
+	// The mutex and backing store for each of these lives inside an internal
+	// sub-package, so nothing in this package can reach them without going
+	// through methods that lock correctly.
+	running *runregistry.Registry
+	accept  *acceptcache.Cache
 }
 
-// CAN_ACCEPT_CACHE_TTL controls how long pre-computed CanAccept results remain
+// canAcceptCacheTTL controls how long pre-computed CanAccept results remain
 // valid. After this duration, the cache is discarded and CanAccept is called
 // fresh. This balances DB load reduction against decision freshness.
-// This is to avoid trampling retries, but a less chatty mechanism is possible.
-const CAN_ACCEPT_CACHE_TTL = 60 * time.Second
+const canAcceptCacheTTL = 60 * time.Second
 
-// SetAcceptCache is called by the background poller goroutine to write
-// pre-computed CanAccept results directly into the handler's cache.
-// The scheduler thread reads and clears this cache in considerWork().
-func (h *taskTypeHandler) SetAcceptCache(accepted []TaskID) {
-	h.acceptMu.Lock()
-	h.acceptedTasks = append(h.acceptedTasks, accepted...)
-	h.lastAcceptedTime = time.Now()
-	h.acceptMu.Unlock()
-}
-
-// STORAGE_FAILURE_TIMEOUT prevents repeatedly trying to claim storage for a
+// storageFailureTimeout prevents repeatedly trying to claim storage for a
 // task that just failed storage allocation. The task is retried after this
 // cooldown or on the next process restart.
-const STORAGE_FAILURE_TIMEOUT = 3 * time.Minute
+const storageFailureTimeout = 3 * time.Minute
 
-// WorkSource constants identify how work was discovered, passed to
-// TaskInterface.CanAccept via TaskEngine.WorkOrigin so implementations
-// can make source-aware decisions (e.g., prefer locally-added work).
+// workSource* identify how work was discovered. They are passed into
+// considerWork and stored in TaskEngine.atomics.workOrigin so CanAccept
+// implementations can branch on origin if needed.
 const (
-	WorkSourcePoller   = "poller"
-	WorkSourceRecover  = "recovered"
-	WorkSourceIAmBored = "bored"
-	WorkSourceAdded    = "added"
-	WorkSourcePreempt  = "preempt"
+	workSourcePoller   = "poller"
+	workSourceRecover  = "recovered"
+	workSourceIAmBored = "bored"
+	workSourceAdded    = "added"
+	workSourcePreempt  = "preempt"
 )
 
 // considerWork is the core scheduling function for a single task type. It
@@ -118,47 +103,30 @@ const (
 // invalidating a "fits" decision made moments earlier.
 func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter eventEmitter) (workAccepted bool) {
 	if len(tasks) == 0 {
-		return true // stop looking for takers
+		return true
 	}
 
-	// 1. Can we do any more of this task type?
-	// NOTE: 0 is the default value, so this way people don't need to worry about
-	// this setting unless they want to limit the number of tasks of this type.
 	if h.Max.AtMax() {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at max already")
 		return false
 	}
 
-	// 2. Can we do any more work? From here onward, we presume the resource
-	// story will not change, so single-threaded calling is best.
 	maxAcceptable, err := h.AssertMachineHasCapacity()
 	if err != nil {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at capacity already: "+err.Error())
 		return false
 	}
 
-	h.TaskEngine.WorkOrigin = from
+	h.TaskEngine.atomics.workOrigin.Store(from)
 
 	ids := lo.Map(tasks, func(t task, _ int) TaskID {
 		return t.ID
 	})
-	// 3. CanAccept: either use cached results (pre-computed by the background
-	// poller off the scheduler thread) or call fresh. The cache avoids
-	// redundant CanAccept calls when the poller already did this work,
-	// which is especially valuable for CanAccept impls that check disk
-	// paths or query external services.
+	// CanAccept: use the cache if the background poller filled it; otherwise
+	// call fresh. accept.Consume() returns nil if the cache expired, so we
+	// correctly fall back to a live call.
 	var tIDs []TaskID
-	var cached []TaskID
-	h.acceptMu.Lock()
-	if time.Since(h.lastAcceptedTime) > CAN_ACCEPT_CACHE_TTL {
-		h.acceptedTasks = nil
-	}
-	if len(h.acceptedTasks) > 0 {
-		cached = h.acceptedTasks
-		h.acceptedTasks = nil // consume the cache; next poll will refresh
-	}
-	h.acceptMu.Unlock()
-
+	cached := toTaskIDs(h.accept.Consume())
 	if len(cached) > 0 {
 		tIDs = lo.Filter(cached, func(tID TaskID, _ int) bool {
 			return lo.Contains(ids, tID)
@@ -167,7 +135,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		tIDs, err = h.CanAccept(ids, h.TaskEngine)
 	}
 
-	h.TaskEngine.WorkOrigin = ""
+	h.TaskEngine.atomics.workOrigin.Store("")
 
 	if err != nil {
 		log.Error(err)
@@ -185,28 +153,22 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		maxAcceptable = headroomUntilMax
 	}
 
-	// filter storage failures here
 	tIDs = lo.Filter(tIDs, func(tID TaskID, _ int) bool {
 		v, ok := h.storageFailures[tID]
 		if !ok {
 			return true
 		}
-		if time.Since(v) > STORAGE_FAILURE_TIMEOUT { // Retry in an hour or next reboot.
+		if time.Since(v) > storageFailureTimeout {
 			delete(h.storageFailures, tID)
 			return true
 		}
-		return false // Lets not hammer Tasks we know are failing.
+		return false
 	})
 	tIDs = reorderTaskIDsByPostedOrder(tasks, tIDs)
 
-	// Recovered tasks are already claimed (owner_id = us) — skip the SQL claim.
-	if from != WorkSourceRecover {
-		// 4. SQL claim: atomically set owner_id for unclaimed tasks using
-		// SKIP LOCKED to avoid blocking on tasks being claimed by other nodes.
-		// The LIMIT is applied at the SQL level (not in Go) so we can claim
-		// tasks from anywhere in the CanAccept-approved list, not just the first N.
+	if from != workSourceRecover {
 		var tasksAccepted []TaskID
-		err := h.TaskEngine.db.Select(h.TaskEngine.ctx, &tasksAccepted, `
+		err := h.TaskEngine.cfg.db.Select(h.TaskEngine.cfg.ctx, &tasksAccepted, `
 		WITH candidates AS (
 			SELECT t.id
 			FROM harmony_task t
@@ -220,7 +182,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		SET owner_id = $1
 		FROM candidates c
 		WHERE t.id = c.id
-		RETURNING t.id;`, h.TaskEngine.ownerID, tIDs, maxAcceptable)
+		RETURNING t.id;`, h.TaskEngine.cfg.ownerID, tIDs, maxAcceptable)
 
 		if err != nil {
 			log.Error(err)
@@ -231,26 +193,15 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 
 			return false
 		}
-		// If we claimed fewer than CanAccept approved, cache the remainder.
-		// They'll be tried on the next scheduling pass without re-calling
-		// CanAccept, reducing unnecessary work.
 		if len(tasksAccepted) != len(tIDs) {
 			remainder := lo.Filter(tIDs, func(tID TaskID, _ int) bool {
 				return !lo.Contains(tasksAccepted, tID)
 			})
-			h.acceptMu.Lock()
-			h.acceptedTasks = remainder
-			h.lastAcceptedTime = time.Now()
-			h.acceptMu.Unlock()
+			h.accept.Add(toInt64s(remainder))
 			tIDs = tasksAccepted
 		}
 	}
 
-	// 5. Storage claim: for tasks with disk requirements, claim storage paths
-	// now that we know the specific task IDs. This is intentionally late-bound
-	// because different tasks may map to different storage paths. The trade-off:
-	// a fully loaded machine may claim tasks in SQL then fail storage and have
-	// to release them — but this is rare and self-healing.
 	releaseStorage := make([]func(), len(tIDs))
 
 	if h.Cost.Storage != nil {
@@ -274,8 +225,7 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		if len(failedTIDs) > 0 {
 			tIDs = goodTIDs
 			log.Errorw("did not accept task", "task_ids", failedTIDs, "reason", "storage claim failed", "name", h.Name)
-			// Release the SQL claims for tasks that failed storage allocation.
-			_, err := h.TaskEngine.db.Exec(h.TaskEngine.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, failedTIDs)
+			_, err := h.TaskEngine.cfg.db.Exec(h.TaskEngine.cfg.ctx, `UPDATE harmony_task SET owner_id = NULL WHERE id = ANY($1)`, failedTIDs)
 			if err != nil {
 				log.Errorw("Could not reset failed tasks", "error", err)
 			}
@@ -306,25 +256,18 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	//   - On failure, emits TaskNew to re-add the task for retry
 	i := 0
 	for _, tID := range tIDs {
-		taskCtx, taskCancel := context.WithCancel(h.TaskEngine.ctx)
-		info := &runningTaskInfo{
-			startTime: time.Now(),
-			cancel:    taskCancel,
-			done:      make(chan struct{}),
-		}
-		h.runningLk.Lock()
-		h.runningTasks[tID] = info
-		h.runningLk.Unlock()
+		taskCtx, taskCancel := context.WithCancel(h.TaskEngine.cfg.ctx)
+		handle := h.running.Start(int64(tID), taskCancel)
 
-		go func(tID TaskID, releaseStorage func(), info *runningTaskInfo) {
+		go func(tID TaskID, releaseStorage func(), handle *runregistry.Handle) {
 			eventEmitter.EmitTaskStarted(h.Name, tID)
 			var done bool
 			var doErr error
-			workStart := info.startTime
+			workStart := handle.StartTime()
 
 			var sectorID *abi.SectorID
-			if ht, ok := h.TaskInterface.(PipelineTask); ok {
-				sectorID, err = ht.GetSectorID(h.TaskEngine.db, int64(tID))
+			if ht, ok := h.TaskInterface.(pipelineTask); ok {
+				sectorID, err = ht.GetSectorID(h.TaskEngine.cfg.db, int64(tID))
 				if err != nil {
 					log.Errorw("Could not get sector ID", "task", h.Name, "id", tID, "error", err)
 				}
@@ -342,17 +285,15 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 				}
 				taskCancel()
 
-				h.runningLk.Lock()
-				delete(h.runningTasks, tID)
-				h.runningLk.Unlock()
-				close(info.done)
+				preempted := handle.IsPreempted()
+				h.running.Finish(int64(tID))
 
 				h.Max.Add(-1)
 
 				if releaseStorage != nil {
 					releaseStorage()
 				}
-				h.recordCompletion(tID, sectorID, workStart, done, doErr, info.preempted.Load())
+				h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
 				eventEmitter.EmitTaskCompleted(h.Name, done)
 				if !done {
 					for _, t := range tasks {
@@ -370,26 +311,25 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 					return false
 				}
 				if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
-					if h.TaskEngine.yieldBackground.Load() {
+					if h.TaskEngine.atomics.yieldBackground.Load() {
 						log.Infow("yielding background task", "name", h.Name, "id", tID)
 						return false
 					}
 				}
 
 				var owner int
-				// Keep ownership checks tied to the same task context used by Do().
-				err := h.TaskEngine.db.QueryRow(taskCtx,
+				err := h.TaskEngine.cfg.db.QueryRow(taskCtx,
 					`SELECT owner_id FROM harmony_task WHERE id=$1`, tID).Scan(&owner)
 				if err != nil {
 					log.Error("Cannot determine ownership: ", err)
 					return false
 				}
-				return owner == h.TaskEngine.ownerID
+				return owner == h.TaskEngine.cfg.ownerID
 			})
 			if doErr != nil {
 				log.Errorw("Do() returned error", "type", h.Name, "id", strconv.Itoa(int(tID)), "error", doErr)
 			}
-		}(tID, releaseStorage[i], info)
+		}(tID, releaseStorage[i], handle)
 		i++
 	}
 	return true
@@ -430,8 +370,7 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	}
 
 retryRecordCompletion:
-	// Use Background context: recordCompletion MUST finish even during graceful shutdown.
-	cm, err := h.TaskEngine.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
+	cm, err := h.TaskEngine.cfg.db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
 		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)
@@ -481,7 +420,7 @@ retryRecordCompletion:
 		var hid int
 		err = tx.QueryRow(`INSERT INTO harmony_task_history 
 									 (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result).Scan(&hid)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.cfg.hostAndPort, result).Scan(&hid)
 		if err != nil {
 			return false, fmt.Errorf("could not write history: %w", err)
 		}
@@ -504,10 +443,10 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	}
 }
 
-// MaxHeadroom limits how many tasks of a single type can be accepted in one
+// maxHeadroom limits how many tasks of a single type can be accepted in one
 // considerWork call. This prevents a single task type from monopolizing all
 // resources. Configurable via HARMONY_MAX_TASKS_PER_TYPE env var.
-var MaxHeadroom = 100
+var maxHeadroom = 100
 
 func init() {
 	m := os.Getenv("HARMONY_MAX_TASKS_PER_TYPE")
@@ -519,7 +458,7 @@ func init() {
 		log.Errorw("Could not parse HARMONY_MAX_TASKS_PER_TYPE", "value", m, "error", err)
 	}
 	if v > 0 {
-		MaxHeadroom = v
+		maxHeadroom = v
 	}
 }
 
@@ -529,7 +468,7 @@ func init() {
 // by the scarcest resource. Returns 0 with an error if no capacity exists.
 func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 	r := h.TaskEngine.ResourcesAvailable()
-	headroom := MaxHeadroom
+	headroom := maxHeadroom
 	if h.Max.AtMax() {
 		return 0, errors.New("Did not accept " + h.Name + " task: at max already")
 	}
@@ -562,7 +501,7 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() (int, error) {
 		}
 	}
 
-	if h.Cost.Storage != nil { // Counts > 1 handled by CanAccept()
+	if h.Cost.Storage != nil {
 		if !h.Cost.HasCapacity() {
 			return 0, errors.New("Did not accept " + h.Name + " task: out of available Storage")
 		}
@@ -591,6 +530,25 @@ func reorderTaskIDsByPostedOrder(tasks []task, ids []TaskID) []TaskID {
 			out = append(out, id)
 			delete(want, id)
 		}
+	}
+	return out
+}
+
+// toInt64s / toTaskIDs bridge the TaskID (int) and int64 domains used by
+// acceptcache. The internal package is typed on int64 to avoid an import
+// cycle with harmonytask.
+func toInt64s(in []TaskID) []int64 {
+	out := make([]int64, len(in))
+	for i, id := range in {
+		out[i] = int64(id)
+	}
+	return out
+}
+
+func toTaskIDs(in []int64) []TaskID {
+	out := make([]TaskID, len(in))
+	for i, id := range in {
+		out[i] = TaskID(id)
 	}
 	return out
 }

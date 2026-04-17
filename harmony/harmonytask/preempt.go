@@ -4,21 +4,17 @@ import (
 	"sort"
 	"time"
 
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/runregistry"
 	"github.com/filecoin-project/curio/harmony/resources"
 )
 
-const COST_TIMEOUT = 200 * time.Millisecond
-const PREEMPT_TASK_KILL_TIMEOUT = 500 * time.Millisecond
+const costTimeout = 200 * time.Millisecond
+const preemptTaskKillTimeout = 500 * time.Millisecond
 
 type preemptCandidate struct {
 	handler *taskTypeHandler
 	taskID  TaskID
 	runtime time.Duration
-}
-
-type preemptCostResponse struct {
-	PeerID int64
-	Cost   time.Duration
 }
 
 type preemptionPlan struct {
@@ -51,27 +47,23 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 		if h.TimeSensitive {
 			continue
 		}
-		h.runningLk.Lock()
-		for id, info := range h.runningTasks {
+		for _, entry := range h.running.Snapshot() {
 			allCandidates = append(allCandidates, preemptCandidate{
 				handler: h,
-				taskID:  id,
-				runtime: now.Sub(info.startTime),
+				taskID:  TaskID(entry.ID),
+				runtime: now.Sub(entry.StartTime),
 			})
 		}
-		h.runningLk.Unlock()
 	}
 
 	if len(allCandidates) == 0 {
 		return nil
 	}
 
-	// Step 1: sort youngest first (cheapest runtime)
 	sort.Slice(allCandidates, func(i, j int) bool {
 		return allCandidates[i].runtime < allCandidates[j].runtime
 	})
 
-	// Step 2: find the cutoff — subtract from deficit until all dimensions <= 0
 	cutoff := 0
 	for i, c := range allCandidates {
 		if cpuDeficit <= 0 && ramDeficit <= 0 && gpuDeficit <= 0 {
@@ -87,9 +79,9 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 		return nil
 	}
 
-	// Step 3: walk oldest→youngest through allCandidates[:cutoff].
-	// Deficit is now negative (surplus). Try adding each candidate's cost
-	// back — if deficit stays <= 0 in all dimensions, we can skip it.
+	// Walk oldest->youngest through allCandidates[:cutoff]. Deficit is now
+	// negative (surplus). Try adding each candidate's cost back — if deficit
+	// stays <= 0 in all dimensions, we can skip it.
 	var selected []preemptCandidate
 	var totalCost time.Duration
 
@@ -99,7 +91,7 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 		newCpu := cpuDeficit + c.Cpu
 		newRam := ramDeficit + int64(c.Ram)
 		newGpu := gpuDeficit + c.Gpu
-		if newCpu <= 0 && newRam <= 0 && newGpu <= 0 { // if we over-claimed, give back.
+		if newCpu <= 0 && newRam <= 0 && newGpu <= 0 {
 			cpuDeficit = newCpu
 			ramDeficit = newRam
 			gpuDeficit = newGpu
@@ -116,39 +108,29 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 }
 
 func (e *TaskEngine) executePreemption(plan *preemptionPlan) {
+	handles := make([]*runregistry.Handle, 0, len(plan.candidates))
 	for _, c := range plan.candidates {
-		c.handler.runningLk.Lock()
-		info, ok := c.handler.runningTasks[c.taskID]
-		c.handler.runningLk.Unlock()
+		handle, ok := c.handler.running.Get(int64(c.taskID))
 		if !ok {
 			continue
 		}
-
 		log.Infow("preempting task", "task", c.handler.Name, "id", c.taskID, "runtime", c.runtime)
-
-		info.preempted.Store(true)
-		info.cancel()
+		handle.Preempt()
+		handles = append(handles, handle)
 	}
 
-	deadline := time.After(PREEMPT_TASK_KILL_TIMEOUT)
-	for _, c := range plan.candidates {
-		c.handler.runningLk.Lock()
-		info, ok := c.handler.runningTasks[c.taskID]
-		c.handler.runningLk.Unlock()
-		if !ok {
-			continue
-		}
-		select {
-		case <-info.done:
-		case <-deadline:
-			log.Warnw("preempted task did not exit in time", "task", c.handler.Name, "id", c.taskID)
+	deadline := time.After(preemptTaskKillTimeout)
+	for _, handle := range handles {
+		if exited := handle.WaitDone(deadline); !exited {
+			log.Warnw("preempted task did not exit in time")
 		}
 	}
 }
 
 // preemptForTimeSensitive runs in its own goroutine, off the scheduler thread.
-// All state it touches is either atomic, mutex-protected, or channel-based.
-// After preemption, it signals the scheduler to re-run waterfall.
+// All state it touches is either atomic, mutex-protected (inside internal
+// sub-packages), or channel-based. After preemption, it signals the
+// scheduler to re-run waterfall.
 func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 	plan := e.computePreemptionPlan(h.Cost)
 	if plan == nil {
@@ -156,36 +138,19 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 		return
 	}
 
-	// Register our cost channel and drain any messages that arrived early
-	e.preemptCostMu.Lock()
-	if e.preemptCostChs == nil {
-		e.preemptCostChs = make(map[TaskID]chan preemptCostResponse)
-	}
-	costCh := make(chan preemptCostResponse, len(e.peering.peers)+len(e.preemptCostPending[tID]))
-	for _, pending := range e.preemptCostPending[tID] {
-		costCh <- pending
-	}
-	delete(e.preemptCostPending, tID)
-	e.preemptCostChs[tID] = costCh
-	e.preemptCostMu.Unlock()
+	peerCount := e.peering.peers.CountFor(h.Name)
 
-	defer func() {
-		e.preemptCostMu.Lock()
-		delete(e.preemptCostChs, tID)
-		delete(e.preemptCostPending, tID)
-		e.preemptCostMu.Unlock()
-	}()
-
-	e.peering.peersLock.RLock()
-	peerCount := len(e.peering.m[h.Name])
-	e.peering.peersLock.RUnlock()
+	// Register to receive peer cost responses. The registry pre-loads any
+	// responses that arrived before we registered, so we never miss one.
+	costCh, cancel := e.state.preemptBids.Register(int64(tID), peerCount+1)
+	defer cancel()
 
 	bytes, err := marshalPeerMessage(messageTypePreemptCost, tID, taskOther{TaskType: h.Name, Cost: plan.totalCost})
 	if err != nil {
 		log.Errorw("failed to marshal preempt cost message", "error", err)
 		return
 	}
-	e.peering.tellOtherBytes(h.Name, bytes)
+	e.peering.broadcast(h.Name, bytes)
 
 	if peerCount == 0 {
 		log.Infow("only worker for time-sensitive task, preempting", "task", h.Name, "taskID", tID, "cost", plan.totalCost)
@@ -193,7 +158,7 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 		return
 	}
 
-	timer := time.NewTimer(COST_TIMEOUT)
+	timer := time.NewTimer(costTimeout)
 	defer timer.Stop()
 
 	weAreCheapest := true
@@ -203,7 +168,7 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 		select {
 		case resp := <-costCh:
 			responsesReceived++
-			if resp.Cost < plan.totalCost || (resp.Cost == plan.totalCost && resp.PeerID < int64(e.ownerID)) {
+			if resp.Cost < plan.totalCost || (resp.Cost == plan.totalCost && resp.PeerID < int64(e.cfg.ownerID)) {
 				weAreCheapest = false
 			}
 		case <-timer.C:

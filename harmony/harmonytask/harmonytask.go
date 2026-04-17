@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,29 +16,31 @@ import (
 	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/acceptcache"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/preemptbids"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/runregistry"
 	"github.com/filecoin-project/curio/harmony/harmonytask/treehelper"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
-// Consts (except for unit test)
-// POLL_RARELY is the default DB poll interval. Under event-driven scheduling,
+// pollRarely is the default DB poll interval. Under event-driven scheduling,
 // DB polling is a fallback safety net — most work is discovered via peer
 // notifications or local events. 30s keeps DB load minimal while ensuring
 // no task is stranded indefinitely if a peer message is lost.
-const POLL_RARELY = time.Second * 30
+const pollRarely = time.Second * 30
 
-// POLL_FREQUENTLY is used when peer connections fail, reverting to
+// pollFrequently is used when peer connections fail, reverting to
 // polling-heavy mode until peering is re-established.
-const POLL_FREQUENTLY = time.Second * 3
+const pollFrequently = time.Second * 3
 
-// CLEANUP_FREQUENCY controls how often dead worker cleanup runs. Each node
+// cleanupFrequency controls how often dead worker cleanup runs. Each node
 // independently checks for stale harmony_machines entries on this interval.
-var CLEANUP_FREQUENCY = 5 * time.Minute
+var cleanupFrequency = 5 * time.Minute
 
-// ExitStatusRestartRequest is the exit code used when the DB restart_request
+// exitStatusRestartRequest is the exit code used when the DB restart_request
 // flag triggers a graceful restart (e.g., for rolling upgrades).
-var ExitStatusRestartRequest = 100
+const exitStatusRestartRequest = 100
 
 type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
@@ -64,7 +65,7 @@ type TaskTypeDetails struct {
 
 	// IAmBored is called (when populated) when there's capacity but no work.
 	// Tasks added will be proposed to CanAccept() on this machine.
-	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
+	// CanAccept() can read taskEngine's workOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
 	// This is starved on busy machines, so use it togather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
@@ -143,36 +144,59 @@ type TaskInterface interface {
 // actually have a serious problem that needs to be logged with context.
 type AddTaskFunc func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error))
 
-// TaskEngine is the central coordinator for distributed task scheduling.
-// It owns the handler registry, the event-driven scheduler, and the peering
+// TaskEngine is the central coordinator for distributed task scheduling. It
+// owns the handler registry, the event-driven scheduler, and the peering
 // layer. All scheduling decisions flow through the schedulerChannel as events.
 //
-// Thread safety: most fields are immutable after New(). The scheduler goroutine
-// is the sole consumer of schedulerChannel and the sole writer of in-memory
-// task state. Mutable atomics (pollDuration, yieldBackground) are safe for
-// concurrent reads from the background poller and task goroutines.
+// The fields are partitioned into three named sub-structs so a reader can
+// tell at a glance how each field is safe to touch:
+//
+//   - cfg: immutable after New(); read from anywhere without locking.
+//   - atomics: atomic.Value / atomic.Bool; read from anywhere via atomic methods.
+//   - state: pointers to internal/* registries whose mutexes and protected
+//     data are reachable only through typed, locking method calls.
+//
+// The top-level fields (handlers, taskMap, peering, schedulerChannel) are
+// themselves immutable after New(); they carry their own concurrency
+// discipline either via delegation (peering) or via the single-threaded
+// scheduler-goroutine invariant (schedulerChannel consumer).
 type TaskEngine struct {
-	ctx         context.Context
-	handlers    []*taskTypeHandler
-	db          *harmonydb.DB
-	reg         *resources.Reg
-	grace       context.CancelFunc
-	taskMap     map[string]*taskTypeHandler
-	ownerID     int
-	hostAndPort string
+	cfg     taskEngineConfig
+	atomics taskEngineAtomics
+	state   taskEngineState
 
-	// peering manages connections to other nodes in the cluster for
-	// real-time task event propagation (new tasks, reservations, starts).
-	peering *peering
+	handlers []*taskTypeHandler
+	taskMap  map[string]*taskTypeHandler
+	peering  *peering
 
 	// schedulerChannel is the single event bus feeding the scheduler goroutine.
 	// All event sources (local adds, peer messages, task completions, DB polls)
 	// write events here. The buffered channel (cap 100) absorbs bursts; the
-	// scheduler drains it as fast as possible with no blocking I/O.
+	// scheduler drains it as fast as possible with no blocking I/O. The
+	// channel value itself is replaced in one place (New) before startScheduler
+	// is called, so concurrent access to the channel is safe.
 	schedulerChannel chan schedulerEvent
+}
 
+// taskEngineConfig holds fields that are set once during New() and never
+// mutated. A reader can treat every field here as a constant for the
+// lifetime of the engine.
+type taskEngineConfig struct {
+	ctx                   context.Context
+	grace                 context.CancelFunc
+	db                    *harmonydb.DB
+	reg                   *resources.Reg
+	ownerID               int
+	hostAndPort           string
+	preferredTaskRunOrder map[string][]string
+}
+
+// taskEngineAtomics groups fields that are mutated concurrently but read
+// via sync/atomic methods only. A reader knows they do not need a mutex
+// simply because the field lives in this struct.
+type taskEngineAtomics struct {
 	// pollDuration stores the current DB poll interval as time.Duration.
-	// Starts at POLL_RARELY; degrades to POLL_FREQUENTLY if peer connections fail.
+	// Starts at pollRarely; degrades to pollFrequently if peer connections fail.
 	pollDuration atomic.Value
 
 	// yieldBackground is set true when this node is cordoned (unschedulable).
@@ -182,17 +206,21 @@ type TaskEngine struct {
 
 	lastCleanup atomic.Value
 
-	// WorkOrigin is set to a WorkSource* constant before calling CanAccept(),
-	// so task implementations can make decisions based on how work was discovered.
-	WorkOrigin string
+	// workOrigin is set by considerWork to one of the workSource* constants
+	// before calling CanAccept(). Because considerWork is only ever invoked
+	// from the scheduler goroutine, a plain string would suffice; storing it
+	// via an atomic here keeps the "no mutex needed" guarantee visible even
+	// to readers who are not aware of the scheduler-thread invariant.
+	workOrigin atomic.Value // string
+}
 
-	// Preemption cost exchange: keyed by the specific TaskID being negotiated.
-	// Set during preemptForTimeSensitive, read by peering handler.
-	preemptCostMu      sync.Mutex
-	preemptCostChs     map[TaskID]chan preemptCostResponse
-	preemptCostPending map[TaskID][]preemptCostResponse // buffered until channel registered
-
-	preferredTaskRunOrder map[string][]string
+// taskEngineState groups pointers to internal/* registries. Each one
+// encapsulates a mutex and the state it protects, so any access from outside
+// that sub-package must go through a locking method. Nothing in this
+// package can reach the protected fields directly.
+type taskEngineState struct {
+	// preemptBids brokers peer cost responses for time-sensitive preemption.
+	preemptBids *preemptbids.Registry
 }
 
 type TaskID int
@@ -236,18 +264,24 @@ func NewWithReg(
 	}
 	ctx, grace := context.WithCancel(context.Background())
 	e := &TaskEngine{
-		ctx:              ctx,
-		grace:            grace,
-		db:               db,
-		reg:              reg,
-		ownerID:          reg.MachineID, // The current number representing "hostAndPort"
+		cfg: taskEngineConfig{
+			ctx:         ctx,
+			grace:       grace,
+			db:          db,
+			reg:         reg,
+			ownerID:     reg.MachineID,
+			hostAndPort: hostnameAndPort,
+		},
+		state: taskEngineState{
+			preemptBids: preemptbids.New(),
+		},
 		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
-		hostAndPort:      hostnameAndPort,
 		schedulerChannel: make(chan schedulerEvent, 100),
 	}
-	e.pollDuration.Store(POLL_RARELY)
+	e.atomics.pollDuration.Store(pollRarely)
+	e.atomics.workOrigin.Store("")
+	e.atomics.lastCleanup.Store(time.Now())
 	e.peering = startPeering(e, peerConnector)
-	e.lastCleanup.Store(time.Now())
 
 	mayFollows := make(map[string][]string)
 
@@ -257,7 +291,8 @@ func NewWithReg(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 			storageFailures: make(map[TaskID]time.Time),
-			runningTasks:    make(map[TaskID]*runningTaskInfo),
+			running:         runregistry.New(),
+			accept:          acceptcache.New(canAcceptCacheTTL),
 		}
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)
@@ -277,11 +312,11 @@ func NewWithReg(
 		mayFollows[h.Name] = h.MayFollow
 	}
 
-	e.preferredTaskRunOrder = treehelper.FindPreferredTaskRunOrder(mayFollows)
+	e.cfg.preferredTaskRunOrder = treehelper.FindPreferredTaskRunOrder(mayFollows)
 
 	// Resurrect tasks that were owned by this machine before a restart.
 	// These tasks are already claimed in the DB (owner_id = us) so considerWork
-	// skips the SQL claim step (WorkSourceRecover). This ensures pipelines
+	// skips the SQL claim step (workSourceRecover). This ensures pipelines
 	// resume immediately rather than waiting for another node to notice and
 	// re-assign them.
 	{
@@ -293,7 +328,7 @@ func NewWithReg(
 			PostedTime time.Time `db:"posted_time"`
 		}
 
-		err := db.Select(e.ctx, &taskRet, `SELECT id, name, update_time, retries, posted_time FROM harmony_task WHERE owner_id=$1`, e.ownerID)
+		err := db.Select(e.cfg.ctx, &taskRet, `SELECT id, name, update_time, retries, posted_time FROM harmony_task WHERE owner_id=$1`, e.cfg.ownerID)
 		if err != nil {
 			return nil, err
 		}
@@ -307,10 +342,10 @@ func NewWithReg(
 		}
 		for _, w := range taskRet {
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(WorkSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
+			if h == nil || !h.considerWork(workSourceRecover, []task{{ID: TaskID(w.ID), UpdateTime: w.UpdateTime, PostedTime: w.PostedTime, Retries: w.Retries}}, eventEmitter{e.schedulerChannel}) {
 				// Task type no longer registered on this node (config change);
 				// release the claim so another node can pick it up.
-				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.ownerID)
+				_, err := db.Exec(e.cfg.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1 AND owner_id=$2`, w.ID, e.cfg.ownerID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
 					continue
@@ -340,14 +375,9 @@ func NewWithReg(
 // Call this to cleanly exit the process. As some processes are long-running,
 // passing a deadline will ignore those still running (to be picked-up later).
 func (e *TaskEngine) GracefullyTerminate() {
+	e.cfg.grace()
+	e.cfg.reg.Shutdown()
 
-	// call the cancel func to avoid picking up any new tasks. Running tasks now inherit e.ctx.
-	// Call shutdown to stop posting heartbeat to DB.
-	e.grace()
-	e.reg.Shutdown()
-
-	// If there are any Post tasks then wait till Timeout and check again
-	// When no Post tasks are active, break out of loop  and call the shutdown function
 	for {
 		var waited bool
 		for _, h := range e.handlers {
@@ -383,8 +413,8 @@ type task struct {
 // are invoked in separate goroutines to avoid blocking the scheduler with
 // DB writes from speculative work creation.
 func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventEmitter) error {
-	schedulable := !e.yieldBackground.Load()
-	if e.yieldBackground.Load() {
+	schedulable := !e.atomics.yieldBackground.Load()
+	if e.atomics.yieldBackground.Load() {
 		return nil
 	}
 
@@ -407,7 +437,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
 
 	}()
-	for _, v := range oldestFirstSeq(e.taskMap, taskSource, e.preferredTaskRunOrder) {
+	for _, v := range oldestFirstSeq(e.taskMap, taskSource, e.cfg.preferredTaskRunOrder) {
 		if !schedulable {
 			for relatedTaskName := range v.SchedulingOverrides {
 				if len(taskSource.GetTasks(relatedTaskName)) > 0 {
@@ -437,7 +467,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		})
 
 		if len(unownedTasks) > 0 {
-			if !v.considerWork(WorkSourcePoller, unownedTasks, eventEmitter) {
+			if !v.considerWork(workSourcePoller, unownedTasks, eventEmitter) {
 				log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 			}
 		}
@@ -447,7 +477,6 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		return nil
 	}
 
-	// if no work was accepted, are we bored? Then find work in priority order.
 	// IAmBored: when all known work is exhausted and capacity remains, let
 	// handlers generate speculative work (e.g., new CC sectors). Runs in a
 	// goroutine to keep DB writes off the scheduler thread.
@@ -493,7 +522,6 @@ func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, prefer
 		if alreadySeen[na.name] {
 			continue
 		}
-		// Run downstream pipeline stages (pipeline end first), then this type.
 		for _, name := range preferredTaskRunOrder[na.name] {
 			if !alreadySeen[name] {
 				alreadySeen[name] = true
@@ -512,7 +540,7 @@ var rlog = logging.Logger("harmony-res")
 
 // ResourcesAvailable determines what resources are still unassigned.
 func (e *TaskEngine) ResourcesAvailable() resources.Resources {
-	tmp := e.reg.Resources
+	tmp := e.cfg.reg.Resources
 	for _, t := range e.handlers {
 		ct := t.Max.ActiveThis()
 		tmp.Cpu -= ct * t.Cost.Cpu
@@ -531,18 +559,30 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 
 // Resources returns the resources available in the TaskEngine's registry.
 func (e *TaskEngine) Resources() resources.Resources {
-	return e.reg.Resources
+	return e.cfg.reg.Resources
 }
 
 func (e *TaskEngine) Host() string {
-	return e.hostAndPort
+	return e.cfg.hostAndPort
 }
 
 // OwnerID returns the machine ID assigned to this TaskEngine.
-func (e *TaskEngine) OwnerID() int { return e.ownerID }
+func (e *TaskEngine) OwnerID() int { return e.cfg.ownerID }
 
 // TestONLY_SetPollDuration overrides the DB polling interval (useful for tests).
-func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.pollDuration.Store(d) }
+func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.atomics.pollDuration.Store(d) }
+
+// workOrigin returns the current CanAccept origin tag. The field is only
+// written by considerWork on the scheduler goroutine; readers (CanAccept
+// implementations inside this package) observe a consistent value via
+// atomic.Value.
+func (e *TaskEngine) workOrigin() string {
+	v := e.atomics.workOrigin.Load()
+	if v == nil {
+		return ""
+	}
+	return v.(string)
+}
 
 // checkNodeFlags reads the cordon (unschedulable) and restart_request flags
 // from the DB. This runs on the background poller goroutine — not the scheduler
@@ -551,7 +591,7 @@ func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.pollDuration.
 func (e *TaskEngine) checkNodeFlags() (bool, error) {
 	var unschedulable bool
 	var restartRequest *time.Time
-	err := e.db.QueryRow(e.ctx, `SELECT unschedulable, restart_request FROM harmony_machines WHERE host_and_port=$1`, e.hostAndPort).Scan(&unschedulable, &restartRequest)
+	err := e.cfg.db.QueryRow(e.cfg.ctx, `SELECT unschedulable, restart_request FROM harmony_machines WHERE host_and_port=$1`, e.cfg.hostAndPort).Scan(&unschedulable, &restartRequest)
 	if err != nil {
 		return false, err
 	}
@@ -565,23 +605,21 @@ func (e *TaskEngine) checkNodeFlags() (bool, error) {
 
 func (e *TaskEngine) restartIfNoTasksPending(pendingSince time.Time) {
 	var tasksPending int
-	err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1`, e.ownerID).Scan(&tasksPending)
+	err := e.cfg.db.QueryRow(e.cfg.ctx, `SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1`, e.cfg.ownerID).Scan(&tasksPending)
 	if err != nil {
 		log.Error("Unable to check for tasks pending: ", err)
 		return
 	}
 	if tasksPending == 0 {
-		log.Infow("no tasks pending, restarting", "ownerID", e.ownerID, "pendingSince", pendingSince, "took", time.Since(pendingSince))
+		log.Infow("no tasks pending, restarting", "ownerID", e.cfg.ownerID, "pendingSince", pendingSince, "took", time.Since(pendingSince))
 
-		// unset the flags first
-		_, err = e.db.Exec(e.ctx, `UPDATE harmony_machines SET restart_request=NULL, unschedulable=FALSE WHERE host_and_port=$1`, e.hostAndPort)
+		_, err = e.cfg.db.Exec(e.cfg.ctx, `UPDATE harmony_machines SET restart_request=NULL, unschedulable=FALSE WHERE host_and_port=$1`, e.cfg.hostAndPort)
 		if err != nil {
 			log.Error("Unable to unset restart request: ", err)
 			return
 		}
 
-		// then exit
-		os.Exit(ExitStatusRestartRequest)
+		os.Exit(exitStatusRestartRequest)
 	}
 }
 
@@ -600,7 +638,6 @@ func Reg(t TaskInterface) bool {
 	name := t.TypeDetails().Name
 	Registry[name] = t
 
-	// reset metrics
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, name),
 	}, TaskMeasures.ActiveTasks.M(0))
@@ -625,7 +662,7 @@ func (e *TaskEngine) singletonRunNowPoller() {
 
 	for {
 		select {
-		case <-e.ctx.Done():
+		case <-e.cfg.ctx.Done():
 			return
 		case <-timer.C:
 			timer.Reset(singletonRunNowPollInterval)
@@ -634,7 +671,7 @@ func (e *TaskEngine) singletonRunNowPoller() {
 		var requested []struct {
 			TaskName string `db:"task_name"`
 		}
-		err := e.db.Select(e.ctx, &requested,
+		err := e.cfg.db.Select(e.cfg.ctx, &requested,
 			`SELECT task_name FROM harmony_task_singletons WHERE run_now_request = TRUE`)
 		if err != nil {
 			log.Errorw("singletonRunNowPoller: failed to query", "error", err)
@@ -645,7 +682,7 @@ func (e *TaskEngine) singletonRunNowPoller() {
 			continue
 		}
 
-		flags := singletonRunNowFlags()
+		flags := singletonRunNow.Snapshot()
 		for _, r := range requested {
 			if f, ok := flags[r.TaskName]; ok {
 				f.Store(true)
@@ -672,10 +709,9 @@ func (e *TaskEngine) AddTaskByName(name string, extra func(TaskID, *harmonydb.Tx
 	retryWait := time.Millisecond * 100
 	var postedAt time.Time
 retryAddTask:
-	_, err := e.db.BeginTransaction(e.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// create taskID (from DB)
+	_, err := e.cfg.db.BeginTransaction(e.cfg.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
-          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id, posted_time`, name, e.ownerID).Scan(&tID, &postedAt)
+          VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id, posted_time`, name, e.cfg.ownerID).Scan(&tID, &postedAt)
 		if err != nil {
 			return false, fmt.Errorf("could not insert into harmonyTask: %w", err)
 		}

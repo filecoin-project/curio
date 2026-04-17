@@ -9,47 +9,18 @@ import (
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/runnowflags"
 )
 
-// singletonRunNow is a global registry mapping task names to atomic flags.
-// The global poller in TaskEngine sets a flag when run_now_request=true is
-// found in the DB; SingletonTaskAdder checks the flag to bypass its interval.
-var singletonRunNow struct {
-	mu    sync.Mutex
-	flags map[string]*atomic.Bool
-}
-
-func init() {
-	singletonRunNow.flags = make(map[string]*atomic.Bool)
-}
-
-// registerSingletonRunNow returns the atomic.Bool for a given task name,
-// creating one if it doesn't exist yet.
-func registerSingletonRunNow(taskName string) *atomic.Bool {
-	singletonRunNow.mu.Lock()
-	defer singletonRunNow.mu.Unlock()
-
-	if f, ok := singletonRunNow.flags[taskName]; ok {
-		return f
-	}
-	f := &atomic.Bool{}
-	singletonRunNow.flags[taskName] = f
-	return f
-}
-
-// singletonRunNowFlags returns the current map of registered flags.
-// Used by the global poller goroutine.
-func singletonRunNowFlags() map[string]*atomic.Bool {
-	singletonRunNow.mu.Lock()
-	defer singletonRunNow.mu.Unlock()
-
-	// Return a shallow copy to avoid holding the lock
-	out := make(map[string]*atomic.Bool, len(singletonRunNow.flags))
-	for k, v := range singletonRunNow.flags {
-		out[k] = v
-	}
-	return out
-}
+// singletonRunNow is the package-scoped registry of per-task run-now flags.
+// The singletonRunNowPoller sets a flag when it sees a run_now_request row
+// in the DB; SingletonTaskAdder reads and clears it to bypass the normal
+// minInterval on the next tick.
+//
+// The underlying map and mutex live inside runnowflags.Registry, so nothing
+// in this package can touch them directly. All access is through method
+// calls that lock correctly.
+var singletonRunNow = runnowflags.New()
 
 func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddTaskFunc) error {
 	// taskName and runNowFlag are resolved lazily to avoid infinite recursion:
@@ -65,7 +36,7 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 	return func(add AddTaskFunc) error {
 		initOnce.Do(func() {
 			taskName = task.TypeDetails().Name
-			runNowFlag = registerSingletonRunNow(taskName)
+			runNowFlag = singletonRunNow.Flag(taskName)
 		})
 
 		lk.Lock()
@@ -88,18 +59,15 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 
 			now := time.Now()
 
-			// Query to check the existing task entry
 			err = tx.QueryRow(`SELECT task_id, last_run_time, run_now_request FROM harmony_task_singletons WHERE task_name = $1`, taskName).Scan(&existingTaskID, &lastRunTime, &runNowRequest)
 			if errors.Is(err, pgx.ErrNoRows) {
-				// No existing record -> Task should run
 				shouldRun = true
 			} else if err != nil {
-				return false, err // Return actual error
+				return false, err
 			} else {
 				taskIsRunning := false
 
 				if existingTaskID != nil {
-					// make sure the task is still active
 					var htTaskID *int64
 					err = tx.QueryRow(`SELECT id FROM harmony_task WHERE id = $1 AND name = $2`, existingTaskID, taskName).Scan(&htTaskID)
 					if errors.Is(err, pgx.ErrNoRows) {

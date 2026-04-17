@@ -3,10 +3,12 @@ package harmonytask
 import (
 	"encoding/json"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/peerregistry"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/preemptbids"
 )
 
 // PeerMessage is the JSON envelope for all peer-to-peer messages.
@@ -33,7 +35,6 @@ type taskOther struct {
 }
 
 // messageType identifies the kind of peer-to-peer message.
-// The protocol supports task-related verbs plus identity handshake:
 //   - identity: exchanged on connection to establish peer address mapping
 //   - newTask: broadcast when a task is added, so peers can attempt to claim it
 //   - started: broadcast when a node begins executing a task, so peers can
@@ -50,8 +51,8 @@ const (
 
 // PeerConnectorInterface abstracts the transport layer for peer connections.
 // Production uses HTTP POST (lib/harmony_peer_http); tests use in-memory
-// channel pipes (test_support.go). This abstraction lets the peering logic
-// be transport-agnostic and fully testable without network I/O.
+// channel pipes (pipetest). This abstraction lets the peering logic be
+// transport-agnostic and fully testable without network I/O.
 type PeerConnectorInterface interface {
 	ConnectToPeer(peerID string) (PeerConnection, error)
 	SetOnConnect(onConnect func(peerAddr string, conn PeerConnection))
@@ -65,15 +66,6 @@ type PeerConnection interface {
 	Close() error
 }
 
-type peer struct {
-	id   int64
-	addr string
-	conn PeerConnection
-	// peering is the main struct that manages the peering process.
-	// Capital functions are for taskEngine to call.
-	tasks map[string]bool // task types this peer can handle
-}
-
 // peering manages the set of active peer connections and routes task-related
 // messages to peers that can handle each task type.
 //
@@ -82,27 +74,17 @@ type peer struct {
 // to relevant peers in fire-and-forget goroutines. Incoming messages from
 // peers are converted into schedulerEvents and pushed to the scheduler channel.
 //
-// Message types: newTask (work available), started (task claimed and running),
-// preemptCost (time-sensitive preemption bidding).
-//
-// Peer lifecycle:
-//  1. On startup, startPeering queries harmony_machines for known peers
-//     and connects to each one (skipping self).
-//  2. On each connection, handlePeer sends an identity message, queries the
-//     DB for the peer's task capabilities, registers it in the peers/m maps,
-//     and enters a receive loop.
-//  3. When a peer disconnects (ReceiveMessage returns error), the deferred
-//     cleanup removes it from all task-type routing maps.
-//  4. If a peer connection fails at startup, the poll interval is shortened
-//     (POLL_FREQUENTLY) to compensate for missing event propagation. It
-//     self-heals back to POLL_RARELY once peering is restored.
+// The routing table (which peer handles which task types) lives inside
+// peerregistry.Registry. Its mutex and backing maps are unexported there,
+// so nothing in this package can reach them without going through methods
+// that lock correctly.
 type peering struct {
+	// --- immutable after startPeering ---
 	h             *TaskEngine
 	peerConnector PeerConnectorInterface
 
-	peersLock sync.RWMutex // protects the peers and m
-	peers     []peer
-	m         map[string][]int // task type name -> indexes into peers slice
+	// --- delegated concurrent state ---
+	peers *peerregistry.Registry
 }
 
 // startPeering initializes the peering layer and begins connecting to all
@@ -112,19 +94,19 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 	p := &peering{
 		h:             h,
 		peerConnector: peerConnector,
-		m:             make(map[string][]int),
+		peers:         peerregistry.New(),
 	}
 	p.peerConnector.SetOnConnect(p.handlePeer)
-	h.pollDuration.Store(POLL_RARELY)
+	h.atomics.pollDuration.Store(pollRarely)
 	go func() {
 		var knownPeers []string
-		if err := p.h.db.Select(p.h.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`); err != nil {
+		if err := p.h.cfg.db.Select(p.h.cfg.ctx, &knownPeers, `SELECT host_and_port FROM harmony_machines`); err != nil {
 			log.Warnw("failed to list peers", "error", err)
 			return
 		}
 		for _, peer := range knownPeers {
-			if peer == p.h.hostAndPort {
-				continue // skip self — no need to peer with ourselves
+			if peer == p.h.cfg.hostAndPort {
+				continue
 			}
 			go func(peer string) {
 				conn, err := p.peerConnector.ConnectToPeer(peer)
@@ -132,7 +114,7 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 					log.Warnw("failed to connect to peer", "peer", peer, "error", err)
 					// Fall back to more frequent DB polling since we can't
 					// receive real-time events from this peer.
-					h.pollDuration.Store(POLL_FREQUENTLY)
+					h.atomics.pollDuration.Store(pollFrequently)
 					return
 				}
 				p.handlePeer(peer, conn)
@@ -152,8 +134,8 @@ func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering 
 //
 // The receive loop converts incoming JSON messages into scheduler events,
 // enabling real-time cross-node coordination. When the connection drops,
-// deferred cleanup removes the peer from all routing maps so messages are
-// no longer sent to a dead connection.
+// the deferred remove() takes the peer out of all routing maps so messages
+// are no longer sent to a dead connection.
 func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 	defer func() {
 		if err := conn.Close(); err != nil {
@@ -163,8 +145,7 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 
 	log.Infow("handling peer connection", "peer", peerAddr)
 
-	// Send identity so the remote peer knows our address.
-	idMsg, err := marshalPeerMessage(messageTypeIdentity, 0, taskOther{HostAndPort: p.h.hostAndPort})
+	idMsg, err := marshalPeerMessage(messageTypeIdentity, 0, taskOther{HostAndPort: p.h.cfg.hostAndPort})
 	if err != nil {
 		log.Warnw("failed to marshal identity", "peer", peerAddr, "error", err)
 		return
@@ -174,62 +155,26 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 		return
 	}
 
-	them := peer{
-		addr:  peerAddr,
-		conn:  conn,
-		tasks: make(map[string]bool),
-	}
-
-	// Look up the peer's machine ID and registered task types from the DB.
-	// This determines which messages we route to this peer.
 	var machineDetails struct {
 		ID    int64  `db:"id"`
 		Tasks string `db:"tasks"`
 	}
-	err = p.h.db.QueryRow(p.h.ctx,
+	err = p.h.cfg.db.QueryRow(p.h.cfg.ctx,
 		`SELECT hm.id, hmd.tasks FROM harmony_machine_details hmd
 		 JOIN harmony_machines hm ON hm.id = hmd.machine_id
-		 WHERE hm.host_and_port = $1`, them.addr).Scan(&machineDetails.ID, &machineDetails.Tasks)
+		 WHERE hm.host_and_port = $1`, peerAddr).Scan(&machineDetails.ID, &machineDetails.Tasks)
 	if err != nil {
 		log.Warnw("failed to get machine details from peer", "peer", peerAddr, "error", err)
 		return
 	}
-	them.id = machineDetails.ID
 
-	// Register peer in routing maps. After this, TellOthers will include
-	// this peer for any task type it handles.
-	p.peersLock.Lock()
-	p.peers = append(p.peers, them)
-	themIndex := len(p.peers) - 1
-	for _, task := range strings.Split(machineDetails.Tasks, ",") {
-		them.tasks[task] = true
-		p.m[task] = append(p.m[task], themIndex)
-	}
-	p.peersLock.Unlock()
-
-	// Deferred cleanup: remove this peer from all routing maps on disconnect.
-	// This prevents sending messages to a dead connection and ensures the
-	// routing table stays accurate.
+	tasks := strings.Split(machineDetails.Tasks, ",")
+	remove := p.peers.Add(machineDetails.ID, peerAddr, conn, tasks)
 	defer func() {
-		p.peersLock.Lock()
-		for taskName, indexes := range p.m {
-			filtered := indexes[:0]
-			for _, idx := range indexes {
-				if idx != themIndex {
-					filtered = append(filtered, idx)
-				}
-			}
-			if len(filtered) == 0 {
-				delete(p.m, taskName)
-			} else {
-				p.m[taskName] = filtered
-			}
-		}
-		p.peersLock.Unlock()
+		remove()
 		log.Infow("removed dead peer", "peer", peerAddr)
 	}()
 
-	// Receive loop: convert incoming messages to scheduler events.
 	for {
 		msg, err := conn.ReceiveMessage()
 		if err != nil {
@@ -237,7 +182,7 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 			return
 		}
 
-		if err := p.handlePeerMessage(peerAddr, them, msg); err != nil {
+		if err := p.handlePeerMessage(peerAddr, machineDetails.ID, msg); err != nil {
 			log.Warnw("error handling peer message", "peer", peerAddr, "error", err)
 		}
 	}
@@ -246,7 +191,7 @@ func (p *peering) handlePeer(peerAddr string, conn PeerConnection) {
 // handlePeerMessage decodes a JSON message from a peer and pushes the
 // corresponding scheduler event. Each verb maps to a specific scheduler
 // source so the event loop knows how to update its state.
-func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) error {
+func (p *peering) handlePeerMessage(peerAddr string, peerID int64, msg []byte) error {
 	var envelope PeerMessage
 	if err := json.Unmarshal(msg, &envelope); err != nil {
 		log.Warnw("received invalid JSON from peer", "peer", peerAddr, "error", err)
@@ -257,14 +202,13 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 
 	switch messageType(envelope.Verb) {
 	case messageTypeIdentity:
-		// Handshake only; no scheduler event.
 		return nil
 	case messageTypeNewTask:
 		p.h.schedulerChannel <- schedulerEvent{
 			TaskID:     envelope.TaskID,
 			TaskType:   other.TaskType,
 			Source:     schedulerSourcePeerNewTask,
-			PeerID:     them.id,
+			PeerID:     peerID,
 			Retries:    other.Retries,
 			PostedTime: other.Posted,
 		}
@@ -273,25 +217,13 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 			TaskID:   envelope.TaskID,
 			TaskType: other.TaskType,
 			Source:   schedulerSourcePeerStarted,
-			PeerID:   them.id,
+			PeerID:   peerID,
 		}
 	case messageTypePreemptCost:
-		resp := preemptCostResponse{PeerID: them.id, Cost: other.Cost}
-		taskID := envelope.TaskID
-		p.h.preemptCostMu.Lock()
-		ch := p.h.preemptCostChs[taskID]
-		if ch != nil {
-			select {
-			case ch <- resp:
-			default:
-			}
-		} else {
-			if p.h.preemptCostPending == nil {
-				p.h.preemptCostPending = make(map[TaskID][]preemptCostResponse)
-			}
-			p.h.preemptCostPending[taskID] = append(p.h.preemptCostPending[taskID], resp)
-		}
-		p.h.preemptCostMu.Unlock()
+		p.h.state.preemptBids.Deliver(int64(envelope.TaskID), preemptbids.Response{
+			PeerID: peerID,
+			Cost:   other.Cost,
+		})
 	default:
 		return xerrors.Errorf("unknown message type from peer %s: %v", peerAddr, envelope)
 	}
@@ -305,7 +237,7 @@ func (p *peering) TellNewTask(task string, tID TaskID, retries int, posted time.
 		log.Errorw("failed to marshal new task message", "error", err)
 		return
 	}
-	p.tellOtherBytes(task, msg)
+	p.broadcast(task, msg)
 }
 
 func marshalPeerMessage(verb messageType, taskID TaskID, other taskOther) ([]byte, error) {
@@ -318,12 +250,10 @@ func marshalPeerMessage(verb messageType, taskID TaskID, other taskOther) ([]byt
 
 // HasPeers reports whether at least one peer is connected and routing
 // messages for any task type. Used by the background poller to decide
-// whether to restore the poll interval to POLL_RARELY (event-driven mode)
-// or keep it at POLL_FREQUENTLY (polling fallback mode).
+// whether to restore the poll interval to pollRarely (event-driven mode)
+// or keep it at pollFrequently (polling fallback mode).
 func (p *peering) HasPeers() bool {
-	p.peersLock.RLock()
-	defer p.peersLock.RUnlock()
-	return len(p.m) > 0
+	return p.peers.HasAny()
 }
 
 // TellOthers broadcasts a task event to all peers that handle the given task
@@ -336,21 +266,13 @@ func (p *peering) TellOthers(verb messageType, taskType string, tID TaskID) {
 		log.Errorw("failed to marshal peer message", "verb", verb, "error", err)
 		return
 	}
-	p.tellOtherBytes(taskType, msg)
+	p.broadcast(taskType, msg)
 }
 
-// tellOtherBytes fans out a pre-serialized message to all peers registered
-// for the given task type. Each send runs in its own goroutine to avoid
-// blocking on slow peers or network delays.
-func (p *peering) tellOtherBytes(taskType string, msg []byte) {
-	p.peersLock.RLock()
-	for _, peerIndex := range p.m[taskType] {
-		conn := p.peers[peerIndex].conn
-		go func() {
-			if err := conn.SendMessage(msg); err != nil {
-				log.Warnw("failed to send message to peer", "peer", p.peers[peerIndex].addr, "error", err)
-			}
-		}()
-	}
-	p.peersLock.RUnlock()
+// broadcast hands the pre-serialized message to the peer registry, which
+// fans out to each peer in its own goroutine.
+func (p *peering) broadcast(taskType string, msg []byte) {
+	p.peers.Broadcast(taskType, msg, func(addr string, err error) {
+		log.Warnw("failed to send message to peer", "peer", addr, "error", err)
+	})
 }

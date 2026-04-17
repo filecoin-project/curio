@@ -9,25 +9,28 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/peerregistry"
+	"github.com/filecoin-project/curio/harmony/harmonytask/internal/preemptbids"
 )
 
-// TestPreemptCostMessage verifies preempt cost bytes are parsed and routed into preemptCostChs.
+// TestPreemptCostMessage verifies preempt cost bytes are parsed and routed
+// into the preemptbids registry.
 func TestPreemptCostMessage(t *testing.T) {
 	engine := &TaskEngine{
 		schedulerChannel: make(chan schedulerEvent, 10),
-		preemptCostChs:   make(map[TaskID]chan preemptCostResponse),
+		state:            taskEngineState{preemptBids: preemptbids.New()},
 	}
-	ch := make(chan preemptCostResponse, 1)
-	engine.preemptCostChs[TaskID(123)] = ch
+	ch, cancel := engine.state.preemptBids.Register(int64(123), 4)
+	defer cancel()
 
 	p := &peering{h: engine}
-	them := peer{id: 99}
 
 	msg, err := marshalPeerMessage(messageTypePreemptCost, 123, taskOther{Cost: 5 * time.Second, TaskType: "WinPost"})
 	require.NoError(t, err)
 	t.Logf("wire bytes (%d): %q", len(msg), msg)
 
-	err = p.handlePeerMessage("test-peer", them, msg)
+	err = p.handlePeerMessage("test-peer", 99, msg)
 	require.NoError(t, err)
 
 	select {
@@ -103,8 +106,7 @@ func (c *pipeConn) Close() error {
 // that handlePeerMessage can parse back into the correct schedulerEvent.
 func TestMessageRoundTrip(t *testing.T) {
 	ch := make(chan schedulerEvent, 10)
-	p := &peering{h: &TaskEngine{schedulerChannel: ch}}
-	them := peer{id: 42}
+	p := &peering{h: &TaskEngine{schedulerChannel: ch, state: taskEngineState{preemptBids: preemptbids.New()}}}
 
 	mustMarshal := func(verb messageType, taskID TaskID, other taskOther) []byte {
 		msg, err := marshalPeerMessage(verb, taskID, other)
@@ -157,7 +159,7 @@ func TestMessageRoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Logf("wire JSON (%d): %s", len(tt.msg), tt.msg)
 
-			err := p.handlePeerMessage("test-peer", them, tt.msg)
+			err := p.handlePeerMessage("test-peer", 42, tt.msg)
 			require.NoError(t, err)
 
 			select {
@@ -214,8 +216,7 @@ func TestMessageWireFormat(t *testing.T) {
 // TestHandlePeerMessageRejectsGarbage ensures malformed messages are rejected.
 func TestHandlePeerMessageRejectsGarbage(t *testing.T) {
 	ch := make(chan schedulerEvent, 10)
-	p := &peering{h: &TaskEngine{schedulerChannel: ch}}
-	them := peer{id: 1}
+	p := &peering{h: &TaskEngine{schedulerChannel: ch, state: taskEngineState{preemptBids: preemptbids.New()}}}
 
 	tests := []struct {
 		name string
@@ -230,7 +231,7 @@ func TestHandlePeerMessageRejectsGarbage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := p.handlePeerMessage("test", them, tt.msg)
+			err := p.handlePeerMessage("test", 1, tt.msg)
 			require.Error(t, err)
 			select {
 			case ev := <-ch:
@@ -249,16 +250,13 @@ func TestTellOthersDelivery(t *testing.T) {
 	local1, remote1 := pipePair()
 	local2, remote2 := pipePair()
 
+	peers := peerregistry.New()
+	peers.Add(10, "p1:1000", local1, []string{"TaskA"})
+	peers.Add(20, "p2:1000", local2, []string{"TaskA", "TaskB"})
+
 	p := &peering{
-		h: &TaskEngine{},
-		peers: []peer{
-			{id: 10, addr: "p1:1000", conn: local1, tasks: map[string]bool{"TaskA": true}},
-			{id: 20, addr: "p2:1000", conn: local2, tasks: map[string]bool{"TaskA": true, "TaskB": true}},
-		},
-		m: map[string][]int{
-			"TaskA": {0, 1},
-			"TaskB": {1},
-		},
+		h:     &TaskEngine{},
+		peers: peers,
 	}
 
 	t.Run("BroadcastToAll", func(t *testing.T) {
@@ -272,8 +270,8 @@ func TestTellOthersDelivery(t *testing.T) {
 		require.Equal(t, msg1, msg2)
 
 		ch := make(chan schedulerEvent, 5)
-		pp := &peering{h: &TaskEngine{schedulerChannel: ch}}
-		err = pp.handlePeerMessage("test", peer{id: 99}, msg1)
+		pp := &peering{h: &TaskEngine{schedulerChannel: ch, state: taskEngineState{preemptBids: preemptbids.New()}}}
+		err = pp.handlePeerMessage("test", 99, msg1)
 		require.NoError(t, err)
 		ev := <-ch
 		require.Equal(t, "TaskA", ev.TaskType)
@@ -289,8 +287,8 @@ func TestTellOthersDelivery(t *testing.T) {
 		require.NoError(t, err)
 
 		ch := make(chan schedulerEvent, 5)
-		pp := &peering{h: &TaskEngine{schedulerChannel: ch}}
-		err = pp.handlePeerMessage("test", peer{id: 99}, msg2)
+		pp := &peering{h: &TaskEngine{schedulerChannel: ch, state: taskEngineState{preemptBids: preemptbids.New()}}}
+		err = pp.handlePeerMessage("test", 99, msg2)
 		require.NoError(t, err)
 		ev := <-ch
 		require.Equal(t, "TaskB", ev.TaskType)

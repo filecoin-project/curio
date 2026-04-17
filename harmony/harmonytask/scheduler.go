@@ -60,11 +60,11 @@ const (
 const chokePoint = 1000
 
 // taskSchedule tracks the available (unowned) tasks of a single type
-// within the scheduler's in-memory state.
+// within the scheduler's in-memory state. Accessed only from the scheduler
+// goroutine, so no locking is needed.
 type taskSchedule struct {
 	hasID  map[TaskID]task
-	choked bool // FUTURE PR: we choked the adding of TaskIDs for mem savings.
-	// In this state, we try what we have, and go to DB if we need more.
+	choked bool // true for when this list is uncomfortably long for RAM.
 }
 
 // startScheduler launches three long-running goroutines that form the heart
@@ -82,35 +82,17 @@ type taskSchedule struct {
 //
 //  3. **Scheduler event loop**: the single-threaded core that reads events
 //     from schedulerChannel, maintains the in-memory available-tasks map,
-//     and decides when to attempt work via pollerTryAllWork. By design,
-//     this goroutine performs no DB reads, no network waits, and no blocking
-//     I/O — only channel reads, map updates, and function calls to
-//     considerWork (which does a single fast SQL UPDATE for claiming).
-//
-// The event loop handles each source differently:
-//   - DBPoll: replaces the entire available-tasks map with fresh DB state
-//     and triggers scheduling if new tasks appeared.
-//   - Added: inserts the task into the local map, broadcasts to peers.
-//     TimeSensitive tasks trigger immediate scheduling; others are bundled.
-//   - PeerNewTask: same as Added but from a remote node (no broadcast).
-//   - TaskStarted: removes the task from available, broadcasts "started" to peers.
-//   - PeerStarted: same as TaskStarted but from a remote node.
-//   - TaskCompleted: triggers scheduling since freed resources may allow
-//     new work to start.
-//
-// The bundler coalesces rapid-fire non-TimeSensitive events (e.g., batch
-// Adder calls producing many tasks) into a single scheduling attempt after
-// a 10ms quiet period, reducing redundant CanAccept + DB claim cycles.
+//     and decides when to attempt work via pollerTryAllWork.
 func (e *TaskEngine) startScheduler() {
 	// Goroutine 1: periodic dead-machine cleanup
 	go func() {
 		for {
 			select {
-			case <-e.ctx.Done():
+			case <-e.cfg.ctx.Done():
 				log.Infof("scheduler stopped")
 				return
-			case <-time.After(CLEANUP_FREQUENCY):
-				resources.CleanupMachines(e.ctx, e.db)
+			case <-time.After(cleanupFrequency):
+				resources.CleanupMachines(e.cfg.ctx, e.cfg.db)
 			}
 		}
 	}()
@@ -122,25 +104,22 @@ func (e *TaskEngine) startScheduler() {
 		defer timer.Stop()
 		for {
 			select {
-			case <-e.ctx.Done():
+			case <-e.cfg.ctx.Done():
 				return
 			case <-timer.C:
 				dbTasks := e.pollAllTaskTypes()
 
-				// Node flags are checked here (poller thread) rather than on
-				// the scheduler thread to keep DB latency off the hot path.
 				if schedulable, err := e.checkNodeFlags(); err != nil {
 					log.Errorw("failed to check node flags", "error", err)
 				} else {
-					e.yieldBackground.Store(!schedulable)
+					e.atomics.yieldBackground.Store(!schedulable)
 				}
 
 				// Pre-compute CanAccept for all task types and write results
-				// directly into each handler's cache. This avoids calling
-				// CanAccept (which may check disk paths, SP config, etc.)
-				// on the scheduler event loop. The handler's acceptMu
-				// protects against concurrent reads from the scheduler.
-				if dbTasks != nil && !e.yieldBackground.Load() {
+				// into each handler's acceptcache. This avoids calling
+				// CanAccept on the scheduler event loop. The cache's internal
+				// mutex protects against concurrent reads from the scheduler.
+				if dbTasks != nil && !e.atomics.yieldBackground.Load() {
 					for _, h := range e.handlers {
 						tasks := dbTasks[h.Name]
 						if len(tasks) == 0 {
@@ -156,7 +135,7 @@ func (e *TaskEngine) startScheduler() {
 							continue
 						}
 						if len(accepted) > 0 {
-							h.SetAcceptCache(accepted)
+							h.accept.Add(toInt64s(accepted))
 						}
 					}
 				}
@@ -166,15 +145,15 @@ func (e *TaskEngine) startScheduler() {
 					DBTasks: dbTasks,
 				}
 
-				// Self-heal the poll rate: if we degraded to POLL_FREQUENTLY
+				// Self-heal the poll rate: if we degraded to pollFrequently
 				// because peers were unreachable at startup, restore to
-				// POLL_RARELY once peering is healthy again.
-				if e.pollDuration.Load().(time.Duration) == POLL_FREQUENTLY && e.peering.HasPeers() {
+				// pollRarely once peering is healthy again.
+				if e.atomics.pollDuration.Load().(time.Duration) == pollFrequently && e.peering.HasPeers() {
 					log.Infow("peering restored, switching to rare polling")
-					e.pollDuration.Store(POLL_RARELY)
+					e.atomics.pollDuration.Store(pollRarely)
 				}
 
-				timer.Reset(e.pollDuration.Load().(time.Duration))
+				timer.Reset(e.atomics.pollDuration.Load().(time.Duration))
 			}
 		}
 	}()
@@ -185,21 +164,21 @@ func (e *TaskEngine) startScheduler() {
 		// availableTasks is the scheduler's authoritative view of unowned work.
 		// Populated by DB polls and incrementally updated by events.
 		// Only accessed from this goroutine — no locks needed.
-		availableTasks := map[string]*taskSchedule{} // TaskType -> TaskID -> bool FUTURE PR: mem savings.
+		availableTasks := map[string]*taskSchedule{}
 		for _, h := range e.handlers {
 			availableTasks[h.Name] = &taskSchedule{hasID: make(map[TaskID]task)}
 		}
 		tryStartNow := func(taskName string) {
-			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks, e.peering}, eventEmitter{e.schedulerChannel}); err != nil {
+			if err := e.tryStartTask(taskName, taskSourceLocal{availableTasks}, eventEmitter{e.schedulerChannel}); err != nil {
 				log.Errorw("failed to try start task", "taskType", taskName, "error", err)
 			}
 		}
-		ts := taskSourceLocal{availableTasks, e.peering}
+		ts := taskSourceLocal{availableTasks}
 		ee := eventEmitter{e.schedulerChannel}
 
 		for {
 			select {
-			case <-e.ctx.Done():
+			case <-e.cfg.ctx.Done():
 				log.Infof("scheduler stopped")
 				return
 
@@ -316,9 +295,9 @@ func (e *TaskEngine) startScheduler() {
 						continue
 					}
 					e.executePreemption(plan)
-					tasks := taskSourceLocal{availableTasks, e.peering}.GetTasks(event.TaskType)
+					tasks := taskSourceLocal{availableTasks}.GetTasks(event.TaskType)
 					if len(tasks) > 0 {
-						h.considerWork(WorkSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
+						h.considerWork(workSourcePreempt, tasks, eventEmitter{e.schedulerChannel})
 					}
 				case schedulerSourceInitialPoll:
 					if err := e.pollerTryAllWork(ts, ee); err != nil {
@@ -329,16 +308,15 @@ func (e *TaskEngine) startScheduler() {
 				}
 			case taskName := <-bundleSleep:
 				tryStartNow(taskName)
-			case <-time.After(e.pollDuration.Load().(time.Duration)): // fast life & early-gather at Go_1.26
+			case <-time.After(e.atomics.pollDuration.Load().(time.Duration)):
 				if err := e.pollerTryAllWork(ts, ee); err != nil {
 					log.Errorw("failed tryAllWork", "error", err)
 					continue
 				}
 			}
-			// FUTURE: RetryWait could start timers.
 		}
 	}()
-} // FUTURE Move all harmony_task writers to taskEngine.AddTask() to transmit over the RPC.
+}
 
 // taskSource abstracts where the scheduler gets its list of available tasks.
 // The local implementation reads from the in-memory map; a DB-backed
@@ -373,7 +351,6 @@ func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventE
 // map. GetTasks returns tasks sorted by posted time (FIFO within the type).
 type taskSourceLocal struct {
 	availableTasks map[string]*taskSchedule
-	peering        *peering
 }
 
 func (t taskSourceLocal) GetTasks(taskName string) []task {
@@ -443,7 +420,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 	for i, h := range e.handlers {
 		names[i] = h.Name
 	}
-	err := e.db.Select(context.Background(), &rows,
+	err := e.cfg.db.Select(context.Background(), &rows,
 		`SELECT id, name, update_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
 	if err != nil {
 		log.Errorw("failed to poll tasks from db", "error", err)
