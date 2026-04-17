@@ -475,7 +475,7 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 		return nil, xerrors.Errorf("failed to find piece IDs: %w", err)
 	}
 
-	for i := 0; i < numChallenges; i++ {
+	for i := range numChallenges {
 		piece := pieceId[i]
 
 		log.Debugw("GenerateProofs: proving piece", "challengeIdx", i, "dataSetId", dataSetId, "pieceId", piece.PieceId, "offset", piece.Offset)

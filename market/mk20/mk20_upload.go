@@ -1165,7 +1165,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 				Opaque: fmt.Sprintf("%d", refID),
 			}
 
-			var allocationID interface{}
+			var allocationID any
 			if ddo.AllocationId != nil {
 				allocationID = *ddo.AllocationId
 			} else {

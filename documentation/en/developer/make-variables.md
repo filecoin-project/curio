@@ -348,7 +348,7 @@ make curio-native GOAMD64_NATIVE=v2
     - `1`: clone/build lotus image locally.
   - Override when: testing against a custom lotus branch/tag implementation.
 
-- `lotus_version` (default: `v1.34.2`)
+- `lotus_version` (default: `v1.35.1`)
   - Purpose: lotus version for prebuilt image tag or local clone branch/tag.
   - Override when: validating compatibility with another lotus version.
 
@@ -410,4 +410,4 @@ Current state in this repository:
   - `make gen GOCACHE_CLEAN=1`
 
 - Build docker devnet with locally built lotus:
-  - `make docker/devnet build_lotus=1 lotus_version=v1.34.2`
+  - `make docker/devnet build_lotus=1 lotus_version=v1.35.1`

@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+        continue-on-error: true # Don't fail if item already exists in project. actions/add-to-project does not currently handle this case gracefully.
         with:
           project-url: https://github.com/orgs/FilOzone/projects/14
           github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}

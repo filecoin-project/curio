@@ -14,6 +14,8 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
@@ -97,12 +99,14 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		PieceCID  string `db:"piece_cid"`
 		PieceSize int64  `db:"piece_padded_size"`
 		PieceRef  int64  `db:"piece_ref"`
+		RawSize   int64  `db:"piece_raw_size"`
 	}
 
 	err := db.Select(ctx, &pieces, `SELECT
     										pr.id,
     										pr.piece_cid,
        										pp.piece_padded_size,
+       										pp.piece_raw_size,
        										pr.piece_ref
 										FROM pdp_piecerefs pr
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
@@ -134,153 +138,178 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		return xerrors.Errorf("unmarshaling private key: %w", err)
 	}
 
-	var deleteIndex bool
-
 	for _, piece := range pieces {
+		var deleteIndex bool
 		// Create RM ad
-		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var refCount0 bool
-			err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0)`, piece.ID).Scan(&refCount0)
-			if err != nil {
-				return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
-			}
+		pcid1, err := cid.Parse(piece.PieceCID)
+		if err != nil {
+			return xerrors.Errorf("failed to parse piece CID: %w", err)
+		}
+		pcidV2, err := commcid.PieceCidV2FromV1(pcid1, uint64(piece.RawSize))
+		if err != nil {
+			return xerrors.Errorf("failed to construct piece cid v2: %w", err)
+		}
 
-			if !refCount0 {
-				log.Debugf("Piece %s with pdp_piecerefs ID %d is referenced by a dataSet, skipping cleanup", piece.PieceCID, piece.ID)
-				return false, nil
-			}
+		var skipLoop bool
+		failed := true
+		for range 5 {
+			comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				var refCount0 bool
+				err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0)`, piece.ID).Scan(&refCount0)
+				if err != nil {
+					return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
+				}
 
-			var skipCleanup bool
-			err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceCID, piece.ID).Scan(&skipCleanup)
-			if err != nil {
-				return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
-			}
+				if !refCount0 {
+					skipLoop = true
+					log.Debugf("Piece %s with pdp_piecerefs ID %d is referenced by a dataSet, skipping cleanup", piece.PieceCID, piece.ID)
+					return false, nil
+				}
 
-			// Let's drop the PDP piece ref even if we don't publish the removal ad
-			n, err := tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0`, piece.ID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete PDP piece ref id=%d: %w", piece.ID, err)
-			}
+				var skipCleanup bool
+				err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1 AND id != $2 LIMIT 1)`, piece.PieceCID, piece.ID).Scan(&skipCleanup)
+				if err != nil {
+					return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
+				}
 
-			if n != 1 {
-				return false, xerrors.Errorf("expected to delete 1 row but deleted %d", n)
-			}
+				// Let's drop the PDP piece ref even if we don't publish the removal ad
+				n, err := tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0`, piece.ID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to delete PDP piece ref id=%d: %w", piece.ID, err)
+				}
 
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
-			}
+				if n != 1 {
+					return false, xerrors.Errorf("expected to delete 1 row but deleted %d", n)
+				}
 
-			if skipCleanup {
-				log.Debugf("Skipping IPNI removal ad for piece %s as it is referenced by another piece", piece.PieceCID)
-				return true, nil
-			}
+				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
+				if err != nil {
+					return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", piece.PieceRef, err)
+				}
 
-			var contextID []byte
-			var isRMAd bool
+				if skipCleanup {
+					log.Debugf("Skipping IPNI removal ad for piece %s as it is referenced by another piece", piece.PieceCID)
+					return true, nil
+				}
 
-			err = tx.QueryRow(`SELECT
+				var contextID []byte
+				var isRMAd bool
+
+				err = tx.QueryRow(`SELECT
     									context_id,
     									is_rm
 									FROM ipni
 									WHERE piece_cid = $1
 									  AND piece_size = $2
 									ORDER BY order_number DESC LIMIT 1`, piece.PieceCID, piece.PieceSize).Scan(&contextID, &isRMAd)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					log.Debugf("No previous advertisement for piece %s, skipping", piece.PieceCID)
+				if err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						log.Debugf("No previous advertisement for piece %s, skipping", piece.PieceCID)
+						return true, nil
+					}
+					return false, xerrors.Errorf("querying previous advertisement: %w", err)
+				}
+
+				if isRMAd {
+					// Already removed, skip
+					log.Infof("Skipping removal ad for piece %s as last ad for this piece requested removal", piece.PieceCID)
 					return true, nil
 				}
-				return false, xerrors.Errorf("querying previous advertisement: %w", err)
-			}
 
-			if isRMAd {
-				// Already removed, skip
-				log.Infof("Skipping removal ad for piece %s as last ad for this piece requested removal", piece.PieceCID)
+				var prev string
+				err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, peerID).Scan(&prev)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return false, xerrors.Errorf("querying previous head: %w", err)
+				}
+
+				mds := metadata.IpfsGatewayHttp{}
+				md, err := mds.MarshalBinary()
+				if err != nil {
+					return false, xerrors.Errorf("marshaling metadata: %w", err)
+				}
+
+				adv := schema.Advertisement{
+					Provider:  peerID,
+					ContextID: contextID,
+					Metadata:  md,
+					IsRm:      true,
+					Entries:   schema.NoEntries,
+				}
+
+				{
+					u, err := urlhelper.GetExternalURL(cfg)
+					if err != nil {
+						return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
+					}
+
+					addr, err := urlhelper.FromURLWithPort(u)
+					if err != nil {
+						return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
+					}
+
+					log.Infow("Announcing piece removal to IPNI", "piece", piece.PieceCID, "provider", peerID, "addr", addr.String())
+
+					adv.Addresses = append(adv.Addresses, addr.String())
+				}
+
+				if prev != "" {
+					prevCID, err := cid.Parse(prev)
+					if err != nil {
+						return false, xerrors.Errorf("parsing previous CID: %w", err)
+					}
+
+					adv.PreviousID = cidlink.Link{Cid: prevCID}
+				}
+
+				err = adv.Sign(pkey)
+				if err != nil {
+					return false, xerrors.Errorf("signing the advertisement: %w", err)
+				}
+
+				err = adv.Validate()
+				if err != nil {
+					return false, xerrors.Errorf("validating the advertisement: %w", err)
+				}
+
+				adNode, err := adv.ToNode()
+				if err != nil {
+					return false, xerrors.Errorf("converting advertisement to node: %w", err)
+				}
+
+				ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
+				if err != nil {
+					return false, xerrors.Errorf("converting advertisement to link: %w", err)
+				}
+
+				var inserted bool
+				err = tx.QueryRow(`SELECT insert_ad_and_update_head_checked($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+					ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcidV2.String(), piece.PieceCID, piece.PieceSize, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+					adv.Signature, adv.Entries.String(), nullableText(prev)).Scan(&inserted)
+				if err != nil {
+					return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+				}
+				if !inserted {
+					return false, nil
+				}
+
+				deleteIndex = true
+
 				return true, nil
-			}
 
-			var prev string
-			err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, peerID).Scan(&prev)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return false, xerrors.Errorf("querying previous head: %w", err)
-			}
-
-			mds := metadata.IpfsGatewayHttp{}
-			md, err := mds.MarshalBinary()
-			if err != nil {
-				return false, xerrors.Errorf("marshaling metadata: %w", err)
-			}
-
-			adv := schema.Advertisement{
-				Provider:  peerID,
-				ContextID: contextID,
-				Metadata:  md,
-				IsRm:      true,
-				Entries:   schema.NoEntries,
-			}
-
-			{
-				u, err := urlhelper.GetExternalURL(cfg)
-				if err != nil {
-					return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
-				}
-
-				addr, err := urlhelper.FromURLWithPort(u)
-				if err != nil {
-					return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
-				}
-
-				log.Infow("Announcing piece removal to IPNI", "piece", piece.PieceCID, "provider", peerID, "addr", addr.String())
-
-				adv.Addresses = append(adv.Addresses, addr.String())
-			}
-
-			if prev != "" {
-				prevCID, err := cid.Parse(prev)
-				if err != nil {
-					return false, xerrors.Errorf("parsing previous CID: %w", err)
-				}
-
-				adv.PreviousID = cidlink.Link{Cid: prevCID}
-			}
-
-			err = adv.Sign(pkey)
-			if err != nil {
-				return false, xerrors.Errorf("signing the advertisement: %w", err)
-			}
-
-			err = adv.Validate()
-			if err != nil {
-				return false, xerrors.Errorf("validating the advertisement: %w", err)
-			}
-
-			adNode, err := adv.ToNode()
-			if err != nil {
-				return false, xerrors.Errorf("converting advertisement to node: %w", err)
-			}
-
-			ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
-			if err != nil {
-				return false, xerrors.Errorf("converting advertisement to link: %w", err)
-			}
-
-			_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-				ad.(cidlink.Link).Cid.String(), adv.ContextID, piece.PieceCID, piece.PieceSize, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
-				adv.Signature, adv.Entries.String())
+			}, harmonydb.OptionRetry())
 
 			if err != nil {
-				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+				return xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
 			}
 
-			deleteIndex = true
+			if comm || skipLoop {
+				failed = false
+				break
+			}
+		}
 
-			return true, nil
-
-		}, harmonydb.OptionRetry())
-
-		if err != nil {
-			return xerrors.Errorf("failed to create IPNI removal ad for piece %s: %w", piece.PieceCID, err)
+		if failed {
+			log.Warnf("Failed to create IPNI removal ad for piece %s after 5 retries", piece.PieceCID)
 		}
 
 		if deleteIndex {
@@ -297,4 +326,11 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 	}
 
 	return nil
+}
+
+func nullableText(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }

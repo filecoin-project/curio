@@ -46,23 +46,23 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 
 ***
 
-### :hammer: Install Go (match `GO_VERSION_MIN`)
+### :hammer: Install Go (match `go.mod`)
 
-Curio’s minimum Go version is set in the Curio repo at `GO_VERSION_MIN`.
+Curio’s minimum Go version is set in the Curio repo at `go.mod`.
 
-Example (current repo min is **1.24.7**):
+Example (current repo min is **1.26.2**):
 
 ```sh
 sudo rm -rf /usr/local/go
-wget https://go.dev/dl/go1.24.7.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.24.7.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.2.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.2.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 go version
 ```
 
 {% hint style="success" %}
-You should see something like: `go version go1.24.7 linux/amd64`
+You should see something like: `go version go1.26.2 linux/amd64`
 {% endhint %}
 
 ***

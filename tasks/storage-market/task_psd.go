@@ -96,7 +96,6 @@ func (p *PSDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned 
 	var deals []deal
 
 	for _, d := range bdeals {
-		d := d
 
 		var prop market.DealProposal
 		err = json.Unmarshal(d.Prop, &prop)

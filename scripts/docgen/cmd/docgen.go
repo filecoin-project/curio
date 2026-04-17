@@ -18,8 +18,7 @@ func main() {
 
 	_, t, permStruct := docgen.GetAPIType(os.Args[2], os.Args[3])
 
-	for i := 0; i < t.NumMethod(); i++ {
-		m := t.Method(i)
+	for m := range t.Methods() {
 
 		groupName := docgen.MethodGroupFromName(m.Name)
 
@@ -36,7 +35,7 @@ func main() {
 			groups[groupName] = g
 		}
 
-		var args []interface{}
+		var args []any
 		ft := m.Func.Type()
 		for j := 2; j < ft.NumIn(); j++ {
 			inp := ft.In(j)
@@ -82,7 +81,6 @@ func main() {
 	}
 
 	for _, g := range groupslice {
-		g := g
 		fmt.Printf("### %s\n", g.GroupName)
 		fmt.Printf("%s\n\n", g.Header)
 

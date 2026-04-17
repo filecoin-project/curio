@@ -230,7 +230,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	}
 
 	var slotOffs []uint64
-	for i := 0; i < pipelines; i++ {
+	for i := range pipelines {
 		slot := slotSize * uint64(i)
 		log.Infow("batch slot", "slot", slot, "machine", machineHostAndPort)
 		slotOffs = append(slotOffs, slot)
@@ -673,13 +673,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 			sectorsForSP = remainingToSeal
 		} else {
 			// Proportional allocation based on weight
-			sectorsForSP = (toSeal * schedule.Weight) / totalWeight
-			if sectorsForSP > schedule.ToSeal {
-				sectorsForSP = schedule.ToSeal
-			}
-			if sectorsForSP > remainingToSeal {
-				sectorsForSP = remainingToSeal
-			}
+			sectorsForSP = min(min((toSeal*schedule.Weight)/totalWeight, schedule.ToSeal), remainingToSeal)
 		}
 
 		if sectorsForSP == 0 {

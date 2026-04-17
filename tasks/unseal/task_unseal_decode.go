@@ -70,9 +70,10 @@ func (t *TaskUnsealDecode) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		OrigSealedCID  string `db:"orig_sealed_cid"`
 		CurSealedCID   string `db:"cur_sealed_cid"`
 		CurUnsealedCID string `db:"cur_unsealed_cid"`
+		HasSectorKey   bool   `db:"has_sector_key"`
 	}
 	err = t.db.Select(ctx, &sectorMeta, `
-		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid, cur_unsealed_cid
+		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid, cur_unsealed_cid, has_sector_key
 		FROM sectors_meta
 		WHERE sp_id = $1 AND sector_num = $2`, sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
@@ -127,7 +128,7 @@ func (t *TaskUnsealDecode) Do(ctx context.Context, taskID harmonytask.TaskID, st
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
-	isSnap := commK != commR
+	isSnap := smeta.HasSectorKey
 	log.Infow("unseal decode", "snap", isSnap, "task", taskID, "commK", commK, "commR", commR, "commD", commD)
 	if isSnap {
 		err := t.sc.DecodeSnap(ctx, taskID, commD, commK, sref)

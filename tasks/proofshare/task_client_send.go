@@ -281,10 +281,7 @@ func (t *TaskClientSend) doSendRequest(ctx context.Context, taskID harmonytask.T
 		}
 		// If backoff is true, service is unavailable, so retry with exponential backoff
 		if backoff {
-			delay := baseDelay * (1 << attempt)
-			if delay > maxDelay {
-				delay = maxDelay
-			}
+			delay := min(baseDelay*(1<<attempt), maxDelay)
 			log.Warnw("service unavailable, backing off", "attempt", attempt+1, "delay", delay, "taskID", taskID)
 			time.Sleep(delay)
 			continue

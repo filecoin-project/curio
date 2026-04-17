@@ -3,126 +3,57 @@ package itests
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"math/bits"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
-	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
-	"github.com/docker/go-units"
-	"github.com/gbrlsnchs/jwt/v3"
-	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
-	"github.com/ipld/go-car/v2/blockstore"
-	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/stretchr/testify/require"
-	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-data-segment/datasegment"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/api"
-	"github.com/filecoin-project/curio/cmd/curio/rpc"
-	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/itests/helpers"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/denylist"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/indexing"
 
-	lapi "github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/v1api"
 	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/cli/spcli/createminer"
-	"github.com/filecoin-project/lotus/itests/kit"
-	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 )
-
-type pieceFixture struct {
-	RootCID    cid.Cid
-	CarBytes   []byte
-	PieceCIDV1 cid.Cid
-	PieceCIDV2 cid.Cid
-	PieceSize  abi.PaddedPieceSize
-	RawSize    int64
-}
 
 func TestRetrievals(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 
-	full, miner, ensemble := kit.EnsembleMinimal(t,
-		kit.LatestActorsAt(-1),
-		kit.PresealSectors(2),
-		kit.ThroughRPC(),
-	)
-	ensemble.Start()
-	ensemble.BeginMining(100 * time.Millisecond)
-	full.WaitTillChain(ctx, kit.HeightAtLeast(12))
+	full, _, db, maddr := helpers.BootstrapNetworkWithNewMiner(t, ctx, "2KiB")
 
-	require.NoError(t, miner.LogSetLevel(ctx, "*", "ERROR"))
-	require.NoError(t, full.LogSetLevel(ctx, "*", "ERROR"))
+	idxStore := helpers.NewIndexStore(ctx, t, config.DefaultCurioConfig())
 
-	token, err := full.AuthNew(ctx, lapi.AllPermissions)
-	require.NoError(t, err)
-	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
-
-	sharedITestID := harmonydb.ITestNewID()
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
-	require.NoError(t, err)
-	defer db.ITestDeleteAll()
-
-	idxStore, err := indexstore.NewIndexStore([]string{helpers.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
-	require.NoError(t, err)
-	require.NoError(t, idxStore.Start(ctx, true))
-
-	addr := miner.OwnerKey.Address
-	sectorSizeInt, err := units.RAMInBytes("2KiB")
-	require.NoError(t, err)
-
-	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 1, 1.0)
-	require.NoError(t, err)
-	require.NoError(t, deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, fapi))
-
-	baseCfg := config.DefaultCurioConfig()
-	var baseText string
-	require.NoError(t, db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText))
-	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
-	require.NoError(t, err)
-
-	httpAddr := helpers.FreeListenAddr(t)
-	baseCfg.Subsystems.EnableDealMarket = true
-	baseCfg.HTTP.Enable = true
-	baseCfg.HTTP.DelegateTLS = true
-	baseCfg.HTTP.DomainName = "localhost"
-	baseCfg.HTTP.ListenAddress = httpAddr
+	// Setup dynamic deny list
 	denylistData := []byte("[]")
+	baseCfg, err := helpers.SetBaseConfigWithDefaults(t, ctx, db)
+	require.NoError(t, err)
 	denylistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("etag", "\"retrievals-itest-denylist\"")
@@ -134,32 +65,17 @@ func TestRetrievals(t *testing.T) {
 	}))
 	defer denylistServer.Close()
 	baseCfg.HTTP.DenylistServers = config.NewDynamic([]string{denylistServer.URL})
-	baseCfg.Batching.PreCommit.Timeout = time.Second
-	baseCfg.Batching.Commit.Timeout = time.Second
+	require.NoError(t, helpers.UpsertBaseConfig(ctx, db, baseCfg))
 
-	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, "base", string(cb))
-	require.NoError(t, err)
-
+	// Setup Piece and Unsealed Storage
 	temp := os.TempDir()
 	dir, err := os.MkdirTemp(temp, "curio-retrieval-itest")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(dir) }()
-
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, storiface.FTUnsealed.String()), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, storiface.FTPiece.String()), 0o755))
 
-	mk12Fixture := createPieceFixture(t, dir, 512)
-	aggregateSubpieceFixture := createPieceFixture(t, dir, 127)
-	aggregateSiblingFixture := createPieceFixture(t, dir, 127)
-	aggregateFixture, aggregateSubPieces := createAggregateFixtureFromSubpieces(t, []pieceFixture{
-		aggregateSubpieceFixture,
-		aggregateSiblingFixture,
-	})
-	denylistedFixture := createPieceFixture(t, dir, 448)
-	parkNoDealFixture := createPieceFixture(t, dir, 320)
-	parkWithDealFixture := createPieceFixture(t, dir, 384)
+	fixtures := buildRetrievalFixtures(t, dir)
 
 	mid, err := address.IDFromAddress(maddr)
 	require.NoError(t, err)
@@ -169,218 +85,436 @@ func TestRetrievals(t *testing.T) {
 	require.NoError(t, err)
 	sealProof, err := miner2.PreferredSealProofTypeFromWindowPoStType(nv, mi.WindowPoStProofType, false)
 	require.NoError(t, err)
-	sectorSize, err := sealProof.SectorSize()
+	sealSectorSize, err := sealProof.SectorSize()
 	require.NoError(t, err)
+	spID := int64(mid)
+	minerID := abi.ActorID(mid)
+	sectorSize := sealSectorSize
 
-	// MK12-style fixture: read from a declared unsealed sector and reachable through both piece CID v1 and v2.
-	sectorNum := abi.SectorNumber(199)
-	require.NoError(t, writeUnsealedSectorFixture(dir, abi.ActorID(mid), sectorNum, abi.SectorSize(sectorSize), mk12Fixture))
-	_, err = db.Exec(ctx, `INSERT INTO sectors_meta (
-		sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
-		orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
-		seed_epoch, seed_value
-	) VALUES ($1, $2, $3, 0, $4, $5, $6, $5, $6, 0, $4)
-	ON CONFLICT (sp_id, sector_num) DO NOTHING`,
-		mid, int64(sectorNum), sealProof, []byte{0}, mk12Fixture.PieceCIDV1.String(), mk12Fixture.PieceCIDV1.String())
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		"mk12-retrieval-itest",
-		mk12Fixture.PieceCIDV1.String(),
-		true,
-		mid,
-		int64(sectorNum),
-		int64(0),
-		int64(mk12Fixture.PieceSize),
-		mk12Fixture.RawSize,
-		true,
-		nil,
-		false,
-		int64(0),
-	)
-	require.NoError(t, err)
-	require.NoError(t, addIndexFromCAR(ctx, idxStore, mk12Fixture.PieceCIDV2, mk12Fixture.CarBytes))
-
-	// Aggregate retrieval fixture: the subpiece has no direct deal and must be served
-	// from an aggregate piece via indexstore aggregate mappings.
-	aggregateSectorNum := abi.SectorNumber(200)
-	require.NoError(t, writeUnsealedSectorFixture(dir, abi.ActorID(mid), aggregateSectorNum, abi.SectorSize(sectorSize), aggregateFixture))
-	_, err = db.Exec(ctx, `INSERT INTO sectors_meta (
-		sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
-		orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
-		seed_epoch, seed_value
-	) VALUES ($1, $2, $3, 0, $4, $5, $6, $5, $6, 0, $4)
-	ON CONFLICT (sp_id, sector_num) DO NOTHING`,
-		mid, int64(aggregateSectorNum), sealProof, []byte{0}, aggregateFixture.PieceCIDV1.String(), aggregateFixture.PieceCIDV1.String())
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		"mk12-aggregate-itest",
-		aggregateFixture.PieceCIDV1.String(),
-		true,
-		mid,
-		int64(aggregateSectorNum),
-		int64(0),
-		int64(aggregateFixture.PieceSize),
-		aggregateFixture.RawSize,
-		true,
-		nil,
-		false,
-		int64(0),
-	)
-	require.NoError(t, err)
-	require.NoError(t, addAggregateIndexFromPiece(t, ctx, idxStore, aggregateFixture, aggregateSubPieces))
-
-	// Denylisted fixture: retrievable piece/root used to assert HTTP 451 for both /piece and /ipfs paths.
-	denylistedSectorNum := abi.SectorNumber(201)
-	require.NoError(t, writeUnsealedSectorFixture(dir, abi.ActorID(mid), denylistedSectorNum, abi.SectorSize(sectorSize), denylistedFixture))
-	_, err = db.Exec(ctx, `INSERT INTO sectors_meta (
-		sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
-		orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
-		seed_epoch, seed_value
-	) VALUES ($1, $2, $3, 0, $4, $5, $6, $5, $6, 0, $4)
-	ON CONFLICT (sp_id, sector_num) DO NOTHING`,
-		mid, int64(denylistedSectorNum), sealProof, []byte{0}, denylistedFixture.PieceCIDV1.String(), denylistedFixture.PieceCIDV1.String())
-	require.NoError(t, err)
-	_, err = db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		"mk12-denylist-itest",
-		denylistedFixture.PieceCIDV1.String(),
-		true,
-		mid,
-		int64(denylistedSectorNum),
-		int64(0),
-		int64(denylistedFixture.PieceSize),
-		denylistedFixture.RawSize,
-		true,
-		nil,
-		false,
-		int64(0),
-	)
-	require.NoError(t, err)
-	require.NoError(t, addIndexFromCAR(ctx, idxStore, denylistedFixture.PieceCIDV2, denylistedFixture.CarBytes))
+	seedPlan := buildRetrievalSeedPlan(fixtures)
+	seedState := seedRetrievalFixtures(t, ctx, dir, db, idxStore, spID, minerID, sealProof, sectorSize, seedPlan, fixtures)
 
 	denylistData, err = json.Marshal([]struct {
 		Anchor string `json:"anchor"`
 	}{
-		{Anchor: denylist.CIDToHash(denylistedFixture.PieceCIDV1)},
-		{Anchor: denylist.CIDToHash(denylistedFixture.RootCID)},
+		{Anchor: denylist.CIDToHash(fixtures.denylisted.PieceCIDV1)},
+		{Anchor: denylist.CIDToHash(fixtures.denylisted.RootCID)},
 	})
 	require.NoError(t, err)
 
-	// Park-only fixture: no market_piece_deal binding.
-	var parkOnlyPieceID int64
-	require.NoError(t, db.QueryRow(ctx, `
-		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
-		VALUES ($1, $2, $3, TRUE, TRUE)
-		RETURNING id`,
-		parkNoDealFixture.PieceCIDV1.String(),
-		int64(parkNoDealFixture.PieceSize),
-		parkNoDealFixture.RawSize,
-	).Scan(&parkOnlyPieceID))
-	require.NoError(t, writeParkedPieceFixture(dir, parkOnlyPieceID, parkNoDealFixture.CarBytes))
+	harness := helpers.StartCurioHarnessWithCleanup(ctx, t, dir, db, idxStore, full, baseCfg.Apis.StorageRPCSecret, helpers.CurioHarnessOptions{})
 
-	// Parked piece with deal binding (ULID id + piece_ref).
-	var parkWithDealPieceID int64
-	require.NoError(t, db.QueryRow(ctx, `
-		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
-		VALUES ($1, $2, $3, TRUE, TRUE)
-		RETURNING id`,
-		parkWithDealFixture.PieceCIDV1.String(),
-		int64(parkWithDealFixture.PieceSize),
-		parkWithDealFixture.RawSize,
-	).Scan(&parkWithDealPieceID))
-	require.NoError(t, writeParkedPieceFixture(dir, parkWithDealPieceID, parkWithDealFixture.CarBytes))
-	var pieceRefID int64
-	require.NoError(t, db.QueryRow(ctx, `
-		INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-		VALUES ($1, $2, $3::jsonb, TRUE)
-		RETURNING ref_id`,
-		parkWithDealPieceID, "", "{}",
-	).Scan(&pieceRefID))
-	_, err = db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		"01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		parkWithDealFixture.PieceCIDV1.String(),
-		false,
-		int64(-1),
-		int64(-1),
-		nil,
-		int64(parkWithDealFixture.PieceSize),
-		parkWithDealFixture.RawSize,
-		true,
-		pieceRefID,
-		false,
-		int64(0),
-	)
+	dependencies := harness.Dependencies
+
+	baseURL := "http://" + baseCfg.HTTP.ListenAddress
+	helpers.WaitForHTTP(t, baseURL)
+	runRetrievalScenarios(t, ctx, dir, db, idxStore, dependencies, baseURL, spID, minerID, sealProof, sectorSize, fixtures, seedState)
+}
+
+type retrievalFixtureSeed struct {
+	DealID             string
+	SectorNum          abi.SectorNumber
+	Fixture            helpers.PieceFixture
+	IndexAggregate     bool
+	AggregateSubPieces []mk20.DataSource
+	RawSizeOverride    *int64
+	SkipIndex          bool
+}
+
+type retrievalFixtures struct {
+	mk12                           helpers.PieceFixture
+	aggregateSubpiece              helpers.PieceFixture
+	aggregate                      helpers.PieceFixture
+	aggregateSubPieces             []mk20.DataSource
+	denylisted                     helpers.PieceFixture
+	parkNoDeal                     helpers.PieceFixture
+	parkWithDeal                   helpers.PieceFixture
+	pdpParked                      helpers.PieceFixture
+	cacheReuse                     helpers.PieceFixture
+	rawSizeValid                   helpers.PieceFixture
+	rawSizeZero                    helpers.PieceFixture
+	missingMetadata                helpers.PieceFixture
+	aggregateRetrySub              helpers.PieceFixture
+	aggregateRetryFail             helpers.PieceFixture
+	aggregateRetryFailSubPieces    []mk20.DataSource
+	aggregateRetrySuccess          helpers.PieceFixture
+	aggregateRetrySuccessSubPieces []mk20.DataSource
+}
+
+type retrievalParkedPieceIDs struct {
+	parkOnlyPieceID     int64
+	parkWithDealPieceID int64
+	pdpPieceID          int64
+	cacheReusePieceID   int64
+}
+
+type retrievalSeedState struct {
+	cacheReusePieceID int64
+}
+
+const (
+	rawSizeValidSectorNum       abi.SectorNumber = 202
+	rawSizeZeroSectorNum        abi.SectorNumber = 203
+	missingMetadataSectorNum    abi.SectorNumber = 204
+	aggregateRetrySuccessSector abi.SectorNumber = 205
+)
+
+func createPaddedRetrievalFixture(t *testing.T, dir string, sourceSize int64) helpers.PieceFixture {
+	t.Helper()
+
+	for attempt := range int64(8) {
+		fixture := helpers.CreatePieceFixture(t, dir, sourceSize+attempt)
+		if fixture.RawSize < int64(fixture.PieceSize.Unpadded()) {
+			return fixture
+		}
+	}
+
+	t.Fatalf("failed to create padded retrieval fixture from source size %d", sourceSize)
+	return helpers.PieceFixture{}
+}
+
+func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
+	t.Helper()
+
+	mk12Fixture := helpers.CreatePieceFixture(t, dir, 512)
+	aggregateSubpieceFixture := helpers.CreatePieceFixture(t, dir, 127)
+	aggregateSiblingFixture := helpers.CreatePieceFixture(t, dir, 127)
+	aggregateFixture, aggregateSubPieces := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{
+		aggregateSubpieceFixture,
+		aggregateSiblingFixture,
+	})
+	rawSizeValidFixture := createPaddedRetrievalFixture(t, dir, 331)
+	rawSizeZeroFixture := createPaddedRetrievalFixture(t, dir, 347)
+	aggregateRetrySubFixture := helpers.CreatePieceFixture(t, dir, 141)
+	aggregateRetrySiblingA := helpers.CreatePieceFixture(t, dir, 149)
+	aggregateRetrySiblingB := helpers.CreatePieceFixture(t, dir, 157)
+	aggregateRetryA, aggregateRetryASubPieces := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{
+		aggregateRetrySubFixture,
+		aggregateRetrySiblingA,
+	})
+	aggregateRetryB, aggregateRetryBSubPieces := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{
+		aggregateRetrySubFixture,
+		aggregateRetrySiblingB,
+	})
+	aggregateRetryFail := aggregateRetryA
+	aggregateRetryFailSubPieces := aggregateRetryASubPieces
+	aggregateRetrySuccess := aggregateRetryB
+	aggregateRetrySuccessSubPieces := aggregateRetryBSubPieces
+	if bytes.Compare(aggregateRetryB.PieceCIDV2.Bytes(), aggregateRetryA.PieceCIDV2.Bytes()) < 0 {
+		aggregateRetryFail = aggregateRetryB
+		aggregateRetryFailSubPieces = aggregateRetryBSubPieces
+		aggregateRetrySuccess = aggregateRetryA
+		aggregateRetrySuccessSubPieces = aggregateRetryASubPieces
+	}
+
+	return retrievalFixtures{
+		mk12:                           mk12Fixture,
+		aggregateSubpiece:              aggregateSubpieceFixture,
+		aggregate:                      aggregateFixture,
+		aggregateSubPieces:             aggregateSubPieces,
+		denylisted:                     helpers.CreatePieceFixture(t, dir, 448),
+		parkNoDeal:                     helpers.CreatePieceFixture(t, dir, 320),
+		parkWithDeal:                   helpers.CreatePieceFixture(t, dir, 384),
+		pdpParked:                      helpers.CreatePieceFixture(t, dir, 360),
+		cacheReuse:                     helpers.CreatePieceFixture(t, dir, 416),
+		rawSizeValid:                   rawSizeValidFixture,
+		rawSizeZero:                    rawSizeZeroFixture,
+		missingMetadata:                helpers.CreatePieceFixture(t, dir, 352),
+		aggregateRetrySub:              aggregateRetrySubFixture,
+		aggregateRetryFail:             aggregateRetryFail,
+		aggregateRetryFailSubPieces:    aggregateRetryFailSubPieces,
+		aggregateRetrySuccess:          aggregateRetrySuccess,
+		aggregateRetrySuccessSubPieces: aggregateRetrySuccessSubPieces,
+	}
+}
+
+func buildRetrievalSeedPlan(fixtures retrievalFixtures) []retrievalFixtureSeed {
+	return []retrievalFixtureSeed{
+		{
+			DealID:    "mk12-retrieval-itest",
+			SectorNum: abi.SectorNumber(199),
+			Fixture:   fixtures.mk12,
+		},
+		{
+			DealID:             "mk12-aggregate-itest",
+			SectorNum:          abi.SectorNumber(200),
+			Fixture:            fixtures.aggregate,
+			IndexAggregate:     true,
+			AggregateSubPieces: fixtures.aggregateSubPieces,
+		},
+		{
+			DealID:    "mk12-denylist-itest",
+			SectorNum: abi.SectorNumber(201),
+			Fixture:   fixtures.denylisted,
+		},
+		{
+			DealID:          "mk12-valid-raw-size-itest",
+			SectorNum:       rawSizeValidSectorNum,
+			Fixture:         fixtures.rawSizeValid,
+			RawSizeOverride: &fixtures.rawSizeValid.RawSize,
+		},
+		{
+			DealID:          "mk12-zero-raw-size-itest",
+			SectorNum:       rawSizeZeroSectorNum,
+			Fixture:         fixtures.rawSizeZero,
+			RawSizeOverride: new(int64(0)),
+		},
+		{
+			DealID:    "mk12-aggregate-retry-itest",
+			SectorNum: aggregateRetrySuccessSector,
+			Fixture:   fixtures.aggregateRetrySuccess,
+			SkipIndex: true,
+		},
+	}
+}
+
+func seedRetrievalFixtures(
+	t *testing.T,
+	ctx context.Context,
+	dir string,
+	db *harmonydb.DB,
+	idxStore *indexstore.IndexStore,
+	spID int64,
+	minerID abi.ActorID,
+	sealProof abi.RegisteredSealProof,
+	sectorSize abi.SectorSize,
+	seeds []retrievalFixtureSeed,
+	fixtures retrievalFixtures,
+) retrievalSeedState {
+	t.Helper()
+
+	for _, seed := range seeds {
+		require.NoError(t, helpers.WriteUnsealedSectorFixture(dir, minerID, seed.SectorNum, sectorSize, seed.Fixture))
+	}
+	require.NoError(t, helpers.WriteUnsealedSectorFixture(dir, minerID, missingMetadataSectorNum, sectorSize, fixtures.missingMetadata))
+
+	var parkedIDs retrievalParkedPieceIDs
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		for _, seed := range seeds {
+			if err := seedRetrievalFixtureTx(tx, spID, sealProof, seed); err != nil {
+				return false, err
+			}
+		}
+
+		ids, err := seedParkedRetrievalFixturesTx(tx, fixtures)
+		if err != nil {
+			return false, err
+		}
+		parkedIDs = ids
+
+		return true, nil
+	})
 	require.NoError(t, err)
+	require.True(t, committed)
 
-	capi, dependencies, engineTerm, closure, finishCh := constructCurioWithMarketDeps(ctx, t, dir, db, idxStore, full, baseCfg)
-	defer engineTerm()
-	defer closure()
-	defer func() {
-		_ = capi.Shutdown(context.Background())
-		<-finishCh
-	}()
+	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.parkOnlyPieceID, fixtures.parkNoDeal.CarBytes))
+	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.parkWithDealPieceID, fixtures.parkWithDeal.CarBytes))
+	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.pdpPieceID, fixtures.pdpParked.CarBytes))
+	require.NoError(t, helpers.WriteParkedPieceFixture(dir, parkedIDs.cacheReusePieceID, fixtures.cacheReuse.CarBytes))
 
-	baseURL := "http://" + httpAddr
-	waitForHTTP(t, baseURL)
+	for _, seed := range seeds {
+		if seed.SkipIndex {
+			continue
+		}
+		if seed.IndexAggregate {
+			require.NoError(t, helpers.AddAggregateIndexFromPiece(t, ctx, idxStore, seed.Fixture, seed.AggregateSubPieces))
+			continue
+		}
+		require.NoError(t, helpers.AddIndexFromCAR(ctx, idxStore, seed.Fixture.PieceCIDV2, seed.Fixture.CarBytes))
+	}
 
+	require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, fixtures.aggregateRetryFail, fixtures.aggregateRetryFailSubPieces))
+	require.NoError(t, addAggregateIndexWithoutUniquenessCheck(ctx, idxStore, fixtures.aggregateRetrySuccess, fixtures.aggregateRetrySuccessSubPieces))
+
+	return retrievalSeedState{
+		cacheReusePieceID: parkedIDs.cacheReusePieceID,
+	}
+}
+
+func seedParkedRetrievalFixturesTx(tx *harmonydb.Tx, fixtures retrievalFixtures) (retrievalParkedPieceIDs, error) {
+	parkOnlyPieceID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.parkNoDeal.PieceCIDV1.String(), fixtures.parkNoDeal.PieceSize, fixtures.parkNoDeal.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	_, err = helpers.InsertParkedPieceRef(tx, parkOnlyPieceID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	parkWithDealPieceID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.parkWithDeal.PieceCIDV1.String(), fixtures.parkWithDeal.PieceSize, fixtures.parkWithDeal.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	pieceRefID, err := helpers.InsertParkedPieceRef(tx, parkWithDealPieceID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	if err := helpers.ProcessPieceDealTx(tx, helpers.ProcessPieceDealParams{
+		DealID:        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		PieceCID:      fixtures.parkWithDeal.PieceCIDV1.String(),
+		BoostDeal:     false,
+		SPID:          int64(-1),
+		SectorNum:     int64(-1),
+		PieceOffset:   nil,
+		PieceLength:   int64(fixtures.parkWithDeal.PieceSize),
+		RawSize:       fixtures.parkWithDeal.RawSize,
+		FastRetrieval: true,
+		PieceRefID:    pieceRefID,
+		LegacyDeal:    false,
+		LegacyDealID:  int64(0),
+	}); err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	pdpPieceID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.pdpParked.PieceCIDV1.String(), fixtures.pdpParked.PieceSize, fixtures.pdpParked.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	pdpPieceRefID, err := helpers.InsertParkedPieceRef(tx, pdpPieceID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO pdp_services (pubkey, service_label) VALUES ($1, $2)`, []byte("retrievals-itest-pdp"), "retrievals-itest-pdp"); err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) VALUES ($1, $2, $3, NOW())`, "retrievals-itest-pdp", fixtures.pdpParked.PieceCIDV1.String(), pdpPieceRefID); err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	cacheReusePieceID, err := helpers.InsertCompletedParkedPiece(tx, fixtures.cacheReuse.PieceCIDV1.String(), fixtures.cacheReuse.PieceSize, fixtures.cacheReuse.RawSize, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	cacheReusePieceRefID, err := helpers.InsertParkedPieceRef(tx, cacheReusePieceID, "", nil, true)
+	if err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+	if err := helpers.ProcessPieceDealTx(tx, helpers.ProcessPieceDealParams{
+		DealID:        "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+		PieceCID:      fixtures.cacheReuse.PieceCIDV1.String(),
+		BoostDeal:     false,
+		SPID:          int64(-1),
+		SectorNum:     int64(-1),
+		PieceOffset:   nil,
+		PieceLength:   int64(fixtures.cacheReuse.PieceSize),
+		RawSize:       fixtures.cacheReuse.RawSize,
+		FastRetrieval: true,
+		PieceRefID:    cacheReusePieceRefID,
+		LegacyDeal:    false,
+		LegacyDealID:  int64(0),
+	}); err != nil {
+		return retrievalParkedPieceIDs{}, err
+	}
+
+	return retrievalParkedPieceIDs{
+		parkOnlyPieceID:     parkOnlyPieceID,
+		parkWithDealPieceID: parkWithDealPieceID,
+		pdpPieceID:          pdpPieceID,
+		cacheReusePieceID:   cacheReusePieceID,
+	}, nil
+}
+
+func runRetrievalScenarios(
+	t *testing.T,
+	ctx context.Context,
+	dir string,
+	db *harmonydb.DB,
+	idxStore *indexstore.IndexStore,
+	dependencies *deps.Deps,
+	baseURL string,
+	spID int64,
+	minerID abi.ActorID,
+	sealProof abi.RegisteredSealProof,
+	sectorSize abi.SectorSize,
+	fixtures retrievalFixtures,
+	seedState retrievalSeedState,
+) {
+	t.Helper()
+
+	nextSectorNum := abi.SectorNumber(300)
+	nextSector := func() abi.SectorNumber {
+		sectorNum := nextSectorNum
+		nextSectorNum++
+		return sectorNum
+	}
 	t.Run("mk12 piece retrieval by pieceCIDv1", func(t *testing.T) {
-		status, body, headers := httpGetWithHeaders(t, baseURL, "/piece/"+mk12Fixture.PieceCIDV1.String(), nil)
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.mk12.PieceCIDV1.String(), nil)
 		require.Equal(t, http.StatusOK, status)
-		require.Equal(t, mk12Fixture.CarBytes, body)
-		assertPieceResponseHeaders(t, headers, mk12Fixture.PieceCIDV1.String(), len(mk12Fixture.CarBytes))
+		require.Equal(t, fixtures.mk12.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.mk12.PieceCIDV1.String(), len(fixtures.mk12.CarBytes))
 	})
 
 	t.Run("mk12 piece retrieval by pieceCIDv2", func(t *testing.T) {
-		status, body, headers := httpGetWithHeaders(t, baseURL, "/piece/"+mk12Fixture.PieceCIDV2.String(), nil)
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.mk12.PieceCIDV2.String(), nil)
 		require.Equal(t, http.StatusOK, status)
-		require.Equal(t, mk12Fixture.CarBytes, body)
-		assertPieceResponseHeaders(t, headers, mk12Fixture.PieceCIDV2.String(), len(mk12Fixture.CarBytes))
+		require.Equal(t, fixtures.mk12.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.mk12.PieceCIDV2.String(), len(fixtures.mk12.CarBytes))
 	})
 
 	t.Run("mk12 piece retrieval HEAD by pieceCIDv2", func(t *testing.T) {
-		status, body, headers := httpRequestWithHeaders(t, http.MethodHead, baseURL, "/piece/"+mk12Fixture.PieceCIDV2.String(), nil)
+		status, body, headers := helpers.HTTPRequestWithHeaders(t, http.MethodHead, baseURL, "/piece/"+fixtures.mk12.PieceCIDV2.String(), nil)
 		require.Equal(t, http.StatusOK, status)
 		require.Empty(t, body)
-		assertPieceResponseHeaders(t, headers, mk12Fixture.PieceCIDV2.String(), len(mk12Fixture.CarBytes))
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.mk12.PieceCIDV2.String(), len(fixtures.mk12.CarBytes))
 	})
 
 	t.Run("mk12 piece retrieval range by pieceCIDv2", func(t *testing.T) {
 		rangeStart := 0
 		rangeEnd := 63
-		require.Greater(t, len(mk12Fixture.CarBytes), rangeEnd)
-		status, body, headers := httpRequestWithHeaders(t, http.MethodGet, baseURL, "/piece/"+mk12Fixture.PieceCIDV2.String(), map[string]string{
+		require.Greater(t, len(fixtures.mk12.CarBytes), rangeEnd)
+		status, body, headers := helpers.HTTPRequestWithHeaders(t, http.MethodGet, baseURL, "/piece/"+fixtures.mk12.PieceCIDV2.String(), map[string]string{
 			"Range": fmt.Sprintf("bytes=%d-%d", rangeStart, rangeEnd),
 		})
 		require.Equal(t, http.StatusPartialContent, status)
 
-		expected := mk12Fixture.CarBytes[rangeStart : rangeEnd+1]
+		expected := fixtures.mk12.CarBytes[rangeStart : rangeEnd+1]
 		require.Equal(t, expected, body)
-		require.Equal(t, fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, len(mk12Fixture.CarBytes)), headers.Get("Content-Range"))
+		require.Equal(t, fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, len(fixtures.mk12.CarBytes)), headers.Get("Content-Range"))
 		require.Equal(t, strconv.Itoa(len(expected)), headers.Get("Content-Length"))
 		require.Equal(t, "bytes", headers.Get("Accept-Ranges"))
 	})
 
 	t.Run("ipfs style retrieval", func(t *testing.T) {
-		status, body, headers := httpGetWithHeaders(t, baseURL, "/ipfs/"+mk12Fixture.RootCID.String(), map[string]string{
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+fixtures.mk12.RootCID.String(), map[string]string{
 			"Accept": "application/vnd.ipld.car",
 		})
 		require.Equal(t, http.StatusOK, status)
-		assertIPFSCarResponseHeaders(t, headers)
+		helpers.AssertIPFSCarResponseHeaders(t, headers)
 
 		br, err := carv2.NewBlockReader(bytes.NewReader(body))
 		require.NoError(t, err)
-		require.Contains(t, br.Roots, mk12Fixture.RootCID)
+		require.Contains(t, br.Roots, fixtures.mk12.RootCID)
 	})
 
 	t.Run("aggregate retrieval by subpieceCIDv2", func(t *testing.T) {
-		status, body, headers := httpGetWithHeaders(t, baseURL, "/piece/"+aggregateSubpieceFixture.PieceCIDV2.String(), nil)
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.aggregateSubpiece.PieceCIDV2.String(), nil)
 		require.Equal(t, http.StatusOK, status)
-		require.Equal(t, aggregateSubpieceFixture.CarBytes, body)
-		assertPieceResponseHeaders(t, headers, aggregateSubpieceFixture.PieceCIDV2.String(), len(aggregateSubpieceFixture.CarBytes))
+		require.Equal(t, fixtures.aggregateSubpiece.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.aggregateSubpiece.PieceCIDV2.String(), len(fixtures.aggregateSubpiece.CarBytes))
 	})
+
+	t.Run("pdp parked piece retrieval by pieceCIDv1", func(t *testing.T) {
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.pdpParked.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.pdpParked.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.pdpParked.PieceCIDV1.String(), len(fixtures.pdpParked.CarBytes))
+	})
+
+	newCachedPieceReader := func() *cachedreader.CachedPieceReader {
+		return cachedreader.NewCachedPieceReader(
+			db,
+			dependencies.SectorReader,
+			pieceprovider.NewPieceParkReader(dependencies.Stor, dependencies.Si),
+			idxStore,
+		)
+	}
 
 	t.Run("parkpiece retrieval false and no-retrieval endpoint behavior", func(t *testing.T) {
 		// /piece endpoint always uses retrieval=true, so this parked-only piece must be 404.
-		status, _ := httpGet(t, baseURL, "/piece/"+parkNoDealFixture.PieceCIDV1.String(), nil)
+		status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fixtures.parkNoDeal.PieceCIDV1.String(), nil)
 		require.Equal(t, http.StatusNotFound, status)
 
 		cprTrue := cachedreader.NewCachedPieceReader(
@@ -389,7 +523,7 @@ func TestRetrievals(t *testing.T) {
 			pieceprovider.NewPieceParkReader(dependencies.Stor, dependencies.Si),
 			idxStore,
 		)
-		_, _, err := cprTrue.GetSharedPieceReader(ctx, parkNoDealFixture.PieceCIDV1, true)
+		_, _, err := cprTrue.GetSharedPieceReader(ctx, fixtures.parkNoDeal.PieceCIDV1, true)
 		require.Error(t, err)
 		require.ErrorIs(t, err, cachedreader.ErrNoDeal)
 
@@ -399,237 +533,399 @@ func TestRetrievals(t *testing.T) {
 			pieceprovider.NewPieceParkReader(dependencies.Stor, dependencies.Si),
 			idxStore,
 		)
-		r, sz, err := cprFalse.GetSharedPieceReader(ctx, parkNoDealFixture.PieceCIDV1, false)
+		r, sz, err := cprFalse.GetSharedPieceReader(ctx, fixtures.parkNoDeal.PieceCIDV1, false)
 		require.NoError(t, err)
 		defer func() { _ = r.Close() }()
-		require.Equal(t, uint64(parkNoDealFixture.RawSize), sz)
+		require.Equal(t, uint64(fixtures.parkNoDeal.RawSize), sz)
 		got, err := io.ReadAll(r)
 		require.NoError(t, err)
-		require.Equal(t, parkNoDealFixture.CarBytes, got)
+		require.Equal(t, fixtures.parkNoDeal.CarBytes, got)
 	})
 
 	t.Run("parkpiece with deal binding serves piece retrieval", func(t *testing.T) {
-		status, body, headers := httpGetWithHeaders(t, baseURL, "/piece/"+parkWithDealFixture.PieceCIDV1.String(), nil)
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.parkWithDeal.PieceCIDV1.String(), nil)
 		require.Equal(t, http.StatusOK, status)
-		require.Equal(t, parkWithDealFixture.CarBytes, body)
-		assertPieceResponseHeaders(t, headers, parkWithDealFixture.PieceCIDV1.String(), len(parkWithDealFixture.CarBytes))
+		require.Equal(t, fixtures.parkWithDeal.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.parkWithDeal.PieceCIDV1.String(), len(fixtures.parkWithDeal.CarBytes))
+	})
+
+	t.Run("mk20 piece retrieval returns 500 when piece_ref backing is missing", func(t *testing.T) {
+		fixture := helpers.CreatePieceFixture(t, dir, 448)
+		seedStandaloneMK20Deal(t, ctx, db, "01ARZ3NDEKTSV4RRFFQ69G5FA2", fixture, int64(987654321))
+
+		status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixture.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusInternalServerError, status)
+		require.Empty(t, body)
+	})
+
+	t.Run("aggregate retrieval returns 404 when parent piece is unavailable", func(t *testing.T) {
+		subpieceFixture := helpers.CreatePieceFixture(t, dir, 129)
+		siblingFixture := helpers.CreatePieceFixture(t, dir, 137)
+		aggregateFixture, aggregateSubPieces := helpers.CreateAggregateFixtureFromSubpieces(t, []helpers.PieceFixture{
+			subpieceFixture,
+			siblingFixture,
+		})
+		require.NoError(t, helpers.AddAggregateIndexFromPiece(t, ctx, idxStore, aggregateFixture, aggregateSubPieces))
+
+		status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+subpieceFixture.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusNotFound, status)
+		require.Empty(t, body)
+	})
+
+	t.Run("piece retrieval reuses cached reader across requests", func(t *testing.T) {
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.cacheReuse.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.cacheReuse.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.cacheReuse.PieceCIDV1.String(), len(fixtures.cacheReuse.CarBytes))
+
+		piecePath := filepath.Join(
+			dir,
+			storiface.FTPiece.String(),
+			storiface.SectorName(storiface.PieceNumber(seedState.cacheReusePieceID).Ref().ID),
+		)
+		require.NoError(t, os.Remove(piecePath))
+
+		status, body, headers = helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.cacheReuse.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.cacheReuse.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.cacheReuse.PieceCIDV1.String(), len(fixtures.cacheReuse.CarBytes))
+	})
+
+	t.Run("mk12 piece retrieval returns 500 when sector read fails", func(t *testing.T) {
+		fixture := helpers.CreatePieceFixture(t, dir, 300)
+		seedStandaloneSectorDeal(t, ctx, dir, db, spID, minerID, sealProof, sectorSize, nextSector(), "mk12-invalid-size-itest", fixture, abi.PaddedPieceSize(1), fixture.RawSize, false)
+
+		status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixture.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusInternalServerError, status)
+		require.Empty(t, body)
+	})
+
+	t.Run("aggregate retrieval succeeds when one parent fails and another parent is readable", func(t *testing.T) {
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.aggregateRetrySub.PieceCIDV2.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.aggregateRetrySub.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.aggregateRetrySub.PieceCIDV2.String(), len(fixtures.aggregateRetrySub.CarBytes))
+	})
+
+	t.Run("piece retrieval serves only raw_size when raw_size is valid", func(t *testing.T) {
+		require.Less(t, fixtures.rawSizeValid.RawSize, int64(fixtures.rawSizeValid.PieceSize.Unpadded()))
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.rawSizeValid.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Len(t, body, int(fixtures.rawSizeValid.RawSize))
+		require.Equal(t, fixtures.rawSizeValid.CarBytes, body)
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.rawSizeValid.PieceCIDV1.String(), len(body))
+	})
+
+	t.Run("piece retrieval falls back to pieceSize.Unpadded when raw_size is not valid", func(t *testing.T) {
+		require.Less(t, fixtures.rawSizeZero.RawSize, int64(fixtures.rawSizeZero.PieceSize.Unpadded()))
+		status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+fixtures.rawSizeZero.PieceCIDV1.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Len(t, body, int(fixtures.rawSizeZero.PieceSize.Unpadded()))
+		require.Equal(t, fixtures.rawSizeZero.CarBytes, body[:len(fixtures.rawSizeZero.CarBytes)])
+		require.True(t, allZeroBytes(body[len(fixtures.rawSizeZero.CarBytes):]))
+		helpers.AssertPieceResponseHeaders(t, headers, fixtures.rawSizeZero.PieceCIDV1.String(), len(body))
 	})
 
 	t.Run("denylist blocks /piece path", func(t *testing.T) {
 		require.Eventually(t, func() bool {
-			status, _ := httpGet(t, baseURL, "/piece/"+denylistedFixture.PieceCIDV1.String(), nil)
+			status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fixtures.denylisted.PieceCIDV1.String(), nil)
 			return status == http.StatusUnavailableForLegalReasons
 		}, 15*time.Second, 250*time.Millisecond)
 	})
 
 	t.Run("denylist blocks /piece path with pieceCIDv2", func(t *testing.T) {
 		require.Eventually(t, func() bool {
-			status, _ := httpGet(t, baseURL, "/piece/"+denylistedFixture.PieceCIDV2.String(), nil)
+			status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fixtures.denylisted.PieceCIDV2.String(), nil)
 			return status == http.StatusUnavailableForLegalReasons
 		}, 15*time.Second, 250*time.Millisecond)
 	})
 
 	t.Run("denylist blocks /ipfs path", func(t *testing.T) {
 		require.Eventually(t, func() bool {
-			status, _ := httpGet(t, baseURL, "/ipfs/"+denylistedFixture.RootCID.String(), map[string]string{
+			status, _ := helpers.HTTPGet(t, baseURL, "/ipfs/"+fixtures.denylisted.RootCID.String(), map[string]string{
 				"Accept": "application/vnd.ipld.car",
 			})
 			return status == http.StatusUnavailableForLegalReasons
 		}, 15*time.Second, 250*time.Millisecond)
 	})
+
+	t.Run("CachedPieceReader tests", func(t *testing.T) {
+		cachedSectionReaderType := cachedSectionReaderReflectType(t, ctx, newCachedPieceReader(), fixtures.parkWithDeal.PieceCIDV1)
+
+		t.Run("missing v1 metadata caches size error until a fresh reader is used", func(t *testing.T) {
+			cpr := newCachedPieceReader()
+			_, _, err := cpr.GetSharedPieceReader(ctx, fixtures.missingMetadata.PieceCIDV1, false)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "failed to determine piece size")
+
+			seedStandaloneSectorDeal(t, ctx, dir, db, spID, minerID, sealProof, sectorSize, missingMetadataSectorNum, "mk12-missing-metadata-repair-itest", fixtures.missingMetadata, fixtures.missingMetadata.PieceSize, fixtures.missingMetadata.RawSize, false)
+
+			_, _, err = cpr.GetSharedPieceReader(ctx, fixtures.missingMetadata.PieceCIDV1, false)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "failed to determine piece size")
+
+			repairedCPR := newCachedPieceReader()
+			r, sz, err := repairedCPR.GetSharedPieceReader(ctx, fixtures.missingMetadata.PieceCIDV1, false)
+			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
+			require.Equal(t, uint64(fixtures.missingMetadata.RawSize), sz)
+
+			got, err := io.ReadAll(r)
+			require.NoError(t, err)
+			require.Equal(t, fixtures.missingMetadata.CarBytes, got)
+		})
+
+		t.Run("piece metadata without parked backing returns a piece park miss", func(t *testing.T) {
+			fixture := helpers.CreatePieceFixture(t, dir, 288)
+
+			_, err := db.Exec(ctx, `
+				INSERT INTO market_piece_metadata (piece_cid, piece_size, indexed)
+				VALUES ($1, $2, TRUE)`,
+				fixture.PieceCIDV1.String(),
+				int64(fixture.PieceSize),
+			)
+			require.NoError(t, err)
+
+			cpr := newCachedPieceReader()
+			_, _, err = cpr.GetSharedPieceReader(ctx, fixture.PieceCIDV1, false)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "failed to find piece in parked_pieces")
+		})
+
+		t.Run("cached reader waiter respects canceled context", func(t *testing.T) {
+			cpr := cachedreader.NewCachedPieceReader(nil, nil, nil, nil)
+			ready := make(chan struct{})
+			entry := newCachedSectionReaderValue(t, cachedSectionReaderType, cpr, fixtures.mk12.PieceCIDV1, nil, 0, ready, nil, nil, 0, false)
+			cacheSetEntry(t, cpr, "pieceReaderCache", fixtures.mk12.PieceCIDV1, entry)
+
+			waitCtx, cancel := context.WithCancel(ctx)
+			cancel()
+
+			_, _, err := cpr.GetSharedPieceReader(waitCtx, fixtures.mk12.PieceCIDV1, false)
+			require.ErrorIs(t, err, context.Canceled)
+			require.Equal(t, 0, hiddenIntField(entry, "refs"))
+		})
+
+		t.Run("cached reader waiter returns cached setup error", func(t *testing.T) {
+			cpr := cachedreader.NewCachedPieceReader(nil, nil, nil, nil)
+			ready := make(chan struct{})
+			close(ready)
+			expectedErr := errors.New("cached reader setup failed")
+			entry := newCachedSectionReaderValue(t, cachedSectionReaderType, cpr, fixtures.mk12.PieceCIDV1, nil, 0, ready, expectedErr, nil, 0, false)
+			cacheSetEntry(t, cpr, "pieceReaderCache", fixtures.mk12.PieceCIDV1, entry)
+
+			_, _, err := cpr.GetSharedPieceReader(ctx, fixtures.mk12.PieceCIDV1, false)
+			require.ErrorIs(t, err, expectedErr)
+			require.Equal(t, 0, hiddenIntField(entry, "refs"))
+		})
+
+		t.Run("cached reader close without expiry decrements refs only", func(t *testing.T) {
+			cpr := cachedreader.NewCachedPieceReader(nil, nil, nil, nil)
+			reader := newTrackingStorifaceReader([]byte("cached data"))
+			entry := newCachedSectionReaderValue(t, cachedSectionReaderType, cpr, fixtures.mk12.PieceCIDV1, reader, 11, closedChan(), nil, func() {}, 2, false)
+
+			require.NoError(t, callHiddenClose(entry))
+			require.Equal(t, 1, hiddenIntField(entry, "refs"))
+			require.Equal(t, int32(0), reader.closeCount.Load())
+		})
+
+		t.Run("cached reader close after expiry closes underlying reader", func(t *testing.T) {
+			cpr := cachedreader.NewCachedPieceReader(nil, nil, nil, nil)
+			reader := newTrackingStorifaceReader([]byte("cached data"))
+			var cancelCalls atomic.Int32
+			entry := newCachedSectionReaderValue(t, cachedSectionReaderType, cpr, fixtures.mk12.PieceCIDV1, reader, 11, closedChan(), nil, func() {
+				cancelCalls.Add(1)
+			}, 1, true)
+
+			require.NoError(t, callHiddenClose(entry))
+			require.Equal(t, 0, hiddenIntField(entry, "refs"))
+			require.Equal(t, int32(1), reader.closeCount.Load())
+			require.Equal(t, int32(1), cancelCalls.Load())
+		})
+
+		t.Run("reader cache expiry closes unreferenced reader", func(t *testing.T) {
+			cpr := cachedreader.NewCachedPieceReader(nil, nil, nil, nil)
+			setCacheTTL(t, cpr, "pieceReaderCache", 50*time.Millisecond)
+
+			reader := newTrackingStorifaceReader([]byte("cached data"))
+			var cancelCalls atomic.Int32
+			entry := newCachedSectionReaderValue(t, cachedSectionReaderType, cpr, fixtures.mk12.PieceCIDV1, reader, 11, closedChan(), nil, func() {
+				cancelCalls.Add(1)
+			}, 0, false)
+			cacheSetEntry(t, cpr, "pieceReaderCache", fixtures.mk12.PieceCIDV1, entry)
+
+			require.Eventually(t, func() bool {
+				return reader.closeCount.Load() == 1 && cancelCalls.Load() == 1
+			}, time.Second, 10*time.Millisecond)
+		})
+
+		t.Run("reader cache expiry defers cleanup while referenced", func(t *testing.T) {
+			cpr := cachedreader.NewCachedPieceReader(nil, nil, nil, nil)
+			setCacheTTL(t, cpr, "pieceReaderCache", 50*time.Millisecond)
+
+			reader := newTrackingStorifaceReader([]byte("cached data"))
+			var cancelCalls atomic.Int32
+			entry := newCachedSectionReaderValue(t, cachedSectionReaderType, cpr, fixtures.mk12.PieceCIDV1, reader, 11, closedChan(), nil, func() {
+				cancelCalls.Add(1)
+			}, 1, false)
+			cacheSetEntry(t, cpr, "pieceReaderCache", fixtures.mk12.PieceCIDV1, entry)
+
+			require.Eventually(t, func() bool {
+				return hiddenBoolField(entry, "expired")
+			}, time.Second, 10*time.Millisecond)
+			require.Equal(t, int32(0), reader.closeCount.Load())
+			require.Equal(t, int32(0), cancelCalls.Load())
+
+			require.NoError(t, callHiddenClose(entry))
+			require.Equal(t, int32(1), reader.closeCount.Load())
+			require.Equal(t, int32(1), cancelCalls.Load())
+		})
+
+		t.Run("error cache entry expires", func(t *testing.T) {
+			fixture := helpers.CreatePieceFixture(t, dir, 355)
+			cpr := newCachedPieceReader()
+			setCacheTTL(t, cpr, "pieceErrorCache", 50*time.Millisecond)
+
+			_, _, err := cpr.GetSharedPieceReader(ctx, fixture.PieceCIDV1, false)
+			require.Error(t, err)
+			_, found := cacheGetEntry(t, cpr, "pieceErrorCache", fixture.PieceCIDV1)
+			require.True(t, found)
+
+			require.Eventually(t, func() bool {
+				_, found := cacheGetEntry(t, cpr, "pieceErrorCache", fixture.PieceCIDV1)
+				return !found
+			}, time.Second, 10*time.Millisecond)
+		})
+	})
 }
 
-func constructCurioWithMarketDeps(ctx context.Context, t *testing.T, dir string, db *harmonydb.DB, idx *indexstore.IndexStore, full v1api.FullNode, cfg *config.CurioConfig) (api.Curio, *deps.Deps, func(), jsonrpc.ClientCloser, <-chan struct{}) {
-	ffiselect.IsTest = true
-
-	cctx, err := helpers.CreateMarketCliContext(dir)
-	require.NoError(t, err)
-
-	shutdownChan := make(chan struct{})
-	{
-		var ctxclose func()
-		ctx, ctxclose = context.WithCancel(ctx)
-		go func() {
-			<-shutdownChan
-			ctxclose()
-		}()
+func seedRetrievalFixtureTx(
+	tx *harmonydb.Tx,
+	spID int64,
+	sealProof abi.RegisteredSealProof,
+	seed retrievalFixtureSeed,
+) error {
+	rawSize := seed.Fixture.RawSize
+	if seed.RawSizeOverride != nil {
+		rawSize = *seed.RawSizeOverride
 	}
 
-	dependencies := &deps.Deps{
-		DB:         db,
-		Chain:      full,
-		IndexStore: idx,
+	_, err := tx.Exec(`INSERT INTO sectors_meta (
+		sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
+		orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
+		seed_epoch, seed_value
+	) VALUES ($1, $2, $3, 0, $4, $5, $6, $5, $6, 0, $4)
+	ON CONFLICT (sp_id, sector_num) DO NOTHING`,
+		spID,
+		int64(seed.SectorNum),
+		sealProof,
+		[]byte{0},
+		seed.Fixture.PieceCIDV1.String(),
+		seed.Fixture.PieceCIDV1.String(),
+	)
+	if err != nil {
+		return err
 	}
-	require.NoError(t, os.Setenv("CURIO_REPO_PATH", dir))
-	require.NoError(t, dependencies.PopulateRemainingDeps(ctx, cctx, false))
 
-	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
+	return helpers.ProcessPieceDealTx(tx, helpers.ProcessPieceDealParams{
+		DealID:        seed.DealID,
+		PieceCID:      seed.Fixture.PieceCIDV1.String(),
+		BoostDeal:     true,
+		SPID:          spID,
+		SectorNum:     int64(seed.SectorNum),
+		PieceOffset:   int64(0),
+		PieceLength:   int64(seed.Fixture.PieceSize),
+		RawSize:       rawSize,
+		FastRetrieval: true,
+		PieceRefID:    nil,
+		LegacyDeal:    false,
+		LegacyDealID:  int64(0),
+	})
+}
+
+func seedStandaloneMK20Deal(t *testing.T, ctx context.Context, db *harmonydb.DB, dealID string, fixture helpers.PieceFixture, pieceRefID any) {
+	t.Helper()
+
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		return true, helpers.ProcessPieceDealTx(tx, helpers.ProcessPieceDealParams{
+			DealID:        dealID,
+			PieceCID:      fixture.PieceCIDV1.String(),
+			BoostDeal:     false,
+			SPID:          int64(-1),
+			SectorNum:     int64(-1),
+			PieceOffset:   nil,
+			PieceLength:   int64(fixture.PieceSize),
+			RawSize:       fixture.RawSize,
+			FastRetrieval: true,
+			PieceRefID:    pieceRefID,
+			LegacyDeal:    false,
+			LegacyDealID:  int64(0),
+		})
+	})
 	require.NoError(t, err)
+	require.True(t, committed)
+}
 
-	go func() {
-		require.NoError(t, rpc.ListenAndServe(ctx, dependencies, shutdownChan))
-	}()
+func seedStandaloneSectorDeal(
+	t *testing.T,
+	ctx context.Context,
+	dir string,
+	db *harmonydb.DB,
+	spID int64,
+	minerID abi.ActorID,
+	sealProof abi.RegisteredSealProof,
+	sectorSize abi.SectorSize,
+	sectorNum abi.SectorNumber,
+	dealID string,
+	fixture helpers.PieceFixture,
+	pieceLength abi.PaddedPieceSize,
+	rawSize int64,
+	writeSector bool,
+) {
+	t.Helper()
 
-	finishCh := node.MonitorShutdown(shutdownChan)
+	if writeSector {
+		require.NoError(t, helpers.WriteUnsealedSectorFixture(dir, minerID, sectorNum, sectorSize, fixture))
+	}
 
-	var machines []string
-	require.NoError(t, db.Select(ctx, &machines, `select host_and_port from harmony_machines`))
-	require.Len(t, machines, 1)
-
-	laddr, err := net.ResolveTCPAddr("tcp", machines[0])
-	require.NoError(t, err)
-	ma, err := manet.FromNetAddr(laddr)
-	require.NoError(t, err)
-
-	var apiToken []byte
-	{
-		type jwtPayload struct {
-			Allow []auth.Permission
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		_, err := tx.Exec(`INSERT INTO sectors_meta (
+			sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
+			orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
+			seed_epoch, seed_value
+		) VALUES ($1, $2, $3, 0, $4, $5, $6, $5, $6, 0, $4)
+		ON CONFLICT (sp_id, sector_num) DO NOTHING`,
+			spID,
+			int64(sectorNum),
+			sealProof,
+			[]byte{0},
+			fixture.PieceCIDV1.String(),
+			fixture.PieceCIDV1.String(),
+		)
+		if err != nil {
+			return false, err
 		}
-		p := jwtPayload{Allow: lapi.AllPermissions}
-		sk, err := base64.StdEncoding.DecodeString(cfg.Apis.StorageRPCSecret)
-		require.NoError(t, err)
-		apiToken, err = jwt.Sign(&p, jwt.NewHS256(sk))
-		require.NoError(t, err)
-	}
 
-	ctoken := fmt.Sprintf("%s:%s", string(apiToken), ma)
-	require.NoError(t, os.Setenv("CURIO_API_INFO", ctoken))
-
-	capi, ccloser, err := rpc.GetCurioAPI(&cli.Context{})
-	require.NoError(t, err)
-
-	scfg := storiface.LocalStorageMeta{
-		ID:         storiface.ID(uuid.New().String()),
-		Weight:     10,
-		CanSeal:    true,
-		CanStore:   true,
-		MaxStorage: 0,
-		Groups:     []string{},
-		AllowTo:    []string{},
-	}
-	require.NoError(t, capi.StorageInit(ctx, dir, scfg))
-	require.NoError(t, capi.StorageAddLocal(ctx, dir))
-
-	//_ = logging.SetLogLevel("harmonytask", "ERROR")
-	//_ = logging.SetLogLevel("storage-market", "ERROR")
-
-	return capi, dependencies, taskEngine.GracefullyTerminate, ccloser, finishCh
-}
-
-func createPieceFixture(t *testing.T, dir string, sourceSize int64) pieceFixture {
-	t.Helper()
-
-	srcPath, err := testutils.CreateRandomTmpFile(dir, sourceSize)
-	require.NoError(t, err)
-
-	root, carPath, err := testutils.CreateDenseCARWith(dir, srcPath, 64, 8, []carv2.Option{
-		blockstore.WriteAsCarV1(true),
+		return true, helpers.ProcessPieceDealTx(tx, helpers.ProcessPieceDealParams{
+			DealID:        dealID,
+			PieceCID:      fixture.PieceCIDV1.String(),
+			BoostDeal:     true,
+			SPID:          spID,
+			SectorNum:     int64(sectorNum),
+			PieceOffset:   int64(0),
+			PieceLength:   int64(pieceLength),
+			RawSize:       rawSize,
+			FastRetrieval: true,
+			PieceRefID:    nil,
+			LegacyDeal:    false,
+			LegacyDealID:  int64(0),
+		})
 	})
 	require.NoError(t, err)
-
-	carBytes, err := os.ReadFile(carPath)
-	require.NoError(t, err)
-
-	return createRawPieceFixture(t, carBytes, root)
+	require.True(t, committed)
 }
 
-func createRawPieceFixture(t *testing.T, raw []byte, root cid.Cid) pieceFixture {
-	t.Helper()
-
-	wr := new(commp.Calc)
-	defer wr.Reset()
-
-	n, err := wr.Write(raw)
-	require.NoError(t, err)
-	digest, paddedPieceSize, err := wr.Digest()
-	require.NoError(t, err)
-
-	pieceCIDV1, err := commcid.DataCommitmentV1ToCID(digest)
-	require.NoError(t, err)
-	pieceCIDV2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
-	require.NoError(t, err)
-
-	return pieceFixture{
-		RootCID:    root,
-		CarBytes:   raw,
-		PieceCIDV1: pieceCIDV1,
-		PieceCIDV2: pieceCIDV2,
-		PieceSize:  abi.PaddedPieceSize(paddedPieceSize),
-		RawSize:    int64(n),
-	}
-}
-
-func createAggregateFixtureFromSubpieces(t *testing.T, subpieces []pieceFixture) (pieceFixture, []mk20.DataSource) {
-	t.Helper()
-
-	require.GreaterOrEqual(t, len(subpieces), 2)
-
-	deals := make([]abi.PieceInfo, 0, len(subpieces))
-	readers := make([]io.Reader, 0, len(subpieces))
-	subSources := make([]mk20.DataSource, 0, len(subpieces))
-
-	for _, sp := range subpieces {
-		deals = append(deals, abi.PieceInfo{
-			PieceCID: sp.PieceCIDV1,
-			Size:     sp.PieceSize,
-		})
-		readers = append(readers, io.LimitReader(bytes.NewReader(sp.CarBytes), sp.RawSize))
-		subSources = append(subSources, mk20.DataSource{
-			PieceCID: sp.PieceCIDV2,
-			Format: mk20.PieceDataFormat{
-				Car: &mk20.FormatCar{},
-			},
-		})
-	}
-
-	_, aggregatedRawSize, err := datasegment.ComputeDealPlacement(deals)
-	require.NoError(t, err)
-
-	overallSize := abi.PaddedPieceSize(aggregatedRawSize)
-	next := 1 << (64 - bits.LeadingZeros64(uint64(overallSize+256)))
-
-	aggr, err := datasegment.NewAggregate(abi.PaddedPieceSize(next), deals)
-	require.NoError(t, err)
-
-	outR, err := aggr.AggregateObjectReader(readers)
-	require.NoError(t, err)
-
-	aggregateRaw, err := io.ReadAll(outR)
-	require.NoError(t, err)
-
-	fixture := createRawPieceFixture(t, aggregateRaw, cid.Undef)
-	require.Equal(t, abi.PaddedPieceSize(next), fixture.PieceSize)
-
-	return fixture, subSources
-}
-
-func addIndexFromCAR(ctx context.Context, idx *indexstore.IndexStore, pieceCID cid.Cid, carBytes []byte) error {
-	recs := make(chan indexstore.Record, 64)
-	addFail := make(chan struct{})
-
-	var eg errgroup.Group
-	eg.Go(func() error {
-		return idx.AddIndex(ctx, pieceCID, recs)
-	})
-
-	_, interrupted, idxErr := indexing.IndexCAR(bytes.NewReader(carBytes), 4<<20, recs, addFail)
-	close(recs)
-
-	addErr := eg.Wait()
-	if idxErr != nil {
-		return idxErr
-	}
-	if addErr != nil {
-		return addErr
-	}
-	if interrupted {
-		return fmt.Errorf("indexing was interrupted while adding piece %s", pieceCID)
-	}
-	return nil
-}
-
-func addAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexstore.IndexStore, aggregate pieceFixture, subPieces []mk20.DataSource) error {
+func addAggregateIndexWithoutUniquenessCheck(ctx context.Context, idx *indexstore.IndexStore, aggregate helpers.PieceFixture, subPieces []mk20.DataSource) error {
 	recs := make(chan indexstore.Record, 64)
 	addFail := make(chan struct{})
 
@@ -663,130 +959,146 @@ func addAggregateIndexFromPiece(t *testing.T, ctx context.Context, idx *indexsto
 	}
 
 	for k, v := range aggidx {
-		fmt.Println("adding aggregate index", k, v)
 		if err := idx.InsertAggregateIndex(ctx, k, v); err != nil {
 			return fmt.Errorf("inserting aggregate index for %s: %w", k, err)
-		}
-		for i := range v {
-			pieces, err := idx.FindPieceInAggregate(ctx, v[i].Cid)
-			require.NoError(t, err)
-			require.Len(t, pieces, 1)
-			require.True(t, aggregate.PieceCIDV2.Equals(pieces[0].Cid))
 		}
 	}
 
 	return nil
 }
 
-func writeUnsealedSectorFixture(dir string, miner abi.ActorID, sector abi.SectorNumber, sectorSize abi.SectorSize, fixture pieceFixture) error {
-	if fixture.PieceSize > abi.PaddedPieceSize(sectorSize) {
-		return fmt.Errorf("fixture piece too large for sector: piece=%d sector=%d", fixture.PieceSize, sectorSize)
+type trackingStorifaceReader struct {
+	*bytes.Reader
+	closeCount atomic.Int32
+}
+
+func newTrackingStorifaceReader(data []byte) *trackingStorifaceReader {
+	return &trackingStorifaceReader{Reader: bytes.NewReader(data)}
+}
+
+func (r *trackingStorifaceReader) Close() error {
+	r.closeCount.Add(1)
+	return nil
+}
+
+func closedChan() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func hiddenField(v reflect.Value, name string) reflect.Value {
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
 	}
-
-	// Unsealed files are FR32 padded; write the piece at offset 0 and zero-fill the rest of the sector.
-	paddedPiece := fr32PadFixture(fixture.CarBytes, fixture.PieceSize)
-	sectorData := make([]byte, int(sectorSize))
-	copy(sectorData, paddedPiece)
-
-	sectorPath := filepath.Join(
-		dir,
-		storiface.FTUnsealed.String(),
-		storiface.SectorName(abi.SectorID{Miner: miner, Number: sector}),
-	)
-	return os.WriteFile(sectorPath, sectorData, 0o644)
+	field := v.FieldByName(name)
+	return reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
 }
 
-func fr32PadFixture(raw []byte, pieceSize abi.PaddedPieceSize) []byte {
-	unpaddedLen := int(pieceSize.Unpadded())
-	in := make([]byte, unpaddedLen)
-	copy(in, raw)
-
-	out := make([]byte, int(pieceSize))
-	inOff := 0
-	outOff := 0
-	for inOff < len(in) {
-		fr32.Pad(in[inOff:inOff+int(fr32.UnpaddedFr32Chunk)], out[outOff:outOff+int(fr32.PaddedFr32Chunk)])
-		inOff += int(fr32.UnpaddedFr32Chunk)
-		outOff += int(fr32.PaddedFr32Chunk)
-	}
-	return out
-}
-
-func writeParkedPieceFixture(dir string, pieceID int64, data []byte) error {
-	path := filepath.Join(
-		dir,
-		storiface.FTPiece.String(),
-		storiface.SectorName(storiface.PieceNumber(pieceID).Ref().ID),
-	)
-	return os.WriteFile(path, data, 0o644)
-}
-
-func waitForHTTP(t *testing.T, baseURL string) {
+func setCacheTTL(t *testing.T, cpr *cachedreader.CachedPieceReader, cacheFieldName string, ttl time.Duration) {
 	t.Helper()
 
-	client := &http.Client{Timeout: 2 * time.Second}
-	require.Eventually(t, func() bool {
-		req, err := http.NewRequest(http.MethodGet, baseURL+"/health", nil)
-		if err != nil {
+	cacheField := hiddenField(reflect.ValueOf(cpr), cacheFieldName)
+	ttlCacheField := hiddenField(cacheField, "cache")
+	results := ttlCacheField.MethodByName("SetTTL").Call([]reflect.Value{reflect.ValueOf(ttl)})
+	if len(results) == 1 && !results[0].IsNil() {
+		t.Fatalf("set cache ttl: %v", results[0].Interface())
+	}
+}
+
+func cacheSetEntry(t *testing.T, cpr *cachedreader.CachedPieceReader, cacheFieldName string, pieceCID cid.Cid, value reflect.Value) {
+	t.Helper()
+
+	cacheField := hiddenField(reflect.ValueOf(cpr), cacheFieldName)
+	cacheField.MethodByName("Set").Call([]reflect.Value{reflect.ValueOf(pieceCID), value})
+}
+
+func cacheGetEntry(t *testing.T, cpr *cachedreader.CachedPieceReader, cacheFieldName string, pieceCID cid.Cid) (any, bool) {
+	t.Helper()
+
+	cacheField := hiddenField(reflect.ValueOf(cpr), cacheFieldName)
+	results := cacheField.MethodByName("Get").Call([]reflect.Value{reflect.ValueOf(pieceCID)})
+	found := results[1].Bool()
+	if !found {
+		return nil, false
+	}
+	return results[0].Interface(), true
+}
+
+func cachedSectionReaderReflectType(t *testing.T, ctx context.Context, cpr *cachedreader.CachedPieceReader, pieceCID cid.Cid) reflect.Type {
+	t.Helper()
+
+	reader, _, err := cpr.GetSharedPieceReader(ctx, pieceCID, true)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+
+	entry, found := cacheGetEntry(t, cpr, "pieceReaderCache", pieceCID)
+	require.True(t, found)
+	return reflect.TypeOf(entry)
+}
+
+func newCachedSectionReaderValue(
+	t *testing.T,
+	readerType reflect.Type,
+	cpr *cachedreader.CachedPieceReader,
+	pieceCID cid.Cid,
+	reader storiface.Reader,
+	rawSize uint64,
+	ready chan struct{},
+	err error,
+	cancel func(),
+	refs int,
+	expired bool,
+) reflect.Value {
+	t.Helper()
+
+	entry := reflect.New(readerType.Elem())
+	if reader == nil {
+		hiddenField(entry, "reader").Set(reflect.Zero(hiddenField(entry, "reader").Type()))
+	} else {
+		hiddenField(entry, "reader").Set(reflect.ValueOf(reader))
+	}
+	hiddenField(entry, "cpr").Set(reflect.ValueOf(cpr))
+	hiddenField(entry, "pieceCid").Set(reflect.ValueOf(pieceCID))
+	hiddenField(entry, "rawSize").SetUint(rawSize)
+	hiddenField(entry, "ready").Set(reflect.ValueOf(ready))
+	if err == nil {
+		hiddenField(entry, "err").Set(reflect.Zero(hiddenField(entry, "err").Type()))
+	} else {
+		hiddenField(entry, "err").Set(reflect.ValueOf(err))
+	}
+	if cancel == nil {
+		hiddenField(entry, "cancel").Set(reflect.Zero(hiddenField(entry, "cancel").Type()))
+	} else {
+		hiddenField(entry, "cancel").Set(reflect.ValueOf(cancel))
+	}
+	hiddenField(entry, "refs").SetInt(int64(refs))
+	hiddenField(entry, "expired").SetBool(expired)
+
+	return entry
+}
+
+func hiddenIntField(v reflect.Value, name string) int {
+	return int(hiddenField(v, name).Int())
+}
+
+func hiddenBoolField(v reflect.Value, name string) bool {
+	return hiddenField(v, name).Bool()
+}
+
+func callHiddenClose(v reflect.Value) error {
+	results := v.MethodByName("Close").Call(nil)
+	if len(results) == 1 && !results[0].IsNil() {
+		return results[0].Interface().(error)
+	}
+	return nil
+}
+
+func allZeroBytes(data []byte) bool {
+	for _, b := range data {
+		if b != 0 {
 			return false
 		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-		defer func() { _ = resp.Body.Close() }()
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode == http.StatusOK
-	}, 45*time.Second, 250*time.Millisecond)
-}
-
-func assertPieceResponseHeaders(t *testing.T, headers http.Header, pieceCID string, expectedBodyLen int) {
-	t.Helper()
-
-	require.Equal(t, "Accept-Encoding", headers.Get("Vary"))
-	require.Equal(t, "public, max-age=29030400, immutable", headers.Get("Cache-Control"))
-	etag := headers.Get("Etag")
-	require.NotEmpty(t, etag)
-	require.True(t, etag == pieceCID || etag == fmt.Sprintf(`"%s"`, pieceCID), "unexpected ETag header %q", etag)
-	require.Equal(t, strconv.Itoa(expectedBodyLen), headers.Get("Content-Length"))
-	require.NotEmpty(t, headers.Get("Content-Type"))
-	require.Equal(t, "bytes", headers.Get("Accept-Ranges"))
-}
-
-func assertIPFSCarResponseHeaders(t *testing.T, headers http.Header) {
-	require.Contains(t, headers.Get("Content-Type"), "application/vnd.ipld.car")
-	require.Contains(t, strings.ToLower(headers.Get("Content-Disposition")), "attachment")
-	require.NotEmpty(t, headers.Get("Etag"))
-}
-
-func httpGet(t *testing.T, baseURL, path string, headers map[string]string) (int, []byte) {
-	t.Helper()
-
-	status, body, _ := httpGetWithHeaders(t, baseURL, path, headers)
-	return status, body
-}
-
-func httpGetWithHeaders(t *testing.T, baseURL, path string, headers map[string]string) (int, []byte, http.Header) {
-	t.Helper()
-
-	return httpRequestWithHeaders(t, http.MethodGet, baseURL, path, headers)
-}
-
-func httpRequestWithHeaders(t *testing.T, method, baseURL, path string, headers map[string]string) (int, []byte, http.Header) {
-	t.Helper()
-
-	req, err := http.NewRequest(method, baseURL+path, nil)
-	require.NoError(t, err)
-	req.Header.Set("Accept-Encoding", "identity")
-	for k, v := range headers {
-		req.Header.Set(k, v)
 	}
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, body, resp.Header.Clone()
+	return true
 }
