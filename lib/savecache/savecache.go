@@ -71,7 +71,7 @@ const (
 
 var (
 	layerQueueDepth   = 32 // FIXME: tune better, chosen by rough experiment
-	shaPool           = sync.Pool{New: func() interface{} { return sha256simd.New() }}
+	shaPool           = sync.Pool{New: func() any { return sha256simd.New() }}
 	stackedNulPadding [MaxLayers][]byte
 )
 
@@ -245,7 +245,7 @@ func (cp *Calc) digestQuads(inSlab []byte) {
 	cp.quadsEnqueued += uint64(quadsCount)
 	outSlab := make([]byte, quadsCount*128)
 
-	for j := 0; j < quadsCount; j++ {
+	for j := range quadsCount {
 		// Cycle over four(4) 31-byte groups, leaving 1 byte in between:
 		// 31 + 1 + 31 + 1 + 31 + 1 + 31 = 127
 		input := inSlab[j*127 : (j+1)*127]
@@ -417,10 +417,7 @@ func (cp *Calc) snapshotLayerIndex(size uint64, test bool) {
 	}
 
 	// Clamp within tree bounds
-	cp.snapShotLayerIdx = layer
-	if layer < 0 {
-		cp.snapShotLayerIdx = 0
-	}
+	cp.snapShotLayerIdx = max(layer, 0)
 	if layer > treeHeight {
 		cp.snapShotLayerIdx = treeHeight
 	}

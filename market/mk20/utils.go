@@ -469,7 +469,7 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	var pieceCid interface{}
+	var pieceCid any
 
 	if dbDeal.PieceCIDV2 != "" {
 		pieceCid = dbDeal.PieceCIDV2
@@ -501,7 +501,7 @@ func (d *Deal) UpdateDealWithTx(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	var pieceCid interface{}
+	var pieceCid any
 
 	if dbDeal.PieceCIDV2 != "" {
 		pieceCid = dbDeal.PieceCIDV2
@@ -531,7 +531,7 @@ func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	var pieceCid interface{}
+	var pieceCid any
 
 	if dbDeal.PieceCIDV2 != "" {
 		pieceCid = dbDeal.PieceCIDV2

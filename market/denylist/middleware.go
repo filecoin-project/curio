@@ -52,8 +52,8 @@ func extractCID(urlPath string) (cid.Cid, bool) {
 		rest := urlPath[len("/ipfs/"):]
 		// The CID ends at the next "/" or end of string
 		cidStr := rest
-		if idx := strings.Index(rest, "/"); idx >= 0 {
-			cidStr = rest[:idx]
+		if before, _, ok := strings.Cut(rest, "/"); ok {
+			cidStr = before
 		}
 		if cidStr == "" {
 			return cid.Undef, false

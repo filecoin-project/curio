@@ -72,7 +72,7 @@ func TestAddHandlerConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	errors := make(chan error, 10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -105,8 +105,7 @@ func TestAddHandlerAfterStart(t *testing.T) {
 	sched := New(mockAPI)
 
 	// Start the scheduler
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go sched.Run(ctx)
 
@@ -142,8 +141,7 @@ func TestNotificationChannelResubscription(t *testing.T) {
 
 	sched := New(wrappedAPI)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Run scheduler in background
 	go sched.Run(ctx)
@@ -200,8 +198,7 @@ func TestCallbackExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go sched.Run(ctx)
 
@@ -549,8 +546,7 @@ func TestWatchersExecutedFirst(t *testing.T) {
 	}
 	sched := New(mockAPI)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var executionOrderMu sync.Mutex
 	var executionOrder []string
@@ -559,7 +555,7 @@ func TestWatchersExecutedFirst(t *testing.T) {
 	var wg sync.WaitGroup
 	errors := make(chan error, 10)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -576,7 +572,7 @@ func TestWatchersExecutedFirst(t *testing.T) {
 	}
 
 	// Add watchers
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

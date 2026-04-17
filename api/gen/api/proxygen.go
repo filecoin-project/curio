@@ -13,6 +13,7 @@ import (
 	"strings"
 	"text/template"
 
+	"golang.org/x/tools/go/packages"
 	"golang.org/x/xerrors"
 )
 
@@ -126,15 +127,32 @@ func generate(path, pkg, outpkg, outfile string) error {
 	if err != nil {
 		return err
 	}
-	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments)
+	pkgs, err := packages.Load(&packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax,
+		Dir:  apiDir,
+		Fset: fset,
+		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+		},
+	}, ".")
 	if err != nil {
 		return err
 	}
-
-	ap := pkgs[pkg]
+	if len(pkgs) != 1 {
+		return xerrors.Errorf("expected 1 package in %s, got %d", apiDir, len(pkgs))
+	}
+	if len(pkgs[0].Errors) > 0 {
+		return pkgs[0].Errors[0]
+	}
+	ap := pkgs[0]
+	if ap.Name != pkg {
+		return xerrors.Errorf("expected package %s in %s, got %s", pkg, apiDir, ap.Name)
+	}
 
 	v := &Visitor{make(map[string]map[string]*methodMeta), map[string][]string{}}
-	ast.Walk(v, ap)
+	for _, f := range ap.Syntax {
+		ast.Walk(v, f)
+	}
 
 	type methodInfo struct {
 		Num                                      string
@@ -161,7 +179,8 @@ func generate(path, pkg, outpkg, outfile string) error {
 		Imports: map[string]string{},
 	}
 
-	for fn, f := range ap.Files {
+	for i, f := range ap.Syntax {
+		fn := ap.CompiledGoFiles[i]
 		if strings.HasSuffix(fn, "gen.go") {
 			continue
 		}
@@ -250,8 +269,8 @@ func generate(path, pkg, outpkg, outfile string) error {
 				if len(filteredComments) > 0 {
 					tagstr := filteredComments[len(filteredComments)-1].List[0].Text
 					tagstr = strings.TrimPrefix(tagstr, "//")
-					tl := strings.Split(strings.TrimSpace(tagstr), " ")
-					for _, ts := range tl {
+					tl := strings.SplitSeq(strings.TrimSpace(tagstr), " ")
+					for ts := range tl {
 						tf := strings.Split(ts, ":")
 						if len(tf) != 2 {
 							continue
@@ -347,7 +366,7 @@ var _ = fmt.Sprintf
 	return os.WriteFile(outfile, formatted, 0o666)
 }
 
-func doTemplate(w io.Writer, info interface{}, templ string) error {
+func doTemplate(w io.Writer, info any, templ string) error {
 	t := template.Must(template.New("").
 		Funcs(template.FuncMap{}).Parse(templ))
 

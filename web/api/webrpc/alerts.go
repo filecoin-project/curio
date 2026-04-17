@@ -37,8 +37,7 @@ func (a *WebRPC) AlertMuteList(ctx context.Context) ([]AlertMute, error) {
 func (a *WebRPC) AlertMuteAdd(ctx context.Context, alertName string, pattern *string, reason string, mutedBy string, expiresInHours *int) error {
 	var expiresAt *time.Time
 	if expiresInHours != nil && *expiresInHours > 0 {
-		t := time.Now().Add(time.Duration(*expiresInHours) * time.Hour)
-		expiresAt = &t
+		expiresAt = new(time.Now().Add(time.Duration(*expiresInHours) * time.Hour))
 	}
 
 	_, err := a.deps.DB.Exec(ctx, `

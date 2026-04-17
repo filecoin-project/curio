@@ -49,10 +49,8 @@ var statsCmd = &cli.Command{
 		var minersMu sync.Mutex
 		var workersWg sync.WaitGroup
 
-		for i := 0; i < minerInfoWorkers; i++ {
-			workersWg.Add(1)
-			go func() {
-				defer workersWg.Done()
+		for range minerInfoWorkers {
+			workersWg.Go(func() {
 				for miner := range minerCh {
 					info, err := api.StateMinerInfo(ctx, miner, types.EmptyTSK)
 					if err != nil {
@@ -78,7 +76,7 @@ var statsCmd = &cli.Command{
 						}
 					}
 				}
-			}()
+			})
 		}
 
 	enqueueMiners:

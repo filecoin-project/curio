@@ -603,23 +603,23 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		// Prepare the request data based on hash type
-		var reqData map[string]interface{}
+		var reqData map[string]any
 		var reqBody []byte
 
 		switch hashType {
 		case "sha256":
 			// For sha256, still use old format for backward compatibility
-			checkData := map[string]interface{}{
+			checkData := map[string]any{
 				"name": "sha2-256",
 				"hash": hex.EncodeToString(shadigest),
 				"size": pieceSize,
 			}
-			reqData = map[string]interface{}{
+			reqData = map[string]any{
 				"check": checkData,
 			}
 		case "commp":
 			// For commp, use new format with pieceCid (CommPv2)
-			reqData = map[string]interface{}{
+			reqData = map[string]any{
 				"pieceCid": pieceCIDComputed.String(),
 			}
 		default:
@@ -797,23 +797,23 @@ var uploadFileCmd = &cli.Command{
 			}
 			if !dryRun {
 				// Prepare the request data
-				var reqData map[string]interface{}
+				var reqData map[string]any
 				var reqBody []byte
 
 				switch hashType {
 				case "sha256":
 					// For sha256, use old format for backward compatibility
-					checkData := map[string]interface{}{
+					checkData := map[string]any{
 						"name": "sha2-256",
 						"hash": hex.EncodeToString(shadigest),
 						"size": n,
 					}
-					reqData = map[string]interface{}{
+					reqData = map[string]any{
 						"check": checkData,
 					}
 				case "commp":
 					// For commp, use new format with pieceCid (CommPv2)
-					reqData = map[string]interface{}{
+					reqData = map[string]any{
 						"pieceCid": commP.String(),
 					}
 				default:

@@ -87,7 +87,6 @@ func verifyWindowPoStVanilla(
 
 		for _, sec := range partition {
 			//i := i
-			sec := sec
 
 			eg.Go(func() error {
 				pub, ok := replicas[sec.SectorID]
@@ -243,7 +242,7 @@ func reconstructPath(leaf PoseidonDomain, path InclusionPath[PoseidonDomain]) Po
 		log.Debugf("path element %d: index=%d arity=%d", i, idx, arity)
 		combined := make([]PoseidonDomain, arity)
 		j := 0
-		for x := 0; x < arity; x++ {
+		for x := range arity {
 			if x == idx {
 				combined[x] = cur
 				log.Debugf("path element %d: position %d = current %x", i, x, cur[:])
@@ -305,7 +304,7 @@ func poseidonHashMulti[A poseidondst.Arity](vals []PoseidonDomain) PoseidonDomai
 func domainToBigInt(d PoseidonDomain) *big.Int {
 	// Reverse to big-endian for .SetBytes
 	be := make([]byte, 32)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		be[31-i] = d[i]
 	}
 	return new(big.Int).SetBytes(be)
@@ -326,7 +325,7 @@ func ffElementBytesLE(z *fr.Element) PoseidonDomain {
 	// 1) get big-endian bytes from z, 2) reverse to [32]byte LE.
 	be := z.Bytes() // 32 bytes, big-endian
 	var out PoseidonDomain
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		out[i] = be[31-i]
 	}
 	return out

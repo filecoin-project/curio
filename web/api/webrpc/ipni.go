@@ -393,8 +393,7 @@ func (a *WebRPC) IPNIEntry(ctx context.Context, block cid.Cid) (*EntryInfo, erro
 
 	b, err := a.deps.ServeChunker.GetEntry(ctx, block)
 	if err != nil {
-		estr := err.Error()
-		entry.Err = &estr
+		entry.Err = new(err.Error())
 	} else {
 		entry.Size = int64(len(b))
 	}

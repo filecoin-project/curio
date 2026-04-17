@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	lru "github.com/hashicorp/golang-lru/arc/v2"
 	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
 	"github.com/ipld/go-ipld-prime"
@@ -69,7 +70,7 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(fbs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
 
 	lsys := LinkSystemForBlockstore(cbs)
-	fr := frisbii.NewHttpIpfs(ctx, lsys)
+	fr := frisbii.NewHttpIpfs(ctx, lsys, frisbii.WithBlockHasCheck(cbs.Has))
 
 	return &Provider{
 		db:  db,
@@ -80,8 +81,8 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 }
 
 // NewRetrievalProviderWithLinkSystem creates a Provider with a custom LinkSystem for testing
-func NewRetrievalProviderWithLinkSystem(ctx context.Context, lsys ipld.LinkSystem) *Provider {
-	fr := frisbii.NewHttpIpfs(ctx, lsys)
+func NewRetrievalProviderWithLinkSystem(ctx context.Context, lsys ipld.LinkSystem, withBlockHasCheck func(context.Context, cid.Cid) (bool, error)) *Provider {
+	fr := frisbii.NewHttpIpfs(ctx, lsys, frisbii.WithBlockHasCheck(withBlockHasCheck))
 
 	return &Provider{
 		fr: fr,

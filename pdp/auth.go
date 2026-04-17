@@ -53,7 +53,7 @@ func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
 	var service string
 
 	// Parse and verify the JWT token
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		var isEd25519 bool
 		// Ensure the signing method is ECDSA or EDDSA
 		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {

@@ -39,7 +39,7 @@ func parseHexdumpU16Words(t *testing.T, s string) []byte {
 	// On little-endian systems (amd64), a printed word like "4199" corresponds to bytes {0x99, 0x41}.
 	var out []byte
 
-	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(s), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -130,7 +130,7 @@ func TestCommRLastFromTreeRLastRoots(t *testing.T) {
 		}
 		nRoots := len(rootsBytes) / 32
 		roots := make([]PoseidonDomain, nRoots)
-		for i := 0; i < nRoots; i++ {
+		for i := range nRoots {
 			copy(roots[i][:], rootsBytes[i*32:(i+1)*32])
 		}
 

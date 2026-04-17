@@ -394,12 +394,11 @@ func TestHandlePull_MixedStatuses(t *testing.T) {
 	v1Str1 := piece1.CidV1.String()
 	v1Str2 := piece2.CidV1.String()
 
-	taskID := int64(123)
 	store := &mockPullStore{
 		pullPieces: []PullPiece{piece1, piece2, piece3},
 		pieceStatuses: map[string]*PieceStatus{
 			v1Str1: {PieceCid: v1Str1, Complete: true},
-			v1Str2: {PieceCid: v1Str2, Complete: false, TaskID: &taskID, TaskExists: true}, // inProgress
+			v1Str2: {PieceCid: v1Str2, Complete: false, TaskID: new(int64(123)), TaskExists: true}, // inProgress
 			// piece3 not in map - should be pending
 		},
 	}
@@ -503,8 +502,6 @@ func TestHandlePull_RetryingStatus(t *testing.T) {
 	// Piece with task that has retries > 0 should show "retrying" status
 	piece1 := testParsePieceCidV2(t, testCid1)
 	v1Str1 := piece1.CidV1.String()
-	taskID := int64(999)
-
 	store := &mockPullStore{
 		existingPull: &PullRecord{
 			ID:            123,
@@ -516,7 +513,7 @@ func TestHandlePull_RetryingStatus(t *testing.T) {
 			v1Str1: {
 				PieceCid:   v1Str1,
 				Complete:   false,
-				TaskID:     &taskID,
+				TaskID:     new(int64(999)),
 				TaskExists: true,
 				Retries:    2, // Has been retried twice
 			},
@@ -657,8 +654,6 @@ func TestHandlePull_OrphanedTaskNotExhausted(t *testing.T) {
 	// because the piece is stuck (poller won't pick it up with task_id still set)
 	piece1 := testParsePieceCidV2(t, testCid1)
 	v1Str1 := piece1.CidV1.String()
-	taskID := int64(777)
-
 	store := &mockPullStore{
 		existingPull: &PullRecord{
 			ID:            123,
@@ -670,7 +665,7 @@ func TestHandlePull_OrphanedTaskNotExhausted(t *testing.T) {
 			v1Str1: {
 				PieceCid:   v1Str1,
 				Complete:   false,
-				TaskID:     &taskID,
+				TaskID:     new(int64(777)),
 				TaskExists: false, // Task was deleted
 				Retries:    0,
 			},

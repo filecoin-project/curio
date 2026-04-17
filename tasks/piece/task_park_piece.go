@@ -99,7 +99,6 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 		}
 
 		for _, pieceID := range pieceIDs {
-			pieceID := pieceID
 
 			// Create a task for each piece
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {

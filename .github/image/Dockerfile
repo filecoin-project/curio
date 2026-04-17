@@ -1,6 +1,6 @@
 ## This image is used to github action runner for this repo
 # Use the official Golang image as the base image
-FROM golang:1.24-trixie AS builder
+FROM golang:1.26-trixie AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -23,7 +23,7 @@ RUN git submodule update --init
 RUN go mod download
 
 # Stage 2: Install Lotus binary
-FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.34.2-devnet AS lotus-test
+FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.35.1-devnet AS lotus-test
 
 # Stage 3: Build the final image
 FROM myoung34/github-runner:ubuntu-24.04 AS curio-github-runner

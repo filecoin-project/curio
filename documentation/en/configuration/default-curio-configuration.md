@@ -64,10 +64,10 @@ description: The default curio configuration
   # type: int
   #ParkPieceMaxInPark = 0
 
-  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)
   #
   # type: float64
-  #ParkPieceMinFreeStoragePercent = 20.0
+  #ParkPieceMinFreeStoragePercent = 5.0
 
   # EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
   # creating 11 layer files in sector cache directory.
