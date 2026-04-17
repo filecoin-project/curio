@@ -127,7 +127,7 @@ func (a *AlertTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		// Continue without muting on error
 	}
 
-	details := make(map[string]interface{})
+	details := make(map[string]any)
 	now := time.Now()
 
 	// Process regular alerts

@@ -3,6 +3,7 @@ package contract
 import (
 	"math/big"
 	"os"
+	"slices"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -114,12 +115,7 @@ func IsPublicService(serviceLabel string) bool {
 // Returns true if the address is allowed, or if there's no whitelist for the network
 func IsRecordKeeperAllowed(recordKeeper common.Address) bool {
 	// Check if the recordkeeper is in the whitelist
-	for _, allowed := range ContractAddresses().AllowedPublicRecordKeepers.List() {
-		if recordKeeper == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ContractAddresses().AllowedPublicRecordKeepers.List(), recordKeeper)
 }
 
 const ServiceRegistryMainnet = "0xf55dDbf63F1b55c3F1D4FA7e339a68AB7b64A5eB"  // ServiceProviderRegistry Proxy - https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0

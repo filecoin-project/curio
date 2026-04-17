@@ -35,8 +35,7 @@ type MerkleTreeDST[A Arity] struct{}
 
 func (m MerkleTreeDST[A]) DST() *fr.Element {
 	arity := (*new(A)).Arity()
-	twoToArityMinus1 := twoToArityMinus1(uint64(arity))
-	return &twoToArityMinus1
+	return new(twoToArityMinus1(uint64(arity)))
 }
 
 type MerkleTree8 = DSTElement[MerkleTreeDST[Arity8]]
@@ -136,7 +135,7 @@ func (s SnapDST) DST() *fr.Element {
 	genRandomnessDST := "0000000000010000000000000000000000000000000000000000000000000000"
 	dstLE := must.One(hex.DecodeString(genRandomnessDST))
 	inverted := make([]byte, len(dstLE))
-	for i := 0; i < len(dstLE); i++ {
+	for i := range dstLE {
 		inverted[i] = dstLE[len(dstLE)-1-i]
 	}
 

@@ -129,7 +129,7 @@ func getResources() (res Resources, err error) {
 		logger.Warn("Could not safety check for 2+ processes: ", err)
 	} else {
 		found := 0
-		for _, b := range bytes.Split(b, []byte("\n")) {
+		for b := range bytes.SplitSeq(b, []byte("\n")) {
 			if lotusRE.Match(b) {
 				found++
 			}

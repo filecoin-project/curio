@@ -300,7 +300,6 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 
 	// Process deals
 	for _, deal := range deals {
-		deal := deal
 		err := d.processMk12Deal(ctx, deal)
 		if err != nil {
 			log.Errorf("process deal: %s", err)

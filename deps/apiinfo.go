@@ -155,7 +155,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 		healthyLk.Lock()
 		defer healthyLk.Unlock()
 
-		for i := 0; i < providerCount; i++ {
+		for i := range providerCount {
 			idx := (start + i) % providerCount
 			if !unhealthyProviders[idx] {
 				return idx
@@ -180,7 +180,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 			var wg sync.WaitGroup
 			wg.Add(providerCount)
 
-			for i := 0; i < providerCount; i++ {
+			for i := range providerCount {
 				go func(i int) {
 					defer wg.Done()
 
@@ -291,8 +291,8 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					clog.Errorw("retry rpc call error", "error", rerr, "result", result)
 
 					var out []reflect.Value
-					for i := 0; i < field.Type.NumOut(); i++ {
-						out = append(out, reflect.Zero(field.Type.Out(i)))
+					for out0 := range field.Type.Outs() {
+						out = append(out, reflect.Zero(out0))
 					}
 					// last value is always an error.. set it to the error (wrapped as ChainError)
 					out[len(out)-1] = reflect.ValueOf(&api.ChainError{Err: xerrors.Errorf("retry rpc call error: %w", rerr)})
@@ -312,7 +312,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 }
 
 func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, errorTypes []error, f func(isRetry bool) (T, error)) (result T, err error) {
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		if i > 0 {
 			clog.Debugw("Retrying after error:", err)
 			time.Sleep(initialBackoff)
@@ -332,8 +332,7 @@ func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duratio
 
 func ErrorIsIn(err error, errorTypes []error) bool {
 	for _, etype := range errorTypes {
-		tmp := reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface()
-		if errors.As(err, &tmp) {
+		if errors.As(err, new(reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface())) {
 			return true
 		}
 	}

@@ -5,7 +5,7 @@ test-deps: $(BUILD_DEPS)
 .PHONY: test-deps
 
 test: test-deps
-	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm" -timeout 30m ./itests/...
+	$(TEST_ENV_VARS) go test -v -tags="cgo,fvm,nosupraseal" -timeout 30m ./itests/...
 .PHONY: test
 
 coverage: cov

@@ -95,7 +95,7 @@ func TestWaitList(t *testing.T) {
 
 	m := sync.Mutex{}
 	list := []int{}
-	for i := 0; i < len(expect); i++ {
+	for i := range expect {
 		go func(i int) {
 			ord := d.Get()
 			m.Lock()

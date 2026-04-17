@@ -13,7 +13,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	ffi "github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/piece"
@@ -32,7 +32,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	t.Cleanup(func() { piece.PieceParkPollInterval = oldInterval })
 
 	ctx := context.Background()
-	db, err := harmonydb.NewFromConfigWithITestID(t, harmonydb.ITestNewID(), true)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	// Set up a local storage path.
@@ -84,7 +84,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 
 	// --- Partial capacity ---
 	// Fill storage to maxInPark-1 pieces so only 1 slot remains.
-	for i := 0; i < maxInPark-1; i++ {
+	for i := range maxInPark - 1 {
 		_, err := db.Exec(ctx, `INSERT INTO sector_location
 			(miner_id, sector_num, sector_filetype, storage_id, is_primary)
 			VALUES ($1, $2, $3, $4, $5)`,

@@ -112,7 +112,7 @@ func CopyWithOriginalDynamics[T any](orig T) (T, error) {
 	val := reflect.ValueOf(orig)
 
 	// Handle pointer to struct
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		if typ.Elem().Kind() != reflect.Struct {
 			var zero T
 			return zero, fmt.Errorf("expected pointer to struct, got pointer to %s", typ.Elem().Kind())
@@ -153,7 +153,7 @@ func walker(orig, result reflect.Value) {
 			} else {
 				walker(field, resultField)
 			}
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if !field.IsNil() {
 				// Check if the pointed-to type is Dynamic[T]
 				elemType := field.Type().Elem()

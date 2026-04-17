@@ -222,7 +222,6 @@ func (s *SealPoller) poll(ctx context.Context) error {
 	}
 
 	for _, task := range tasks {
-		task := task
 
 		s.pollStartSDR(ctx, task)
 		s.pollStartSDRTreeD(ctx, task)

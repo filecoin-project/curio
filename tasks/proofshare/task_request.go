@@ -325,7 +325,7 @@ func (t *TaskRequestProofs) Do(ctx context.Context, taskID harmonytask.TaskID, s
 		needAsksGauge.Set(float64(neededAsks))
 
 		startCreate := time.Now()
-		for i := 0; i < neededAsks; i++ {
+		for range neededAsks {
 			price, err := types.BigFromString(meta.Price)
 			if err != nil {
 				return false, xerrors.Errorf("failed to parse price: %w", err)

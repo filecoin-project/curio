@@ -111,8 +111,7 @@ func (s *StorageGCMark) Do(ctx context.Context, taskID harmonytask.TaskID, still
 			}
 
 			if toRemove[decl.Miner] == nil {
-				bf := bitfield.New()
-				toRemove[decl.Miner] = &bf
+				toRemove[decl.Miner] = new(bitfield.New())
 
 				maddr, err := address.NewIDAddress(uint64(decl.Miner))
 				if err != nil {
@@ -369,7 +368,7 @@ func (s *StorageGCMark) Do(ctx context.Context, taskID harmonytask.TaskID, still
 	}
 
 	var minerIDs []int64
-	if err = s.db.Select(ctx, &minerIDs, `SELECT DISTINCT sp_id FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid`); err != nil {
+	if err = s.db.Select(ctx, &minerIDs, `SELECT DISTINCT sp_id FROM sectors_meta WHERE has_sector_key = TRUE`); err != nil {
 		return false, xerrors.Errorf("distinct miners from snap sectors: %w", err)
 	}
 
@@ -393,12 +392,11 @@ func (s *StorageGCMark) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		finalityMinerStates[abi.ActorID(mID)] = mState
 	}
 
-	// SELECT sp_id, sector_num FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid
 	var snapSectors []struct {
 		SpID      int64 `db:"sp_id"`
 		SectorNum int64 `db:"sector_num"`
 	}
-	err = s.db.Select(ctx, &snapSectors, `SELECT sp_id, sector_num FROM sectors_meta WHERE orig_sealed_cid != cur_sealed_cid ORDER BY sp_id, sector_num`)
+	err = s.db.Select(ctx, &snapSectors, `SELECT sp_id, sector_num FROM sectors_meta WHERE has_sector_key = TRUE ORDER BY sp_id, sector_num`)
 	if err != nil {
 		return false, xerrors.Errorf("select snap sectors: %w", err)
 	}

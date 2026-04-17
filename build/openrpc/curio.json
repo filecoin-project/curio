@@ -236,12 +236,12 @@
                                 "User": {},
                                 "Host": "string value",
                                 "Path": "string value",
-                                "RawPath": "string value",
-                                "OmitHost": true,
-                                "ForceQuery": true,
-                                "RawQuery": "string value",
                                 "Fragment": "string value",
-                                "RawFragment": "string value"
+                                "RawQuery": "string value",
+                                "RawPath": "string value",
+                                "RawFragment": "string value",
+                                "ForceQuery": true,
+                                "OmitHost": true
                             }
                         ],
                         "type": [
@@ -376,17 +376,8 @@
                     ],
                     "items": [
                         {
-                            "items": [
-                                {
-                                    "title": "number",
-                                    "description": "Number is a number",
-                                    "type": [
-                                        "number"
-                                    ]
-                                }
-                            ],
                             "type": [
-                                "array"
+                                "string"
                             ]
                         }
                     ],
