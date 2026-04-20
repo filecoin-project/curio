@@ -12,6 +12,7 @@ import (
 )
 
 // TestPreemptCostMessage verifies preempt cost bytes are parsed and routed into preemptCostChs.
+// When preemptCostChs has a channel for the taskID, the response is delivered there.
 func TestPreemptCostMessage(t *testing.T) {
 	engine := &TaskEngine{
 		schedulerChannel: make(chan schedulerEvent, 10),
@@ -48,8 +49,11 @@ func TestPreemptCostMessageWireFormat(t *testing.T) {
 	require.NoError(t, json.Unmarshal(msg, &envelope))
 	require.Equal(t, string(messageTypePreemptCost), envelope.Verb)
 	require.Equal(t, TaskID(42), envelope.TaskID)
-	require.Equal(t, "WdPost", envelope.Other.TaskType)
-	require.Equal(t, 3*time.Second, envelope.Other.Cost)
+
+	var o taskOther
+	require.NoError(t, json.Unmarshal(envelope.Other, &o))
+	require.Equal(t, "WdPost", o.TaskType)
+	require.Equal(t, 3*time.Second, o.Cost)
 }
 
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====
@@ -186,8 +190,10 @@ func TestMessageWireFormat(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "newTask", envelope.Verb)
 		require.Equal(t, TaskID(2), envelope.TaskID)
-		require.Equal(t, "XY", envelope.Other.TaskType)
-		require.Equal(t, 5, envelope.Other.Retries)
+		var o taskOther
+		require.NoError(t, json.Unmarshal(envelope.Other, &o))
+		require.Equal(t, "XY", o.TaskType)
+		require.Equal(t, 5, o.Retries)
 	})
 
 	t.Run("Started", func(t *testing.T) {
@@ -198,7 +204,9 @@ func TestMessageWireFormat(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "started", envelope.Verb)
 		require.Equal(t, TaskID(42), envelope.TaskID)
-		require.Equal(t, "WdPost", envelope.Other.TaskType)
+		var o taskOther
+		require.NoError(t, json.Unmarshal(envelope.Other, &o))
+		require.Equal(t, "WdPost", o.TaskType)
 	})
 
 	t.Run("Identity", func(t *testing.T) {
@@ -207,7 +215,9 @@ func TestMessageWireFormat(t *testing.T) {
 		var envelope PeerMessage
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "identity", envelope.Verb)
-		require.Equal(t, "host:1234", envelope.Other.HostAndPort)
+		var o taskOther
+		require.NoError(t, json.Unmarshal(envelope.Other, &o))
+		require.Equal(t, "host:1234", o.HostAndPort)
 	})
 }
 

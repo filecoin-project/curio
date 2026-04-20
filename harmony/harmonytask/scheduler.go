@@ -348,7 +348,6 @@ type taskSource interface {
 }
 
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) error {
-
 	h := e.taskMap[taskName]
 	if h != nil && h.TimeSensitive {
 		if _, capErr := h.AssertMachineHasCapacity(); capErr != nil {
@@ -391,6 +390,11 @@ func (t taskSourceLocal) GetTasks(taskName string) []task {
 	return tasks
 }
 
+// eventEmitter is the feedback channel from task goroutines back to the
+// scheduler. Because task goroutines run concurrently with the scheduler,
+// they cannot modify the scheduler's in-memory state directly. Instead,
+// they emit events that the scheduler processes on its own thread.
+//
 // Emits are called from other threads, so we cannot change t.availableTasks.
 // This pattern keeps the scheduler single-threaded (no locks on
 // availableTasks) while allowing concurrent task execution to communicate
@@ -423,6 +427,8 @@ func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
 		Success:  success,
 	}
 }
+
+// expects single-threaded caller of
 
 // pollAllTaskTypes queries the DB for all unowned tasks across all registered
 // task types in a single round-trip. This is the only DB read in the
