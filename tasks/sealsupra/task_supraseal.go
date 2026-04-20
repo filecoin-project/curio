@@ -547,8 +547,8 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(s.pipelines),
-		Name: fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
+		Max:       taskhelp.Max(s.pipelines),
+		Name:      fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
 		MayFollow: []string{"AggregateDeals"},
 		Cost: resources.Resources{
 			Cpu:     1,

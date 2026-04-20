@@ -3,24 +3,27 @@ Package harmonytask implements a pure (no task logic), distributed task
 manager. This clean interface lets task implementers avoid scheduling and
 cluster coordination; they only implement work units.
 
-The task system is designed to take work we are capable of doing up to the limit
-of our resources. Order priority may starve lower priority tasks, so within a
-priority class, we should prefer the oldest tasks first.
+Tasks are small pieces of work split out by hardware limits, parallelism,
+reliability, or other reasons. The task system runs work the node can do up to
+resource limits. Ordering priority may starve lower priorities, so within a
+priority class prefer the oldest tasks first.
 
 The hot path is event-driven scheduling with peer-to-peer coordination: nodes
-tell each other about new work and task starts over HTTP so the cluster reacts
-in milliseconds without waiting for a database round-trip for every change. The database still drives authoritative claims (UPDATE ...
+tell each other about new work, preempt-cost handshakes, and task starts over
+HTTP so the cluster reacts in milliseconds without waiting for a database
+round-trip for every change. The database still drives authoritative claims (UPDATE ...
 SKIP LOCKED) and holds the queue. A background DB poller remains as a safety
 net and for periodic housekeeping (e.g. POLL_RARELY), and the poller
 goroutine also runs heavier queries such as precomputing CanAccept caches and
 node cordon/restart flags, so not all work is “push-driven.”
 
 The task system tries to run any work the node can do up to resource limits.
-Ordering priority may starve lower priorities, so within a class prefer the
-oldest tasks first.
+As queues build, it can reserve resources for soft-claimed (reserved) tasks so
+higher-priority work is not starved and clusters can respect run order.
 
-Polling is too db-heavy, so nodes contact each other to share work and announce
-acceptance of work. The actual claim happens in the database.
+Polling alone would be too database-heavy for steady-state coordination, so
+nodes contact each other to share work and announce starts; the authoritative
+claim still happens in the database.
 
 	ex: prio: prio.P0 | prio.LessThan('x', 'y', 'z') | prio.PipelineOrder('a1', 'b2', 'c3')
 
@@ -74,6 +77,15 @@ responsive. Heavy work runs elsewhere:
 sector jobs), a bundler coalesces them into one scheduling attempt after a
 short quiet period (~10ms), avoiding redundant CanAccept + claim cycles per
 row.
+
+**Reservations.** A node can reserve the next task of a type so that when
+the current task finishes, the reserved one can start without competing for
+capacity — important for time-sensitive pipelines (e.g. WindowPost).
+
+NOTE: The reservation protocol is not fully realized cluster-wide. If every
+node reserves one task of the same type independently, the cluster can hold
+capacity on N nodes for work only one node will run. A future extension may
+coordinate reservations across peers.
 
 # Mental Model
 

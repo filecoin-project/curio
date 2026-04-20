@@ -353,8 +353,8 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask
 
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1024),
-		Name: "PreCommitBatch",
+		Max:       taskhelp.Max(1024),
+		Name:      "PreCommitBatch",
 		MayFollow: []string{"SyntheticProofs"},
 		Cost: resources.Resources{
 			Cpu: 0,

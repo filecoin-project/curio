@@ -538,7 +538,7 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPProve",
+		Name:      "PDPProve",
 		MayFollow: []string{"PDPInitPP", "AggregatePDPDeal", "PDPProvingPeriod"},
 		Cost: resources.Resources{
 			Cpu: 1,

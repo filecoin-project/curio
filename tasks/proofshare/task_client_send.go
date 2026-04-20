@@ -610,7 +610,7 @@ func (t *TaskClientSend) pickCandidateRequest(ctx context.Context, requests []Ca
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskClientSend) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: taskhelp.BackgroundTask("PSClientSend"),
+		Name:      taskhelp.BackgroundTask("PSClientSend"),
 		MayFollow: []string{"PSClientPoll"},
 		Cost: resources.Resources{
 			Cpu: 1,

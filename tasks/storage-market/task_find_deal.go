@@ -313,8 +313,8 @@ func (f *FindDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEn
 
 func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(128),
-		Name: "FindDeal",
+		Max:       taskhelp.Max(128),
+		Name:      "FindDeal",
 		MayFollow: []string{"PSD", "SendMessage"},
 		Cost: resources.Resources{
 			Cpu: 0,

@@ -104,8 +104,8 @@ func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.
 
 func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "WinInclCheck",
+		Max:       taskhelp.Max(1),
+		Name:      "WinInclCheck",
 		MayFollow: []string{"WinPost"},
 		Cost: resources.Resources{
 			Cpu: 1,

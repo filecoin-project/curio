@@ -244,7 +244,7 @@ func (b *BalanceMgrTask) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 // TypeDetails implements harmonytask.TaskInterface.
 func (b *BalanceMgrTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "BalanceMgr",
+		Name:      "BalanceMgr",
 		MayFollow: []string{"SendMessage", "SendTransaction"},
 		Cost: resources.Resources{
 			Cpu: 0,

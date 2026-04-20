@@ -75,6 +75,7 @@ func (e *TaskEngine) computePreemptionPlan(needed resources.Resources) *preempti
 		cutoff = i + 1
 	}
 
+	// If we still have a deficit, we can't preempt enough tasks to run this. Stop here.
 	if cpuDeficit > 0 || ramDeficit > 0 || gpuDeficit > 0 {
 		return nil
 	}
@@ -145,7 +146,7 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 	costCh, cancel := e.state.preemptBids.Register(int64(tID), peerCount+1)
 	defer cancel()
 
-	bytes, err := marshalPeerMessage(messageTypePreemptCost, tID, taskOther{TaskType: h.Name, Cost: plan.totalCost})
+	bytes, err := marshalPeerMessage(messageTypePreemptCost, tID, taskOther{Cost: plan.totalCost, TaskType: h.Name})
 	if err != nil {
 		log.Errorw("failed to marshal preempt cost message", "error", err)
 		return

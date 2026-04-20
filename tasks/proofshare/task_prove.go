@@ -205,8 +205,8 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(t.max),
-		Name: "PSProve",
+		Max:       taskhelp.Max(t.max),
+		Name:      "PSProve",
 		MayFollow: []string{"bg:PShareRequest", "PoRep"},
 		Cost: resources.Resources{
 			Cpu: 1,

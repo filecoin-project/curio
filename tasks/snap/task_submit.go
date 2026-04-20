@@ -537,7 +537,7 @@ func (s *SubmitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngi
 
 func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "UpdateBatch",
+		Name:      "UpdateBatch",
 		MayFollow: []string{"UpdateProve", "SendMessage"},
 		Cost: resources.Resources{
 			Cpu: 1,

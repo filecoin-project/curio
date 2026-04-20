@@ -140,8 +140,8 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(16),
-		Name: "FixRawSize",
+		Max:       taskhelp.Max(16),
+		Name:      "FixRawSize",
 		MayFollow: []string{"Indexing"},
 		Cost: resources.Resources{
 			Cpu: 1,
