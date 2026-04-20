@@ -184,9 +184,10 @@ Market 2.0 supports product-specific contract verification without changing the 
 
 Example:
 
-1. DDO verifies through `CurioDealViewV1` read methods.
-2. Provider allowlist controls which contracts are accepted.
-3. Interface versioning is explicit.
+1. DDO verifies through `CurioDealViewV1`, primarily with `version()` and `verifyDeal(...)`.
+2. The interface also exposes `getDealState(...)` for deal-state queries.
+3. Provider allowlist controls which contracts are accepted.
+4. Interface versioning is explicit.
 
 ## Best Practices
 

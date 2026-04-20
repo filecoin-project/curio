@@ -29,8 +29,9 @@ var (
 	_ = abi.ConvertType
 )
 
-// ICurioDealViewV1DealView is an auto generated low-level Go binding around an user-defined struct.
-type ICurioDealViewV1DealView struct {
+// ICurioDealViewV1CurioDealView is an auto generated low-level Go binding around an user-defined struct.
+type ICurioDealViewV1CurioDealView struct {
+	DealId          *big.Int
 	State           uint8
 	ProviderActorId *big.Int
 	ClientId        []byte
@@ -43,7 +44,7 @@ type ICurioDealViewV1DealView struct {
 
 // CurioDealViewV1MetaData contains all meta data concerning the CurioDealViewV1 contract.
 var CurioDealViewV1MetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"function\",\"name\":\"getDeal\",\"inputs\":[{\"name\":\"dealId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structICurioDealViewV1.DealView\",\"components\":[{\"name\":\"state\",\"type\":\"uint8\",\"internalType\":\"enumICurioDealViewV1.DealState\"},{\"name\":\"providerActorId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"clientId\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"pieceCidV2\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"startEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"duration\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"allocationId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"finalizedEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"version\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"error\",\"name\":\"DealNotFound\",\"inputs\":[{\"name\":\"dealId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"dealId\",\"type\":\"uint256\"}],\"name\":\"DealNotFound\",\"type\":\"error\"},{\"inputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"dealId\",\"type\":\"uint256\"},{\"internalType\":\"enumICurioDealViewV1.DealState\",\"name\":\"state\",\"type\":\"uint8\"},{\"internalType\":\"uint256\",\"name\":\"providerActorId\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"clientId\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"pieceCidV2\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"startEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"duration\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"allocationId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"finalizedEpoch\",\"type\":\"uint256\"}],\"internalType\":\"structICurioDealViewV1.CurioDealView\",\"name\":\"deal\",\"type\":\"tuple\"}],\"name\":\"verifyDeal\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"version\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"dealId\",\"type\":\"uint256\"}],\"name\":\"getDealState\",\"outputs\":[{\"internalType\":\"enumICurioDealViewV1.DealState\",\"name\":\"\",\"type\":\"uint8\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 }
 
 // CurioDealViewV1ABI is the input ABI used to generate the binding from.
@@ -192,35 +193,66 @@ func (_CurioDealViewV1 *CurioDealViewV1TransactorRaw) Transact(opts *bind.Transa
 	return _CurioDealViewV1.Contract.contract.Transact(opts, method, params...)
 }
 
-// GetDeal is a free data retrieval call binding the contract method 0x82fd5bac.
+// GetDealState is a free data retrieval call binding the contract method 0xee84880d.
 //
-// Solidity: function getDeal(uint256 dealId) view returns((uint8,uint256,bytes,bytes,uint256,uint256,uint256,uint256))
-func (_CurioDealViewV1 *CurioDealViewV1Caller) GetDeal(opts *bind.CallOpts, dealId *big.Int) (ICurioDealViewV1DealView, error) {
+// Solidity: function getDealState(uint256 dealId) view returns(uint8)
+func (_CurioDealViewV1 *CurioDealViewV1Caller) GetDealState(opts *bind.CallOpts, dealId *big.Int) (uint8, error) {
 	var out []interface{}
-	err := _CurioDealViewV1.contract.Call(opts, &out, "getDeal", dealId)
+	err := _CurioDealViewV1.contract.Call(opts, &out, "getDealState", dealId)
 
 	if err != nil {
-		return *new(ICurioDealViewV1DealView), err
+		return *new(uint8), err
 	}
 
-	out0 := *abi.ConvertType(out[0], new(ICurioDealViewV1DealView)).(*ICurioDealViewV1DealView)
+	out0 := *abi.ConvertType(out[0], new(uint8)).(*uint8)
 
 	return out0, err
 
 }
 
-// GetDeal is a free data retrieval call binding the contract method 0x82fd5bac.
+// GetDealState is a free data retrieval call binding the contract method 0xee84880d.
 //
-// Solidity: function getDeal(uint256 dealId) view returns((uint8,uint256,bytes,bytes,uint256,uint256,uint256,uint256))
-func (_CurioDealViewV1 *CurioDealViewV1Session) GetDeal(dealId *big.Int) (ICurioDealViewV1DealView, error) {
-	return _CurioDealViewV1.Contract.GetDeal(&_CurioDealViewV1.CallOpts, dealId)
+// Solidity: function getDealState(uint256 dealId) view returns(uint8)
+func (_CurioDealViewV1 *CurioDealViewV1Session) GetDealState(dealId *big.Int) (uint8, error) {
+	return _CurioDealViewV1.Contract.GetDealState(&_CurioDealViewV1.CallOpts, dealId)
 }
 
-// GetDeal is a free data retrieval call binding the contract method 0x82fd5bac.
+// GetDealState is a free data retrieval call binding the contract method 0xee84880d.
 //
-// Solidity: function getDeal(uint256 dealId) view returns((uint8,uint256,bytes,bytes,uint256,uint256,uint256,uint256))
-func (_CurioDealViewV1 *CurioDealViewV1CallerSession) GetDeal(dealId *big.Int) (ICurioDealViewV1DealView, error) {
-	return _CurioDealViewV1.Contract.GetDeal(&_CurioDealViewV1.CallOpts, dealId)
+// Solidity: function getDealState(uint256 dealId) view returns(uint8)
+func (_CurioDealViewV1 *CurioDealViewV1CallerSession) GetDealState(dealId *big.Int) (uint8, error) {
+	return _CurioDealViewV1.Contract.GetDealState(&_CurioDealViewV1.CallOpts, dealId)
+}
+
+// VerifyDeal is a free data retrieval call binding the contract method 0x2e9b812d.
+//
+// Solidity: function verifyDeal((uint256,uint8,uint256,bytes,bytes,uint256,uint256,uint256,uint256) deal) view returns(bool)
+func (_CurioDealViewV1 *CurioDealViewV1Caller) VerifyDeal(opts *bind.CallOpts, deal ICurioDealViewV1CurioDealView) (bool, error) {
+	var out []interface{}
+	err := _CurioDealViewV1.contract.Call(opts, &out, "verifyDeal", deal)
+
+	if err != nil {
+		return *new(bool), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+
+	return out0, err
+
+}
+
+// VerifyDeal is a free data retrieval call binding the contract method 0x2e9b812d.
+//
+// Solidity: function verifyDeal((uint256,uint8,uint256,bytes,bytes,uint256,uint256,uint256,uint256) deal) view returns(bool)
+func (_CurioDealViewV1 *CurioDealViewV1Session) VerifyDeal(deal ICurioDealViewV1CurioDealView) (bool, error) {
+	return _CurioDealViewV1.Contract.VerifyDeal(&_CurioDealViewV1.CallOpts, deal)
+}
+
+// VerifyDeal is a free data retrieval call binding the contract method 0x2e9b812d.
+//
+// Solidity: function verifyDeal((uint256,uint8,uint256,bytes,bytes,uint256,uint256,uint256,uint256) deal) view returns(bool)
+func (_CurioDealViewV1 *CurioDealViewV1CallerSession) VerifyDeal(deal ICurioDealViewV1CurioDealView) (bool, error) {
+	return _CurioDealViewV1.Contract.VerifyDeal(&_CurioDealViewV1.CallOpts, deal)
 }
 
 // Version is a free data retrieval call binding the contract method 0x54fd4d50.

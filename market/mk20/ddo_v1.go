@@ -9,9 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -22,6 +20,7 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	mk20contract "github.com/filecoin-project/curio/market/mk20/contract"
 )
 
@@ -33,6 +32,9 @@ type DDOV1 struct {
 
 	// Provider specifies the address of the provider
 	Provider address.Address `json:"provider"`
+
+	// StartEpoch optionally specifies the epoch by which a deal should be active on the chain
+	StartEpoch *abi.ChainEpoch `json:"start_epoch"`
 
 	// Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
 	// It must be at least 518400
@@ -71,6 +73,12 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 			return ErrServerInternalError, xerrors.Errorf("failed to parse miner string: %s", err)
 		}
 		mk20disabledMiners = append(mk20disabledMiners, maddr)
+	}
+
+	if d.StartEpoch != nil {
+		if *d.StartEpoch <= 0 {
+			return ErrProductValidationFailed, xerrors.Errorf("start epoch cannot be negative")
+		}
 	}
 
 	if lo.Contains(mk20disabledMiners, d.Provider) {
@@ -114,7 +122,7 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 	return Ok, nil
 }
 
-func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client, deal *Deal) (DealCode, error) {
+func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethchain.EthClient, deal *Deal) (DealCode, error) {
 	if d.MarketAddress == "" {
 		return Ok, nil
 	}
@@ -157,7 +165,35 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth *eth
 		return ErrMarketNotEnabled, xerrors.Errorf("unsupported market interface version: %v", version)
 	}
 
-	view, err := market.GetDeal(&bind.CallOpts{Context: ctx}, new(big.Int).SetUint64(*d.MarketDealID))
+	// Match on-chain values with local deal values.
+	localProviderID, err := address.IDFromAddress(d.Provider)
+	if err != nil {
+		return ErrProductValidationFailed, xerrors.Errorf("invalid provider for market verification: %w", err)
+	}
+
+	alloc := new(big.Int).SetUint64(uint64(verifreg.NoAllocationID))
+	if d.AllocationId == nil {
+		alloc = new(big.Int).SetUint64(uint64(*d.AllocationId))
+	}
+
+	startEpoch := new(big.Int).SetUint64(0)
+	if d.StartEpoch != nil {
+		startEpoch = new(big.Int).SetUint64(uint64(*d.StartEpoch))
+	}
+
+	mdeal := mk20contract.ICurioDealViewV1CurioDealView{
+		DealId:          new(big.Int).SetUint64(*d.MarketDealID),
+		State:           mk20contract.DealStatusOpen,
+		ProviderActorId: new(big.Int).SetUint64(localProviderID),
+		ClientId:        localClientIDBytes(deal.Client),
+		PieceCidV2:      deal.Data.PieceCID.Bytes(),
+		StartEpoch:      startEpoch,
+		Duration:        new(big.Int).SetUint64(uint64(d.Duration)),
+		AllocationId:    alloc,
+		FinalizedEpoch:  new(big.Int).SetUint64(0),
+	}
+
+	seal, err := market.VerifyDeal(&bind.CallOpts{Context: ctx}, mdeal)
 	if err != nil {
 		if isDealNotFoundRevert(err) {
 			return ErrDealRejectedByMarket, xerrors.Errorf("deal %d not found in market", *d.MarketDealID)
@@ -165,52 +201,9 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth *eth
 		return ErrServerInternalError, xerrors.Errorf("calling market getDeal: %w", err)
 	}
 
-	// Match on-chain values with local deal values.
-	localProviderID, err := address.IDFromAddress(d.Provider)
-	if err != nil {
-		return ErrProductValidationFailed, xerrors.Errorf("invalid provider for market verification: %w", err)
+	if !seal {
+		return ErrDealRejectedByMarket, xerrors.Errorf("Deal rejected by market")
 	}
-
-	if view.ProviderActorId == nil || view.ProviderActorId.Uint64() != localProviderID {
-		return ErrDealRejectedByMarket, xerrors.Errorf("provider mismatch: market=%v local=%d", view.ProviderActorId, localProviderID)
-	}
-
-	// TODO: Review if care about client at all
-	localClient := localClientIDBytes(deal.Client)
-	if !bytes.Equal(view.ClientId, localClient) {
-		return ErrDealRejectedByMarket, xerrors.Errorf("client mismatch between market deal and local deal")
-	}
-
-	pcid, err := cid.Cast(view.PieceCidV2)
-	if err != nil {
-		return ErrDealRejectedByMarket, xerrors.Errorf("failed to cast market deal piece cid: %w", err)
-	}
-
-	if !deal.Data.PieceCID.Equals(pcid) {
-		return ErrDealRejectedByMarket, xerrors.Errorf("piece cid mismatch between market deal and local deal")
-	}
-
-	if d.AllocationId != nil {
-		if view.AllocationId == nil || view.AllocationId.Uint64() != uint64(*d.AllocationId) {
-			return ErrDealRejectedByMarket, xerrors.Errorf("allocation mismatch between market deal and local deal")
-		}
-	}
-	if d.AllocationId == nil {
-		if view.AllocationId != nil && view.AllocationId.Sign() != 0 {
-			return ErrDealRejectedByMarket, xerrors.Errorf("allocation mismatch between market deal and local deal")
-		}
-	}
-
-	if view.Duration == nil || view.Duration.Cmp(big.NewInt(int64(d.Duration))) != 0 {
-		return ErrDealRejectedByMarket, xerrors.Errorf("duration mismatch between market deal and local deal")
-	}
-
-	// Finalized deal is terminal and cannot be accepted for onboarding.
-	if view.State == 2 {
-		return ErrDealRejectedByMarket, xerrors.Errorf("market deal %d is already finalized", *d.MarketDealID)
-	}
-
-	// TODO: Guard against start duration here. Maybe use a config to allow minimum now+2days to max now+7days
 
 	return Ok, nil
 }
