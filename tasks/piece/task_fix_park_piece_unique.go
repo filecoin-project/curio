@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/curiostorage/harmonyquery"
@@ -37,23 +36,33 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	ctx := context.Background()
 
 	// Check index first
-	exists, err := f.checkIfIndexExists(ctx)
+	var exists bool
+	err = f.db.QueryRow(ctx, `
+					SELECT EXISTS (
+					  SELECT 1
+					  FROM pg_indexes
+					  WHERE schemaname = current_schema()
+						AND tablename = 'parked_pieces'
+						AND indexname = 'parked_pieces_active_piece_key'
+						AND indexdef LIKE '%UNIQUE INDEX parked_pieces_active_piece_key%'
+						AND indexdef LIKE '%(piece_cid, piece_padded_size, long_term)%'
+						AND indexdef LIKE '%WHERE cleanup_task_id IS NULL%'
+					);`).Scan(&exists)
 	if err != nil {
-		return false, xerrors.Errorf("checking if index exists: %w", err)
+		return false, fmt.Errorf("checking if index exists: %w", err)
 	}
+
 	if exists {
 		return true, nil
 	}
 
-	type duplicate struct {
+	var duplicates []struct {
 		PieceCid  string  `db:"piece_cid"`
 		PieceSize int64   `db:"piece_padded_size"`
 		LongTerm  bool    `db:"long_term"`
 		RowCount  int64   `db:"row_count"`
 		IDs       []int64 `db:"ids"`
 	}
-
-	var duplicates []duplicate
 
 	err = f.db.Select(ctx, &duplicates, `SELECT piece_cid, piece_padded_size, long_term,
 										   count(*) AS row_count,
@@ -66,18 +75,6 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	if err != nil {
 		return false, xerrors.Errorf("querying parked piece: %w", err)
-	}
-
-	if len(duplicates) == 0 {
-		_, err = f.db.Exec(ctx, `CREATE UNIQUE INDEX parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`)
-		if err != nil {
-			if strings.Contains(err.Error(), "SQLSTATE 23505") {
-				// Let's fail this so we can retry few seconds later, which is likely to succeed
-				return false, xerrors.Errorf("duplicate rows exist while creating index: %w", err)
-			}
-			return false, xerrors.Errorf("creating index: %w", err)
-		}
-		return true, nil
 	}
 
 	for _, dup := range duplicates {
@@ -118,58 +115,12 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 	}
 
-	_, err = f.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
-		var reduplicates []duplicate
-
-		err = tx.Select(&reduplicates, `SELECT piece_cid, piece_padded_size, long_term,
-													   count(*) AS row_count,
-													   array_agg(id ORDER BY id) AS ids
-												FROM parked_pieces
-												WHERE cleanup_task_id IS NULL
-												  AND complete = true
-												GROUP BY 1,2,3
-												HAVING count(*) > 1;`)
-
-		if err != nil {
-			return false, xerrors.Errorf("querying parked piece: %w", err)
-		}
-
-		if len(reduplicates) > 0 {
-			return false, nil
-		}
-
-		_, err = tx.Exec(`CREATE UNIQUE INDEX parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`)
-		if err != nil {
-			if strings.Contains(err.Error(), "SQLSTATE 23505") {
-				return false, nil
-			}
-			return false, xerrors.Errorf("creating index: %w", err)
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
+	_, err = f.db.Exec(ctx, `CREATE UNIQUE INDEX parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`)
 	if err != nil {
-		return false, xerrors.Errorf("updating DB: %w", err)
+		return false, xerrors.Errorf("creating index: %w", err)
 	}
+
 	return true, nil
-}
-
-func (f *FixParkPieceTask) checkIfIndexExists(ctx context.Context) (bool, error) {
-	var exists bool
-	err := f.db.QueryRow(ctx, `
-					SELECT EXISTS (
-					  SELECT 1
-					  FROM pg_indexes
-					  WHERE schemaname = current_schema()
-						AND tablename = 'parked_pieces'
-						AND indexname = 'parked_pieces_active_piece_key'
-						AND indexdef LIKE '%UNIQUE INDEX parked_pieces_active_piece_key%'
-						AND indexdef LIKE '%(piece_cid, piece_padded_size, long_term)%'
-						AND indexdef LIKE '%WHERE cleanup_task_id IS NULL%'
-					);`).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("checking if index exists: %w", err)
-	}
-	return exists, nil
 }
 
 func (f *FixParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
