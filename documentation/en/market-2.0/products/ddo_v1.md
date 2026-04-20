@@ -8,13 +8,14 @@
 
 ```go
 type DDOV1 struct {
-    Provider            address.Address         `json:"provider"`
-    Duration            abi.ChainEpoch          `json:"duration"`
-    AllocationId        *verifreg.AllocationId `json:"allocation_id,omitempty"`
-    MarketAddress       string                  `json:"market_address"`
-    MarketDealID        *uint64                 `json:"market_deal_id"`
-    NotificationAddress address.Address         `json:"notification_address"`
-    NotificationPayload []byte                  `json:"notification_payload,omitempty"`
+    Provider            address.Address          `json:"provider"`
+    StartEpoch          *abi.ChainEpoch          `json:"start_epoch"`
+    Duration            abi.ChainEpoch           `json:"duration"`
+    AllocationId        *verifreg.AllocationId  `json:"allocation_id,omitempty"`
+    MarketAddress       string                   `json:"market_address"`
+    MarketDealID        *uint64                  `json:"market_deal_id"`
+    NotificationAddress address.Address          `json:"notification_address"`
+    NotificationPayload []byte                   `json:"notification_payload,omitempty"`
 }
 ```
 
@@ -22,17 +23,25 @@ type DDOV1 struct {
 
 - Required:
   - `provider`
-  - `duration` (unless allocation-driven semantics apply)
+  - `duration`
 - Optional:
+  - `start_epoch`
   - `allocation_id`
   - `market_address`
   - `market_deal_id` (required if `market_address` is set)
   - `notification_address` and `notification_payload` (must be provided together)
 
+## Field Behavior
+
+- `start_epoch` is optional. If set, Curio validates it against chain head and `ExpectedPoRepSealDuration`, and uses it as the deal schedule start during ingestion.
+- `duration` is always part of the DDO payload. For verified allocations, it must still satisfy allocation term bounds.
+- `market_address` and `market_deal_id` opt the deal into external contract verification.
+
 ## Core Validation Rules
 
 - `ddo_v1` must be enabled by the provider.
 - Provider must be a valid address and not in MK20 disabled-miner config.
+- If `start_epoch` is set, it must be greater than `0`.
 - If `allocation_id` is missing, minimum duration is enforced (`>= 518400`).
 - If `allocation_id` is set, it must not be `NoAllocationID`.
 - If `market_address` is set, it must be a valid `0x` hex address.
@@ -46,28 +55,34 @@ Verification behavior:
 
 1. Contract must exist in `ddo_contracts` and be allowed.
 2. Contract must implement `CurioDealViewV1` and return `version() == 1`.
-3. `getDeal(market_deal_id)` must succeed.
-4. Returned deal values must match local deal values for:
-   - provider actor id
-   - client identity bytes
-   - piece CID v2
-   - allocation semantics
-   - duration
-5. Market deal state must not be `Finalized`.
+3. MK20 builds `CurioDealView` from local deal values and calls `verifyDeal(...)`.
+4. `verifyDeal(...)` must return `true`.
 
-If `getDeal` reverts with `DealNotFound(uint256)`, MK20 rejects the deal as market-missing.
+Curio passes these values into `verifyDeal(...)`:
+
+- `dealId`
+- `state` = `Open`
+- provider actor id
+- client identity bytes
+- piece CID v2
+- `start_epoch` or `0`
+- duration
+- `allocation_id` or `0`
+- `finalizedEpoch` = `0`
+
+If `verifyDeal` reverts with `DealNotFound(uint256)`, MK20 rejects the deal as market-missing.
 
 ## Additional Sanitize Checks Before Pipeline Entry
 
 - `retrieval_v1` must be present.
 - `retrieval_v1.announce_piece` must be false.
 - Provider must be in Curio miner set.
-- Deal data must be present by finalize time.
+- Deal data must be present.
 - Piece size must fit provider sector size.
 - Raw format cannot be indexed.
 - Notification address must resolve on chain when set.
-- If `allocation_id` is set, MK20 validates allocation ownership, term, data, and size consistency.
-
-## Build Availability
-
-DDO execution path is currently available on `build2k` and `builddebug` builds.
+- Client must pass provider allow/deny policy.
+- If `start_epoch` is set, it must be between current chain height and current chain height plus `ExpectedPoRepSealDuration`.
+- If `allocation_id` is set, MK20 validates allocation ownership, provider, term, data, size, and expiration consistency.
+- For verified allocations, the allocation owner may be either the client or the market contract address.
+- If both `allocation_id` and `start_epoch` are set, allocation expiration must be greater than or equal to `start_epoch`.

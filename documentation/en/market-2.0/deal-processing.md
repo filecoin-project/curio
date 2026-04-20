@@ -1,4 +1,4 @@
-# Deal Lifecycle, Status, and Pipelines
+# Deal Processing
 
 This page defines the deal intake paths, lifecycle progression, status semantics, and pipeline behavior for Market 2.0.
 
@@ -36,11 +36,15 @@ Use this path when bytes are uploaded first and full deal details are supplied a
 API sequence:
 
 1. `POST /deal`
-2. `PUT /upload/{id}`
-3. `POST /upload/{id}` with full deal payload
-4. `GET /status/{id}` until terminal state
+2. Upload bytes using one mode:
+3. Serial: `PUT /upload/{id}`
+4. Chunked: `POST /uploads/{id}` then `PUT /uploads/{id}/{chunkNum}` (repeat)
+5. Finalize with full deal payload:
+6. Serial: `POST /upload/{id}`
+7. Chunked: `POST /uploads/finalize/{id}`
+8. `GET /status/{id}` until terminal state
 
-Current behavior: this path is supported in serial upload flow.
+Current behavior: this path is supported in both serial and chunked finalize flows.
 
 ### 4. Control-Only Operation (No Piece Ingestion)
 

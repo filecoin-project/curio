@@ -15,7 +15,7 @@ Pipeline-with-data means:
 5. Upload flows: `market/mk20/mk20_upload.go`
 6. Pipeline insertion/background loops: `tasks/storage-market/mk20.go`
 7. Chunk-finalize aggregation task: `tasks/piece/task_aggregate_chunks.go`
-8. Offline/download SQL + downloaded markers: `harmony/harmonydb/sql/20250505-market-mk20.sql`, `harmony/harmonydb/sql/20260310-mk20-ddo-contracts.sql`
+8. Offline/download SQL + downloaded markers: `harmony/harmonydb/sql/20250505-market-mk20.sql`, `harmony/harmonydb/sql/20260416-mk20-ddo-contracts.sql`
 
 ## Decision tree (actual control flow)
 
@@ -37,12 +37,13 @@ ExecuteDeal
 
 ```text
 processDDODeal
- -> sanitizeDDODeal (Data required, retrieval required, provider/allocation/size checks)
+ -> sanitizeDDODeal (Data required, retrieval required, provider/client/start-epoch/allocation/size checks)
  -> VerifyMarketDeal (only if market_address != "")
     -> ddo_contracts.allowed must be TRUE
     -> CurioDealViewV1.version() == 1
-    -> CurioDealViewV1.getDeal(marketDealID) matches local provider/client/piece/allocation/duration
-    -> reject if market state = Finalized
+    -> CurioDealViewV1.verifyDeal(CurioDealView{...}) must return TRUE
+    -> DealNotFound revert maps to market rejection
+ -> backpressure checks (MK20 + Sector)
  -> SaveToDB
  -> queue
     -> SourceHttpPut: insert market_mk20_upload_waiting
@@ -121,6 +122,7 @@ If deal has `Data` and matching piece already exists in `parked_pieces`, it inse
    - `downloadMk20Deal` calls SQL `mk20_ddo_mark_downloaded` to bind completed refs to `url=pieceref:*` and set `downloaded=TRUE`.
    - `findOfflineURLMk20Deal` calls `process_offline_download(...)` and piece-locator probing for offline rows.
 4. At `downloaded=TRUE + url=pieceref:*`, DDO is in pipeline with data.
+5. During sector ingestion, start epoch uses `ddo_v1.start_epoch` when set; otherwise Curio falls back to `head + 2 days`.
 
 ### PDP AddPiece from `insertPDPPipeline`
 1. Rows are inserted into `pdp_pipeline` plus `market_mk20_download_pipeline`.
@@ -133,8 +135,9 @@ If `market_address` is provided:
 2. Contract must be in `ddo_contracts` with `allowed=TRUE`.
 3. ABI call is read-only (`CurioDealViewV1`):
    - `version()` must be `1`
-   - `getDeal(marketDealID)` must match local provider/client/piece/allocation/duration
-   - `state != Finalized`
+   - Curio constructs `CurioDealView` from local deal data and calls `verifyDeal(...)`
+   - `verifyDeal(...)` must return `true`
+   - `getDealState(dealId)` is part of the interface for state queries
 4. `DealNotFound` revert selector maps to market rejection.
 
 ## Upload housekeeping state machine

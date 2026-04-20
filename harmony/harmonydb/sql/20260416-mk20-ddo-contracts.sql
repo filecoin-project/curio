@@ -21,6 +21,7 @@ DECLARE
   _url TEXT;
   _headers JSONB;
   _deal_aggregation INT;
+  _long_term BOOLEAN;
   _piece_id BIGINT;
   _ref_id BIGINT;
 BEGIN
@@ -40,23 +41,32 @@ BEGIN
     FROM market_mk20_pipeline
     WHERE id = _id AND piece_cid_v2 = _piece_cid_v2 LIMIT 1;
 
+    -- 3. Early exit if no deal aggregation match found
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
     -- 3. Look for an existing piece
     SELECT id
     INTO _piece_id
     FROM parked_pieces
     WHERE piece_cid = _piece_cid AND piece_padded_size = _piece_size;
 
+    _long_term := NOT (_deal_aggregation > 0);
+
     -- 4. Insert piece if it is not found
-    IF NOT FOUND THEN
-        INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-        VALUES (_piece_cid, _piece_size, _raw_size, NOT (_deal_aggregation > 0))
-        RETURNING id INTO _piece_id;
-    END IF;
+    INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+    VALUES (_piece_cid, _piece_size, _raw_size, _long_term)
+    ON CONFLICT (piece_cid, piece_padded_size, long_term)
+        WHERE cleanup_task_id IS NULL
+    DO UPDATE
+        SET piece_raw_size = EXCLUDED.piece_raw_size
+    RETURNING id INTO _piece_id;
 
     -- 5. Insert piece ref
     INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-    VALUES (_piece_id, _url, _headers, NOT (_deal_aggregation > 0))
-        RETURNING ref_id INTO _ref_id;
+    VALUES (_piece_id, _url, _headers, _long_term)
+    RETURNING ref_id INTO _ref_id;
 
     -- 6. Insert or update download pipeline with ref_id
     INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
