@@ -128,8 +128,8 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(m.max),
-		Name: "UpdateStore",
+		Max:       taskhelp.Max(m.max),
+		Name:      "UpdateStore",
 		MayFollow: []string{"UpdateEncode"},
 		Cost: resources.Resources{
 			Cpu:     cpu,

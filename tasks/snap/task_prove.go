@@ -139,8 +139,8 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(p.max),
-		Name: "UpdateProve",
+		Max:       taskhelp.Max(p.max),
+		Name:      "UpdateProve",
 		MayFollow: []string{"UpdateEncode"},
 		Cost: resources.Resources{
 			Cpu: 1,

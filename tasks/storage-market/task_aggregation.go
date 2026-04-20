@@ -360,8 +360,8 @@ func (a *AggregateDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.T
 
 func (a *AggregateDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: "AggregateDeals",
+		Max:       taskhelp.Max(50),
+		Name:      "AggregateDeals",
 		MayFollow: []string{"FindDeal"},
 		Cost: resources.Resources{
 			Cpu: 1,

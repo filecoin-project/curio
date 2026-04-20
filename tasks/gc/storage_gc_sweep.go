@@ -109,8 +109,8 @@ func (s *StorageGCSweep) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 
 func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "StorageGCSweep",
+		Max:       taskhelp.Max(1),
+		Name:      "StorageGCSweep",
 		MayFollow: []string{"StorageGCMark"},
 		Cost: resources.Resources{
 			Cpu: 1,

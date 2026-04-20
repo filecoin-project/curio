@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/lotus/lib/must"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/lotus/lib/must"
 )
 
 // PeerMessage is the JSON envelope for all peer-to-peer messages.

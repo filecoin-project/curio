@@ -224,7 +224,7 @@ func (n *NextProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *harm
 
 func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPProvingPeriod",
+		Name:      "PDPProvingPeriod",
 		MayFollow: []string{"PDPProve"},
 		Cost: resources.Resources{
 			Cpu: 0,

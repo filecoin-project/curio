@@ -221,9 +221,9 @@ func (t *TaskClientPoll) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:     "PSClientPoll",
+		Name:      "PSClientPoll",
 		MayFollow: []string{"PSPutVanilla"},
-		CanYield: true,
+		CanYield:  true,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Ram: 4 << 20,

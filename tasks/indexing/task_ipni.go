@@ -435,7 +435,7 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "IPNI",
+		Name:      "IPNI",
 		MayFollow: []string{"Indexing"},
 		Cost: resources.Resources{
 			Cpu: 1,

@@ -358,8 +358,8 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(c.max),
-		Name: "CommP",
+		Max:       taskhelp.Max(c.max),
+		Name:      "CommP",
 		MayFollow: []string{"ParkPiece"},
 		Cost: resources.Resources{
 			Cpu: 1,
