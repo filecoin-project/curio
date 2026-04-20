@@ -62,7 +62,7 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(bs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
 
 	lsys := storeutil.LinkSystemForBlockstore(cbs)
-	fr := frisbii.NewHttpIpfs(ctx, lsys)
+	fr := frisbii.NewHttpIpfs(ctx, lsys, frisbii.WithBlockHasCheck(cbs.Has))
 
 	return &Provider{
 		db:  db,
