@@ -1008,16 +1008,15 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 	}
 
 	var deals []struct {
-		ID           string        `db:"id"`
-		SPID         int64         `db:"sp_id"`
-		Client       string        `db:"client"`
-		PieceCID     string        `db:"piece_cid"`
-		PieceSize    int64         `db:"piece_size"`
-		RawSize      int64         `db:"raw_size"`
-		AllocationID sql.NullInt64 `db:"allocation_id"`
-		Duration     int64         `db:"duration"`
-		Url          string        `db:"url"`
-		Count        int           `db:"unassigned_count"`
+		ID        string `db:"id"`
+		SPID      int64  `db:"sp_id"`
+		Client    string `db:"client"`
+		PieceCID  string `db:"piece_cid"`
+		PieceSize int64  `db:"piece_size"`
+		RawSize   int64  `db:"raw_size"`
+		Duration  int64  `db:"duration"`
+		Url       string `db:"url"`
+		Count     int    `db:"unassigned_count"`
 	}
 
 	err = d.db.Select(ctx, &deals, `SELECT 
@@ -1027,7 +1026,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 											  MIN(piece_cid) AS piece_cid,
 											  MIN(piece_size) AS piece_size,
 											  MIN(raw_size) AS raw_size,
-											  MIN(allocation_id) AS allocation_id,
 											  MIN(duration) AS duration,
 											  MIN(url) AS url,
 											  COUNT(*) AS unassigned_count
@@ -1078,12 +1076,26 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
-		// TODO: Use correct start duration
+		dealID, err := ulid.Parse(deal.ID)
+		if err != nil {
+			log.Errorw("failed to parse deal id", "deal", deal, "error", err)
+			continue
+		}
+
+		mk20Deal, err := mk20.DealFromDB(ctx, d.db, dealID)
+		if err != nil {
+			log.Errorw("failed to get deal from db", "deal", deal, "error", err)
+			continue
+		}
+
 		start := head.Height() + 2*builtin.EpochsInDay
+		if mk20Deal.Products.DDOV1.StartEpoch != nil {
+			start = *mk20Deal.Products.DDOV1.StartEpoch
+		}
 		end := start + abi.ChainEpoch(deal.Duration)
 		var vak *miner.VerifiedAllocationKey
-		if deal.AllocationID.Valid {
-			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(deal.AllocationID.Int64), types.EmptyTSK)
+		if mk20Deal.Products.DDOV1.AllocationId != nil {
+			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 			if err != nil {
 				log.Errorw("failed to get allocation", "deal", deal, "error", err)
 				continue
@@ -1099,7 +1111,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			end = start + alloc.TermMin
 			vak = &miner.VerifiedAllocationKey{
 				Client: abi.ActorID(clientId),
-				ID:     verifreg13.AllocationId(deal.AllocationID.Int64),
+				ID:     verifreg13.AllocationId(*mk20Deal.Products.DDOV1.AllocationId),
 			}
 		}
 
@@ -1113,18 +1125,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 				Size:                  abi.PaddedPieceSize(deal.PieceSize),
 				VerifiedAllocationKey: vak,
 			},
-		}
-
-		dealID, err := ulid.Parse(deal.ID)
-		if err != nil {
-			log.Errorw("failed to parse deal id", "deal", deal, "error", err)
-			continue
-		}
-
-		mk20Deal, err := mk20.DealFromDB(ctx, d.db, dealID)
-		if err != nil {
-			log.Errorw("failed to get deal from db", "deal", deal, "error", err)
-			continue
 		}
 
 		if !mk20Deal.Products.DDOV1.NotificationAddress.Empty() && mk20Deal.Products.DDOV1.NotificationAddress != address.Undef && mk20Deal.Products.DDOV1.NotificationPayload != nil {

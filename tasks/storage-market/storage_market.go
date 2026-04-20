@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/market/backpressure"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -41,6 +42,7 @@ import (
 
 	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -76,6 +78,7 @@ type CurioStorageDealMarket struct {
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
+	bp          *lazy.Lazy[*backpressure.CachedBackPressure]
 }
 
 type MK12Pipeline struct {
@@ -129,13 +132,14 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 		as:        as,
 		ethClient: ethClient,
 		sc:        sc,
+		bp:        backpressure.NewCachedBackPressure(),
 	}
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as)
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as, d.bp)
 	if err != nil {
 		return err
 	}
@@ -170,7 +174,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		})
 	}
 
-	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
+	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc, d.bp)
 	if err != nil {
 		return err
 	}

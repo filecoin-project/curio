@@ -54,6 +54,10 @@ definitions:
         allOf:
         - $ref: '#/definitions/address.Address'
         description: Provider specifies the address of the provider
+      start_epoch:
+        description: StartEpoch optionally specifies the epoch by which a deal should
+          be active on the chain
+        type: integer
     type: object
   mk20.DataSource:
     properties:

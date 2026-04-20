@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -23,21 +24,26 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/market/backpressure"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
+	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
+	"github.com/filecoin-project/lotus/lib/lazy"
 )
 
 var log = logging.Logger("mk20")
 
 type MK20API interface {
+	ChainHead(context.Context) (*types.TipSet, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifreg9.AllocationId, tsk types.TipSetKey) (*verifreg9.Allocation, error)
 	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
@@ -54,10 +60,20 @@ type MK20 struct {
 	as                 *multictladdr.MultiAddressSelector
 	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
+	backpressure       *backpressure.CachedBackPressure
 	unknowClient       bool
 }
 
-func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient ethchain.EthClient, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
+func NewMK20Handler(
+	miners *config.Dynamic[[]address.Address],
+	db *harmonydb.DB,
+	si paths.SectorIndex,
+	mapi MK20API,
+	ethClient ethchain.EthClient,
+	cfg *config.CurioConfig,
+	as *multictladdr.MultiAddressSelector,
+	sc *ffi.SealCalls,
+	bp *lazy.Lazy[*backpressure.CachedBackPressure]) (*MK20, error) {
 	ctx := context.Background()
 
 	// Ensure MinChunk size and max chunkSize is a power of 2
@@ -67,6 +83,11 @@ func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB,
 
 	if cfg.Market.StorageMarketConfig.MK20.MaximumChunkSize&(cfg.Market.StorageMarketConfig.MK20.MaximumChunkSize-1) != 0 {
 		return nil, xerrors.Errorf("MaximumChunkSize must be a power of 2")
+	}
+
+	b, err := bp.Val()
+	if err != nil {
+		return nil, xerrors.Errorf("getting backpressure: %w", err)
 	}
 
 	sm := config.NewDynamic(make(map[address.Address]abi.SectorSize))
@@ -108,10 +129,11 @@ func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB,
 		sc:                 sc,
 		maxParallelUploads: new(atomic.Int64),
 		unknowClient:       !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients,
+		backpressure:       b,
 	}, nil
 }
 
-// ExecuteDeal take a *Deal  and returns ProviderDealRejectionInfo which has ErrorCode and Reason
+// ExecuteDeal take a *Deal and returns ProviderDealRejectionInfo, which has ErrorCode and Reason
 // @param deal *Deal
 // @Return DealCode
 // @Return Reason string
@@ -188,7 +210,36 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 		return ret
 	}
 
-	// TODO: Backpressure, client filter
+	pressure, err := m.backpressure.MK20Pressure(ctx, &m.cfg.Ingest, m.DB)
+	if err != nil {
+		log.Errorw("failed to get Deal backpressure", "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Internal server error",
+		}
+	}
+
+	if pressure {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServiceOverloaded,
+			Reason:   "MK20 ingestion backpressure is active. Please try again later.",
+		}
+	}
+
+	pressure, err = m.backpressure.SectorPressure(ctx, &m.cfg.Ingest, m.DB)
+	if err != nil {
+		log.Errorw("failed to get Deal backpressure", "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Internal server error",
+		}
+	}
+	if pressure {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServiceOverloaded,
+			Reason:   "MK20 ingestion backpressure is active. Please try again later.",
+		}
+	}
 
 	process := func(tx *harmonydb.Tx) error {
 		err = deal.SaveToDB(tx)
@@ -333,6 +384,44 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
+	allowed, err := m.applyAllowList(ctx, deal.Client)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+		}, xerrors.Errorf("checking allow list: %w", err)
+	}
+
+	if !allowed {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrUnAuthorized,
+			Reason:   "Client is not allowed to make deal with this provider",
+		}, nil
+	}
+
+	head, err := m.api.ChainHead(ctx)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+		}, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	if deal.Products.DDOV1.StartEpoch != nil {
+		if *deal.Products.DDOV1.StartEpoch < head.Height() {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Start epoch is less than the current chain height",
+			}, nil
+		}
+		sealDuration := abi.ChainEpoch(int64(math.Ceil(m.cfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration.Seconds() / float64(build.BlockDelaySecs))))
+
+		if *deal.Products.DDOV1.StartEpoch > head.Height()+sealDuration {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Start epoch is greater than the current chain height plus the expected PoRep seal duration",
+			}, nil
+		}
+	}
+
 	if deal.Products.DDOV1.AllocationId != nil {
 		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{
@@ -379,10 +468,45 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 
 		if alloc.Client != abi.ActorID(clientID) {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "client address does not match the allocation client address",
-			}, nil
+			// Check if maybe allocation was created by the market contract itself
+			contractAddr, err := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
+			if err != nil {
+				log.Errorw("error parsing market address", "market address", deal.Products.DDOV1.MarketAddress, "error", err)
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Market address is not valid",
+				}, nil
+			}
+			fc, err := contractAddr.ToFilecoinAddress()
+			if err != nil {
+				log.Errorw("error converting market address to filecoin address", "market address", deal.Products.DDOV1.MarketAddress, "error", err)
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Market address is not valid filecoin address",
+				}, nil
+			}
+
+			cAdr, err := m.api.StateLookupID(ctx, fc, types.EmptyTSK)
+			if err != nil {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrServerInternalError,
+				}, xerrors.Errorf("looking up client ID: %w", err)
+			}
+
+			cID, err := address.IDFromAddress(cAdr)
+			if err != nil {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Invalid client address",
+				}, nil
+			}
+
+			if alloc.Client != abi.ActorID(cID) {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "client or contract address does not match the allocation client address",
+				}, nil
+			}
 		}
 
 		prov, err := address.NewIDAddress(uint64(alloc.Provider))
@@ -432,6 +556,15 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation term max is greater than deal duration",
 			}, nil
+		}
+
+		if deal.Products.DDOV1.StartEpoch != nil {
+			if alloc.Expiration < *deal.Products.DDOV1.StartEpoch {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Allocation expiration is less than deal start epoch",
+				}, nil
+			}
 		}
 	}
 
@@ -876,7 +1009,7 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 			log.Errorf("failed to mark PDP downloaded piece: %v", err)
 			return
 		}
-		log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
+		log.Debugf("Successfully marked %d PDP pieces as downloaded", n)
 	}
 
 	ticker := time.NewTicker(time.Second * 2)

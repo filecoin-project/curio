@@ -925,6 +925,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/address.Address"
                         }
                     ]
+                },
+                "start_epoch": {
+                    "description": "StartEpoch optionally specifies the epoch by which a deal should be active on the chain",
+                    "type": "integer"
                 }
             }
         },

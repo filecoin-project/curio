@@ -23,8 +23,9 @@ From the Curio UI, each contract is either:
 Before allowing a contract, providers should verify:
 
 1. The contract implements `CurioDealViewV1` correctly.
-2. Returned deal fields match expected semantics (provider, client, piece CID, duration, allocation, state).
-3. The contract's state transitions and finalization behavior are clear for payout and replay safety.
+2. `verifyDeal` checks the same deal semantics Curio will pass in (`provider`, `client`, `piece CID`, `start epoch`, `duration`, `allocation`, finalization fields).
+3. `getDealState` uses the expected `Open` / `Active` / `Finalized` meanings.
+4. The contract's state transitions and finalization behavior are clear for payout and replay safety.
 
 Only after this review should the contract be set to Allowed.
 
@@ -42,7 +43,8 @@ interface ICurioDealViewV1 {
         Finalized
     }
 
-    struct DealView {
+    struct CurioDealView {
+        uint256 dealId;
         DealState state;
         uint256 providerActorId;
         bytes clientId;
@@ -55,7 +57,9 @@ interface ICurioDealViewV1 {
 
     function version() external pure returns (uint256);
 
-    function getDeal(uint256 dealId) external view returns (DealView memory);
+    function verifyDeal(CurioDealView calldata deal) external view returns (bool);
+
+    function getDealState(uint256 dealId) external view returns (DealState);
 }
 ```
 
@@ -63,17 +67,26 @@ interface ICurioDealViewV1 {
 
 `version()` must return `1` for this interface.
 
+## `CurioDealView` Field Semantics
+
+1. `dealId`: the market deal identifier referenced by `market_deal_id`.
+2. `state`: Curio sends `Open` during intake verification.
+3. `startEpoch`: must be `0` when unused.
+4. `allocationId`: must be `0` when unused.
+5. `finalizedEpoch`: must be `0` for non-finalized intake verification.
+
 ## Curio Verification Checks
 
 When `market_address` is set for a DDO deal, Curio performs read-only verification:
 
 1. Contract is allowlisted by the provider.
 2. `version()` is supported and returns `1`.
-3. `getDeal(market_deal_id)` returns a deal.
-4. Returned values are matched against local deal details.
-5. Deal state is not `Finalized`.
+3. Curio builds a `CurioDealView` from local deal details and calls `verifyDeal(...)`.
+4. `verifyDeal(...)` must return `true`.
 
-If `getDeal` reverts with `DealNotFound(uint256)`, Curio treats the market deal as missing.
+If `verifyDeal` reverts with `DealNotFound(uint256)`, Curio treats the market deal as missing.
+
+The interface also includes `getDealState(...)` for deal-state queries.
 
 ## Read-Only Boundary
 
