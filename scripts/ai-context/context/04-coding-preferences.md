@@ -9,6 +9,7 @@
 
 ## Go preferences
 - Keep changes idiomatic and straightforward; optimize for maintainability over cleverness.
+- Prefer constants in ANACONDA_CASE, following the C-style convention.
 - Preserve task idempotency and DB-backed coordination semantics in `harmonytask` and `tasks/*`.
 - Use explicit error handling and wrap errors with context.
 - Keep comments sparse and high-signal (non-obvious invariants, coordination logic, edge cases).
