@@ -262,9 +262,24 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		// Create parked_pieces entry
 		var parkedPieceID int64
 		err = tx.QueryRow(`
-			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-			VALUES ($1, $2, $3, TRUE) ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-			RETURNING id
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;
 		`, item.PieceCid, paddedSize, item.PieceRawSize).Scan(&parkedPieceID)
 		if err != nil {
 			return false, xerrors.Errorf("insert parked_pieces: %w", err)

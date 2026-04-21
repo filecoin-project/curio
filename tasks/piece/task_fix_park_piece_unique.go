@@ -2,7 +2,6 @@ package piece
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -38,14 +37,31 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	var exists bool
 	err = f.db.QueryRow(ctx, `
 					SELECT EXISTS (
-					  SELECT 1
-					  FROM pg_indexes
-					  WHERE schemaname = current_schema()
-						AND tablename = 'parked_pieces'
-						AND indexname = 'parked_pieces_active_piece_key'
-						AND indexdef LIKE '%UNIQUE INDEX parked_pieces_active_piece_key%'
-						AND indexdef LIKE '%(piece_cid, piece_padded_size, long_term)%'
-						AND indexdef LIKE '%WHERE cleanup_task_id IS NULL%'
+						SELECT 1
+						FROM pg_catalog.pg_index ix
+						JOIN pg_catalog.pg_class idx ON idx.oid = ix.indexrelid
+						JOIN pg_catalog.pg_class tbl ON tbl.oid = ix.indrelid
+						JOIN pg_catalog.pg_namespace ns ON ns.oid = tbl.relnamespace
+						JOIN pg_catalog.pg_am am ON am.oid = idx.relam
+						WHERE ns.nspname = current_schema()
+						  AND idx.relnamespace = ns.oid
+						  AND tbl.relname = 'parked_pieces'
+						  AND idx.relname = 'parked_pieces_active_piece_key'
+						  AND idx.relkind = 'i'
+						  AND am.amname = 'btree'
+						  AND ix.indisunique
+						  AND ix.indisvalid
+						  AND ix.indisready
+						  AND ix.indislive
+						  AND ix.indnkeyatts = 3
+						  AND ix.indnatts = 3
+						  AND ix.indexprs IS NULL
+						  AND ARRAY(
+							  SELECT pg_catalog.pg_get_indexdef(ix.indexrelid, n, true)
+							  FROM generate_series(1, ix.indnkeyatts) AS n
+							  ORDER BY n
+						  ) = ARRAY['piece_cid', 'piece_padded_size', 'long_term']
+						  AND pg_catalog.pg_get_expr(ix.indpred, ix.indrelid, false) = '(cleanup_task_id IS NULL)'
 					);`).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking if index exists: %w", err)
@@ -83,22 +99,19 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				// If piece exists then check if we can access the data
 				pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(id))
 				if err != nil {
-					// If piece does not exist then we will park it otherwise fail here
-					if !errors.Is(err, storiface.ErrSectorNotFound) {
-						continue
-					}
+					// If piece does not exist then we check the next one
+					continue
 				}
-				defer func() {
-					_ = pr.Close()
-				}()
-
-				_, err = f.db.Exec(ctx, `UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, id)
+				_ = pr.Close()
+				_, err = f.db.Exec(ctx, `UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, id, dup.IDs)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece refs: %w", err)
 				}
 				// Break out of the loop if we fixed the issue
 				break
 			}
+		} else {
+			return false, nil
 		}
 	}
 
