@@ -7,7 +7,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/curiostorage/harmonyquery"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -79,38 +78,26 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	for _, dup := range duplicates {
 		if stillOwned() {
-			comm, err := f.db.BeginTransaction(ctx, func(tx *harmonyquery.Tx) (commit bool, err error) {
-				for _, id := range dup.IDs {
-					// Verify that the piece is still parked
-					// If piece exists then check if we can access the data
-					pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(id))
-					if err != nil {
-						// If piece does not exist then we will park it otherwise fail here
-						if !errors.Is(err, storiface.ErrSectorNotFound) {
-							continue
-						}
+			for _, id := range dup.IDs {
+				// Verify that the piece is still parked
+				// If piece exists then check if we can access the data
+				pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(id))
+				if err != nil {
+					// If piece does not exist then we will park it otherwise fail here
+					if !errors.Is(err, storiface.ErrSectorNotFound) {
+						continue
 					}
-					defer func() {
-						_ = pr.Close()
-					}()
-
-					_, err = tx.Exec(`UPDATE parked_piece_refs 
-										SET piece_id = $1 
-										WHERE piece_id = ANY($2::bigint[]);`, id)
-					if err != nil {
-						return false, xerrors.Errorf("updating parked piece refs: %w", err)
-					}
-
-					return true, nil
 				}
+				defer func() {
+					_ = pr.Close()
+				}()
 
-				return false, xerrors.Errorf("no suitable piece found for ids: %d", dup.IDs)
-			}, harmonydb.OptionRetry())
-			if err != nil {
-				return false, xerrors.Errorf("updating DB: %w", err)
-			}
-			if !comm {
-				return false, xerrors.Errorf("failed to commit the transaction")
+				_, err = f.db.Exec(ctx, `UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, id)
+				if err != nil {
+					return false, xerrors.Errorf("updating parked piece refs: %w", err)
+				}
+				// Break out of the loop if we fixed the issue
+				break
 			}
 		}
 	}
