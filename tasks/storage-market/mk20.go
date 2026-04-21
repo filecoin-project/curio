@@ -112,6 +112,8 @@ func (d *CurioStorageDealMarket) insertDDODealInPipeline(ctx context.Context) {
 		log.Errorf("querying mk20 pipeline waiting: %s", err)
 		return
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		var dealID string
 		err = rows.Scan(&dealID)
@@ -211,7 +213,11 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 
 			var pieceID int64
 			// Check if already have the piece and save the user trouble to upload
-			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, pi.PieceCIDV1.String(), pi.Size).Scan(&pieceID)
+			err = tx.QueryRow(`SELECT id FROM parked_pieces
+									WHERE piece_cid = $1
+									  AND piece_padded_size = $2
+									  AND piece_raw_size = $3
+									  AND complete = TRUE`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
 
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -1017,24 +1023,25 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 
 		pcid, err := cid.Parse(deal.PieceCID)
 		if err != nil {
-			log.Errorw("failed to parse aggregate piece cid", "deal", deal, "error", err)
+			log.Errorw("failed to parse aggregate piece cid", "deal", deal.ID, "error", err)
 			continue
 		}
 
 		client, err := address.NewFromString(deal.Client)
 		if err != nil {
-			log.Errorw("failed to parse client address", "deal", deal, "error", err)
+			log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
 			continue
 		}
 
 		clientIdAddr, err := d.api.StateLookupID(ctx, client, types.EmptyTSK)
 		if err != nil {
-			log.Errorw("failed to lookup client id", "deal", deal, "error", err)
+			log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
+			continue
 		}
 
 		clientId, err := address.IDFromAddress(clientIdAddr)
 		if err != nil {
-			log.Errorw("failed to parse client id", "deal", deal, "error", err)
+			log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
 			continue
 		}
 
@@ -1044,19 +1051,19 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 		if aurl.Scheme != "pieceref" {
-			log.Errorw("aggregate url is not a pieceref: %s", deal)
+			log.Errorw("aggregate url is not a pieceref: %s", deal.ID)
 			continue
 		}
 
 		dealID, err := ulid.Parse(deal.ID)
 		if err != nil {
-			log.Errorw("failed to parse deal id", "deal", deal, "error", err)
+			log.Errorw("failed to parse deal id", "deal", deal.ID, "error", err)
 			continue
 		}
 
 		mk20Deal, err := mk20.DealFromDB(ctx, d.db, dealID)
 		if err != nil {
-			log.Errorw("failed to get deal from db", "deal", deal, "error", err)
+			log.Errorw("failed to get deal from db", "deal", deal.ID, "error", err)
 			continue
 		}
 
@@ -1069,15 +1076,15 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		if mk20Deal.Products.DDOV1.AllocationId != nil {
 			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 			if err != nil {
-				log.Errorw("failed to get allocation", "deal", deal, "error", err)
+				log.Errorw("failed to get allocation", "deal", deal.ID, "error", err)
 				continue
 			}
 			if alloc == nil {
-				log.Errorw("allocation not found", "deal", deal, "error", err)
+				log.Errorw("allocation not found", "deal", deal.ID, "error", err)
 				continue
 			}
 			if alloc.Expiration < start {
-				log.Errorw("allocation expired", "deal", deal, "error", err)
+				log.Errorw("allocation expired", "deal", deal.ID, "error", err)
 				continue
 			}
 			end = start + alloc.TermMin
@@ -1110,7 +1117,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 
 		maddr, err := address.NewIDAddress(uint64(deal.SPID))
 		if err != nil {
-			log.Errorw("failed to parse miner address", "deal", deal, "error", err)
+			log.Errorw("failed to parse miner address", "deal", deal.ID, "error", err)
 			continue
 		}
 

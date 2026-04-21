@@ -8,7 +8,7 @@ Base path: `/market/mk20`
 All Market 2.0 API routes require auth except `/info/*`.
 
 Auth details are documented in:
-[Architecture: Authentication and Authorization](./architecture.md#authentication-and-authorization-current-implementation)
+[Architecture: Authentication and Authorization](./architecture.md#authentication-and-authorization)
 
 ## API Compatibility
 
@@ -102,6 +102,7 @@ Error codes:
 ## `POST /update/{id}`
 
 Updates an existing deal in supported update paths.
+The update path can fill missing `data` or add product fields that are not already present. Existing `data` and existing product fields are not replaced.
 
 Request:
 
@@ -288,6 +289,6 @@ Error codes:
 
 ## Operational Notes
 
-1. Upload finalize endpoints accept empty body or full deal payload.
+1. Upload finalize endpoints accept an empty body when the deal already has data details. If the accepted deal omitted data details, finalize must include a full deal payload so MK20 can bind the uploaded piece to the deal.
 2. Provider policies for products, sources, and contracts affect acceptance behavior.
 3. When behavior differs from docs, trust the running provider `/info/swagger.*`.

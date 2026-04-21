@@ -2,7 +2,6 @@ package http
 
 import (
 	"bytes"
-	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -71,10 +70,10 @@ func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler
 				return
 			}
 
-			allowed, client, err := mk20.Auth(authHeader, db, cfg)
+			allowed, client, err := mk20.Auth(authHeader, r.Method, r.URL.EscapedPath(), db, cfg)
 			if err != nil {
 				log.Errorw("failed to authenticate request", "err", err)
-				http.Error(w, "Error during authentication", http.StatusInternalServerError)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 
@@ -88,7 +87,7 @@ func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler
 				allowed, err := mk20.AuthenticateClient(db, idStr, client)
 				if err != nil {
 					log.Errorw("failed to authenticate client", "err", err)
-					http.Error(w, "Error during authentication", http.StatusInternalServerError)
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
 					return
 				}
 				if !allowed {
@@ -119,15 +118,17 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 // @securityDefinitions.apikey CurioAuth
 // @in header
 // @name Authorization
-// @description Use the format: `CurioAuth PublicKeyType:PublicKey:Signature`
+// @description Use the format: `CurioAuth KeyType:AddressBytes:Signature`
 // @description
-// @description - `PublicKeyType`: String representation of type of wallet (e.g., "ed25519", "bls", "secp256k1")
-// @description - `PublicKey`: Base64 string of public key bytes
-// @description - `Signature`: Signature is Base64 string of signature bytes.
+// @description - `KeyType`: String representation of type of wallet (e.g., "bls", "secp256k1", "delegated")
+// @description - `AddressBytes`: Base64 string of Filecoin address bytes (`address.Address.Bytes()`), not the human-readable address string.
+// @description - `Signature`: Base64 string of Filecoin signature bytes (`crypto.Signature.MarshalBinary()`).
 // @description - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.
-// @description - The raw public key bytes (not a human-readable address)
-// @description - The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
-// @description - These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
+// @description - The Filecoin address bytes
+// @description - The HTTP request method in uppercase (e.g., `POST`)
+// @description - The escaped request URL path without query string (e.g., `/market/mk20/deal`)
+// @description - The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
+// @description - These four byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
 func APIRouter(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
@@ -221,6 +222,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred in mk20deal: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			http.Error(w, "", http.StatusInternalServerError)
 		}
 	}()
 
@@ -236,14 +238,12 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		_ = r.Body.Close()
 	}()
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	log.Infow("received deal proposal", "body", string(body))
 
 	err = json.Unmarshal(body, &deal)
 	if err != nil {
@@ -258,7 +258,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := mdh.dm.MK20Handler.ExecuteDeal(context.Background(), &deal, authHeader)
+	result := mdh.dm.MK20Handler.ExecuteDeal(r.Context(), &deal, authHeader)
 
 	log.Infow("deal processed",
 		"id", deal.Identifier,
@@ -296,7 +296,7 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := mdh.dm.MK20Handler.DealStatus(context.Background(), id)
+	result := mdh.dm.MK20Handler.DealStatus(r.Context(), id)
 
 	if result.HTTPCode != http.StatusOK {
 		w.WriteHeader(result.HTTPCode)
@@ -507,7 +507,7 @@ func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadChunk(id, chunkNum, r.Body, w)
+	mdh.dm.MK20Handler.HandleUploadChunk(r.Context(), id, chunkNum, r.Body, w)
 }
 
 // mk20UploadStart handles the initiation of an upload process for MK20 deal data.
@@ -547,8 +547,7 @@ func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	reader := io.LimitReader(r.Body, 4*1024*1024)
-	b, err := io.ReadAll(reader)
+	b, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		log.Errorw("failed to read request body", "err", err)
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
@@ -612,7 +611,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
@@ -621,11 +620,9 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		_ = r.Body.Close()
 	}()
 
-	log.Debugw("received upload finalize proposal", "id", idStr, "body", string(body))
-
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleUploadFinalize(id, nil, w, authHeader)
+		mdh.dm.MK20Handler.HandleUploadFinalize(r.Context(), id, nil, w, authHeader)
 		return
 	}
 
@@ -650,13 +647,13 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadFinalize(id, &deal, w, authHeader)
+	mdh.dm.MK20Handler.HandleUploadFinalize(r.Context(), id, &deal, w, authHeader)
 }
 
 // mk20UpdateDeal handles updating an MK20 deal based on the provided HTTP request.
 // It validates the deal ID, request content type, and JSON body before updating.
 // @Summary Update the deal details of existing deals.
-// @Description Useful for adding adding additional products and updating PoRep duration
+// @Description Useful for filling missing data or adding product fields on supported update paths. Existing data and product fields are not replaced.
 // @BasePath /market/mk20
 // @Router /update/{id} [post]
 // @Param id path string true "id"
@@ -683,6 +680,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 	if idStr == "" {
 		log.Errorw("missing id in url", "url", r.URL)
 		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
 	}
 
 	id, err := ulid.Parse(idStr)
@@ -704,7 +702,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		_ = r.Body.Close()
 	}()
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -724,9 +722,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	log.Infow("received deal update proposal", "body", string(body))
-
-	result := mdh.dm.MK20Handler.UpdateDeal(id, &deal, authHeader)
+	result := mdh.dm.MK20Handler.UpdateDeal(r.Context(), id, &deal, authHeader)
 
 	log.Infow("deal updated",
 		"id", deal.Identifier,
@@ -768,7 +764,7 @@ func (mdh *MK20DealHandler) mk20SerialUpload(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUpload(id, r.Body, w)
+	mdh.dm.MK20Handler.HandleSerialUpload(r.Context(), id, r.Body, w)
 }
 
 // mk20SerialUploadFinalize finalizes the serial upload process for a given deal by processing the request and updating the associated deal in the system if required.
@@ -817,7 +813,7 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
@@ -826,11 +822,9 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		_ = r.Body.Close()
 	}()
 
-	log.Debugw("received serial upload finalize proposal", "id", idStr, "body", string(body))
-
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w, authHeader)
+		mdh.dm.MK20Handler.HandleSerialUploadFinalize(r.Context(), id, nil, w, authHeader)
 		return
 	}
 
@@ -850,5 +844,29 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, &deal, w, authHeader)
+	mdh.dm.MK20Handler.HandleSerialUploadFinalize(r.Context(), id, &deal, w, authHeader)
+}
+
+const maxRequestSize = 1 << 20
+
+// safeReader reads the incoming request body and limits the maximum number of bytes to read.
+// io.LimitReader can result in malformed json unmarshall when we explicitly want to reject requests
+// which surpass the limit
+type safeReader struct {
+	io.Reader
+	read int64
+	max  int64
+}
+
+func newSafeReader(r io.Reader) *safeReader {
+	return &safeReader{Reader: r, max: maxRequestSize}
+}
+
+func (sr *safeReader) Read(p []byte) (n int, err error) {
+	n, err = sr.Reader.Read(p)
+	sr.read += int64(n)
+	if sr.read > sr.max {
+		return 0, errors.New("request body too large")
+	}
+	return n, err
 }

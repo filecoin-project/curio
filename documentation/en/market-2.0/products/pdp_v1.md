@@ -33,7 +33,7 @@ Exactly one of these flags must be set in each deal:
 - `data_set_id`: required for all actions except `create_data_set`.
 - `record_keeper`: required when creating a dataset.
 - `piece_ids`: required for `delete_piece`.
-- `extra_data`: optional auxiliary payload for verifier/service interactions.
+- `extra_data`: verifier/service payload. It is required for `create_data_set`, `add_piece`, and `delete_piece`, and must be absent for `delete_data_set`.
 
 ## Validation Rules
 
@@ -43,13 +43,19 @@ Exactly one of these flags must be set in each deal:
 - `create_data_set`:
   - `data_set_id` must be absent
   - `record_keeper` must be a valid hex address
+  - `extra_data` must be present and no larger than 4 KiB
 - `delete_data_set` / `add_piece`:
   - `data_set_id` must be present
   - dataset must exist and be active
+- `delete_data_set`:
+  - `extra_data` must be absent
+- `add_piece`:
+  - `extra_data` must be present and no larger than 8 KiB
 - `delete_piece`:
   - `data_set_id` must be present
   - `piece_ids` must be present
   - all listed pieces must exist and be active in that dataset
+  - `extra_data` must be present and no larger than 256 bytes
 
 ## Runtime Sanitize Rules
 

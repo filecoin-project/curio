@@ -74,21 +74,18 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {
 			pdp := deal.Products.PDPV1
 			if pdp.AddPiece {
-				if deal.Data != nil {
-					// Check if deal is uploaded
-					var yes bool
-					err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&yes)
-					if err != nil {
-						log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
-						return &DealStatus{
-							HTTPCode: http.StatusInternalServerError,
-						}
+				var waitingForUpload bool
+				err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&waitingForUpload)
+				if err != nil {
+					log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+					return &DealStatus{
+						HTTPCode: http.StatusInternalServerError,
 					}
-					if yes {
-						ret.Response.PDPV1.State = DealStateAwaitingUpload
-					} else {
-						ret.Response.PDPV1.State = DealStateProcessing
-					}
+				}
+				if waitingForUpload {
+					ret.Response.PDPV1.State = DealStateAwaitingUpload
+				} else if deal.Data != nil {
+					ret.Response.PDPV1.State = DealStateProcessing
 				} else {
 					ret.Response.PDPV1.State = DealStateAccepted
 				}
@@ -169,21 +166,18 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {
 			pdp := deal.Products.PDPV1
 			if pdp.AddPiece {
-				if deal.Data != nil {
-					// Check if deal is uploaded
-					var yes bool
-					err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&yes)
-					if err != nil {
-						log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
-						return &DealStatus{
-							HTTPCode: http.StatusInternalServerError,
-						}
+				var waitingForUpload bool
+				err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&waitingForUpload)
+				if err != nil {
+					log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+					return &DealStatus{
+						HTTPCode: http.StatusInternalServerError,
 					}
-					if yes {
-						ret.Response.PDPV1.State = DealStateAwaitingUpload
-					} else {
-						ret.Response.PDPV1.State = DealStateProcessing
-					}
+				}
+				if waitingForUpload {
+					ret.Response.PDPV1.State = DealStateAwaitingUpload
+				} else if deal.Data != nil {
+					ret.Response.PDPV1.State = DealStateProcessing
 				} else {
 					ret.Response.PDPV1.State = DealStateAccepted
 				}
@@ -215,8 +209,17 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 }
 
 func (m *MK20) getDDOStatus(ctx context.Context, id ulid.ULID) (DealState, error) {
+	var waitingForUpload bool
+	err := m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&waitingForUpload)
+	if err != nil {
+		return DealStateAccepted, err
+	}
+	if waitingForUpload {
+		return DealStateAwaitingUpload, nil
+	}
+
 	var waitingForPipeline bool
-	err := m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
+	err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
 	if err != nil {
 		return DealStateAccepted, err
 	}

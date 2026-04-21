@@ -254,7 +254,7 @@ const docTemplate = `{
                         "CurioAuth": []
                     }
                 ],
-                "description": "Useful for adding adding additional products and updating PoRep duration",
+                "description": "Useful for filling missing data or adding product fields on supported update paths. Existing data and product fields are not replaced.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1446,7 +1446,7 @@ const docTemplate = `{
     },
     "securityDefinitions": {
         "CurioAuth": {
-            "description": "Use the format: ` + "`" + `CurioAuth PublicKeyType:PublicKey:Signature` + "`" + `\n\n- ` + "`" + `PublicKeyType` + "`" + `: String representation of type of wallet (e.g., \"ed25519\", \"bls\", \"secp256k1\")\n- ` + "`" + `PublicKey` + "`" + `: Base64 string of public key bytes\n- ` + "`" + `Signature` + "`" + `: Signature is Base64 string of signature bytes.\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.\n- The raw public key bytes (not a human-readable address)\n- The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)\n- These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
+            "description": "Use the format: ` + "`" + `CurioAuth KeyType:AddressBytes:Signature` + "`" + `\n\n- ` + "`" + `KeyType` + "`" + `: String representation of type of wallet (e.g., \"bls\", \"secp256k1\", \"delegated\")\n- ` + "`" + `AddressBytes` + "`" + `: Base64 string of Filecoin address bytes (` + "`" + `address.Address.Bytes()` + "`" + `), not the human-readable address string.\n- ` + "`" + `Signature` + "`" + `: Base64 string of Filecoin signature bytes (` + "`" + `crypto.Signature.MarshalBinary()` + "`" + `).\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.\n- The Filecoin address bytes\n- The HTTP request method in uppercase (e.g., ` + "`" + `POST` + "`" + `)\n- The escaped request URL path without query string (e.g., ` + "`" + `/market/mk20/deal` + "`" + `)\n- The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)\n- These four byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"
