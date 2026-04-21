@@ -172,7 +172,7 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	}
 
 	alloc := new(big.Int).SetUint64(uint64(verifreg.NoAllocationID))
-	if d.AllocationId == nil {
+	if d.AllocationId != nil {
 		alloc = new(big.Int).SetUint64(uint64(*d.AllocationId))
 	}
 

@@ -1,23 +1,16 @@
 package mk20
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"runtime"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/mr-tron/base58"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -26,30 +19,36 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
-	fcrypto "github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-
-	"github.com/filecoin-project/lotus/lib/sigs"
+	"github.com/filecoin-project/curio/lib/robusthttp"
 )
 
-func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config, Auth string) (DealCode, error) {
+const (
+	maxAggregateLength = 1024
+	maxURLCount        = 10
+	maxHeaderCount     = 10
+)
+
+func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config, Auth string) (code DealCode, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred in validation: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			code = ErrServerInternalError
+			err = xerrors.Errorf("panic during validation: %v", r)
 		}
 	}()
 
-	err := validateClient(d.Client, Auth)
+	err = validateClient(d.Client, Auth)
 	if err != nil {
 		return ErrBadProposal, err
 	}
 
-	code, err := d.Products.Validate(db, cfg)
+	code, err = d.Products.Validate(db, cfg)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
@@ -74,15 +73,6 @@ func validateClient(client string, auth string) error {
 	}
 
 	switch keyType {
-	case "ed25519":
-		kStr, err := ED25519ToString(pubKey)
-		if err != nil {
-			return xerrors.Errorf("invalid public key for auth header: %w", err)
-		}
-		if client != kStr {
-			return xerrors.Errorf("client in deal does not match client in auth header")
-		}
-		return nil
 	case "secp256k1", "bls", "delegated":
 		addr, err := address.NewFromBytes(pubKey)
 		if err != nil {
@@ -158,6 +148,10 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 				return ErrMalformedDataSource, xerrors.Errorf("aggregate must have at least 2 pieces")
 			}
 
+			if len(d.SourceAggregate.Pieces) > maxAggregateLength {
+				return ErrMalformedDataSource, xerrors.Errorf("aggregate support a maximum of %d pieces", maxAggregateLength)
+			}
+
 			for _, p := range d.SourceAggregate.Pieces {
 				err := ValidatePieceCID(p.PieceCID)
 				if err != nil {
@@ -203,8 +197,18 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 						return ErrMalformedDataSource, xerrors.Errorf("no urls defined for sub piece in aggregate")
 					}
 
+					if len(p.SourceHTTP.URLs) > maxURLCount {
+						return ErrMalformedDataSource, xerrors.Errorf("maximum %d URLs are supported per piece", maxURLCount)
+					}
+
 					for _, u := range p.SourceHTTP.URLs {
-						_, err := url.Parse(u.URL)
+						c, err := u.validate()
+						if c != Ok {
+							return c, err
+						}
+						if len(u.Headers) > maxHeaderCount {
+							return ErrMalformedDataSource, xerrors.Errorf("maximum %d headers are supported per piece", maxHeaderCount)
+						}
 						if err != nil {
 							return ErrMalformedDataSource, xerrors.Errorf("invalid url")
 						}
@@ -218,6 +222,9 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 			// If client will supply pre-aggregated piece
 			if len(d.Format.Aggregate.Sub) == 0 {
 				return ErrMalformedDataSource, xerrors.Errorf("no sub pieces defined under aggregate")
+			}
+			if len(d.Format.Aggregate.Sub) > maxAggregateLength {
+				return ErrMalformedDataSource, xerrors.Errorf("aggregate support a maximum of %d pieces", maxAggregateLength)
 			}
 			for _, p := range d.Format.Aggregate.Sub {
 				err := ValidatePieceCID(p.PieceCID)
@@ -271,8 +278,18 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 			return ErrMalformedDataSource, xerrors.Errorf("no urls defined")
 		}
 
+		if len(d.SourceHTTP.URLs) > maxURLCount {
+			return ErrMalformedDataSource, xerrors.Errorf("maximum %d URLs are supported per piece", maxURLCount)
+		}
+
 		for _, u := range d.SourceHTTP.URLs {
-			_, err := url.Parse(u.URL)
+			c, err := u.validate()
+			if c != Ok {
+				return c, err
+			}
+			if len(u.Headers) > maxHeaderCount {
+				return ErrMalformedDataSource, xerrors.Errorf("maximum %d headers are supported per piece", maxHeaderCount)
+			}
 			if err != nil {
 				return ErrMalformedDataSource, xerrors.Errorf("invalid url")
 			}
@@ -315,6 +332,17 @@ func ValidatePieceCID(c cid.Cid) error {
 	}
 
 	return nil
+}
+
+func (h *HttpUrl) validate() (DealCode, error) {
+	if h == nil {
+		return ErrBadProposal, xerrors.Errorf("http url must be defined")
+	}
+	_, err := robusthttp.ValidateClientFetchURL(h.URL, h.Headers, nil)
+	if err != nil {
+		return http.StatusBadRequest, xerrors.Errorf("invalid url: %w", err)
+	}
+	return Ok, nil
 }
 
 type PieceInfo struct {
@@ -582,17 +610,17 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 
 	var newProducts []ProductName
 
-	if ddeal.Products.DDOV1 == nil || deal.Products.DDOV1 != nil {
+	if ddeal.Products.DDOV1 == nil && deal.Products.DDOV1 != nil {
 		ddeal.Products.DDOV1 = deal.Products.DDOV1
 		newProducts = append(newProducts, ProductNameDDOV1)
 	}
 
-	if ddeal.Products.PDPV1 == nil || deal.Products.PDPV1 != nil {
+	if ddeal.Products.PDPV1 == nil && deal.Products.PDPV1 != nil {
 		ddeal.Products.PDPV1 = deal.Products.PDPV1
 		newProducts = append(newProducts, ProductNamePDPV1)
 	}
 
-	if ddeal.Products.RetrievalV1 == nil || deal.Products.RetrievalV1 != nil {
+	if ddeal.Products.RetrievalV1 == nil && deal.Products.RetrievalV1 != nil {
 		ddeal.Products.RetrievalV1 = deal.Products.RetrievalV1
 		newProducts = append(newProducts, ProductNameRetrievalV1)
 	}
@@ -602,156 +630,4 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 		return nil, code, nil, xerrors.Errorf("validate deal: %w", err)
 	}
 	return ddeal, Ok, newProducts, nil
-}
-
-func AuthenticateClient(db *harmonydb.DB, id, client string) (bool, error) {
-	var allowed bool
-	err := db.QueryRow(context.Background(), `SELECT EXISTS (SELECT 1 FROM market_mk20_deal WHERE id = $1 AND client = $2)`, id, client).Scan(&allowed)
-	if err != nil {
-		return false, xerrors.Errorf("querying client: %w", err)
-	}
-	return allowed, nil
-}
-
-func clientAllowed(ctx context.Context, db *harmonydb.DB, client string, cfg *config.CurioConfig) (bool, error) {
-	var allowed bool
-	err := db.QueryRow(ctx, `SELECT allowed FROM market_mk20_clients WHERE client = $1`, client).Scan(&allowed)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Client is not in the database
-			return !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients, nil
-		}
-		return false, xerrors.Errorf("querying client: %w", err)
-	}
-
-	return allowed, nil
-}
-
-const Authprefix = "CurioAuth "
-
-// Auth verifies the custom authentication header by parsing its contents and validating the signature using the provided database connection.
-func Auth(header string, db *harmonydb.DB, cfg *config.CurioConfig) (bool, string, error) {
-	keyType, pubKey, sig, err := parseCustomAuth(header)
-	if err != nil {
-		return false, "", xerrors.Errorf("parsing auth header: %w", err)
-	}
-	return verifySignature(db, keyType, pubKey, sig, cfg)
-}
-
-func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err error) {
-	// TODO: Add contract as client auth
-
-	if !strings.HasPrefix(header, Authprefix) {
-		return "", nil, nil, errors.New("missing CustomAuth prefix")
-	}
-
-	parts := strings.SplitN(strings.TrimPrefix(header, Authprefix), ":", 3)
-	if len(parts) != 3 {
-		return "", nil, nil, errors.New("invalid auth format")
-	}
-
-	keyType = parts[0]
-	pubKey, err = base64.StdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("invalid pubkey base64: %w", err)
-	}
-
-	if len(pubKey) == 0 {
-		return "", nil, nil, fmt.Errorf("invalid pubkey")
-	}
-
-	sig, err = base64.StdEncoding.DecodeString(parts[2])
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("invalid signature base64: %w", err)
-	}
-
-	if len(sig) == 0 {
-		return "", nil, nil, fmt.Errorf("invalid signature")
-	}
-
-	return keyType, pubKey, sig, nil
-}
-
-func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte, cfg *config.CurioConfig) (bool, string, error) {
-	now := time.Now().Truncate(time.Hour)
-	minus1 := now.Add(-59 * time.Minute)
-	plus1 := now.Add(59 * time.Minute)
-	timeStamps := []time.Time{now, minus1, plus1}
-	var msgs [][32]byte
-
-	for _, t := range timeStamps {
-		msgs = append(msgs, sha256.Sum256(bytes.Join([][]byte{pubKey, []byte(t.Format(time.RFC3339))}, []byte{})))
-	}
-
-	switch keyType {
-	case "ed25519":
-		if len(pubKey) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize {
-			return false, "", errors.New("invalid ed25519 sizes")
-		}
-		keyStr, err := ED25519ToString(pubKey)
-		if err != nil {
-			return false, "", xerrors.Errorf("invalid ed25519 pubkey: %w", err)
-		}
-
-		allowed, err := clientAllowed(context.Background(), db, keyStr, cfg)
-		if err != nil {
-			return false, "", xerrors.Errorf("checking client allowed: %w", err)
-		}
-		if !allowed {
-			return false, "", nil
-		}
-
-		for _, m := range msgs {
-			ok := ed25519.Verify(pubKey, m[:], signature)
-			if ok {
-				return true, keyStr, nil
-			}
-		}
-		return false, "", errors.New("invalid ed25519 signature")
-
-	case "secp256k1", "bls", "delegated":
-		return verifyFilSignature(db, pubKey, signature, msgs, cfg)
-	default:
-		return false, "", fmt.Errorf("unsupported key type: %s", keyType)
-	}
-}
-
-func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]byte, cfg *config.CurioConfig) (bool, string, error) {
-	signs := &fcrypto.Signature{}
-	err := signs.UnmarshalBinary(signature)
-	if err != nil {
-		return false, "", xerrors.Errorf("invalid signature")
-	}
-	addr, err := address.NewFromBytes(pubKey)
-	if err != nil {
-		return false, "", xerrors.Errorf("invalid filecoin pubkey")
-	}
-
-	allowed, err := clientAllowed(context.Background(), db, addr.String(), cfg)
-	if err != nil {
-		return false, "", xerrors.Errorf("checking client allowed: %w", err)
-	}
-	if !allowed {
-		return false, "", nil
-	}
-
-	for _, m := range msgs {
-		err = sigs.Verify(signs, addr, m[:])
-		if err == nil {
-			return true, addr.String(), nil
-		}
-	}
-
-	return false, "", errors.New("invalid signature")
-}
-
-func ED25519ToString(pubKey []byte) (string, error) {
-	if len(pubKey) != ed25519.PublicKeySize {
-		return "", errors.New("invalid ed25519 pubkey size")
-	}
-	return base58.FastBase58Encoding(pubKey), nil
-}
-
-func StringToED25519(addr string) ([]byte, error) {
-	return base58.FastBase58Decoding(addr)
 }
