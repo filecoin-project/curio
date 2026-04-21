@@ -11,7 +11,7 @@ Every deal is expressed as:
 
 - `id`: deal reference
 - `client`: requester identity
-- `product`: requested service
+- `products`: requested services
 - `data source` (optional): operation input data when required
 
 This model reflects real deal-making: who is asking, what they want, how it is referenced, and what inputs are needed.

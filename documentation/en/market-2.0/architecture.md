@@ -47,8 +47,8 @@ Product-specific structs and fields are documented in:
 Why:
 
 1. Market 2.0 must support identity schemes beyond native Filecoin address formats.
-2. Ed25519 identities are supported today.
-3. L2 or product-specific identity formats can be supported without changing the deal envelope.
+2. Current CurioAuth support is Filecoin-address based.
+3. L2 or product-specific identity formats can be supported later without changing the deal envelope.
 
 Identity safety comes from authentication and identity matching, not from enforcing one address type in the schema.
 
@@ -69,30 +69,32 @@ This section documents current auth behavior.
 
 Header format:
 
-`Authorization: CurioAuth <keyType>:<base64(pubKeyBytes)>:<base64(signatureBytes)>`
+`Authorization: CurioAuth <keyType>:<base64(addressBytes)>:<base64(signatureBytes)>`
 
 Supported key types:
 
-1. `ed25519`
-2. `secp256k1`
-3. `bls`
-4. `delegated`
+1. `secp256k1`
+2. `bls`
+3. `delegated`
 
 Signing input:
 
-1. Build message bytes as `pubKeyBytes || RFC3339HourTimestamp`.
+1. Build message bytes as `addressBytes || uppercaseRequestMethod || escapedRequestPath || RFC3339MinuteTimestamp`.
 2. Hash with SHA-256.
 3. Sign the digest.
 
+`addressBytes` means Filecoin address bytes (`address.Address.Bytes()`), not the human-readable address string. `escapedRequestPath` is the request URL path without the query string.
+
+The request body and query string are not part of the signed message. The auth header is therefore a short-lived path-scoped credential and must be protected in transit.
+
 Verification window:
 
-1. Current hour.
-2. Current hour minus 59 minutes.
-3. Current hour plus 59 minutes.
+1. Current minute.
+2. Previous minute, to tolerate requests crossing a minute boundary in transit.
 
 Authorization checks:
 
-1. Signature must verify for one of the accepted timestamps.
+1. Signature must verify for the request method, request path, and one of the accepted timestamps.
 2. Client allow/deny policy is read from `market_mk20_clients`.
 3. If client is not listed, fallback behavior uses `DenyUnknownClients` config.
 4. For routes with `{id}`, authenticated client must own that deal.

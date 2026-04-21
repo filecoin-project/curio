@@ -23,7 +23,7 @@ const MarketPath = "/market/mk20"
 type HTTPClient struct {
 	BaseURL    string
 	HTTP       *http.Client
-	AuthHeader func(context.Context) (key string, value string, err error)
+	AuthHeader func(context.Context, string, string) (key string, value string, err error)
 }
 
 // NewHTTPClient returns a HTTPClient with sane defaults.
@@ -42,7 +42,7 @@ func NewHTTPClient(baseURL string, opts ...Option) *HTTPClient {
 
 type Option func(*HTTPClient)
 
-func WithAuth(h func(context.Context) (string, string, error)) Option {
+func WithAuth(h func(context.Context, string, string) (string, string, error)) Option {
 	return func(c *HTTPClient) { c.AuthHeader = h }
 }
 
@@ -64,7 +64,11 @@ func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, d
 		}
 	}
 
-	k, vHdr, err := c.AuthHeader(ctx)
+	authPath := req.URL.EscapedPath()
+	if authPath == "" {
+		authPath = "/"
+	}
+	k, vHdr, err := c.AuthHeader(ctx, method, authPath)
 	if err != nil {
 		return &Error{
 			Status: 0,

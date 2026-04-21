@@ -110,6 +110,12 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 		return
 	}
 
+	if abi.UnpaddedPieceSize(upload.RawSize) > abi.PaddedPieceSize(64<<30).Unpadded() {
+		log.Errorw("raw size larger than supported 68182605824 limit", "id", id)
+		http.Error(w, "raw size larger than supported 68182605824 limit", int(UploadStartCodeBadRequest))
+		return
+	}
+
 	// Check if chunk size is a power of 2
 	if chunkSize&(chunkSize-1) != 0 {
 		log.Errorw("chunk size must be a power of 2", "id", id)
@@ -254,14 +260,18 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 // @param data []byte
 // @Return UploadCode
 
-func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w http.ResponseWriter) {
-	if m.maxParallelUploads.Load()+1 > int64(m.cfg.Market.StorageMarketConfig.MK20.MaxParallelChunkUploads) {
+func (m *MK20) HandleUploadChunk(ctx context.Context, id ulid.ULID, chunk int, data io.ReadCloser, w http.ResponseWriter) {
+	activeUploads := m.maxParallelUploads.Add(1)
+	if activeUploads > int64(m.cfg.Market.StorageMarketConfig.MK20.MaxParallelChunkUploads) {
+		m.maxParallelUploads.Add(-1)
 		log.Errorw("max parallel uploads reached", "deal", id, "chunk", chunk, "error", "max parallel uploads reached")
 		http.Error(w, "too many parallel uploads for provider", int(UploadRateLimit))
 		return
 	}
+	defer func() {
+		m.maxParallelUploads.Add(-1)
+	}()
 
-	ctx := context.Background()
 	defer func() {
 		_ = data.Close()
 	}()
@@ -311,10 +321,6 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 
 	chunkSize := chunkDetails[0].Size
 	reader := NewTimeoutLimitReader(data, time.Second*5)
-	m.maxParallelUploads.Add(1)
-	defer func() {
-		m.maxParallelUploads.Add(-1)
-	}()
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
 	wr := new(commp.Calc)
@@ -327,7 +333,9 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	}
 	digest, tsize, err := wr.Digest()
 	if err != nil {
-		panic(err)
+		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "chunk", chunk, "error", err)
+		http.Error(w, "", int(UploadServerError))
+		return
 	}
 
 	tpcid, err := commcid.DataCommitmentV1ToCID(digest)
@@ -339,7 +347,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	var pnum, refID int64
 
 	// Generate piece park details with tmp pieceCID and Size
-	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := m.DB.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (commit bool, err error) {
 		err = tx.QueryRow(`SELECT id FROM parked_pieces 
           					WHERE piece_cid = $1 
           					  AND piece_padded_size = $2 
@@ -401,7 +409,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	failed := true
 	defer func() {
 		if failed {
-			_, err = m.DB.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+			_, err = m.DB.Exec(context.Background(), `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
 			if err != nil {
 				log.Errorw("failed to delete parked piece ref", "deal", id, "chunk", chunk, "error", err)
 			}
@@ -419,7 +427,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	log.Debugw("piece stored", "deal", id, "chunk", chunk)
 
 	// Update piece park details with correct values
-	comm, err = m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err = m.DB.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`UPDATE parked_pieces SET 
                          piece_cid = $1, 
                          piece_padded_size = $2, 
@@ -472,8 +480,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 // @param deal *Deal [optional]
 // @Return DealCode
 
-func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter, auth string) {
-	ctx := context.Background()
+func (m *MK20) HandleUploadFinalize(ctx context.Context, id ulid.ULID, deal *Deal, w http.ResponseWriter, auth string) {
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 								  SELECT 1
@@ -510,7 +517,7 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 
 	if deal != nil {
 		// This is a deal where DataSource was not set - we should update the deal
-		code, ndeal, _, err := m.updateDealDetails(id, deal, auth)
+		code, ndeal, _, err := m.updateDealDetails(ctx, id, deal, auth)
 		if err != nil {
 			log.Errorw("failed to update deal details", "deal", id, "error", err)
 			if code == ErrServerInternalError {
@@ -639,9 +646,7 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 	w.WriteHeader(int(Ok))
 }
 
-func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal, auth string) (DealCode, *Deal, []ProductName, error) {
-	ctx := context.Background() // Let's not use request context to avoid DB inconsistencies
-
+func (m *MK20) updateDealDetails(ctx context.Context, id ulid.ULID, deal *Deal, auth string) (DealCode, *Deal, []ProductName, error) {
 	if deal.Identifier.Compare(id) != 0 {
 		return ErrBadProposal, nil, nil, xerrors.Errorf("deal ID and proposal ID do not match")
 	}
@@ -678,14 +683,18 @@ func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal, auth string) (DealCod
 	return Ok, ndeal, np, nil
 }
 
-func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseWriter) {
-	if m.maxParallelUploads.Load()+1 > int64(m.cfg.Market.StorageMarketConfig.MK20.MaxParallelChunkUploads) {
+func (m *MK20) HandleSerialUpload(ctx context.Context, id ulid.ULID, body io.Reader, w http.ResponseWriter) {
+	activeUploads := m.maxParallelUploads.Add(1)
+	if activeUploads > int64(m.cfg.Market.StorageMarketConfig.MK20.MaxParallelChunkUploads) {
+		m.maxParallelUploads.Add(-1)
 		log.Errorw("max parallel uploads reached", "deal", id, "error", "max parallel uploads reached")
 		http.Error(w, "too many parallel uploads for provider", int(UploadRateLimit))
 		return
 	}
+	defer func() {
+		m.maxParallelUploads.Add(-1)
+	}()
 
-	ctx := context.Background()
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 									  SELECT 1
@@ -702,10 +711,6 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	}
 
 	reader := NewTimeoutLimitReader(body, time.Second*5)
-	m.maxParallelUploads.Add(1)
-	defer func() {
-		m.maxParallelUploads.Add(-1)
-	}()
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
 	wr := new(commp.Calc)
@@ -718,7 +723,9 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	}
 	digest, tsize, err := wr.Digest()
 	if err != nil {
-		panic(err)
+		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "error", err)
+		http.Error(w, "", int(UploadServerError))
+		return
 	}
 
 	trSize := uint64(trs)
@@ -759,7 +766,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	pieceExists := true
 
 	// Generate piece park details with tmp pieceCID and Size
-	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := m.DB.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (commit bool, err error) {
 		err = tx.QueryRow(`SELECT id FROM parked_pieces 
           					WHERE piece_cid = $1 
           					  AND piece_padded_size = $2 
@@ -840,12 +847,12 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	failed := true
 	defer func() {
 		if failed {
-			_, serr := m.DB.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+			_, serr := m.DB.Exec(context.Background(), `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
 			if serr != nil {
 				log.Errorw("failed to delete parked piece ref", "deal", id, "error", serr)
 			}
 
-			_, serr = m.DB.Exec(ctx, `UPDATE market_mk20_upload_waiting SET chunked = NULL, ref_id = NULL, ready_at = NULL WHERE id = $1`, id.String())
+			_, serr = m.DB.Exec(context.Background(), `UPDATE market_mk20_upload_waiting SET chunked = NULL, ref_id = NULL, ready_at = NULL WHERE id = $1`, id.String())
 			if serr != nil {
 				log.Errorw("failed to update upload waiting", "deal", id, "error", serr)
 			}
@@ -882,7 +889,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	log.Debugw("piece stored", "deal", id)
 
 	// Update piece park details with correct values
-	comm, err = m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err = m.DB.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (commit bool, err error) {
 		if havePInfo {
 			n, err := tx.Exec(`UPDATE parked_pieces SET complete = true WHERE id = $1`, pnum)
 			if err != nil {
@@ -1012,17 +1019,17 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	w.WriteHeader(int(UploadOk))
 }
 
-func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter, auth string) {
+func (m *MK20) HandleSerialUploadFinalize(ctx context.Context, id ulid.ULID, deal *Deal, w http.ResponseWriter, auth string) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			http.Error(w, "", int(ErrServerInternalError))
 		}
 	}()
 
-	ctx := context.Background()
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 									  SELECT 1
@@ -1079,7 +1086,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 
 	if deal != nil {
 		// This is a deal where DataSource was not set - we should update the deal
-		code, ndeal, _, err := m.updateDealDetails(id, deal, auth)
+		code, ndeal, _, err := m.updateDealDetails(ctx, id, deal, auth)
 		if err != nil {
 			log.Errorw("failed to update deal details", "deal", id, "error", err)
 			if code == ErrServerInternalError {

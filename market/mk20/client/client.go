@@ -28,7 +28,7 @@ type Client struct {
 
 func NewClient(baseURL string, client address.Address, wallet *wallet.LocalWallet) *Client {
 	s := NewAuth(client, wallet)
-	hclient := NewHTTPClient(baseURL, HourlyCurioAuthHeader(s))
+	hclient := NewHTTPClient(baseURL, CurioAuthHeader(s))
 	return &Client{
 		http: hclient,
 	}

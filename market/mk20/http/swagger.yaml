@@ -614,8 +614,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Useful for adding adding additional products and updating PoRep
-        duration
+      description: Useful for filling missing data or adding product fields on supported
+        update paths. Existing data and product fields are not replaced.
       parameters:
       - description: id
         in: path
@@ -1059,15 +1059,17 @@ paths:
 securityDefinitions:
   CurioAuth:
     description: |-
-      Use the format: `CurioAuth PublicKeyType:PublicKey:Signature`
+      Use the format: `CurioAuth KeyType:AddressBytes:Signature`
 
-      - `PublicKeyType`: String representation of type of wallet (e.g., "ed25519", "bls", "secp256k1")
-      - `PublicKey`: Base64 string of public key bytes
-      - `Signature`: Signature is Base64 string of signature bytes.
+      - `KeyType`: String representation of type of wallet (e.g., "bls", "secp256k1", "delegated")
+      - `AddressBytes`: Base64 string of Filecoin address bytes (`address.Address.Bytes()`), not the human-readable address string.
+      - `Signature`: Base64 string of Filecoin signature bytes (`crypto.Signature.MarshalBinary()`).
       - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.
-      - The raw public key bytes (not a human-readable address)
-      - The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
-      - These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
+      - The Filecoin address bytes
+      - The HTTP request method in uppercase (e.g., `POST`)
+      - The escaped request URL path without query string (e.g., `/market/mk20/deal`)
+      - The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
+      - These four byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
     in: header
     name: Authorization
     type: apiKey

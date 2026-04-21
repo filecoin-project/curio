@@ -32,6 +32,7 @@ API sequence:
 ### 3. Upload-First-Then-Describe Deal
 
 Use this path when bytes are uploaded first and full deal details are supplied at finalize.
+This requires an initial product flow that can be accepted without data details. DDO deals require `data` during initial acceptance, so DDO upload flows should use `source_http_put` in the initial deal instead.
 
 API sequence:
 
@@ -44,7 +45,7 @@ API sequence:
 7. Chunked: `POST /uploads/finalize/{id}`
 8. `GET /status/{id}` until terminal state
 
-Current behavior: this path is supported in both serial and chunked finalize flows.
+Current behavior: this path is supported in both serial and chunked finalize flows for products that can enter upload-waiting without initial data details.
 
 ### 4. Control-Only Operation (No Piece Ingestion)
 
