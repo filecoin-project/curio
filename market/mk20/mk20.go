@@ -21,7 +21,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/miner"
-	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
 	"github.com/filecoin-project/curio/build"
@@ -390,6 +389,32 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, xerrors.Errorf("getting allocation: %w", err)
 		}
 
+		if alloc == nil && deal.Products.DDOV1.MarketAddress != "" {
+			contractAddr, perr := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
+			if perr != nil {
+				log.Errorw("error parsing market address", "market address", deal.Products.DDOV1.MarketAddress, "error", perr)
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Market address is not valid",
+				}, nil
+			}
+			fc, cerr := contractAddr.ToFilecoinAddress()
+			if cerr != nil {
+				log.Errorw("error converting market address to filecoin address", "market address", deal.Products.DDOV1.MarketAddress, "error", cerr)
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Market address is not valid filecoin address",
+				}, nil
+			}
+			alloc, err = m.api.StateGetAllocation(ctx, fc, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+			if err != nil {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrServerInternalError,
+					Reason:   "Server Internal Error",
+				}, xerrors.Errorf("getting allocation via market contract: %w", err)
+			}
+		}
+
 		if alloc == nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
@@ -397,64 +422,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		clientIDAdr, err := m.api.StateLookupID(ctx, client, types.EmptyTSK)
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-				Reason:   "Server Internal Error",
-			}, xerrors.Errorf("looking up client ID: %w", err)
-		}
-
-		clientID, err := address.IDFromAddress(clientIDAdr)
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Invalid client address",
-			}, nil
-		}
-
-		if alloc.Client != abi.ActorID(clientID) {
-			// Check if maybe allocation was created by the market contract itself
-			contractAddr, err := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
-			if err != nil {
-				log.Errorw("error parsing market address", "market address", deal.Products.DDOV1.MarketAddress, "error", err)
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "Market address is not valid",
-				}, nil
-			}
-			fc, err := contractAddr.ToFilecoinAddress()
-			if err != nil {
-				log.Errorw("error converting market address to filecoin address", "market address", deal.Products.DDOV1.MarketAddress, "error", err)
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "Market address is not valid filecoin address",
-				}, nil
-			}
-
-			cAdr, err := m.api.StateLookupID(ctx, fc, types.EmptyTSK)
-			if err != nil {
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrServerInternalError,
-					Reason:   "Server Internal Error",
-				}, xerrors.Errorf("looking up client ID: %w", err)
-			}
-
-			cID, err := address.IDFromAddress(cAdr)
-			if err != nil {
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "Invalid client address",
-				}, nil
-			}
-
-			if alloc.Client != abi.ActorID(cID) {
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "client or contract address does not match the allocation client address",
-				}, nil
-			}
-		}
 
 		prov, err := address.NewIDAddress(uint64(alloc.Provider))
 		if err != nil {

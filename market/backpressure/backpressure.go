@@ -179,7 +179,7 @@ func (c *CachedBackPressure) checkMK20Backpressure(ctx context.Context, cfg *con
 									
 										COUNT(DISTINCT id) FILTER (
 											WHERE agg_task_id IS NOT NULL AND agg_owner IS NULL
-										) AS agg_pending,
+										) AS agg_pending
 									FROM joined;`).Scan(&runningPipelines, &downloadingPending, &commpPending, &aggPending)
 	if err != nil {
 		return false, xerrors.Errorf("failed to query market pipeline backpressure stats: %w", err)

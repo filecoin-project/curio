@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/chain/types"
+	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -1074,10 +1075,39 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 		end := start + abi.ChainEpoch(deal.Duration)
 		var vak *miner.VerifiedAllocationKey
 		if mk20Deal.Products.DDOV1.AllocationId != nil {
+			allocClientID := clientId
 			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 			if err != nil {
 				log.Errorw("failed to get allocation", "deal", deal.ID, "error", err)
 				continue
+			}
+			if alloc == nil && mk20Deal.Products.DDOV1.MarketAddress != "" {
+				contractAddr, perr := lethtypes.ParseEthAddress(mk20Deal.Products.DDOV1.MarketAddress)
+				if perr != nil {
+					log.Errorw("bad market address", "deal", deal.ID, "error", perr)
+					continue
+				}
+				fc, cerr := contractAddr.ToFilecoinAddress()
+				if cerr != nil {
+					log.Errorw("bad market address to filecoin address", "deal", deal.ID, "error", cerr)
+					continue
+				}
+				cAdr, lerr := d.api.StateLookupID(ctx, fc, types.EmptyTSK)
+				if lerr != nil {
+					log.Errorw("failed to lookup contract id", "deal", deal.ID, "error", lerr)
+					continue
+				}
+				cID, ierr := address.IDFromAddress(cAdr)
+				if ierr != nil {
+					log.Errorw("failed to parse contract id", "deal", deal.ID, "error", ierr)
+					continue
+				}
+				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+				if err != nil {
+					log.Errorw("failed to get allocation via market", "deal", deal.ID, "error", err)
+					continue
+				}
+				allocClientID = cID
 			}
 			if alloc == nil {
 				log.Errorw("allocation not found", "deal", deal.ID, "error", err)
@@ -1089,7 +1119,7 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			}
 			end = start + alloc.TermMin
 			vak = &miner.VerifiedAllocationKey{
-				Client: abi.ActorID(clientId),
+				Client: abi.ActorID(allocClientID),
 				ID:     verifreg13.AllocationId(*mk20Deal.Products.DDOV1.AllocationId),
 			}
 		}
