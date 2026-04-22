@@ -1,6 +1,6 @@
 ## This image is used to github action runner for this repo
 # Use the official Golang image as the base image
-FROM golang:1.24-bullseye AS builder
+FROM golang:1.26-trixie AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -23,7 +23,7 @@ RUN git submodule update --init
 RUN go mod download
 
 # Stage 2: Install Lotus binary
-FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.34.0-rc2-devnet AS lotus-test
+FROM ghcr.io/filecoin-shipyard/lotus-containers:lotus-v1.35.1-devnet AS lotus-test
 
 # Stage 3: Build the final image
 FROM myoung34/github-runner AS curio-github-runner
@@ -48,7 +48,7 @@ RUN apt update && apt install -y \
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.76.0
+    RUST_VERSION=1.86.0
 
 RUN set -eux; \
     dpkgArch="$(dpkg --print-architecture)"; \

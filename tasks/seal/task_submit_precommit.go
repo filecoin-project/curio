@@ -334,8 +334,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 }
 
 func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {

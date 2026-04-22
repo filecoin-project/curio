@@ -173,8 +173,7 @@ func (P *PDPIndexingV0Task) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 	// If we are ever in an instance where the shared piece reader is expected to go to sector storage and will actually benefit from these local checks
 	// then we should be using markets v2 code because then we'll be in a shared datasource world.  In the rare case where an SP is handling PDP and PoRep on
 	// a cluster and just so happens to have a collision then the network overhead of moving a piece around will be small.
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (P *PDPIndexingV0Task) TypeDetails() harmonytask.TaskTypeDetails {

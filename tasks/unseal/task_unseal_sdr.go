@@ -120,8 +120,7 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (t *TaskUnsealSdr) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (t *TaskUnsealSdr) TypeDetails() harmonytask.TaskTypeDetails {

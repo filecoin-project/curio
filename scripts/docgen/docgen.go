@@ -19,7 +19,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 
 	"github.com/filecoin-project/curio/api"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -438,8 +438,7 @@ func ExampleValue(method string, t, parent reflect.Type) interface{} {
 			ExampleValues[t] = es
 			return es
 		} else if t.Elem().Kind() == reflect.String {
-			str := "string value"
-			return &str
+			return new("string value")
 		}
 	case reflect.Interface:
 		return struct{}{}

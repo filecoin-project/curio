@@ -35,8 +35,7 @@ type MerkleTreeDST[A Arity] struct{}
 
 func (m MerkleTreeDST[A]) DST() *fr.Element {
 	arity := (*new(A)).Arity()
-	twoToArityMinus1 := twoToArityMinus1(uint64(arity))
-	return &twoToArityMinus1
+	return new(twoToArityMinus1(uint64(arity)))
 }
 
 type MerkleTree8 = DSTElement[MerkleTreeDST[Arity8]]

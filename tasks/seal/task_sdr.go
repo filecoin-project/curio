@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -170,8 +170,7 @@ func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEn
 		return nil, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {

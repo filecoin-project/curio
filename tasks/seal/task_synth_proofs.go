@@ -149,8 +149,7 @@ func (s *SyntheticProofTask) markFinished(ctx context.Context, spid, sector int6
 }
 
 func (s *SyntheticProofTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {

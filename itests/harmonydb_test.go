@@ -19,8 +19,7 @@ func TestCrud(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sharedITestID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	//cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
@@ -51,8 +50,7 @@ func TestTransaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
 	require.NoError(t, err)
@@ -115,8 +113,7 @@ func TestPartialWalk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, `
 			INSERT INTO 
@@ -160,8 +157,7 @@ func TestDowngradeTo(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, harmonydb.YugabyteDB(true))
 	require.NoError(t, err)
 
 	// The setup: lets make revert files going forward in time, but ignore the past.

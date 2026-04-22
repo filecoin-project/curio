@@ -14,7 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type StorageGCSweep struct {
@@ -104,8 +104,7 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 }
 
 func (s *StorageGCSweep) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {

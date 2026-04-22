@@ -161,8 +161,7 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}
 	// todo sort by priority
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {

@@ -120,8 +120,7 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		return nil, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {

@@ -162,8 +162,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	}
 
 	if info.PendingOwnerAddress != nil {
-		i := info.PendingOwnerAddress.String()
-		ad.PendingOwnerAddress = &i
+		ad.PendingOwnerAddress = new(info.PendingOwnerAddress.String())
 	}
 
 	if info.PendingBeneficiaryTerm != nil {

@@ -123,8 +123,7 @@ func (c *CleanupPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	// the remove call runs on paths.Remote storage, so it doesn't really matter where it runs
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {

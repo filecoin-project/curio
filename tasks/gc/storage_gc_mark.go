@@ -96,8 +96,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			}
 
 			if toRemove[decl.Miner] == nil {
-				bf := bitfield.New()
-				toRemove[decl.Miner] = &bf
+				toRemove[decl.Miner] = new(bitfield.New())
 
 				maddr, err := address.NewIDAddress(uint64(decl.Miner))
 				if err != nil {
@@ -324,6 +323,9 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	lb := policy.GetWinningPoStSectorSetLookback(nv) + builtin.EpochsInDay + 1
 
 	finalityHeight := head.Height() - lb
+	if finalityHeight < 0 {
+		finalityHeight = 1
+	}
 
 	finalityTipset, err := s.api.ChainGetTipSetByHeight(ctx, finalityHeight, head.Key())
 	if err != nil {
@@ -431,8 +433,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {

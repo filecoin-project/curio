@@ -189,8 +189,7 @@ func (t *PDPNotifyTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 	if len(ids) == 0 {
 		return nil, xerrors.Errorf("no task IDs provided")
 	}
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {

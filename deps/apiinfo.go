@@ -332,8 +332,7 @@ func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duratio
 
 func ErrorIsIn(err error, errorTypes []error) bool {
 	for _, etype := range errorTypes {
-		tmp := reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface()
-		if errors.As(err, &tmp) {
+		if errors.As(err, new(reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface())) {
 			return true
 		}
 	}

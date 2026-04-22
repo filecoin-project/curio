@@ -394,8 +394,7 @@ func (n *NextProvingPeriodTask) refreshProvingPeriod(ctx context.Context, dataSe
 }
 
 func (n *NextProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {

@@ -376,17 +376,8 @@
                     ],
                     "items": [
                         {
-                            "items": [
-                                {
-                                    "title": "number",
-                                    "description": "Number is a number",
-                                    "type": [
-                                        "number"
-                                    ]
-                                }
-                            ],
                             "type": [
-                                "array"
+                                "string"
                             ]
                         }
                     ],

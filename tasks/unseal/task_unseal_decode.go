@@ -153,8 +153,7 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 }
 
 func (t *TaskUnsealDecode) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {

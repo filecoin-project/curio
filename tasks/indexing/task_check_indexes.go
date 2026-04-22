@@ -484,8 +484,7 @@ func (c *CheckIndexesTask) findSourceSector(ctx context.Context, spid, sectorNum
 }
 
 func (c *CheckIndexesTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (c *CheckIndexesTask) TypeDetails() harmonytask.TaskTypeDetails {

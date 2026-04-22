@@ -272,8 +272,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 										WHERE should_index = FALSE AND 
 										      indexing_task_id = ANY ($1) ORDER BY indexing_task_id LIMIT 1`, indIDs).Scan(&id)
 	if err == nil {
-		ret := harmonytask.TaskID(id)
-		return &ret, nil
+		return new(harmonytask.TaskID(id)), nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("getting pending indexing task: %w", err)
 	}
