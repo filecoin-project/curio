@@ -180,8 +180,7 @@ func (t *TaskRequestProofs) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 		return nil, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 // Do implements harmonytask.TaskInterface.

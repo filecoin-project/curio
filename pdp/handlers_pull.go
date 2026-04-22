@@ -165,7 +165,6 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 	}
 
 	// eth_call to validate
-	contractAddr := contract.ContractAddresses().PDPVerifier
 	value := big.NewInt(0)
 	if isCreateNew {
 		// Sybil fee only required for create-new case
@@ -173,7 +172,7 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 	}
 	msg := ethereum.CallMsg{
 		From:  v.senderAddr,
-		To:    &contractAddr,
+		To:    new(contract.ContractAddresses().PDPVerifier),
 		Data:  data,
 		Value: value,
 	}

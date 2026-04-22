@@ -367,8 +367,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 		pathTypeStr = &pathType
 
-		fileType := loc.FileType.String()
-		fileTypeStr = &fileType
+		fileTypeStr = new(loc.FileType.String())
 
 		if i > 0 {
 			prevNonNilPathTypeLoc := i - 1
@@ -439,12 +438,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			si.ExpirationEpoch = sectormeta.ExpirationEpoch
 		}
 		if sectormeta.Deadline != nil {
-			d := *sectormeta.Deadline
-			si.Deadline = &d
+			si.Deadline = new(*sectormeta.Deadline)
 		}
 		if sectormeta.Partition != nil {
-			p := *sectormeta.Partition
-			si.Partition = &p
+			si.Partition = new(*sectormeta.Partition)
 		}
 		si.UnsealedState = sectormeta.UnsealedState
 	}
@@ -709,17 +706,14 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 				return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
 			}
 
-			d := int64(part.Deadline)
-			si.Deadline = &d
+			si.Deadline = new(int64(part.Deadline))
 
-			p := int64(part.Partition)
-			si.Partition = &p
+			si.Partition = new(int64(part.Partition))
 		}
 
 		si.ActivationEpoch = onChainInfo.Activation
 		if si.ExpirationEpoch == nil || *si.ExpirationEpoch != int64(onChainInfo.Expiration) {
-			expr := int64(onChainInfo.Expiration)
-			si.ExpirationEpoch = &expr
+			si.ExpirationEpoch = new(int64(onChainInfo.Expiration))
 		}
 		si.DealWeight = dealWeight
 	}

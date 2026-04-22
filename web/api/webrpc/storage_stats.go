@@ -281,8 +281,7 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *i
 		if err != nil {
 			return nil, err
 		}
-		tspid := int64(sp_id)
-		spID = &tspid
+		spID = new(int64(sp_id))
 	}
 
 	if sectorNum != nil && *sectorNum < 0 {

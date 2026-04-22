@@ -176,7 +176,7 @@ jobs:
           make deps
         shell: bash
 
-      - name: Run tests with coverage
+      - name: Run test
         run: go test -v --tags="debug" -timeout 30m ${{ matrix.test-suite.target }}
 
   lint:

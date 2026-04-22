@@ -136,14 +136,12 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			// No matching tasks found, fallback to first ID
-			id := ids[0]
-			return &id, nil
+			return new(ids[0]), nil
 		}
 		return nil, xerrors.Errorf("failed to query oldest task: %w", err)
 	}
 
-	taskID := harmonytask.TaskID(oldestTaskID)
-	return &taskID, nil
+	return new(harmonytask.TaskID(oldestTaskID)), nil
 }
 
 // Do implements harmonytask.TaskInterface.

@@ -147,8 +147,7 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 		return nil, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {

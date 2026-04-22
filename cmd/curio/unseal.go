@@ -436,11 +436,9 @@ var setTargetUnsealStateCmd = &cli.Command{
 		var targetState *bool
 		switch targetStateStr {
 		case "true":
-			trueVal := true
-			targetState = &trueVal
+			targetState = new(true)
 		case "false":
-			falseVal := false
-			targetState = &falseVal
+			targetState = new(false)
 		case "none":
 			targetState = nil
 		default:

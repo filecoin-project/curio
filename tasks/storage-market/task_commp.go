@@ -220,8 +220,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 	if true {
 		// TODO make this a setting
-		id := ids[0]
-		return &id, nil
+		return new(ids[0]), nil
 	}
 
 	ctx := context.Background()

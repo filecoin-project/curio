@@ -500,8 +500,7 @@ func (s *SubmitTask) transferUpdatedSectorData(ctx context.Context, spID int64, 
 }
 
 func (s *SubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {

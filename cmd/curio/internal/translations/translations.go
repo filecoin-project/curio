@@ -74,7 +74,7 @@ func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func
 	}
 	if problem {
 		_ = os.Setenv("LANG", "en-US") // for later users of this function
-		notice.Copy().AlignHorizontal(lipgloss.Right).
+		notice.AlignHorizontal(lipgloss.Right).
 			Render("$LANG=" + langText + " unsupported. Available: " + strings.Join(lo.Keys(have), ", "))
 	}
 	return func(key message.Reference, a ...interface{}) string {

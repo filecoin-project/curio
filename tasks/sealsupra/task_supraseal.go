@@ -33,7 +33,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -499,8 +499,7 @@ func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		return nil, nil
 	}
 
-	id := ids[0]
-	return &id, nil
+	return new(ids[0]), nil
 }
 
 var ssizeToName = map[abi.SectorSize]string{

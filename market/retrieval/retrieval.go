@@ -12,7 +12,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	lru "github.com/hashicorp/golang-lru/arc/v2"
 	blocks "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-graphsync/storeutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/frisbii"
 	"github.com/ipld/go-ipld-prime"
@@ -61,7 +60,7 @@ func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *index
 	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
 	cbs := blockstore.NewReadCachedBlockstore(blockstore.Adapt(bs), &BlockstoreCacheWrap[blockstore.MhString]{Sub: RetrievalBlockCache})
 
-	lsys := storeutil.LinkSystemForBlockstore(cbs)
+	lsys := LinkSystemForBlockstore(cbs)
 	fr := frisbii.NewHttpIpfs(ctx, lsys, frisbii.WithBlockHasCheck(cbs.Has))
 
 	return &Provider{
