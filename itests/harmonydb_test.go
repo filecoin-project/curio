@@ -155,6 +155,10 @@ func TestDowngradeTo(t *testing.T) {
 	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
+	// Let's ensure all applied are time.now() and not template time
+	_, err = cdb.Exec(ctx, `UPDATE base SET applied = NOW()`)
+	require.NoError(t, err)
+
 	// The setup: lets make revert files going forward in time, but ignore the past.
 	rowCt, err := cdb.Exec(ctx, "UPDATE base SET applied = applied - INTERVAL '10 DAY' WHERE TO_DATE(entry, 'YYYYMMDD') < DATE '2025-08-15'")
 	require.NoError(t, err)
