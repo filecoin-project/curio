@@ -202,6 +202,9 @@ type TaskID int
 // The engine is task-agnostic: it handles scheduling, resource tracking,
 // peering, and retries while delegating all domain logic to TaskInterface.
 //
+// peerConnector may be nil for tests or single-node setups that do not open
+// peer connections; outbound peering is then a no-op.
+//
 // Startup sequence:
 //  1. Register this machine's resources in the DB.
 //  2. Build handler registry and validate task names.
