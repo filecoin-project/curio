@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -18,7 +19,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 )
@@ -82,7 +82,8 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		if !has {
-			cp := savecache.NewCommPWithSize(pi.RawSize)
+			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(4 << 20))
+			defer cp.Reset()
 			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid, false)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
@@ -96,7 +97,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("failed to copy piece data to commP: %w", err)
 			}
 
-			digest, _, lidx, _, snap, err := cp.DigestWithSnapShot()
+			digest, _, snap, err := cp.DigestWithSnapshot()
 			if err != nil {
 				return false, xerrors.Errorf("failed to get piece digest: %w", err)
 			}
@@ -110,11 +111,11 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("commP cid does not match piece cid: %s != %s", pcid2.String(), pcid.String())
 			}
 
-			leafs := make([]indexstore.NodeDigest, len(snap))
-			for i, s := range snap {
+			leafs := make([]indexstore.NodeDigest, len(snap.Nodes))
+			for i, s := range snap.Nodes {
 				leafs[i] = indexstore.NodeDigest{
-					Layer: lidx,
-					Hash:  s.Hash,
+					Layer: snap.LayerIndex,
+					Hash:  s,
 					Index: int64(i),
 				}
 			}

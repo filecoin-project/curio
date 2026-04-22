@@ -2,14 +2,12 @@ package proof_test
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/lib/savecache"
 )
 
 // TestManualEightLeafTree builds an 8-leaf tree by hand using ComputeBinShaParent
@@ -56,27 +54,6 @@ func TestManualEightLeafTree(t *testing.T) {
 	for _, tc := range tests {
 		ok := proof.VerifyProof(tc.leaf, tc.siblings, root, tc.pos)
 		require.True(t, ok, "verify failed at position %d", tc.pos)
-	}
-}
-
-// TestSavecacheRootsMatchFixtures validates that savecache.Calc produces roots
-// matching the externally-anchored CommP fixtures from go-fil-commp-hashhash.
-func TestSavecacheRootsMatchFixtures(t *testing.T) {
-	fixtures := loadCommPFixtures(t)
-	for _, fx := range fixtures {
-		t.Run(fmt.Sprintf("payload_%d", fx.PayloadSize), func(t *testing.T) {
-			t.Parallel()
-			data := generateDeterministicData(fx.PayloadSize)
-
-			calc := &savecache.Calc{}
-			_, err := calc.Write(data)
-			require.NoError(t, err)
-
-			var root [32]byte
-			copy(root[:], calc.Sum(nil))
-			require.Equal(t, fx.RawCommP, root,
-				"savecache root should match fixture CommP")
-		})
 	}
 }
 
