@@ -8,9 +8,6 @@ on:
     branches:
       - '**'
 
-env:
-  GO_VERSION: 1.26
-
 jobs:
   ci-lint:
     runs-on: ubuntu-latest
@@ -19,23 +16,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
 
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
-
-  setup-params:
-    runs-on: [self-hosted, docker]
-    needs: [ci-lint]
-    steps:
-      - name: Fetch parameters
-        run: lotus fetch-params 8388608
-        shell: bash
 
   build-mainnet:
     runs-on: ubuntu-latest
@@ -44,9 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -64,14 +49,12 @@ jobs:
 
   build-calibnet:
     runs-on: ubuntu-latest
-    needs: [ ci-lint ]
+    needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -84,19 +67,17 @@ jobs:
         shell: bash
 
       - name: Build Go
-        run: make build
+        run: make calibnet
         shell: bash
 
   build-debug:
     runs-on: ubuntu-latest
-    needs: [ ci-lint ]
+    needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -109,19 +90,17 @@ jobs:
         shell: bash
 
       - name: Build Go
-        run: make build
+        run: make debug
         shell: bash
 
   build-2k:
     runs-on: ubuntu-latest
-    needs: [ ci-lint ]
+    needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -134,19 +113,17 @@ jobs:
         shell: bash
 
       - name: Build Go
-        run: make build
+        run: make 2k
         shell: bash
 
   build-forest:
     runs-on: ubuntu-latest
-    needs: [ ci-lint ]
+    needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -163,23 +140,21 @@ jobs:
         shell: bash
 
   test:
-    runs-on: [self-hosted, docker]
-    needs: [setup-params]
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
+    runs-on: ["self-hosted", "linux", "x64", "2xlarge+amd+curio"]
+    needs: [ci-lint]
     strategy:
       fail-fast: false  # Continue running even if one test fails
       matrix:
         test-suite:
-          - name: test-itest-curio
-            target: "./itests/curio_test.go"
           - name: test-all
             target: "`go list ./... | grep -v curio/itests`"
-          - name: test-itest-harmonyDB
-            target: "./itests/harmonydb_test.go"
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
-          - name: test-itest-pdp-prove-test
+          - name: test-itest-curio
+            target: "./itests/curio_test.go"
+          - name: test-itest-harmonyDB
+            target: "./itests/harmonydb_test.go"
+          - name: test-itest-pdp-prove
             target: "./itests/pdp_prove_test.go"
           - name: test-itest-transaction-db-usage
             target: "./itests/transaction_db_usage_test.go"
@@ -187,12 +162,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
+        with:
+          skip: 'true'
 
       - name: Install FFI
         env:
@@ -201,42 +176,8 @@ jobs:
           make deps
         shell: bash
 
-      - name: Start YugabyteDB container with dynamic ports
-        id: start-yugabyte
-        run: |
-          # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-
-      - name: Wait for YugabyteDB to start
-        run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
-          done
-        shell: bash
-
-      - name: Get YugabyteDB container IP
-        id: get-yb-ip
-        run: |
-          # Retrieve internal bridge IP of YugabyteDB container
-          YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
-          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
-
-      - name: Run tests
-        env:
-          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
-          LOTUS_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}
-        run: |
-          echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
-          export CURIO_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          export LOTUS_HARMONYDB_HOSTS=${{ env.CURIO_HARMONYDB_HOSTS }}
-          go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
-
-      - name: Stop YugabyteDB container
-        if: always()  # Ensure this runs even if the tests fail
-        run: docker stop ${{ env.CONTAINER_NAME }}
+      - name: Run tests with coverage
+        run: go test -v --tags="debug" -timeout 30m ${{ matrix.test-suite.target }}
 
   lint:
     runs-on: ubuntu-latest
@@ -245,9 +186,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -276,9 +215,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Check gofmt
         run: |
@@ -300,9 +237,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -347,9 +282,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
+        uses: ./.github/actions/install-go
 
       - name: Install Dependencies
         uses: ./.github/actions/install-deps
@@ -357,3 +290,9 @@ jobs:
       - name: Run mod tidy check
         run: go mod tidy -v
         shell: bash
+
+  required-checks-passed:
+    needs: [ci-lint, build-mainnet, build-calibnet, build-debug, build-2k, build-forest, test, lint, gofmt, gen-check, mod-tidy-check]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All required checks passed"
