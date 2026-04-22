@@ -157,11 +157,7 @@ func TestDowngradeTo(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cdb, err := harmonydb.NewFromConfigWithITestID(t)
-	require.NoError(t, err)
-
-	// Let's ensure all applied are time.now() and not template time
-	_, err = cdb.Exec(ctx, `UPDATE base SET applied = NOW()`)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t, harmonydb.YugabyteDB(true))
 	require.NoError(t, err)
 
 	// The setup: lets make revert files going forward in time, but ignore the past.
