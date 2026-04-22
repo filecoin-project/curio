@@ -16,6 +16,8 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+// TODO: This task should be removed at NV30 upgrade along with CTEs for parked_piece insert
+
 type FixParkPieceTask struct {
 	db *harmonydb.DB
 	sc *ffi.SealCalls
