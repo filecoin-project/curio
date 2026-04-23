@@ -52,8 +52,8 @@ type PDPV1 struct {
 	ExtraData []byte `json:"extra_data,omitempty"`
 }
 
-func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
-	code, err := IsProductEnabled(db, p.ProductName())
+func (p *PDPV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+	code, err := IsProductEnabled(ctx, db, p.ProductName())
 	if err != nil {
 		return code, err
 	}
@@ -95,8 +95,6 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 	if btoi(p.CreateDataSet)+btoi(p.DeleteDataSet)+btoi(p.AddPiece)+btoi(p.DeletePiece) > 1 {
 		return ErrBadProposal, xerrors.Errorf("only one action is allowed per deal")
 	}
-
-	ctx := context.Background()
 
 	if p.DeleteDataSet {
 		if p.DataSetID == nil {

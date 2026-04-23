@@ -24,7 +24,7 @@ import (
 	mk20contract "github.com/filecoin-project/curio/market/mk20/contract"
 )
 
-var ErrUnknowContract = errors.New("provider does not work with this market")
+var ErrUnknownContract = errors.New("provider does not work with this market")
 
 // DDOV1 defines a structure for handling provider, client, and piece manager information with associated contract and notification details
 // for a DDO deal handling.
@@ -56,8 +56,8 @@ type DDOV1 struct {
 	NotificationPayload []byte `json:"notification_payload,omitempty"`
 }
 
-func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
-	code, err := IsProductEnabled(db, d.ProductName())
+func (d *DDOV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+	code, err := IsProductEnabled(ctx, db, d.ProductName())
 	if err != nil {
 		return code, err
 	}
@@ -143,7 +143,7 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 	err := db.QueryRow(ctx, `SELECT allowed FROM ddo_contracts WHERE address = $1`, d.MarketAddress).Scan(&allowed)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrBadProposal, ErrUnknowContract
+			return ErrBadProposal, ErrUnknownContract
 		}
 		return ErrServerInternalError, xerrors.Errorf("getting abi: %w", err)
 	}
@@ -181,11 +181,16 @@ func (d *DDOV1) VerifyMarketDeal(ctx context.Context, db *harmonydb.DB, eth ethc
 		startEpoch = new(big.Int).SetUint64(uint64(*d.StartEpoch))
 	}
 
+	localClient, err := localClientIDBytes(deal.Client)
+	if err != nil {
+		return ErrProductValidationFailed, xerrors.Errorf("invalid client for market verification: %w", err)
+	}
+
 	mdeal := mk20contract.ICurioDealViewV1CurioDealView{
 		DealId:          new(big.Int).SetUint64(*d.MarketDealID),
 		State:           mk20contract.DealStatusOpen,
 		ProviderActorId: new(big.Int).SetUint64(localProviderID),
-		ClientId:        localClientIDBytes(deal.Client),
+		ClientId:        localClient,
 		PieceCidV2:      deal.Data.PieceCID.Bytes(),
 		StartEpoch:      startEpoch,
 		Duration:        new(big.Int).SetUint64(uint64(d.Duration)),
@@ -239,12 +244,12 @@ func isDealNotFoundRevert(err error) bool {
 	return bytes.Equal(revertData[:4], dealNotFound.ID[:4])
 }
 
-func localClientIDBytes(client string) []byte {
+func localClientIDBytes(client string) ([]byte, error) {
 	a, err := address.NewFromString(client)
 	if err != nil {
-		return []byte(client)
+		return nil, err
 	}
-	return a.Bytes()
+	return a.Bytes(), nil
 }
 
 func (d *DDOV1) ProductName() ProductName {

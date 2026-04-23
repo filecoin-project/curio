@@ -18,6 +18,9 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk20"
+
+	"github.com/filecoin-project/lotus/chain/types"
+	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 type MK20StorageDeal struct {
@@ -563,9 +566,28 @@ func (a *WebRPC) AddMarketContract(ctx context.Context, contract string, allowed
 		return fmt.Errorf("invalid contract address")
 	}
 
-	// TODO: Verify that contract address exists on chain and if it supports CurioABI
+	mAddr := common.HexToAddress(contract)
 
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, allowed) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, contract, allowed)
+	contractAddr, err := lethtypes.ParseEthAddress(mAddr.String())
+	if err != nil {
+		return fmt.Errorf("failed to parse contract address: %w", err)
+	}
+
+	fc, err := contractAddr.ToFilecoinAddress()
+	if err != nil {
+		return fmt.Errorf("failed to convert contract to filecoin address: %w", err)
+	}
+
+	id, err := a.deps.Chain.StateLookupID(ctx, fc, types.EmptyTSK)
+	if err != nil {
+		return xerrors.Errorf("failed to lookup contract ID: %w", err)
+	}
+
+	if id.Empty() || id == address.Undef {
+		return xerrors.Errorf("provided contract address is not a valid filecoin address: %s", contract)
+	}
+
+	n, err := a.deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, allowed) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, mAddr.String(), allowed)
 	if err != nil {
 		return xerrors.Errorf("failed to add contract: %w", err)
 	}

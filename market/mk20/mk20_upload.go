@@ -656,7 +656,7 @@ func (m *MK20) updateDealDetails(ctx context.Context, id ulid.ULID, deal *Deal, 
 	}
 
 	// Validate the deal
-	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
+	code, err := deal.Validate(ctx, m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
 	if err != nil {
 		return code, nil, nil, err
 	}

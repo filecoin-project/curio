@@ -66,17 +66,11 @@ func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err err
 }
 
 func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte, requestMethod string, requestPath string, cfg *config.CurioConfig) (bool, string, error) {
-	now := time.Now().UTC().Truncate(time.Minute)
-	timeStamps := []time.Time{now, now.Add(-time.Minute)}
-	var msgs [][32]byte
-
-	for _, t := range timeStamps {
-		msgs = append(msgs, authMessage(pubKey, requestMethod, requestPath, t))
-	}
+	msg := authMessage(pubKey, requestMethod, requestPath, time.Now().UTC().Truncate(time.Minute))
 
 	switch keyType {
 	case "secp256k1", "bls", "delegated":
-		return verifyFilSignature(db, pubKey, signature, msgs, cfg)
+		return verifyFilSignature(db, pubKey, signature, msg, cfg)
 	default:
 		return false, "", fmt.Errorf("unsupported key type: %s", keyType)
 	}
@@ -95,7 +89,7 @@ func authMessage(pubKey []byte, requestMethod string, requestPath string, timest
 	}, []byte{}))
 }
 
-func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]byte, cfg *config.CurioConfig) (bool, string, error) {
+func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [32]byte, cfg *config.CurioConfig) (bool, string, error) {
 	signs := &fcrypto.Signature{}
 	err := signs.UnmarshalBinary(signature)
 	if err != nil {
@@ -106,28 +100,19 @@ func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]b
 		return false, "", xerrors.Errorf("invalid filecoin pubkey")
 	}
 
-	var sigMatches bool
-
-	for _, m := range msgs {
-		err = sigs.Verify(signs, addr, m[:])
-		if err == nil {
-			sigMatches = true
-			break
-		}
+	err = sigs.Verify(signs, addr, msgs[:])
+	if err != nil {
+		return false, "", errors.New("invalid signature")
 	}
 
-	if sigMatches {
-		allowed, err := clientAllowed(context.Background(), db, addr.String(), cfg)
-		if err != nil {
-			return false, "", xerrors.Errorf("checking client allowed: %w", err)
-		}
-		if !allowed {
-			return false, "", nil
-		}
-		return true, addr.String(), nil
+	allowed, err := clientAllowed(context.Background(), db, addr.String(), cfg)
+	if err != nil {
+		return false, "", xerrors.Errorf("checking client allowed: %w", err)
 	}
-
-	return false, "", errors.New("invalid signature")
+	if !allowed {
+		return false, "", nil
+	}
+	return true, addr.String(), nil
 }
 
 func AuthenticateClient(db *harmonydb.DB, id, client string) (bool, error) {
