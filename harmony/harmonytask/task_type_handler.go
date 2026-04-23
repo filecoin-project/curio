@@ -71,14 +71,11 @@ const canAcceptCacheTTL = 60 * time.Second
 const storageFailureTimeout = 3 * time.Minute
 
 // workSource* identify how work was discovered. They are passed into
-// considerWork and stored in TaskEngine.atomics.workOrigin so CanAccept
-// implementations can branch on origin if needed.
+// considerWork as the "from" argument (stats, logging, recover path).
 const (
-	workSourcePoller   = "poller"
-	workSourceRecover  = "recovered"
-	workSourceIAmBored = "bored"
-	workSourceAdded    = "added"
-	workSourcePreempt  = "preempt"
+	workSourcePoller  = "poller"
+	workSourceRecover = "recovered"
+	workSourcePreempt = "preempt"
 )
 
 // considerWork is the core scheduling function for a single task type. It
@@ -117,8 +114,6 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 		return false
 	}
 
-	h.TaskEngine.atomics.workOrigin.Store(from)
-
 	ids := lo.Map(tasks, func(t task, _ int) TaskID {
 		return t.ID
 	})
@@ -134,8 +129,6 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	} else {
 		tIDs, err = h.CanAccept(ids, h.TaskEngine)
 	}
-
-	h.TaskEngine.atomics.workOrigin.Store("")
 
 	if err != nil {
 		log.Error(err)

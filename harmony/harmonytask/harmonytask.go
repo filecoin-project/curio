@@ -65,7 +65,6 @@ type TaskTypeDetails struct {
 
 	// IAmBored is called (when populated) when there's capacity but no work.
 	// Tasks added will be proposed to CanAccept() on this machine.
-	// CanAccept() can read taskEngine's workOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
 
 	// This is starved on busy machines, so use it to gather "above and beyond" work only.
@@ -206,13 +205,6 @@ type taskEngineAtomics struct {
 	yieldBackground atomic.Bool
 
 	lastCleanup atomic.Value
-
-	// workOrigin is set by considerWork to one of the workSource* constants
-	// before calling CanAccept(). Because considerWork is only ever invoked
-	// from the scheduler goroutine, a plain string would suffice; storing it
-	// via an atomic here keeps the "no mutex needed" guarantee visible even
-	// to readers who are not aware of the scheduler-thread invariant.
-	workOrigin atomic.Value // string
 }
 
 // taskEngineState groups pointers to internal/* registries. Each one
@@ -280,7 +272,6 @@ func NewWithReg(
 		schedulerChannel: make(chan schedulerEvent, 100),
 	}
 	e.atomics.pollDuration.Store(pollRarely)
-	e.atomics.workOrigin.Store("")
 	e.atomics.lastCleanup.Store(time.Now())
 	e.peering = startPeering(e, peerConnector)
 
@@ -571,18 +562,6 @@ func (e *TaskEngine) OwnerID() int { return e.cfg.ownerID }
 
 // TestONLY_SetPollDuration overrides the DB polling interval (useful for tests).
 func (e *TaskEngine) TestONLY_SetPollDuration(d time.Duration) { e.atomics.pollDuration.Store(d) }
-
-// workOrigin returns the current CanAccept origin tag. The field is only
-// written by considerWork on the scheduler goroutine; readers (CanAccept
-// implementations inside this package) observe a consistent value via
-// atomic.Value.
-func (e *TaskEngine) workOrigin() string {
-	v := e.atomics.workOrigin.Load()
-	if v == nil {
-		return ""
-	}
-	return v.(string)
-}
 
 // checkNodeFlags reads the cordon (unschedulable) and restart_request flags
 // from the DB. This runs on the background poller goroutine — not the scheduler
