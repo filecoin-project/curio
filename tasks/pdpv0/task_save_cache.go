@@ -126,6 +126,10 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("failed to get piece digest: %w", err)
 			}
 
+			if snap == nil {
+				return false, xerrors.Errorf("failed to get piece snapshot: %w", err)
+			}
+
 			computedV2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
 			if err != nil {
 				return false, xerrors.Errorf("failed to create commP: %w", err)
