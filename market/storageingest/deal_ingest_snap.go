@@ -478,10 +478,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		return nil, nil, xerrors.Errorf("adding deal to sector: %w", err)
 	}
 
-	num := abi.SectorNumber(uint64(candidate.Sector))
-	rsp := abi.RegisteredSealProof(candidate.RegSealProof)
-
-	return &num, &rsp, nil
+	return new(abi.SectorNumber(uint64(candidate.Sector))), new(abi.RegisteredSealProof(candidate.RegSealProof)), nil
 }
 
 func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, *abi.SectorNumber, *abi.RegisteredSealProof, error) {

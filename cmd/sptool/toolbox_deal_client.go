@@ -1948,8 +1948,7 @@ var mk20DealCmd = &cli.Command{
 		}
 
 		if cctx.Uint64("allocation") != 0 {
-			alloc := verifreg.AllocationId(cctx.Uint64("allocation"))
-			p.DDOV1.AllocationId = &alloc
+			p.DDOV1.AllocationId = new(verifreg.AllocationId(cctx.Uint64("allocation")))
 		}
 
 		id, err := mk20.NewULID()

@@ -88,10 +88,7 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 	}
 
 	// setup buffers
-	maxThreads := min(int64(size)/threadChunkSize, int64(runtime.NumCPU())*15/10)
-	if maxThreads < 1 {
-		maxThreads = 1
-	}
+	maxThreads := max(min(int64(size)/threadChunkSize, int64(runtime.NumCPU())*15/10), 1)
 
 	// allocate buffers
 	var bufLk sync.Mutex

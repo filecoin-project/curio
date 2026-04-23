@@ -674,10 +674,7 @@ func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sec
 			sectorsForSP = remainingToSeal
 		} else {
 			// Proportional allocation based on weight
-			sectorsForSP = min((toSeal*schedule.Weight)/totalWeight, schedule.ToSeal)
-			if sectorsForSP > remainingToSeal {
-				sectorsForSP = remainingToSeal
-			}
+			sectorsForSP = min(min((toSeal*schedule.Weight)/totalWeight, schedule.ToSeal), remainingToSeal)
 		}
 
 		if sectorsForSP == 0 {

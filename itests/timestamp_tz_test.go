@@ -27,8 +27,7 @@ import (
 func TestTimestampTimezoneHandling(t *testing.T) {
 	ctx := context.Background()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	_, err = cdb.Exec(ctx, `CREATE TABLE IF NOT EXISTS tz_test (

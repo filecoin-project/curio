@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -124,10 +126,14 @@ func generate(path, pkg, outpkg, outfile string) error {
 	if err != nil {
 		return err
 	}
-
+	fset := token.NewFileSet()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedCompiledGoFiles,
 		Dir:  apiDir,
+		Fset: fset,
+		ParseFile: func(fs *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fs, filename, src, parser.AllErrors|parser.ParseComments)
+		},
 	}
 	loaded, err := packages.Load(cfg, ".")
 	if err != nil {
@@ -146,7 +152,6 @@ func generate(path, pkg, outpkg, outfile string) error {
 	if len(ap.Errors) > 0 {
 		return ap.Errors[0]
 	}
-	fset := ap.Fset
 
 	v := &Visitor{make(map[string]map[string]*methodMeta), map[string][]string{}}
 	for _, f := range ap.Syntax {
@@ -351,7 +356,7 @@ func (s *{{$name}}Stub) {{.Num}}({{.NamedParams}}) ({{.Results}}) {
 
 {{range .Infos}}var _ {{.Num}} = new({{.Num}}Struct)
 {{end}}
-
+var _ = fmt.Sprintf
 `)
 	if err != nil {
 		return err

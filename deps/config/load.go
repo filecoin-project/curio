@@ -186,8 +186,7 @@ func findMovedFields(path []string, val any) []movedField {
 	if t.Kind() != reflect.Struct {
 		return nil
 	}
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		// could also do a "deprecated" in here
 		if idx := field.Tag.Get("moved"); idx != "" && idx != "-" {
 			dep = append(dep, movedField{
@@ -591,6 +590,7 @@ type ConfigText struct {
 // GetConfigs returns the configs in the order of the layers
 func GetConfigs(ctx context.Context, db *harmonydb.DB, layers []string) ([]ConfigText, error) {
 	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
+	layers = lo.Uniq(layers)                     // Deduplicate while preserving user-specified order
 	inputMap := map[string]int{}
 	for i, layer := range layers {
 		inputMap[layer] = i

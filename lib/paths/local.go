@@ -281,13 +281,12 @@ func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url strin
 		paths: map[storiface.ID]*path{},
 	}
 
-	pf := func() any {
+	localPathPublisher.Store(new(func() any {
 		l.localLk.Lock()
 		defer l.localLk.Unlock()
 
 		return l.paths
-	}
-	localPathPublisher.Store(&pf)
+	}))
 
 	return l, l.open(ctx)
 }

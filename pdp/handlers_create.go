@@ -14,13 +14,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	logger "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/pdp/contract"
 )
-
-var logCreate = logger.Logger("pdp/create")
 
 // handleCreateDataSetAndAddPieces handles the creation of a new data set and adding pieces at the same time
 func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +33,7 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
 		return
 	}
 
@@ -48,70 +45,70 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 	var reqBody RequestBody
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid JSON in request body: "+err.Error(), err)
 		return
 	}
 
 	if reqBody.RecordKeeper == "" {
-		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "recordKeeper address is required", err)
 		return
 	}
 
 	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
 	if recordKeeperAddr == (common.Address{}) {
-		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid recordKeeper address", err)
 		return
 	}
 
 	// Check if the recordkeeper is in the whitelist for public services
 	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
-		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		httpServerError(w, http.StatusForbidden, "recordKeeper address not allowed for public service", err)
 		return
 	}
 
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
-		http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData format (must be hex encoded)", err)
 		return
 	}
 	if len(extraDataBytes) > MaxAddPiecesExtraDataSize {
 		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSetAndAddPieces (%d bytes)", len(extraDataBytes), MaxAddPiecesExtraDataSize)
-		http.Error(w, errMsg, http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
 
 	// Check if indexing is needed by decoding the extraData
 	mustIndex, err := CheckIfIndexingNeededFromExtraData(extraDataBytes)
 	if err != nil {
-		logCreate.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
+		log.Warnw("Failed to check if indexing is needed from extraData, skipping indexing", "error", err)
 		mustIndex = false
 	}
 	if mustIndex {
-		logCreate.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
+		log.Infow("ExtraData contains withIPFSIndexing metadata, pieces will be marked for indexing")
 	}
 
-	pieceDataArray, subPieceInfoMap, subPieceCidList, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
+	pieceDataArray, subPieceInfoMap, err := p.transformAddPiecesRequest(ctx, serviceLabel, reqBody.Pieces)
 	if err != nil {
-		logCreate.Warnf("Failed to process AddPieces request data: %+v", err)
-		http.Error(w, "Failed to process request: "+err.Error(), http.StatusBadRequest)
+		log.Warnf("Failed to process AddPieces request data: %+v", err)
+		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
 		return
 	}
 
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
-		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get contract ABI: "+err.Error(), err)
 		return
 	}
 
 	data, err := abiData.Pack("addPieces", new(big.Int), recordKeeperAddr, pieceDataArray, extraDataBytes)
 	if err != nil {
-		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}
 
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address: "+err.Error(), err)
 		return
 	}
 
@@ -127,13 +124,13 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	reason := "pdp-create-and-add"
 	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		logCreate.Errorf("Failed to send transaction: %+v", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to send transaction: "+err.Error(), err)
+		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	txHashLower := strings.ToLower(txHash.Hex())
-	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
+	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
@@ -151,8 +148,12 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 		// Enable indexing if the extraData indicates indexing is needed
 		if mustIndex {
-			logCreate.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
-			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceCidList); err != nil {
+			log.Debugw("ExtraData metadata indicates indexing needed, marking all subpieces as needing indexing")
+			subPieceRefIDs := make([]int64, 0, len(subPieceInfoMap))
+			for _, info := range subPieceInfoMap {
+				subPieceRefIDs = append(subPieceRefIDs, info.PDPPieceRefID)
+			}
+			if err := EnableIndexingForPiecesInTx(tx, serviceLabel, subPieceRefIDs); err != nil {
 				return false, err
 			}
 		}
@@ -161,14 +162,14 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		logCreate.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
 	if !comm {
-		logCreate.Error("Failed to commit database transaction")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Error("Failed to commit database transaction")
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
@@ -185,7 +186,7 @@ func decodeExtraData(extraDataString *string) ([]byte, error) {
 	extraDataHexStr := *extraDataString
 	decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
 	if err != nil {
-		logCreate.Errorf("Failed to decode hex extraData: %v", err)
+		log.Errorf("Failed to decode hex extraData: %v", err)
 		return nil, err
 	}
 	return decodedBytes, nil
@@ -201,7 +202,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		httpServerError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error(), err)
 		return
 	}
 
@@ -213,7 +214,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Failed to read request body: "+err.Error(), err)
 		return
 	}
 	defer func() {
@@ -222,43 +223,43 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 	var reqBody RequestBody
 	if err := json.Unmarshal(body, &reqBody); err != nil {
-		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid JSON in request body: "+err.Error(), err)
 		return
 	}
 
 	if reqBody.RecordKeeper == "" {
-		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "recordKeeper address is required", err)
 		return
 	}
 
 	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
 	if recordKeeperAddr == (common.Address{}) {
-		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid recordKeeper address", err)
 		return
 	}
 
 	// Check if the recordkeeper is in the whitelist for public services
 	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
-		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		httpServerError(w, http.StatusForbidden, "recordKeeper address not allowed for public service", err)
 		return
 	}
 
 	// Decode extraData if provided
 	extraDataBytes, err := decodeExtraData(reqBody.ExtraData)
 	if err != nil {
-		http.Error(w, "Invalid extraData format (must be hex encoded): "+err.Error(), http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, "Invalid extraData format (must be hex encoded): "+err.Error(), err)
 		return
 	}
 	if len(extraDataBytes) > MaxCreateDataSetExtraDataSize {
 		errMsg := fmt.Sprintf("extraData size (%d bytes) exceeds the maximum allowed limit for CreateDataSet (%d bytes)", len(extraDataBytes), MaxCreateDataSetExtraDataSize)
-		http.Error(w, errMsg, http.StatusBadRequest)
+		httpServerError(w, http.StatusBadRequest, errMsg, err)
 		return
 	}
 
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
-		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get sender address: "+err.Error(), err)
 		return
 	}
 
@@ -266,14 +267,14 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
-		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to get contract ABI: "+err.Error(), err)
 		return
 	}
 
 	// Pack the method call data
 	data, err := abiData.Pack("createDataSet", recordKeeperAddr, extraDataBytes)
 	if err != nil {
-		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		httpServerError(w, http.StatusInternalServerError, "Failed to pack method call: "+err.Error(), err)
 		return
 	}
 
@@ -291,14 +292,15 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	reason := "pdp-mkdataset"
 	txHash, err := p.sender.Send(workCtx, fromAddress, tx, reason)
 	if err != nil {
-		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
-		logCreate.Errorf("Failed to send transaction: %+v", err)
+		httpServerError(w, http.StatusInternalServerError, "Failed to send transaction: "+err.Error(), err)
+
+		log.Errorf("Failed to send transaction: %+v", err)
 		return
 	}
 
 	// Step 6: Insert into message_waits_eth and pdp_data_set_creates
 	txHashLower := strings.ToLower(txHash.Hex())
-	logCreate.Infow("PDP CreateDataSet: Inserting transaction tracking",
+	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"service", serviceLabel,
 		"recordKeeper", recordKeeperAddr.Hex())
@@ -314,14 +316,14 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		logCreate.Errorf("Failed to insert database tracking records: %+v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Errorf("Failed to insert database tracking records: %+v", err)
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
 	if !comm {
-		logCreate.Error("Failed to commit database transaction")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Error("Failed to commit database transaction")
+		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
 		return
 	}
 
@@ -333,7 +335,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 // insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
 func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHashHex string, serviceLabel string) error {
 	// Insert into message_waits_eth
-	logCreate.Debugw("Inserting into message_waits_eth",
+	log.Debugw("Inserting into message_waits_eth",
 		"txHash", txHashHex,
 		"status", "pending")
 	n, err := tx.Exec(`
@@ -341,7 +343,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
             VALUES ($1, $2)
         `, txHashHex, "pending")
 	if err != nil {
-		logCreate.Errorw("Failed to insert into message_waits_eth",
+		log.Errorw("Failed to insert into message_waits_eth",
 			"txHash", txHashHex,
 			"error", err)
 		return err
@@ -352,7 +354,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 	}
 
 	// Insert into pdp_data_set_creates
-	logCreate.Debugw("Inserting into pdp_data_set_creates",
+	log.Debugw("Inserting into pdp_data_set_creates",
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	n, err = tx.Exec(`
@@ -360,7 +362,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
             VALUES ($1, $2)
         `, txHashHex, serviceLabel)
 	if err != nil {
-		logCreate.Errorw("Failed to insert into pdp_data_set_creates",
+		log.Errorw("Failed to insert into pdp_data_set_creates",
 			"txHash", txHashHex,
 			"error", err)
 		return err
@@ -370,7 +372,7 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(tx *harmonydb.Tx, txHash
 		return fmt.Errorf("expected 1 row to be inserted into pdp_data_set_creates, got %d", n)
 	}
 
-	logCreate.Infow("Successfully inserted transaction tracking records",
+	log.Infow("Successfully inserted transaction tracking records",
 		"txHash", txHashHex,
 		"service", serviceLabel)
 	return nil

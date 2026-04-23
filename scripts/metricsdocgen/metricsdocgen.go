@@ -154,7 +154,7 @@ func discoverAndParseMetrics(root string) []fileResult {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		wg.Go(func() {
 			for path := range jobs {
 				if metrics := processFile(path); len(metrics) > 0 {

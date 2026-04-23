@@ -112,7 +112,7 @@ func balanceCheck(al *alerts) {
 	Name := "Balance Check"
 	al.alertMap[Name] = &alertOut{}
 
-	var ret string
+	var ret strings.Builder
 
 	uniqueAddrs, _, err := al.getAddresses()
 	if err != nil {
@@ -134,7 +134,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if !has {
-			ret += fmt.Sprintf("Wallet %s was not found in chain node. ", keyAddr)
+			fmt.Fprintf(&ret, "Wallet %s was not found in chain node. ", keyAddr)
 		}
 
 		balance, err := al.api.WalletBalance(al.ctx, addr)
@@ -143,11 +143,11 @@ func balanceCheck(al *alerts) {
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			ret += fmt.Sprintf("Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
+			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
-	if ret != "" {
-		al.alertMap[Name].alertString = ret
+	if ret.String() != "" {
+		al.alertMap[Name].alertString = ret.String()
 	}
 }
 
@@ -198,7 +198,9 @@ func taskFailureCheck(al *alerts) {
 	}
 
 	sealingTasks := []string{"SDR", "TreeD", "TreeRC", "PreCommitSubmit", "PoRep", "Finalize", "MoveStorage", "CommitSubmit", "WdPost", "ParkPiece"}
-	contains := slices.Contains[[]string, string]
+	contains := func(s []string, e string) bool {
+		return slices.Contains(s, e)
+	}
 
 	// Alerts for any sealing pipeline failures. Other tasks should have at least 5 failures for an alert
 	for name, count := range tmap {
@@ -608,6 +610,17 @@ func wdPostCheck(al *alerts) {
 func wnPostCheck(al *alerts) {
 	Name := "WinningPost"
 	al.alertMap[Name] = &alertOut{}
+
+	_, miners, err := al.getAddresses()
+	if err != nil {
+		al.alertMap[Name].err = err
+		return
+	}
+
+	if len(miners) == 0 {
+		return
+	}
+
 	head, err := al.api.ChainHead(al.ctx)
 	if err != nil {
 		al.alertMap[Name].err = err
@@ -657,12 +670,6 @@ func wnPostCheck(al *alerts) {
 	expected := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
 	if (head.Height() - abi.ChainEpoch(expected)) < 0 {
 		expected = int64(head.Height())
-	}
-
-	_, miners, err := al.getAddresses()
-	if err != nil {
-		al.alertMap[Name].err = err
-		return
 	}
 
 	const slack = 4

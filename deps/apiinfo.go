@@ -23,6 +23,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -290,14 +291,20 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					clog.Errorw("retry rpc call error", "error", rerr, "result", result)
 
 					var out []reflect.Value
-					for i := 0; i < field.Type.NumOut(); i++ {
-						out = append(out, reflect.Zero(field.Type.Out(i)))
+					for out0 := range field.Type.Outs() {
+						out = append(out, reflect.Zero(out0))
 					}
-					// last value is always an error.. set it to the error
-					out[len(out)-1] = reflect.ValueOf(xerrors.Errorf("retry rpc call error: %w", rerr))
+					// last value is always an error.. set it to the error (wrapped as ChainError)
+					out[len(out)-1] = reflect.ValueOf(&api.ChainError{Err: xerrors.Errorf("retry rpc call error: %w", rerr)})
 					return out
 				}
 
+				// Wrap any error in ChainError so origin can be distinguished
+				if len(result) > 0 && !result[len(result)-1].IsNil() {
+					if errVal, ok := result[len(result)-1].Interface().(error); ok {
+						result[len(result)-1] = reflect.ValueOf(&api.ChainError{Err: errVal})
+					}
+				}
 				return result
 			}))
 		}
@@ -325,15 +332,14 @@ func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duratio
 
 func ErrorIsIn(err error, errorTypes []error) bool {
 	for _, etype := range errorTypes {
-		tmp := reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface()
-		if errors.As(err, &tmp) {
+		if errors.As(err, new(reflect.New(reflect.PointerTo(reflect.ValueOf(etype).Elem().Type())).Interface())) {
 			return true
 		}
 	}
 	return false
 }
 
-func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, error) {
+func GetEthClient(cctx *cli.Context, ainfoCfg []string) (ethchain.EthClient, error) {
 	if len(ainfoCfg) == 0 {
 		return nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
 	}
@@ -349,7 +355,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, erro
 		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 	}
 
-	var clients []*ethclient.Client
+	var clients []ethchain.EthClient
 
 	for _, head := range httpHeads {
 		if cliutil.IsVeryVerbose {
@@ -370,7 +376,7 @@ func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, erro
 			log.Warnf("failed to dial eth client: %s", err)
 			continue
 		}
-		client := ethclient.NewClient(rpcClient)
+		client := &ethchain.ChainErrorWrap{EthClient: ethclient.NewClient(rpcClient)}
 		_, err = client.BlockNumber(cctx.Context)
 		if err != nil {
 			log.Warnf("failed to get eth block number: %s", err)

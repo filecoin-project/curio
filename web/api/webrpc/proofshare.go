@@ -533,8 +533,7 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShar
 			paymentAmountBig = big.NewInt(0)
 		}
 
-		paymentAmountStr := types.FIL(paymentAmountBig).Short()
-		r.PaymentAmount = &paymentAmountStr
+		r.PaymentAmount = new(types.FIL(paymentAmountBig).Short())
 
 		r.SpIDStr = must.One(address.NewIDAddress(uint64(r.SpID))).String()
 	}
@@ -614,8 +613,7 @@ func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet
 
 		if !clientState.WithdrawTimestamp.IsZero() {
 			// unix seconds
-			wtime := time.Unix(clientState.WithdrawTimestamp.Int64(), 0).Add(common.WithdrawWindow)
-			w.WithdrawTimestamp = &wtime
+			w.WithdrawTimestamp = new(time.Unix(clientState.WithdrawTimestamp.Int64(), 0).Add(common.WithdrawWindow))
 		}
 
 		w.RouterAvailBalance = types.FIL(clientState.Balance).Short()
@@ -981,8 +979,7 @@ ORDER BY lp.provider_id;
 		lastSettledPaymentBigInt := types.NewInt(0)
 		if item.SQLLastSettledAt.Valid { // Indicates a settlement occurred
 			item.LastSettledAt = &item.SQLLastSettledAt.Time
-			tss := time.Since(item.SQLLastSettledAt.Time).Round(time.Second).String()
-			item.TimeSinceLastSettlement = &tss
+			item.TimeSinceLastSettlement = new(time.Since(item.SQLLastSettledAt.Time).Round(time.Second).String())
 
 			if item.LastSettledPaymentValueRaw != nil && *item.LastSettledPaymentValueRaw != "" {
 				val, pErr := types.BigFromString(*item.LastSettledPaymentValueRaw)
@@ -990,17 +987,14 @@ ORDER BY lp.provider_id;
 					log.Warnw("PSProviderLastPaymentsSummary: failed to parse LastSettledPaymentValueRaw", "walletID", item.WalletID, "value", *item.LastSettledPaymentValueRaw, "error", pErr)
 					// lastSettledPaymentBigInt remains 0, LastSettledAmountFIL will be "0 FIL" or nil based on formatting choice
 					// Forcing 0 FIL if parsing fails but settlement exists
-					zeroFil := types.FIL(types.NewInt(0)).Short()
-					item.LastSettledAmountFIL = &zeroFil
+					item.LastSettledAmountFIL = new(types.FIL(types.NewInt(0)).Short())
 				} else {
 					lastSettledPaymentBigInt = val
-					formattedSettled := types.FIL(lastSettledPaymentBigInt).Short()
-					item.LastSettledAmountFIL = &formattedSettled
+					item.LastSettledAmountFIL = new(types.FIL(lastSettledPaymentBigInt).Short())
 				}
 			} else {
 				// LastSettledAt is valid, but LastSettledPaymentValueRaw is nil/empty. Treat as 0 FIL.
-				zeroFil := types.FIL(types.NewInt(0)).Short()
-				item.LastSettledAmountFIL = &zeroFil
+				item.LastSettledAmountFIL = new(types.FIL(types.NewInt(0)).Short())
 			}
 		}
 		// ELSE: No settlement: LastSettledAmountFIL, TimeSinceLastSettlement, LastSettledAt remain nil.
@@ -1018,8 +1012,7 @@ ORDER BY lp.provider_id;
 				"unsettledCalculated", types.FIL(unsettledBigInt).Short())
 			unsettledBigInt = types.NewInt(0)
 		}
-		formattedUnsettled := types.FIL(unsettledBigInt).Short()
-		item.UnsettledAmountFIL = &formattedUnsettled
+		item.UnsettledAmountFIL = new(types.FIL(unsettledBigInt).Short())
 
 		// Nil out raw fields after processing as they are not part of the final JSON
 		item.LatestPaymentValueRaw = nil
@@ -1031,8 +1024,7 @@ ORDER BY lp.provider_id;
 		if err != nil {
 			log.Warnw("PSProviderLastPaymentsSummary: failed to get provider state", "walletID", item.WalletID, "error", err)
 		} else {
-			fil := types.FIL(voucherRedeemed).Short()
-			item.ContractSettledFIL = &fil
+			item.ContractSettledFIL = new(types.FIL(voucherRedeemed).Short())
 			item.ContractLastNonce = &lastNonce
 		}
 	}

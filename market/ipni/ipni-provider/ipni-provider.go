@@ -3,12 +3,14 @@ package ipni_provider
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -21,7 +23,6 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync"
 	"github.com/ipni/go-libipni/dagsync/ipnisync/head"
 	"github.com/ipni/go-libipni/ingest/schema"
-	"github.com/ipni/go-libipni/maurl"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -36,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -47,10 +49,7 @@ const IPNIRoutePath = "/ipni-provider/"
 // IPNIPath is a constant that represents the path for IPNI API requests.
 const IPNIPath = "/ipni/v1/ad/"
 
-// publishInterval represents the time interval between each publishing operation.
-// It is set to 10 minutes.
-const publishInterval = 10 * time.Minute
-const publishProviderSpacing = 10 * time.Second
+const publishInterval = 5 * time.Second
 
 var (
 	log = logging.Logger("ipni-provider")
@@ -62,6 +61,10 @@ type peerInfo struct {
 	Key   crypto.PrivKey
 	SPID  abi.ActorID
 	Miner address.Address
+	// httpServerAddresses has a list of all the addresses where IPNI can reach to sync with
+	// the provider. This is created by converting announceURLs into a multiaddr and adding the following
+	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
+	httpServerAddresses multiaddr.Multiaddr // map[peerID String]Multiaddr
 }
 
 // Provider represents a provider for IPNI.
@@ -71,14 +74,13 @@ type Provider struct {
 	pieceProvider *pieceprovider.SectorReader
 	indexStore    *indexstore.IndexStore
 	sc            *chunker.ServeChunker
-	keys          map[string]*peerInfo // map[peerID String]Private_Key
+	mu            sync.RWMutex
+	providerInfos map[string]*peerInfo // map[peerID String]peerInfo
+	latest        map[string]cid.Cid   // map[peerID String]last published head, used to avoid duplicate announce
 	// announceURLs enables sending direct announcements via HTTP. This is
 	// the list of indexer URLs to send direct HTTP announce messages to.
-	announceURLs []*url.URL
-	// httpServerAddresses has a list of all the addresses where IPNI can reach to sync with
-	// the provider. This is created by converting announceURLs into a multiaddr and adding the following
-	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
-	httpServerAddresses map[string]multiaddr.Multiaddr // map[peerID String]Multiaddr
+	announceURLs   []*url.URL
+	httpServerBase *url.URL
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -90,62 +92,6 @@ type Provider struct {
 func NewProvider(d *deps.Deps) (*Provider, error) {
 	ctx := context.Background()
 
-	keyMap := make(map[string]*peerInfo)
-
-	rows, err := d.DB.Query(ctx, `SELECT priv_key, peer_id, sp_id FROM ipni_peerid`)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get private libp2p keys from DB: %w", err)
-	}
-
-	defer rows.Close()
-
-	for rows.Next() && rows.Err() == nil {
-		var priv []byte
-		var peerID string
-		var sp int64
-		var spID abi.ActorID
-		err := rows.Scan(&priv, &peerID, &sp)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to scan the row: %w", err)
-		}
-
-		pkey, err := crypto.UnmarshalPrivateKey(priv)
-		if err != nil {
-			return nil, xerrors.Errorf("unmarshaling private key: %w", err)
-		}
-
-		id, err := peer.IDFromPublicKey(pkey.GetPublic())
-		if err != nil {
-			return nil, xerrors.Errorf("generating peer ID from private key: %w", err)
-		}
-
-		if id.String() != peerID {
-			return nil, xerrors.Errorf("peer ID mismatch: got %s (calculated), expected %s (DB)", id.String(), peerID)
-		}
-
-		if sp < 0 {
-			spID = abi.ActorID(0)
-		}
-
-		maddr, err := address.NewIDAddress(uint64(spID))
-		if err != nil {
-			return nil, xerrors.Errorf("parsing miner ID: %w", err)
-		}
-
-		keyMap[id.String()] = &peerInfo{
-			Key:   pkey,
-			ID:    id,
-			SPID:  spID,
-			Miner: maddr,
-		}
-
-		log.Infow("ipni peer ID", "peerID", id.String())
-	}
-
-	if rows.Err() != nil {
-		return nil, err
-	}
-
 	announceURLs := make([]*url.URL, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
 
 	for i, us := range d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
@@ -156,48 +102,108 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		announceURLs[i] = u
 	}
 
-	httpServerAddresses := map[string]multiaddr.Multiaddr{}
+	baseURL, err := urlhelper.GetExternalURL(&d.Cfg.HTTP)
+	if err != nil {
+		return nil, xerrors.Errorf("getting external URL for IPNI: %w", err)
+	}
+	baseURL.Path = path.Join(baseURL.Path, IPNIRoutePath)
 
-	{
-		u, err := url.Parse(fmt.Sprintf("https://%s", d.Cfg.HTTP.DomainName))
-		if err != nil {
-			return nil, xerrors.Errorf("parsing announce address domain: %w", err)
+	p := &Provider{
+		full:           d.Chain,
+		db:             d.DB,
+		pieceProvider:  d.SectorReader,
+		indexStore:     d.IndexStore,
+		sc:             d.ServeChunker,
+		providerInfos:  make(map[string]*peerInfo),
+		announceURLs:   announceURLs,
+		httpServerBase: baseURL,
+		latest:         make(map[string]cid.Cid),
+	}
+
+	if err := p.refreshProviders(ctx); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
+	pkey, err := crypto.UnmarshalPrivateKey(priv)
+	if err != nil {
+		return xerrors.Errorf("unmarshaling private key: %w", err)
+	}
+
+	id, err := peer.IDFromPublicKey(pkey.GetPublic())
+	if err != nil {
+		return xerrors.Errorf("generating peer ID from private key: %w", err)
+	}
+	if id.String() != peerID {
+		return xerrors.Errorf("peer ID mismatch: got %s (calculated), expected %s (DB)", id.String(), peerID)
+	}
+
+	var spID abi.ActorID
+	if sp >= 0 {
+		spID = abi.ActorID(sp)
+	}
+
+	maddr, err := address.NewIDAddress(uint64(spID))
+	if err != nil {
+		return xerrors.Errorf("parsing miner ID: %w", err)
+	}
+
+	u := *p.httpServerBase
+	u.Path = path.Join(u.Path, peerID)
+	addr, err := urlhelper.FromURLWithPort(&u)
+	if err != nil {
+		return xerrors.Errorf("converting URL to multiaddr: %w", err)
+	}
+
+	info := &peerInfo{
+		Key:                 pkey,
+		ID:                  id,
+		SPID:                spID,
+		Miner:               maddr,
+		httpServerAddresses: addr,
+	}
+
+	p.mu.Lock()
+	_, existed := p.providerInfos[peerID]
+	p.providerInfos[peerID] = info
+	p.mu.Unlock()
+
+	if !existed {
+		log.Infow("ipni peer ID", "peerID", id.String())
+		log.Infow("Announce address", "address", addr.String(), "pid", peerID, "url", u.String())
+	}
+
+	return nil
+}
+
+func (p *Provider) refreshProviders(ctx context.Context) error {
+	rows, err := p.db.Query(ctx, `SELECT priv_key, peer_id, sp_id FROM ipni_peerid`)
+	if err != nil {
+		return xerrors.Errorf("failed to refresh ipni peers from DB: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() && rows.Err() == nil {
+		var priv []byte
+		var peerID string
+		var sp int64
+		if err := rows.Scan(&priv, &peerID, &sp); err != nil {
+			return xerrors.Errorf("failed to scan refreshed ipni peer row: %w", err)
 		}
 
-		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-			ls := strings.Split(d.Cfg.HTTP.ListenAddress, ":")
-			u, err = url.Parse(fmt.Sprintf("http://%s:%s", d.Cfg.HTTP.DomainName, ls[1]))
-			if err != nil {
-				return nil, xerrors.Errorf("parsing announce address domain: %w", err)
-			}
-		}
-
-		u.Path = path.Join(u.Path, IPNIRoutePath)
-
-		for pid := range keyMap {
-			u := *u
-			u.Path = path.Join(u.Path, pid)
-			addr, err := maurl.FromURL(&u)
-			if err != nil {
-				return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
-			}
-
-			httpServerAddresses[pid] = addr
-
-			log.Infow("Announce address", "address", addr.String(), "pid", pid, "url", u.String())
+		if err := p.upsertProvider(priv, peerID, sp); err != nil {
+			return err
 		}
 	}
 
-	return &Provider{
-		full:                d.Chain,
-		db:                  d.DB,
-		pieceProvider:       d.SectorReader,
-		indexStore:          d.IndexStore,
-		sc:                  d.ServeChunker,
-		keys:                keyMap,
-		announceURLs:        announceURLs,
-		httpServerAddresses: httpServerAddresses,
-	}, nil
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	return nil
 }
 
 // getAd retrieves an advertisement from the database based on the given CID and provider.
@@ -315,6 +321,9 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 	var headStr string
 	err := p.db.QueryRow(ctx, `SELECT head FROM ipni_head WHERE provider = $1`, provider).Scan(&headStr)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, chunker.ErrNotFound
+		}
 		return nil, xerrors.Errorf("querying previous head: %w", err)
 	}
 
@@ -327,7 +336,22 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 		return nil, xerrors.Errorf("parsing head CID: %w", err)
 	}
 
-	signedHead, err := head.NewSignedHead(ad, "", p.keys[provider].Key)
+	p.mu.RLock()
+	info, ok := p.providerInfos[provider]
+	p.mu.RUnlock()
+	if !ok {
+		if err := p.refreshProviders(ctx); err != nil {
+			return nil, err
+		}
+		p.mu.RLock()
+		info, ok = p.providerInfos[provider]
+		p.mu.RUnlock()
+		if !ok {
+			return nil, xerrors.Errorf("no info found for provider %s", provider)
+		}
+	}
+
+	signedHead, err := head.NewSignedHead(ad, "", info.Key)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate signed head for peer %s: %w", provider, err)
 	}
@@ -364,7 +388,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	defer func() {
-		log.Infow("Served IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID, "took", time.Since(start))
+		log.Infow("Served IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID, "took", time.Since(start), "remote_addr", r.RemoteAddr)
 	}()
 
 	b, err := cid.Parse(reqCid)
@@ -395,6 +419,8 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
+		// Log advertisement fetch for indexing status tracking
+		go p.logPDPFetch(providerID, b.String())
 		return
 	case ipnisync.CidSchemaEntryChunk:
 		entry, err := p.sc.GetEntry(r.Context(), b)
@@ -450,7 +476,23 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
+		// Log advertisement fetch for indexing status tracking
+		go p.logPDPFetch(providerID, b.String())
 		return
+	}
+}
+
+func (p *Provider) logPDPFetch(peer, b string) {
+	p.mu.RLock()
+	info, ok := p.providerInfos[peer]
+	p.mu.RUnlock()
+	if !ok || info.SPID > 0 {
+		return
+	}
+	logCtx := context.Background()
+	_, err := p.db.Exec(logCtx, `INSERT INTO ipni_ad_fetches (ad_cid, fetched_at) VALUES ($1, NOW())`, b)
+	if err != nil {
+		log.Warnw("failed to log ad fetch", "ad_cid", b, "err", err)
 	}
 }
 
@@ -465,52 +507,71 @@ func Routes(r *chi.Mux, p *Provider) {
 	r.Get(IPNIRoutePath+"{providerId}"+IPNIPath+"{cid}", p.handleGet)
 }
 
-func RemoveCidContact(slice []*url.URL) []*url.URL {
-	target := "cid.contact"
+const (
+	CIDContactFilter = "cid.contact"
+	PinFilter        = "filecoinpin.contact"
+)
+
+func FilterAnnounceURLs(slice []*url.URL, filter []string) []*url.URL {
 
 	return lo.Filter(slice, func(item *url.URL, index int) bool {
-		return !strings.Contains(item.Host, target)
+		for _, f := range filter {
+			if strings.Contains(item.String(), f) {
+				return false
+			}
+		}
+		return true
 	})
 }
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
-	var ticker *time.Ticker
 
-	// A poller which publishes head for each provider
-	// every 10 minutes for mainnet build
-	if build.BuildType == build.BuildMainnet {
-		ticker = time.NewTicker(publishInterval)
-	} else {
-		if build.BuildType != build.BuildCalibnet {
-			ticker = time.NewTicker(time.Second * 10)
-			log.Info("Resetting IPNI provider publishing ticker to 10 seconds for devnet build")
-			urls := RemoveCidContact(p.announceURLs)
-			if len(urls) == 0 {
-				log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
-				return
-			}
-			p.announceURLs = urls
+	// Remove cid.contact from announceURLs if the build is debug or testnet
+	if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
+		urls := FilterAnnounceURLs(p.announceURLs, []string{CIDContactFilter, PinFilter})
+		if len(urls) == 0 {
+			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
+			return
 		}
-		log.Info("Starting IPNI provider publishing for testnet build")
+		p.announceURLs = urls
 	}
 
-	go func(ticker *time.Ticker) {
-		for {
-			select {
-			case <-ticker.C:
-				// Call the function to publish head for each provider
-				p.publishHead(ctx)
-				err := p.updateSparkContract(ctx)
-				if err != nil {
-					log.Errorw("failed to update ipni provider peer mapping", "err", err)
-				}
-			case <-ctx.Done():
-				ticker.Stop()
-				return
-			}
+	// Populated latest head cid from the ipni_head table
+	p.mu.RLock()
+	peers := make([]string, 0, len(p.providerInfos))
+	for pr := range p.providerInfos {
+		peers = append(peers, pr)
+	}
+	p.mu.RUnlock()
+	for _, provider := range peers {
+		c, err := p.getHeadCID(ctx, provider)
+		if err != nil {
+			log.Errorw("failed to get head CID", "provider", provider, "error", err)
+			continue
 		}
-	}(ticker)
+		p.latest[provider] = c
+	}
+
+	ticker := time.NewTicker(publishInterval)
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := p.refreshProviders(ctx); err != nil {
+				log.Errorw("failed to refresh ipni peers", "err", err)
+			}
+			// Call the function to publish head for each provider
+			p.publishHead(ctx)
+			err := p.updateSparkContract(ctx)
+			if err != nil {
+				log.Errorw("failed to update ipni provider peer mapping", "err", err)
+			}
+		case <-ctx.Done():
+			ticker.Stop()
+			return
+		}
+	}
 }
 
 // getHeadCID queries the database to retrieve the head CID for a specific provider.
@@ -519,6 +580,9 @@ func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, er
 	var headStr string
 	err := p.db.QueryRow(ctx, `SELECT head FROM ipni_head WHERE provider = $1`, provider).Scan(&headStr)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return cid.Undef, nil
+		}
 		return cid.Undef, xerrors.Errorf("querying previous head: %w", err)
 	}
 
@@ -535,31 +599,42 @@ func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, er
 // The function is intended to be run as a goroutine with a ticker to schedule its execution at regular intervals.
 func (p *Provider) publishHead(ctx context.Context) {
 	var i int
-	for provider := range p.keys {
+	p.mu.RLock()
+	providers := make([]string, 0, len(p.providerInfos))
+	for provider := range p.providerInfos {
+		providers = append(providers, provider)
+	}
+	p.mu.RUnlock()
+
+	for _, provider := range providers {
 		if i > 0 {
-			p.publishProviderSpacingWait()
+			time.Sleep(time.Second)
 		}
 		c, err := p.getHeadCID(ctx, provider)
 		if err != nil {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
 			continue
 		}
+		if c == cid.Undef {
+			log.Debugw("No head CID found for provider", "provider", provider)
+			continue
+		}
+
+		if _, ok := p.latest[provider]; ok && p.latest[provider] == c {
+			log.Debugw("Skipping duplicate announce for provider", "provider", provider, "cid", c.String())
+			continue
+		}
+
 		log.Infow("Publishing head for provider", "provider", provider, "cid", c.String())
 		err = p.publishhttp(ctx, c, provider)
 		if err != nil {
 			log.Errorw("failed to publish head for provide", "provider", provider, "error", err)
+		} else {
+			p.latest[provider] = c
 		}
 
 		i++
 	}
-}
-
-func (p *Provider) publishProviderSpacingWait() {
-	if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-		time.Sleep(time.Second)
-		return
-	}
-	time.Sleep(publishProviderSpacing)
 }
 
 // publishhttp sends an HTTP announce message for the given advertisement CID and peer ID.
@@ -567,33 +642,60 @@ func (p *Provider) publishProviderSpacingWait() {
 // It obtains the HTTP addresses for the peer and sends the announce message to those addresses.
 func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) error {
 	// Create the http announce sender.
-	httpSender, err := httpsender.New(p.announceURLs, p.keys[peer].ID)
+	log.Infow("Creating http announce sender", "urls", p.announceURLs)
+
+	lrt := &loggingRoundTripper{
+		proxied: http.DefaultTransport,
+		peer:    peer,
+		adCid:   adCid,
+	}
+
+	c := &http.Client{
+		Transport: lrt,
+		Timeout:   1 * time.Minute,
+	}
+
+	// Don't announce PoRep Ads to Filecoin Pin indexer
+	a := p.announceURLs
+
+	p.mu.RLock()
+	info, infoOk := p.providerInfos[peer]
+	p.mu.RUnlock()
+
+	if !infoOk {
+		return fmt.Errorf("no details found for peer %s", peer)
+	}
+
+	if info.SPID > 0 {
+		a = FilterAnnounceURLs(a, []string{PinFilter})
+	}
+
+	httpSender, err := httpsender.New(a, info.ID, httpsender.WithClient(c))
 	if err != nil {
 		return fmt.Errorf("cannot create http announce sender: %w", err)
 	}
 
-	addrs, err := p.getHTTPAddressForPeer(peer)
-	if err != nil {
-		return fmt.Errorf("cannot create provider http addresses: %w", err)
-	}
+	addrs := []multiaddr.Multiaddr{info.httpServerAddresses}
 
 	log.Infow("Announcing advertisements over HTTP", "urls", p.announceURLs)
 	return announce.Send(ctx, adCid, addrs, httpSender)
 }
 
-// getHTTPAddressForPeer returns the HTTP addresses for a given peer.
-func (p *Provider) getHTTPAddressForPeer(peer string) ([]multiaddr.Multiaddr, error) {
-	var ret []multiaddr.Multiaddr
+type loggingRoundTripper struct {
+	proxied http.RoundTripper
+	peer    string
+	adCid   cid.Cid
+}
 
-	r, ok := p.httpServerAddresses[peer]
-	if !ok {
-		log.Errorw("no HTTP address for peer", "peer", peer)
-		return nil, fmt.Errorf("no HTTP address for peer %s", peer)
+func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	log.Infow("Announcing IPNI advertisement", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String())
+
+	res, err := lrt.proxied.RoundTrip(req)
+	if err != nil {
+		log.Warnw("IPNI announcement request failed", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "err", err)
+		return nil, err
 	}
 
-	ret = append(ret, r)
-
-	log.Infow("HTTP addresses for peer", "peer", peer, "addresses", ret)
-
-	return ret, nil
+	log.Infow("IPNI announcement response", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "status", res.StatusCode)
+	return res, nil
 }

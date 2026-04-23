@@ -439,8 +439,7 @@ func ExampleValue(method string, t, parent reflect.Type) any {
 			ExampleValues[t] = es
 			return es
 		} else if t.Elem().Kind() == reflect.String {
-			str := "string value"
-			return &str
+			return new("string value")
 		}
 	case reflect.Interface:
 		return struct{}{}
@@ -512,15 +511,11 @@ func ParseApiASTInfo(apiFile, iface, pkg, dir string) (comments map[string]strin
 		return
 	}
 	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax,
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedCompiledGoFiles,
 		Dir:  apiDir,
 		Fset: fset,
 		ParseFile: func(fs *token.FileSet, filename string, src []byte) (*ast.File, error) {
-			var srcAny any
-			if src != nil {
-				srcAny = src
-			}
-			return parser.ParseFile(fs, filename, srcAny, parser.AllErrors|parser.ParseComments)
+			return parser.ParseFile(fs, filename, src, parser.AllErrors|parser.ParseComments)
 		},
 	}
 	pkgsList, err := packages.Load(cfg, ".")
@@ -541,14 +536,18 @@ func ParseApiASTInfo(apiFile, iface, pkg, dir string) (comments map[string]strin
 		fmt.Println("package not found or has no syntax:", pkg)
 		return
 	}
+	if len(apPkg.Errors) > 0 {
+		fmt.Println("parse error: ", apPkg.Errors[0])
+		return
+	}
 
 	var f *ast.File
-	for i, gf := range apPkg.GoFiles {
-		gfAbs, absErr := filepath.Abs(gf)
+	for i, cgf := range apPkg.CompiledGoFiles {
+		cgfAbs, absErr := filepath.Abs(cgf)
 		if absErr != nil {
 			continue
 		}
-		if filepath.Clean(gfAbs) == filepath.Clean(apiFile) {
+		if filepath.Clean(cgfAbs) == filepath.Clean(apiFile) {
 			f = apPkg.Syntax[i]
 			break
 		}

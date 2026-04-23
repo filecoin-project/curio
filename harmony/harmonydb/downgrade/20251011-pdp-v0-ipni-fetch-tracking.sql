@@ -1,0 +1,1 @@
+-- no-op downgrade: table/index creation is not reverted

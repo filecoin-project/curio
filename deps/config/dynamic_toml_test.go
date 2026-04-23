@@ -124,6 +124,36 @@ func TestTransparentMarshalUnmarshal(t *testing.T) {
 	})
 }
 
+func TestTransparentDecodeDoesNotAliasDynamicValues(t *testing.T) {
+	type CurioAddress struct {
+		MinerAddresses []string
+	}
+	type cfg struct {
+		Addresses *Dynamic[[]CurioAddress]
+	}
+
+	target := cfg{
+		Addresses: NewDynamic([]CurioAddress{{
+			MinerAddresses: []string{"f01002"},
+		}}),
+	}
+
+	// Hold a reference to the pre-decode value. If decode mutates in-place,
+	// this reference will change too.
+	before := target.Addresses.GetWithoutLock()
+
+	input := `
+[[Addresses]]
+MinerAddresses = ["f01002", "f01003"]
+`
+
+	_, err := TransparentDecode(input, &target)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"f01002"}, before[0].MinerAddresses, "pre-decode value was mutated in-place")
+	require.Equal(t, []string{"f01002", "f01003"}, target.Addresses.Get()[0].MinerAddresses)
+}
+
 func TestTransparentMarshalCurioIngest(t *testing.T) {
 	// Test with a subset of CurioIngestConfig
 	type TestIngest struct {
@@ -646,17 +676,15 @@ func TestEdgeCases(t *testing.T) {
 			Ptr *Dynamic[*int]
 		}
 
-		val := 42
 		cfg1 := Config{
-			Ptr: NewDynamic(&val),
+			Ptr: NewDynamic(new(42)),
 		}
 
 		data, err := TransparentMarshal(cfg1)
 		require.NoError(t, err)
 
-		zero := 0
 		cfg2 := Config{
-			Ptr: NewDynamic(&zero),
+			Ptr: NewDynamic(new(0)),
 		}
 
 		err = TransparentUnmarshal(data, &cfg2)
@@ -1380,9 +1408,7 @@ func TestAdditionalEdgeCases(t *testing.T) {
 	t.Run("wrapDynamics with non-struct", func(t *testing.T) {
 		// Test with non-struct values
 		shadow := 42
-		target := 99
-
-		err := wrapDynamics(shadow, &target)
+		err := wrapDynamics(shadow, new(99))
 		require.NoError(t, err)
 		// Since both are ints, wrapDynamics should just return without error
 	})
@@ -1442,17 +1468,15 @@ func TestAdditionalEdgeCases(t *testing.T) {
 			Items *Dynamic[[]*int]
 		}
 
-		val1, val2 := 1, 2
 		cfg1 := Config{
-			Items: NewDynamic([]*int{&val1, &val2}),
+			Items: NewDynamic([]*int{new(1), new(2)}),
 		}
 
 		data, err := TransparentMarshal(cfg1)
 		require.NoError(t, err)
 
-		zero1, zero2 := 0, 0
 		cfg2 := Config{
-			Items: NewDynamic([]*int{&zero1, &zero2}),
+			Items: NewDynamic([]*int{new(0), new(0)}),
 		}
 
 		err = TransparentUnmarshal(data, &cfg2)
@@ -1597,9 +1621,8 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 			PtrField *string // Different pointer type
 		}
 
-		str := "test"
 		target := Config2{
-			PtrField: &str,
+			PtrField: new("test"),
 		}
 
 		shadow := Config1{
@@ -1775,9 +1798,8 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 			IntPtr *int
 		}
 
-		val := 42
 		target := Config{
-			IntPtr: &val,
+			IntPtr: new(42),
 		}
 
 		shadow := Config{

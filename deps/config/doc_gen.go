@@ -583,7 +583,7 @@ also be bounded by resources available on the machine (Default: 0 - unlimited)`,
 			Name: "ParkPieceMinFreeStoragePercent",
 			Type: "float64",
 
-			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)`,
+			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)`,
 		},
 		{
 			Name: "EnableSealSDR",
@@ -987,6 +987,16 @@ Consider the trust level of your users and whether you need to support interacti
 			Type: "CompressionConfig",
 
 			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
+		},
+		{
+			Name: "DenylistServers",
+			Type: "[]string",
+
+			Comment: `DenylistServers is a list of URLs pointing to denylist.json files.
+Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+Updates will affect running instances.`,
 		},
 	},
 	"IPNIConfig": {

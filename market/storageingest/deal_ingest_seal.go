@@ -484,8 +484,7 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 
 	getOpenedAt := func(piece pieceDetails, cur *time.Time) *time.Time {
 		if piece.CreatedAt.Valid && (cur == nil || piece.CreatedAt.Time.Before(*cur)) {
-			t := piece.CreatedAt.Time
-			return &t
+			return new(piece.CreatedAt.Time)
 		}
 		return cur
 	}

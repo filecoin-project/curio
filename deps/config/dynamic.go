@@ -83,7 +83,7 @@ func (d *Dynamic[T]) GetWithoutLock() T {
 // Equal is used by cmp.Equal for custom comparison.
 // If used from deps, requires a lock.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.value, other.value, BigIntComparer, cmpopts.EquateEmpty())
+	return safeCmpEqual(d.value, other.value, cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
@@ -183,14 +183,24 @@ func isDynamicType(t reflect.Type) bool {
 }
 
 func (r *cfgRoot[T]) changeMonitor() {
-	lastTimestamp := time.Time{} // lets do a read at startup
+	// Keep the watermark in DB "timestamp" semantics (no timezone) to avoid
+	// missing updates when app clock or timezone differs from DB.
+	lastTimestampLit := "1970-01-01 00:00:00"
 
 	sleepTime := time.Millisecond // read early so we didn't miss something on start-up.
 	for {
 		time.Sleep(sleepTime)
 		sleepTime = 30 * time.Second
 		configCount := 0
-		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title = ANY($2)`, lastTimestamp, r.layers).Scan(&configCount)
+		var newestTimestamp time.Time
+		err := r.db.QueryRow(
+			context.Background(),
+			`SELECT COUNT(*), COALESCE(MAX(timestamp), $1::timestamp)
+			 FROM harmony_config
+			 WHERE timestamp > $1::timestamp AND title = ANY($2)`,
+			lastTimestampLit,
+			r.layers,
+		).Scan(&configCount, &newestTimestamp)
 		if err != nil {
 			logger.Errorf("error selecting configs: %s", err)
 			continue
@@ -198,7 +208,9 @@ func (r *cfgRoot[T]) changeMonitor() {
 		if configCount == 0 {
 			continue
 		}
-		lastTimestamp = time.Now()
+		lastTimestampLit = newestTimestamp.Format("2006-01-02 15:04:05.999999")
+
+		logger.Infof("change detected for layers=%v (updated rows=%d), applying layers", r.layers, configCount)
 
 		// 1. get all configs
 		configs, err := GetConfigs(context.Background(), r.db, r.layers)
@@ -254,7 +266,7 @@ func (c *changeNotifier) Unlock() {
 
 	atomic.StoreInt32(&c.updating, 0)
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], BigIntComparer) {
+		if !safeCmpEqual(v, c.originally[k]) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
@@ -274,6 +286,17 @@ func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 		c.originally[ptr] = oldValue
 	}
 	c.latest[ptr] = newValue
+}
+
+func safeCmpEqual(a, b any, opts ...cmp.Option) (equal bool) {
+	defer func() {
+		if recover() != nil {
+			equal = reflect.DeepEqual(a, b)
+		}
+	}()
+	baseOpts := []cmp.Option{BigIntComparer}
+	baseOpts = append(baseOpts, opts...)
+	return cmp.Equal(a, b, baseOpts...)
 }
 
 func Becomes[U any, T any](rootType *Dynamic[U], f func() T) *Dynamic[T] {

@@ -118,8 +118,7 @@ func (ft *fetch) getFsLock() bool {
 
 			ft.lockFail = true
 
-			le := fslock.LockedError("")
-			if errors.As(err, &le) {
+			if errors.As(err, new(fslock.LockedError(""))) {
 				log.Warnf("acquiring filesystem fetch lock: %s; will retry in %s", err, lockRetry)
 				time.Sleep(lockRetry)
 				continue

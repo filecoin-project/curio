@@ -340,6 +340,11 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("compute sealed cid: %w", err)
 	}
 
+	if sealedCid == sectorKeyCid {
+		log.Warnw("snap encode produced identical CommR to sector key; deal data is likely all zeros",
+			"sectorID", sector.ID, "taskID", taskID, "commR", sealedCid)
+	}
+
 	// STEP 3: Generate update proofs
 
 	genVpsStart := time.Now()

@@ -65,6 +65,11 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("getting path metadata: %w", err)
 	}
 
+	if len(pathRefs) == 0 {
+		log.Debugw("no storage paths configured, nothing to GC")
+		return true, nil
+	}
+
 	type pingResult struct {
 		storageID storiface.ID
 		url       string
@@ -138,9 +143,14 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	committed, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		for _, pingResult := range pingResults {
-			var lastLive, lastDead, lastDeadReason = any(currentTime.UTC()), any(nil), any(nil)
-			if pingResult.res.Error != nil {
-				lastDead, lastLive = lastLive, nil
+			var lastLive, lastDead, lastDeadReason any
+			if pingResult.res.Error == nil {
+				lastLive = currentTime.UTC()
+				lastDead = nil
+				lastDeadReason = nil
+			} else {
+				lastLive = nil
+				lastDead = currentTime.UTC()
 				lastDeadReason = pingResult.res.Error.Error()
 			}
 

@@ -20,6 +20,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/indexing"
 )
@@ -283,7 +284,7 @@ func capabilitiesToOffering(keys []string, values [][]byte) (*FSPDPOffering, map
 			offering.IpniPiece = true
 		case contract.CapIpniIpfs:
 			offering.IpniIpfs = true
-		case contract.CapIpniPeerID:
+		case contract.CapIpniPeerID, contract.CapIpniPeerIDDeprecated:
 			offering.IpniPeerID = peer.ID(value).String() // we skip peer.IDFromBytes as it returns an error if bytes are not multihash
 		case contract.CapStoragePrice:
 			offering.StoragePricePerTibPerDay = new(big.Int).SetBytes(value).Int64()
@@ -438,9 +439,9 @@ func (a *WebRPC) FSRegister(ctx context.Context, name, description, location str
 		return xerrors.Errorf("provider is already registered")
 	}
 
-	serviceURL := url.URL{
-		Scheme: "https",
-		Host:   a.deps.Cfg.HTTP.DomainName,
+	serviceURL, err := urlhelper.GetExternalURL(&a.deps.Cfg.HTTP)
+	if err != nil {
+		return xerrors.Errorf("getting external URL: %w", err)
 	}
 
 	tokenAddress, err := contract.USDFCAddress()

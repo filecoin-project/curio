@@ -346,7 +346,7 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 				Count int    `db:"count"`
 			}
 
-			err := a.db.Select(ctx, &deals, `SELECT id, COUNT(*) AS count
+			err := tx.Select(&deals, `SELECT id, COUNT(*) AS count
 										FROM pdp_pipeline
 										GROUP BY id
 										HAVING bool_and(downloaded)

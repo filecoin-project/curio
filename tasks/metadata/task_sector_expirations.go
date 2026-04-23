@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -77,13 +78,20 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		SpID      uint64 `db:"sp_id"`
 		SectorNum uint64 `db:"sector_num"`
 
+		CurSealedCID string `db:"cur_sealed_cid"`
+		HasSectorKey bool   `db:"has_sector_key"`
+
 		Expiration *uint64 `db:"expiration_epoch"`
 
 		Partition *uint64 `db:"partition"`
 		Deadline  *uint64 `db:"deadline"`
+
+		InSnapPipeline bool `db:"in_snap_pipeline"`
 	}
 
-	if err := s.db.Select(ctx, &sectors, "select sp_id, sector_num, expiration_epoch, partition, deadline from sectors_meta ORDER BY sp_id, sector_num"); err != nil {
+	if err := s.db.Select(ctx, &sectors, `SELECT sm.sp_id, sm.sector_num, sm.cur_sealed_cid, sm.has_sector_key, sm.expiration_epoch, sm.partition, sm.deadline,
+		EXISTS(SELECT 1 FROM sectors_snap_pipeline snp WHERE snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num) AS in_snap_pipeline
+		FROM sectors_meta sm ORDER BY sm.sp_id, sm.sector_num`); err != nil {
 		return false, xerrors.Errorf("get sector list: %w", err)
 	}
 
@@ -97,9 +105,53 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		Deadline  uint64
 	}
 
-	const batchSize = 1000
+	type sectorKeyUpdate struct {
+		SpID         uint64
+		SectorNum    uint64
+		HasSectorKey bool
+	}
+
+	const batchSize = 100
 	updateBatch := make([]partitionUpdate, 0, batchSize)
 	total := 0
+
+	sectorKeyBatch := make([]sectorKeyUpdate, 0, batchSize)
+	sectorKeyTotal := 0
+
+	flushSectorKeyBatch := func() error {
+		if len(sectorKeyBatch) == 0 {
+			return nil
+		}
+
+		sectorKeyTotal += len(sectorKeyBatch)
+		log.Infow("updating has_sector_key", "total", sectorKeyTotal)
+
+		_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			batch := &pgx.Batch{}
+			for _, update := range sectorKeyBatch {
+				batch.Queue("UPDATE sectors_meta SET has_sector_key = $1 WHERE sp_id = $2 AND sector_num = $3",
+					update.HasSectorKey, update.SpID, update.SectorNum)
+			}
+
+			br, err := tx.SendBatch(ctx, batch)
+			if err != nil {
+				return false, xerrors.Errorf("failed to send has_sector_key batch: %w", err)
+			}
+			defer func() {
+				_ = br.Close()
+			}()
+
+			for i := 0; i < batch.Len(); i++ {
+				_, err := br.Exec()
+				if err != nil {
+					return false, xerrors.Errorf("executing has_sector_key batch update %d: %w", i, err)
+				}
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		return err
+	}
 
 	flushBatch := func() error {
 		if len(updateBatch) == 0 {
@@ -177,6 +229,62 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			_, err := s.db.Exec(ctx, "update sectors_meta set expiration_epoch = $1 where sp_id = $2 and sector_num = $3", si.Expiration, sector.SpID, sector.SectorNum)
 			if err != nil {
 				return false, xerrors.Errorf("updating sector expiration: %w", err)
+			}
+		}
+
+		// Reconcile cur_sealed_cid against chain state.
+		// If the sector was snapped on-chain but the metadata update failed,
+		// cur_sealed_cid will be stale. Fix it here if the sector is not
+		// currently in the snap pipeline (in-progress snaps are left alone).
+		chainSealedCID := si.SealedCID.String()
+		if sector.CurSealedCID != chainSealedCID && !sector.InSnapPipeline {
+			dbCurSealedCID, err := cid.Decode(sector.CurSealedCID)
+			if err != nil {
+				log.Errorw("failed to decode cur_sealed_cid from db", "sp", sector.SpID, "sector", sector.SectorNum, "cid", sector.CurSealedCID, "error", err)
+			} else {
+				// Verify this looks like a snap that landed on-chain:
+				// SectorKeyCID is set (snap happened) and matches the DB's stale cur_sealed_cid (which is the original pre-snap sealed CID)
+				if si.SectorKeyCID != nil && *si.SectorKeyCID == dbCurSealedCID {
+					log.Warnw("reconciling cur_sealed_cid from chain (snap metadata was not written)",
+						"sp", sector.SpID, "sector", sector.SectorNum,
+						"db_cur_sealed_cid", sector.CurSealedCID, "chain_sealed_cid", chainSealedCID,
+						"chain_sector_key_cid", si.SectorKeyCID.String())
+
+					_, err := s.db.Exec(ctx, "UPDATE sectors_meta SET cur_sealed_cid = $1 WHERE sp_id = $2 AND sector_num = $3",
+						chainSealedCID, sector.SpID, sector.SectorNum)
+					if err != nil {
+						return false, xerrors.Errorf("updating cur_sealed_cid for sp %d sector %d: %w", sector.SpID, sector.SectorNum, err)
+					}
+				} else {
+					log.Errorw("cur_sealed_cid mismatch with chain but does not look like a missed snap update",
+						"sp", sector.SpID, "sector", sector.SectorNum,
+						"db_cur_sealed_cid", sector.CurSealedCID, "chain_sealed_cid", chainSealedCID,
+						"chain_sector_key_cid", si.SectorKeyCID)
+				}
+			}
+		}
+
+		// Reconcile has_sector_key from chain state.
+		// SectorKeyCID is set on-chain when a sector has been snap-upgraded.
+		// This is the authoritative source of truth; the DB column is kept in
+		// sync here. Skip sectors currently in the snap pipeline.
+		chainHasSectorKey := si.SectorKeyCID != nil
+		if sector.HasSectorKey != chainHasSectorKey && !sector.InSnapPipeline {
+			log.Infow("reconciling has_sector_key from chain",
+				"sp", sector.SpID, "sector", sector.SectorNum,
+				"db", sector.HasSectorKey, "chain", chainHasSectorKey)
+
+			sectorKeyBatch = append(sectorKeyBatch, sectorKeyUpdate{
+				SpID:         sector.SpID,
+				SectorNum:    sector.SectorNum,
+				HasSectorKey: chainHasSectorKey,
+			})
+
+			if len(sectorKeyBatch) >= batchSize {
+				if err := flushSectorKeyBatch(); err != nil {
+					return false, xerrors.Errorf("flushing has_sector_key batch: %w", err)
+				}
+				sectorKeyBatch = sectorKeyBatch[:0]
 			}
 		}
 
@@ -262,6 +370,9 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	// Flush any remaining updates
+	if err := flushSectorKeyBatch(); err != nil {
+		return false, xerrors.Errorf("flushing final has_sector_key batch: %w", err)
+	}
 	if err := flushBatch(); err != nil {
 		return false, xerrors.Errorf("flushing final batch: %w", err)
 	}

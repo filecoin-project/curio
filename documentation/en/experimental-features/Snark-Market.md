@@ -15,6 +15,8 @@ description: >-
 
 The Snark Market allows any Curio node — **including Storage Providers with spare sealing/GPU capacity** — to sell or buy proof computation in exchange for FIL. It is designed for GPU nodes that want to participate in Filecoin proof offloading, enabling a decentralized proof marketplace.
 
+Storage Providers can also **consume** proof compute — buying proofs from the market to save GPU capacity. See [Snark Market (Consumer)](Snark-Market-Consumer.md) for that setup.
+
 This guide will walk you through how to:
 
 * Enable proof selling on GPU nodes

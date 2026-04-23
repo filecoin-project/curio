@@ -64,10 +64,10 @@ description: The default curio configuration
   # type: int
   #ParkPieceMaxInPark = 0
 
-  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)
   #
   # type: float64
-  #ParkPieceMinFreeStoragePercent = 20.0
+  #ParkPieceMinFreeStoragePercent = 5.0
 
   # EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
   # creating 11 layer files in sector cache directory.
@@ -615,6 +615,15 @@ description: The default curio configuration
   # type: string
   #CSP = "inline"
 
+  # DenylistServers is a list of URLs pointing to denylist.json files.
+  # Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+  # Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+  # will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+  # Updates will affect running instances.
+  #
+  # type: []string
+  #DenylistServers = ["https://badbits.dwebops.pub/denylist.json"]
+
   # CompressionLevels hold the compression level for various compression methods supported by the server
   #
   # type: CompressionConfig
@@ -798,13 +807,13 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact"]
+      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
 
     # Indexing configuration for deal indexing
     #

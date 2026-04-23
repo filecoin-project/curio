@@ -15,8 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/jellydator/ttlcache/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -25,13 +25,14 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
-var log = logging.Logger("pdp-contract")
+var log = logging.Logger("pdp")
 
 // Standard capability keys for PDP product type (must match ServiceProviderRegistry.sol REQUIRED_PDP_KEYS Bloom filter)
 const (
@@ -143,28 +144,70 @@ func encodeBool(b bool) []byte {
 	return []byte{0x00}
 }
 
+// viewAddressCache caches resolved view contract addresses keyed by service
+// contract address. The view address is set at contract deploy time, but is
+// changeable by contract owner.
+var viewAddressCache *ttlcache.Cache
+
+// viewAddressCacheTimeout is the duration for which resolved view addresses are
+// cached. Set to 1 hour to balance between reducing RPC calls and allowing
+// updates to be picked up without restarting the service.
+const viewAddressCacheTimeout = time.Hour
+
+func init() {
+	viewAddressCache = ttlcache.NewCache()
+	if err := viewAddressCache.SetTTL(viewAddressCacheTimeout); err != nil {
+		panic("failed to set view address cache TTL: " + err.Error())
+	}
+	viewAddressCache.SkipTTLExtensionOnHit(true)
+}
+
+// ResolveViewAddress resolves the view contract address for a service contract
+// that implements viewContractAddress(). Service contracts (like FWSS) use
+// separate view contracts for read-only operations that are not available on
+// the service proxy itself.
+//
+// Results are cached for 1 hour to avoid repeated eth_call RPCs. The view
+// address can be changed by the contract owner via setViewContract() (in FWSS
+// at least) but this is expected to be infrequent (deployment or maintenance
+// operations).
+// A stale cache is safe: view contracts are intended to be read-only lenses
+// over the same underlying storage, so an old view address still returns valid
+// data. At worst, staleness delays visibility of newly added view functions,
+// which would also require a Curio code update to consume.
+func ResolveViewAddress(ctx context.Context, serviceAddr common.Address, ethClient ethchain.EthClient) (common.Address, error) {
+	key := strings.ToLower(serviceAddr.Hex())
+	if cached, err := viewAddressCache.Get(key); err == nil {
+		return cached.(common.Address), nil
+	}
+
+	svc, err := NewContractWithView(serviceAddr, ethClient)
+	if err != nil {
+		return common.Address{}, xerrors.Errorf("failed to bind to service at %s: %w", serviceAddr, err)
+	}
+	viewAddr, err := svc.ViewContractAddress(EthCallOpts(ctx))
+	if err != nil {
+		return common.Address{}, xerrors.Errorf("failed to get view contract address: %w", err)
+	}
+	if viewAddr == (common.Address{}) {
+		return common.Address{}, xerrors.Errorf("view contract address is zero")
+	}
+
+	if err := viewAddressCache.Set(key, viewAddr); err != nil {
+		log.Warnw("Failed to cache view address", "serviceAddr", serviceAddr, "error", err)
+	}
+	return viewAddr, nil
+}
+
 // GetProvingScheduleFromListener checks if a listener has a view contract and returns
 // an IPDPProvingSchedule instance bound to the appropriate address.
 // It uses the view contract address if available, otherwise uses the listener address directly.
-func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethclient.Client) (*IPDPProvingSchedule, error) {
-	// Try to get the view contract address from the listener
+func GetProvingScheduleFromListener(ctx context.Context, listenerAddr common.Address, ethClient ethchain.EthClient) (*IPDPProvingSchedule, error) {
 	provingScheduleAddr := listenerAddr
+	if viewAddr, err := ResolveViewAddress(ctx, listenerAddr, ethClient); err == nil {
+		provingScheduleAddr = viewAddr
+	} // else we'll assume that the listener contract itself implements IPDPProvingSchedule
 
-	// Check if the listener supports the viewContractAddress method
-	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
-	if err == nil {
-		// Try to get the view contract address
-		viewAddr, err := listenerService.ViewContractAddress(nil)
-		if err == nil && viewAddr != (common.Address{}) {
-			// Use the view contract for proving schedule operations
-			provingScheduleAddr = viewAddr
-		}
-	}
-
-	// Create and return the IPDPProvingSchedule binding
-	// This works whether provingScheduleAddr points to:
-	// - The view contract (which must implement IPDPProvingSchedule)
-	// - The listener itself (where listener must implement IPDPProvingSchedule)
 	provingSchedule, err := NewIPDPProvingSchedule(provingScheduleAddr, ethClient)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create proving schedule binding: %w", err)
@@ -173,17 +216,11 @@ func GetProvingScheduleFromListener(listenerAddr common.Address, ethClient *ethc
 	return provingSchedule, nil
 }
 
-func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.Client, dataSetId *mbig.Int, key string) (bool, string, error) {
+func GetDataSetMetadataAtKey(ctx context.Context, listenerAddr common.Address, ethClient ethchain.EthClient, dataSetId *mbig.Int, key string) (bool, string, error) {
 	metadataAddr := listenerAddr
-
-	// Check if the listener supports the viewContractAddress method
-	listenerService, err := NewListenerServiceWithViewContract(listenerAddr, ethClient)
-	if err == nil {
-		viewAddr, err := listenerService.ViewContractAddress(nil)
-		if err == nil && viewAddr != (common.Address{}) {
-			metadataAddr = viewAddr
-		}
-	}
+	if viewAddr, err := ResolveViewAddress(ctx, listenerAddr, ethClient); err == nil {
+		metadataAddr = viewAddr
+	} // else we'll still try from the listener contract just in case
 
 	// Create a metadata service viewer.
 	mDataService, err := NewListenerServiceWithMetaData(metadataAddr, ethClient)
@@ -192,14 +229,14 @@ func GetDataSetMetadataAtKey(listenerAddr common.Address, ethClient *ethclient.C
 		return false, "", nil
 	}
 
-	out, err := mDataService.GetDataSetMetadata(nil, dataSetId, key)
+	out, err := mDataService.GetDataSetMetadata(EthCallOpts(ctx), dataSetId, key)
 	if err != nil {
 		return false, "", err
 	}
 	return out.Exists, out.Value, nil
 }
 
-func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient *ethclient.Client, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
+func FSRegister(ctx context.Context, db *harmonydb.DB, full api.FullNode, ethClient ethchain.EthClient, name, description string, pdpOffering PDPOfferingData, capabilities map[string]string) error {
 	if len(name) > 128 {
 		return xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -313,7 +350,7 @@ func getSender(ctx context.Context, db *harmonydb.DB) (common.Address, address.A
 	return sender, fSender, privateKey, nil
 }
 
-func createSignedTransaction(ctx context.Context, ethClient *ethclient.Client, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
+func createSignedTransaction(ctx context.Context, ethClient ethchain.EthClient, privateKey *ecdsa.PrivateKey, from, to common.Address, amount *mbig.Int, data []byte) (*etypes.Transaction, error) {
 	msg := ethereum.CallMsg{
 		From:  from,
 		To:    &to,
@@ -381,7 +418,7 @@ func createSignedTransaction(ctx context.Context, ethClient *ethclient.Client, p
 	return signedTx, nil
 }
 
-func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient *ethclient.Client) (string, error) {
+func FSUpdateProvider(ctx context.Context, name, description string, db *harmonydb.DB, ethClient ethchain.EthClient) (string, error) {
 	if len(name) > 128 {
 		return "", xerrors.Errorf("name is too long, max 128 characters allowed")
 	}
@@ -427,7 +464,7 @@ func FSUpdateProvider(ctx context.Context, name, description string, db *harmony
 	return signedTx.Hash().String(), nil
 }
 
-func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, pdpOffering PDPOfferingData, capabilities map[string]string) (string, error) {
+func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, pdpOffering PDPOfferingData, capabilities map[string]string) (string, error) {
 	// Convert PDPOffering to capability keys/values
 	keys, values, err := OfferingToCapabilities(pdpOffering, capabilities)
 	if err != nil {
@@ -483,7 +520,7 @@ func FSUpdatePDPService(ctx context.Context, db *harmonydb.DB, ethClient *ethcli
 	return signedTx.Hash().String(), nil
 }
 
-func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) (string, error) {
+func FSDeregisterProvider(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) (string, error) {
 	sender, _, privateKey, err := getSender(ctx, db)
 	if err != nil {
 		return "", xerrors.Errorf("failed to get sender: %w", err)

@@ -18,8 +18,7 @@ func main() {
 
 	_, t, permStruct := docgen.GetAPIType(os.Args[2], os.Args[3])
 
-	for i := 0; i < t.NumMethod(); i++ {
-		m := t.Method(i)
+	for m := range t.Methods() {
 
 		groupName := docgen.MethodGroupFromName(m.Name)
 

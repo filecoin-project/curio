@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
@@ -19,11 +18,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 )
 
 type SenderETH struct {
-	client *ethclient.Client
+	client ethchain.EthClient
 
 	sendTask *SendTaskETH
 
@@ -33,13 +33,13 @@ type SenderETH struct {
 type SendTaskETH struct {
 	sendTF promise.Promise[harmonytask.AddTaskFunc]
 
-	client *ethclient.Client
+	client ethchain.EthClient
 
 	db *harmonydb.DB
 }
 
 func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.TODO()
+	ctx := context.Background()
 
 	// Get transaction from the database
 	var dbTx struct {
@@ -111,11 +111,15 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 	}()
 
+	// Set a timeout on the eth transaction
+	ethCtx, cancel := context.WithTimeout(ctx, defaultEthCallTimeout)
+	defer cancel()
+
 	var signedTx *types.Transaction
 
 	if !dbTx.Nonce.Valid {
 		// Get the latest nonce
-		pendingNonce, err := s.client.PendingNonceAt(ctx, fromAddress)
+		pendingNonce, err := s.client.PendingNonceAt(ethCtx, fromAddress)
 		if err != nil {
 			return false, xerrors.Errorf("getting pending nonce: %w", err)
 		}
@@ -137,7 +141,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		tx = types.NewTransaction(assignedNonce, *tx.To(), tx.Value(), tx.Gas(), tx.GasPrice(), tx.Data())
 
 		// Sign the transaction
-		signedTx, err = s.signTransaction(ctx, fromAddress, tx)
+		signedTx, err = s.signTransaction(ethCtx, fromAddress, tx)
 		if err != nil {
 			return false, xerrors.Errorf("signing transaction: %w", err)
 		}
@@ -170,7 +174,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	// Send the transaction
-	err = s.client.SendTransaction(ctx, signedTx)
+	err = s.client.SendTransaction(ethCtx, signedTx)
 
 	// Persist send result
 	var sendSuccess = err == nil
@@ -251,7 +255,7 @@ var _ harmonytask.TaskInterface = &SendTaskETH{}
 var _ = harmonytask.Reg(&SendTaskETH{})
 
 // NewSenderETH creates a new SenderETH.
-func NewSenderETH(client *ethclient.Client, db *harmonydb.DB) (*SenderETH, *SendTaskETH) {
+func NewSenderETH(client ethchain.EthClient, db *harmonydb.DB) (*SenderETH, *SendTaskETH) {
 	st := &SendTaskETH{
 		client: client,
 		db:     db,

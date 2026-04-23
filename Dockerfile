@@ -6,7 +6,7 @@ FROM ${LOTUS_TEST_IMAGE} AS lotus-test
 FROM rust:1.86.0-slim-bookworm AS rust-toolchain
 
 ####################################
-FROM golang:1.24-trixie AS curio-builder
+FROM golang:1.26-trixie AS curio-builder
 LABEL Maintainer="Curio Development Team"
 
 RUN apt-get update && apt-get install -y ca-certificates build-essential clang ocl-icd-opencl-dev ocl-icd-libopencl1 jq libhwloc-dev
@@ -60,10 +60,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     make build
 
 ####################################
-FROM golang:1.24-trixie AS piece-server-builder
+FROM golang:1.26-trixie AS piece-server-builder
 
-RUN go install github.com/ipld/go-car/cmd/car@latest \
- && cp $GOPATH/bin/car /usr/local/bin/
+#RUN go install github.com/ipld/go-car/cmd/car@latest \
+# && cp $GOPATH/bin/car /usr/local/bin/
+RUN git clone https://github.com/ipld/go-car.git /tmp/go-car && \
+    cd /tmp/go-car && \
+    git checkout v2.16.0 && \
+    cd cmd/car && go build -o car && \
+    chmod +x car && \
+    cp car /usr/local/bin/
 
 RUN go install github.com/LexLuthr/piece-server@latest \
  && cp $GOPATH/bin/piece-server /usr/local/bin/
@@ -77,7 +83,8 @@ RUN go install github.com/ethereum/go-ethereum/cmd/geth@latest \
 #####################################
 FROM ubuntu:24.04 AS curio-all-in-one
 
-RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget nodejs npm
+RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install nodejs -y
 
 # Install Foundry
 RUN curl -L https://foundry.paradigm.xyz | bash \

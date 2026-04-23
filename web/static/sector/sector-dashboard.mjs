@@ -345,6 +345,7 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+            <link rel="stylesheet" href="/ux/dark-table.css" onload="document.body.style.visibility = 'initial'">
             <div class="info-block" style="position: relative;">
                 ${this.refreshing ? html`<span style="position: absolute; top: 0; right: 0; color: var(--color-text-dense, #e0e0e0); font-size: 0.8rem;">Refreshing...</span>` : ''}
                 ${this.renderOverviewCards()}
