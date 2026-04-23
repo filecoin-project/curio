@@ -192,7 +192,7 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 	}
 
-	_, err = f.db.Exec(ctx, `CREATE UNIQUE INDEX parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`)
+	_, err = f.db.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`)
 	if err != nil {
 		return false, xerrors.Errorf("creating index: %w", err)
 	}
