@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/miner"
+	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
 	"github.com/filecoin-project/curio/build"
@@ -421,7 +422,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 				Reason:   "Verified piece must have a valid allocation ID",
 			}, nil
 		}
-
 
 		prov, err := address.NewIDAddress(uint64(alloc.Provider))
 		if err != nil {
