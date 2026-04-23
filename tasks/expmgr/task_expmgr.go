@@ -22,7 +22,8 @@ var log = logging.Logger("expmgr")
 
 const ExpMgrInterval = 60 * time.Minute
 
-const MaxExtendsPerMessage = 10_000
+const MaxExtendsPerRound = 100_000
+const MaxExtendPerMessage = 10_000
 
 type ExpMgrTask struct {
 	db     *harmonydb.DB

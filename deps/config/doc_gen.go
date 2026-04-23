@@ -591,7 +591,7 @@ also be bounded by resources available on the machine (Default: 0 - unlimited)`,
 			Name: "ParkPieceMinFreeStoragePercent",
 			Type: "float64",
 
-			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)`,
+			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)`,
 		},
 		{
 			Name: "EnableSealSDR",
@@ -968,21 +968,21 @@ HTTP and the reverse proxy will handle TLS termination.`,
 			Type: "time.Duration",
 
 			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")`,
 		},
 		{
 			Name: "IdleTimeout",
 			Type: "time.Duration",
 
 			Comment: `IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")`,
 		},
 		{
 			Name: "ReadHeaderTimeout",
 			Type: "time.Duration",
 
 			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")`,
 		},
 		{
 			Name: "CORSOrigins",
@@ -1022,6 +1022,16 @@ Consider the trust level of your users and whether you need to support interacti
 			Type: "CompressionConfig",
 
 			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
+		},
+		{
+			Name: "DenylistServers",
+			Type: "[]string",
+
+			Comment: `DenylistServers is a list of URLs pointing to denylist.json files.
+Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+Updates will affect running instances.`,
 		},
 	},
 	"IPNIConfig": {

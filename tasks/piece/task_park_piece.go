@@ -99,7 +99,6 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 		}
 
 		for _, pieceID := range pieceIDs {
-			pieceID := pieceID
 
 			// Create a task for each piece
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
@@ -260,7 +259,7 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 		return nil, nil
 	}
 
-	capacity := p.maxInPark - count - running
+	capacity := min(p.maxInPark-count-running, len(ids))
 	return ids[:capacity], nil
 }
 

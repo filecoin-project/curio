@@ -1,0 +1,1 @@
+-- no-op downgrade: index additions are retained

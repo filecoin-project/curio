@@ -173,8 +173,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	}
 
 	if info.PendingOwnerAddress != nil {
-		i := info.PendingOwnerAddress.String()
-		ad.PendingOwnerAddress = &i
+		ad.PendingOwnerAddress = new(info.PendingOwnerAddress.String())
 	}
 
 	if info.PendingBeneficiaryTerm != nil {
@@ -250,7 +249,6 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	// Process minerWallets
 	for name, addrs := range minerWallets {
 		for _, addr := range addrs {
-			addr := addr
 			name := name
 			err = processAddress(addr, name)
 			if err != nil {
@@ -261,7 +259,6 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 
 	// Process ControlAddresses
 	for _, addr := range append(info.ControlAddresses, info.Worker, info.Owner, info.Beneficiary) {
-		addr := addr
 		err = processAddress(addr, "Control")
 		if err != nil {
 			return nil, xerrors.Errorf("processing address: %w", err)

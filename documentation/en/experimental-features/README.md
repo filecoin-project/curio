@@ -18,6 +18,14 @@ Current experimental features are listed below.
 [gpu-over-provisioning.md](gpu-over-provisioning.md)
 {% endcontent-ref %}
 
+{% content-ref url="Snark-Market.md" %}
+[Snark-Market.md](Snark-Market.md)
+{% endcontent-ref %}
+
+{% content-ref url="Snark-Market-Consumer.md" %}
+[Snark-Market-Consumer.md](Snark-Market-Consumer.md)
+{% endcontent-ref %}
+
 {% content-ref url="cuzk-proving-daemon.md" %}
 [cuzk-proving-daemon.md](cuzk-proving-daemon.md)
 {% endcontent-ref %}

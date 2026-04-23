@@ -22,6 +22,7 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 const keyspace = "curio"
@@ -50,8 +51,6 @@ type Record struct {
 	Offset uint64  `json:"offset"`
 	Size   uint64  `json:"size"`
 }
-
-var ErrNotFound = errors.New("not found")
 
 func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
 	cluster := gocql.NewCluster(hosts...)
@@ -124,8 +123,8 @@ func (i *IndexStore) Start(ctx context.Context, test bool) error {
 			log.Fatalf("failed to read file %s: %v", entry.Name(), err)
 		}
 
-		lines := strings.Split(string(data), ";")
-		for _, line := range lines {
+		lines := strings.SplitSeq(string(data), ";")
+		for line := range lines {
 			line = strings.Trim(line, "\n \t")
 			if line == "" {
 				continue
@@ -187,13 +186,13 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsCh
 
 				batchPieceBlockOffsetSize.Entries = append(batchPieceBlockOffsetSize.Entries, gocql.BatchEntry{
 					Stmt:       insertPieceBlockOffsetSize,
-					Args:       []interface{}{pieceCidBytes, payloadMultihashBytes, rec.Offset},
+					Args:       []any{pieceCidBytes, payloadMultihashBytes, rec.Offset},
 					Idempotent: true,
 				})
 
 				batchPayloadToPieces.Entries = append(batchPayloadToPieces.Entries, gocql.BatchEntry{
 					Stmt:       insertPayloadToPieces,
-					Args:       []interface{}{payloadMultihashBytes, pieceCidBytes, rec.Size},
+					Args:       []any{payloadMultihashBytes, pieceCidBytes, rec.Size},
 					Idempotent: true,
 				})
 
@@ -301,7 +300,7 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) erro
 	for idx, payloadMH := range payloadMultihashes {
 		batch.Entries = append(batch.Entries, gocql.BatchEntry{
 			Stmt:       delPayloadToPiecesQry,
-			Args:       []interface{}{payloadMH, pieceCidBytes},
+			Args:       []any{payloadMH, pieceCidBytes},
 			Idempotent: true,
 		})
 
@@ -397,13 +396,15 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, sta
 	}
 
 	if len(hashes) == 0 {
-		pcid1, _, err := commcid.PieceCidV1FromV2(piecev2)
-		if err != nil {
-			return nil, xerrors.Errorf("getting piece cid v1 from v2: %w", err)
-		}
-		hashes, err = getHashes(pcid1, start, num)
-		if err != nil {
-			return nil, err
+		if commcidv2.IsPieceCidV2(piecev2) {
+			pcid1, _, err := commcid.PieceCidV1FromV2(piecev2)
+			if err != nil {
+				return nil, xerrors.Errorf("getting piece cid v1 from v2: %w", err)
+			}
+			hashes, err = getHashes(pcid1, start, num)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -486,13 +487,13 @@ func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid
 
 				batchPieceByAggregate.Entries = append(batchPieceByAggregate.Entries, gocql.BatchEntry{
 					Stmt:       insertPieceByAggregate,
-					Args:       []interface{}{aggregatePieceCidBytes, rec.Cid.Bytes(), rec.Offset, rec.Size},
+					Args:       []any{aggregatePieceCidBytes, rec.Cid.Bytes(), rec.Offset, rec.Size},
 					Idempotent: true,
 				})
 
 				batchAggregateByPiece.Entries = append(batchAggregateByPiece.Entries, gocql.BatchEntry{
 					Stmt:       insertAggregateByPiece,
-					Args:       []interface{}{rec.Cid.Bytes(), aggregatePieceCidBytes, rec.Offset, rec.Size},
+					Args:       []any{rec.Cid.Bytes(), aggregatePieceCidBytes, rec.Offset, rec.Size},
 					Idempotent: true,
 				})
 
@@ -721,7 +722,7 @@ func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer 
 
 		batch.Entries = append(batch.Entries, gocql.BatchEntry{
 			Stmt:       qry,
-			Args:       []interface{}{pieceCidBytes, r.Layer, r.Hash[:], r.Index},
+			Args:       []any{pieceCidBytes, r.Layer, r.Hash[:], r.Index},
 			Idempotent: true,
 		})
 

@@ -241,7 +241,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 			if deal.Products.DDOV1 != nil {
 				ddo := deal.Products.DDOV1
 
-				var allocationID interface{}
+				var allocationID any
 				if ddo.AllocationId != nil {
 					allocationID = *ddo.AllocationId
 				} else {
@@ -334,7 +334,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		return fmt.Errorf("getting piece info: %w", err)
 	}
 
-	var allocationID interface{}
+	var allocationID any
 	if ddo.AllocationId != nil {
 		allocationID = *ddo.AllocationId
 	} else {
@@ -650,71 +650,13 @@ func (d *CurioStorageDealMarket) processMk20Pieces(ctx context.Context, piece MK
 // downloadMk20Deal handles the downloading process of an MK20 pipeline piece by scheduling it in the database and updating its status.
 // If the pieces are part of an aggregation deal then we download for short term otherwise,
 // we download for long term to avoid the need to have unsealed copy
-func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK20PipelinePiece) error {
-	n, err := d.db.Exec(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1)
+func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, _ MK20PipelinePiece) error {
+	var n int
+	err := d.db.QueryRow(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1).Scan(&n)
 	if err != nil {
-		log.Errorf("failed to mark PDP downloaded piece: %v", err)
+		return xerrors.Errorf("failed to mark DDO downloaded piece: %w", err)
 	}
-	log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
-
-	//if !piece.Downloaded && piece.Started {
-	//	_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-	//		var refid int64
-	//		err = tx.QueryRow(`SELECT u.ref_id FROM (
-	//							  SELECT unnest(dp.ref_ids) AS ref_id
-	//							  FROM market_mk20_download_pipeline dp
-	//							  WHERE dp.id = $1 AND dp.piece_cid_v2 = $2 AND dp.product = $3
-	//							) u
-	//							JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
-	//							JOIN parked_pieces pp ON pp.id = pr.piece_id
-	//							WHERE pp.complete = TRUE
-	//							LIMIT 1;`, piece.ID, piece.PieceCIDV2, mk20.ProductNameDDOV1).Scan(&refid)
-	//		if err != nil {
-	//			if errors.Is(err, pgx.ErrNoRows) {
-	//				return false, nil
-	//			}
-	//			return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
-	//		}
-	//
-	//		// Remove other ref_ids from piece_park_refs
-	//		_, err = tx.Exec(`DELETE FROM parked_piece_refs
-	//						WHERE ref_id IN (
-	//						  SELECT unnest(dp.ref_ids)
-	//						  FROM market_mk20_download_pipeline dp
-	//						  WHERE dp.id = $1 AND dp.piece_cid_v2 = $2 AND dp.product = $3
-	//						)
-	//						AND ref_id != $4;`, piece.ID, piece.PieceCIDV2, mk20.ProductNameDDOV1, refid)
-	//		if err != nil {
-	//			return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
-	//		}
-	//
-	//		_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid_v2 = $2 AND product = $3;`,
-	//			piece.ID, piece.PieceCIDV2, mk20.ProductNameDDOV1)
-	//		if err != nil {
-	//			return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
-	//		}
-	//
-	//		pieceIDUrl := url.URL{
-	//			Scheme: "pieceref",
-	//			Opaque: fmt.Sprintf("%d", refid),
-	//		}
-	//
-	//		_, err = tx.Exec(`UPDATE market_mk20_pipeline SET downloaded = TRUE, url = $1
-	//                          WHERE id = $2
-	//                          AND piece_cid = $3
-	//                          AND piece_size = $4`,
-	//			pieceIDUrl.String(), piece.ID, piece.PieceCID, piece.PieceSize)
-	//		if err != nil {
-	//			return false, xerrors.Errorf("failed to update pipeline piece table: %w", err)
-	//		}
-	//		piece.Downloaded = true
-	//		return true, nil
-	//	}, harmonydb.OptionRetry())
-	//
-	//	if err != nil {
-	//		return xerrors.Errorf("failed to schedule the deal for download: %w", err)
-	//	}
-	//}
+	log.Debugf("Successfully marked %d pieces as downloaded", n)
 	return nil
 }
 
@@ -1203,27 +1145,73 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 			if err != nil {
 				return false, xerrors.Errorf("failed to get piece metadata: %w", err)
 			}
-			if count != 1 {
-				return false, xerrors.Errorf("expected to find a single piece metadata entry for piece cid %s", pieceCID.PieceCID)
-			}
-			// Get raw size from market_piece_deal table for this piece CID
-			var rawSize uint64
-			err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1`, pieceCID.PieceCID).Scan(&rawSize)
-			if err != nil {
-				log.Errorf("failed to get piece deal: %w", err)
-			}
+			if count == 1 {
+				// Get raw size from market_piece_deal table for this piece CID.
+				// Old migrations can contain raw_size = 0; skip those rows.
+				var rawSize uint64
+				err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND raw_size > 0 LIMIT 1`, pieceCID.PieceCID).Scan(&rawSize)
+				if err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						log.Warnw("raw_size missing, skipping piece CID migration", "piece_cid", pieceCID.PieceCID)
+						return false, nil
+					}
+					return false, xerrors.Errorf("failed to get piece deal: %w", err)
+				}
+				if rawSize < 127 {
+					log.Warnw("raw_size too small, skipping piece CID migration", "piece_cid", pieceCID.PieceCID, "raw_size", rawSize)
+					return false, nil
+				}
 
-			pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
-			if err != nil {
-				return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
-			}
+				pcid2, err := commcid.PieceCidV2FromV1(pcid, rawSize)
+				if err != nil {
+					return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
+				}
 
-			// Update ipni_chunks table with correct entry
-			_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+				// Update ipni_chunks table with correct entry
+				_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+				}
+				return true, nil
+
 			}
-			return true, nil
+			if count == 0 {
+				// This could be a PDPv0 advertisement
+				var infos []struct {
+					PieceSize abi.PaddedPieceSize `db:"piece_padded_size"`
+					RawSize   uint64              `db:"piece_raw_size"`
+				}
+				err = tx.Select(&infos, `
+									SELECT
+										pp.piece_padded_size,
+										pp.piece_raw_size
+									FROM
+										pdp_piecerefs pr
+									JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
+									JOIN parked_pieces pp ON ppr.piece_id = pp.id
+									WHERE
+										pr.piece_cid = $1 LIMIT 1`, pieceCID.PieceCID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to get piece info: %w", err)
+				}
+				if len(infos) == 1 {
+					info := infos[0]
+					if padreader.PaddedSize(info.RawSize).Padded() != info.PieceSize {
+						return false, xerrors.Errorf("raw size does not match padded size for piece cid %s", pieceCID.PieceCID)
+					}
+					pcid2, err := commcid.PieceCidV2FromV1(pcid, info.RawSize)
+					if err != nil {
+						return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
+					}
+					// Update ipni_chunks table with correct entry
+					_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
+					if err != nil {
+						return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+					}
+					return true, nil
+				}
+			}
+			return false, xerrors.Errorf("expected to find a single piece metadata entry or PDPv0 pieceref entry for piece cid %s", pieceCID.PieceCID)
 		}, harmonydb.OptionRetry())
 		if err != nil {
 			log.Errorf("failed to commit transaction: %s", err)
@@ -1252,6 +1240,7 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 											  FROM market_piece_deal AS d
 											  WHERE d.piece_cid   = i.piece_cid
 												AND d.piece_length = i.piece_size
+												AND d.raw_size > 0
 											  LIMIT 1
 											) AS mpd ON true
 											WHERE i.piece_cid_v2 IS NULL;`)
@@ -1263,11 +1252,17 @@ func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
 		pcid, err := cid.Parse(pieceInfo.PieceCID)
 		if err != nil {
 			log.Errorf("failed to parse piece CID: %w", err)
+			continue
+		}
+		if pieceInfo.RawSize < 127 {
+			log.Warnw("raw_size too small, skipping ipni piece_cid_v2 update", "piece_cid", pieceInfo.PieceCID, "raw_size", pieceInfo.RawSize)
+			continue
 		}
 
 		pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
 		if err != nil {
 			log.Errorf("failed to convert to piece cid v2: %w", err)
+			continue
 		}
 
 		_, err = d.db.Exec(ctx, `UPDATE ipni SET piece_cid_v2 = $1 WHERE piece_cid = $2 AND piece_size = $3`, pcid2.String(), pieceInfo.PieceCID, pieceInfo.Size)

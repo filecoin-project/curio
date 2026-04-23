@@ -61,14 +61,15 @@ func (t *TaskClientUpload) adderPorep(add harmonytask.AddTaskFunc) {
 					SpID         int64         `db:"sp_id"`
 					SectorNumber int64         `db:"sector_number"`
 					TaskIDPorep  sql.NullInt64 `db:"task_id_porep"`
+					TreeRCid     string        `db:"tree_r_cid"`
 				}
 
 				cutoffTime := time.Now().Add(-time.Duration(minPendingSeconds) * time.Second)
 				log.Infow("TaskClientUpload.adderPorep() querying for sectors with cutoff time", "cutoffTime", cutoffTime)
 
-				err = tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_porep FROM sectors_sdr_pipeline
-												LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_porep = ht.id
-												WHERE after_porep = FALSE AND task_id_porep IS NOT NULL AND ht.owner_id IS NULL AND ht.name = 'PoRep' AND ht.posted_time < $1 LIMIT 1`, cutoffTime)
+				err = tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_porep, tree_r_cid FROM sectors_sdr_pipeline
+											LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_porep = ht.id
+											WHERE after_porep = FALSE AND task_id_porep IS NOT NULL AND ht.owner_id IS NULL AND ht.name = 'PoRep' AND ht.posted_time < $1 LIMIT 1`, cutoffTime)
 				if err != nil {
 					log.Errorw("TaskClientUpload.adderPorep() failed to query sectors", "error", err)
 					return false, xerrors.Errorf("getting tasks: %w", err)
@@ -101,13 +102,25 @@ func (t *TaskClientUpload) adderPorep(add harmonytask.AddTaskFunc) {
 					}
 				}
 
+				// Remove any stale requests for this sector with a different sealed CID
+				// (CommR changed due to retry with new data)
+				_, err = tx.Exec(`
+				DELETE FROM proofshare_client_requests
+				WHERE sp_id = $1 AND sector_num = $2 AND request_type = 'porep' AND sealed_cid != $3
+			`, sectors[0].SpID, sectors[0].SectorNumber, sectors[0].TreeRCid)
+				if err != nil {
+					log.Errorw("TaskClientUpload.adderPorep() failed to delete stale proofshare_client_requests", "error", err, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)
+					return false, xerrors.Errorf("failed to delete stale proofshare_client_requests: %w", err)
+				}
+
 				// Insert proofshare_client_requests
 				// NOTE: the on-conflict spec allows the task to be retried in the sector-pipeline, essentially making the proofshare task/pipeline idempotent
+				// The sealed_cid (CommR) is included in the idempotency key so that retries with different data generate new proofs
 				_, err = tx.Exec(`
-					INSERT INTO proofshare_client_requests (sp_id, sector_num, request_type, task_id_upload, request_partition_cost, created_at)
-					VALUES ($1, $2, 'porep', $3, 10, current_timestamp)
-					ON CONFLICT (sp_id, sector_num, request_type) DO UPDATE SET task_id_upload = $3, done = false
-				`, sectors[0].SpID, sectors[0].SectorNumber, taskID)
+				INSERT INTO proofshare_client_requests (sp_id, sector_num, request_type, sealed_cid, task_id_upload, request_partition_cost, created_at)
+				VALUES ($1, $2, 'porep', $3, $4, 10, current_timestamp)
+				ON CONFLICT (sp_id, sector_num, request_type, sealed_cid) DO UPDATE SET task_id_upload = $4, done = false
+			`, sectors[0].SpID, sectors[0].SectorNumber, sectors[0].TreeRCid, taskID)
 				if err != nil {
 					log.Errorw("TaskClientUpload.adderPorep() failed to insert proofshare_client_requests", "error", err, "taskID", taskID, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)
 					return false, xerrors.Errorf("failed to insert proofshare_client_requests: %w", err)

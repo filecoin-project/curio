@@ -31,13 +31,13 @@ func hashChunk(data [][]byte) {
 
 	sumBuf := make([]byte, nodeSize)
 
-	for i := 0; i < l1Nodes; i++ {
+	for i := range l1Nodes {
 		levels := bits.TrailingZeros(^uint(i)) + 1
 
 		inNode := i * 2 // at level 0
 		outNode := i
 
-		for l := 0; l < levels; l++ {
+		for l := range levels {
 			d.Reset()
 			inNodeData := data[l][inNode*nodeSize : (inNode+2)*nodeSize]
 			d.Write(inNodeData)
@@ -88,13 +88,7 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 	}
 
 	// setup buffers
-	maxThreads := int64(size) / threadChunkSize
-	if maxThreads > int64(runtime.NumCPU())*15/10 {
-		maxThreads = int64(runtime.NumCPU()) * 15 / 10
-	}
-	if maxThreads < 1 {
-		maxThreads = 1
-	}
+	maxThreads := max(min(int64(size)/threadChunkSize, int64(runtime.NumCPU())*15/10), 1)
 
 	// allocate buffers
 	var bufLk sync.Mutex
@@ -103,10 +97,7 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 	for i := range workerBuffers {
 		workerBuffer := make([][]byte, 1)
 
-		bottomBufSize := int64(threadChunkSize)
-		if bottomBufSize > int64(size) {
-			bottomBufSize = int64(size)
-		}
+		bottomBufSize := min(int64(threadChunkSize), int64(size))
 		workerBuffer[0] = pool.Get(int(bottomBufSize))
 
 		// append levels until we get to a 32 byte level

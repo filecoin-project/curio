@@ -95,7 +95,7 @@ func TestRoundtripPorepVproof(t *testing.T) {
 		require.NoError(t, err)
 
 		// check that the JSON is as expected (map-level comparison)
-		var rustObj, goObj map[string]interface{}
+		var rustObj, goObj map[string]any
 		err = json.Unmarshal(c1out, &rustObj)
 		require.NoError(t, err)
 		err = json.Unmarshal(proof1out, &goObj)

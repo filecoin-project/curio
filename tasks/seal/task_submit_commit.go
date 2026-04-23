@@ -172,7 +172,6 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	sectors := make([]int64, 0, len(sectorParamsArr))
 
 	for _, sectorParams := range sectorParamsArr {
-		sectorParams := sectorParams
 
 		// Check miner ID is same for all sectors in batch
 		tmpMaddr, err := address.NewIDAddress(uint64(sectorParams.SpID))

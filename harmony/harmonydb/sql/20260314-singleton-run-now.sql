@@ -1,0 +1,1 @@
+ALTER TABLE harmony_task_singletons ADD COLUMN IF NOT EXISTS run_now_request BOOLEAN NOT NULL DEFAULT FALSE;

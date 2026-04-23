@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -1228,3 +1229,5 @@ func (s *CurioChainRPCStub) WalletSignMessage(p0 context.Context, p1 address.Add
 
 var _ Curio = new(CurioStruct)
 var _ CurioChainRPC = new(CurioChainRPCStruct)
+
+var _ = fmt.Sprintf

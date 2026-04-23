@@ -1,12 +1,21 @@
 name: 'Install Dependencies'
 description: 'Install common dependencies'
 
+inputs:
+  skip:
+    default: "false"
+    description: "skips the apt update"
+
 runs:
   using: 'composite'
   steps:
+    - name: Update apt cache
+      run: sudo apt-get update
+      shell: bash
+      if: ${{ inputs.skip == 'false' }}
+
     - name: Install dependencies
       run: |
-        sudo apt-get update
         sudo apt-get install -y \
           build-essential \
           gcc-13 g++-13 \

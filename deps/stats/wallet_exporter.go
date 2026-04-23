@@ -460,10 +460,7 @@ func walletExporterObserveLandedMsgs(ctx context.Context, db *harmonydb.DB, api 
 
 		// Calculate duration between send and land
 		if sendTime.Valid && execEpoch != 0 {
-			diffEpochs := headEpoch - execEpoch
-			if diffEpochs < 0 {
-				diffEpochs = 0
-			}
+			diffEpochs := max(headEpoch-execEpoch, 0)
 			landedTimestamp := headTimestamp - (int64(build.BlockDelaySecs) * diffEpochs)
 			landedTime := time.Unix(landedTimestamp, 0)
 			durationSeconds := landedTime.Sub(sendTime.Time).Seconds()

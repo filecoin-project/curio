@@ -7,6 +7,7 @@
     <script type="module" src="/ux/components/Drawer.mjs"></script>
     <script type="module" src="task-machines.mjs"></script>
     <script type="module" src="task-history.mjs"></script>
+    <script type="module" src="singleton-details.mjs"></script>
 </head>
 
 <body style="visibility:hidden" data-bs-theme="dark">
@@ -15,6 +16,13 @@
     <section class="section">
         <div class="row">
             <h1>Task Details</h1>
+        </div>
+    </section>
+    <section class="section">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <singleton-task-details></singleton-task-details>
+            </div>
         </div>
     </section>
     <section class="section">
