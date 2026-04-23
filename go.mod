@@ -71,7 +71,7 @@ require (
 	github.com/ipld/go-car v0.6.3
 	github.com/ipld/go-car/v2 v2.16.0
 	github.com/ipld/go-fixtureplate v0.1.0
-	github.com/ipld/go-ipld-prime v0.22.0
+	github.com/ipld/go-ipld-prime v0.23.0
 	github.com/ipld/go-trustless-utils v0.8.0
 	github.com/ipni/go-libipni v0.7.7
 	github.com/jellydator/ttlcache/v2 v2.11.1
