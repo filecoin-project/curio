@@ -424,13 +424,13 @@ func NewServer(dbPath string) (*Server, error) {
 		"gpu_ram_mb INTEGER", "ssh_cmd TEXT", "public_ip TEXT",
 	}
 	for _, col := range migrateCols {
-		db.Exec("ALTER TABLE instances ADD COLUMN " + col) // ignore errors (column already exists)
+		_, _ = db.Exec("ALTER TABLE instances ADD COLUMN " + col) // ignore errors (column already exists)
 	}
 
 	// Migrate bad_hosts and host_perf: rename host_id -> machine_id
 	// If old tables have host_id column, recreate them with machine_id
-	db.Exec(`ALTER TABLE bad_hosts RENAME COLUMN host_id TO machine_id`) // ignore error if already renamed or new table
-	db.Exec(`ALTER TABLE host_perf RENAME COLUMN host_id TO machine_id`) // ignore error if already renamed or new table
+	_, _ = db.Exec(`ALTER TABLE bad_hosts RENAME COLUMN host_id TO machine_id`) // ignore error if already renamed or new table
+	_, _ = db.Exec(`ALTER TABLE host_perf RENAME COLUMN host_id TO machine_id`) // ignore error if already renamed or new table
 
 	return &Server{
 		db:         db,
@@ -497,7 +497,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "db error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var runnerID int64
 	err = tx.QueryRow(`UPDATE counters SET value = value + 1 WHERE key = 'runner_id_seq' RETURNING value`).Scan(&runnerID)
@@ -647,7 +647,7 @@ func (s *Server) handleBenchDone(w http.ResponseWriter, r *http.Request) {
 			s.vastCacheMu.RLock()
 			for _, vi := range s.vastCache {
 				if vi.ID == vastID {
-					s.db.Exec(
+					_, _ = s.db.Exec(
 						`INSERT INTO host_perf (machine_id, gpu_name, num_gpus, bench_rate, cpu_ram_mb)
 					 VALUES (?, ?, ?, ?, ?)
 					 ON CONFLICT(machine_id, gpu_name, num_gpus)
@@ -738,7 +738,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "db error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var instances []Instance
 	for rows.Next() {
@@ -838,7 +838,7 @@ func (s *Server) getBadHosts() []BadHostEntry {
 	if err != nil {
 		return []BadHostEntry{}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var hosts []BadHostEntry
 	for rows.Next() {
@@ -867,7 +867,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -886,7 +886,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "db error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var dbInstances []Instance
 	for rows.Next() {
@@ -1208,7 +1208,7 @@ func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
 
 	if req.UUID != "" {
 		s.mu.Lock()
-		s.db.Exec(
+		_, _ = s.db.Exec(
 			`UPDATE instances SET state = 'killed', killed_at = CURRENT_TIMESTAMP, kill_reason = 'manually killed via UI' WHERE uuid = ? AND state != 'killed'`,
 			req.UUID,
 		)
@@ -1240,10 +1240,10 @@ func (s *Server) getHostPerfs() map[int]HostPerf {
 	if err != nil {
 		return perfs
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var hp HostPerf
-		rows.Scan(&hp.MachineID, &hp.GPUName, &hp.NumGPUs, &hp.BenchRate, &hp.CPURAMMB, &hp.MeasuredAt)
+		_ = rows.Scan(&hp.MachineID, &hp.GPUName, &hp.NumGPUs, &hp.BenchRate, &hp.CPURAMMB, &hp.MeasuredAt)
 		perfs[hp.MachineID] = hp
 	}
 	return perfs
@@ -1273,11 +1273,11 @@ func (s *Server) handleOffers(w http.ResponseWriter, r *http.Request) {
 	badHosts := make(map[int]string)
 	bhRows, err := s.db.Query(`SELECT machine_id, reason FROM bad_hosts`)
 	if err == nil {
-		defer bhRows.Close()
+		defer func() { _ = bhRows.Close() }()
 		for bhRows.Next() {
 			var id int
 			var reason string
-			bhRows.Scan(&id, &reason)
+			_ = bhRows.Scan(&id, &reason)
 			badHosts[id] = reason
 		}
 	}
@@ -1456,10 +1456,10 @@ func (s *Server) monitorCycle() error {
 	if err != nil {
 		return fmt.Errorf("load bad hosts: %w", err)
 	}
-	defer bhRows.Close()
+	defer func() { _ = bhRows.Close() }()
 	for bhRows.Next() {
 		var id, reason string
-		bhRows.Scan(&id, &reason)
+		_ = bhRows.Scan(&id, &reason)
 		badHosts[id] = reason
 	}
 
@@ -1483,13 +1483,13 @@ func (s *Server) monitorCycle() error {
 	// Step 0.5: Persist vast metadata for all active DB instances matched to vast
 	metaRows, err := s.db.Query(`SELECT uuid, label FROM instances WHERE state != 'killed'`)
 	if err == nil {
-		defer metaRows.Close()
+		defer func() { _ = metaRows.Close() }()
 		for metaRows.Next() {
 			var uuid, label string
-			metaRows.Scan(&uuid, &label)
+			_ = metaRows.Scan(&uuid, &label)
 			if vi, ok := lookupVast(label, labelMap, idMap); ok {
 				vi.computeSSH()
-				s.db.Exec(`UPDATE instances SET vast_id=?, host_id=?, machine_id=?, gpu_name=?, num_gpus=?,
+				_, _ = s.db.Exec(`UPDATE instances SET vast_id=?, host_id=?, machine_id=?, gpu_name=?, num_gpus=?,
 					dph_total=?, geolocation=?, cpu_name=?, cpu_ram_mb=?, gpu_ram_mb=?, ssh_cmd=?, public_ip=?
 					WHERE uuid=?`,
 					vi.ID, vi.HostID, vi.MachineID, vi.GPUName, vi.NumGPUs,
@@ -1508,10 +1508,10 @@ func (s *Server) monitorCycle() error {
 	if err != nil {
 		return fmt.Errorf("load registered labels: %w", err)
 	}
-	defer instRows.Close()
+	defer func() { _ = instRows.Close() }()
 	for instRows.Next() {
 		var label string
-		instRows.Scan(&label)
+		_ = instRows.Scan(&label)
 		registeredLabels[label] = true
 		if id, ok := vastIDFromLabel(label); ok {
 			registeredVastIDs[id] = true
@@ -1553,11 +1553,11 @@ func (s *Server) monitorCycle() error {
 	if err != nil {
 		return fmt.Errorf("check failed benchmarks: %w", err)
 	}
-	defer failRows.Close()
+	defer func() { _ = failRows.Close() }()
 	for failRows.Next() {
 		var uuid, label string
 		var rate, minRate float64
-		failRows.Scan(&uuid, &label, &rate, &minRate)
+		_ = failRows.Scan(&uuid, &label, &rate, &minRate)
 		log.Printf("[monitor] killing failed benchmark uuid=%s rate=%.1f < min=%.1f", uuid, rate, minRate)
 		if vi, ok := lookupVast(label, labelMap, idMap); ok {
 			s.destroyInstance(vi.ID)
@@ -1566,19 +1566,19 @@ func (s *Server) monitorCycle() error {
 	}
 
 	// Step 5: Cleanup
-	s.db.Exec(`DELETE FROM instances WHERE state = 'killed' AND killed_at < datetime('now', '-7 days')`)
+	_, _ = s.db.Exec(`DELETE FROM instances WHERE state = 'killed' AND killed_at < datetime('now', '-7 days')`)
 
 	activeRows, err := s.db.Query(`SELECT uuid, label, state FROM instances WHERE state != 'killed'`)
 	if err != nil {
 		return fmt.Errorf("check active: %w", err)
 	}
-	defer activeRows.Close()
+	defer func() { _ = activeRows.Close() }()
 	for activeRows.Next() {
 		var uuid, label, state string
-		activeRows.Scan(&uuid, &label, &state)
+		_ = activeRows.Scan(&uuid, &label, &state)
 		if _, ok := lookupVast(label, labelMap, idMap); !ok {
 			log.Printf("[monitor] instance disappeared from vast uuid=%s label=%s state=%s", uuid, label, state)
-			s.db.Exec(
+			_, _ = s.db.Exec(
 				`UPDATE instances SET state = 'killed', killed_at = CURRENT_TIMESTAMP, kill_reason = 'instance disappeared from vast' WHERE uuid = ?`,
 				uuid,
 			)
@@ -1595,12 +1595,12 @@ func (s *Server) killTimedOut(state, tsCol string, timeout time.Duration, reason
 		log.Printf("[monitor] killTimedOut query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	now := time.Now()
 	for rows.Next() {
 		var uuid, label, ts string
-		rows.Scan(&uuid, &label, &ts)
+		_ = rows.Scan(&uuid, &label, &ts)
 		t, err := time.Parse("2006-01-02 15:04:05", ts)
 		if err != nil {
 			t, err = time.Parse(time.RFC3339, ts)
@@ -1690,8 +1690,8 @@ func generateUUID() string {
 			b[i] = byte(t >> (i * 4))
 		}
 	} else {
-		f.Read(b)
-		f.Close()
+		_, _ = f.Read(b)
+		_ = f.Close()
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
@@ -1758,7 +1758,7 @@ func (s *Server) handleCuzkStatus(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error": fmt.Sprintf("ssh exec failed: %v", err),
 		})
 		return
@@ -1767,7 +1767,7 @@ func (s *Server) handleCuzkStatus(w http.ResponseWriter, r *http.Request) {
 	// Pass through the raw JSON from the cuzk status endpoint
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Write(out)
+	_, _ = w.Write(out)
 }
 
 // lookupSSHCmd returns the SSH command for an instance, checking
@@ -1809,13 +1809,13 @@ func parseSSHCmd(cmd string) (host, port string) {
 
 func jsonResp(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func httpError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 // ── Router ──────────────────────────────────────────────────────────────
