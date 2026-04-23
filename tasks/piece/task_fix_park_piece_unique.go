@@ -73,44 +73,119 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return true, nil
 	}
 
-	var duplicates []struct {
-		PieceCid  string  `db:"piece_cid"`
-		PieceSize int64   `db:"piece_padded_size"`
-		LongTerm  bool    `db:"long_term"`
-		RowCount  int64   `db:"row_count"`
-		IDs       []int64 `db:"ids"`
+	/*
+		Look at duplicate groups across all active parked_pieces rows, not just completed rows,
+		but only processes groups that have at least one complete row.
+		It picks a readable complete row as the winner, moves refs from stale/no-task losers to that winner,
+		and skips losers whose task_id still exists in harmony_task.
+
+		Covered Cases:
+		1. complete + incomplete with task_id IS NULL
+		2. complete + incomplete with stale task_id
+		3. multiple complete rows
+		4. active incomplete rows are left alone
+
+		Ignored:
+		1. unique incomplete rows
+		2. duplicate groups with no complete row
+	*/
+	type duplicateKey struct {
+		PieceCid  string
+		PieceSize int64
+		LongTerm  bool
 	}
 
-	err = f.db.Select(ctx, &duplicates, `SELECT piece_cid, piece_padded_size, long_term,
-										   count(*) AS row_count,
-										   array_agg(id ORDER BY id) AS ids
+	type duplicateRow struct {
+		PieceCid   string `db:"piece_cid"`
+		PieceSize  int64  `db:"piece_padded_size"`
+		LongTerm   bool   `db:"long_term"`
+		ID         int64  `db:"id"`
+		Complete   bool   `db:"complete"`
+		TaskID     *int64 `db:"task_id"`
+		TaskActive bool   `db:"task_active"`
+	}
+
+	var duplicateRows []duplicateRow
+	err = f.db.Select(ctx, &duplicateRows, `
+								SELECT pp.piece_cid, pp.piece_padded_size, pp.long_term,
+									   pp.id, pp.complete, pp.task_id,
+									   ht.id IS NOT NULL AS task_active
+								FROM parked_pieces pp
+								LEFT JOIN harmony_task ht ON ht.id = pp.task_id
+								JOIN (
+									SELECT piece_cid, piece_padded_size, long_term
 									FROM parked_pieces
 									WHERE cleanup_task_id IS NULL
-									  AND complete = true
 									GROUP BY 1,2,3
-									HAVING count(*) > 1;`)
+									HAVING count(*) > 1
+									   AND bool_or(complete)
+								) dup ON dup.piece_cid = pp.piece_cid
+									 AND dup.piece_padded_size = pp.piece_padded_size
+									 AND dup.long_term = pp.long_term
+								WHERE pp.cleanup_task_id IS NULL
+								ORDER BY pp.piece_cid, pp.piece_padded_size, pp.long_term, pp.complete DESC, pp.id;`)
 
 	if err != nil {
 		return false, xerrors.Errorf("querying parked piece: %w", err)
 	}
 
-	for _, dup := range duplicates {
+	duplicates := map[duplicateKey][]duplicateRow{}
+	var keys []duplicateKey
+	for _, row := range duplicateRows {
+		key := duplicateKey{
+			PieceCid:  row.PieceCid,
+			PieceSize: row.PieceSize,
+			LongTerm:  row.LongTerm,
+		}
+		if _, ok := duplicates[key]; !ok {
+			keys = append(keys, key)
+		}
+		duplicates[key] = append(duplicates[key], row)
+	}
+
+	for _, key := range keys {
+		dup := duplicates[key]
 		if stillOwned() {
-			for _, id := range dup.IDs {
+			var winner *int64
+			for _, row := range dup {
+				if !row.Complete {
+					continue
+				}
+
 				// Verify that the piece is still parked
 				// If piece exists then check if we can access the data
-				pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(id))
+				pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(row.ID))
 				if err != nil {
 					// If piece does not exist then we check the next one
 					continue
 				}
 				_ = pr.Close()
-				_, err = f.db.Exec(ctx, `UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, id, dup.IDs)
-				if err != nil {
-					return false, xerrors.Errorf("updating parked piece refs: %w", err)
-				}
-				// Break out of the loop if we fixed the issue
+				winner = new(row.ID)
 				break
+			}
+
+			if winner == nil {
+				continue
+			}
+
+			var loserIDs []int64
+			for _, row := range dup {
+				if row.ID == *winner {
+					continue
+				}
+				if row.TaskActive {
+					continue
+				}
+				loserIDs = append(loserIDs, row.ID)
+			}
+
+			if len(loserIDs) == 0 {
+				continue
+			}
+
+			_, err = f.db.Exec(ctx, `UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, *winner, loserIDs)
+			if err != nil {
+				return false, xerrors.Errorf("updating parked piece refs: %w", err)
 			}
 		} else {
 			return false, nil
