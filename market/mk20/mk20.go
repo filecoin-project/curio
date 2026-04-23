@@ -61,7 +61,6 @@ type MK20 struct {
 	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
 	backpressure       *backpressure.CachedBackPressure
-	unknowClient       bool
 }
 
 func NewMK20Handler(
@@ -128,7 +127,6 @@ func NewMK20Handler(
 		as:                 as,
 		sc:                 sc,
 		maxParallelUploads: new(atomic.Int64),
-		unknowClient:       !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients,
 		backpressure:       b,
 	}, nil
 }
@@ -153,7 +151,7 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) (result
 	}()
 
 	// Validate the DataSource
-	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
+	code, err := deal.Validate(ctx, m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal.Identifier.String(), "error", err)
 		ret := &ProviderDealRejectionInfo{
@@ -303,11 +301,43 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 	pi, err := deal.PieceInfo()
 	if err != nil {
-		log.Errorw("error getting piece info", "deal", deal.Identifier.String(), "error", err)
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Error getting piece cid v1 from PieceCID",
-		}, nil
+		}, xerrors.Errorf("getting piece info: %w", err)
+	}
+
+	marketFilecoinAddress := address.Undef
+
+	if deal.Products.DDOV1.MarketAddress != "" {
+		contractAddr, perr := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
+		if perr != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid",
+			}, xerrors.Errorf("parsing market address: %w", perr)
+		}
+		fc, cerr := contractAddr.ToFilecoinAddress()
+		if cerr != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid filecoin address",
+			}, xerrors.Errorf("converting market address to filecoin address: %w", cerr)
+		}
+		id, err := m.api.StateLookupID(ctx, fc, types.EmptyTSK)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid",
+			}, xerrors.Errorf("looking up market filecoin address")
+		}
+		if id.Empty() || id == address.Undef {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid",
+			}, nil
+		}
+		marketFilecoinAddress = id
 	}
 
 	if deal.Products.DDOV1.NotificationAddress != address.Undef && !deal.Products.DDOV1.NotificationAddress.Empty() {
@@ -358,10 +388,10 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 		sealDuration := abi.ChainEpoch(int64(math.Ceil(m.cfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration.Seconds() / float64(build.BlockDelaySecs))))
 
-		if *deal.Products.DDOV1.StartEpoch > head.Height()+sealDuration {
+		if *deal.Products.DDOV1.StartEpoch < head.Height()+sealDuration {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
-				Reason:   "Start epoch is greater than the current chain height plus the expected PoRep seal duration",
+				Reason:   "Start epoch is less than the current chain height plus the expected PoRep seal duration",
 			}, nil
 		}
 	}
@@ -391,23 +421,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 
 		if alloc == nil && deal.Products.DDOV1.MarketAddress != "" {
-			contractAddr, perr := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
-			if perr != nil {
-				log.Errorw("error parsing market address", "market address", deal.Products.DDOV1.MarketAddress, "error", perr)
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "Market address is not valid",
-				}, nil
-			}
-			fc, cerr := contractAddr.ToFilecoinAddress()
-			if cerr != nil {
-				log.Errorw("error converting market address to filecoin address", "market address", deal.Products.DDOV1.MarketAddress, "error", cerr)
-				return &ProviderDealRejectionInfo{
-					HTTPCode: ErrBadProposal,
-					Reason:   "Market address is not valid filecoin address",
-				}, nil
-			}
-			alloc, err = m.api.StateGetAllocation(ctx, fc, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+			alloc, err = m.api.StateGetAllocation(ctx, marketFilecoinAddress, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 			if err != nil {
 				return &ProviderDealRejectionInfo{
 					HTTPCode: ErrServerInternalError,

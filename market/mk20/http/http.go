@@ -19,9 +19,6 @@ import (
 	"github.com/oklog/ulid"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -36,29 +33,29 @@ var log = logging.Logger("mk20httphdlr")
 
 const version = "1.0.0"
 
-const requestTimeout = 10 * time.Second
+const (
+	requestTimeout               = 10 * time.Second
+	defaultEndpointRateLimit     = 50
+	uploadChunkEndpointRateLimit = 100
+)
 
 type MK20DealHandler struct {
-	cfg            *config.CurioConfig
-	db             *harmonydb.DB // Replace with your actual DB wrapper if different
-	dm             *storage_market.CurioStorageDealMarket
-	disabledMiners []address.Address
+	cfg *config.CurioConfig
+	db  *harmonydb.DB // Replace with your actual DB wrapper if different
+	dm  *storage_market.CurioStorageDealMarket
 }
 
 func NewMK20DealHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_market.CurioStorageDealMarket) (*MK20DealHandler, error) {
-	var disabledMiners []address.Address
-	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
-		maddr, err := address.NewFromString(m)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse miner string: %s", err)
-		}
-		disabledMiners = append(disabledMiners, maddr)
-	}
-	return &MK20DealHandler{db: db, dm: dm, cfg: cfg, disabledMiners: disabledMiners}, nil
+	return &MK20DealHandler{db: db, dm: dm, cfg: cfg}, nil
 }
 
-func dealRateLimitMiddleware() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(50, 1*time.Second)
+func dealRateLimitMiddleware(requestLimit int) func(http.Handler) http.Handler {
+	return httprate.LimitByIP(requestLimit, 1*time.Second)
+}
+
+func registerRateLimitedRoute(mux chi.Router, authMiddleware func(http.Handler) http.Handler, requestLimit int, method, pattern string, handler http.Handler) {
+	// Each route gets its own limiter so hot upload traffic does not consume other endpoints' budgets.
+	mux.With(dealRateLimitMiddleware(requestLimit), authMiddleware).Method(method, pattern, handler)
 }
 
 func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler) http.Handler {
@@ -109,7 +106,6 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 	SwaggerInfo.Version = version
 	SwaggerInfo.Schemes = []string{"https"}
 	mux := chi.NewRouter()
-	mux.Use(dealRateLimitMiddleware())
 	mux.Mount("/", APIRouter(mdh))
 	mux.Mount("/info", InfoRouter())
 	return mux
@@ -131,20 +127,23 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 // @description - These four byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
 func APIRouter(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
-	mux.Use(dealRateLimitMiddleware())
-	mux.Use(AuthMiddleware(mdh.db, mdh.cfg))
-	mux.Method("POST", "/deal", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
-	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
-	mux.Method("POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
-	mux.Method("GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
-	mux.Put("/uploads/{id}/{chunkNum}", mdh.mk20UploadDealChunks)
-	mux.Method("POST", "/uploads/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
-	mux.Method("POST", "/update/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
-	mux.Method("POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20SerialUploadFinalize), requestTimeout, "request timeout"))
-	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
-	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
-	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
-	mux.Put("/upload/{id}", mdh.mk20SerialUpload)
+	authMiddleware := AuthMiddleware(mdh.db, mdh.cfg)
+	registerRoute := func(requestLimit int, method, pattern string, handler http.Handler) {
+		registerRateLimitedRoute(mux, authMiddleware, requestLimit, method, pattern, handler)
+	}
+
+	registerRoute(defaultEndpointRateLimit, "POST", "/deal", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
+	registerRoute(uploadChunkEndpointRateLimit, "PUT", "/uploads/{id}/{chunkNum}", http.HandlerFunc(mdh.mk20UploadDealChunks))
+	registerRoute(defaultEndpointRateLimit, "POST", "/uploads/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "POST", "/update/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20SerialUploadFinalize), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "PUT", "/upload/{id}", http.HandlerFunc(mdh.mk20SerialUpload))
 	return mux
 }
 
@@ -309,8 +308,8 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write deal status response", "id", idStr, "err", err)
@@ -345,8 +344,6 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 			contracts.Contracts = append(contracts.Contracts, contract.Address)
 		}
 	}
-	w.WriteHeader(http.StatusOK)
-	// Write a json array
 	resp, err := json.Marshal(contracts)
 	if err != nil {
 		log.Errorw("failed to marshal supported contracts", "err", err)
@@ -354,6 +351,7 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write supported contracts", "err", err)
@@ -386,8 +384,8 @@ func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write supported products", "err", err)
@@ -420,8 +418,8 @@ func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write supported sources", "err", err)

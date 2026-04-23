@@ -31,7 +31,7 @@ const (
 	maxHeaderCount     = 10
 )
 
-func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config, Auth string) (code DealCode, err error) {
+func (d *Deal) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config, Auth string) (code DealCode, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
@@ -48,14 +48,14 @@ func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config, Auth string) (
 		return ErrBadProposal, err
 	}
 
-	code, err = d.Products.Validate(db, cfg)
+	code, err = d.Products.Validate(ctx, db, cfg)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
 
 	// Validate data if present
 	if d.Data != nil {
-		return d.Data.Validate(db)
+		return d.Data.Validate(ctx, db)
 	}
 
 	// Return without validating data for initial phase of /Put deals or PDP Delete deals
@@ -87,7 +87,7 @@ func validateClient(client string, auth string) error {
 	}
 }
 
-func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
+func (d *DataSource) Validate(ctx context.Context, db *harmonydb.DB) (DealCode, error) {
 
 	err := ValidatePieceCID(d.PieceCID)
 	if err != nil {
@@ -135,7 +135,7 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 
 		// If client will supply individual pieces
 		if d.SourceAggregate != nil {
-			code, err := IsDataSourceEnabled(db, d.SourceAggregate.Name())
+			code, err := IsDataSourceEnabled(ctx, db, d.SourceAggregate.Name())
 			if err != nil {
 				return code, err
 			}
@@ -269,7 +269,7 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 	}
 
 	if d.SourceHTTP != nil {
-		code, err := IsDataSourceEnabled(db, d.SourceHTTP.Name())
+		code, err := IsDataSourceEnabled(ctx, db, d.SourceHTTP.Name())
 		if err != nil {
 			return code, err
 		}
@@ -297,14 +297,14 @@ func (d *DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 	}
 
 	if d.SourceOffline != nil {
-		code, err := IsDataSourceEnabled(db, d.SourceOffline.Name())
+		code, err := IsDataSourceEnabled(ctx, db, d.SourceOffline.Name())
 		if err != nil {
 			return code, err
 		}
 	}
 
 	if d.SourceHttpPut != nil {
-		code, err := IsDataSourceEnabled(db, d.SourceHttpPut.Name())
+		code, err := IsDataSourceEnabled(ctx, db, d.SourceHttpPut.Name())
 		if err != nil {
 			return code, err
 		}
@@ -389,14 +389,14 @@ func GetPieceInfo(c cid.Cid) (*PieceInfo, error) {
 	}, nil
 }
 
-func (d *Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+func (d *Products) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	if d == nil {
 		return ErrBadProposal, xerrors.Errorf("products must be defined")
 	}
 	var nproducts int
 	if d.DDOV1 != nil {
 		nproducts++
-		code, err := d.DDOV1.Validate(db, cfg)
+		code, err := d.DDOV1.Validate(ctx, db, cfg)
 		if err != nil {
 			return code, err
 		}
@@ -408,14 +408,14 @@ func (d *Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode,
 		}
 	}
 	if d.RetrievalV1 != nil {
-		code, err := d.RetrievalV1.Validate(db, cfg)
+		code, err := d.RetrievalV1.Validate(ctx, db, cfg)
 		if err != nil {
 			return code, err
 		}
 	}
 	if d.PDPV1 != nil {
 		nproducts++
-		code, err := d.PDPV1.Validate(db, cfg)
+		code, err := d.PDPV1.Validate(ctx, db, cfg)
 		if err != nil {
 			return code, err
 		}
@@ -520,14 +520,15 @@ func (dsh *DataSourceHttpPut) Name() DataSourceName {
 	return DataSourceNamePut
 }
 
-func IsDataSourceEnabled(db *harmonydb.DB, name DataSourceName) (DealCode, error) {
+func IsDataSourceEnabled(ctx context.Context, db *harmonydb.DB, name DataSourceName) (DealCode, error) {
 	var enabled bool
 
-	err := db.QueryRow(context.Background(), `SELECT enabled FROM market_mk20_data_source WHERE name = $1`, name).Scan(&enabled)
+	err := db.QueryRow(ctx, `SELECT enabled FROM market_mk20_data_source WHERE name = $1`, name).Scan(&enabled)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return http.StatusInternalServerError, xerrors.Errorf("data source %s is not enabled", name)
+			return http.StatusInternalServerError, xerrors.Errorf("failed to query data source %s: %w", name, err)
 		}
+		return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not supported by the provider", name)
 	}
 	if !enabled {
 		return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
@@ -535,13 +536,13 @@ func IsDataSourceEnabled(db *harmonydb.DB, name DataSourceName) (DealCode, error
 	return Ok, nil
 }
 
-func IsProductEnabled(db *harmonydb.DB, name ProductName) (DealCode, error) {
+func IsProductEnabled(ctx context.Context, db *harmonydb.DB, name ProductName) (DealCode, error) {
 	var enabled bool
 
-	err := db.QueryRow(context.Background(), `SELECT enabled FROM market_mk20_products WHERE name = $1`, name).Scan(&enabled)
+	err := db.QueryRow(ctx, `SELECT enabled FROM market_mk20_products WHERE name = $1`, name).Scan(&enabled)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return http.StatusInternalServerError, xerrors.Errorf("data source %s is not enabled", name)
+			return http.StatusInternalServerError, xerrors.Errorf("failed to query product %s: %w", name, err)
 		}
 		return ErrUnsupportedProduct, xerrors.Errorf("product %s is not supported by the provider", name)
 	}
@@ -625,7 +626,7 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 		newProducts = append(newProducts, ProductNameRetrievalV1)
 	}
 
-	code, err := ddeal.Validate(db, cfg, auth)
+	code, err := ddeal.Validate(ctx, db, cfg, auth)
 	if err != nil {
 		return nil, code, nil, xerrors.Errorf("validate deal: %w", err)
 	}
