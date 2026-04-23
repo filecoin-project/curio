@@ -211,7 +211,6 @@ jobs:
       - name: Run tests with coverage
         env:
           FFI_USE_OPENCL: 1
-          GOTOOLCHAIN: local
         run: |
           mkdir -p coverage
           go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/${{ matrix.test-suite.name }}.out -covermode=atomic ${{ matrix.test-suite.target }}
