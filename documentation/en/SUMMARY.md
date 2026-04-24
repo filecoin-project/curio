@@ -43,6 +43,7 @@
     * [PDP v1](market-2.0/products/pdp_v1.md)
   * [Contracts](market-2.0/contracts/README.md)
     * [DDO: CurioDealView v1](market-2.0/contracts/curiodealview.md)
+    * [DDO Contract Review and Allowlisting](market-2.0/contracts/ddo-contract-review.md)
 * [Snap Deals](snap-deals.md)
 * [Batch Sealing](supraseal.md)
 * [Scaling Curio cluster](scaling-curio-cluster.md)

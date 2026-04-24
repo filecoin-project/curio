@@ -29,6 +29,10 @@ Before allowing a contract, providers should verify:
 
 Only after this review should the contract be set to Allowed.
 
+Operational review guidance is documented in:
+
+1. [DDO contract review and allowlisting](./ddo-contract-review.md)
+
 ## Interface
 
 Contracts integrated with Curio for DDO verification should implement `ICurioDealViewV1`.
@@ -90,4 +94,6 @@ The interface also includes `getDealState(...)` for deal-state queries.
 
 ## Read-Only Boundary
 
-Curio does not call write methods for this verification path.
+1. Curio does not call write methods for this verification path.
+2. This verification path only decides whether the contract accepts the proposed deal during intake.
+3. Payment, settlement, and notification-driven state transitions are outside this read-only boundary.

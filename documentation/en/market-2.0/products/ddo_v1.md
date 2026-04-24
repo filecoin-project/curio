@@ -36,6 +36,7 @@ type DDOV1 struct {
 - `start_epoch` is optional. If set, Curio validates it against chain head and `ExpectedPoRepSealDuration`, and uses it as the deal schedule start during ingestion.
 - `duration` is always part of the DDO payload. For verified allocations, it must still satisfy allocation term bounds.
 - `market_address` and `market_deal_id` opt the deal into external contract verification.
+- `notification_address` and `notification_payload`, when set, are attached to the eventual piece activation manifest during ingestion. They are not evaluated by `verifyDeal(...)`.
 
 ## Core Validation Rules
 
@@ -58,6 +59,8 @@ Verification behavior:
 3. MK20 builds `CurioDealView` from local deal values and calls `verifyDeal(...)`.
 4. `verifyDeal(...)` must return `true`.
 
+This call is a read-only intake gate. It checks whether the market contract accepts the proposed deal. It does not by itself guarantee payment, payout, or notification success.
+
 Curio passes these values into `verifyDeal(...)`:
 
 - `dealId`
@@ -72,6 +75,16 @@ Curio passes these values into `verifyDeal(...)`:
 
 If `verifyDeal` reverts with `DealNotFound(uint256)`, MK20 rejects the deal as market-missing.
 
+## Notification Callback Behavior
+
+If both `notification_address` and `notification_payload` are set, Curio carries them into the piece activation manifest during ingestion as a `DataActivationNotification`.
+
+Operationally:
+
+1. This path runs later than `verifyDeal(...)`, during sector activation work.
+2. Contracts that rely on notification callbacks for settlement or state transitions should be reviewed separately from intake-time contract verification.
+3. Provider setups that depend on notification callbacks generally keep `Subsystems.RequireNotificationSuccess = true` (the default). See [Default Curio Configuration](../../configuration/default-curio-configuration.md).
+
 ## Additional Sanitize Checks Before Pipeline Entry
 
 - `retrieval_v1` must be present.
@@ -82,7 +95,7 @@ If `verifyDeal` reverts with `DealNotFound(uint256)`, MK20 rejects the deal as m
 - Raw format cannot be indexed.
 - Notification address must resolve on chain when set.
 - Client must pass provider allow/deny policy.
-- If `start_epoch` is set, it must be between current chain height and current chain height plus `ExpectedPoRepSealDuration`.
+- If `start_epoch` is set, it must be greater than or equal to current chain height plus `ExpectedPoRepSealDuration`.
 - If `allocation_id` is set, MK20 validates allocation ownership, provider, term, data, size, and expiration consistency.
 - For verified allocations, the allocation owner may be either the client or the market contract address.
 - If both `allocation_id` and `start_epoch` are set, allocation expiration must be greater than or equal to `start_epoch`.

@@ -17,5 +17,6 @@ When designing a contract to integrate with Curio:
 Current DDO integration uses:
 
 1. [CurioDealView v1](./curiodealview.md)
+2. [DDO contract review and allowlisting](./ddo-contract-review.md)
 
 Future products can add their own contract interfaces without changing the top-level Market 2.0 deal envelope.

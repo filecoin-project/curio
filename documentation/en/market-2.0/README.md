@@ -38,7 +38,8 @@ Use these guides to operate and support Market 2.0:
 
 1. [Lifecycle and operational behavior](./deal-processing.md)
 2. [Contract integration and provider allowlisting](./contracts/README.md)
-3. [Error codes for support triage](./http-api.md#endpoint-details)
+3. [DDO contract review and allowlisting](./contracts/ddo-contract-review.md)
+4. [Error codes for support triage](./http-api.md#endpoint-details)
 
 Operational note:
 
@@ -59,6 +60,7 @@ Operational note:
 
 1. [Contract integration guide](./contracts/README.md)
 2. [Current DDO contract interface (CurioDealView v1)](./contracts/curiodealview.md)
+3. [DDO contract review and builder guide](./contracts/ddo-contract-review.md)
 
 Current integration surface:
 

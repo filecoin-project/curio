@@ -41,14 +41,29 @@ BEGIN
 
     _long_term := NOT (_deal_aggregation > 0);
 
-    -- 4. Insert piece if it is not found
-    INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-    VALUES (_piece_cid, _piece_size, _raw_size, _long_term)
-    ON CONFLICT (piece_cid, piece_padded_size, long_term)
-        WHERE cleanup_task_id IS NULL
-    DO UPDATE
-        SET piece_raw_size = EXCLUDED.piece_raw_size
-    RETURNING id INTO _piece_id;
+    -- 4. Reuse an active piece when present, otherwise insert one.
+    WITH existing_piece AS (
+        SELECT id
+        FROM parked_pieces
+        WHERE piece_cid = _piece_cid
+          AND piece_padded_size = _piece_size
+          AND long_term = _long_term
+          AND cleanup_task_id IS NULL
+    ),
+    insert_piece AS (
+        INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+        SELECT _piece_cid, _piece_size, _raw_size, _long_term
+        WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+        RETURNING id
+    ),
+    selected_piece AS (
+        SELECT id FROM existing_piece
+        UNION ALL
+        SELECT id FROM insert_piece
+        LIMIT 1
+    )
+    SELECT id INTO _piece_id
+    FROM selected_piece;
 
     -- 5. Insert piece ref
     INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
