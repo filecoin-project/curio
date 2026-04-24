@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -16,7 +17,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
@@ -25,6 +25,7 @@ import (
 // cost of building/saving the layer. The 32 MiB threshold value was derived from conversations
 // here: https://github.com/filecoin-project/curio/pull/997#issuecomment-3960996974
 const MinSizeForCache = uint64(32 * 1024 * 1024)
+const PaddedReadSize = 4 << 20
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
@@ -102,7 +103,8 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 		if !has {
 			log.Debugw("PDPv0_SaveCache: building PDP layer cache", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "rawSize", task.RawSize)
-			cp := savecache.NewCommPWithSize(task.RawSize)
+			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(PaddedReadSize))
+			defer cp.Reset()
 			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcidV1, false)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
@@ -119,9 +121,13 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("copied size does not match expected piece size: %d != %d", n, task.RawSize)
 			}
 
-			digest, _, lidx, _, snap, err := cp.DigestWithSnapShot()
+			digest, _, snap, err := cp.DigestWithSnapshot()
 			if err != nil {
 				return false, xerrors.Errorf("failed to get piece digest: %w", err)
+			}
+
+			if snap == nil {
+				return false, xerrors.Errorf("failed to get piece snapshot: %w", err)
 			}
 
 			computedV2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
@@ -133,11 +139,11 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("commP cid does not match piece cid: %s != %s", computedV2.String(), pcidV2.String())
 			}
 
-			leafs := make([]indexstore.NodeDigest, len(snap))
-			for i, s := range snap {
+			leafs := make([]indexstore.NodeDigest, len(snap.Nodes))
+			for i, s := range snap.Nodes {
 				leafs[i] = indexstore.NodeDigest{
-					Layer: lidx,
-					Hash:  s.Hash,
+					Layer: snap.LayerIndex,
+					Hash:  s,
 					Index: int64(i),
 				}
 			}
@@ -146,7 +152,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			if err != nil {
 				return false, xerrors.Errorf("failed to add PDP layer cache: %w", err)
 			}
-			log.Debugw("PDPv0_SaveCache: PDP layer cache saved", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "layerIdx", lidx, "leafCount", len(leafs))
+			log.Debugw("PDPv0_SaveCache: PDP layer cache saved", "pieceCID", task.PieceCID, "pcidV2", pcidV2, "layerIdx", snap.LayerIndex, "leafCount", len(leafs))
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -18,12 +19,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
-const MinSizeForCache = uint64(100 * 1024 * 1024)
+const MinSizeForCache = uint64(32 * 1024 * 1024)
+const PaddedReadSize = 4 << 20
 
 type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
@@ -82,7 +83,8 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		if !has {
-			cp := savecache.NewCommPWithSize(pi.RawSize)
+			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(PaddedReadSize))
+			defer cp.Reset()
 			reader, _, err := t.cpr.GetSharedPieceReader(ctx, pcid, false)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
@@ -91,14 +93,22 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				_ = reader.Close()
 			}()
 
-			n, err := io.CopyBuffer(cp, reader, make([]byte, 4<<20))
+			n, err := io.CopyBuffer(cp, reader, make([]byte, PaddedReadSize))
 			if err != nil {
 				return false, xerrors.Errorf("failed to copy piece data to commP: %w", err)
 			}
 
-			digest, _, lidx, _, snap, err := cp.DigestWithSnapShot()
+			if n != int64(pi.RawSize) {
+				return false, xerrors.Errorf("copied size does not match expected piece size: %d != %d", n, pi.RawSize)
+			}
+
+			digest, _, snap, err := cp.DigestWithSnapshot()
 			if err != nil {
 				return false, xerrors.Errorf("failed to get piece digest: %w", err)
+			}
+
+			if snap == nil {
+				return false, xerrors.Errorf("failed to get piece snapshot: %w", err)
 			}
 
 			pcid2, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(n))
@@ -106,15 +116,15 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				return false, xerrors.Errorf("failed to create commP: %w", err)
 			}
 
-			if pcid2.Equals(pcid) {
+			if !pcid2.Equals(pcid) {
 				return false, xerrors.Errorf("commP cid does not match piece cid: %s != %s", pcid2.String(), pcid.String())
 			}
 
-			leafs := make([]indexstore.NodeDigest, len(snap))
-			for i, s := range snap {
+			leafs := make([]indexstore.NodeDigest, len(snap.Nodes))
+			for i, s := range snap.Nodes {
 				leafs[i] = indexstore.NodeDigest{
-					Layer: lidx,
-					Hash:  s.Hash,
+					Layer: snap.LayerIndex,
+					Hash:  s,
 					Index: int64(i),
 				}
 			}
