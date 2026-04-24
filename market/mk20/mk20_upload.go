@@ -346,10 +346,24 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				err = tx.QueryRow(`
-							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-							VALUES ($1, $2, $3, FALSE, TRUE)
-							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-							RETURNING id`, tpcid.String(), tsize, n).Scan(&pnum)
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = FALSE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+							  SELECT $1, $2, $3, FALSE, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`, tpcid.String(), tsize, n).Scan(&pnum)
 				if err != nil {
 					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}
@@ -752,10 +766,24 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				err = tx.QueryRow(`
-							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-							VALUES ($1, $2, $3, TRUE, TRUE)
-							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-							RETURNING id`, tpcid.String(), tsize, trSize).Scan(&pnum)
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+							  SELECT $1, $2, $3, TRUE, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`, tpcid.String(), tsize, trSize).Scan(&pnum)
 				if err != nil {
 					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}

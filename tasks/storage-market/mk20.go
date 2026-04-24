@@ -356,10 +356,24 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Piece does not exist, attempt to insert
 				err = tx.QueryRow(`
-							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							VALUES ($1, $2, $3, TRUE)
-							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-							RETURNING id`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
 				if err != nil {
 					return xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}
@@ -477,11 +491,25 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				batch.Queue(`WITH inserted_piece AS (
+				batch.Queue(`WITH existing_piece AS (
+									  SELECT id
+									  FROM parked_pieces
+									  WHERE piece_cid = $1
+										AND piece_padded_size = $2
+										AND long_term = FALSE
+										AND cleanup_task_id IS NULL
+									),
+									insert_piece AS (
 									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-									  VALUES ($1, $2, $3, FALSE)
-									  ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+									  SELECT $1, $2, $3, FALSE
+									  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
 									  RETURNING id
+									),
+									inserted_piece AS (
+									SELECT id FROM existing_piece
+									UNION ALL
+									SELECT id FROM insert_piece
+									LIMIT 1
 									),
 									selected_piece AS (
 									  SELECT COALESCE(
@@ -739,7 +767,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										existing_piece AS (
 										  SELECT id AS piece_id
 										  FROM parked_pieces
-										  WHERE piece_cid = $2 AND piece_padded_size = $3
+										  WHERE piece_cid = $2 AND piece_padded_size = $3 AND long_term = NOT (p.deal_aggregation > 0)
 										),
 										inserted_piece AS (
 										  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)

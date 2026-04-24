@@ -638,10 +638,24 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Piece does not exist, attempt to insert
 				err = tx.QueryRow(`
-							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							VALUES ($1, $2, $3, TRUE)
-							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-							RETURNING id`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
 				if err != nil {
 					return xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}
@@ -737,32 +751,47 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				batch.Queue(`WITH inserted_piece AS (
-									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-									  VALUES ($1, $2, $3, FALSE)
-									  ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-									  RETURNING id
-									),
-									selected_piece AS (
-									  SELECT COALESCE(
-										(SELECT id FROM inserted_piece),
-										(SELECT id FROM parked_pieces
-										 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
-									  ) AS id
-									),
-									inserted_ref AS (
-									  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-									  SELECT id, $4, $5, FALSE FROM selected_piece
-									  RETURNING ref_id
-									)
-									INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
-									VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
-									ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
-									SET ref_ids = array_append(
-									  market_mk20_download_pipeline.ref_ids,
-									  (SELECT ref_id FROM inserted_ref)
-									)
-									WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
+				batch.Queue(`
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = FALSE
+								AND cleanup_task_id IS NULL
+							),
+							insert_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, FALSE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							),
+							inserted_piece AS (
+								SELECT id FROM existing_piece
+								UNION ALL
+								SELECT id FROM insert_piece
+								LIMIT 1
+							),
+							selected_piece AS (
+							  SELECT COALESCE(
+								(SELECT id FROM inserted_piece),
+								(SELECT id FROM parked_pieces
+								 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
+							  ) AS id
+							),
+							inserted_ref AS (
+							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+							  SELECT id, $4, $5, FALSE FROM selected_piece
+							  RETURNING ref_id
+							)
+							INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+							VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
+							ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
+							SET ref_ids = array_append(
+							  market_mk20_download_pipeline.ref_ids,
+							  (SELECT ref_id FROM inserted_ref)
+							)
+							WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
 					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, ProductNamePDPV1, k.PieceCIDV2.String())
 			}
 

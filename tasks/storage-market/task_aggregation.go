@@ -233,8 +233,24 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 			}
 			// If piece does not exist then let's create one
 			err = tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+							  SELECT $1, $2, $3, TRUE, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`,
 				pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID)
 			if err != nil {
 				return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)

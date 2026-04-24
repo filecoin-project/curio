@@ -185,9 +185,27 @@ BEGIN
 END;
 $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS parked_pieces_active_piece_key
-    ON parked_pieces (piece_cid, piece_padded_size, long_term)
-    WHERE cleanup_task_id IS NULL;
+-- Create a unique index for the parked_pieces table if duplicates do not exist.
+-- This is to avoid duplicate entries in the parked_pieces table.
+-- This is a no-op if the index already exists.
+-- If duplicates exist, then a Go task will remove them correctly and create the index
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM (
+      SELECT piece_cid, piece_padded_size, long_term
+      FROM parked_pieces
+      WHERE cleanup_task_id IS NULL
+      GROUP BY 1,2,3
+      HAVING count(*) > 1
+    ) dupes
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS parked_pieces_active_piece_key
+      ON parked_pieces (piece_cid, piece_padded_size, long_term)
+      WHERE cleanup_task_id IS NULL;
+  END IF;
+END $$;
 
 -- This function triggers a download for an offline piece.
 -- It is different from MK1.2 PoRep pipeline as it downloads the offline pieces
