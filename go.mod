@@ -11,12 +11,12 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/codeskyblue/go-sh v0.0.0-20250509230738-c29da582b0f5
 	github.com/consensys/gnark-crypto v0.20.1
+	github.com/curiostorage/go-openrpc-reflect v0.0.0-20260302234910-57f4605f0e7b
 	github.com/curiostorage/harmonyquery v1.0.2
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-sysinfo v1.15.4
-	github.com/etclabscore/go-openrpc-reflect v0.0.37
 	github.com/ethereum/go-ethereum v1.17.2
 	github.com/fatih/color v1.19.0
 	github.com/filecoin-project/filecoin-ffi v1.34.6
@@ -24,7 +24,6 @@ require (
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-cbor-util v0.0.2
 	github.com/filecoin-project/go-commp-utils v0.1.4
-	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
 	github.com/filecoin-project/go-data-segment v0.0.1
 	github.com/filecoin-project/go-f3 v0.8.12
@@ -92,7 +91,7 @@ require (
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/multiformats/go-varint v0.1.0
 	github.com/oklog/ulid v1.3.1
-	github.com/open-rpc/meta-schema v0.0.0-20201029221707-1b72ef2ea333
+	github.com/open-rpc/meta-schema v0.0.0-20250731032156-d8c12c08675d
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/puzpuzpuz/xsync/v2 v2.5.1

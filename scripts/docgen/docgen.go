@@ -510,50 +510,58 @@ func ParseApiASTInfo(apiFile, iface, pkg, dir string) (comments map[string]strin
 		fmt.Println("filepath absolute error: ", err, "file:", apiFile)
 		return
 	}
-	pkgs, err := packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax,
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedCompiledGoFiles,
 		Dir:  apiDir,
 		Fset: fset,
-		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-			return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+		ParseFile: func(fs *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fs, filename, src, parser.AllErrors|parser.ParseComments)
 		},
-	}, ".")
+	}
+	pkgsList, err := packages.Load(cfg, ".")
 	if err != nil {
-		fmt.Println("parse error: ", err)
+		fmt.Println("packages load error: ", err)
 		return
 	}
-	if len(pkgs) != 1 {
-		fmt.Println("parse error: expected 1 package, got", len(pkgs))
-		return
-	}
-	if len(pkgs[0].Errors) > 0 {
-		fmt.Println("parse error: ", pkgs[0].Errors[0])
-		return
-	}
+	packages.PrintErrors(pkgsList)
 
-	ap := pkgs[0]
-	if ap.Name != pkg {
-		fmt.Println("parse error: expected package", pkg, "got", ap.Name)
+	var apPkg *packages.Package
+	for _, p := range pkgsList {
+		if p.Name == pkg {
+			apPkg = p
+			break
+		}
+	}
+	if apPkg == nil || len(apPkg.Syntax) == 0 {
+		fmt.Println("package not found or has no syntax:", pkg)
+		return
+	}
+	if len(apPkg.Errors) > 0 {
+		fmt.Println("parse error: ", apPkg.Errors[0])
 		return
 	}
 
 	var f *ast.File
-	for i, syntax := range ap.Syntax {
-		if ap.CompiledGoFiles[i] == apiFile {
-			f = syntax
+	for i, cgf := range apPkg.CompiledGoFiles {
+		cgfAbs, absErr := filepath.Abs(cgf)
+		if absErr != nil {
+			continue
+		}
+		if filepath.Clean(cgfAbs) == filepath.Clean(apiFile) {
+			f = apPkg.Syntax[i]
 			break
 		}
 	}
 	if f == nil {
-		fmt.Println("parse error: file not found in package:", apiFile)
+		fmt.Println("source file not in loaded package:", apiFile)
 		return
 	}
 
 	cmap := ast.NewCommentMap(fset, f, f.Comments)
 
 	v := &Visitor{iface, make(map[string]ast.Node)}
-	for _, syntax := range ap.Syntax {
-		ast.Walk(v, syntax)
+	for _, syn := range apPkg.Syntax {
+		ast.Walk(v, syn)
 	}
 
 	comments = make(map[string]string)
