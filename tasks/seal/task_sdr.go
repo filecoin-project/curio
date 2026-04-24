@@ -83,6 +83,7 @@ func (s *SDRTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned 
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	dealData, err := dealdata.DealDataSDRPoRep(ctx, s.db, s.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof, true)
 	if err != nil {

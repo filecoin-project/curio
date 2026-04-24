@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -97,6 +98,8 @@ type TaskInterface interface {
 	// ONLY be called by harmonytask.
 	// Indicate if the task no-longer needs scheduling with done=true including
 	// cases where it's past the deadline.
+	// Optional: call SetMeta(ctx, key, value) with task-specific keys so
+	// TaskEngine.OnTaskComplete callbacks receive metadata after a successful run.
 	Do(ctx context.Context, taskID TaskID, stillOwned func() bool) (done bool, err error)
 
 	// CanAccept should return if the task can run on this machine. It should
@@ -176,6 +179,9 @@ type TaskEngine struct {
 	// channel value itself is replaced in one place (New) before startScheduler
 	// is called, so concurrent access to the channel is safe.
 	schedulerChannel chan schedulerEvent
+
+	completionMu        sync.RWMutex
+	completionCallbacks map[string][]TaskCompleteFunc
 }
 
 // taskEngineConfig holds fields that are set once during New() and never
@@ -268,8 +274,9 @@ func NewWithReg(
 		state: taskEngineState{
 			preemptBids: preemptbids.New(),
 		},
-		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
-		schedulerChannel: make(chan schedulerEvent, 100),
+		taskMap:               make(map[string]*taskTypeHandler, len(impls)),
+		schedulerChannel:      make(chan schedulerEvent, 100),
+		completionCallbacks:   make(map[string][]TaskCompleteFunc),
 	}
 	e.atomics.pollDuration.Store(pollRarely)
 	e.atomics.lastCleanup.Store(time.Now())

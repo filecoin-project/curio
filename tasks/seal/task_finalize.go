@@ -81,6 +81,7 @@ func (f *FinalizeTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 		return false, xerrors.Errorf("expected one task")
 	}
 	task := tasks[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{task.SpID, task.SectorNumber})
 
 	var keepUnsealed bool
 

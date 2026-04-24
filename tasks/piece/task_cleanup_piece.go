@@ -21,21 +21,43 @@ type CleanupPieceTask struct {
 	sc  *ffi.SealCalls
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
+
+	wake chan struct{}
 }
 
 func NewCleanupPieceTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) *CleanupPieceTask {
 	pt := &CleanupPieceTask{
-		db: db,
-		sc: sc,
-
-		max: max,
+		db:   db,
+		sc:   sc,
+		max:  max,
+		wake: make(chan struct{}, 1),
 	}
 	go pt.pollCleanupTasks(context.Background())
 	return pt
 }
 
+// WakePoll nudges pollCleanupTasks to run soon.
+func (c *CleanupPieceTask) WakePoll() {
+	if c == nil || c.wake == nil {
+		return
+	}
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+}
+
 func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
+	ticker := time.NewTicker(PieceParkPollInterval)
+	defer ticker.Stop()
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.wake:
+		case <-ticker.C:
+		}
+
 		// select pieces with no refs and null cleanup_task_id
 		var pieceIDs []struct {
 			ID storiface.PieceNumber `db:"id"`
@@ -51,12 +73,10 @@ func (c *CleanupPieceTask) pollCleanupTasks(ctx context.Context) {
 			  )`)
 		if err != nil {
 			log.Errorf("failed to get parked pieces: %s", err)
-			time.Sleep(PieceParkPollInterval)
 			continue
 		}
 
 		if len(pieceIDs) == 0 {
-			time.Sleep(PieceParkPollInterval)
 			continue
 		}
 

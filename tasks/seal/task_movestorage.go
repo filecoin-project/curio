@@ -54,6 +54,7 @@ func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, sti
 		return false, xerrors.Errorf("expected one task")
 	}
 	task := tasks[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{task.SpID, task.SectorNumber})
 
 	sector := storiface.SectorRef{
 		ID: abi.SectorID{

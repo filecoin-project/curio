@@ -39,7 +39,7 @@ const (
 	numPollers
 )
 
-const sealPollerInterval = 10 * time.Second
+const sealPollerInterval = 60 * time.Second
 const seedEpochConfidence = 3
 
 type SealPollerAPI interface {
@@ -240,6 +240,83 @@ func (s *SealPoller) poll(ctx context.Context) error {
 	s.pollStartBatchCommitMsg(ctx)
 
 	return nil
+}
+
+// SignalNext runs the same per-sector dispatch as poll for one pipeline row.
+// Used after seal stage tasks complete so the next stage can start without
+// waiting for the periodic poller.
+func (s *SealPoller) SignalNext(ctx context.Context, spID, sectorNum int64) {
+	var tasks []pollTask
+	err := s.db.Select(ctx, &tasks, `SELECT 
+												p.sp_id, 
+												p.sector_number, 
+												p.reg_seal_proof, 
+												p.ticket_epoch,
+												p.task_id_sdr, 
+												p.after_sdr,
+												p.task_id_tree_d, 
+												p.after_tree_d,
+												p.task_id_tree_c, 
+												p.after_tree_c,
+												p.task_id_tree_r, 
+												p.after_tree_r,
+												p.task_id_synth, 
+												p.after_synth,
+												p.precommit_ready_at,
+												p.task_id_precommit_msg, 
+												p.after_precommit_msg,
+												p.after_precommit_msg_success, 
+												p.seed_epoch,
+												p.task_id_porep, 
+												p.porep_proof, 
+												p.after_porep,
+												p.task_id_finalize, 
+												p.after_finalize,
+												p.task_id_move_storage, 
+												p.after_move_storage,
+												p.commit_ready_at,
+												p.task_id_commit_msg, 
+												p.after_commit_msg,
+												p.after_commit_msg_success,
+												p.failed, 
+												p.failed_reason,
+												p.start_epoch
+											FROM 
+												sectors_sdr_pipeline p
+											WHERE 
+												p.sp_id = $1 AND p.sector_number = $2
+												AND (p.after_commit_msg_success != TRUE 
+												OR p.after_move_storage != TRUE);`, spID, sectorNum)
+	if err != nil {
+		log.Errorw("SignalNext: select pipeline", "error", err, "sp_id", spID, "sector", sectorNum)
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
+	task := tasks[0]
+	if task.Failed {
+		return
+	}
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		log.Errorw("SignalNext: chain head", "error", err)
+		return
+	}
+
+	s.pollStartSDR(ctx, task)
+	s.pollStartSDRTreeD(ctx, task)
+	s.pollStartSDRTreeRC(ctx, task)
+	s.pollStartSynth(ctx, task)
+	s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
+	s.pollStartPoRep(ctx, task, ts)
+	s.mustPoll(s.pollerAddStartEpoch(ctx, task))
+	s.pollStartFinalize(ctx, task, ts)
+	s.pollStartMoveStorage(ctx, task)
+	s.mustPoll(s.pollCommitMsgLanded(ctx, task))
+
+	s.pollStartBatchPrecommitMsg(ctx)
+	s.pollStartBatchCommitMsg(ctx)
 }
 
 func (s *SealPoller) pollStartSDR(ctx context.Context, task pollTask) {

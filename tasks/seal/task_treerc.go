@@ -61,6 +61,7 @@ func (t *TreeRCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	commd, err := cid.Parse(sectorParams.CommD)
 	if err != nil {

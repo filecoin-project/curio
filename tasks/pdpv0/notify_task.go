@@ -21,7 +21,7 @@ import (
 var log = logging.Logger("pdpv0")
 
 // NotifyPollInterval is how often to poll for uploads ready to finalize.
-var NotifyPollInterval = 2 * time.Second
+var NotifyPollInterval = 5 * time.Second
 
 // PDPNotifyTask finalizes completed piece uploads.
 //

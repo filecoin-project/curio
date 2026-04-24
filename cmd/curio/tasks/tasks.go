@@ -111,6 +111,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	var activeTasks []harmonytask.TaskInterface
 
+	var dealMarket *storage_market.CurioStorageDealMarket
+	var parkPiecePoll *piece2.ParkPieceTask
+	var cleanupPiecePoll *piece2.CleanupPieceTask
+	var storePiecePoll *piece2.ParkPieceTask
+
 	sender, sendTask := message.NewSender(full, full, db, cfg.Fees.MaximizeFeeCap)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
 	expmgrTask := expmgr.NewExpMgrTask(db, full, chainSched, sender)
@@ -228,25 +233,29 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableRemoteProofs
 
 	var p2Active sealsupra.P2Active
+	var sealPoller *seal.SealPoller
 	if hasAnySealingTask {
-		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		sealingTasks, p2a, sp, spp, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
 		if err != nil {
 			return nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
 		p2Active = p2a
+		sealPoller = sp
+		storePiecePoll = spp
 	}
 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
+			var err error
+			parkPiecePoll, err = piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
 			if err != nil {
 				return nil, err
 			}
-			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			cleanupPiecePoll = piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
+			activeTasks = append(activeTasks, parkPiecePoll, cleanupPiecePoll, aggregateChunksTask)
 		}
 	}
 
@@ -259,28 +268,27 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	{
 		var sdeps cuhttp.ServiceDeps
 		// Market tasks
-		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
-			err := dm.StartMarket(ctx)
+			dealMarket = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
+			err := dealMarket.StartMarket(ctx)
 			if err != nil {
 				return nil, err
 			}
 
-			sdeps.DealMarket = dm
+			sdeps.DealMarket = dealMarket
 
 			if cfg.Subsystems.EnableCommP {
-				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
+				commpTask := storage_market.NewCommpTask(dealMarket, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
 
-			aggTask := storage_market.NewAggregateTask(dm, db, must.One(slrLazy.Val()), lstor, full)
+			aggTask := storage_market.NewAggregateTask(dealMarket, db, must.One(slrLazy.Val()), lstor, full)
 			activeTasks = append(activeTasks, aggTask)
 
 			// PSD and Deal find task do not require many resources. They can run on all machines
-			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
-			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
+			psdTask := storage_market.NewPSDTask(dealMarket, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
+			dealFindTask := storage_market.NewFindDealTask(dealMarket, db, full, &cfg.Market.StorageMarketConfig.MK12)
 
 			checkIndexesTask := indexing.NewCheckIndexesTask(db, iStore)
 
@@ -288,7 +296,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			// Start libp2p hosts and handle streams. This is a special function which calls the shutdown channel
 			// instead of returning the error. This design is to allow libp2p take over if required
-			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
+			go libp2p.NewDealProvider(ctx, db, cfg, dealMarket.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
 		sc, err := slrLazy.Val()
 		if err != nil {
@@ -387,6 +395,58 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	if err != nil {
 		return nil, err
 	}
+	if sealPoller != nil {
+		for _, taskName := range []string{"SDR", "TreeD", "TreeRC", "SyntheticProofs", "PoRep", "Finalize", "MoveStorage"} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(ctx context.Context, _ harmonytask.TaskID, success bool) {
+				if !success {
+					return
+				}
+				spID, secNum, ok := seal.PipelineRef(ctx)
+				if !ok {
+					return
+				}
+				sealPoller.SignalNext(ctx, spID, secNum)
+			})
+		}
+	}
+	if dealMarket != nil {
+		ht.OnTaskComplete("ParkPiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				dealMarket.WakeDealPoller()
+			}
+		})
+		ht.OnTaskComplete("StorePiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				dealMarket.WakeDealPoller()
+			}
+		})
+	}
+	if cleanupPiecePoll != nil {
+		ht.OnTaskComplete("ParkPiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				cleanupPiecePoll.WakePoll()
+			}
+		})
+		ht.OnTaskComplete("StorePiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				cleanupPiecePoll.WakePoll()
+			}
+		})
+	}
+	if parkPiecePoll != nil || storePiecePoll != nil {
+		ht.OnTaskComplete("DropPiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if !success {
+				return
+			}
+			if parkPiecePoll != nil {
+				parkPiecePoll.WakePoll()
+			}
+			if storePiecePoll != nil {
+				storePiecePoll.WakePoll()
+			}
+		})
+	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
 	*dependencies.MachineID = int64(ht.ResourcesAvailable().MachineID)
@@ -419,8 +479,9 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, *seal.SealPoller, *piece2.ParkPieceTask, error) {
 	var activeTasks []harmonytask.TaskInterface
+	var storePiecePoll *piece2.ParkPieceTask
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
@@ -451,7 +512,7 @@ func addSealingTasks(
 			cfg.Seal.LayerNVMEDevices,
 			machineHostPort, db, full, stor, si, slr)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
+			return nil, nil, sp, nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
 		slotMgr = sm
 		p2Active = p2a
@@ -493,8 +554,9 @@ func addSealingTasks(
 
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, sp, nil, err
 		}
+		storePiecePoll = storePieceTask
 
 		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
 		if !cfg.Subsystems.EnableParkPiece {
@@ -566,7 +628,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
-	return activeTasks, p2Active, nil
+	return activeTasks, p2Active, sp, storePiecePoll, nil
 }
 
 func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {

@@ -61,6 +61,7 @@ func (s *SyntheticProofTask) Do(ctx context.Context, taskID harmonytask.TaskID, 
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	// Exit here successfully if synthetic proofs are not required
 	_, ok := abi.Synthetic[sectorParams.RegSealProof]
