@@ -82,13 +82,13 @@ func TestExtractAndMergeUnknownFields(t *testing.T) {
 	// Assertions: Check recognized fields have changed & unknown remain
 	//----------------------------------------------------------------------
 	// 5a. Parse final config into a map to check contents
-	var finalMap map[string]interface{}
+	var finalMap map[string]any
 	if err := toml.Unmarshal([]byte(finalConfig), &finalMap); err != nil {
 		t.Fatalf("failed to parse final config: %v\nFinal Config:\n%s", err, finalConfig)
 	}
 
 	// 5b. Check recognized fields updated
-	subsystems, ok := finalMap["Subsystems"].(map[string]interface{})
+	subsystems, ok := finalMap["Subsystems"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected 'Subsystems' in final config")
 	}
@@ -100,7 +100,7 @@ func TestExtractAndMergeUnknownFields(t *testing.T) {
 		t.Errorf("expected Subsystems.WindowPostMaxTasks = 10, got %d", tasks)
 	}
 
-	fees, ok := finalMap["Fees"].(map[string]interface{})
+	fees, ok := finalMap["Fees"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected 'Fees' in final config")
 	}
@@ -116,7 +116,7 @@ func TestExtractAndMergeUnknownFields(t *testing.T) {
 		t.Errorf("expected AnotherUnknownSection to remain in final config, but not found")
 	} else {
 		// Inside nested
-		nested := anotherUnknown.(map[string]interface{})["Nested"].(map[string]interface{})
+		nested := anotherUnknown.(map[string]any)["Nested"].(map[string]any)
 		if val, ok := nested["NestedValue"].(string); !ok || val != "I am nested" {
 			t.Errorf("expected AnotherUnknownSection.Nested.NestedValue = 'I am nested', got '%v'", val)
 		}

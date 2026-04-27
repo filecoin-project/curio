@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"slices"
 	"sort"
 	"time"
 
@@ -508,7 +509,6 @@ func (t *WinPostTask) generateWinningPost(
 	eg := errgroup.Group{}
 
 	for i, s := range sectors {
-		i, s := i, s
 		eg.Go(func() error {
 			vanilla, err := t.paths.GenerateSingleVanillaProof(ctx, mid, s, ppt)
 			if err != nil {
@@ -724,11 +724,8 @@ func (t *WinPostTask) mineBasic(ctx context.Context) {
 					// if it's not we risk getting slashed
 
 					var foundOurs bool
-					for _, c2 := range workBase.TipSet.Cids() {
-						if c == c2 {
-							foundOurs = true
-							break
-						}
+					if slices.Contains(workBase.TipSet.Cids(), c) {
+						foundOurs = true
 					}
 					if !foundOurs {
 						log.Errorw("our block was not included in the tipset, aborting", "tipset", workBase.TipSet.Cids(), "ourBlock", c)

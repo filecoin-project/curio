@@ -82,9 +82,7 @@ func TestLocalStorage(t *testing.T) {
 		root: root,
 	}
 
-	sharedITestID := harmonydb.ITestNewID()
-
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	index := NewDBIndex(nil, db)

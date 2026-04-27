@@ -7,7 +7,7 @@ import (
 	"reflect"
 
 	"github.com/alecthomas/jsonschema"
-	go_openrpc_reflect "github.com/etclabscore/go-openrpc-reflect"
+	go_openrpc_reflect "github.com/curiostorage/go-openrpc-reflect"
 	"github.com/ipfs/go-cid"
 	meta_schema "github.com/open-rpc/meta-schema"
 
@@ -103,11 +103,9 @@ func NewCurioOpenRPCDocument(Comments, GroupDocs map[string]string) *go_openrpc_
 		},
 		GetInfoFn: func() (info *meta_schema.InfoObject) {
 			info = &meta_schema.InfoObject{}
-			title := "Curio RPC API"
-			info.Title = (*meta_schema.InfoObjectProperties)(&title)
+			info.Title = (*meta_schema.InfoObjectProperties)(new("Curio RPC API"))
 
-			version := build.BuildVersion
-			info.Version = (*meta_schema.InfoObjectVersion)(&version)
+			info.Version = (*meta_schema.InfoObjectVersion)(new(build.BuildVersion))
 			return info
 		},
 		GetExternalDocsFn: func() (exdocs *meta_schema.ExternalDocumentationObject) {

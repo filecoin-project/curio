@@ -583,7 +583,7 @@ also be bounded by resources available on the machine (Default: 0 - unlimited)`,
 			Name: "ParkPieceMinFreeStoragePercent",
 			Type: "float64",
 
-			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)`,
+			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)`,
 		},
 		{
 			Name: "EnableSealSDR",

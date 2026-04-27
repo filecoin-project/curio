@@ -2,15 +2,14 @@ package lists
 
 import (
 	"bytes"
+	"cmp"
 	"sort"
-
-	"golang.org/x/exp/constraints"
 )
 
 // UniqNoAlloc removes duplicates from a slice, returning it resliced.
 // No allocations are performed, but the list gets reordered and should not be used.
 // Ordering is required.
-func UniqNoAlloc[T constraints.Ordered](list []T) []T {
+func UniqNoAlloc[T cmp.Ordered](list []T) []T {
 	return UniqNoAllocWithComparator(list, func(i, j int) bool {
 		return list[i] < list[j]
 	})

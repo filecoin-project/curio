@@ -200,8 +200,7 @@ func TestNewFilter_WithHTTPServer(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	f := NewFilterForTest(ctx, []string{ts.URL})
 
@@ -358,8 +357,7 @@ func TestNewFilter_FailedServer(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	f := NewFilterForTest(ctx, []string{ts.URL})
 
@@ -402,8 +400,7 @@ func TestNewFilter_DynamicReload(t *testing.T) {
 	}))
 	defer ts2.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Start with the empty-denylist server
 	dynServers := config.NewDynamic([]string{ts1.URL})

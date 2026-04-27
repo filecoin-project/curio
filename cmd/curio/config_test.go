@@ -594,7 +594,7 @@ func TestConfig(t *testing.T) {
 func TestCustomConfigDurationJson(t *testing.T) {
 	ref := new(jsonschema.Reflector)
 	ref.Mapper = func(i reflect.Type) *jsonschema.Schema {
-		if i == reflect.TypeOf(time.Second) {
+		if i == reflect.TypeFor[time.Duration]() {
 			return &jsonschema.Schema{
 				Type:   "string",
 				Format: "duration",

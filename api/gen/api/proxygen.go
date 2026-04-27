@@ -13,6 +13,7 @@ import (
 	"strings"
 	"text/template"
 
+	"golang.org/x/tools/go/packages"
 	"golang.org/x/xerrors"
 )
 
@@ -117,7 +118,6 @@ func typeName(e ast.Expr, pkg string) (string, error) {
 }
 
 func generate(path, pkg, outpkg, outfile string) error {
-	fset := token.NewFileSet()
 	apiDir, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -126,15 +126,37 @@ func generate(path, pkg, outpkg, outfile string) error {
 	if err != nil {
 		return err
 	}
-	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments)
+	fset := token.NewFileSet()
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedCompiledGoFiles,
+		Dir:  apiDir,
+		Fset: fset,
+		ParseFile: func(fs *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fs, filename, src, parser.AllErrors|parser.ParseComments)
+		},
+	}
+	loaded, err := packages.Load(cfg, ".")
 	if err != nil {
 		return err
 	}
-
-	ap := pkgs[pkg]
+	var ap *packages.Package
+	for _, p := range loaded {
+		if p.Name == pkg {
+			ap = p
+			break
+		}
+	}
+	if ap == nil {
+		return xerrors.Errorf("packages.Load: no package %q in %s", pkg, apiDir)
+	}
+	if len(ap.Errors) > 0 {
+		return ap.Errors[0]
+	}
 
 	v := &Visitor{make(map[string]map[string]*methodMeta), map[string][]string{}}
-	ast.Walk(v, ap)
+	for _, f := range ap.Syntax {
+		ast.Walk(v, f)
+	}
 
 	type methodInfo struct {
 		Num                                      string
@@ -161,7 +183,8 @@ func generate(path, pkg, outpkg, outfile string) error {
 		Imports: map[string]string{},
 	}
 
-	for fn, f := range ap.Files {
+	for i, f := range ap.Syntax {
+		fn := ap.CompiledGoFiles[i]
 		if strings.HasSuffix(fn, "gen.go") {
 			continue
 		}
@@ -250,8 +273,8 @@ func generate(path, pkg, outpkg, outfile string) error {
 				if len(filteredComments) > 0 {
 					tagstr := filteredComments[len(filteredComments)-1].List[0].Text
 					tagstr = strings.TrimPrefix(tagstr, "//")
-					tl := strings.Split(strings.TrimSpace(tagstr), " ")
-					for _, ts := range tl {
+					tl := strings.SplitSeq(strings.TrimSpace(tagstr), " ")
+					for ts := range tl {
 						tf := strings.Split(ts, ":")
 						if len(tf) != 2 {
 							continue
@@ -347,7 +370,7 @@ var _ = fmt.Sprintf
 	return os.WriteFile(outfile, formatted, 0o666)
 }
 
-func doTemplate(w io.Writer, info interface{}, templ string) error {
+func doTemplate(w io.Writer, info any, templ string) error {
 	t := template.Must(template.New("").
 		Funcs(template.FuncMap{}).Parse(templ))
 

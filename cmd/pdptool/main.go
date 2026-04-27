@@ -27,7 +27,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -603,23 +603,23 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		// Prepare the request data based on hash type
-		var reqData map[string]interface{}
+		var reqData map[string]any
 		var reqBody []byte
 
 		switch hashType {
 		case "sha256":
 			// For sha256, still use old format for backward compatibility
-			checkData := map[string]interface{}{
+			checkData := map[string]any{
 				"name": "sha2-256",
 				"hash": hex.EncodeToString(shadigest),
 				"size": pieceSize,
 			}
-			reqData = map[string]interface{}{
+			reqData = map[string]any{
 				"check": checkData,
 			}
 		case "commp":
 			// For commp, use new format with pieceCid (CommPv2)
-			reqData = map[string]interface{}{
+			reqData = map[string]any{
 				"pieceCid": pieceCIDComputed.String(),
 			}
 		default:
@@ -797,23 +797,23 @@ var uploadFileCmd = &cli.Command{
 			}
 			if !dryRun {
 				// Prepare the request data
-				var reqData map[string]interface{}
+				var reqData map[string]any
 				var reqBody []byte
 
 				switch hashType {
 				case "sha256":
 					// For sha256, use old format for backward compatibility
-					checkData := map[string]interface{}{
+					checkData := map[string]any{
 						"name": "sha2-256",
 						"hash": hex.EncodeToString(shadigest),
 						"size": n,
 					}
-					reqData = map[string]interface{}{
+					reqData = map[string]any{
 						"check": checkData,
 					}
 				case "commp":
 					// For commp, use new format with pieceCid (CommPv2)
-					reqData = map[string]interface{}{
+					reqData = map[string]any{
 						"pieceCid": commP.String(),
 					}
 				default:
@@ -872,8 +872,9 @@ var uploadFileCmd = &cli.Command{
 				}
 				piecesV1[j] = abi.PieceInfo{Size: piece.Size, PieceCID: pieceCidV1}
 			}
-			fmt.Printf("%d: paddedSize: %d, rawSize: %d\n", i, paddedSize, rawSize)
-			pieceCidV1, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, piecesV1)
+			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
+			pieceCidV1, _, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1_1, piecesV1)
+
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}

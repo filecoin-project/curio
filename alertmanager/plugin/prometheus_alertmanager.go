@@ -31,10 +31,10 @@ func (p *PrometheusAlertManager) SendAlert(data *AlertPayload) error {
 	}
 
 	type amPayload struct {
-		StartsAt    time.Time              `json:"startsAt"`
-		EndsAt      *time.Time             `json:"EndsAt,omitempty"`
-		Annotations map[string]interface{} `json:"annotations"`
-		Labels      map[string]string      `json:"labels"`
+		StartsAt    time.Time         `json:"startsAt"`
+		EndsAt      *time.Time        `json:"EndsAt,omitempty"`
+		Annotations map[string]any    `json:"annotations"`
+		Labels      map[string]string `json:"labels"`
 
 		// is a unique back-link which identifies the causing entity of this alert
 		//GeneratorURL string            `json:"generatorURL"`
@@ -49,7 +49,7 @@ func (p *PrometheusAlertManager) SendAlert(data *AlertPayload) error {
 				"severity":  data.Severity,
 				"instance":  data.Source,
 			},
-			Annotations: map[string]interface{}{
+			Annotations: map[string]any{
 				"summary": data.Summary,
 				"details": v,
 			},

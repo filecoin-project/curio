@@ -69,7 +69,7 @@ func insertPieceMetadata(t *testing.T, ctx context.Context, db *harmonydb.DB, pi
 // TestPiecesToSectorsBatch_Empty verifies that an empty input returns an empty plan.
 func TestPiecesToSectorsBatch_Empty(t *testing.T) {
 	ctx := context.Background()
-	db, err := harmonydb.NewFromConfigWithITestID(t, harmonydb.ITestNewID(), true)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	plan, err := piecesunseal.PiecesToSectorsBatch(ctx, db, nil)
@@ -99,7 +99,7 @@ func TestPiecesToSectorsBatch_Empty(t *testing.T) {
 // Greedy: C covered by sector 12. Remaining A,B. Sector 10 has 2, sector 11 has 1 → pick 10.
 func TestPiecesToSectorsBatch(t *testing.T) {
 	ctx := context.Background()
-	db, err := harmonydb.NewFromConfigWithITestID(t, harmonydb.ITestNewID(), true)
+	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	const (
@@ -118,8 +118,7 @@ func TestPiecesToSectorsBatch(t *testing.T) {
 
 	insertSector(t, ctx, db, spID, 10, nil)
 	insertSector(t, ctx, db, spID, 11, nil)
-	trueVal := true
-	insertSector(t, ctx, db, spID, 12, &trueVal)
+	insertSector(t, ctx, db, spID, 12, new(true))
 
 	insertDeal(t, ctx, db, spID, 10, pieceA, pieceSize)
 	insertDeal(t, ctx, db, spID, 10, pieceB, pieceSize)

@@ -28,7 +28,7 @@ type Client struct {
 
 func NewClient(baseURL string, client address.Address, wallet *wallet.LocalWallet) *Client {
 	s := NewAuth(client, wallet)
-	hclient := NewHTTPClient(baseURL, HourlyCurioAuthHeader(s))
+	hclient := NewHTTPClient(baseURL, CurioAuthHeader(s))
 	return &Client{
 		http: hclient,
 	}
@@ -52,7 +52,7 @@ func (c *Client) CreateDataSet(ctx context.Context, client, recordKeeper string,
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -85,7 +85,7 @@ func (c *Client) RemoveDataSet(ctx context.Context, client, recordKeeper string,
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -120,7 +120,7 @@ func (c *Client) addPiece(ctx context.Context, client, recordKeeper string, extr
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -158,7 +158,7 @@ func (c *Client) RemovePiece(ctx context.Context, client, recordKeeper string, e
 		},
 	}
 
-	rerr := c.http.Store(ctx, deal)
+	rerr := c.http.SubmitDeal(ctx, deal)
 	if rerr.Error != nil {
 		return ulid.ULID{}, rerr.Error
 	}
@@ -395,7 +395,7 @@ func (c *Client) DealChunkUploadFinalize(ctx context.Context, dealID string, dea
 	if err != nil {
 		return xerrors.Errorf("parsing deal id: %w", err)
 	}
-	rerr := c.http.UploadSerialFinalize(ctx, id, deal)
+	rerr := c.http.UploadFinalize(ctx, id, deal)
 	if rerr.Error != nil {
 		return rerr.Error
 	}
@@ -460,10 +460,7 @@ func (c *Client) DealChunkedUpload(ctx context.Context, dealID string, size, chu
 		// Try to upload missing chunks
 		for _, chunk := range status.MissingChunks {
 			start := int64(chunk-1) * chunkSize
-			end := start + chunkSize
-			if end > size {
-				end = size
-			}
+			end := min(start+chunkSize, size)
 			log.Debugw("uploading chunk", "start", start, "end", end)
 			buf := make([]byte, end-start)
 			_, err := r.ReadAt(buf, start)

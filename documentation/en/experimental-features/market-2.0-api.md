@@ -24,7 +24,7 @@ These APIs can change without any notice as they are still being developed. This
 [OpenAPI market-2-api](https://gitbook-x-prod-openapi.4401d86825a13bf607936cc3a9f3897a.r2.cloudflarestorage.com/raw/f293b5a451c864bf4aa9de277e427db2e6658d0504ce896746aa87d1e5cf6465.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dce48141f43c0191a2ad043a6888781c%2F20250811%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250811T132329Z&X-Amz-Expires=172800&X-Amz-Signature=2b86557d1efeb9d0a4b658a69f0425794e468220dd78aea1e46b332d59d3ed4c&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject)
 {% endopenapi-operation %}
 
-{% openapi-operation spec="market-2-api" path="/store" method="post" %}
+{% openapi-operation spec="market-2-api" path="/deal" method="post" %}
 [OpenAPI market-2-api](https://gitbook-x-prod-openapi.4401d86825a13bf607936cc3a9f3897a.r2.cloudflarestorage.com/raw/f293b5a451c864bf4aa9de277e427db2e6658d0504ce896746aa87d1e5cf6465.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dce48141f43c0191a2ad043a6888781c%2F20250811%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250811T132329Z&X-Amz-Expires=172800&X-Amz-Signature=2b86557d1efeb9d0a4b658a69f0425794e468220dd78aea1e46b332d59d3ed4c&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject)
 {% endopenapi-operation %}
 

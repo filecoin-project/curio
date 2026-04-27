@@ -442,10 +442,10 @@ func ExtractAdditionalSystemInfo() (AdditionalSystemInfo, error) {
 		return info, fmt.Errorf("failed to execute lscpu: %v", err)
 	}
 
-	cpuInfoLines := strings.Split(string(cpuInfoOutput), "\n")
-	for _, line := range cpuInfoLines {
-		if strings.HasPrefix(line, "Model name:") {
-			info.CPUName = strings.TrimSpace(strings.TrimPrefix(line, "Model name:"))
+	cpuInfoLines := strings.SplitSeq(string(cpuInfoOutput), "\n")
+	for line := range cpuInfoLines {
+		if after, ok := strings.CutPrefix(line, "Model name:"); ok {
+			info.CPUName = strings.TrimSpace(after)
 			break
 		}
 	}
@@ -462,13 +462,13 @@ func ExtractAdditionalSystemInfo() (AdditionalSystemInfo, error) {
 	var totalMemory int64
 	for _, line := range memInfoLines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Maximum Capacity:") {
-			info.MaxMemoryCapacity = strings.TrimSpace(strings.TrimPrefix(line, "Maximum Capacity:"))
-		} else if strings.HasPrefix(line, "Number Of Devices:") {
-			info.MemoryChannels, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "Number Of Devices:")))
-		} else if strings.HasPrefix(line, "Size:") {
+		if after, ok := strings.CutPrefix(line, "Maximum Capacity:"); ok {
+			info.MaxMemoryCapacity = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(line, "Number Of Devices:"); ok {
+			info.MemoryChannels, _ = strconv.Atoi(strings.TrimSpace(after))
+		} else if after, ok := strings.CutPrefix(line, "Size:"); ok {
 			if strings.Contains(line, "GB") {
-				sizeStr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "Size:"), "GB"))
+				sizeStr := strings.TrimSpace(strings.TrimSuffix(after, "GB"))
 				size, _ := strconv.ParseInt(sizeStr, 10, 64)
 				if size > 0 {
 					totalMemory += size

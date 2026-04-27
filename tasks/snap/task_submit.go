@@ -190,7 +190,6 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	transferMap := make(map[int64]*updateCids)
 
 	for _, update := range tasks {
-		update := update
 
 		// Check miner ID is same for all sectors in batch
 		tmpMaddr, err := address.NewIDAddress(uint64(update.SpID))
@@ -235,6 +234,24 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		}
 		if onChainInfo.SealProof != abi.RegisteredSealProof(regProof) {
 			return false, xerrors.Errorf("Proof mismatch between on chain %d and local database %d for sector %d of miner %d", onChainInfo.SealProof, regProof, update.SectorNumber, update.SpID)
+		}
+
+		// Check that the sector is a CC sector (SectorKeyCID must be nil for CC sectors).
+		// If SectorKeyCID is set, the sector was already snapped and cannot be updated again.
+		if onChainInfo.SectorKeyCID != nil {
+			log.Errorw("sector is not CC on-chain (SectorKeyCID is set), skipping", "sp", update.SpID, "sector", update.SectorNumber, "sector_key_cid", onChainInfo.SectorKeyCID)
+
+			_, err := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET
+                                 failed = TRUE, failed_at = NOW(), failed_reason = 'not-cc', failed_reason_msg = $1,
+                                 task_id_submit = NULL, after_submit = FALSE
+                             WHERE sp_id = $2 AND sector_number = $3`,
+				fmt.Sprintf("sector %d is not a CC sector on-chain: SectorKeyCID is set to %s", update.SectorNumber, onChainInfo.SectorKeyCID),
+				update.SpID, update.SectorNumber)
+			if err != nil {
+				return false, xerrors.Errorf("marking sector as failed (not CC): %w", err)
+			}
+
+			continue // Skip this sector
 		}
 
 		sl, err := s.api.StateSectorPartition(ctx, maddr, snum, types.EmptyTSK)
@@ -364,7 +381,8 @@ func (s *SubmitTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 	}
 
 	if len(params.SectorUpdates) == 0 {
-		return false, xerrors.Errorf("no sector updates")
+		log.Warnw("no sector updates to submit after filtering, all sectors were skipped")
+		return true, nil
 	}
 
 	enc := new(bytes.Buffer)
@@ -440,9 +458,8 @@ func (s *SubmitTask) transferUpdatedSectorData(ctx context.Context, spID int64, 
 
 	commit, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		for sectorNum, cids := range transferMap {
-			sectorNum, cids := sectorNum, cids
 			n, err := tx.Exec(`UPDATE sectors_meta SET cur_sealed_cid = $1,
-	                        		cur_unsealed_cid = $2, msg_cid_update = $3
+	                        		cur_unsealed_cid = $2, msg_cid_update = $3, has_sector_key = TRUE
 	                        		WHERE sp_id = $4 AND sector_num = $5`, cids.sealed.String(), cids.unsealed.String(), mcid.String(), spID, sectorNum)
 
 			if err != nil {

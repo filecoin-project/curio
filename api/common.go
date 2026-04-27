@@ -3,14 +3,14 @@ package api
 import "reflect"
 
 // GetInternalStructs extracts all pointers to 'Internal' sub-structs from the provided pointer to a proxy struct
-func GetInternalStructs(in interface{}) []interface{} {
+func GetInternalStructs(in any) []any {
 	return getInternalStructs(reflect.ValueOf(in).Elem())
 }
 
 var _internalField = "Internal"
 
-func getInternalStructs(rv reflect.Value) []interface{} {
-	var out []interface{}
+func getInternalStructs(rv reflect.Value) []any {
+	var out []any
 
 	internal := rv.FieldByName(_internalField)
 	ii := internal.Addr().Interface()

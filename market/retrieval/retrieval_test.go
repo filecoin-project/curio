@@ -63,8 +63,12 @@ func TestIPFSPathRouting(t *testing.T) {
 	dirRootEnt, err := dirEntity.Generate(lsys, rndReader)
 	require.NoError(t, err)
 
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
 	// Create a Provider with the LinkSystem
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 
 	// Set up router
 	mux := chi.NewMux()
@@ -155,7 +159,11 @@ func TestRouterSetup(t *testing.T) {
 	lsys.SetReadStorage(store)
 	lsys.SetWriteStorage(store)
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
@@ -193,7 +201,11 @@ func TestTrustlessGatewaySentinel(t *testing.T) {
 	lsys.SetWriteStorage(store)
 	lsys.TrustedStorage = true
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -255,7 +267,11 @@ func TestTrustlessGatewayHeaders(t *testing.T) {
 	rootEnt, err := entity.Generate(lsys, rndReader)
 	require.NoError(t, err)
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -305,7 +321,11 @@ func TestTrustlessGatewayAcceptHeader(t *testing.T) {
 	rootEnt, err := entity.Generate(lsys, rndReader)
 	require.NoError(t, err)
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -357,7 +377,11 @@ func TestTrustlessGatewayQueryParameters(t *testing.T) {
 	dirRootEnt, err := dirEntity.Generate(lsys, rndReader)
 	require.NoError(t, err)
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -454,7 +478,11 @@ func TestRawBlockRetrieval(t *testing.T) {
 	allCIDs := collectAllCIDs(dirRootEnt)
 	require.NotEmpty(t, allCIDs, "Should have generated multiple CIDs")
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -514,7 +542,11 @@ func TestMissingBlockReturns404(t *testing.T) {
 	lsys.SetWriteStorage(store)
 	lsys.TrustedStorage = true
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -588,7 +620,11 @@ func TestDagScopeCAR(t *testing.T) {
 	allCIDs := collectAllCIDs(dirRootEnt)
 	require.NotEmpty(t, allCIDs, "Should have generated multiple CIDs")
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 
@@ -672,7 +708,11 @@ func TestPiecePathHeadRouting(t *testing.T) {
 	lsys.SetWriteStorage(store)
 	lsys.TrustedStorage = true
 
-	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys)
+	has := func(ctx context.Context, s cid.Cid) (bool, error) {
+		return store.Has(ctx, s.KeyString())
+	}
+
+	provider := NewRetrievalProviderWithLinkSystem(ctx, lsys, has)
 	mux := chi.NewMux()
 	Router(mux, provider, testDenyFilter())
 

@@ -27,8 +27,7 @@ import (
 func TestTimestampTimezoneHandling(t *testing.T) {
 	ctx := context.Background()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	_, err = cdb.Exec(ctx, `CREATE TABLE IF NOT EXISTS tz_test (
@@ -51,7 +50,6 @@ func TestTimestampTimezoneHandling(t *testing.T) {
 	}
 
 	for _, tz := range timezones {
-		tz := tz
 		_, err := cdb.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 			// set_config('timezone', value, is_local) lets us parameterize
 			// the timezone name while keeping the SQL string literal.

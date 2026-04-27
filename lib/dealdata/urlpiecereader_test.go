@@ -4,9 +4,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/curio/lib/robusthttp"
 )
 
 // TestUrlPieceReader_Read tests various scenarios of reading data from UrlPieceReader
@@ -18,6 +21,7 @@ func TestUrlPieceReader_Read(t *testing.T) {
 		require.NoError(t, err)
 	}))
 	defer ts.Close()
+	ssrfPolicy := testSSRFPolicy(t, ts.URL)
 
 	tests := []struct {
 		name        string
@@ -32,10 +36,10 @@ func TestUrlPieceReader_Read(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 
 		t.Run(tt.name, func(t *testing.T) {
 			reader := NewUrlReader(nil, ts.URL, http.Header{}, tt.rawSize, "test")
+			reader.SSRFPolicy = ssrfPolicy
 
 			buffer, err := io.ReadAll(reader)
 			if err != nil {
@@ -58,12 +62,27 @@ func TestUrlPieceReader_Read_Error(t *testing.T) {
 		http.Error(w, "error", http.StatusInternalServerError)
 	}))
 	defer ts.Close()
+	ssrfPolicy := testSSRFPolicy(t, ts.URL)
 
 	reader := NewUrlReader(nil, ts.URL, http.Header{}, 100, "test")
+	reader.SSRFPolicy = ssrfPolicy
 	buffer := make([]byte, 200)
 
 	_, err := reader.Read(buffer)
 	if err == nil {
 		t.Errorf("Expected an error, but got nil")
+	}
+}
+
+func testSSRFPolicy(t *testing.T, rawURL string) *robusthttp.SSRFPolicy {
+	t.Helper()
+
+	u, err := url.Parse(rawURL)
+	require.NoError(t, err)
+	require.NotEmpty(t, u.Port())
+
+	return &robusthttp.SSRFPolicy{
+		AllowLoopbackIPs:    true,
+		AllowLocalHostnames: true,
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -111,7 +112,7 @@ func balanceCheck(al *alerts) {
 	Name := "Balance Check"
 	al.alertMap[Name] = &alertOut{}
 
-	var ret string
+	var ret strings.Builder
 
 	uniqueAddrs, _, err := al.getAddresses()
 	if err != nil {
@@ -133,7 +134,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if !has {
-			ret += fmt.Sprintf("Wallet %s was not found in chain node. ", keyAddr)
+			fmt.Fprintf(&ret, "Wallet %s was not found in chain node. ", keyAddr)
 		}
 
 		balance, err := al.api.WalletBalance(al.ctx, addr)
@@ -142,11 +143,11 @@ func balanceCheck(al *alerts) {
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			ret += fmt.Sprintf("Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
+			fmt.Fprintf(&ret, "Balance for wallet %s (%s) is below %s. ", addr, keyAddr, al.cfg.MinimumWalletBalance.Short())
 		}
 	}
-	if ret != "" {
-		al.alertMap[Name].alertString = ret
+	if ret.String() != "" {
+		al.alertMap[Name].alertString = ret.String()
 	}
 }
 
@@ -198,12 +199,7 @@ func taskFailureCheck(al *alerts) {
 
 	sealingTasks := []string{"SDR", "TreeD", "TreeRC", "PreCommitSubmit", "PoRep", "Finalize", "MoveStorage", "CommitSubmit", "WdPost", "ParkPiece"}
 	contains := func(s []string, e string) bool {
-		for _, a := range s {
-			if a == e {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(s, e)
 	}
 
 	// Alerts for any sealing pipeline failures. Other tasks should have at least 5 failures for an alert
@@ -337,10 +333,9 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 
 	// Get unique layers in use
 	for _, machine := range machineDetails {
-		machine := machine
 		// Split the Layers field into individual layers
-		layers := strings.Split(machine.Layers, ",")
-		for _, layer := range layers {
+		layers := strings.SplitSeq(machine.Layers, ",")
+		for layer := range layers {
 			layer = strings.TrimSpace(layer)
 			if _, exists := layerMap[layer]; !exists && layer != "" {
 				layerMap[layer] = true
@@ -445,10 +440,7 @@ func wdPostCheck(al *alerts) {
 	}
 
 	// Calculate from epoch for last AlertMangerInterval
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
-	if from < 0 {
-		from = 0
-	}
+	from := max(head.Height()-abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
 	_, miners, err := al.getAddresses()
 	if err != nil {
@@ -636,10 +628,7 @@ func wnPostCheck(al *alerts) {
 	}
 
 	// Calculate from epoch for last AlertMangerInterval
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
-	if from < 0 {
-		from = 0
-	}
+	from := max(head.Height()-abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
 	var wnDetails []struct {
 		Miner    int64          `db:"sp_id"`
