@@ -16,7 +16,7 @@ import (
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	commp2 "github.com/filecoin-project/go-commp-utils/v2"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/lotus/lib/nullreader"

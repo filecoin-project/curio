@@ -135,18 +135,18 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		if err == nil {
 			// If piece exists then check if we can access the data
 			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
-			if err != nil {
-				// If piece does not exist then we will park it otherwise fail here
-				if !errors.Is(err, storiface.ErrSectorNotFound) {
-					// We should fail here because any subsequent operation which requires access to data will also fail
-					// till this error is fixed
-					return false, fmt.Errorf("failed to get piece reader: %w", err)
-				}
+			if err == nil {
+				defer func() {
+					_ = pr.Close()
+				}()
+				pieceParked = true
+			} else if errors.Is(err, storiface.ErrSectorNotFound) {
+				// Stale parked piece row: reuse existing row id and rewrite bytes.
+				pieceParked = false
+			} else {
+				// Any other storage error should fail fast.
+				return false, fmt.Errorf("failed to get piece reader: %w", err)
 			}
-			defer func() {
-				_ = pr.Close()
-			}()
-			pieceParked = true
 			parkedPieceID = pid
 		} else {
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -154,9 +154,24 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 			}
 			// If piece does not exist then let's create one
 			err = tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
-				pcid.String(), psize, rawSize).Scan(&parkedPieceID)
+					WITH existing_piece AS (
+					  SELECT id
+					  FROM parked_pieces
+					  WHERE piece_cid = $1
+						AND piece_padded_size = $2
+						AND long_term = TRUE
+						AND cleanup_task_id IS NULL
+					),
+					inserted_piece AS (
+					  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+					  SELECT $1, $2, $3, TRUE, TRUE
+					  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+					  RETURNING id
+					)
+					SELECT id FROM existing_piece
+					UNION ALL
+					SELECT id FROM inserted_piece
+					LIMIT 1;`, pcid.String(), psize, rawSize).Scan(&parkedPieceID)
 			if err != nil {
 				return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 			}
@@ -236,7 +251,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 			_, err = tx.Exec(`UPDATE parked_pieces SET 
                          complete = TRUE 
                      WHERE id = $1 
-                       AND complete = false`, pieceRefID)
+                       AND complete = false`, parkedPieceID)
 			if err != nil {
 				return false, xerrors.Errorf("marking piece park as complete: %w", err)
 			}
@@ -280,7 +295,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 						   piece_size, raw_size, url, offline, indexing, announce,
 						   allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
 		       		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
-					dealID, spid, ddo.ContractAddress, deal.Client, pcid2.String(), pcid.String(),
+					dealID, spid, ddo.MarketAddress, deal.Client, pcid2.String(), pcid.String(),
 					psize, rawSize, pieceIDUrl.String(), false, rev.Indexing, rev.AnnouncePayload,
 					allocationID, ddo.Duration, aggregation, aggregation)
 

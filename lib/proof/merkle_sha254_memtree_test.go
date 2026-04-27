@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/lib/savecache"
 )
 
 // Selected fixtures from go-fil-commp-hashhash testdata/random.txt.
@@ -228,22 +228,22 @@ func TestCacheSplitProof(t *testing.T) {
 			require.Equal(t, fx.RawCommP, root)
 
 			// Compute snapshot via savecache (test mode: ~2 KiB per snapshot node)
-			cp := savecache.NewCommPWithSizeForTest(uint64(fx.PayloadSize))
+			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(2048))
+			defer cp.Reset()
 			_, err := io.Copy(cp, bytes.NewReader(generateDeterministicData(fx.PayloadSize)))
 			require.NoError(t, err)
 
-			commP, _, layerIdx, expectedNodeCount, snapshotNodes, err := cp.DigestWithSnapShot()
+			commP, _, snapshotNodes, err := cp.DigestWithSnapshot()
 			require.NoError(t, err)
 
 			var snapCommP [32]byte
 			copy(snapCommP[:], commP)
 			require.Equal(t, fx.RawCommP, snapCommP, "savecache CommP should match fixture")
-			require.Equal(t, expectedNodeCount, len(snapshotNodes))
 
 			// Build upper memtree from snapshot layer
-			snapshotData := make([]byte, len(snapshotNodes)*proof.NODE_SIZE)
-			for i, node := range snapshotNodes {
-				copy(snapshotData[i*proof.NODE_SIZE:], node.Hash[:])
+			snapshotData := make([]byte, len(snapshotNodes.Nodes)*proof.NODE_SIZE)
+			for i, node := range snapshotNodes.Nodes {
+				copy(snapshotData[i*proof.NODE_SIZE:], node[:])
 			}
 			upperMemtree, err := proof.BuildSha254MemtreeFromSnapshot(snapshotData)
 			require.NoError(t, err)
@@ -258,8 +258,8 @@ func TestCacheSplitProof(t *testing.T) {
 			}
 
 			nLeaves := int64(fx.PieceSize) / proof.NODE_SIZE
-			sampleParams := proof.ComputeCacheProofParams(layerIdx, 0)
-			nSections := int64(len(snapshotNodes))
+			sampleParams := proof.ComputeCacheProofParams(snapshotNodes.LayerIndex, 0)
+			nSections := int64(len(snapshotNodes.Nodes))
 
 			challenges := []int64{
 				0,                              // first leaf of first section
@@ -269,7 +269,7 @@ func TestCacheSplitProof(t *testing.T) {
 			}
 
 			for _, challenge := range challenges {
-				params := proof.ComputeCacheProofParams(layerIdx, challenge)
+				params := proof.ComputeCacheProofParams(snapshotNodes.LayerIndex, challenge)
 
 				require.Less(t, params.SnapshotNodeIndex, nSections,
 					"challenge %d maps to section %d but only %d sections exist",
@@ -285,7 +285,7 @@ func TestCacheSplitProof(t *testing.T) {
 
 				// Sub-memtree root must match the corresponding snapshot node
 				subRoot := extractRoot(subMemtree)
-				require.Equal(t, snapshotNodes[params.SnapshotNodeIndex].Hash, subRoot,
+				require.Equal(t, snapshotNodes.Nodes[params.SnapshotNodeIndex], subRoot,
 					"sub-memtree root should match snapshot node at section %d (challenge %d)",
 					params.SnapshotNodeIndex, challenge)
 
@@ -397,11 +397,11 @@ func TestGenerateCachedProof(t *testing.T) {
 			require.Equal(t, fx.RawCommP, root)
 
 			// Compute snapshot via savecache (test mode)
-			cp := savecache.NewCommPWithSizeForTest(uint64(fx.PayloadSize))
+			cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(2048))
 			_, err := io.Copy(cp, bytes.NewReader(generateDeterministicData(fx.PayloadSize)))
 			require.NoError(t, err)
 
-			commP, _, layerIdx, _, snapshotNodes, err := cp.DigestWithSnapShot()
+			commP, _, snapshotNodes, err := cp.DigestWithSnapshot()
 			require.NoError(t, err)
 
 			var snapCommP [32]byte
@@ -427,14 +427,12 @@ func TestGenerateCachedProof(t *testing.T) {
 			}
 
 			// Build mock ProofCache from savecache output
-			nodeHashes := make([][32]byte, len(snapshotNodes))
-			for i, n := range snapshotNodes {
-				nodeHashes[i] = n.Hash
-			}
-			cache := newMemProofCache(layerIdx, nodeHashes)
+			nodeHashes := make([][32]byte, len(snapshotNodes.Nodes))
+			copy(nodeHashes, snapshotNodes.Nodes)
+			cache := newMemProofCache(snapshotNodes.LayerIndex, nodeHashes)
 
 			nLeaves := int64(fx.PieceSize) / proof.NODE_SIZE
-			sampleParams := proof.ComputeCacheProofParams(layerIdx, 0)
+			sampleParams := proof.ComputeCacheProofParams(snapshotNodes.LayerIndex, 0)
 			challenges := []int64{
 				0,                              // first leaf of first section
 				sampleParams.LeavesPerNode - 1, // last leaf of first section

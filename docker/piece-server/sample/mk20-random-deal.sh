@@ -21,10 +21,9 @@ miner_actor=$(lotus state list-miners | grep -v t01000)
 if [ "$put" == "true" ]; then
   ###################################################################################
     printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
-    --pcidv2=$COMMP_CID \
-    --contract-address 0xtest --contract-verify-method test --put\n\n${cn}"
+    --pcidv2=$COMMP_CID --put\n\n${cn}"
 
-    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$COMMP_CID --contract-address 0xtest --contract-verify-method test --put
+    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$COMMP_CID --put
 
 else
 
@@ -32,19 +31,17 @@ else
 
     ###################################################################################
     printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
-    --pcidv2=$COMMP_CID \
-    --contract-address 0xtest --contract-verify-method test\n\n${cn}"
+    --pcidv2=$COMMP_CID\n\n${cn}"
 
-    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$COMMP_CID  --contract-address 0xtest --contract-verify-method test
+    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$COMMP_CID
 
   else
     ###################################################################################
     printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
     --http-url=http://piece-server:12320/pieces?id=$COMMP_CID \
-    --pcidv2=$COMMP_CID \
-    --contract-address 0xtest --contract-verify-method test\n\n${cn}"
+    --pcidv2=$COMMP_CID\n\n${cn}"
 
-    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --pcidv2=$COMMP_CID --contract-address 0xtest --contract-verify-method test
+    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --pcidv2=$COMMP_CID
 
   fi
 

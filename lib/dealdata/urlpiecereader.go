@@ -28,6 +28,7 @@ type UrlPieceReader struct {
 	kind string
 
 	RemoteEndpointReader *paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
+	SSRFPolicy           *robusthttp.SSRFPolicy
 
 	readSoFar int64
 	closed    bool
@@ -68,9 +69,9 @@ func (u *UrlPieceReader) initiateRequest() error {
 		return xerrors.Errorf("URL scheme %s not supported", goUrl.Scheme)
 	}
 
-	rd := robusthttp.RobustGet(goUrl.String(), u.Headers, u.RawSize, func() *robusthttp.RateCounter {
+	rd := robusthttp.RobustGetWithSSRFPolicy(goUrl.String(), u.Headers, u.RawSize, func() *robusthttp.RateCounter {
 		return rcs.Get(uuid.New())
-	})
+	}, u.SSRFPolicy)
 
 	/* if resp.StatusCode != 200 {
 		limitedReader := io.LimitReader(resp.Body, 1024)
