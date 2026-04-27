@@ -56,7 +56,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/icza/backscanner v0.0.0-20241124160932-dff01ac50250
 	github.com/invopop/jsonschema v0.14.0
-	github.com/ipfs/boxo v0.39.0
+	github.com/ipfs/boxo v0.38.0
 	github.com/ipfs/go-block-format v0.2.3
 	github.com/ipfs/go-cid v0.6.1
 	github.com/ipfs/go-cidutil v0.1.1
@@ -72,7 +72,7 @@ require (
 	github.com/ipld/go-fixtureplate v0.1.0
 	github.com/ipld/go-ipld-prime v0.23.0
 	github.com/ipld/go-trustless-utils v0.8.0
-	github.com/ipni/go-libipni v0.7.8
+	github.com/ipni/go-libipni v0.7.7
 	github.com/jellydator/ttlcache/v2 v2.11.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/klauspost/cpuid/v2 v2.3.0
@@ -261,7 +261,7 @@ require (
 	github.com/libp2p/go-libp2p-asn-util v0.4.1 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.39.1 // indirect
 	github.com/libp2p/go-libp2p-kbucket v0.8.0 // indirect
-	github.com/libp2p/go-libp2p-pubsub v0.16.0 // indirect
+	github.com/libp2p/go-libp2p-pubsub v0.15.0 // indirect
 	github.com/libp2p/go-libp2p-record v0.3.1 // indirect
 	github.com/libp2p/go-libp2p-routing-helpers v0.7.5 // indirect
 	github.com/libp2p/go-maddr-filter v0.1.0 // indirect

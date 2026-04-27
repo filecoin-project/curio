@@ -724,8 +724,8 @@ github.com/invopop/jsonschema v0.14.0/go.mod h1:ygm6C2EaVNMBDPpaPlnOA2pFAxBnxGjF
 github.com/ipfs/bbloom v0.0.1/go.mod h1:oqo8CVWsJFMOZqTglBG4wydCE4IQA/G2/SEofB0rjUI=
 github.com/ipfs/bbloom v0.1.0 h1:nIWwfIE3AaG7RCDQIsrUonGCOTp7qSXzxH7ab/ss964=
 github.com/ipfs/bbloom v0.1.0/go.mod h1:lDy3A3i6ndgEW2z1CaRFvDi5/ZTzgM1IxA/pkL7Wgts=
-github.com/ipfs/boxo v0.39.0 h1:u9jLf5pLx5SWROXjHtj8VMvv+iDlMbiTyZ/vVTQ4VhI=
-github.com/ipfs/boxo v0.39.0/go.mod h1:k9YCvMjytFguMHndEiGdCGMMj4b7CkdOT44vtgAxOdk=
+github.com/ipfs/boxo v0.38.0 h1:Kt/swuNXAtVXs7EP6KEjB5+2lo5/tTrvWzjakQ8IiOo=
+github.com/ipfs/boxo v0.38.0/go.mod h1:A6DRpImSXihx6MiEHOeBjXqleDqK5JX3yWDxM0WygPo=
 github.com/ipfs/go-bitfield v1.1.0 h1:fh7FIo8bSwaJEh6DdTWbCeZ1eqOaOkKFI74SCnsWbGA=
 github.com/ipfs/go-bitfield v1.1.0/go.mod h1:paqf1wjq/D2BBmzfTVFlJQ9IlFOZpg422HL0HqsGWHU=
 github.com/ipfs/go-bitswap v0.1.0/go.mod h1:FFJEf18E9izuCqUtHxbWEvq+reg7o4CW5wSAE1wsxj0=
@@ -848,8 +848,8 @@ github.com/ipld/go-trustless-utils v0.8.0 h1:/rlmYkNVInu1DaWmCF1/NfpEMEaCo/EFNX2
 github.com/ipld/go-trustless-utils v0.8.0/go.mod h1:xT4Ioui+/ZTcvAWbo23px7+yaaJvxPyRHPoYu+d0biE=
 github.com/ipld/ipld/specs v0.0.0-20231012031213-54d3b21deda4 h1:0VXv637/xpI0Pb5J8K+K8iRtTw4DOcxs0MB1HMzfwNY=
 github.com/ipld/ipld/specs v0.0.0-20231012031213-54d3b21deda4/go.mod h1:WcT0DfRe+e2QFY0kcbsOnuT6jL5Q0JNZ83I5DHIdStg=
-github.com/ipni/go-libipni v0.7.8 h1:kPfgi9fNZC/wkzu/UegsaBa2e5F2GxIru/pHkyJXPDY=
-github.com/ipni/go-libipni v0.7.8/go.mod h1:T+QVg6kT/PizcKN4pKKd9NaUXA8BZaubfaG+M6/rixE=
+github.com/ipni/go-libipni v0.7.7 h1:PcJfJ7aH7TATfJVpKvOnMAi9YvEsOHBA7j2LwaLBXEs=
+github.com/ipni/go-libipni v0.7.7/go.mod h1:1TFpucMiEGD1K89QXKwCE2lfdb9qy6ug6vjHoQGSxEQ=
 github.com/ipni/index-provider v0.16.3 h1:oHyYK0lSQu9rY22Apst9+/g0sq8iwu38QSqbVjVtvC4=
 github.com/ipni/index-provider v0.16.3/go.mod h1:TttX+YCYCKRfJhf87zO2zWyJ4zaTQ3WyDL9/Cb6wWM4=
 github.com/ipsn/go-secp256k1 v0.0.0-20180726113642-9d62b9f0bc52 h1:QG4CGBqCeuBo6aZlGAamSkxWdgWfZGeE49eUOWJPA4c=
@@ -977,8 +977,8 @@ github.com/libp2p/go-libp2p-nat v0.0.4/go.mod h1:N9Js/zVtAXqaeT99cXgTV9e75KpnWCv
 github.com/libp2p/go-libp2p-netutil v0.1.0/go.mod h1:3Qv/aDqtMLTUyQeundkKsA+YCThNdbQD54k3TqjpbFU=
 github.com/libp2p/go-libp2p-peer v0.2.0/go.mod h1:RCffaCvUyW2CJmG2gAWVqwePwW7JMgxjsHm7+J5kjWY=
 github.com/libp2p/go-libp2p-peerstore v0.1.0/go.mod h1:2CeHkQsr8svp4fZ+Oi9ykN1HBb6u0MOvdJ7YIsmcwtY=
-github.com/libp2p/go-libp2p-pubsub v0.16.0 h1:j7G2C8kJwkcAQqYR7Wmq3d75d3Sgw/N0Hhiv0dVx7OY=
-github.com/libp2p/go-libp2p-pubsub v0.16.0/go.mod h1:lr4oE8bFgQaifRcoc2uWhWWiK6tPdOEKpUuR408GFN4=
+github.com/libp2p/go-libp2p-pubsub v0.15.0 h1:cG7Cng2BT82WttmPFMi50gDNV+58K626m/wR00vGL1o=
+github.com/libp2p/go-libp2p-pubsub v0.15.0/go.mod h1:lr4oE8bFgQaifRcoc2uWhWWiK6tPdOEKpUuR408GFN4=
 github.com/libp2p/go-libp2p-record v0.1.0/go.mod h1:ujNc8iuE5dlKWVy6wuL6dd58t0n7xI4hAIl8pE6wu5Q=
 github.com/libp2p/go-libp2p-record v0.3.1 h1:cly48Xi5GjNw5Wq+7gmjfBiG9HCzQVkiZOUZ8kUl+Fg=
 github.com/libp2p/go-libp2p-record v0.3.1/go.mod h1:T8itUkLcWQLCYMqtX7Th6r7SexyUJpIyPgks757td/E=
