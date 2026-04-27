@@ -313,11 +313,10 @@ func SeedMK20PendingDeal(tx *harmonydb.Tx, s MK20PendingSeed) error {
 		Data:       ds,
 		Products: mk20.Products{
 			DDOV1: &mk20.DDOV1{
-				Provider:        s.Provider,
-				PieceManager:    s.Provider,
-				Duration:        s.Duration,
-				AllocationId:    allocationID,
-				ContractAddress: s.Contract,
+				Provider:      s.Provider,
+				Duration:      s.Duration,
+				AllocationId:  allocationID,
+				MarketAddress: s.Contract,
 			},
 			RetrievalV1: &mk20.RetrievalV1{
 				Indexing:        s.Indexing,

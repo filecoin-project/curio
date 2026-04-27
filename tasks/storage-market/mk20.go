@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
+	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/chain/types"
+	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -111,6 +113,8 @@ func (d *CurioStorageDealMarket) insertDDODealInPipeline(ctx context.Context) {
 		log.Errorf("querying mk20 pipeline waiting: %s", err)
 		return
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		var dealID string
 		err = rows.Scan(&dealID)
@@ -210,16 +214,20 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 
 			var pieceID int64
 			// Check if already have the piece and save the user trouble to upload
-			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, pi.PieceCIDV1.String(), pi.Size).Scan(&pieceID)
+			err = tx.QueryRow(`SELECT id FROM parked_pieces
+									WHERE piece_cid = $1
+									  AND piece_padded_size = $2
+									  AND piece_raw_size = $3
+									  AND complete = TRUE`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
 
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					// We don't have the piece, let user upload
 					return false, nil
-				} else {
-					// Some other error occurred during select
-					return false, xerrors.Errorf("checking existing parked piece: %w", err)
 				}
+				// Some other error occurred during select
+				return false, xerrors.Errorf("checking existing parked piece: %w", err)
+
 			}
 
 			retv := deal.Products.RetrievalV1
@@ -230,18 +238,18 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 				aggregation = int(data.Format.Aggregate.Type)
 			}
 
-			spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
-			if err != nil {
-				return false, fmt.Errorf("getting provider ID: %w", err)
-			}
-
 			var comm bool
 
 			// Insert DDO deal if present
 			if deal.Products.DDOV1 != nil {
 				ddo := deal.Products.DDOV1
 
-				var allocationID any
+				spid, err := address.IDFromAddress(ddo.Provider)
+				if err != nil {
+					return false, fmt.Errorf("getting provider ID: %w", err)
+				}
+
+				var allocationID interface{}
 				if ddo.AllocationId != nil {
 					allocationID = *ddo.AllocationId
 				} else {
@@ -267,7 +275,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 					offline, indexing, announce, allocation_id, duration, 
 					piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-					id, spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+					id, spid, ddo.MarketAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
 					false, retv.Indexing, retv.AnnouncePayload, allocationID, ddo.Duration,
 					0, aggregation)
 				if err != nil {
@@ -305,6 +313,17 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 					return false, xerrors.Errorf("inserting piece in PDP pipeline: %d rows affected", n)
 				}
 				comm = true
+			}
+
+			if comm {
+				// Clear upload-waiting marker in same tx to prevent reprocessing/stuck uploading status.
+				n, err := tx.Exec(`DELETE FROM market_mk20_upload_waiting WHERE id = $1 AND chunked IS NULL AND ref_id IS NULL`, id.String())
+				if err != nil {
+					return false, xerrors.Errorf("deleting upload waiting row: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected 1 upload waiting row deleted, got %d", n)
+				}
 			}
 
 			return comm, nil
@@ -420,7 +439,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation, started) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE)`,
-			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, false, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
@@ -439,7 +458,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, true, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
@@ -472,7 +491,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			if piece.SourceHTTP != nil {
 				urls, ok := toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
 					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
@@ -571,7 +590,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, aggr_index, started) 
         	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-				dealID, spid, ddo.ContractAddress, deal.Client, piece.PieceCID.String(), spi.PieceCIDV1.String(),
+				dealID, spid, ddo.MarketAddress, deal.Client, piece.PieceCID.String(), spi.PieceCIDV1.String(),
 				spi.Size, spi.RawSize, offline, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 				0, aggregation, i, !offline)
 			if pBatch.Len() > pBatchSize {
@@ -694,7 +713,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 	if piece.Offline && !piece.Downloaded && !piece.Started {
 		comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var updated bool
-			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4, $5)`, piece.ID, piece.PieceCIDV2, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&updated)
+			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4, $5, $6)`, piece.ID, piece.PieceCIDV2, piece.PieceCID, piece.PieceSize, piece.RawSize, mk20.ProductNameDDOV1).Scan(&updated)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to start download for offline deal %s: %w", piece.ID, err)
@@ -724,6 +743,9 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 				if err != nil {
 					return false, xerrors.Errorf("error making GET request: %w", err)
 				}
+				defer func() {
+					_ = resp.Body.Close()
+				}()
 
 				// Check the response code for 404
 				if resp.StatusCode != http.StatusOK {
@@ -765,11 +787,15 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										  WHERE id = $1 AND piece_cid = $2 AND piece_size = $3
 										),
 										existing_piece AS (
-										  SELECT id AS piece_id
-										  FROM parked_pieces
-										  WHERE piece_cid = $2 AND piece_padded_size = $3 AND long_term = NOT (p.deal_aggregation > 0)
+										  SELECT pp.id AS piece_id
+										  FROM parked_pieces pp
+										  JOIN pipeline_piece p ON true
+										  WHERE pp.piece_cid = $2
+											AND pp.piece_padded_size = $3
+											AND pp.long_term = NOT (p.deal_aggregation > 0)
+											AND pp.cleanup_task_id IS NULL
 										),
-										inserted_piece AS (
+										insert_piece AS (
 										  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
 										  SELECT $2, $3, $4, NOT (p.deal_aggregation > 0)
 										  FROM pipeline_piece p
@@ -779,7 +805,8 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										selected_piece AS (
 										  SELECT piece_id FROM existing_piece
 										  UNION ALL
-										  SELECT piece_id FROM inserted_piece
+										  SELECT piece_id FROM insert_piece
+										  LIMIT 1
 										),
 										inserted_ref AS (
 										  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
@@ -993,16 +1020,15 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 	}
 
 	var deals []struct {
-		ID           string        `db:"id"`
-		SPID         int64         `db:"sp_id"`
-		Client       string        `db:"client"`
-		PieceCID     string        `db:"piece_cid"`
-		PieceSize    int64         `db:"piece_size"`
-		RawSize      int64         `db:"raw_size"`
-		AllocationID sql.NullInt64 `db:"allocation_id"`
-		Duration     int64         `db:"duration"`
-		Url          string        `db:"url"`
-		Count        int           `db:"unassigned_count"`
+		ID        string `db:"id"`
+		SPID      int64  `db:"sp_id"`
+		Client    string `db:"client"`
+		PieceCID  string `db:"piece_cid"`
+		PieceSize int64  `db:"piece_size"`
+		RawSize   int64  `db:"raw_size"`
+		Duration  int64  `db:"duration"`
+		Url       string `db:"url"`
+		Count     int    `db:"unassigned_count"`
 	}
 
 	err = d.db.Select(ctx, &deals, `SELECT 
@@ -1012,7 +1038,6 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 											  MIN(piece_cid) AS piece_cid,
 											  MIN(piece_size) AS piece_size,
 											  MIN(raw_size) AS raw_size,
-											  MIN(allocation_id) AS allocation_id,
 											  MIN(duration) AS duration,
 											  MIN(url) AS url,
 											  COUNT(*) AS unassigned_count
@@ -1032,24 +1057,25 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 
 		pcid, err := cid.Parse(deal.PieceCID)
 		if err != nil {
-			log.Errorw("failed to parse aggregate piece cid", "deal", deal, "error", err)
+			log.Errorw("failed to parse aggregate piece cid", "deal", deal.ID, "error", err)
 			continue
 		}
 
 		client, err := address.NewFromString(deal.Client)
 		if err != nil {
-			log.Errorw("failed to parse client address", "deal", deal, "error", err)
+			log.Errorw("failed to parse client address", "deal", deal.ID, "error", err)
 			continue
 		}
 
 		clientIdAddr, err := d.api.StateLookupID(ctx, client, types.EmptyTSK)
 		if err != nil {
-			log.Errorw("failed to lookup client id", "deal", deal, "error", err)
+			log.Errorw("failed to lookup client id", "deal", deal.ID, "error", err)
+			continue
 		}
 
 		clientId, err := address.IDFromAddress(clientIdAddr)
 		if err != nil {
-			log.Errorw("failed to parse client id", "deal", deal, "error", err)
+			log.Errorw("failed to parse client id", "deal", deal.ID, "error", err)
 			continue
 		}
 
@@ -1059,35 +1085,78 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 		if aurl.Scheme != "pieceref" {
-			log.Errorw("aggregate url is not a pieceref: %s", deal)
+			log.Errorw("aggregate url is not a pieceref: %s", deal.ID)
+			continue
+		}
+
+		dealID, err := ulid.Parse(deal.ID)
+		if err != nil {
+			log.Errorw("failed to parse deal id", "deal", deal.ID, "error", err)
+			continue
+		}
+
+		mk20Deal, err := mk20.DealFromDB(ctx, d.db, dealID)
+		if err != nil {
+			log.Errorw("failed to get deal from db", "deal", deal.ID, "error", err)
 			continue
 		}
 
 		start := head.Height() + 2*builtin.EpochsInDay
+		if mk20Deal.Products.DDOV1.StartEpoch != nil {
+			start = *mk20Deal.Products.DDOV1.StartEpoch
+		}
 		end := start + abi.ChainEpoch(deal.Duration)
 		var vak *miner.VerifiedAllocationKey
-		if deal.AllocationID.Valid {
-			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(deal.AllocationID.Int64), types.EmptyTSK)
+		if mk20Deal.Products.DDOV1.AllocationId != nil {
+			allocClientID := clientId
+			alloc, err := d.api.StateGetAllocation(ctx, client, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 			if err != nil {
-				log.Errorw("failed to get allocation", "deal", deal, "error", err)
+				log.Errorw("failed to get allocation", "deal", deal.ID, "error", err)
 				continue
 			}
+			if alloc == nil && mk20Deal.Products.DDOV1.MarketAddress != "" {
+				contractAddr, perr := lethtypes.ParseEthAddress(mk20Deal.Products.DDOV1.MarketAddress)
+				if perr != nil {
+					log.Errorw("bad market address", "deal", deal.ID, "error", perr)
+					continue
+				}
+				fc, cerr := contractAddr.ToFilecoinAddress()
+				if cerr != nil {
+					log.Errorw("bad market address to filecoin address", "deal", deal.ID, "error", cerr)
+					continue
+				}
+				cAdr, lerr := d.api.StateLookupID(ctx, fc, types.EmptyTSK)
+				if lerr != nil {
+					log.Errorw("failed to lookup contract id", "deal", deal.ID, "error", lerr)
+					continue
+				}
+				cID, ierr := address.IDFromAddress(cAdr)
+				if ierr != nil {
+					log.Errorw("failed to parse contract id", "deal", deal.ID, "error", ierr)
+					continue
+				}
+				alloc, err = d.api.StateGetAllocation(ctx, fc, verifreg.AllocationId(*mk20Deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+				if err != nil {
+					log.Errorw("failed to get allocation via market", "deal", deal.ID, "error", err)
+					continue
+				}
+				allocClientID = cID
+			}
 			if alloc == nil {
-				log.Errorw("allocation not found", "deal", deal, "error", err)
+				log.Errorw("allocation not found", "deal", deal.ID, "error", err)
 				continue
 			}
 			if alloc.Expiration < start {
-				log.Errorw("allocation expired", "deal", deal, "error", err)
+				log.Errorw("allocation expired", "deal", deal.ID, "error", err)
 				continue
 			}
 			end = start + alloc.TermMin
 			vak = &miner.VerifiedAllocationKey{
-				Client: abi.ActorID(clientId),
-				ID:     verifreg13.AllocationId(deal.AllocationID.Int64),
+				Client: abi.ActorID(allocClientID),
+				ID:     verifreg13.AllocationId(*mk20Deal.Products.DDOV1.AllocationId),
 			}
 		}
 
-		// TODO: Attach notifications
 		pdi := lpiece.PieceDealInfo{
 			DealSchedule: lpiece.DealSchedule{
 				StartEpoch: start,
@@ -1100,9 +1169,18 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			},
 		}
 
+		if !mk20Deal.Products.DDOV1.NotificationAddress.Empty() && mk20Deal.Products.DDOV1.NotificationAddress != address.Undef && mk20Deal.Products.DDOV1.NotificationPayload != nil {
+			pdi.PieceActivationManifest.Notify = []miner13.DataActivationNotification{
+				{
+					Address: mk20Deal.Products.DDOV1.NotificationAddress,
+					Payload: mk20Deal.Products.DDOV1.NotificationPayload,
+				},
+			}
+		}
+
 		maddr, err := address.NewIDAddress(uint64(deal.SPID))
 		if err != nil {
-			log.Errorw("failed to parse miner address", "deal", deal, "error", err)
+			log.Errorw("failed to parse miner address", "deal", deal.ID, "error", err)
 			continue
 		}
 
