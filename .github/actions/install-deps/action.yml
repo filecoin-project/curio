@@ -4,7 +4,7 @@ description: 'Install common dependencies'
 inputs:
   skip:
     default: "false"
-    description: "skips the apt update"
+    description: "when true, only apt-get update (refresh indexes) then git/submodules; skips apt install and GCC alternatives for pre-provisioned runners"
 
 runs:
   using: 'composite'
@@ -13,12 +13,12 @@ runs:
     # e.g. libpython3.12-dev when archive/security lists disagree on ubuntu runners).
     - name: Update apt cache
       run: |
-        set -euo pipefail
+        # GitHub-hosted images occasionally ship stale apt lists; apt then tries to fetch
+        # package revisions that were rotated off security.ubuntu.com (404). Force a
+        # full index refresh before install.
         sudo rm -rf /var/lib/apt/lists/*
-        sudo apt-get clean || true
-        sudo DEBIAN_FRONTEND=noninteractive apt-get update -y -o Acquire::Retries=5
+        sudo apt-get update -y
       shell: bash
-      if: ${{ inputs.skip == 'false' }}
 
     - name: Install dependencies
       run: |
@@ -45,6 +45,7 @@ runs:
           do_install
         }
       shell: bash
+      if: ${{ inputs.skip == 'false' }}
 
     - name: Set up GCC 13 as default
       run: |
@@ -55,6 +56,7 @@ runs:
         echo "CC=gcc-13" >> $GITHUB_ENV
         echo "CXX=g++-13" >> $GITHUB_ENV
       shell: bash
+      if: ${{ inputs.skip == 'false' }}
 
     # NOTE: CI sometimes flakes on large/full fetches (HTTP/2 early EOF).
     # We only need tags (and only from origin) for versioning/metadata, so keep
