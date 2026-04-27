@@ -9,6 +9,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonytask/internal/peerregistry"
 	"github.com/filecoin-project/curio/harmony/harmonytask/internal/preemptbids"
+
 	"github.com/filecoin-project/lotus/lib/must"
 )
 
