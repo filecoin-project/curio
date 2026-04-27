@@ -3,9 +3,11 @@ Package harmonytask implements a pure (no task logic), distributed task
 manager. This clean interface lets task implementers avoid scheduling and
 cluster coordination; they only implement work units.
 
-The task system is designed to take work we are capable of doing up to the limit
-of our resources. Order priority may starve lower priority tasks, so within a
-priority class, we should prefer the oldest tasks first.
+Tasks are small pieces of work split out by hardware limits, parallelism,
+reliability, or other reasons. The task system is designed to take work we are
+capable of doing up to the limit of our resources. Order priority may starve
+lower priority tasks, so within a priority class, we should prefer the oldest
+tasks first.
 
 The hot path is event-driven scheduling with peer-to-peer coordination: nodes
 tell each other about new work and task starts over HTTP so the cluster reacts
@@ -16,11 +18,10 @@ goroutine also runs heavier queries such as precomputing CanAccept caches and
 node cordon/restart flags, so not all work is “push-driven.”
 
 The task system tries to run any work the node can do up to resource limits.
+As queues build, it can reserve resources for soft-claimed (reserved) tasks
+so higher-priority work is not starved and clusters can respect run order.
 Ordering priority may starve lower priorities, so within a class prefer the
 oldest tasks first.
-
-Polling is too db-heavy, so nodes contact each other to share work and announce
-acceptance of work. The actual claim happens in the database.
 
 	ex: prio: prio.P0 | prio.LessThan('x', 'y', 'z') | prio.PipelineOrder('a1', 'b2', 'c3')
 
@@ -40,7 +41,7 @@ The system is built around three cooperating layers:
 
  2. **Peering** (peering.go) — On startup each node connects to every
     known peer (from harmony_machines) over HTTP. Peers exchange JSON
-    messages for verbs such as newTask, started, and preemptCost. That
+    messages for verbs such as newTask, preemptCost, and started. That
     replaces the old “poll the DB every few seconds per task type” steady
     state with push-style notifications, cutting average task-start
     latency for latency-sensitive pipelines.
@@ -74,6 +75,15 @@ responsive. Heavy work runs elsewhere:
 sector jobs), a bundler coalesces them into one scheduling attempt after a
 short quiet period (~10ms), avoiding redundant CanAccept + claim cycles per
 row.
+
+**Reservations.** A node can reserve the next task of a type so that when
+the current task finishes, the reserved one can start without competing for
+capacity — important for time-sensitive pipelines (e.g. WindowPost).
+
+NOTE: The reservation protocol is not fully realized cluster-wide. If every
+node reserves one task of the same type independently, the cluster can hold
+capacity on N nodes for work only one node will run. A future extension may
+coordinate reservations across peers.
 
 # Mental Model
 

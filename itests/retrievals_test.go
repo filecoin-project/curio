@@ -54,7 +54,8 @@ func TestRetrievals(t *testing.T) {
 	denylistData := []byte("[]")
 	baseCfg, err := helpers.SetBaseConfigWithDefaults(t, ctx, db)
 	require.NoError(t, err)
-	// Avoid piece parking / move-storage racing with parked_pieces fixtures.
+	// Do not register piece parking / DropPiece / move-storage cleanup. Those tasks are unrelated
+	// to these HTTP retrieval assertions and can race with parked_pieces fixtures (scheduler timing).
 	baseCfg.Subsystems.EnableParkPiece = false
 	baseCfg.Subsystems.EnableMoveStorage = false
 	denylistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

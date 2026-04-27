@@ -64,7 +64,7 @@ type TaskTypeDetails struct {
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
-	// This is starved on busy machines, so use it togather "above and beyond" work only.
+	// This is starved on busy machines, so use it to gather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
 	// CanYield is true if the task should yield when the node is not schedulable.

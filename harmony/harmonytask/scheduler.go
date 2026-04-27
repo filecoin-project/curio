@@ -424,6 +424,8 @@ func (ee eventEmitter) EmitTaskCompleted(taskName string, success bool) {
 	}
 }
 
+// expects single-threaded caller of
+
 // pollAllTaskTypes queries the DB for all unowned tasks across all registered
 // task types in a single round-trip. This is the only DB read in the
 // scheduling hot path, and it runs on the background poller goroutine — never

@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPreemptCostMessage verifies preempt cost bytes are parsed and routed into preemptCostChs.
+// TestPreemptCostMessage verifies preempt-cost JSON is parsed and routed into preemptCostChs
+// when a channel is registered for that task ID.
 func TestPreemptCostMessage(t *testing.T) {
 	engine := &TaskEngine{
 		schedulerChannel: make(chan schedulerEvent, 10),
