@@ -274,9 +274,9 @@ func NewWithReg(
 		state: taskEngineState{
 			preemptBids: preemptbids.New(),
 		},
-		taskMap:               make(map[string]*taskTypeHandler, len(impls)),
-		schedulerChannel:      make(chan schedulerEvent, 100),
-		completionCallbacks:   make(map[string][]TaskCompleteFunc),
+		taskMap:             make(map[string]*taskTypeHandler, len(impls)),
+		schedulerChannel:    make(chan schedulerEvent, 100),
+		completionCallbacks: make(map[string][]TaskCompleteFunc),
 	}
 	e.atomics.pollDuration.Store(pollRarely)
 	e.atomics.lastCleanup.Store(time.Now())

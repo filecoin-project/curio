@@ -85,8 +85,8 @@ type CurioStorageDealMarket struct {
 	// Wake-driven polls: at most one every wakePollMinInterval (see WakeDealPoller).
 	wakeMu             sync.Mutex
 	lastWakeDrivenPoll time.Time
-	wakePollTimer      *time.Timer    // non-nil while a wake delivery is already scheduled
-	wakePollReq        chan struct{}  // unbuffered: run one wake-driven poll
+	wakePollTimer      *time.Timer     // non-nil while a wake delivery is already scheduled
+	wakePollReq        chan struct{}   // unbuffered: run one wake-driven poll
 	wakePollLoopCtx    context.Context // set in StartMarket before runPoller starts
 }
 
