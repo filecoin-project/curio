@@ -118,7 +118,6 @@ func typeName(e ast.Expr, pkg string) (string, error) {
 }
 
 func generate(path, pkg, outpkg, outfile string) error {
-	fset := token.NewFileSet()
 	apiDir, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -127,26 +126,31 @@ func generate(path, pkg, outpkg, outfile string) error {
 	if err != nil {
 		return err
 	}
-	pkgs, err := packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax,
+	fset := token.NewFileSet()
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedCompiledGoFiles,
 		Dir:  apiDir,
 		Fset: fset,
-		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-			return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+		ParseFile: func(fs *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			return parser.ParseFile(fs, filename, src, parser.AllErrors|parser.ParseComments)
 		},
-	}, ".")
+	}
+	loaded, err := packages.Load(cfg, ".")
 	if err != nil {
 		return err
 	}
-	if len(pkgs) != 1 {
-		return xerrors.Errorf("expected 1 package in %s, got %d", apiDir, len(pkgs))
+	var ap *packages.Package
+	for _, p := range loaded {
+		if p.Name == pkg {
+			ap = p
+			break
+		}
 	}
-	if len(pkgs[0].Errors) > 0 {
-		return pkgs[0].Errors[0]
+	if ap == nil {
+		return xerrors.Errorf("packages.Load: no package %q in %s", pkg, apiDir)
 	}
-	ap := pkgs[0]
-	if ap.Name != pkg {
-		return xerrors.Errorf("expected package %s in %s, got %s", pkg, apiDir, ap.Name)
+	if len(ap.Errors) > 0 {
+		return ap.Errors[0]
 	}
 
 	v := &Visitor{make(map[string]map[string]*methodMeta), map[string][]string{}}

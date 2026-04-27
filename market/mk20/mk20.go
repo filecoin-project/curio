@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -30,15 +31,19 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/market/backpressure"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
+	lethtypes "github.com/filecoin-project/lotus/chain/types/ethtypes"
+	"github.com/filecoin-project/lotus/lib/lazy"
 )
 
 var log = logging.Logger("mk20")
 
 type MK20API interface {
+	ChainHead(context.Context) (*types.TipSet, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifreg9.AllocationId, tsk types.TipSetKey) (*verifreg9.Allocation, error)
 	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
@@ -55,10 +60,19 @@ type MK20 struct {
 	as                 *multictladdr.MultiAddressSelector
 	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
-	unknowClient       bool
+	backpressure       *backpressure.CachedBackPressure
 }
 
-func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient ethchain.EthClient, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
+func NewMK20Handler(
+	miners *config.Dynamic[[]address.Address],
+	db *harmonydb.DB,
+	si paths.SectorIndex,
+	mapi MK20API,
+	ethClient ethchain.EthClient,
+	cfg *config.CurioConfig,
+	as *multictladdr.MultiAddressSelector,
+	sc *ffi.SealCalls,
+	bp *lazy.Lazy[*backpressure.CachedBackPressure]) (*MK20, error) {
 	ctx := context.Background()
 
 	// Ensure MinChunk size and max chunkSize is a power of 2
@@ -68,6 +82,11 @@ func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB,
 
 	if cfg.Market.StorageMarketConfig.MK20.MaximumChunkSize&(cfg.Market.StorageMarketConfig.MK20.MaximumChunkSize-1) != 0 {
 		return nil, xerrors.Errorf("MaximumChunkSize must be a power of 2")
+	}
+
+	b, err := bp.Val()
+	if err != nil {
+		return nil, xerrors.Errorf("getting backpressure: %w", err)
 	}
 
 	sm := config.NewDynamic(make(map[address.Address]abi.SectorSize))
@@ -108,29 +127,33 @@ func NewMK20Handler(miners *config.Dynamic[[]address.Address], db *harmonydb.DB,
 		as:                 as,
 		sc:                 sc,
 		maxParallelUploads: new(atomic.Int64),
-		unknowClient:       !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients,
+		backpressure:       b,
 	}, nil
 }
 
-// ExecuteDeal take a *Deal  and returns ProviderDealRejectionInfo which has ErrorCode and Reason
+// ExecuteDeal take a *Deal and returns ProviderDealRejectionInfo, which has ErrorCode and Reason
 // @param deal *Deal
 // @Return DealCode
 // @Return Reason string
 
-func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) *ProviderDealRejectionInfo {
+func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) (result *ProviderDealRejectionInfo) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			result = &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "Internal server error",
+			}
 		}
 	}()
 
 	// Validate the DataSource
-	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
+	code, err := deal.Validate(ctx, m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
 	if err != nil {
-		log.Errorw("deal rejected", "deal", deal, "error", err)
+		log.Errorw("deal rejected", "deal", deal.Identifier.String(), "error", err)
 		ret := &ProviderDealRejectionInfo{
 			HTTPCode: code,
 		}
@@ -145,14 +168,47 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) *Provid
 	log.Debugw("deal validated", "deal", deal.Identifier.String())
 
 	if deal.Products.DDOV1 != nil {
-		// TODO: Remove this check once DDO market is done
-		if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
-			return m.processDDODeal(ctx, deal, nil)
+		rejection, err := m.sanitizeDDODeal(ctx, deal)
+		if err != nil {
+			log.Errorw("deal rejected", "deal", deal.Identifier.String(), "error", err)
+			return rejection
 		}
-		log.Errorw("DDOV1 is not supported yet", "deal", deal.Identifier.String())
+
+		log.Debugw("deal sanitized", "deal", deal.Identifier.String())
+
+		if rejection != nil {
+			return rejection
+		}
+
+		comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			err = deal.SaveToDB(tx)
+			if err != nil {
+				return false, err
+			}
+			err = m.processDDODeal(deal, tx)
+			if err != nil {
+				return false, err
+			}
+			return true, nil
+		})
+		if err != nil {
+			log.Errorw("error inserting deal into DB", "deal", deal.Identifier.String(), "error", err)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+			}
+		}
+
+		if !comm {
+			log.Errorw("error committing deal into DB", "deal", deal.Identifier.String())
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+			}
+		}
+
+		log.Debugw("deal inserted in DB", "deal", deal.Identifier.String())
+
 		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrUnsupportedProduct,
-			Reason:   "DDOV1 is not supported yet",
+			HTTPCode: Ok,
 		}
 	}
 
@@ -166,107 +222,25 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) *Provid
 	}
 }
 
-func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx) *ProviderDealRejectionInfo {
-	rejection, err := m.sanitizeDDODeal(ctx, deal)
-	if err != nil {
-		log.Errorw("deal rejected", "deal", deal, "error", err)
-		return rejection
-	}
-
-	log.Debugw("deal sanitized", "deal", deal.Identifier.String())
-
-	if rejection != nil {
-		return rejection
-	}
-
-	id, code, err := deal.Products.DDOV1.GetDealID(ctx, m.DB, m.ethClient)
-	if err != nil {
-		log.Errorw("error getting deal ID", "deal", deal, "error", err)
-		ret := &ProviderDealRejectionInfo{
-			HTTPCode: code,
-		}
-		if code == ErrServerInternalError {
-			ret.Reason = "Internal server error"
-		} else {
-			ret.Reason = err.Error()
-		}
-		return ret
-	}
-
-	log.Debugw("deal ID found", "deal", deal.Identifier.String(), "id", id)
-
-	// TODO: Backpressure, client filter
-
-	process := func(tx *harmonydb.Tx) error {
-		err = deal.SaveToDB(tx)
-		if err != nil {
-			return err
-		}
-		n, err := tx.Exec(`UPDATE market_mk20_deal
-								SET ddo_v1 = jsonb_set(ddo_v1, '{deal_id}', to_jsonb($1::bigint))
-								WHERE id = $2;`, id, deal.Identifier.String())
-		if err != nil {
-			return err
-		}
-		if n != 1 {
-			return fmt.Errorf("expected 1 row to be updated, got %d", n)
-		}
-
-		// Assume upload if no data source defined
-		if deal.Data == nil {
+func (m *MK20) processDDODeal(deal *Deal, tx *harmonydb.Tx) error {
+	// Assume upload if no data source defined
+	var err error
+	if deal.Data == nil {
+		_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+	} else {
+		if deal.Data.SourceHttpPut != nil {
 			_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
 		} else {
-			if deal.Data.SourceHttpPut != nil {
-				_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
-			} else {
-				// All deals which are not upload should be entered in market_mk20_pipeline_waiting for further processing.
-				_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
-			}
-		}
-
-		if err != nil {
-			return xerrors.Errorf("adding deal to waiting pipeline: %w", err)
-		}
-		return nil
-	}
-
-	if tx != nil {
-		err := process(tx)
-		if err != nil {
-			log.Errorw("error inserting deal into DB", "deal", deal, "error", err)
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-			}
-		}
-	} else {
-		comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			err = process(tx)
-			if err != nil {
-				return false, err
-			}
-			return true, nil
-		})
-
-		if err != nil {
-			log.Errorw("error inserting deal into DB", "deal", deal, "error", err)
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-			}
-		}
-
-		if !comm {
-			log.Errorw("error committing deal into DB", "deal", deal)
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-			}
+			// All deals which are not upload should be entered in market_mk20_pipeline_waiting for further processing.
+			_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
 		}
 	}
 
-	log.Debugw("deal inserted in DB", "deal", deal.Identifier.String())
-
-	return &ProviderDealRejectionInfo{
-		HTTPCode: Ok,
+	if err != nil {
+		return xerrors.Errorf("adding deal to waiting pipeline: %w", err)
 	}
+
+	return nil
 }
 
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
@@ -300,7 +274,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 	size, err := deal.Size()
 	if err != nil {
-		log.Errorw("error getting deal size", "deal", deal, "error", err)
+		log.Errorw("error getting deal size", "deal", deal.Identifier.String(), "error", err)
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Error getting deal size from PieceCID",
@@ -327,11 +301,99 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 	pi, err := deal.PieceInfo()
 	if err != nil {
-		log.Errorw("error getting piece info", "deal", deal, "error", err)
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Error getting piece cid v1 from PieceCID",
+		}, xerrors.Errorf("getting piece info: %w", err)
+	}
+
+	marketFilecoinAddress := address.Undef
+
+	if deal.Products.DDOV1.MarketAddress != "" {
+		contractAddr, perr := lethtypes.ParseEthAddress(deal.Products.DDOV1.MarketAddress)
+		if perr != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid",
+			}, xerrors.Errorf("parsing market address: %w", perr)
+		}
+		fc, cerr := contractAddr.ToFilecoinAddress()
+		if cerr != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid filecoin address",
+			}, xerrors.Errorf("converting market address to filecoin address: %w", cerr)
+		}
+		id, err := m.api.StateLookupID(ctx, fc, types.EmptyTSK)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid",
+			}, xerrors.Errorf("looking up market filecoin address")
+		}
+		if id.Empty() || id == address.Undef {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Market address is not valid",
+			}, nil
+		}
+		marketFilecoinAddress = id
+	}
+
+	if deal.Products.DDOV1.NotificationAddress != address.Undef && !deal.Products.DDOV1.NotificationAddress.Empty() {
+		id, err := m.api.StateLookupID(ctx, deal.Products.DDOV1.NotificationAddress, types.EmptyTSK)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Notification address is not valid",
+			}, nil
+		}
+		if id.Empty() || id == address.Undef {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Notification address is not valid",
+			}, nil
+		}
+	}
+
+	allowed, err := m.applyAllowList(ctx, deal.Client)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Server Internal Error",
+		}, xerrors.Errorf("checking allow list: %w", err)
+	}
+
+	if !allowed {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrUnAuthorized,
+			Reason:   "Client is not allowed to make deal with this provider",
 		}, nil
+	}
+
+	head, err := m.api.ChainHead(ctx)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Server Internal Error",
+		}, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	if deal.Products.DDOV1.StartEpoch != nil {
+		if *deal.Products.DDOV1.StartEpoch < head.Height() {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Start epoch is less than the current chain height",
+			}, nil
+		}
+		sealDuration := abi.ChainEpoch(int64(math.Ceil(m.cfg.Market.StorageMarketConfig.MK20.ExpectedPoRepSealDuration.Seconds() / float64(build.BlockDelaySecs))))
+
+		if *deal.Products.DDOV1.StartEpoch < head.Height()+sealDuration {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Start epoch is less than the current chain height plus the expected PoRep seal duration",
+			}, nil
+		}
 	}
 
 	if deal.Products.DDOV1.AllocationId != nil {
@@ -354,7 +416,18 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServerInternalError,
+				Reason:   "Server Internal Error",
 			}, xerrors.Errorf("getting allocation: %w", err)
+		}
+
+		if alloc == nil && deal.Products.DDOV1.MarketAddress != "" {
+			alloc, err = m.api.StateGetAllocation(ctx, marketFilecoinAddress, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+			if err != nil {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrServerInternalError,
+					Reason:   "Server Internal Error",
+				}, xerrors.Errorf("getting allocation via market contract: %w", err)
+			}
 		}
 
 		if alloc == nil {
@@ -364,32 +437,11 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		clientIDAdr, err := m.api.StateLookupID(ctx, client, types.EmptyTSK)
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrServerInternalError,
-			}, xerrors.Errorf("looking up client ID: %w", err)
-		}
-
-		clientID, err := address.IDFromAddress(clientIDAdr)
-		if err != nil {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "Invalid client address",
-			}, nil
-		}
-
-		if alloc.Client != abi.ActorID(clientID) {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: ErrBadProposal,
-				Reason:   "client address does not match the allocation client address",
-			}, nil
-		}
-
 		prov, err := address.NewIDAddress(uint64(alloc.Provider))
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServerInternalError,
+				Reason:   "Server Internal Error",
 			}, xerrors.Errorf("getting provider address: %w", err)
 		}
 
@@ -420,24 +472,95 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 				Reason:   "Allocation term min is greater than the maximum sector expiration extension",
 			}, nil
 		}
+
+		if alloc.TermMin > deal.Products.DDOV1.Duration {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Allocation term min is less than deal duration",
+			}, nil
+		}
+
+		if alloc.TermMax > deal.Products.DDOV1.Duration {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Allocation term max is greater than deal duration",
+			}, nil
+		}
+
+		if deal.Products.DDOV1.StartEpoch != nil {
+			if alloc.Expiration < *deal.Products.DDOV1.StartEpoch {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: ErrBadProposal,
+					Reason:   "Allocation expiration is less than deal start epoch",
+				}, nil
+			}
+		}
+	}
+
+	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal)
+	if err != nil {
+		log.Errorw("error verifying market deal", "deal", deal.Identifier.String(), "error", err)
+		ret := &ProviderDealRejectionInfo{
+			HTTPCode: code,
+		}
+		if code == ErrServerInternalError {
+			ret.Reason = "Server Internal Error"
+		} else {
+			ret.Reason = err.Error()
+		}
+		return ret, nil
+	}
+
+	pressure, err := m.backpressure.MK20Pressure(ctx, &m.cfg.Ingest, m.DB)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Server Internal Error",
+		}, xerrors.Errorf("failed to get Deal backpressure: %w", err)
+	}
+
+	if pressure {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServiceOverloaded,
+			Reason:   "MK20 ingestion backpressure is active. Please try again later.",
+		}, nil
+	}
+
+	pressure, err = m.backpressure.SectorPressure(ctx, &m.cfg.Ingest, m.DB)
+	if err != nil {
+		log.Errorw("failed to get Deal backpressure", "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Server Internal Error",
+		}, xerrors.Errorf("failed to get Deal backpressure: %w", err)
+	}
+	if pressure {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServiceOverloaded,
+			Reason:   "MK20 ingestion backpressure is active. Please try again later.",
+		}, nil
 	}
 
 	return nil, nil
 }
 
-func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
+func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) (result *ProviderDealRejectionInfo) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred in PDP: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			result = &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "Internal server error",
+			}
 		}
 	}()
 
 	rejection, err := m.sanitizePDPDeal(ctx, deal)
 	if err != nil {
-		log.Errorw("PDP deal rejected", "deal", deal, "error", err)
+		log.Errorw("PDP deal rejected", "deal", deal.Identifier.String(), "error", err)
 		return rejection
 	}
 
@@ -517,13 +640,13 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorw("error inserting PDP deal into DB", "deal", deal, "error", err)
+		log.Errorw("error inserting PDP deal into DB", "deal", deal.Identifier.String(), "error", err)
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrServerInternalError,
 		}
 	}
 	if !comm {
-		log.Errorw("error committing PDP deal into DB", "deal", deal)
+		log.Errorw("error committing PDP deal into DB", "deal", deal.Identifier.String(), "error", err)
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrServerInternalError,
 		}
@@ -550,7 +673,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		if deal.Data.Format.Raw != nil && deal.Products.RetrievalV1.AnnouncePayload {
+		if deal.Data.Format.Raw != nil && deal.Products.RetrievalV1 != nil && deal.Products.RetrievalV1.AnnouncePayload {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
 				Reason:   "Raw bytes deal cannot be announced to IPNI",
@@ -560,7 +683,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 	p := deal.Products.PDPV1
 
-	// This serves as Auth for now. We are checking if client is authorized to make changes to the proof set or pieces
+	// This serves as Auth for now. We are checking if a client is authorized to make changes to the proof set or pieces
 	// In future this will be replaced by an ACL check
 
 	if p.DeleteDataSet || p.AddPiece {
@@ -638,10 +761,24 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Piece does not exist, attempt to insert
 				err = tx.QueryRow(`
-							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							VALUES ($1, $2, $3, TRUE)
-							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-							RETURNING id`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
 				if err != nil {
 					return xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}
@@ -718,7 +855,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			if piece.SourceHTTP != nil {
 				urls, ok := toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
 					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
@@ -737,32 +874,47 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				batch.Queue(`WITH inserted_piece AS (
-									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-									  VALUES ($1, $2, $3, FALSE)
-									  ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-									  RETURNING id
-									),
-									selected_piece AS (
-									  SELECT COALESCE(
-										(SELECT id FROM inserted_piece),
-										(SELECT id FROM parked_pieces
-										 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
-									  ) AS id
-									),
-									inserted_ref AS (
-									  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-									  SELECT id, $4, $5, FALSE FROM selected_piece
-									  RETURNING ref_id
-									)
-									INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
-									VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
-									ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
-									SET ref_ids = array_append(
-									  market_mk20_download_pipeline.ref_ids,
-									  (SELECT ref_id FROM inserted_ref)
-									)
-									WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
+				batch.Queue(`
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = FALSE
+								AND cleanup_task_id IS NULL
+							),
+							insert_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, FALSE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							),
+							inserted_piece AS (
+								SELECT id FROM existing_piece
+								UNION ALL
+								SELECT id FROM insert_piece
+								LIMIT 1
+							),
+							selected_piece AS (
+							  SELECT COALESCE(
+								(SELECT id FROM inserted_piece),
+								(SELECT id FROM parked_pieces
+								 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
+							  ) AS id
+							),
+							inserted_ref AS (
+							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+							  SELECT id, $4, $5, FALSE FROM selected_piece
+							  RETURNING ref_id
+							)
+							INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+							VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
+							ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
+							SET ref_ids = array_append(
+							  market_mk20_download_pipeline.ref_ids,
+							  (SELECT ref_id FROM inserted_ref)
+							)
+							WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
 					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, ProductNamePDPV1, k.PieceCIDV2.String())
 			}
 
@@ -792,9 +944,9 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 		pBatchSize := 4000
 		for i, piece := range deal.Data.SourceAggregate.Pieces {
 			pBatch.Queue(`INSERT INTO pdp_pipeline (
-                          id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-				dealID, deal.Client, piece.PieceCID.String(), pdp.ExtraData, *pdp.DataSetID,
+                          id, client, piece_cid_v2, data_set_id, extra_data, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+				dealID, deal.Client, piece.PieceCID.String(), *pdp.DataSetID, pdp.ExtraData,
 				aggregation, i, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if pBatch.Len() > pBatchSize {
 				res, err := tx.SendBatch(ctx, pBatch)
@@ -830,7 +982,7 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 			log.Errorf("failed to mark PDP downloaded piece: %v", err)
 			return
 		}
-		log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
+		log.Debugf("Successfully marked %d PDP pieces as downloaded", n)
 	}
 
 	ticker := time.NewTicker(time.Second * 2)
@@ -851,15 +1003,13 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 // @Return DealCode
 // @Return Reason string
 
-func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, auth string) *ProviderDealRejectionInfo {
+func (m *MK20) UpdateDeal(ctx context.Context, id ulid.ULID, deal *Deal, auth string) *ProviderDealRejectionInfo {
 	if deal == nil {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "deal is undefined",
 		}
 	}
-
-	ctx := context.Background()
 
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
@@ -881,7 +1031,7 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, auth string) *ProviderDealRe
 		}
 	}
 
-	code, nd, np, err := m.updateDealDetails(id, deal, auth)
+	code, nd, np, err := m.updateDealDetails(ctx, id, deal, auth)
 	if err != nil {
 		log.Errorw("failed to update deal details", "deal", id, "error", err)
 		if code == ErrServerInternalError {
@@ -889,15 +1039,29 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, auth string) *ProviderDealRe
 				HTTPCode: ErrServerInternalError,
 				Reason:   "",
 			}
-		} else {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: code,
-				Reason:   err.Error(),
-			}
+		}
+
+		return &ProviderDealRejectionInfo{
+			HTTPCode: code,
+			Reason:   err.Error(),
 		}
 	}
 
-	var rejection *ProviderDealRejectionInfo
+	for _, p := range np {
+		if p == ProductNameDDOV1 {
+			rejection, err := m.sanitizeDDODeal(ctx, nd)
+			if err != nil {
+				log.Errorw("deal rejected", "deal", deal.Identifier.String(), "error", err)
+				return rejection
+			}
+
+			log.Debugw("deal sanitized", "deal", deal.Identifier.String())
+
+			if rejection != nil {
+				return rejection
+			}
+		}
+	}
 
 	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Save the updated deal to DB
@@ -909,9 +1073,9 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, auth string) *ProviderDealRe
 		// Initiate new pipelines for DDO if required
 		for _, p := range np {
 			if p == ProductNameDDOV1 {
-				rejection = m.processDDODeal(ctx, nd, tx)
-				if rejection.HTTPCode != Ok {
-					return false, xerrors.Errorf("failed to process DDO deal")
+				err = m.processDDODeal(nd, tx)
+				if err != nil {
+					return false, xerrors.Errorf("failed to process DDO deal: %w", err)
 				}
 			}
 		}
@@ -919,9 +1083,6 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, auth string) *ProviderDealRe
 	}, harmonydb.OptionRetry())
 	if err != nil {
 		log.Errorw("failed to update deal details", "deal", id, "error", err)
-		if rejection != nil {
-			return rejection
-		}
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrServerInternalError,
 			Reason:   "",

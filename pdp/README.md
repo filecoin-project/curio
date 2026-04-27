@@ -464,7 +464,7 @@ When adding pieces to a data set using the `POST /pdp/data-sets/{dataSetId}/piec
     - The concatenation of the subPieces must not require padding to align to the sector size used in the computation.
 
 4. **Computing the Piece CID:**
-    - The server uses the `GenerateUnsealedCID` function to compute the piece CID from the subPieces.
+    - The server uses the `https://github.com/filecoin-project/go-commp-utils/v2 PieceAggregateCommp`  function to compute the piece CID from the subPieces.
     - This function emulates the computation performed in the Filecoin proofs implementation.
     - The process involves stacking the subPieces and combining them using a Merkle tree hash function.
 
@@ -497,7 +497,7 @@ When adding pieces to a data set using the `POST /pdp/data-sets/{dataSetId}/piec
 ### Piece Computation Function
 
 ```go
-func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.PieceInfo) (cid.Cid, error)
+func PieceAggregateCommp(proofType abi.RegisteredSealProof, pieceInfos []abi.PieceInfo) (cid.Cid, error)
 ```
 
 Where:

@@ -98,6 +98,8 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 	addr, err := address.NewFromString("t01000")
 	require.NoError(t, err)
 	x := uint64(1234)
+	v := verifreg.AllocationId(x)
+
 	orig := Deal{
 		Identifier: mustULID(t, "01ARZ3NDEKTSV4RRFFQ69G5FAV"),
 		Client:     "f1client",
@@ -130,10 +132,8 @@ func TestDeal_HTTPSourceWithHeaders(t *testing.T) {
 				DataSetID:     &x,
 			},
 			DDOV1: &DDOV1{
-				Provider:                   addr,
-				PieceManager:               addr,
-				AllocationId:               new(verifreg.AllocationId(x)),
-				ContractVerifyMethodParams: []byte("contract verify method params"),
+				Provider:     addr,
+				AllocationId: &v,
 			},
 		},
 	}

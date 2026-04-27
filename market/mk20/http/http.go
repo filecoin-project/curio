@@ -2,9 +2,9 @@ package http
 
 import (
 	"bytes"
-	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,9 +18,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-address"
+	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -35,29 +33,29 @@ var log = logging.Logger("mk20httphdlr")
 
 const version = "1.0.0"
 
-const requestTimeout = 10 * time.Second
+const (
+	requestTimeout               = 10 * time.Second
+	defaultEndpointRateLimit     = 50
+	uploadChunkEndpointRateLimit = 100
+)
 
 type MK20DealHandler struct {
-	cfg            *config.CurioConfig
-	db             *harmonydb.DB // Replace with your actual DB wrapper if different
-	dm             *storage_market.CurioStorageDealMarket
-	disabledMiners []address.Address
+	cfg *config.CurioConfig
+	db  *harmonydb.DB // Replace with your actual DB wrapper if different
+	dm  *storage_market.CurioStorageDealMarket
 }
 
 func NewMK20DealHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_market.CurioStorageDealMarket) (*MK20DealHandler, error) {
-	var disabledMiners []address.Address
-	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
-		maddr, err := address.NewFromString(m)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse miner string: %s", err)
-		}
-		disabledMiners = append(disabledMiners, maddr)
-	}
-	return &MK20DealHandler{db: db, dm: dm, cfg: cfg, disabledMiners: disabledMiners}, nil
+	return &MK20DealHandler{db: db, dm: dm, cfg: cfg}, nil
 }
 
-func dealRateLimitMiddleware() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(50, 1*time.Second)
+func dealRateLimitMiddleware(requestLimit int) func(http.Handler) http.Handler {
+	return httprate.LimitByIP(requestLimit, 1*time.Second)
+}
+
+func registerRateLimitedRoute(mux chi.Router, authMiddleware func(http.Handler) http.Handler, requestLimit int, method, pattern string, handler http.Handler) {
+	// Each route gets its own limiter so hot upload traffic does not consume other endpoints' budgets.
+	mux.With(dealRateLimitMiddleware(requestLimit), authMiddleware).Method(method, pattern, handler)
 }
 
 func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler) http.Handler {
@@ -69,10 +67,10 @@ func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler
 				return
 			}
 
-			allowed, client, err := mk20.Auth(authHeader, db, cfg)
+			allowed, client, err := mk20.Auth(authHeader, r.Method, r.URL.EscapedPath(), db, cfg)
 			if err != nil {
 				log.Errorw("failed to authenticate request", "err", err)
-				http.Error(w, "Error during authentication", http.StatusInternalServerError)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 
@@ -86,7 +84,7 @@ func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler
 				allowed, err := mk20.AuthenticateClient(db, idStr, client)
 				if err != nil {
 					log.Errorw("failed to authenticate client", "err", err)
-					http.Error(w, "Error during authentication", http.StatusInternalServerError)
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
 					return
 				}
 				if !allowed {
@@ -108,7 +106,6 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 	SwaggerInfo.Version = version
 	SwaggerInfo.Schemes = []string{"https"}
 	mux := chi.NewRouter()
-	mux.Use(dealRateLimitMiddleware())
 	mux.Mount("/", APIRouter(mdh))
 	mux.Mount("/info", InfoRouter())
 	return mux
@@ -117,31 +114,36 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 // @securityDefinitions.apikey CurioAuth
 // @in header
 // @name Authorization
-// @description Use the format: `CurioAuth PublicKeyType:PublicKey:Signature`
+// @description Use the format: `CurioAuth KeyType:AddressBytes:Signature`
 // @description
-// @description - `PublicKeyType`: String representation of type of wallet (e.g., "ed25519", "bls", "secp256k1")
-// @description - `PublicKey`: Base64 string of public key bytes
-// @description - `Signature`: Signature is Base64 string of signature bytes.
+// @description - `KeyType`: String representation of type of wallet (e.g., "bls", "secp256k1", "delegated")
+// @description - `AddressBytes`: Base64 string of Filecoin address bytes (`address.Address.Bytes()`), not the human-readable address string.
+// @description - `Signature`: Base64 string of Filecoin signature bytes (`crypto.Signature.MarshalBinary()`).
 // @description - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.
-// @description - The raw public key bytes (not a human-readable address)
-// @description - The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
-// @description - These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
+// @description - The Filecoin address bytes
+// @description - The HTTP request method in uppercase (e.g., `POST`)
+// @description - The escaped request URL path without query string (e.g., `/market/mk20/deal`)
+// @description - The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
+// @description - These four byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
 func APIRouter(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
-	mux.Use(dealRateLimitMiddleware())
-	mux.Use(AuthMiddleware(mdh.db, mdh.cfg))
-	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
-	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
-	mux.Method("POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
-	mux.Method("GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
-	mux.Put("/uploads/{id}/{chunkNum}", mdh.mk20UploadDealChunks)
-	mux.Method("POST", "/uploads/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
-	mux.Method("POST", "/update/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
-	mux.Method("POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20SerialUploadFinalize), requestTimeout, "request timeout"))
-	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
-	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
-	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
-	mux.Put("/upload/{id}", mdh.mk20SerialUpload)
+	authMiddleware := AuthMiddleware(mdh.db, mdh.cfg)
+	registerRoute := func(requestLimit int, method, pattern string, handler http.Handler) {
+		registerRateLimitedRoute(mux, authMiddleware, requestLimit, method, pattern, handler)
+	}
+
+	registerRoute(defaultEndpointRateLimit, "POST", "/deal", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
+	registerRoute(uploadChunkEndpointRateLimit, "PUT", "/uploads/{id}/{chunkNum}", http.HandlerFunc(mdh.mk20UploadDealChunks))
+	registerRoute(defaultEndpointRateLimit, "POST", "/uploads/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "POST", "/update/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20SerialUploadFinalize), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
+	registerRoute(defaultEndpointRateLimit, "PUT", "/upload/{id}", http.HandlerFunc(mdh.mk20SerialUpload))
 	return mux
 }
 
@@ -190,7 +192,7 @@ func swaggerJson(w http.ResponseWriter, r *http.Request) {
 }
 
 // mk20deal handles HTTP requests to process MK20 deals, parses the request body, validates it, and executes the deal logic.
-// @Router /store [post]
+// @Router /deal [post]
 // @Summary Make a mk20 deal
 // @Description Make a mk20 deal
 // @BasePath /market/mk20
@@ -219,6 +221,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 			n := runtime.Stack(trace, false)
 			log.Errorf("panic occurred in mk20deal: %v\n%s", r, trace[:n])
 			debug.PrintStack()
+			http.Error(w, "", http.StatusInternalServerError)
 		}
 	}()
 
@@ -234,14 +237,12 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		_ = r.Body.Close()
 	}()
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	log.Infow("received deal proposal", "body", string(body))
 
 	err = json.Unmarshal(body, &deal)
 	if err != nil {
@@ -256,7 +257,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := mdh.dm.MK20Handler.ExecuteDeal(context.Background(), &deal, authHeader)
+	result := mdh.dm.MK20Handler.ExecuteDeal(r.Context(), &deal, authHeader)
 
 	log.Infow("deal processed",
 		"id", deal.Identifier,
@@ -294,7 +295,7 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := mdh.dm.MK20Handler.DealStatus(context.Background(), id)
+	result := mdh.dm.MK20Handler.DealStatus(r.Context(), id)
 
 	if result.HTTPCode != http.StatusOK {
 		w.WriteHeader(result.HTTPCode)
@@ -307,8 +308,8 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write deal status response", "id", idStr, "err", err)
@@ -323,20 +324,26 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 // @Failure 200 {object} mk20.SupportedContracts "Array of contract addresses supported by a system or application."
 // @Failure 500 {string} string "Internal Server Error"
 func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *http.Request) {
+	var ddoContracts []struct {
+		Address string `db:"address"`
+	}
+	err := mdh.db.Select(r.Context(), &ddoContracts, "SELECT address FROM ddo_contracts WHERE allowed = TRUE")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			log.Errorw("no supported contracts found")
+			http.Error(w, "no supported contracts found", http.StatusNotFound)
+			return
+		}
+		log.Errorw("failed to get supported contracts", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	var contracts mk20.SupportedContracts
-	//err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM ddo_contracts")
-	//if err != nil {
-	//	if errors.Is(err, pgx.ErrNoRows) {
-	//		log.Errorw("no supported contracts found")
-	//		http.Error(w, "no supported contracts found", http.StatusNotFound)
-	//		return
-	//	}
-	//	log.Errorw("failed to get supported contracts", "err", err)
-	//	w.WriteHeader(http.StatusInternalServerError)
-	//	return
-	//}
-	w.WriteHeader(http.StatusOK)
-	// Write a json array
+	if len(ddoContracts) > 0 {
+		for _, contract := range ddoContracts {
+			contracts.Contracts = append(contracts.Contracts, contract.Address)
+		}
+	}
 	resp, err := json.Marshal(contracts)
 	if err != nil {
 		log.Errorw("failed to marshal supported contracts", "err", err)
@@ -344,6 +351,7 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write supported contracts", "err", err)
@@ -376,8 +384,8 @@ func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write supported products", "err", err)
@@ -410,8 +418,8 @@ func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(resp)
 	if err != nil {
 		log.Errorw("failed to write supported sources", "err", err)
@@ -497,7 +505,7 @@ func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadChunk(id, chunkNum, r.Body, w)
+	mdh.dm.MK20Handler.HandleUploadChunk(r.Context(), id, chunkNum, r.Body, w)
 }
 
 // mk20UploadStart handles the initiation of an upload process for MK20 deal data.
@@ -537,8 +545,7 @@ func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	reader := io.LimitReader(r.Body, 4*1024*1024)
-	b, err := io.ReadAll(reader)
+	b, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		log.Errorw("failed to read request body", "err", err)
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
@@ -602,7 +609,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
@@ -611,11 +618,9 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		_ = r.Body.Close()
 	}()
 
-	log.Debugw("received upload finalize proposal", "id", idStr, "body", string(body))
-
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleUploadFinalize(id, nil, w, authHeader)
+		mdh.dm.MK20Handler.HandleUploadFinalize(r.Context(), id, nil, w, authHeader)
 		return
 	}
 
@@ -640,15 +645,15 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadFinalize(id, &deal, w, authHeader)
+	mdh.dm.MK20Handler.HandleUploadFinalize(r.Context(), id, &deal, w, authHeader)
 }
 
 // mk20UpdateDeal handles updating an MK20 deal based on the provided HTTP request.
 // It validates the deal ID, request content type, and JSON body before updating.
 // @Summary Update the deal details of existing deals.
-// @Description Useful for adding adding additional products and updating PoRep duration
+// @Description Useful for filling missing data or adding product fields on supported update paths. Existing data and product fields are not replaced.
 // @BasePath /market/mk20
-// @Router /update/{id} [get]
+// @Router /update/{id} [post]
 // @Param id path string true "id"
 // @Accept json
 // @Param body body mk20.Deal true "mk20.Deal in json format"
@@ -673,6 +678,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 	if idStr == "" {
 		log.Errorw("missing id in url", "url", r.URL)
 		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
 	}
 
 	id, err := ulid.Parse(idStr)
@@ -694,7 +700,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		_ = r.Body.Close()
 	}()
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -714,9 +720,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	log.Infow("received deal update proposal", "body", string(body))
-
-	result := mdh.dm.MK20Handler.UpdateDeal(id, &deal, authHeader)
+	result := mdh.dm.MK20Handler.UpdateDeal(r.Context(), id, &deal, authHeader)
 
 	log.Infow("deal updated",
 		"id", deal.Identifier,
@@ -758,7 +762,7 @@ func (mdh *MK20DealHandler) mk20SerialUpload(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUpload(id, r.Body, w)
+	mdh.dm.MK20Handler.HandleSerialUpload(r.Context(), id, r.Body, w)
 }
 
 // mk20SerialUploadFinalize finalizes the serial upload process for a given deal by processing the request and updating the associated deal in the system if required.
@@ -807,7 +811,7 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(newSafeReader(r.Body))
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
@@ -816,11 +820,9 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		_ = r.Body.Close()
 	}()
 
-	log.Debugw("received serial upload finalize proposal", "id", idStr, "body", string(body))
-
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w, authHeader)
+		mdh.dm.MK20Handler.HandleSerialUploadFinalize(r.Context(), id, nil, w, authHeader)
 		return
 	}
 
@@ -840,5 +842,29 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, &deal, w, authHeader)
+	mdh.dm.MK20Handler.HandleSerialUploadFinalize(r.Context(), id, &deal, w, authHeader)
+}
+
+const maxRequestSize = 1 << 20
+
+// safeReader reads the incoming request body and limits the maximum number of bytes to read.
+// io.LimitReader can result in malformed json unmarshall when we explicitly want to reject requests
+// which surpass the limit
+type safeReader struct {
+	io.Reader
+	read int64
+	max  int64
+}
+
+func newSafeReader(r io.Reader) *safeReader {
+	return &safeReader{Reader: r, max: maxRequestSize}
+}
+
+func (sr *safeReader) Read(p []byte) (n int, err error) {
+	n, err = sr.Reader.Read(p)
+	sr.read += int64(n)
+	if sr.read > sr.max {
+		return 0, errors.New("request body too large")
+	}
+	return n, err
 }

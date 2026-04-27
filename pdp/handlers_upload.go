@@ -300,9 +300,24 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		// 1. Create a long-term parked piece entry
 		var parkedPieceID int64
 		err := tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-            VALUES ($1, $2, $3, TRUE) RETURNING id
-        `, pieceCIDComputed.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;`, pieceCIDComputed.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
@@ -524,8 +539,24 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 		// 1. Create a long-term parked piece entry
 		var parkedPieceID int64
 		err := tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-            VALUES ($1, $2, $3, TRUE) RETURNING id
+							WITH existing_piece AS (
+							  SELECT id
+							  FROM parked_pieces
+							  WHERE piece_cid = $1
+								AND piece_padded_size = $2
+								AND long_term = TRUE
+								AND cleanup_task_id IS NULL
+							),
+							inserted_piece AS (
+							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							  SELECT $1, $2, $3, TRUE
+							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+							  RETURNING id
+							)
+							SELECT id FROM existing_piece
+							UNION ALL
+							SELECT id FROM inserted_piece
+							LIMIT 1;
         `, pcid.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)

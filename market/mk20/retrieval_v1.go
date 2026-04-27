@@ -1,6 +1,8 @@
 package mk20
 
 import (
+	"context"
+
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps/config"
@@ -19,8 +21,8 @@ type RetrievalV1 struct {
 	AnnouncePiece bool `json:"announce_piece"`
 }
 
-func (r *RetrievalV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
-	code, err := IsProductEnabled(db, r.ProductName())
+func (r *RetrievalV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+	code, err := IsProductEnabled(ctx, db, r.ProductName())
 	if err != nil {
 		return code, err
 	}
