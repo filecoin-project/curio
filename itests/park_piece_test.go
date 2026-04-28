@@ -234,7 +234,7 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 			expectedRefs := tc.setup(t, ctx, db, sc)
 
 			fixTask := piece.NewFixParkPieceTask(db, sc)
-			done, err := fixTask.Do(0, func() bool { return true })
+			done, err := fixTask.Do(ctx, 0, func() bool { return true })
 			require.False(t, done)
 			require.ErrorContains(t, err, "creating index")
 
@@ -246,13 +246,13 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 			if len(cleanupTaskIDs) > 0 {
 				cleanupTask := piece.NewCleanupPieceTask(db, sc, 0)
 				for _, cleanupTaskID := range cleanupTaskIDs {
-					done, err = cleanupTask.Do(cleanupTaskID, func() bool { return true })
+					done, err = cleanupTask.Do(ctx, cleanupTaskID, func() bool { return true })
 					require.True(t, done)
 					require.NoError(t, err)
 				}
 			}
 
-			done, err = fixTask.Do(0, func() bool { return true })
+			done, err = fixTask.Do(ctx, 0, func() bool { return true })
 			if tc.expectIndexAfterCleanup {
 				require.True(t, done)
 				require.NoError(t, err)
