@@ -10,6 +10,20 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
+const (
+	// MaxCreateDataSetExtraDataSize defines the limit for extraData size in CreateDataSet calls (4KB).
+	MaxCreateDataSetExtraDataSize = 4096
+
+	// MaxAddPiecesExtraDataSize defines the limit for extraData size in AddPieces calls (8KB).
+	MaxAddPiecesExtraDataSize = 8192
+
+	// MaxDeletePieceExtraDataSize defines the limit for extraData size in DeletePiece calls (256B).
+	MaxDeletePieceExtraDataSize = 256
+
+	// MaxPieceLimit defines the maximum number of pieces that can be added in a sinle deal
+	MaxPieceLimit = 1024
+)
+
 // PDPV1 represents configuration for product-specific PDP version 1 deals.
 type PDPV1 struct {
 	// CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.
@@ -38,8 +52,8 @@ type PDPV1 struct {
 	ExtraData []byte `json:"extra_data,omitempty"`
 }
 
-func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
-	code, err := IsProductEnabled(db, p.ProductName())
+func (p *PDPV1) Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+	code, err := IsProductEnabled(ctx, db, p.ProductName())
 	if err != nil {
 		return code, err
 	}
@@ -69,14 +83,18 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		if !common.IsHexAddress(p.RecordKeeper) {
 			return ErrBadProposal, xerrors.Errorf("record_keeper must be a valid address")
 		}
+		if len(p.ExtraData) > MaxCreateDataSetExtraDataSize {
+			return ErrBadProposal, xerrors.Errorf("extra_data cannot be larger than %d bytes", MaxCreateDataSetExtraDataSize)
+		}
+		if len(p.ExtraData) == 0 {
+			return ErrBadProposal, xerrors.Errorf("extra_data must be defined for create_proof_set")
+		}
 	}
 
 	// Only 1 action is allowed per deal
 	if btoi(p.CreateDataSet)+btoi(p.DeleteDataSet)+btoi(p.AddPiece)+btoi(p.DeletePiece) > 1 {
 		return ErrBadProposal, xerrors.Errorf("only one action is allowed per deal")
 	}
-
-	ctx := context.Background()
 
 	if p.DeleteDataSet {
 		if p.DataSetID == nil {
@@ -90,6 +108,9 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		}
 		if !exists {
 			return ErrBadProposal, xerrors.Errorf("dataset does not exist for the client")
+		}
+		if len(p.ExtraData) > 0 {
+			return ErrBadProposal, xerrors.Errorf("extra_data cannot be defined for delete_proof_set")
 		}
 	}
 
@@ -105,6 +126,15 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		}
 		if !exists {
 			return ErrBadProposal, xerrors.Errorf("dataset does not exist for the client")
+		}
+		if len(p.ExtraData) > MaxAddPiecesExtraDataSize {
+			return ErrBadProposal, xerrors.Errorf("extra_data cannot be larger than %d bytes", MaxAddPiecesExtraDataSize)
+		}
+		if len(p.ExtraData) == 0 {
+			return ErrBadProposal, xerrors.Errorf("extra_data must be defined for add_piece")
+		}
+		if len(p.PieceIDs) > MaxPieceLimit {
+			return ErrBadProposal, xerrors.Errorf("piece_ids cannot be larger than %d pieces", MaxPieceLimit)
 		}
 	}
 
@@ -129,6 +159,12 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		}
 		if !exists {
 			return ErrBadProposal, xerrors.Errorf("dataset or one of the pieces does not exist for the client")
+		}
+		if len(p.ExtraData) > MaxDeletePieceExtraDataSize {
+			return ErrBadProposal, xerrors.Errorf("extra_data cannot be larger than %d bytes", MaxDeletePieceExtraDataSize)
+		}
+		if len(p.ExtraData) == 0 {
+			return ErrBadProposal, xerrors.Errorf("extra_data must be defined for delete_proof_set")
 		}
 	}
 

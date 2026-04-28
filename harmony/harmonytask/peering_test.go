@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPreemptCostMessage verifies that messageRenderPreemptCost produces bytes
-// that handlePeerMessage correctly parses and routes into preemptCostChs.
-// When preemptCostChs has a channel for the taskID, the response is delivered there.
+// TestPreemptCostMessage verifies preempt-cost JSON is parsed and routed into preemptCostChs
+// when a channel is registered for that task ID.
 func TestPreemptCostMessage(t *testing.T) {
 	engine := &TaskEngine{
 		schedulerChannel: make(chan schedulerEvent, 10),
@@ -25,7 +24,7 @@ func TestPreemptCostMessage(t *testing.T) {
 	p := &peering{h: engine}
 	them := peer{id: 99}
 
-	msg, err := marshalPeerMessage(messageTypePreemptCost, 123, messagePreemptCostOther{Cost: 5 * time.Second, TaskType: "WinPost"})
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 123, taskOther{Cost: 5 * time.Second, TaskType: "WinPost"})
 	require.NoError(t, err)
 	t.Logf("wire bytes (%d): %q", len(msg), msg)
 
@@ -43,20 +42,15 @@ func TestPreemptCostMessage(t *testing.T) {
 
 // TestPreemptCostMessageWireFormat verifies preempt cost messages use the PeerMessage envelope.
 func TestPreemptCostMessageWireFormat(t *testing.T) {
-
-	msg, err := marshalPeerMessage(messageTypePreemptCost, 42, messagePreemptCostOther{Cost: 3 * time.Second, TaskType: "WdPost"})
+	msg, err := marshalPeerMessage(messageTypePreemptCost, 42, taskOther{Cost: 3 * time.Second, TaskType: "WdPost"})
 	require.NoError(t, err)
 
 	var envelope PeerMessage
 	require.NoError(t, json.Unmarshal(msg, &envelope))
 	require.Equal(t, string(messageTypePreemptCost), envelope.Verb)
 	require.Equal(t, TaskID(42), envelope.TaskID)
-
-	var inner messagePreemptCostOther
-	require.NoError(t, json.Unmarshal(envelope.Other, &inner))
-	require.Equal(t, "WdPost", inner.TaskType)
-	require.Equal(t, TaskID(42), envelope.TaskID)
-	require.Equal(t, 3*time.Second, inner.Cost)
+	require.Equal(t, "WdPost", envelope.Other.TaskType)
+	require.Equal(t, 3*time.Second, envelope.Other.Cost)
 }
 
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====
@@ -106,7 +100,7 @@ func (c *pipeConn) Close() error {
 
 // ===== Message Format Tests =====
 
-// TestMessageRoundTrip verifies that every message type marshals to JSON
+// TestMessageRoundTrip verifies that every handled message type marshals to JSON
 // that handlePeerMessage can parse back into the correct schedulerEvent.
 func TestMessageRoundTrip(t *testing.T) {
 	ch := make(chan schedulerEvent, 10)
@@ -144,11 +138,12 @@ func TestMessageRoundTrip(t *testing.T) {
 			wantRet:  0,
 		},
 		{
-			name:     "Reserve",
-			msg:      mustMarshal(messageTypeReserve, 55, taskOther{TaskType: "Snap"}),
-			wantType: "Snap",
-			wantID:   55,
-			wantSrc:  schedulerSourcePeerReserved,
+			name:     "NewTask WinPost",
+			msg:      mustMarshal(messageTypeNewTask, 7, taskOther{TaskType: "WinPost"}),
+			wantType: "WinPost",
+			wantID:   7,
+			wantSrc:  schedulerSourcePeerNewTask,
+			wantRet:  0,
 		},
 		{
 			name:     "Started",
@@ -184,21 +179,6 @@ func TestMessageRoundTrip(t *testing.T) {
 
 // TestMessageWireFormat verifies that marshalled messages are valid JSON with expected fields.
 func TestMessageWireFormat(t *testing.T) {
-	t.Run("Reserve", func(t *testing.T) {
-		msg, err := marshalPeerMessage(messageTypeReserve, 1, taskOther{TaskType: "ABC"})
-		require.NoError(t, err)
-
-		var envelope PeerMessage
-		require.NoError(t, json.Unmarshal(msg, &envelope))
-		require.Equal(t, "reserve", envelope.Verb)
-		require.Equal(t, TaskID(1), envelope.TaskID)
-
-		var other taskOther
-		require.NoError(t, json.Unmarshal(envelope.Other, &other))
-		require.Equal(t, "ABC", other.TaskType)
-		require.Equal(t, 0, other.Retries)
-	})
-
 	t.Run("NewTaskWithRetries", func(t *testing.T) {
 		msg, err := marshalPeerMessage(messageTypeNewTask, 2, taskOther{TaskType: "XY", Retries: 5})
 		require.NoError(t, err)
@@ -207,11 +187,8 @@ func TestMessageWireFormat(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "newTask", envelope.Verb)
 		require.Equal(t, TaskID(2), envelope.TaskID)
-
-		var other taskOther
-		require.NoError(t, json.Unmarshal(envelope.Other, &other))
-		require.Equal(t, "XY", other.TaskType)
-		require.Equal(t, 5, other.Retries)
+		require.Equal(t, "XY", envelope.Other.TaskType)
+		require.Equal(t, 5, envelope.Other.Retries)
 	})
 
 	t.Run("Started", func(t *testing.T) {
@@ -222,10 +199,16 @@ func TestMessageWireFormat(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "started", envelope.Verb)
 		require.Equal(t, TaskID(42), envelope.TaskID)
+		require.Equal(t, "WdPost", envelope.Other.TaskType)
+	})
 
-		var other taskOther
-		require.NoError(t, json.Unmarshal(envelope.Other, &other))
-		require.Equal(t, "WdPost", other.TaskType)
+	t.Run("Identity", func(t *testing.T) {
+		msg, err := marshalPeerMessage(messageTypeIdentity, 0, taskOther{HostAndPort: "host:1234"})
+		require.NoError(t, err)
+		var envelope PeerMessage
+		require.NoError(t, json.Unmarshal(msg, &envelope))
+		require.Equal(t, "identity", envelope.Verb)
+		require.Equal(t, "host:1234", envelope.Other.HostAndPort)
 	})
 }
 
@@ -300,7 +283,7 @@ func TestTellOthersDelivery(t *testing.T) {
 	})
 
 	t.Run("UnicastToSubset", func(t *testing.T) {
-		p.TellOthers(messageTypeReserve, "TaskB", TaskID(88))
+		p.TellOthers(messageTypeStarted, "TaskB", TaskID(88))
 		time.Sleep(50 * time.Millisecond)
 
 		msg2, err := remote2.ReceiveMessage()
@@ -313,7 +296,7 @@ func TestTellOthersDelivery(t *testing.T) {
 		ev := <-ch
 		require.Equal(t, "TaskB", ev.TaskType)
 		require.Equal(t, TaskID(88), ev.TaskID)
-		require.Equal(t, schedulerSourcePeerReserved, ev.Source)
+		require.Equal(t, schedulerSourcePeerStarted, ev.Source)
 
 		select {
 		case msg := <-remote1.recvCh:

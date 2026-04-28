@@ -4,12 +4,14 @@ manager. This clean interface lets task implementers avoid scheduling and
 cluster coordination; they only implement work units.
 
 Tasks are small pieces of work split out by hardware limits, parallelism,
-reliability, or other reasons.
+reliability, or other reasons. The task system is designed to take work we are
+capable of doing up to the limit of our resources. Order priority may starve
+lower priority tasks, so within a priority class, we should prefer the oldest
+tasks first.
 
 The hot path is event-driven scheduling with peer-to-peer coordination: nodes
-tell each other about new work, reservations, and starts over HTTP so the
-cluster reacts in milliseconds without waiting for a database round-trip for
-every change. The database still drives authoritative claims (UPDATE ...
+tell each other about new work and task starts over HTTP so the cluster reacts
+in milliseconds without waiting for a database round-trip for every change. The database still drives authoritative claims (UPDATE ...
 SKIP LOCKED) and holds the queue. A background DB poller remains as a safety
 net and for periodic housekeeping (e.g. POLL_RARELY), and the poller
 goroutine also runs heavier queries such as precomputing CanAccept caches and
@@ -39,7 +41,7 @@ The system is built around three cooperating layers:
 
  2. **Peering** (peering.go) — On startup each node connects to every
     known peer (from harmony_machines) over HTTP. Peers exchange JSON
-    messages for verbs such as newTask, reserve, and started. That
+    messages for verbs such as newTask, preemptCost, and started. That
     replaces the old “poll the DB every few seconds per task type” steady
     state with push-style notifications, cutting average task-start
     latency for latency-sensitive pipelines.

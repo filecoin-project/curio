@@ -13,7 +13,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/writer"
+	"github.com/filecoin-project/go-commp-utils/v2/writer"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commpl "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-padreader"
@@ -154,8 +154,8 @@ func (c *CommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 			reader = pr
 
 		} else {
-			// Create a new HTTP request
-			req, err := http.NewRequest(http.MethodGet, goUrl.String(), nil)
+			// Create a new HTTP request (bound to task ctx for cancellation)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, goUrl.String(), nil)
 			if err != nil {
 				return false, xerrors.Errorf("error creating request: %w", err)
 			}

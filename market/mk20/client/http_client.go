@@ -23,7 +23,7 @@ const MarketPath = "/market/mk20"
 type HTTPClient struct {
 	BaseURL    string
 	HTTP       *http.Client
-	AuthHeader func(context.Context) (key string, value string, err error)
+	AuthHeader func(context.Context, string, string) (key string, value string, err error)
 }
 
 // NewHTTPClient returns a HTTPClient with sane defaults.
@@ -42,7 +42,7 @@ func NewHTTPClient(baseURL string, opts ...Option) *HTTPClient {
 
 type Option func(*HTTPClient)
 
-func WithAuth(h func(context.Context) (string, string, error)) Option {
+func WithAuth(h func(context.Context, string, string) (string, string, error)) Option {
 	return func(c *HTTPClient) { c.AuthHeader = h }
 }
 
@@ -64,7 +64,11 @@ func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, d
 		}
 	}
 
-	k, vHdr, err := c.AuthHeader(ctx)
+	authPath := req.URL.EscapedPath()
+	if authPath == "" {
+		authPath = "/"
+	}
+	k, vHdr, err := c.AuthHeader(ctx, method, authPath)
 	if err != nil {
 		return &Error{
 			Status: 0,
@@ -124,23 +128,32 @@ func (e *Error) HError() error {
 
 // /contracts
 func (c *HTTPClient) Contracts(ctx context.Context) ([]string, *Error) {
-	var out []string
-	err := c.do(ctx, http.MethodGet, "/contracts", nil, false, &out)
-	return out, err
+	var ret mk20.SupportedContracts
+	err := c.do(ctx, http.MethodGet, "/contracts", nil, false, &ret)
+	if err != nil {
+		return nil, err
+	}
+	return ret.Contracts, err
 }
 
 // /products
 func (c *HTTPClient) Products(ctx context.Context) ([]string, *Error) {
-	var out []string
-	err := c.do(ctx, http.MethodGet, "/products", nil, false, &out)
-	return out, err
+	var ret mk20.SupportedProducts
+	err := c.do(ctx, http.MethodGet, "/products", nil, false, &ret)
+	if err != nil {
+		return nil, err
+	}
+	return ret.Products, err
 }
 
 // /sources
 func (c *HTTPClient) Sources(ctx context.Context) ([]string, *Error) {
-	var out []string
-	err := c.do(ctx, http.MethodGet, "/sources", nil, false, &out)
-	return out, err
+	var ret mk20.SupportedDataSources
+	err := c.do(ctx, http.MethodGet, "/sources", nil, false, &ret)
+	if err != nil {
+		return nil, err
+	}
+	return ret.Sources, err
 }
 
 // /status/{id}
@@ -150,23 +163,23 @@ func (c *HTTPClient) Status(ctx context.Context, id ulid.ULID) (*mk20.DealProduc
 	return &out, err
 }
 
-// /store  (POST)
-func (c *HTTPClient) Store(ctx context.Context, deal *mk20.Deal) *Error {
+// /deal  (POST)
+func (c *HTTPClient) SubmitDeal(ctx context.Context, deal *mk20.Deal) *Error {
 	b, merr := json.Marshal(deal)
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodPost, "/store", bytes.NewReader(b), false, nil)
+	err := c.do(ctx, http.MethodPost, "/deal", bytes.NewReader(b), false, nil)
 	return err
 }
 
-// /update/{id}  (GET in spec – unusual, but honoured)
+// /update/{id}  (POST)
 func (c *HTTPClient) Update(ctx context.Context, id ulid.ULID, deal *mk20.Deal) *Error {
 	b, merr := json.Marshal(deal)
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodGet, "/update/"+id.String(), bytes.NewReader(b), false, nil)
+	err := c.do(ctx, http.MethodPost, "/update/"+id.String(), bytes.NewReader(b), false, nil)
 	return err
 }
 

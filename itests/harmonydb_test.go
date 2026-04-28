@@ -155,6 +155,10 @@ func TestDowngradeTo(t *testing.T) {
 	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
+	// Let's ensure all applied are time.now() and not template time
+	_, err = cdb.Exec(ctx, `UPDATE base SET applied = NOW()`)
+	require.NoError(t, err)
+
 	// The setup: lets make revert files going forward in time, but ignore the past.
 	rowCt, err := cdb.Exec(ctx, "UPDATE base SET applied = applied - INTERVAL '10 DAY' WHERE TO_DATE(entry, 'YYYYMMDD') < DATE '2025-08-15'")
 	require.NoError(t, err)
@@ -162,6 +166,12 @@ func TestDowngradeTo(t *testing.T) {
 	if rowCt == 0 {
 		t.Fatal("no rows in save set")
 	}
+	// DowngradeTo selects rows with applied >= TO_DATE(last_good). A reused itest
+	// template may have old applied timestamps for newer migrations; refresh them
+	// so forward-dated entries are actually eligible for downgrade (deterministic).
+	_, err = cdb.Exec(ctx, "UPDATE base SET applied = CURRENT_TIMESTAMP WHERE entry > '20250815'")
+	require.NoError(t, err)
+
 	n, _ := strconv.Atoi(time.Now().AddDate(0, 0, -1).Format("20060102"))
 	err = cdb.DowngradeTo(ctx, n)
 	require.NoError(t, err, "error reverting. All sql entries need a revert file.")
