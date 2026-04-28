@@ -233,6 +233,9 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 }
 
 func buildRetrievalSeedPlan(fixtures retrievalFixtures) []retrievalFixtureSeed {
+	// raw_size=0 is repaired asynchronously by FixRawSize; use an impossible value (> unpadded) so
+	// the retrieval assertion does not race while still exercising "invalid raw_size → full piece" behavior.
+	invalidRawSize := int64(fixtures.rawSizeZero.PieceSize.Unpadded()) + 1
 	return []retrievalFixtureSeed{
 		{
 			DealID:    "mk12-retrieval-itest",
@@ -258,10 +261,10 @@ func buildRetrievalSeedPlan(fixtures retrievalFixtures) []retrievalFixtureSeed {
 			RawSizeOverride: &fixtures.rawSizeValid.RawSize,
 		},
 		{
-			DealID:          "mk12-zero-raw-size-itest",
+			DealID:          "mk12-invalid-raw-size-itest",
 			SectorNum:       rawSizeZeroSectorNum,
 			Fixture:         fixtures.rawSizeZero,
-			RawSizeOverride: new(int64(0)),
+			RawSizeOverride: &invalidRawSize,
 		},
 		{
 			DealID:    "mk12-aggregate-retry-itest",
