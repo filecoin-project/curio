@@ -14,7 +14,7 @@ import (
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
-	commutil "github.com/filecoin-project/go-commp-utils/nonffi"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -200,7 +200,7 @@ func (sb *SealCalls) EncodeUpdate(
 
 	log.Infow("prepare sector key", "took", time.Since(prepareKeyStart), "sectorID", sector.ID, "taskID", taskID)
 
-	commD, err := commutil.GenerateUnsealedCID(sector.ProofType, pieces)
+	commD, _, err := commputils.PieceAggregateCommP(sector.ProofType, pieces)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("generate unsealed cid: %w", err)
 	}

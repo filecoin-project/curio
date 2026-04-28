@@ -105,6 +105,7 @@ gen-deps: $(BUILD_DEPS)
 # contend for the same build cache simultaneously.
 # Set GOCACHE_CLEAN=1 to clear the build cache before running (fixes persistent issues).
 gensimple: export FFI_USE_OPENCL=1
+gensimple: export LANG=en_US.UTF-8
 gensimple:
 ifeq ($(GOCACHE_CLEAN),1)
 	$(GOCC) clean -cache

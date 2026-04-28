@@ -113,8 +113,8 @@ func InsertCompletedParkedPiece(tx *harmonydb.Tx, pieceCID string, pieceSize abi
 	var pieceID int64
 	err := tx.QueryRow(
 		`INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, complete, long_term)
-		 VALUES ($1, $2, $3, TRUE, $4)
-		 RETURNING id`,
+			 VALUES ($1, $2, $3, TRUE, $4) ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL DO NOTHING
+			 RETURNING id`,
 		pieceCID, pieceSize, rawSize, longTerm,
 	).Scan(&pieceID)
 	if err != nil {
@@ -313,11 +313,10 @@ func SeedMK20PendingDeal(tx *harmonydb.Tx, s MK20PendingSeed) error {
 		Data:       ds,
 		Products: mk20.Products{
 			DDOV1: &mk20.DDOV1{
-				Provider:        s.Provider,
-				PieceManager:    s.Provider,
-				Duration:        s.Duration,
-				AllocationId:    allocationID,
-				ContractAddress: s.Contract,
+				Provider:      s.Provider,
+				Duration:      s.Duration,
+				AllocationId:  allocationID,
+				MarketAddress: s.Contract,
 			},
 			RetrievalV1: &mk20.RetrievalV1{
 				Indexing:        s.Indexing,

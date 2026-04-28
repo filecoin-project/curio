@@ -10,7 +10,12 @@ runs:
   using: 'composite'
   steps:
     - name: Update apt cache
-      run: sudo apt-get update
+      run: |
+        # GitHub-hosted images occasionally ship stale apt lists; apt then tries to fetch
+        # package revisions that were rotated off security.ubuntu.com (404). Force a
+        # full index refresh before install.
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo apt-get update -y
       shell: bash
 
     - name: Install dependencies
