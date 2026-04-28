@@ -39,11 +39,6 @@ func MetaValue[T any](ctx context.Context, key any) (T, bool) {
 	return v, ok
 }
 
-func completionMetaFrom(ctx context.Context) *completionMeta {
-	m, _ := ctx.Value(completionMetaKey{}).(*completionMeta)
-	return m
-}
-
 func buildCompletionContext(meta *completionMeta) context.Context {
 	if meta == nil {
 		return context.Background()
