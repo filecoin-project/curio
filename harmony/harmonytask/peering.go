@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/lotus/lib/must"
 )
 
 // PeerMessage is the JSON envelope for all peer-to-peer messages.
@@ -18,9 +16,9 @@ import (
 // verb-specific fields live in taskOther (identity uses hostAndPort; preempt
 // uses cost; newTask uses retries and posted; others use taskType alone).
 type PeerMessage struct {
-	Verb   string          `json:"verb"`
-	TaskID TaskID          `json:"taskID,omitempty"`
-	Other  json.RawMessage `json:"other,omitempty"`
+	Verb   string    `json:"verb"`
+	TaskID TaskID    `json:"taskID,omitempty"`
+	Other  taskOther `json:"other,omitempty"`
 }
 
 // taskOther is the only payload shape for PeerMessage.Other. Fields are
@@ -269,10 +267,7 @@ func (p *peering) handlePeerMessage(peerAddr string, them peer, msg []byte) erro
 		return xerrors.Errorf("invalid JSON message from peer: %w", err)
 	}
 
-	var other taskOther
-	if err := json.Unmarshal(envelope.Other, &other); err != nil {
-		return xerrors.Errorf("failed to unmarshal other from peer %s: %w", peerAddr, err)
-	}
+	other := envelope.Other
 
 	switch messageType(envelope.Verb) {
 	case messageTypeIdentity:
@@ -331,7 +326,7 @@ func marshalPeerMessage(verb messageType, taskID TaskID, other taskOther) ([]byt
 	return json.Marshal(PeerMessage{
 		Verb:   string(verb),
 		TaskID: taskID,
-		Other:  must.One(json.Marshal(other)),
+		Other:  other,
 	})
 }
 

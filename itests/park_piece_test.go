@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,16 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/piece"
 )
+
+// noopPeerConnector implements harmonytask.PeerConnectorInterface for tests
+// that need a TaskEngine but not cluster peering (harmonytask.New requires a
+// non-nil connector; nil panics in startPeering).
+type noopPeerConnector struct{}
+
+func (noopPeerConnector) ConnectToPeer(string) (harmonytask.PeerConnection, error) {
+	return nil, fmt.Errorf("noop: no peers")
+}
+func (noopPeerConnector) SetOnConnect(func(string, harmonytask.PeerConnection)) {}
 
 // TestParkPieceCanAccept_SliceBounds is a regression test for a panic in
 // ParkPieceTask.CanAccept where capacity (maxInPark - count - running) could
@@ -40,7 +51,7 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a real TaskEngine so RunningCount works.
-	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234", nil)
+	engine, err := harmonytask.New(db, []harmonytask.TaskInterface{ppt}, "testhost:1234", noopPeerConnector{})
 	require.NoError(t, err)
 	t.Cleanup(func() { engine.GracefullyTerminate() })
 
@@ -234,7 +245,7 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 			expectedRefs := tc.setup(t, ctx, db, sc)
 
 			fixTask := piece.NewFixParkPieceTask(db, sc)
-			done, err := fixTask.Do(0, func() bool { return true })
+			done, err := fixTask.Do(ctx, 0, func() bool { return true })
 			require.False(t, done)
 			require.ErrorContains(t, err, "creating index")
 
@@ -246,13 +257,13 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 			if len(cleanupTaskIDs) > 0 {
 				cleanupTask := piece.NewCleanupPieceTask(db, sc, 0)
 				for _, cleanupTaskID := range cleanupTaskIDs {
-					done, err = cleanupTask.Do(cleanupTaskID, func() bool { return true })
+					done, err = cleanupTask.Do(ctx, cleanupTaskID, func() bool { return true })
 					require.True(t, done)
 					require.NoError(t, err)
 				}
 			}
 
-			done, err = fixTask.Do(0, func() bool { return true })
+			done, err = fixTask.Do(ctx, 0, func() bool { return true })
 			if tc.expectIndexAfterCleanup {
 				require.True(t, done)
 				require.NoError(t, err)

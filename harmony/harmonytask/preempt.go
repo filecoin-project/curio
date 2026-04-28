@@ -181,7 +181,7 @@ func (e *TaskEngine) preemptForTimeSensitive(h *taskTypeHandler, tID TaskID) {
 	peerCount := len(e.peering.m[h.Name])
 	e.peering.peersLock.RUnlock()
 
-	bytes, err := marshalPeerMessage(messageTypePreemptCost, tID, taskOther{Cost: plan.totalCost, TaskType: h.Name})
+	bytes, err := marshalPeerMessage(messageTypePreemptCost, tID, taskOther{TaskType: h.Name, Cost: plan.totalCost})
 	if err != nil {
 		log.Errorw("failed to marshal preempt cost message", "error", err)
 		return

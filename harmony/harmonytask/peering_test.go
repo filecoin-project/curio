@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPreemptCostMessage verifies preempt cost bytes are parsed and routed into preemptCostChs.
-// When preemptCostChs has a channel for the taskID, the response is delivered there.
+// TestPreemptCostMessage verifies preempt-cost JSON is parsed and routed into preemptCostChs
+// when a channel is registered for that task ID.
 func TestPreemptCostMessage(t *testing.T) {
 	engine := &TaskEngine{
 		schedulerChannel: make(chan schedulerEvent, 10),
@@ -49,11 +49,8 @@ func TestPreemptCostMessageWireFormat(t *testing.T) {
 	require.NoError(t, json.Unmarshal(msg, &envelope))
 	require.Equal(t, string(messageTypePreemptCost), envelope.Verb)
 	require.Equal(t, TaskID(42), envelope.TaskID)
-
-	var o taskOther
-	require.NoError(t, json.Unmarshal(envelope.Other, &o))
-	require.Equal(t, "WdPost", o.TaskType)
-	require.Equal(t, 3*time.Second, o.Cost)
+	require.Equal(t, "WdPost", envelope.Other.TaskType)
+	require.Equal(t, 3*time.Second, envelope.Other.Cost)
 }
 
 // ===== Toy Pipe RPC (unexported, for in-package tests only) =====
@@ -190,10 +187,8 @@ func TestMessageWireFormat(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "newTask", envelope.Verb)
 		require.Equal(t, TaskID(2), envelope.TaskID)
-		var o taskOther
-		require.NoError(t, json.Unmarshal(envelope.Other, &o))
-		require.Equal(t, "XY", o.TaskType)
-		require.Equal(t, 5, o.Retries)
+		require.Equal(t, "XY", envelope.Other.TaskType)
+		require.Equal(t, 5, envelope.Other.Retries)
 	})
 
 	t.Run("Started", func(t *testing.T) {
@@ -204,9 +199,7 @@ func TestMessageWireFormat(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "started", envelope.Verb)
 		require.Equal(t, TaskID(42), envelope.TaskID)
-		var o taskOther
-		require.NoError(t, json.Unmarshal(envelope.Other, &o))
-		require.Equal(t, "WdPost", o.TaskType)
+		require.Equal(t, "WdPost", envelope.Other.TaskType)
 	})
 
 	t.Run("Identity", func(t *testing.T) {
@@ -215,9 +208,7 @@ func TestMessageWireFormat(t *testing.T) {
 		var envelope PeerMessage
 		require.NoError(t, json.Unmarshal(msg, &envelope))
 		require.Equal(t, "identity", envelope.Verb)
-		var o taskOther
-		require.NoError(t, json.Unmarshal(envelope.Other, &o))
-		require.Equal(t, "host:1234", o.HostAndPort)
+		require.Equal(t, "host:1234", envelope.Other.HostAndPort)
 	})
 }
 
