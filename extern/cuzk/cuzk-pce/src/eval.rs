@@ -208,3 +208,175 @@ pub fn density_tracker_from_words(
         total_density: popcount,
     }
 }
+
+#[cfg(test)]
+mod eval_tests {
+    use super::{density_tracker_from_words, evaluate_pce, spmv_parallel};
+    use crate::csr::{CsrMatrix, PreCompiledCircuit};
+    use crate::density::PreComputedDensity;
+    use bitvec::prelude::*;
+    use blstrs::Scalar as Fr;
+    use ff::{Field, PrimeField};
+
+    fn spmv_serial<Scalar: PrimeField>(matrix: &CsrMatrix<Scalar>, witness: &[Scalar]) -> Vec<Scalar> {
+        let n = matrix.num_rows();
+        let mut out = vec![Scalar::ZERO; n];
+        for row in 0..n {
+            let (cols, vals) = matrix.row(row);
+            let mut acc = Scalar::ZERO;
+            for j in 0..cols.len() {
+                acc += vals[j] * witness[cols[j] as usize];
+            }
+            out[row] = acc;
+        }
+        out
+    }
+
+    #[test]
+    fn spmv_parallel_matches_serial_on_random_csr() {
+        let witness: Vec<Fr> = (0..8).map(|i| Fr::from(i as u64)).collect();
+        let m = CsrMatrix {
+            row_ptrs: vec![0, 2, 4, 7],
+            cols: vec![0, 3, 1, 4, 0, 5, 6],
+            vals: vec![Fr::ONE, Fr::ONE, Fr::ONE, Fr::ONE, Fr::ONE, Fr::ONE, Fr::ONE],
+        };
+        let par = spmv_parallel(&m, &witness);
+        let ser = spmv_serial(&m, &witness);
+        assert_eq!(par, ser);
+    }
+
+    #[test]
+    fn evaluate_pce_zero_witness_returns_zero() {
+        let num_inputs = 2u32;
+        let num_aux = 2u32;
+        let a = CsrMatrix {
+            row_ptrs: vec![0, 1, 2],
+            cols: vec![0, 1],
+            vals: vec![Fr::ONE, Fr::ONE],
+        };
+        let b = CsrMatrix {
+            row_ptrs: vec![0, 0, 0],
+            cols: vec![],
+            vals: vec![],
+        };
+        let c = CsrMatrix {
+            row_ptrs: vec![0, 0, 0],
+            cols: vec![],
+            vals: vec![],
+        };
+        let density = PreComputedDensity::from_csr(&a, &b, num_inputs as usize, num_aux as usize);
+        let pce = PreCompiledCircuit {
+            num_inputs,
+            num_aux,
+            num_constraints: 2,
+            a,
+            b,
+            c,
+            density,
+        };
+        let inputs = vec![Fr::ZERO; num_inputs as usize];
+        let aux = vec![Fr::ZERO; num_aux as usize];
+        let r = evaluate_pce(&pce, inputs, aux);
+        assert!(r.a.iter().all(|x| x.is_zero_vartime()));
+        assert!(r.b.iter().all(|x| x.is_zero_vartime()));
+        assert!(r.c.iter().all(|x| x.is_zero_vartime()));
+    }
+
+    #[test]
+    fn evaluate_pce_matches_serial_matvec_5x5_style() {
+        // 2 constraints, 2 inputs + 2 aux
+        let num_inputs = 2u32;
+        let num_aux = 2u32;
+        let a = CsrMatrix {
+            row_ptrs: vec![0, 2, 3],
+            cols: vec![0, 2, 3],
+            vals: vec![Fr::ONE, Fr::from(2u64), Fr::ONE],
+        };
+        let b = CsrMatrix {
+            row_ptrs: vec![0, 1, 2],
+            cols: vec![1, 2],
+            vals: vec![Fr::ONE, Fr::ONE],
+        };
+        let c = CsrMatrix {
+            row_ptrs: vec![0, 0, 1],
+            cols: vec![3],
+            vals: vec![Fr::ONE],
+        };
+        let density = PreComputedDensity::from_csr(&a, &b, num_inputs as usize, num_aux as usize);
+        let pce = PreCompiledCircuit {
+            num_inputs,
+            num_aux,
+            num_constraints: 2,
+            a: a.clone(),
+            b: b.clone(),
+            c: c.clone(),
+            density,
+        };
+        let inputs = vec![Fr::ONE, Fr::from(3u64)];
+        let aux = vec![Fr::from(5u64), Fr::from(7u64)];
+        let mut w = inputs.clone();
+        w.extend_from_slice(&aux);
+
+        let r = evaluate_pce(&pce, inputs.clone(), aux.clone());
+        assert_eq!(r.a, spmv_serial(&a, &w));
+        assert_eq!(r.b, spmv_serial(&b, &w));
+        assert_eq!(r.c, spmv_serial(&c, &w));
+    }
+
+    #[test]
+    fn evaluate_pce_vs_recording_cs_match_small() {
+        use bellpepper_core::{ConstraintSystem, Index, Variable};
+        use crate::recording_cs::RecordingCS;
+
+        let mut cs = RecordingCS::<Fr>::new();
+        cs.alloc_input(|| "one", || Ok(Fr::ONE)).unwrap();
+        let x = cs
+            .alloc(|| "x", || Ok(Fr::from(11u64)))
+            .unwrap();
+        // 1 * x = x
+        cs.enforce(
+            || "mul",
+            |lc| lc + Variable(Index::Input(0)),
+            |lc| lc + x,
+            |lc| lc + x,
+        );
+        let pce = cs.into_precompiled();
+        let inputs = vec![Fr::ONE];
+        let aux = vec![Fr::from(11u64)];
+        let r = evaluate_pce(&pce, inputs.clone(), aux.clone());
+        let mut w = inputs;
+        w.extend(aux);
+        assert_eq!(r.a, spmv_serial(&pce.a, &w));
+        assert_eq!(r.b, spmv_serial(&pce.b, &w));
+        assert_eq!(r.c, spmv_serial(&pce.c, &w));
+    }
+
+    #[test]
+    fn density_tracker_from_words_round_trips_through_save_load() {
+        let num_inputs = 2usize;
+        let num_aux = 5usize;
+        let a = CsrMatrix {
+            row_ptrs: vec![0, 1],
+            cols: vec![num_inputs as u32],
+            vals: vec![Fr::ONE],
+        };
+        let b = CsrMatrix {
+            row_ptrs: vec![0, 1],
+            cols: vec![0u32],
+            vals: vec![Fr::ONE],
+        };
+        let pcd = PreComputedDensity::from_csr(&a, &b, num_inputs, num_aux);
+        let dt = density_tracker_from_words(
+            &pcd.a_aux_density_words,
+            pcd.a_aux_bit_len,
+            pcd.a_aux_popcount,
+        );
+        assert_eq!(dt.get_total_density(), pcd.a_aux_popcount);
+        assert_eq!(dt.bv.len(), pcd.a_aux_bit_len);
+        let mut expected = BitVec::<u64, Lsb0>::from_slice(&pcd.a_aux_density_words);
+        expected.truncate(pcd.a_aux_bit_len);
+        for i in 0..pcd.a_aux_bit_len {
+            assert_eq!(dt.bv[i], expected[i]);
+        }
+    }
+}

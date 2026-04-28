@@ -42,7 +42,8 @@ version = "0.2"
 version = "1.3.1"
 
 [dependencies.blake2s_simd]
-version = "1.0.0"
+# 1.0.4+ requires Cargo that supports edition 2024; pin for older toolchains (CI / dev).
+version = "=1.0.3"
 
 [dependencies.blstrs]
 version = "0.7.0"
@@ -164,6 +165,8 @@ cuda = [
 cuda-supraseal = ["supraseal-c2"]
 default = ["groth16"]
 groth16 = []
+# Placeholder: Vulkan cuZK path (Phase 4). Currently uses the same native Groth16 API as `ext`.
+vulkan-cuzk = []
 opencl = [
     "ec-gpu-gen/opencl",
     "fs2",

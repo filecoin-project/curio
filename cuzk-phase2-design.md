@@ -7,6 +7,14 @@ with GPU NTT+MSM proving to achieve ~1.5-1.8x throughput over Phase 1.
 
 **Estimated effort**: 2-3 weeks.
 
+**AMD / Vulkan proving (parallel track):** `extern/cuzk/cuzk-vk` targets Groth16 on Vulkan
+(BLS12-381) for stacks where CUDA supraseal does not run. Bring-up status and performance debt
+are tracked in the repo root `cuzk-vulkan-optimization-roadmap.md` (§3.1 sequencing, §8 catalogue).
+Integration with this Phase 2 synthesis∥GPU overlap (bellperson split API) is future work.
+
+**Bring-up status:** `cuzk-vk` Milestone A (`prove_groth16_partition` smoke, Fr NTT n=8, MSM dispatch
+grid) is described in `cuzk-vulkan-optimization-roadmap.md` §3.1; Milestone B is full proving parity.
+
 ---
 
 ## 1. The Problem

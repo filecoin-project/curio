@@ -1,0 +1,274 @@
+// Appended after `glsl_32_bit_field_params::<Scalar>()` + inverse twiddle + `NTT8_NINV` from build.rs.
+// Inverse radix-2 Fr NTT for n=8 (Montgomery limbs). Matches `fr_ntt_inplace(..., omega^{-1})` then × n^{-1}.
+// @@FR_T@@, @@FR_P@@, @@FR_INV@@, @@FR_ONE@@
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64];
+} buf;
+
+void mul_u32_pair(uint a, uint b, out uint hi, out uint lo) {
+    const uint mask = 0xffffu;
+    uint a0 = a & mask;
+    uint a1 = a >> 16u;
+    uint b0 = b & mask;
+    uint b1 = b >> 16u;
+    uint p0 = a0 * b0;
+    uint p1 = a1 * b0;
+    uint p2 = a0 * b1;
+    uint p3 = a1 * b1;
+    uint carry = (p0 >> 16u) + (p1 & mask) + (p2 & mask);
+    lo = (p0 & mask) | ((carry & mask) << 16u);
+    hi = (p1 >> 16u) + (p2 >> 16u) + p3 + (carry >> 16u);
+}
+
+struct U64 {
+    uint lo;
+    uint hi;
+};
+
+U64 u64_add_u32(U64 a, uint b) {
+    uint nlo = a.lo + b;
+    uint c0 = (nlo < a.lo) ? 1u : 0u;
+    uint nhi = a.hi + c0;
+    uint c1 = (nhi < a.hi) ? 1u : 0u;
+    return U64(nlo, nhi + c1);
+}
+
+uint mac_with_carry_32(uint a, uint b, uint c, inout uint d) {
+    uint mh;
+    uint ml;
+    mul_u32_pair(a, b, mh, ml);
+    U64 pr = U64(ml, mh);
+    pr = u64_add_u32(pr, c);
+    pr = u64_add_u32(pr, d);
+    d = pr.hi;
+    return pr.lo;
+}
+
+bool fr_gte_val(@@FR_T@@ a, @@FR_T@@ b) {
+    for (uint k = 0u; k < 8u; k++) {
+        uint i = 7u - k;
+        if (a.val[i] > b.val[i]) {
+            return true;
+        }
+        if (a.val[i] < b.val[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+@@FR_T@@ fr_load_p() {
+    @@FR_T@@ p;
+    for (uint i = 0u; i < 8u; i++) {
+        p.val[i] = @@FR_P@@[i];
+    }
+    return p;
+}
+
+@@FR_T@@ fr_load_one() {
+    @@FR_T@@ o;
+    for (uint i = 0u; i < 8u; i++) {
+        o.val[i] = @@FR_ONE@@[i];
+    }
+    return o;
+}
+
+@@FR_T@@ fr_add_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint carry = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old + b.val[i] + carry;
+        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_sub_raw(@@FR_T@@ a, @@FR_T@@ b) {
+    uint borrow = 0u;
+    for (uint i = 0u; i < 8u; i++) {
+        uint old = a.val[i];
+        a.val[i] = old - b.val[i] - borrow;
+        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+    }
+    return a;
+}
+
+@@FR_T@@ fr_add_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ r = fr_add_raw(a, b);
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(r, p)) {
+        r = fr_sub_raw(r, p);
+    }
+    return r;
+}
+
+@@FR_T@@ fr_sub_mod(@@FR_T@@ a, @@FR_T@@ b) {
+    @@FR_T@@ aa = a;
+    @@FR_T@@ res = fr_sub_raw(aa, b);
+    if (!fr_gte_val(a, b)) {
+        @@FR_T@@ p = fr_load_p();
+        res = fr_add_raw(res, p);
+    }
+    @@FR_T@@ p2 = fr_load_p();
+    if (fr_gte_val(res, p2)) {
+        res = fr_sub_raw(res, p2);
+    }
+    return res;
+}
+
+uint add_with_carry_32(uint a, inout uint b) {
+    uint lo = a + b;
+    b = (lo < a) ? 1u : 0u;
+    return lo;
+}
+
+@@FR_T@@ fr_mul_mont_cios(@@FR_T@@ a, @@FR_T@@ b) {
+    uint t[10];
+    for (uint k = 0u; k < 10u; k++) {
+        t[k] = 0u;
+    }
+
+    for (uint i = 0u; i < 8u; i++) {
+        uint carry = 0u;
+        for (uint j = 0u; j < 8u; j++) {
+            t[j] = mac_with_carry_32(a.val[j], b.val[i], t[j], carry);
+        }
+        t[8] = add_with_carry_32(t[8], carry);
+        t[9] = carry;
+
+        carry = 0u;
+        uint m = @@FR_INV@@ * t[0];
+        t[0] = mac_with_carry_32(m, @@FR_P@@[0], t[0], carry);
+        for (uint j = 1u; j < 8u; j++) {
+            t[j - 1u] = mac_with_carry_32(m, @@FR_P@@[j], t[j], carry);
+        }
+        t[7] = add_with_carry_32(t[8], carry);
+        t[8] = t[9] + carry;
+    }
+
+    @@FR_T@@ result;
+    for (uint i = 0u; i < 8u; i++) {
+        result.val[i] = t[i];
+    }
+    @@FR_T@@ p = fr_load_p();
+    if (fr_gte_val(result, p)) {
+        result = fr_sub_raw(result, p);
+    }
+    return result;
+}
+
+void load_fr(uint e, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[e * 8u + i];
+    }
+}
+
+void store_fr(uint e, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[e * 8u + i] = x.val[i];
+    }
+}
+
+void bitrev8_perm() {
+    uint tmp[64];
+    for (uint k = 0u; k < 8u; k++) {
+        for (uint i = 0u; i < 8u; i++) {
+            tmp[k * 8u + i] = buf.d[k * 8u + i];
+        }
+    }
+    uint br[8] = uint[](0u, 4u, 2u, 6u, 1u, 5u, 3u, 7u);
+    for (uint k = 0u; k < 8u; k++) {
+        uint src = br[k];
+        for (uint i = 0u; i < 8u; i++) {
+            buf.d[k * 8u + i] = tmp[src * 8u + i];
+        }
+    }
+}
+
+void butterfly(uint eu, uint ev, @@FR_T@@ w) {
+    @@FR_T@@ u;
+    @@FR_T@@ v;
+    load_fr(eu, u);
+    load_fr(ev, v);
+    @@FR_T@@ tv = fr_mul_mont_cios(v, w);
+    @@FR_T@@ up = fr_add_mod(u, tv);
+    @@FR_T@@ um = fr_sub_mod(u, tv);
+    store_fr(eu, up);
+    store_fr(ev, um);
+}
+
+@@FR_T@@ fr_ntt8_load_inv_w4() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_INV_W4[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_inv_w8() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_INV_W8[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_inv_w82() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_INV_W82[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_inv_w83() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_INV_W83[i];
+    }
+    return w;
+}
+
+@@FR_T@@ fr_ntt8_load_ninv() {
+    @@FR_T@@ w;
+    for (uint i = 0u; i < 8u; i++) {
+        w.val[i] = NTT8_NINV[i];
+    }
+    return w;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
+
+    bitrev8_perm();
+
+    @@FR_T@@ one = fr_load_one();
+
+    butterfly(0u, 1u, one);
+    butterfly(2u, 3u, one);
+    butterfly(4u, 5u, one);
+    butterfly(6u, 7u, one);
+
+    butterfly(0u, 2u, one);
+    butterfly(1u, 3u, fr_ntt8_load_inv_w4());
+    butterfly(4u, 6u, one);
+    butterfly(5u, 7u, fr_ntt8_load_inv_w4());
+
+    butterfly(0u, 4u, one);
+    butterfly(1u, 5u, fr_ntt8_load_inv_w8());
+    butterfly(2u, 6u, fr_ntt8_load_inv_w82());
+    butterfly(3u, 7u, fr_ntt8_load_inv_w83());
+
+    @@FR_T@@ ninv = fr_ntt8_load_ninv();
+    for (uint e = 0u; e < 8u; e++) {
+        @@FR_T@@ x;
+        load_fr(e, x);
+        x = fr_mul_mont_cios(x, ninv);
+        store_fr(e, x);
+    }
+}

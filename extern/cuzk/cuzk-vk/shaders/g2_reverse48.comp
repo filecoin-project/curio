@@ -1,0 +1,17 @@
+// Reverses 48 u32 words in-place (G2 affine x||y limb layout). SSBO + 48-wide workgroup smoke.
+#version 450
+
+layout(local_size_x = 48, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[48];
+} buf;
+
+shared uint sh[48];
+
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    sh[i] = buf.d[i];
+    barrier();
+    buf.d[i] = sh[47u - i];
+}

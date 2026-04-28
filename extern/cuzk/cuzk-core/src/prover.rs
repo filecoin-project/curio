@@ -796,4 +796,33 @@ mod tests {
         assert_eq!(id[0], 0x80);
         assert_eq!(id[1], 0x01);
     }
+
+    #[test]
+    fn step_p04_c1_output_wrapper_rejects_missing_phase1_out() {
+        let json = r#"{"SectorNum":1,"SectorSize":34359738368}"#;
+        assert!(serde_json::from_str::<C1OutputWrapper>(json).is_err());
+    }
+
+    #[test]
+    fn step_p04_preload_srs_sets_fil_proofs_parameter_cache_idempotent() {
+        let dir = std::env::temp_dir().join(format!(
+            "cuzk_preload_srs_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        preload_srs("porep-32g", &dir).unwrap();
+        let first = std::env::var("FIL_PROOFS_PARAMETER_CACHE").unwrap();
+        preload_srs("winning-32g", &dir).unwrap();
+        let second = std::env::var("FIL_PROOFS_PARAMETER_CACHE").unwrap();
+        assert_eq!(first, dir.to_string_lossy());
+        assert_eq!(second, dir.to_string_lossy());
+    }
+
+    #[test]
+    fn step_p04_make_prover_id_round_trip_known_miner_ids() {
+        // Lotus-style spot checks: varint payload matches common actors.
+        assert_eq!(&make_prover_id(1000)[..2], &[0xe8, 0x07]);
+        assert_eq!(make_prover_id(0)[0], 0x00);
+        assert_eq!(make_prover_id(1)[0], 0x01);
+    }
 }

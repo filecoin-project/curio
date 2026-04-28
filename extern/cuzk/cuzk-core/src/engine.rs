@@ -422,6 +422,14 @@ impl JobTracker {
     }
 }
 
+#[cfg(test)]
+impl JobTracker {
+    /// Register a completion waiter (mirrors engine submit path) for unit tests.
+    fn test_push_pending(&mut self, job_id: JobId, tx: oneshot::Sender<JobStatus>) {
+        self.pending.entry(job_id).or_default().push(tx);
+    }
+}
+
 // ─── Phase 12: Result-processing helpers ─────────────────────────────────────
 //
 // Extracted from the GPU worker loop so they can be called from both the
@@ -1391,6 +1399,7 @@ impl Engine {
             self.status_tracker.register_workers(&worker_pairs);
         }
 
+        #[cfg(feature = "cuda-supraseal")]
         if self.pipeline_enabled {
             // ─── Phase 2: Two-stage pipeline ───────────────────────────────
             //
@@ -3507,6 +3516,154 @@ impl Engine {
             }
         }
 
+        #[cfg(not(feature = "cuda-supraseal"))]
+        {
+            if self.pipeline_enabled {
+                tracing::warn!(
+                    target: "cuzk_core",
+                    "pipeline.enabled is set but this build omits cuda-supraseal; using monolithic GPU workers only"
+                );
+            }
+            for state in &worker_states {
+                let worker_id = state.worker_id;
+                let gpu_ordinal = state.gpu_ordinal;
+                let scheduler = self.scheduler.clone();
+                let tracker = self.tracker.clone();
+                let mut shutdown_rx = self.shutdown_rx.clone();
+                let param_cache = self.config.srs.param_cache.clone();
+
+                tokio::spawn(async move {
+                    info!(worker_id = worker_id, gpu = gpu_ordinal, "monolithic GPU worker started");
+                    loop {
+                        let request = tokio::select! {
+                            biased;
+                            _ = shutdown_rx.changed() => {
+                                if *shutdown_rx.borrow() {
+                                    info!(worker_id = worker_id, "monolithic GPU worker received shutdown signal");
+                                    break;
+                                }
+                                continue;
+                            }
+                            request = scheduler.next() => request,
+                        };
+
+                        let job_id = request.job_id.clone();
+                        let proof_kind = request.proof_kind;
+                        let span = info_span!("monolithic_worker", worker_id = worker_id, gpu = gpu_ordinal, job_id = %job_id, proof_kind = %proof_kind);
+
+                        async {
+                            info!("processing job (monolithic)");
+
+                            {
+                                let mut t = tracker.lock().await;
+                                if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                    w.current_job = Some((job_id.clone(), proof_kind));
+                                }
+                            }
+
+                            let param_cache_str = param_cache.to_string_lossy().to_string();
+                            let gpu_str = gpu_ordinal.to_string();
+                            let vanilla = request.vanilla_proof.clone();
+                            let vanilla_proofs = request.vanilla_proofs.clone();
+                            let registered_proof = request.registered_proof;
+                            let sector_number = request.sector_number;
+                            let miner_id = request.miner_id;
+                            let randomness = request.randomness.clone();
+                            let partition_index = request.partition_index;
+                            let comm_r_old = request.comm_r_old.clone();
+                            let comm_r_new = request.comm_r_new.clone();
+                            let comm_d_new = request.comm_d_new.clone();
+                            let submitted_at = request.submitted_at;
+                            let jid = job_id.0.clone();
+
+                            let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, ProofTimings)> {
+                                std::env::set_var("CUDA_VISIBLE_DEVICES", &gpu_str);
+                                std::env::set_var("FIL_PROOFS_PARAMETER_CACHE", &param_cache_str);
+
+                                match proof_kind {
+                                    ProofKind::PoRepSealCommit => {
+                                        prover::prove_porep_c2(&vanilla, sector_number, miner_id, &jid)
+                                    }
+                                    ProofKind::WinningPost => {
+                                        prover::prove_winning_post(&vanilla_proofs, registered_proof, miner_id, &randomness, &jid)
+                                    }
+                                    ProofKind::WindowPostPartition => {
+                                        prover::prove_window_post(&vanilla_proofs, registered_proof, miner_id, &randomness, partition_index, &jid)
+                                    }
+                                    ProofKind::SnapDealsUpdate => {
+                                        prover::prove_snap_deals(vanilla_proofs, registered_proof, &comm_r_old, &comm_r_new, &comm_d_new, &jid)
+                                    }
+                                }
+                            }).await;
+
+                            let queue_wait = submitted_at.elapsed().saturating_sub(
+                                match &result {
+                                    Ok(Ok((_, t))) => t.total,
+                                    _ => Duration::ZERO,
+                                }
+                            );
+                            let sector_size_gib = (request.sector_size / (1024 * 1024 * 1024)) as u32;
+                            let circuit_id = proof_kind.circuit_id(if sector_size_gib > 0 { sector_size_gib } else { 32 });
+
+                            let status = match result {
+                                Ok(Ok((proof_bytes, mut timings))) => {
+                                    timings.queue_wait = queue_wait;
+                                    timings.total = submitted_at.elapsed();
+                                    info!(
+                                        proof_len = proof_bytes.len(),
+                                        total_ms = timings.total.as_millis(),
+                                        queue_ms = timings.queue_wait.as_millis(),
+                                        deser_ms = timings.deserialize.as_millis(),
+                                        prove_ms = timings.proving.as_millis(),
+                                        "proof completed successfully (monolithic)"
+                                    );
+                                    JobStatus::Completed(ProofResult {
+                                        job_id: job_id.clone(),
+                                        proof_kind,
+                                        proof_bytes,
+                                        timings,
+                                    })
+                                }
+                                Ok(Err(e)) => {
+                                    error!(error = %e, "proof failed");
+                                    JobStatus::Failed(e.to_string())
+                                }
+                                Err(e) => {
+                                    error!(error = %e, "proof task panicked");
+                                    JobStatus::Failed(format!("task panicked: {}", e))
+                                }
+                            };
+
+                            let mut t = tracker.lock().await;
+                            if let Some(w) = t.workers.get_mut(worker_id as usize) {
+                                w.current_job = None;
+                                if matches!(&status, JobStatus::Completed(_)) {
+                                    w.last_circuit_id = Some(circuit_id);
+                                }
+                            }
+                            match &status {
+                                JobStatus::Completed(result) => {
+                                    t.record_completion(proof_kind, result.timings.total);
+                                }
+                                JobStatus::Failed(_) => {
+                                    t.record_failure(proof_kind);
+                                }
+                                _ => {}
+                            }
+
+                            if let Some(senders) = t.pending.remove(&job_id) {
+                                for sender in senders {
+                                    let _ = sender.send(status.clone());
+                                }
+                            }
+                            t.completed.insert(job_id, status);
+                        }.instrument(span).await;
+                    }
+                    info!(worker_id = worker_id, "monolithic GPU worker stopped");
+                });
+            }
+        }
+
         info!(
             num_workers = num_workers,
             pipeline = self.pipeline_enabled,
@@ -3741,4 +3898,196 @@ pub struct EngineStatus {
     pub completed_by_kind: HashMap<ProofKind, u64>,
     pub failed_by_kind: HashMap<ProofKind, u64>,
     pub recent_durations: Vec<(ProofKind, Duration)>,
+}
+
+#[cfg(test)]
+mod step_p03_engine_tests {
+    use super::*;
+    use crate::config::Config;
+    use anyhow::anyhow;
+
+    fn sample_worker() -> WorkerState {
+        WorkerState {
+            worker_id: 0,
+            gpu_ordinal: 0,
+            last_circuit_id: None,
+            current_job: None,
+        }
+    }
+
+    #[test]
+    fn step_p03_priority_work_queue_orders_by_job_seq() {
+        let q: PriorityWorkQueue<&'static str> = PriorityWorkQueue::new();
+        q.push(10, 0, "younger");
+        q.push(1, 0, "older");
+        assert_eq!(q.try_pop(), Some("older"));
+        assert_eq!(q.try_pop(), Some("younger"));
+        assert!(q.try_pop().is_none());
+    }
+
+    #[test]
+    fn step_p03_priority_work_queue_fifo_within_same_job_by_partition_idx() {
+        let q: PriorityWorkQueue<&'static str> = PriorityWorkQueue::new();
+        q.push(1, 2, "p2");
+        q.push(1, 0, "p0");
+        q.push(1, 1, "p1");
+        assert_eq!(q.try_pop(), Some("p0"));
+        assert_eq!(q.try_pop(), Some("p1"));
+        assert_eq!(q.try_pop(), Some("p2"));
+    }
+
+    #[tokio::test]
+    async fn step_p03_priority_work_queue_notified_unblocks_pop() {
+        let q: Arc<PriorityWorkQueue<u32>> = Arc::new(PriorityWorkQueue::new());
+        let q2 = q.clone();
+        let h = tokio::spawn(async move {
+            q2.notified().await;
+            q2.try_pop()
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        q.push(0, 0, 42);
+        assert_eq!(h.await.unwrap(), Some(42));
+    }
+
+    #[test]
+    fn step_p03_dispatch_pacer_bootstrap_uses_slow_interval_until_gpu_known() {
+        let mut p = DispatchPacer::new(2, 2);
+        assert!(p.in_bootstrap());
+        assert_eq!(p.interval(), Duration::from_secs(3));
+        p.on_dispatch();
+        p.on_dispatch();
+        assert!(!p.in_bootstrap());
+        assert_eq!(p.interval(), Duration::from_secs(3)); // still no GPU samples
+    }
+
+    #[test]
+    fn step_p03_dispatch_pacer_respects_min_interval_after_gpu_known() {
+        let mut p = DispatchPacer::new(2, 4);
+        p.on_dispatch();
+        p.on_dispatch();
+        // Simulate two GPU completions with 200ms total processing time → 100ms avg
+        p.update(0, 2, 200_000_000, 0);
+        let iv = p.interval();
+        assert!(
+            iv >= Duration::from_millis(50),
+            "expected PI interval >= 50ms floor, got {:?}",
+            iv
+        );
+        assert!(iv <= Duration::from_secs(60));
+    }
+
+    #[tokio::test]
+    async fn step_p03_job_tracker_register_then_complete_via_monolithic() {
+        let mut t = JobTracker::new(vec![sample_worker()]);
+        let jid = JobId("job-a".into());
+        let (tx, rx) = oneshot::channel();
+        t.test_push_pending(jid.clone(), tx);
+        let submitted = Instant::now();
+        process_monolithic_result(
+            &mut t,
+            Ok(Ok((vec![7u8, 8, 9], Duration::from_millis(3)))),
+            &jid,
+            ProofKind::WinningPost,
+            0,
+            "winning-32g",
+            Duration::from_millis(1),
+            submitted,
+            false,
+            &[],
+            &[],
+            None,
+        );
+        let got = rx.await.expect("completion");
+        match got {
+            JobStatus::Completed(res) => {
+                assert_eq!(res.proof_bytes, vec![7, 8, 9]);
+                assert_eq!(res.proof_kind, ProofKind::WinningPost);
+            }
+            other => panic!("unexpected status: {:?}", other),
+        }
+        assert_eq!(t.total_completed, 1);
+        assert!(t.pending.is_empty());
+        assert!(t.completed.contains_key(&jid));
+    }
+
+    #[tokio::test]
+    async fn step_p03_job_tracker_gpu_error_clears_pending_with_failure() {
+        let mut t = JobTracker::new(vec![sample_worker()]);
+        let jid = JobId("job-err".into());
+        let (tx, rx) = oneshot::channel();
+        t.test_push_pending(jid.clone(), tx);
+        let submitted = Instant::now();
+        process_monolithic_result(
+            &mut t,
+            Ok(Err(anyhow!("gpu boom"))),
+            &jid,
+            ProofKind::WindowPostPartition,
+            0,
+            "wpost-32g",
+            Duration::ZERO,
+            submitted,
+            false,
+            &[],
+            &[],
+            None,
+        );
+        let got = rx.await.expect("failure notify");
+        assert!(matches!(got, JobStatus::Failed(_)));
+        assert_eq!(t.total_failed, 1);
+    }
+
+    #[tokio::test]
+    async fn step_p03_job_tracker_second_monolithic_complete_increments_stats_again() {
+        let mut t = JobTracker::new(vec![sample_worker()]);
+        let jid = JobId("job-double".into());
+        let (tx1, rx1) = oneshot::channel();
+        t.test_push_pending(jid.clone(), tx1);
+        let submitted = Instant::now();
+        process_monolithic_result(
+            &mut t,
+            Ok(Ok((vec![1], Duration::ZERO))),
+            &jid,
+            ProofKind::WinningPost,
+            0,
+            "cid",
+            Duration::ZERO,
+            submitted,
+            false,
+            &[],
+            &[],
+            None,
+        );
+        let _ = rx1.await.expect("first completion");
+        // Second GPU success: no pending waiters; engine still records another completion.
+        process_monolithic_result(
+            &mut t,
+            Ok(Ok((vec![2], Duration::ZERO))),
+            &jid,
+            ProofKind::WinningPost,
+            0,
+            "cid",
+            Duration::ZERO,
+            submitted,
+            false,
+            &[],
+            &[],
+            None,
+        );
+        assert_eq!(t.total_completed, 2);
+    }
+
+    #[tokio::test]
+    async fn step_p03_engine_get_status_before_start() {
+        let eng = Engine::new(Config::default());
+        let st = eng.get_status().await;
+        assert_eq!(st.queue_depth, 0);
+        assert_eq!(st.total_completed, 0);
+        assert!(st.workers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn step_p03_engine_shutdown_before_start() {
+        let eng = Engine::new(Config::default());
+        eng.shutdown().await;
+    }
 }

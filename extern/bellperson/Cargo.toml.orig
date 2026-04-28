@@ -19,7 +19,7 @@ rust-version = "1.64.0"
 
 [dependencies]
 bellpepper-core = { version = "0.2" }
-blake2s_simd = "1.0.0"
+blake2s_simd = "=1.0.3"
 ff = "0.13.0"
 group = "0.13.0"
 rand_core = "0.6"

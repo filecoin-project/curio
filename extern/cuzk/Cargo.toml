@@ -7,6 +7,7 @@ members = [
     "cuzk-daemon",
     "cuzk-bench",
     "cuzk-pce",
+    "cuzk-vk",
     # "cuzk-ffi",  # Future: C ABI for Go embedding
 ]
 
@@ -18,7 +19,8 @@ repository = "https://github.com/filecoin-project/curio"
 [workspace.dependencies]
 # Internal crates
 cuzk-proto = { path = "cuzk-proto" }
-cuzk-core = { path = "cuzk-core" }
+# Default CUDA supraseal is opt-in per binary so `cargo test -p cuzk-server` stays host-only.
+cuzk-core = { path = "cuzk-core", default-features = false }
 cuzk-pce = { path = "cuzk-pce" }
 cuzk-server = { path = "cuzk-server" }
 
@@ -79,12 +81,15 @@ filecoin-hashers = { version = "14.0", default-features = false, features = ["po
 
 # PCE dependencies
 ec-gpu-gen = { version = "0.7", default-features = false }
+ec-gpu = "0.2"
+naga = { version = "22", default-features = false, features = ["glsl-in", "spv-out"] }
 bitvec = "1"
 
 [patch.crates-io]
 bellperson = { path = "../bellperson" }
 bellpepper-core = { path = "../bellpepper-core" }
 supraseal-c2 = { path = "../supraseal-c2" }
+ec-gpu-gen = { path = "../ec-gpu-gen" }
 
 [profile.release]
 opt-level = 3

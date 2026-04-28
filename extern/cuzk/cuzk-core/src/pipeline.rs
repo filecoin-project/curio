@@ -3596,4 +3596,68 @@ mod tests {
         let proof_bytes = vec![0u8; 100]; // Wrong length
         assert!(split_batched_proofs(&proof_bytes, &boundaries).is_err());
     }
+
+    #[test]
+    fn step_p04_split_porep_three_sectors_ten_partitions_each() {
+        let boundaries = vec![10, 10, 10];
+        let total = 30 * GROTH_PROOF_BYTES;
+        let proof_bytes = vec![0xCC; total];
+        let results = split_batched_proofs(&proof_bytes, &boundaries).unwrap();
+        assert_eq!(results.len(), 3);
+        for r in &results {
+            assert_eq!(r.len(), 10 * GROTH_PROOF_BYTES);
+        }
+    }
+
+    #[test]
+    fn step_p04_split_mixed_porep_ten_and_winning_post_one() {
+        let boundaries = vec![10, 1];
+        let total = 11 * GROTH_PROOF_BYTES;
+        let proof_bytes = vec![0xDD; total];
+        let results = split_batched_proofs(&proof_bytes, &boundaries).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].len(), 10 * GROTH_PROOF_BYTES);
+        assert_eq!(results[1].len(), GROTH_PROOF_BYTES);
+    }
+
+    #[test]
+    fn step_p04_proof_assembler_porep_32g_expects_ten_partitions() {
+        let mut a = ProofAssembler::new(10);
+        for i in 0..10 {
+            a.insert(i, vec![i as u8; GROTH_PROOF_BYTES]);
+        }
+        assert!(a.is_complete());
+        let out = a.assemble();
+        assert_eq!(out.len(), 10 * GROTH_PROOF_BYTES);
+        assert_eq!(out[0], 0u8);
+        assert_eq!(out[GROTH_PROOF_BYTES], 1u8);
+    }
+
+    #[test]
+    fn step_p04_proof_assembler_winning_post_single_partition() {
+        let mut a = ProofAssembler::new(1);
+        a.insert(0, vec![0x5Au8; GROTH_PROOF_BYTES]);
+        assert!(a.is_complete());
+        assert_eq!(a.assemble().len(), GROTH_PROOF_BYTES);
+    }
+
+    #[cfg(not(feature = "cuda-supraseal"))]
+    #[test]
+    fn step_p04_pipelined_entrypoints_require_cuda_supraseal() {
+        let budget = std::sync::Arc::new(crate::memory::MemoryBudget::new(crate::memory::GIB));
+        let pce = PceCache::new(budget, std::path::PathBuf::from("."));
+        assert!(pce.evictable_entries().is_empty());
+        assert_eq!(pce.evict(&CircuitId::Porep32G), 0);
+
+        let msg = |e: anyhow::Error| e.to_string();
+        assert!(msg(prove_porep_c2_pipelined(b"", 0, 0, "j").unwrap_err()).contains("cuda-supraseal"));
+        assert!(msg(prove_winning_post_pipelined(&[], 3, 0, b"seed", "j").unwrap_err()).contains("cuda-supraseal"));
+        assert!(msg(prove_window_post_pipelined(&[], 8, 0, b"seed", 0, "j").unwrap_err()).contains("cuda-supraseal"));
+        assert!(msg(prove_snap_deals_pipelined(vec![], 3, b"", b"", b"", "j").unwrap_err()).contains("cuda-supraseal"));
+        let synth_err = match synthesize_porep_c2_partition(b"", 0, 0, 0, "j") {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected synthesize to fail without cuda-supraseal"),
+        };
+        assert!(synth_err.contains("cuda-supraseal"), "{}", synth_err);
+    }
 }
