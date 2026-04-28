@@ -1,0 +1,55 @@
+// Scatter coefficients into bit-reversed order in scratch: scratch[bitrev(i)] = data[i].
+// `buf.d[0]` = n, `buf.d[1]` = log_n. `local_size_x = 256`.
+
+#define FR_NTT_MAX_N 16384u
+#define FR_NTT_MAX_LOG 32u
+#define OFF_DATA 64u
+#define OFF_SCRATCH (64u + FR_NTT_MAX_N * 8u)
+#define OFF_WSTEP (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    uint stage;
+    uint _p0;
+    uint _p1;
+    uint _p2;
+} pc;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u];
+} buf;
+
+uint bitrev_idx(uint x, uint lg) {
+    uint r = 0u;
+    for (uint k = 0u; k < lg; k++) {
+        r = (r << 1u) | (x & 1u);
+        x >>= 1u;
+    }
+    return r;
+}
+
+void fr_load_at(uint base, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fr_store_at(uint base, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void main() {
+    uint n = buf.d[0];
+    uint log_n = buf.d[1];
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= n) {
+        return;
+    }
+    uint dst = bitrev_idx(tid, log_n);
+    @@FR_T@@ v;
+    fr_load_at(OFF_DATA + tid * 8u, v);
+    fr_store_at(OFF_SCRATCH + dst * 8u, v);
+}

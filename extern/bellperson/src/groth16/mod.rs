@@ -8,6 +8,8 @@ compile_error!(
 );
 
 pub mod aggregate;
+#[cfg(feature = "vulkan-cuzk")]
+pub mod vulkan_cuzk;
 #[cfg(not(feature = "cuda-supraseal"))]
 mod ext;
 #[cfg(feature = "cuda-supraseal")]

@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use blstrs::Scalar;
+use blstrs::{Fp, Scalar};
 use blst::blst_fr;
 use ec_gpu::GpuName;
 use ff::{Field, PrimeField};
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out = Path::new(&out_dir);
     let fp = ec_gpu_gen::glsl_32_bit_field_params::<blstrs::Fp>();
     let fr = ec_gpu_gen::glsl_32_bit_field_params::<blstrs::Scalar>();
-    fs::write(out.join("bls12_381_fp_params.glsl"), fp)?;
+    fs::write(out.join("bls12_381_fp_params.glsl"), &fp)?;
     fs::write(out.join("bls12_381_fr_params.glsl"), &fr)?;
 
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -143,6 +143,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed={}", tail_path.display());
     }
 
+    let fp_t = Fp::name();
+    let fp_p = format!("{}_P", fp_t);
+    let fp_inv = format!("{}_INV", fp_t);
+    for (tail_name, spv_name) in [
+        ("fp_add12_tail.comp", "fp_add12.spv"),
+        ("fp_sub12_tail.comp", "fp_sub12.spv"),
+        ("fp_mul12_tail.comp", "fp_mul12.spv"),
+    ] {
+        let tail_path = manifest.join("shaders").join(tail_name);
+        let tail = fs::read_to_string(&tail_path)?
+            .replace("@@FP_T@@", &fp_t)
+            .replace("@@FP_P@@", &fp_p)
+            .replace("@@FP_INV@@", &fp_inv)
+            .replace("@@FP_ONE@@", &format!("{}_ONE", fp_t));
+        let full = format!("{}\n{}", &fp, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+        println!("cargo:rerun-if-changed={}", tail_path.display());
+    }
+
+    let fp_helpers_path = manifest.join("shaders/fp_helpers.glsl");
+    let fp_helpers = fs::read_to_string(&fp_helpers_path)?
+        .replace("@@FP_T@@", &fp_t)
+        .replace("@@FP_P@@", &fp_p)
+        .replace("@@FP_INV@@", &fp_inv)
+        .replace("@@FP_ONE@@", &format!("{}_ONE", fp_t));
+    println!("cargo:rerun-if-changed={}", fp_helpers_path.display());
+
+    for (tail_name, spv_name) in [
+        ("fp2_add24_tail.comp", "fp2_add24.spv"),
+        ("fp2_sub24_tail.comp", "fp2_sub24.spv"),
+        ("fp2_mul24_tail.comp", "fp2_mul24.spv"),
+        ("fp2_sqr24_tail.comp", "fp2_sqr24.spv"),
+    ] {
+        let tail_path = manifest.join("shaders").join(tail_name);
+        let tail = fs::read_to_string(&tail_path)?
+            .replace("@@FP_T@@", &fp_t)
+            .replace("@@FP_P@@", &fp_p)
+            .replace("@@FP_INV@@", &fp_inv)
+            .replace("@@FP_ONE@@", &format!("{}_ONE", fp_t));
+        let full = format!("{}\n{}\n{}", &fp, fp_helpers, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+        println!("cargo:rerun-if-changed={}", tail_path.display());
+    }
+
+    for (tail_name, spv_name) in [
+        ("g1_jacobian_add108_tail.comp", "g1_jacobian_add108.spv"),
+        ("g1_xyzz_add_mixed72_tail.comp", "g1_xyzz_add_mixed72.spv"),
+        ("g1_batch_accum_bitmap1636_tail.comp", "g1_batch_accum_bitmap1636.spv"),
+    ] {
+        let tail_path = manifest.join("shaders").join(tail_name);
+        let tail = fs::read_to_string(&tail_path)?
+            .replace("@@FP_T@@", &fp_t)
+            .replace("@@FP_P@@", &fp_p)
+            .replace("@@FP_INV@@", &fp_inv)
+            .replace("@@FP_ONE@@", &format!("{}_ONE", fp_t));
+        let full = format!("{}\n{}\n{}", &fp, fp_helpers, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+        println!("cargo:rerun-if-changed={}", tail_path.display());
+    }
+
+    let fp2_ops_path = manifest.join("shaders/fp2_mont_ops.glsl");
+    let fp2_ops = fs::read_to_string(&fp2_ops_path)?.replace("@@FP_T@@", &fp_t);
+    println!("cargo:rerun-if-changed={}", fp2_ops_path.display());
+
+    for (tail_name, spv_name) in [
+        ("g2_jacobian_add216_tail.comp", "g2_jacobian_add216.spv"),
+        ("g2_xyzz_add_mixed144_tail.comp", "g2_xyzz_add_mixed144.spv"),
+        ("g2_batch_accum_aff16_904_tail.comp", "g2_batch_accum_aff16_904.spv"),
+    ] {
+        let tail_path = manifest.join("shaders").join(tail_name);
+        let tail = fs::read_to_string(&tail_path)?
+            .replace("@@FP_T@@", &fp_t)
+            .replace("@@FP_P@@", &fp_p)
+            .replace("@@FP_INV@@", &fp_inv)
+            .replace("@@FP_ONE@@", &format!("{}_ONE", fp_t));
+        let full = format!("{}\n{}\n{}\n{}", &fp, fp_helpers, fp2_ops, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+        println!("cargo:rerun-if-changed={}", tail_path.display());
+    }
+
     let ntt8_path = manifest.join("shaders/fr_ntt8_forward_tail.comp");
     let ntt8_tail = fs::read_to_string(&ntt8_path)?
         .replace("@@FR_T@@", &fr_t)
@@ -167,6 +247,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     compile_glsl_compute(&ntt8_inv_glsl, &out.join("fr_ntt8_inverse.spv"))?;
     println!("cargo:rerun-if-changed={}", ntt8_inv_path.display());
+
+    let fr_helpers_path = manifest.join("shaders/fr_helpers.glsl");
+    let fr_helpers = fs::read_to_string(&fr_helpers_path)?
+        .replace("@@FR_T@@", &fr_t)
+        .replace("@@FR_P@@", &fr_p)
+        .replace("@@FR_INV@@", &fr_inv)
+        .replace("@@FR_ONE@@", &format!("{}_ONE", fr_t));
+    println!("cargo:rerun-if-changed={}", fr_helpers_path.display());
+
+    for (tail_name, spv_name) in [
+        ("fr_coeff_wise_mult_tail.comp", "fr_coeff_wise_mult.spv"),
+        ("fr_sub_mult_constant_tail.comp", "fr_sub_mult_constant.spv"),
+    ] {
+        let tail_path = manifest.join("shaders").join(tail_name);
+        let tail = fs::read_to_string(&tail_path)?
+            .replace("@@FR_T@@", &fr_t)
+            .replace("@@FR_P@@", &fr_p)
+            .replace("@@FR_INV@@", &fr_inv)
+            .replace("@@FR_ONE@@", &format!("{}_ONE", fr_t));
+        let full = format!("{}\n{}\n{}", &fr, fr_helpers, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+        println!("cargo:rerun-if-changed={}", tail_path.display());
+    }
+
+    for (tail_name, spv_name) in [
+        ("fr_ntt_general_bitrev_scatter_tail.comp", "fr_ntt_general_bitrev_scatter.spv"),
+        (
+            "fr_ntt_general_copy_scratch_to_data_tail.comp",
+            "fr_ntt_general_copy_scratch_to_data.spv",
+        ),
+        ("fr_ntt_general_radix2_stage_tail.comp", "fr_ntt_general_radix2_stage.spv"),
+        ("fr_ntt_general_scale_ninv_tail.comp", "fr_ntt_general_scale_ninv.spv"),
+    ] {
+        let tail_path = manifest.join("shaders").join(tail_name);
+        let tail = fs::read_to_string(&tail_path)?
+            .replace("@@FR_T@@", &fr_t)
+            .replace("@@FR_P@@", &fr_p)
+            .replace("@@FR_INV@@", &fr_inv)
+            .replace("@@FR_ONE@@", &format!("{}_ONE", fr_t));
+        let full = format!("{}\n{}\n{}", &fr, fr_helpers, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+        println!("cargo:rerun-if-changed={}", tail_path.display());
+    }
 
     println!("cargo:rerun-if-changed=build.rs");
     Ok(())

@@ -1,8 +1,12 @@
 //! Vulkan Groth16 prover ABI. `cuzk-core` will grow into this once SRS + PCE buffers are bound.
 //!
-//! [`prove_groth16_partition`] currently runs **bounded GPU integration smoke** (Fr NTT n=8
-//! round-trip + MSM dispatch grid); it does **not** execute full Groth16 (SRS, MSM buckets,
-//! pairing). See `cuzk-vulkan-optimization-roadmap.md` §3.1.
+//! [`prove_groth16_partition`] runs **bounded GPU integration smoke**: when `CUZK_VK_SKIP_SMOKE=0`,
+//! Fr NTT **general** round-trip for `n = 2^min(max(circuit_log_n,1), 6)` plus MSM dispatch grid;
+//! when smoke is skipped (default CI), fixed **n = 8** NTT round-trip. Also runs a tiny **H-quotient**
+//! CPU tick ([`crate::h_term::fr_quotient_scalars_from_abc`]);
+//! it does **not** execute full Groth16 (SRS upload, bucket MSM, pairing). Bit-plane MSM lives in
+//! [`crate::split_msm`]; SRS layout in [`crate::srs`]; H NTT composition on GPU in [`crate::h_term_gpu`].
+//! See `cuzk-vulkan-optimization-roadmap.md` §3.1.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,7 +16,9 @@ use anyhow::{bail, Result};
 use blstrs::Scalar;
 
 use crate::device::VulkanDevice;
+use crate::fr_ntt_general_gpu::run_fr_ntt_general_roundtrip_gpu;
 use crate::fr_ntt_gpu::run_fr_ntt8_roundtrip_gpu;
+use crate::h_term::fr_quotient_scalars_from_abc;
 use crate::msm::MsmBucketReduceDispatch;
 use crate::msm_gpu::{run_msm_dispatch_hitcount_smoke, MSM_DISPATCH_SMOKE_LOCAL_X};
 use crate::ntt::{FrNttPlan, FrNttPlanError};
@@ -93,15 +99,35 @@ impl VkProverSession<'_> {
 ///
 /// `job` is accepted for ABI stability; fields are not yet used to select kernels. When
 /// `circuit_log_n` and SRS land, this entry point will grow into the real partition driver.
-pub fn prove_groth16_partition(ctx: &VkProverContext, _job: &VkGroth16Job) -> Result<VkProofTimings> {
+pub fn prove_groth16_partition(ctx: &VkProverContext, job: &VkGroth16Job) -> Result<VkProofTimings> {
     let t0 = Instant::now();
-    let input: [Scalar; 8] = std::array::from_fn(|i| Scalar::from((i + 1) as u64));
-    let round = run_fr_ntt8_roundtrip_gpu(&ctx.device, &input)?;
-    if round != input {
-        bail!("GPU Fr NTT n=8 round-trip mismatch");
+    let vulkan_smoke = matches!(std::env::var("CUZK_VK_SKIP_SMOKE").as_deref(), Ok("0"));
+    if vulkan_smoke {
+        let lg = job.circuit_log_n.clamp(1, 6);
+        let n = 1usize << lg;
+        let coeffs: Vec<Scalar> = (0..n).map(|i| Scalar::from((i + 1) as u64)).collect();
+        let round = run_fr_ntt_general_roundtrip_gpu(&ctx.device, &coeffs)?;
+        if round != coeffs {
+            bail!(
+                "GPU Fr NTT general round-trip mismatch (log_n={}, n={})",
+                lg,
+                n
+            );
+        }
+    } else {
+        let input: [Scalar; 8] = std::array::from_fn(|i| Scalar::from((i + 1) as u64));
+        let round = run_fr_ntt8_roundtrip_gpu(&ctx.device, &input)?;
+        if round != input {
+            bail!("GPU Fr NTT n=8 round-trip mismatch");
+        }
     }
     let d = MsmBucketReduceDispatch::dense(100, 4, MSM_DISPATCH_SMOKE_LOCAL_X);
     run_msm_dispatch_hitcount_smoke(&ctx.device, d)?;
+    // Phase J / K bridge: H-quotient scalar path (CPU) exercised on every partition call.
+    let ha = vec![Scalar::from(3u64), Scalar::from(5u64)];
+    let hb = vec![Scalar::from(7u64), Scalar::from(11u64)];
+    let hc = vec![Scalar::from(13u64), Scalar::from(17u64)];
+    let _h_scalars = fr_quotient_scalars_from_abc(&ha, &hb, &hc)?;
     Ok(VkProofTimings {
         total: t0.elapsed(),
     })

@@ -261,6 +261,7 @@ dependencies = [
  "blstrs",
  "byteorder",
  "crossbeam-channel",
+ "cuzk-vk",
  "digest",
  "ec-gpu",
  "ec-gpu-gen 0.7.1",
@@ -278,6 +279,13 @@ dependencies = [
  "sha2",
  "supraseal-c2",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "bellperson-vk-smoke"
+version = "0.1.0"
+dependencies = [
+ "bellperson",
 ]
 
 [[package]]
@@ -840,12 +848,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ash",
+ "bellperson",
  "blst",
  "blstrs",
  "ec-gpu",
  "ec-gpu-gen 0.7.1",
  "ff",
  "gpu-allocator",
+ "group",
  "naga",
  "rand",
  "rand_chacha",

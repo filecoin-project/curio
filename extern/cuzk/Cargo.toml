@@ -8,6 +8,7 @@ members = [
     "cuzk-bench",
     "cuzk-pce",
     "cuzk-vk",
+    "bellperson-vk-smoke",
     # "cuzk-ffi",  # Future: C ABI for Go embedding
 ]
 

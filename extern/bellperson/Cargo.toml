@@ -55,6 +55,11 @@ version = "1"
 [dependencies.crossbeam-channel]
 version = "0.5.0"
 
+[dependencies.cuzk-vk]
+path = "../cuzk/cuzk-vk"
+optional = true
+default-features = true
+
 [dependencies.digest]
 version = "0.10.6"
 
@@ -165,8 +170,8 @@ cuda = [
 cuda-supraseal = ["supraseal-c2"]
 default = ["groth16"]
 groth16 = []
-# Placeholder: Vulkan cuZK path (Phase 4). Currently uses the same native Groth16 API as `ext`.
-vulkan-cuzk = []
+# Vulkan cuZK (`cuzk-vk`) — mutually exclusive with `cuda-supraseal` (see `groth16/mod.rs`).
+vulkan-cuzk = ["dep:cuzk-vk"]
 opencl = [
     "ec-gpu-gen/opencl",
     "fs2",

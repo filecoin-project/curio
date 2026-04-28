@@ -1,7 +1,7 @@
 //! CPU reference radix-2 NTT over Fr (`blstrs::Scalar`) for power-of-two lengths.
 //!
-//! Vulkan: forward + inverse **n = 8** are in [`crate::fr_ntt_gpu`]; larger *n* and runtime
-//! twiddle upload still use this module on the host until additional kernels land.
+//! Vulkan: forward + inverse **n = 8** are in [`crate::fr_ntt_gpu`]; power-of-two **n ≤ 2^14** in
+//! [`crate::fr_ntt_general_gpu`]. Larger *n* or coset-fused paths may still use this module on the host.
 
 use blstrs::Scalar;
 use ff::{Field, PrimeField};

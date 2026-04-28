@@ -36,13 +36,34 @@ impl VulkanDevice {
             ..Default::default()
         };
 
+        // MoltenVK (macOS) is a portability implementation: the loader requires
+        // `VK_KHR_portability_enumeration` + `ENUMERATE_PORTABILITY_KHR`, and the device needs
+        // `VK_KHR_portability_subset` (see Vulkan Portability Initiative).
+        #[cfg(target_os = "macos")]
+        let (instance_flags, instance_ext_names): (
+            vk::InstanceCreateFlags,
+            &[*const std::ffi::c_char],
+        ) = (
+            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR,
+            &[vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr()],
+        );
+        #[cfg(not(target_os = "macos"))]
+        let (instance_flags, instance_ext_names): (
+            vk::InstanceCreateFlags,
+            &[*const std::ffi::c_char],
+        ) = (vk::InstanceCreateFlags::empty(), &[]);
+
         let create_info = vk::InstanceCreateInfo {
             s_type: vk::StructureType::INSTANCE_CREATE_INFO,
             p_next: std::ptr::null(),
-            flags: vk::InstanceCreateFlags::empty(),
+            flags: instance_flags,
             p_application_info: &app_info,
-            enabled_extension_count: 0,
-            pp_enabled_extension_names: std::ptr::null(),
+            enabled_extension_count: instance_ext_names.len() as u32,
+            pp_enabled_extension_names: if instance_ext_names.is_empty() {
+                std::ptr::null()
+            } else {
+                instance_ext_names.as_ptr()
+            },
             ..Default::default()
         };
 
@@ -80,14 +101,25 @@ impl VulkanDevice {
         };
 
         let features = vk::PhysicalDeviceFeatures::default();
+
+        #[cfg(target_os = "macos")]
+        let device_ext_names: &[*const std::ffi::c_char] =
+            &[vk::KHR_PORTABILITY_SUBSET_NAME.as_ptr()];
+        #[cfg(not(target_os = "macos"))]
+        let device_ext_names: &[*const std::ffi::c_char] = &[];
+
         let device_create_info = vk::DeviceCreateInfo {
             s_type: vk::StructureType::DEVICE_CREATE_INFO,
             p_next: std::ptr::null(),
             flags: vk::DeviceCreateFlags::empty(),
             queue_create_info_count: 1,
             p_queue_create_infos: &queue_info,
-            enabled_extension_count: 0,
-            pp_enabled_extension_names: std::ptr::null(),
+            enabled_extension_count: device_ext_names.len() as u32,
+            pp_enabled_extension_names: if device_ext_names.is_empty() {
+                std::ptr::null()
+            } else {
+                device_ext_names.as_ptr()
+            },
             p_enabled_features: &features,
             ..Default::default()
         };
