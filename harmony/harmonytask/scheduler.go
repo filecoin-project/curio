@@ -148,7 +148,7 @@ func (e *TaskEngine) startScheduler() {
 						}
 
 						sort.Slice(tasks, func(i, j int) bool {
-							return tasks[i].PostedTime.Before(tasks[j].PostedTime)
+							return taskLessByPostedTime(tasks[i], tasks[j])
 						})
 						dbTasks[h.Name] = tasks
 						ids := make([]TaskID, len(tasks))
