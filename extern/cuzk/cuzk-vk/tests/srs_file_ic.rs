@@ -2,8 +2,9 @@
 
 use blstrs::{G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 use cuzk_vk::srs::{
-    srs_decode_ic_g1, srs_decode_vk_prefix, srs_read_file, srs_walk_counts_and_point_blobs,
-    SrsVkPrefix,
+    srs_decode_a_g1, srs_decode_bg1_g1, srs_decode_bg2_g2, srs_decode_h_g1, srs_decode_ic_g1,
+    srs_decode_l_g1, srs_decode_vk_prefix, srs_read_file, srs_synthetic_partition_smoke_blob,
+    srs_walk_counts_and_point_blobs, SrsVkPrefix,
 };
 use ff::Field;
 use group::Group;
@@ -55,4 +56,35 @@ fn srs_read_and_first_ic_roundtrip() {
     let (c, end) = srs_walk_counts_and_point_blobs(&read).expect("walk");
     assert_eq!(c.n_ic, 1);
     assert_eq!(end, read.len());
+}
+
+#[test]
+fn srs_synthetic_partition_smoke_decode_tail_arrays() {
+    let blob = srs_synthetic_partition_smoke_blob();
+    let (c, end) = srs_walk_counts_and_point_blobs(&blob).expect("walk");
+    assert_eq!(c.n_ic, 1);
+    assert_eq!(c.n_h, 8);
+    assert_eq!(c.n_l, 1);
+    assert_eq!(c.n_a, 1);
+    assert_eq!(c.n_b_g1, 1);
+    assert_eq!(c.n_b_g2, 1);
+    assert_eq!(end, blob.len());
+    let h0 = srs_decode_h_g1(&blob, 0).expect("h0");
+    let want0 = G1Affine::from(G1Projective::generator() * Scalar::from(1u64));
+    assert_eq!(h0, want0);
+    let h7 = srs_decode_h_g1(&blob, 7).expect("h7");
+    let want7 = G1Affine::from(G1Projective::generator() * Scalar::from(8u64));
+    assert_eq!(h7, want7);
+
+    let l0 = srs_decode_l_g1(&blob, 0).expect("l0");
+    assert_eq!(l0, G1Affine::from(G1Projective::generator() * Scalar::from(101u64)));
+    let a0 = srs_decode_a_g1(&blob, 0).expect("a0");
+    assert_eq!(a0, G1Affine::from(G1Projective::generator() * Scalar::from(102u64)));
+    let b0 = srs_decode_bg1_g1(&blob, 0).expect("b_g1 0");
+    assert_eq!(b0, G1Affine::from(G1Projective::generator() * Scalar::from(103u64)));
+    let bg2_0 = srs_decode_bg2_g2(&blob, 0).expect("b_g2 0");
+    assert_eq!(
+        bg2_0,
+        G2Affine::from(G2Projective::generator() * Scalar::from(201u64))
+    );
 }

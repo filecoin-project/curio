@@ -12,8 +12,9 @@ with GPU NTT+MSM proving to achieve ~1.5-1.8x throughput over Phase 1.
 are tracked in the repo root `cuzk-vulkan-optimization-roadmap.md` (§3.1 sequencing, §8 catalogue).
 Integration with this Phase 2 synthesis∥GPU overlap (bellperson split API) is future work.
 
-**Bring-up status:** `cuzk-vk` Milestone A (`prove_groth16_partition` smoke, Fr NTT n=8, MSM dispatch
-grid) is described in `cuzk-vulkan-optimization-roadmap.md` §3.1; Milestone B is full proving parity.
+**Bring-up status:** `cuzk-vulkan-optimization-roadmap.md` §3.1 step 6 **B₀** — `prove_groth16_partition` with Vulkan smoke
+ties Fr NTT, MSM dispatch, **SRS `h[]` + GPU MSM**, and **GPU H** together; Milestone B **remainder** is full bucket MSM,
+pairing, and bellperson-routed assignments (§8).
 
 ---
 

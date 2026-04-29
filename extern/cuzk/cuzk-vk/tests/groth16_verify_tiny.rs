@@ -3,37 +3,16 @@
 //! Establishes that the bellperson fork used by `cuzk-vk` tests is sound for a minimal R1CS; the
 //! Vulkan backend (`prove_groth16_partition`) remains compute smoke until wired to this path.
 
+mod common;
+
 use bellperson::groth16::{
     create_random_proof, generate_random_parameters, prepare_verifying_key, verify_proof,
 };
-use bellperson::{Circuit, ConstraintSystem, SynthesisError};
 use blstrs::{Bls12, Scalar};
 use ff::Field;
 use rand::thread_rng;
 
-/// Witness `a`, `b`; public input `c = a * b` (single `alloc_input` after implicit `ONE`).
-#[derive(Clone)]
-struct MulCircuit {
-    a: Option<Scalar>,
-    b: Option<Scalar>,
-}
-
-impl Circuit<Scalar> for MulCircuit {
-    fn synthesize<CS: ConstraintSystem<Scalar>>(self, cs: &mut CS) -> Result<(), SynthesisError> {
-        let a = cs.alloc(|| "a", || self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.alloc(|| "b", || self.b.ok_or(SynthesisError::AssignmentMissing))?;
-        let c = cs.alloc_input(
-            || "c",
-            || {
-                let aa = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-                let bb = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-                Ok(aa * bb)
-            },
-        )?;
-        cs.enforce(|| "a*b=c", |lc| lc + a, |lc| lc + b, |lc| lc + c);
-        Ok(())
-    }
-}
+use common::MulCircuit;
 
 #[test]
 fn groth16_mul_circuit_prove_and_verify() {

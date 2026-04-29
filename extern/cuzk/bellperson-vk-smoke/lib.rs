@@ -1,6 +1,9 @@
 //! Workspace-only crate so **`cargo test -p bellperson-vk-smoke`** typechecks the forked
 //! `bellperson` stack with **`vulkan-cuzk`** enabled (pulls in `cuzk-vk` via optional dependency).
 //! This avoids building `bellperson` in isolation without `[patch.crates-io]` (registry edition pins).
+//!
+//! **Milestone B:** combined bellperson Groth16 verify + Vulkan partition smoke lives in
+//! `cuzk-vk` as **`tests/milestone_b_bellperson_vulkan_smoke.rs`** (not this crate — it stays a thin link check).
 
 #[cfg(test)]
 mod tests {

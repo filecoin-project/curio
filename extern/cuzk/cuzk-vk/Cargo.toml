@@ -14,6 +14,8 @@ blstrs = { workspace = true, features = ["gpu", "__private_bench"] }
 ff = { workspace = true }
 group = "0.13"
 gpu-allocator = { version = "0.27", default-features = false, features = ["vulkan"] }
+rand = "0.8"
+rand_chacha = "0.3"
 thiserror = "1"
 
 [build-dependencies]

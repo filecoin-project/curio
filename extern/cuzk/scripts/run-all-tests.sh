@@ -8,6 +8,7 @@
 #
 # Environment:
 #   CUZK_VK_SKIP_SMOKE=1   default (skip Vulkan integration tests); set to 0 to require loader + ICD.
+#   CUZK_VK_PARTITION_MAX_LOG  optional (default 6): max circuit_log_n for prove_groth16_partition Fr NTT smoke (clamped 1..=14).
 #   CUZK_RUN_DAEMON=1      also run `cargo test -p cuzk-daemon` (needs CUDA toolchain + default features).
 #   CUZK_RUN_BELLPERSON=1 also run bellperson mimc + `cargo check --features groth16,vulkan-cuzk` (extern/bellperson).
 #   `bellperson-vk-smoke` workspace crate always runs: typechecks bellperson↔cuzk-vk optional link under [patch].

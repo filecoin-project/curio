@@ -1,12 +1,13 @@
 //! Vulkan compute path for cuZK (BLS12-381 Groth16).
 //!
-//! **Milestone A (correctness slice)** — see `cuzk-vulkan-optimization-roadmap.md` **§3.2.1**: Fr add/sub/mul; Fr NTT **n = 8**
-//! ([`fr_ntt_gpu`]) and **general n ≤ 2^14** ([`fr_ntt_general_gpu`]); coset forward on GPU ([`fr_coset_gpu`], same `n` as
-//! pointwise + NTT; [`h_term_gpu`] coset + tail distribute); G1/G2 bitmap batch Jacobian ([`g1_batch_gpu`], [`g2_batch_gpu`]);
-//! toy NTT; G1/G2 limb smoke; MSM dispatch-grid smoke ([`msm_gpu`]); split MSM bit-planes ([`split_msm`]); SRS ([`srs`],
-//! [`srs_gpu`]); H-term ([`h_term`], [`h_term_gpu`]); [`prove_groth16_partition`] smoke; **bellperson** tiny Groth16
-//! (`tests/groth16_verify_tiny.rs`) + **`vulkan-cuzk`** workspace smoke (`bellperson-vk-smoke`). **`Milestone B`:** full bucket
-//! MSM, SRS-bound Vulkan proving, pairing, perf rows in roadmap **§2 / §8**. `bellperson::groth16::vulkan_cuzk` re-exports.
+//! **Milestone A** — see `cuzk-vulkan-optimization-roadmap.md` **§3.2.1** (Fr through H-term correctness port).
+//! **Milestone B (B₀ integration)** — **§3.1 step 6**: [`prove_groth16_partition`] with `CUZK_VK_SKIP_SMOKE=0` runs Fr NTT
+//! round-trip, MSM dispatch grid, **SRS `h[]` / `b_g2[0]` decode** ([`srs`]) + G1 bit-plane MSM ([`split_msm`]), and GPU **H** vs CPU
+//! ([`h_term_gpu`]). **Milestone B** — roadmap **§3.3** (**B₁** integration vs **B₂** parity); B₁ includes
+//! `srs::srs_read_file_spawn` and integration test `milestone_b_bellperson_vulkan_smoke.rs`.
+//! **§C.1 slice:** [`VulkanDevice`] `VkPipelineCache` + optional **`CUZK_VK_PIPELINE_CACHE`**.
+//! Also: **bellperson** Groth16 (`tests/groth16_verify_tiny.rs`) + **`vulkan-cuzk`**
+//! (`bellperson-vk-smoke`). `bellperson::groth16::vulkan_cuzk` re-exports.
 
 pub mod allocator;
 pub mod device;

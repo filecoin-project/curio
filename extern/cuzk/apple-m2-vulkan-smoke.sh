@@ -15,11 +15,14 @@ if [[ -d /opt/homebrew ]]; then
 fi
 
 # Default to attempting Vulkan; set CUZK_VK_SKIP_SMOKE=1 to skip if no ICD.
+# Optional: CUZK_VK_PARTITION_MAX_LOG (default 6, max 14) — larger Fr NTT round-trip in prove_groth16_partition.
+# Optional: CUZK_VK_PIPELINE_CACHE=/path/file — load/save VkPipelineCache across processes (see VulkanDevice in device.rs).
 export CUZK_VK_SKIP_SMOKE="${CUZK_VK_SKIP_SMOKE:-0}"
 
-echo "== cuzk-vk Milestone A smoke (device + fields + EC + Fr NTT + coset + SRS + H-term; ICD required) =="
+echo "== cuzk-vk smoke (Milestone A kernels + B₀ partition: SRS h[] MSM + H GPU/CPU; ICD required) =="
 cargo test -p cuzk-vk --test device_smoke
 cargo test -p cuzk-vk --test toy_ntt_gpu
+cargo test -p cuzk-vk --test pipeline_cache_disk
 cargo test -p cuzk-vk --test g1_reverse_gpu
 cargo test -p cuzk-vk --test g2_reverse_gpu
 cargo test -p cuzk-vk --test fp_add_gpu
@@ -50,11 +53,14 @@ cargo test -p cuzk-vk --test split_msm_multiexp_cpu
 cargo test -p cuzk-vk --test fr_coset_fft_cpu
 cargo test -p cuzk-vk --test fr_coset_fft_gpu
 cargo test -p cuzk-vk --test srs_g1_gpu_reverse24
+cargo test -p cuzk-vk --test srs_g2_gpu_reverse48
 cargo test -p cuzk-vk --test fr_ntt_plan_bounds
 cargo test -p cuzk-vk --test h_term_cpu
 cargo test -p cuzk-vk --test h_term_quotient_bellperson
 cargo test -p cuzk-vk --test h_term_quotient_gpu
 cargo test -p cuzk-vk --test groth16_verify_tiny
+cargo test -p cuzk-vk --test milestone_b_bellperson_vulkan_smoke
+cargo test -p cuzk-vk --test srs_async_read
 cargo test -p bellperson-vk-smoke
 cargo test -p cuzk-vk prove_partition_smoke_matches_roundtrip
 

@@ -530,9 +530,11 @@ GPU Worker pipeline (2-stage):
 This requires exposing `synthesize_circuits_batch()` and `prove_from_assignments()` as
 separate public APIs in bellperson. See Phase 2 in the roadmap.
 
-**Vulkan path (AMD parity):** `extern/cuzk/cuzk-vk` hosts SPIR-V compute for BLS12-381 Groth16
-(field / NTT n=8 / MSM dispatch smoke / [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs)
-Milestone A). Full proof path: `cuzk-vulkan-optimization-roadmap.md` §3.1 step 6 Milestone B and §8.
+**Vulkan path (AMD parity):** `extern/cuzk/cuzk-vk` hosts SPIR-V compute for BLS12-381 Groth16 (field, general Fr NTT,
+coset, H-term, split MSM, SRS decode). [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs) **B₀** (with
+`CUZK_VK_SKIP_SMOKE=0`) ties Fr NTT, MSM dispatch, **SRS `h[]` + GPU G1 MSM**, and **GPU H** vs CPU. **Milestone B
+remainder** (full bucket Scalar MSM, pairing, bellperson-routed proof): `cuzk-vulkan-optimization-roadmap.md` §3.1 step 6
+notes and §8.
 
 ---
 

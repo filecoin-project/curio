@@ -84,7 +84,7 @@ TDD per item: land the benchmark assertion first, watch it fail, implement, watc
 | 3 | **Done** | Fr NTT **n = 8** ([`fr_ntt_gpu`](extern/cuzk/cuzk-vk/src/fr_ntt_gpu.rs)) and **general power-of-two n ≤ 2^14** ([`fr_ntt_general_gpu`](extern/cuzk/cuzk-vk/src/fr_ntt_general_gpu.rs)) vs CPU [`ntt.rs`](extern/cuzk/cuzk-vk/src/ntt.rs). **Coset forward on GPU** ([`fr_coset_gpu`](extern/cuzk/cuzk-vk/src/fr_coset_gpu.rs), `tests/fr_coset_fft_gpu.rs`) through the same *n* bound. **Perf-only** coset/NTT work: §8.2 **B.4–B.6** (twiddle fusion, radix-4/8, single-shot). |
 | 4 | **Done** | G1 / G2 affine limb smoke (`g1_reverse24`, `g2_reverse48`) |
 | 5 | **Done (grid)** | Host [`msm.rs`](extern/cuzk/cuzk-vk/src/msm.rs) + [`msm_dispatch_grid_smoke`](extern/cuzk/cuzk-vk/shaders/msm_dispatch_grid_smoke.comp) hit-count vs `vkCmdDispatch` (≤4096 threads). **Bucket MSM / G1 EC** → §8.1. |
-| 6 | **Milestone A** | [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs) runs GPU Fr NTT8 round-trip + MSM dispatch smoke and returns timings. **Milestone B** (SRS bind, arbitrary *n*, bucket MSM, pairing, valid proofs) → §2 / §8. |
+| 6 | **Done (B₀)** | [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs): Fr NTT round-trip + MSM dispatch grid; with `CUZK_VK_SKIP_SMOKE=0`, **SRS-bound** G1 MSM ([`srs_decode_h_g1`](extern/cuzk/cuzk-vk/src/srs.rs) + [`split_msm::g1_msm_bitplanes_u64_gpu_host`](extern/cuzk/cuzk-vk/src/split_msm.rs)) and **H** GPU vs CPU ([`h_term_gpu`](extern/cuzk/cuzk-vk/src/h_term_gpu.rs)). **Milestone B remainder:** pairing, production SRS mmap/async upload, full Scalar bucket MSM, bellperson-driven assignments → §2 / §8. |
 
 ### 3.2 SupraSeal-aligned port (CUDA → Vulkan)
 
@@ -99,10 +99,10 @@ TDD per item: land the benchmark assertion first, watch it fail, implement, watc
 5. **General Fr NTT** — SSBO twiddle bases, multi-dispatch (`vk_oneshot` pass sequence); **coset forward** on GPU ([`fr_coset_gpu`](extern/cuzk/cuzk-vk/src/fr_coset_gpu.rs), `tests/fr_coset_fft_gpu.rs`) through `n = 2^14` (pointwise SSBO cap matches NTT max). **CPU** coset: `tests/fr_coset_fft_cpu.rs`. Single-SPV coset+first-NTT-stage fusion (B.5) still open.
 6. **`batch_addition`** — G1/G2 cooperative-style reduction in shared memory. **Milestone A (slice done):** G1 ≤64 affines + 64-bit bitmap (`g1_batch_accum_bitmap1636`), G2 ≤16 affines (`g2_batch_accum_aff16_904`). **Milestone B:** full multi-bucket / `CHUNK_BITS=64` / per-SM CUDA layout.
 7. **Split MSM orchestration** — bitmap + GPU batch + CPU tail Pippenger. **Milestone A (slice done):** [`split_msm`](extern/cuzk/cuzk-vk/src/split_msm.rs) G1 bit-plane MSM + **CPU** cross-check vs `G1Projective::multi_exp` (`tests/split_msm_multiexp_cpu.rs`). **Milestone B:** full CUDA bitmap + Scalar tail Pippenger on GPU.
-8. **SRS** — mmap layout from `groth16_srs.cuh`, synthetic fixture tests. **Slice done:** [`srs`](extern/cuzk/cuzk-vk/src/srs.rs) VK + IC decode, `srs_read_file`, `tests/srs_file_ic.rs`; [`srs_gpu`](extern/cuzk/cuzk-vk/src/srs_gpu.rs) G1 Montgomery limb `g1_reverse24` vs CPU (`tests/srs_g1_gpu_reverse24.rs`). **Milestone B:** async SRS upload / full proving buffers (§8.3 **C.2**).
+8. **SRS** — mmap layout from `groth16_srs.cuh`, synthetic fixture tests. **Slice done:** [`srs`](extern/cuzk/cuzk-vk/src/srs.rs) VK + IC decode + `b_g2[]`, `srs_read_file`, **[`srs_read_file_spawn`](extern/cuzk/cuzk-vk/src/srs.rs)** (B₁ disk-read overlap), `tests/srs_file_ic.rs` / `tests/srs_async_read.rs`; [`srs_gpu`](extern/cuzk/cuzk-vk/src/srs_gpu.rs) G1 `g1_reverse24` + **G2** `g2_reverse48` Montgomery limb staging vs CPU (`tests/srs_g1_gpu_reverse24.rs`, `tests/srs_g2_gpu_reverse48.rs`). **Milestone B₂:** mmap + **GPU** upload overlap vs first NTT (§8.3 **C.2** remainder).
 9. **H-term pipeline** — INTT/FFT/coset chain vs CPU reference. **Done (Milestone A):** [`h_term`](extern/cuzk/cuzk-vk/src/h_term.rs) `fr_quotient_scalars_from_abc`, [`h_term_gpu`](extern/cuzk/cuzk-vk/src/h_term_gpu.rs) uses [`fr_coset_gpu`](extern/cuzk/cuzk-vk/src/fr_coset_gpu.rs) for coset distribute + forward NTT and GPU tail distribute (`g^{-1}`); host vanishing `z_inv` between GPU stages; tests `h_term_quotient_gpu` (incl. domain 8192). **Milestone B:** optional B.5 single-dispatch coset fusion (§8.2).
-10. **`prove_groth16_partition`** — real driver + Groth16 verify test. **Milestone A (slice done):** partition smoke + H tick ([`prover`](extern/cuzk/cuzk-vk/src/prover.rs)); **native** Groth16 prove+verify: [`groth16_verify_tiny`](extern/cuzk/cuzk-vk/tests/groth16_verify_tiny.rs). **Milestone B:** SRS-bound + bucket MSM + Vulkan-valid proof path.
-11. **Bellperson `vulkan-cuzk`** — optional path dep on `cuzk-vk`, [`groth16::vulkan_cuzk`](extern/bellperson/src/groth16/vulkan_cuzk.rs) re-exports `VkProverContext` / `prove_groth16_partition`. **Milestone A (slice done):** workspace [`bellperson-vk-smoke`](extern/cuzk/bellperson-vk-smoke/) + `scripts/run-all-tests.sh`. **Milestone B:** route real proving through Vulkan; mimc E2E when `CUZK_RUN_BELLPERSON=1` + `cargo check --features groth16,vulkan-cuzk`.
+10. **`prove_groth16_partition`** — real driver + Groth16 verify test. **B₀:** partition ties Fr NTT + MSM grid + SRS `h[]` MSM + GPU H ([`prover`](extern/cuzk/cuzk-vk/src/prover.rs)) when `CUZK_VK_SKIP_SMOKE=0`; **native** Groth16 prove+verify: [`groth16_verify_tiny`](extern/cuzk/cuzk-vk/tests/groth16_verify_tiny.rs). **B₁:** [`milestone_b_bellperson_vulkan_smoke`](extern/cuzk/cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs). **B₂:** full Scalar bucket MSM + Vulkan-valid proof from bellperson assignments (pairing on that proof).
+11. **Bellperson `vulkan-cuzk`** — optional path dep on `cuzk-vk`, [`groth16::vulkan_cuzk`](extern/bellperson/src/groth16/vulkan_cuzk.rs) re-exports `VkProverContext` / `prove_groth16_partition`. **Milestone A (slice done):** workspace [`bellperson-vk-smoke`](extern/cuzk/bellperson-vk-smoke/) + `scripts/run-all-tests.sh`. **Milestone B₁:** [`tests/milestone_b_bellperson_vulkan_smoke.rs`](extern/cuzk/cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs) — bellperson **prove+verify** (pairing) then Vulkan partition smoke when `CUZK_VK_SKIP_SMOKE=0`. **Milestone B₂:** witness + MSM **through** Vulkan; optional `CUZK_RUN_BELLPERSON` CI expansion.
 12. **Milestone B perf** — A.1/A.6/A.7, B.1/B.3/B.6, C.1/C.3, D.1 with benchmark assertions. **Milestone A anchor:** `tests/fr_ntt_plan_bounds.rs` (`FrNttPlan` bounds). **Milestone B:** CSV + threshold assertions per §1.
 
 ### 3.2.1 Milestone A closure (SupraSeal port — correctness slice)
@@ -111,14 +111,24 @@ TDD per item: land the benchmark assertion first, watch it fail, implement, watc
 |-----------|--------|-------------------------|
 | 1–5 | **Done** | Preflight through general Fr NTT + GPU coset forward + pointwise `n` aligned to `2^14`; CPU coset parity test. |
 | 6–7 | **Slice done** | Bitmap batch Jacobian + split MSM GPU/CPU checks; full CUDA-scale MSM → **Milestone B**. |
-| 8 | **Slice done** | SRS file/layout + IC decode + GPU G1 limb staging smoke; async proving upload → **Milestone B**. |
+| 8 | **B₁ slice done** | SRS file/layout + IC/`b_g2` decode + GPU G1+G2 limb staging + `srs_read_file_spawn`; **B₂:** GPU upload overlap / mmap hot path. |
 | 9 | **Done** | H quotient CPU + GPU vs reference / bellperson; large-domain GPU stress. |
-| 10–11 | **Slice done** | `prove_groth16_partition` smoke + Groth16 verify regression + `vulkan-cuzk` type/link gate. |
+| 10–11 | **B₁ slice done** | `prove_groth16_partition` smoke + [`milestone_b_bellperson_vulkan_smoke`](extern/cuzk/cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs) + `vulkan-cuzk` link gate; **B₂:** Vulkan-native proof + witness path. |
 | 12 | **Anchor only** | Plan bounds test landed; perf benchmark table → **Milestone B**. |
+| **B₀** | **Done** | §3.1 step 6: [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs) SRS `h[]` + GPU MSM + GPU H vs CPU (Vulkan smoke). |
 
-**§3.1 step 6** (`prove_groth16_partition` integration smoke) remains the **Milestone A** umbrella for *orchestration* until **Milestone B** delivers SRS-bound partition + bucket MSM + valid proofs; the **§3.2 phased port checklist** above is now **closed for the stated correctness scope** (steps 1–5, 9; slices 6–8, 10–11; anchor 12).
+**§3.1 step 6 (B₀)** — [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs) now exercises **SRS `h[]` decode + GPU MSM + GPU H** alongside Fr NTT and dispatch smoke when `CUZK_VK_SKIP_SMOKE=0`. The **§3.2 phased port checklist** remains **closed for the Milestone A correctness scope**. **Milestone B** is split into **B₁ / B₂** below (B₁ is incremental integration; B₂ is parity-scale proving).
 
-**Next:** **Milestone B** — §3.1 row 6 text, §2, §8.1–8.5 (MSM, NTT perf, memory, batching, vendor).
+### 3.3 Milestone B status (honest scope split)
+
+“Milestone B” in §2/§8 is **multi-release parity work**. The repo tracks it in two tiers so progress is mergeable without implying full supraseal parity in one PR:
+
+| Tier | Goal | Representative landed slices |
+|------|------|--------------------------------|
+| **B₁ — integration & I/O** | Prove the **optional** stacks link, Groth16 **pairing verify** (bellperson) coexists with Vulkan smoke, SRS/proving **host** ergonomics | `VkPipelineCache` + `CUZK_VK_PIPELINE_CACHE` ([`device.rs`](extern/cuzk/cuzk-vk/src/device.rs)); [`srs_read_file_spawn`](extern/cuzk/cuzk-vk/src/srs.rs); [`tests/milestone_b_bellperson_vulkan_smoke.rs`](extern/cuzk/cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs) (pairing verify **then** `prove_groth16_partition` when `CUZK_VK_SKIP_SMOKE=0`); SRS `b_g2` + G2 [`srs_gpu`](extern/cuzk/cuzk-vk/src/srs_gpu.rs) staging |
+| **B₂ — proving parity** | Full **Scalar** bucket MSM on GPU, **async** SRS → VRAM, bellperson witness **through** Vulkan kernels, **pairing** on Vulkan-native proof, §1 **CSV** gates | Still open — follows B₁; see §2 table IDs A.*, B.*, C.2–C.3, D.* |
+
+**B₂ work queue (not “one PR”):** ship §8.1 MSM bucket shaders + [`split_msm`](extern/cuzk/cuzk-vk/src/split_msm.rs) Scalar tail, §8.2 radix/shuffle NTT, §8.3 C.2 GPU upload overlap + C.3 spec constants, §8.4 D.* batching, then §1 CSV + acceptance rows.
 
 ---
 
@@ -163,7 +173,7 @@ This section consolidates **expected speedups** from §2, **infrastructure choic
 | ID | Lever | Impact | Notes |
 |----|--------|--------|--------|
 | C.1 | On-disk `VkPipelineCache` | **30–90 s** first compile avoided on repeat | Biggest “feel” win for CI and operators; `pipelines.rs`. |
-| C.2 | Async SRS upload vs first NTT | 0.5–3 s hidden | Overlap with compute queue timeline. |
+| C.2 | Async SRS upload vs first NTT | 0.5–3 s hidden | **B₁:** [`srs_read_file_spawn`](extern/cuzk/cuzk-vk/src/srs.rs) overlaps **disk** read with host work. **B₂:** VRAM upload + queue overlap vs first NTT. |
 | C.3 | Specialization constants (`log_n`, window, buckets) | ~1.05–1.15× | Fewer pipeline variants; better RDNA3 dispatch. |
 | C.4 | Push constants vs UBO for dispatch meta | ~1.05× record | Less descriptor churn per `vkCmdDispatch`. |
 | C.5 | Buffer pool metrics | Observability | Allocator hit-rate for tuning batch sizes. |
@@ -196,8 +206,11 @@ These are not all “kernel faster,” but they reduce **time-to-green** and **r
 - **Fr NTT n = 8 (GPU)**: `fr_ntt8_forward` / `fr_ntt8_inverse` SPIR-V (build-time twiddles + `n^{-1}`), [`fr_ntt_gpu`](extern/cuzk/cuzk-vk/src/fr_ntt_gpu.rs) forward, inverse, round-trip; tests vs CPU [`ntt.rs`](extern/cuzk/cuzk-vk/src/ntt.rs).
 - **Fr NTT general n ≤ 2^14 (GPU):** [`fr_ntt_general_gpu`](extern/cuzk/cuzk-vk/src/fr_ntt_general_gpu.rs) forward/inverse vs CPU; **coset forward** [`fr_coset_gpu`](extern/cuzk/cuzk-vk/src/fr_coset_gpu.rs) vs bellperson (`tests/fr_coset_fft_gpu.rs`); Fr pointwise max aligned to same *n*.
 - **H-term + Groth16 smoke:** [`h_term`](extern/cuzk/cuzk-vk/src/h_term.rs) / [`h_term_gpu`](extern/cuzk/cuzk-vk/src/h_term_gpu.rs); [`groth16_verify_tiny`](extern/cuzk/cuzk-vk/tests/groth16_verify_tiny.rs); workspace [`bellperson-vk-smoke`](extern/cuzk/bellperson-vk-smoke/) for `vulkan-cuzk` link check.
-- **SRS:** [`srs`](extern/cuzk/cuzk-vk/src/srs.rs) + [`srs_gpu`](extern/cuzk/cuzk-vk/src/srs_gpu.rs) limb reverse smoke; **`FrNttPlan` bounds:** [`fr_ntt_plan_bounds`](extern/cuzk/cuzk-vk/tests/fr_ntt_plan_bounds.rs).
-- **Groth16 partition (Milestone A)**: [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs) wires NTT8 + MSM dispatch smoke (not a cryptographic proof yet).
+- **SRS:** [`srs`](extern/cuzk/cuzk-vk/src/srs.rs) + [`srs_gpu`](extern/cuzk/cuzk-vk/src/srs_gpu.rs) G1+G2 Montgomery limb reverse smoke (`tests/srs_g{1,2}_gpu_reverse*.rs`); **`FrNttPlan` bounds:** [`fr_ntt_plan_bounds`](extern/cuzk/cuzk-vk/tests/fr_ntt_plan_bounds.rs).
+- **Groth16 partition (B₀)**: [`prove_groth16_partition`](extern/cuzk/cuzk-vk/src/prover.rs) wires Fr NTT + MSM dispatch + **SRS `h[]` decode + G1 bit-plane MSM** + **`b_g2[0]` decode + G2 limb staging (`srs_gpu`)** + **H GPU vs CPU** when `CUZK_VK_SKIP_SMOKE=0`; **H commit** checks `G1Projective::multi_exp` against a naive Σ `s_i · P_i` on decoded `h[]` bases (still not a full bellperson-driven proof or pairing).
+- **Pipeline cache (§C.1 slice)**: [`VulkanDevice`](extern/cuzk/cuzk-vk/src/device.rs) uses `VkPipelineCache` for `vkCreateComputePipelines`; optional **`CUZK_VK_PIPELINE_CACHE`** path loads a prior `vkGetPipelineCacheData` blob, with [`pipeline_cache_save_to_path`](extern/cuzk/cuzk-vk/src/device.rs) / env save for the next process. **`tests/pipeline_cache_disk.rs`** round-trips via toy NTT.
+- **SRS async read (§C.2 B₁ slice):** [`srs_read_file_spawn`](extern/cuzk/cuzk-vk/src/srs.rs) + **`tests/srs_async_read.rs`** — overlap disk read with the caller thread; GPU upload overlap remains B₂.
+- **Milestone B₁ bellperson + Vulkan:** [`tests/milestone_b_bellperson_vulkan_smoke.rs`](extern/cuzk/cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs) — Groth16 **verify** (pairing engine) then `prove_groth16_partition` when `CUZK_VK_SKIP_SMOKE=0`.
 - **MSM dispatch grid smoke**: `msm_dispatch_grid_smoke.comp` + [`run_msm_dispatch_hitcount_smoke`](extern/cuzk/cuzk-vk/src/msm_gpu.rs) — verifies `MsmBucketReduceDispatch::dense` matches `vkCmdDispatch` × `local_size` (unique linear `tid` into fixed `payload[]`; currently capped at 4096 threads for SSBO / `naga` sizing).
 
 ### 8.7 Known performance debt (replace for parity)
@@ -207,7 +220,7 @@ These are not all “kernel faster,” but they reduce **time-to-green** and **r
 | **Fr `mul` on GPU** | ~~Double-and-add (255-bit scan)~~ **Done:** CIOS Montgomery (`FIELD_mul_default`) on `blst_fr` limbs; portable `mac_with_carry` via widened 32×32 mul (no `shaderInt64`). | Further: fused butterfly / subgroup (§8.2), Montgomery squaring fast path. |
 | **Fr `add` / `sub`** | Wide limb add/sub + one `P` subtract — acceptable | Keep; fuse with butterfly loads/stores later. |
 | **NTT on GPU** | **n = 8** (`fr_ntt_gpu`); **general** power-of-two **n ≤ 2^14** (`fr_ntt_general_gpu`); coset forward (`fr_coset_gpu`). | Radix-4/8, subgroup shuffle, single-shot paths (**B.1–B.3, B.5–B.6**); optional twiddle prep micro-opts (**B.4** — plan upload already used). |
-| **Pipeline cache** | None (every process pays shader compile via `naga` at build time for **embedded** SPIR-V; runtime still builds `VkPipeline`) | C.1 on-disk cache for **runtime** `VkShaderModule` / `VkPipeline` reuse across jobs. |
+| **Pipeline cache** | **In-memory** `VkPipelineCache` + optional **`CUZK_VK_PIPELINE_CACHE`** load/save (`device.rs`); SPIR-V still from `naga` at build time | C.1 remainder: merge blobs across ICD versions / CI artifact, auto-save hooks, measure compile-time delta. |
 | **MSM** | `msm.rs` + dispatch-count GPU smoke; **no** bucket accumulate / G1 EC yet | A.* shaders + bucket reduce as in §8.1. |
 
 ### 8.8 Measurement (ties to §1)

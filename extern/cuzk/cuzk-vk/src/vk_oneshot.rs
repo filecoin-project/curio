@@ -89,7 +89,7 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
 
     let pipeline = match dev
         .device
-        .create_compute_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&cpci), None)
+        .create_compute_pipelines(dev.pipeline_cache, std::slice::from_ref(&cpci), None)
     {
         Ok(mut v) => v.pop().expect("one pipeline"),
         Err((_, e)) => anyhow::bail!("create_compute_pipelines: {:?}", e),
@@ -336,7 +336,7 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
             .stage(stage);
 
         let pipeline = match dev.device.create_compute_pipelines(
-            vk::PipelineCache::null(),
+            dev.pipeline_cache,
             std::slice::from_ref(&cpci),
             None,
         ) {

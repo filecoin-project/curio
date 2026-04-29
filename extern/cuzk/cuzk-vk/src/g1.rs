@@ -2,7 +2,7 @@
 //!
 //! Curve arithmetic in GLSL is not wired yet; callers should continue using `blstrs` on CPU.
 
-use blstrs::G1Affine;
+use blstrs::{G1Affine, G2Affine};
 
 /// Base-field limb count for BLS12-381 Fp in 32-bit little-endian Montgomery form (`ec-gpu` layout).
 pub const BLS12_381_FP_U32_LIMBS: usize = 12;
@@ -52,6 +52,13 @@ pub fn g1_limbs_to_le_bytes(g: &G1AffineLimbs) -> [u8; G1_AFFINE_LIMB_BYTES] {
 pub fn g1_affine_limbs_from_blstrs(a: &G1Affine) -> G1AffineLimbs {
     let (x, y) = crate::ec::g1_affine_montgomery_limbs(a);
     G1AffineLimbs { x, y }
+}
+
+/// Montgomery `Fp2` limbs for a `blstrs::G2Affine` (GPU `g2_reverse48` / SRS G2 SSBO layout).
+#[inline]
+pub fn g2_affine_limbs_from_blstrs(a: &G2Affine) -> G2AffineLimbs {
+    let (x, y) = crate::ec::g2_affine_montgomery_limbs(a);
+    G2AffineLimbs { x, y }
 }
 
 pub fn g1_limbs_from_le_bytes(bytes: &[u8; G1_AFFINE_LIMB_BYTES]) -> G1AffineLimbs {
