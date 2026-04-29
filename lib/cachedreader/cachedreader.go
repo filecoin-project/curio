@@ -265,16 +265,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 				continue
 			}
 
-			unpadded := uint64(dl.Length.Unpadded())
-			dealRawSize := unpadded
-			if dl.RawSize > 0 {
-				dealRawSize = uint64(dl.RawSize)
-			} else if rawSize > 0 {
-				// Metadata can disagree with this deal row; prefer it when deal raw_size is unset.
-				dealRawSize = rawSize
-			}
-			if dealRawSize > unpadded {
-				dealRawSize = unpadded
+			dealRawSize := uint64(dl.RawSize)
+			if dealRawSize == 0 {
+				if rawSize > 0 {
+					dealRawSize = rawSize
+				} else {
+					dealRawSize = uint64(dl.Length.Unpadded())
+				}
 			}
 
 			return reader, dealRawSize, nil
