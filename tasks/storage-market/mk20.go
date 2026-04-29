@@ -421,7 +421,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation, deal_aggregation, started) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE)`,
-			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.MarketAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, false, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation, aggregation)
 		if err != nil {
