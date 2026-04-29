@@ -22,6 +22,7 @@ import (
 )
 
 type FixRawSize struct {
+	startTime     time.Time
 	db            *harmonydb.DB
 	sc            *ffi.SealCalls
 	pieceProvider *pieceprovider.SectorReader
@@ -29,6 +30,7 @@ type FixRawSize struct {
 
 func NewFixRawSize(db *harmonydb.DB, sc *ffi.SealCalls, pieceProvider *pieceprovider.SectorReader) *FixRawSize {
 	return &FixRawSize{
+		startTime:     time.Now(),
 		db:            db,
 		sc:            sc,
 		pieceProvider: pieceProvider,
@@ -150,6 +152,9 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(time.Minute*30, func(taskFunc harmonytask.AddTaskFunc) error {
+			if time.Since(f.startTime) < time.Hour {
+				return nil
+			}
 			return f.schedule(context.Background(), taskFunc)
 		}),
 	}
