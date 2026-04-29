@@ -6,6 +6,31 @@ All endpoints are rooted at `/pdp`.
 
 ---
 
+## Endpoints Summary
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/pdp/ping` | Health check with JWT validation |
+| POST | `/pdp/piece` | Initiate a piece upload (by pieceCid V2) |
+| PUT | `/pdp/piece/upload/{uploadUUID}` | Upload piece data (classic) |
+| GET | `/pdp/piece/` | Find a piece by pieceCid query param |
+| GET | `/pdp/piece/{pieceCid}/status` | Get piece indexing/IPNI status |
+| POST | `/pdp/piece/uploads` | Create a streaming upload session |
+| PUT | `/pdp/piece/uploads/{uploadUUID}` | Stream piece data chunks |
+| POST | `/pdp/piece/uploads/{uploadUUID}` | Finalize a streaming upload |
+| POST | `/pdp/data-sets` | Create a new data set |
+| POST | `/pdp/data-sets/create-and-add` | Create a data set and add pieces atomically |
+| GET | `/pdp/data-sets/created/{txHash}` | Check data set creation status |
+| GET | `/pdp/data-sets/{dataSetId}` | Get data set details |
+| DELETE | `/pdp/data-sets/{dataSetId}` | Delete a data set *(not yet implemented)* |
+| POST | `/pdp/data-sets/{dataSetId}/pieces` | Add pieces to a data set |
+| GET | `/pdp/data-sets/{dataSetId}/pieces/added/{txHash}` | Get piece addition status |
+| GET | `/pdp/data-sets/{dataSetId}/pieces/{pieceId}` | Get piece details |
+| DELETE | `/pdp/data-sets/{dataSetId}/pieces/{pieceId}` | Schedule piece deletion |
+| POST | `/pdp/piece/pull` | Pull pieces from other SPs |
+
+---
+
 ## Endpoints
 
 ### 1. Ping
@@ -25,28 +50,19 @@ All endpoints are rooted at `/pdp`.
 #### 2.1. Initiate Upload
 
 - **Endpoint:** `POST /pdp/piece`
-- **Description:** Initiate the process of uploading a piece. If the piece already exists on the server, the server will respond accordingly.
+- **Description:** Initiate the process of uploading a piece using its Piece CID (CommP v2 format). If the piece already exists on the server, the server responds with `200 OK` and the piece CID.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **Request Body:**
 
 ```json
 {
-  "check": {
-    "name": "<hash-function-name>",
-    "hash": "<hex-encoded-hash>",
-    "size": <size-in-bytes>
-  },
+  "pieceCid": "<CommP-v2-CID>",
   "notify": "<optional-notification-URL>"
 }
 ```
 
 - **Fields:**
-    - `check`: An object containing the hash details of the piece.
-        - `name`: The name of the hash function used:
-            - `"sha2-256"` for SHA-256 of the raw piece data.
-            - `"sha2-256-trunc254-padded"` for the CommP (Piece Commitment).
-        - `hash`: The hex-encoded hash value (multihash payload, not the full multihash)
-        - `size`: The size of the piece in bytes (unpadded size).
+    - `pieceCid`: The Piece CID in CommP **v2** format (CIDv1 with `fil-commitment-unsealed` codec and raw size encoded). This uniquely identifies the piece and encodes size information.
     - `notify`: *(Optional)* A URL to be notified when the piece has been processed successfully.
 
 #### Responses
@@ -58,7 +74,7 @@ All endpoints are rooted at `/pdp`.
 
       ```json
       {
-        "pieceCID": "<piece-CID>"
+        "pieceCid": "<piece-CID-v2>"
       }
       ```
 
@@ -66,19 +82,19 @@ All endpoints are rooted at `/pdp`.
 
     - **Status Code:** `201 Created`
     - **Headers:**
-        - `Location`: The URL where the piece data can be uploaded via `PUT`.
+        - `Location`: The URL where the piece data can be uploaded via `PUT` (e.g., `/pdp/piece/upload/{uploadUUID}`).
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body or piece size exceeds the maximum allowed size.
+- `400 Bad Request`: Invalid pieceCid format or piece size exceeds the maximum allowed size.
 - `401 Unauthorized`: Missing or invalid JWT token.
 
 ---
 
-#### 2.2. Upload Piece Data
+#### 2.2. Upload Piece Data (Classic)
 
 - **Endpoint:** `PUT /pdp/piece/upload/{uploadUUID}`
-- **Description:** Upload the actual bytes of the piece to the server using the provided `uploadUUID`.
+- **Description:** Upload the actual bytes of the piece to the server using the provided `uploadUUID` from the `Location` header of `POST /pdp/piece`.
 - **URL Parameters:**
     - `uploadUUID`: The UUID provided in the `Location` header from the previous `POST /pdp/piece` request.
 - **Request Body:** The raw bytes of the piece data.
@@ -100,11 +116,162 @@ All endpoints are rooted at `/pdp`.
 
 ---
 
-### 3. Notifications
+#### 2.3. Find a Piece
+
+- **Endpoint:** `GET /pdp/piece/`
+- **Description:** Look up whether a piece exists on the server by its pieceCid.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Query Parameters:**
+    - `pieceCid`: The Piece CID (must be v2 format) to look up.
+
+#### Response
+
+- **Status Code:** `200 OK`
+- **Response Body:**
+
+```json
+{
+  "pieceCid": "<piece-CID-v2>"
+}
+```
+
+#### Errors
+
+- `400 Bad Request`: Invalid or missing `pieceCid` query parameter.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Piece not found.
+
+---
+
+#### 2.4. Get Piece Status
+
+- **Endpoint:** `GET /pdp/piece/{pieceCid}/status`
+- **Description:** Retrieve the indexing and IPNI advertisement status for a piece.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **URL Parameters:**
+    - `pieceCid`: The Piece CID (v1 or v2) to check.
+
+#### Response
+
+- **Status Code:** `200 OK`
+- **Response Body:**
+
+```json
+{
+  "pieceCid": "<piece-CID-v2>",
+  "status": "<status>",
+  "indexed": <boolean>,
+  "advertised": <boolean>,
+  "retrieved": <boolean>,
+  "retrievedAt": "<RFC3339-timestamp-or-omitted>"
+}
+```
+
+- **Fields:**
+    - `pieceCid`: The Piece CID in v2 format.
+    - `status`: Overall status string. One of:
+        - `"pending"` – Not yet indexed.
+        - `"indexing"` – CAR indexing task is in progress.
+        - `"creating_ad"` – IPNI advertisement is being created.
+        - `"announced"` – Advertisement published to IPNI network.
+        - `"retrieved"` – Piece has been retrieved by a client.
+    - `indexed`: Whether the piece has been indexed and is ready for IPNI.
+    - `advertised`: Whether an IPNI advertisement has been published.
+    - `retrieved`: Whether the piece has been retrieved by a client.
+    - `retrievedAt`: Timestamp of last retrieval (omitted if never retrieved).
+
+#### Errors
+
+- `400 Bad Request`: Invalid or missing `pieceCid`.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Piece not found or does not belong to this service.
+
+---
+
+### 3. Streaming Upload
+
+The streaming upload API provides a way to upload large pieces in a streaming fashion without needing to know the pieceCid upfront. The workflow is:
+
+1. Create a streaming upload session → get `uploadUUID`.
+2. Stream the data via `PUT`.
+3. Finalize the upload with the pieceCid to link and validate.
+
+> **Note:** Each streaming upload chunk is limited to **1 GiB** (unpadded). The server computes the CommP on-the-fly.
+
+#### 3.1. Create Streaming Upload Session
+
+- **Endpoint:** `POST /pdp/piece/uploads`
+- **Description:** Create a new streaming upload session and get an upload URL.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Request Body:** Empty.
+
+#### Response
+
+- **Status Code:** `201 Created`
+- **Headers:**
+    - `Location`: The URL for streaming data (e.g., `/pdp/piece/uploads/{uploadUUID}`).
+
+#### Errors
+
+- `401 Unauthorized`: Missing or invalid JWT token.
+
+---
+
+#### 3.2. Stream Piece Data
+
+- **Endpoint:** `PUT /pdp/piece/uploads/{uploadUUID}`
+- **Description:** Stream raw piece bytes to the server. The server computes the CommP hash incrementally.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **URL Parameters:**
+    - `uploadUUID`: The UUID from the `Location` header of `POST /pdp/piece/uploads`.
+- **Request Body:** Raw bytes of the piece data.
+
+#### Response
+
+- **Status Code:** `204 No Content`
+
+#### Errors
+
+- `400 Bad Request`: Invalid UUID.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Upload session not found.
+- `413 Payload Too Large`: Data exceeds size limit.
+
+---
+
+#### 3.3. Finalize Streaming Upload
+
+- **Endpoint:** `POST /pdp/piece/uploads/{uploadUUID}`
+- **Description:** Finalize a streaming upload by providing the expected pieceCid. The server validates that the uploaded data matches the given pieceCid, then records the piece for use in data sets.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **URL Parameters:**
+    - `uploadUUID`: The UUID from the upload session.
+- **Request Body:**
+
+```json
+{
+  "pieceCid": "<CommP-v2-CID>",
+  "notify": "<optional-notification-URL>"
+}
+```
+
+#### Response
+
+- **Status Code:** `200 OK`
+
+#### Errors
+
+- `400 Bad Request`: Invalid pieceCid, size mismatch, or CID does not match the uploaded data.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Upload session not found.
+
+---
+
+### 4. Notifications
 
 When you initiate an upload with the `notify` field specified, the PDP Service will send a notification to the provided URL once the piece has been successfully processed and stored.
 
-#### 3.1. Notification Request
+#### 4.1. Notification Request
 
 - **Method:** `POST`
 - **URL:** The `notify` URL provided during the upload initiation (`POST /pdp/piece`).
@@ -128,15 +295,15 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
     - `service`: The service name.
     - `pieceCID`: The Piece CID of the stored piece (may be `null` if not applicable).
     - `notify_url`: The original notification URL provided.
-    - `check_hash_codec`: The hash function used (e.g., `"sha2-256"` or `"sha2-256-trunc254-padded"`).
+    - `check_hash_codec`: The hash function used (e.g., `"sha2-256-trunc254-padded"`).
     - `check_hash`: The byte array of the original hash provided in the upload initiation.
 
-#### 3.2. Expected Response from Your Server
+#### 4.2. Expected Response from Your Server
 
 - **Status Code:** `200 OK` to acknowledge receipt.
 - **Response Body:** (Optional) Can be empty or contain a message.
 
-#### 3.3. Notes
+#### 4.3. Notes
 
 - The PDP Service may retry the notification if it fails.
 - Ensure that your server is accessible from the PDP Service and can handle incoming POST requests.
@@ -144,43 +311,89 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 4. Create a Data Set
+### 5. Create a Data Set
 
 - **Endpoint:** `POST /pdp/data-sets`
-- **Description:** Create a new data set.
+- **Description:** Create a new data set. This submits an on-chain transaction via the PDPVerifier smart contract.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **Request Body:**
 
 ```json
 {
-  "recordKeeper": "<Ethereum-address-of-record-keeper>"
+  "recordKeeper": "<Ethereum-address-of-record-keeper>",
+  "extraData": "<optional-hex-encoded-extra-data>"
 }
 ```
 
 - **Fields:**
-    - `recordKeeper`: The Ethereum address of the record keeper.
+    - `recordKeeper`: The Ethereum address of the record keeper (required).
+    - `extraData`: *(Optional)* Hex-encoded additional data to pass to the contract (max 4096 bytes decoded). Can include IPFS indexing metadata.
 
 #### Response
 
 - **Status Code:** `201 Created`
 - **Headers:**
-    - `Location`: The URL to check the status of the data set creation.
+    - `Location`: The URL to check the status of the data set creation (e.g., `/pdp/data-sets/created/{txHash}`).
 
 #### Errors
 
-- `400 Bad Request`: Missing or invalid `recordKeeper` address.
+- `400 Bad Request`: Missing or invalid `recordKeeper` address, or `extraData` exceeds size limit.
 - `401 Unauthorized`: Missing or invalid JWT token.
+- `403 Forbidden`: `recordKeeper` address not allowed for this service.
 - `500 Internal Server Error`: Failed to process the request.
 
 ---
 
-### 5. Check Data Set Creation Status
+### 6. Create a Data Set and Add Pieces (Atomic)
+
+- **Endpoint:** `POST /pdp/data-sets/create-and-add`
+- **Description:** Create a new data set and add pieces to it in a single on-chain transaction. This is the preferred approach when you already have the pieces stored.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Request Body:**
+
+```json
+{
+  "recordKeeper": "<Ethereum-address-of-record-keeper>",
+  "pieces": [
+    {
+      "pieceCid": "<pieceCID>",
+      "subPieces": [
+        { "subPieceCid": "<subpieceCID1>" },
+        { "subPieceCid": "<subpieceCID2>" }
+      ]
+    }
+  ],
+  "extraData": "<optional-hex-encoded-extra-data>"
+}
+```
+
+- **Fields:**
+    - `recordKeeper`: The Ethereum address of the record keeper (required).
+    - `pieces`: An array of piece entries (same format as `POST /pdp/data-sets/{dataSetId}/pieces`).
+    - `extraData`: *(Optional)* Hex-encoded additional data (max 8192 bytes decoded). If it contains `withIPFSIndexing` metadata, pieces will be marked for IPFS indexing.
+
+#### Response
+
+- **Status Code:** `201 Created`
+- **Headers:**
+    - `Location`: The URL to check the status of the data set creation (e.g., `/pdp/data-sets/created/{txHash}`).
+
+#### Errors
+
+- `400 Bad Request`: Invalid request body, validation errors, or size limit exceeded.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `403 Forbidden`: `recordKeeper` address not allowed for this service.
+- `500 Internal Server Error`: Failed to process the request.
+
+---
+
+### 7. Check Data Set Creation Status
 
 - **Endpoint:** `GET /pdp/data-sets/created/{txHash}`
-- **Description:** Retrieve the status of a data set creation.
+- **Description:** Retrieve the status of a data set creation (or create-and-add) transaction.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `txHash`: The transaction hash returned when creating the data set.
+    - `txHash`: The transaction hash returned in the `Location` header when creating the data set.
 
 #### Response
 
@@ -194,7 +407,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
   "service": "<service-name>",
   "txStatus": "<transaction-status>",
   "ok": <null-or-boolean>,
-  "dataSetId": <data-set-id-or-null>
+  "dataSetId": <data-set-id-or-omitted>
 }
 ```
 
@@ -204,7 +417,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
     - `service`: The service name.
     - `txStatus`: The transaction status (`"pending"`, `"confirmed"`, etc.).
     - `ok`: `true` if the transaction was successful, `false` if it failed, or `null` if pending.
-    - `dataSetId`: The ID of the created data set, if available.
+    - `dataSetId`: The ID of the created data set (only present when `dataSetCreated` is `true`).
 
 #### Errors
 
@@ -214,10 +427,10 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 6. Get Data Set Details
+### 8. Get Data Set Details
 
 - **Endpoint:** `GET /pdp/data-sets/{dataSetId}`
-- **Description:** Retrieve the details of a data set, including its pieces.
+- **Description:** Retrieve the details of a data set, including its pieces and the next challenge epoch.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
@@ -230,25 +443,26 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 ```json
 {
   "id": <dataSetId>,
+  "nextChallengeEpoch": <epoch-number>,
   "pieces": [
     {
       "pieceId": <pieceId>,
-      "pieceCid": "<pieceCID>",
-      "subPieceCid": "<subpieceCID>",
+      "pieceCid": "<pieceCID-v2>",
+      "subPieceCid": "<subpieceCID-v2>",
       "subPieceOffset": <subpieceOffset>
-    },
-    // ...
+    }
   ]
 }
 ```
 
 - **Fields:**
     - `id`: The ID of the data set.
-    - `pieces`: An array of piece entries.
+    - `nextChallengeEpoch`: The next epoch at which a proof of possession challenge must be answered. `0` means the data set has not yet been initialized on-chain.
+    - `pieces`: An array of piece entries (excludes removed pieces by default).
         - `pieceId`: The ID of the piece.
-        - `pieceCid`: The CID of the piece.
-        - `subPieceCid`: The CID of the subPiece.
-        - `subPieceOffset`: The offset of the subPiece.
+        - `pieceCid`: The CID of the aggregate piece (v2 format).
+        - `subPieceCid`: The CID of the sub-piece (v2 format).
+        - `subPieceOffset`: The byte offset of the sub-piece within the aggregate piece.
 
 #### Errors
 
@@ -258,7 +472,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 7. Delete a Data Set *(To be implemented)*
+### 9. Delete a Data Set *(Not yet implemented)*
 
 - **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}`
 - **Description:** Remove the specified data set entirely.
@@ -268,24 +482,18 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 #### Response
 
-- **Status Code:** `204 No Content`
-
-#### Errors
-
-- `400 Bad Request`: Invalid request.
-- `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Data set not found.
+- **Status Code:** `501 Not Implemented`
 
 ---
 
-### 8. Add Pieces to a Data Set
+### 10. Add Pieces to a Data Set
 
 - **Endpoint:** `POST /pdp/data-sets/{dataSetId}/pieces`
-- **Description:** Add pieces to a data set.
+- **Description:** Add pieces to a data set by submitting an on-chain transaction.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
-- **Request Body:** An object containing an array of piece entries.
+- **Request Body:**
 
 ```json
 {
@@ -298,11 +506,9 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
         },
         {
           "subPieceCid": "<subpieceCID2>"
-        },
-        // ...
+        }
       ]
-    },
-    // ...
+    }
   ],
   "extraData": "<optional-hex-data>"
 }
@@ -311,40 +517,83 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 - **Fields:**
     - `pieces`: An array of piece entries.
         - Each piece entry contains:
-            - `pieceCid`: The piece CID.
+            - `pieceCid`: The aggregate piece CID (must be v2 format).
             - `subPieces`: An array of subPiece entries.
                 - Each subPiece entry contains:
-                    - `subPieceCid`: The CID of the subPiece.
-    - `extraData`: (Optional) Additional hex-encoded data for the transaction.
+                    - `subPieceCid`: The CID of the subPiece (v1 or v2). Must be previously uploaded.
+    - `extraData`: (Optional) Additional hex-encoded data for the transaction (max 8192 bytes decoded).
 
 #### Constraints and Requirements
 
-- **SubPieces Ordering:** The `subPieces` must be provided in order **from largest to smallest size**. This ensures that no padding is required between subPieces during the computation of the piece CID.
-- **SubPieces Ownership:** All subPieces must belong to the service making the request, and they must be previously uploaded and stored on the PDP service.
-- **SubPiece Sizes:**
-    - Each subPiece size must be at least 128 bytes.
-- **SubPiece Alignment:** The subPieces are concatenated without padding. Proper ordering ensures that the concatenated data aligns correctly for piece computation.
-- **Piece CID Verification:**
-    - The provider computes the piece CID from the provided subPieces and verifies that it matches the `pieceCid` specified in the request.
-    - If the computed piece CID does not match, the request is rejected.
+- **SubPieces Ordering:** The `subPieces` must be provided in order **from largest to smallest size** (by padded size). This ensures correct Merkle tree computation.
+- **SubPieces Ownership:** All subPieces must belong to the service making the request and have been previously uploaded.
+- **SubPiece Sizes:** Each subPiece size must be at least 128 bytes.
+- **Piece CID Verification:** The server computes the piece CID from the provided subPieces using `GenerateUnsealedCID` and verifies it matches the provided `pieceCid`.
+- **Data Set Status:** The data set must not have an unrecoverable proving failure.
 
 #### Response
 
 - **Status Code:** `201 Created`
+- **Headers:**
+    - `Location`: URL to poll for addition status (e.g., `/pdp/data-sets/{dataSetId}/pieces/added/{txHash}`).
 
 #### Errors
 
-- `400 Bad Request`: Invalid request body, missing fields, validation errors, or subPieces not ordered correctly.
+- `400 Bad Request`: Invalid request body, missing fields, validation errors, subPieces not ordered correctly, or raw size mismatch.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set not found or subPieces not found.
+- `409 Conflict`: Data set has been terminated due to unrecoverable proving failure.
 - `500 Internal Server Error`: Failed to process the request.
 
 ---
 
-### 9. Get Piece Details *(To be implemented)*
+### 11. Get Piece Addition Status
+
+- **Endpoint:** `GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}`
+- **Description:** Retrieve the status of a piece addition transaction.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **URL Parameters:**
+    - `dataSetId`: The ID of the data set.
+    - `txHash`: The transaction hash returned in the `Location` header from `POST /pdp/data-sets/{dataSetId}/pieces`.
+
+#### Response
+
+- **Status Code:** `200 OK`
+- **Response Body:**
+
+```json
+{
+  "txHash": "<transaction-hash>",
+  "txStatus": "<transaction-status>",
+  "dataSetId": <dataSetId>,
+  "pieceCount": <number-of-unique-pieces>,
+  "addMessageOk": <null-or-boolean>,
+  "piecesAdded": <boolean>,
+  "confirmedPieceIds": [<pieceId>, ...]
+}
+```
+
+- **Fields:**
+    - `txHash`: The transaction hash.
+    - `txStatus`: The transaction status (`"pending"`, `"confirmed"`, etc.).
+    - `dataSetId`: The ID of the data set.
+    - `pieceCount`: Number of unique pieces in this transaction.
+    - `addMessageOk`: `true` if on-chain transaction succeeded, `false` if failed, `null` if pending.
+    - `piecesAdded`: Whether the pieces have been fully processed and recorded.
+    - `confirmedPieceIds`: Array of assigned piece IDs (only present when confirmed and successful).
+
+#### Errors
+
+- `400 Bad Request`: Invalid parameters.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: Data set not found, or piece addition not found for given transaction.
+
+---
+
+### 12. Get Piece Details
 
 - **Endpoint:** `GET /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
-- **Description:** Retrieve the details of a piece in a data set.
+- **Description:** Retrieve the details of a specific piece in a data set, including its sub-pieces.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
@@ -353,7 +602,27 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 #### Response
 
 - **Status Code:** `200 OK`
-- **Response Body:** Piece details (to be defined).
+- **Response Body:**
+
+```json
+{
+  "pieceId": <pieceId>,
+  "pieceCid": "<pieceCID>",
+  "subPieces": [
+    {
+      "subPieceCid": "<subPieceCID>",
+      "subPieceOffset": <offset>
+    }
+  ]
+}
+```
+
+- **Fields:**
+    - `pieceId`: The ID of the piece.
+    - `pieceCid`: The CID of the aggregate piece.
+    - `subPieces`: Ordered list of sub-pieces (by offset).
+        - `subPieceCid`: The CID of the sub-piece.
+        - `subPieceOffset`: The byte offset of the sub-piece.
 
 #### Errors
 
@@ -363,24 +632,113 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 10. Delete a Piece from a Data Set *(To be implemented)*
+### 13. Delete a Piece from a Data Set
 
 - **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
-- **Description:** Remove a piece from a data set.
+- **Description:** Schedule a piece for deletion from a data set by submitting an on-chain `schedulePieceDeletions` transaction to the PDPVerifier contract. Deletion is asynchronous.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
     - `dataSetId`: The ID of the data set.
     - `pieceId`: The ID of the piece.
+- **Request Body:** *(Optional)*
+
+```json
+{
+  "extraData": "<optional-hex-encoded-extra-data>"
+}
+```
+
+- **Fields:**
+    - `extraData`: *(Optional)* Hex-encoded additional data for the contract call (max 256 bytes decoded).
 
 #### Response
 
-- **Status Code:** `204 No Content`
+- **Status Code:** `200 OK`
+- **Response Body:**
+
+```json
+{
+  "txHash": "<transaction-hash>"
+}
+```
+
+- **Fields:**
+    - `txHash`: The hash of the on-chain `schedulePieceDeletions` transaction.
 
 #### Errors
 
-- `400 Bad Request`: Invalid request.
+- `400 Bad Request`: Invalid request or `extraData` exceeds size limit.
 - `401 Unauthorized`: Missing or invalid JWT token.
 - `404 Not Found`: Data set or piece not found.
+- `500 Internal Server Error`: Failed to send on-chain transaction.
+
+---
+
+### 14. Pull Piece from Another SP
+
+- **Endpoint:** `POST /pdp/piece/pull`
+- **Description:** Request that the PDP service pull a piece from another storage provider or a remote URL. If pieces are successfully downloaded, they can later be added to a dataset via the contract. This request is idempotent when calling with the same `extraData`, `dataSetId`, and `recordKeeper`.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Request Body:**
+
+```json
+{
+  "extraData": "<hex-encoded-string-for-auth>",
+  "dataSetId": 123,
+  "recordKeeper": "<Ethereum-address-of-record-keeper>",
+  "pieces": [
+    {
+      "pieceCid": "<CommP-v2-CID>",
+      "sourceUrl": "https://example.com/piece/bafy..."
+    }
+  ]
+}
+```
+
+- **Fields:**
+    - `extraData`: *(Required)* Hex-encoded bytes that will be validated against the PDPVerifier contract via `eth_call`. Used for authorization and idempotency.
+    - `dataSetId`: *(Optional)* The target dataset ID. If omitted or `0`, validation simulates creating a new dataset.
+    - `recordKeeper`: *(Required if dataSetId is 0 or omitted)* The contract address that will receive callbacks.
+    - `pieces`: Array of pieces to pull.
+        - `pieceCid`: The piece CID in CommP v2 format.
+        - `sourceUrl`: HTTPS URL ending in `/piece/{pieceCid}` on a public host. Localhost and private IPs are blocked for security.
+
+#### Response
+
+Returns JSON with an overall status and per-piece status:
+
+- **Status Code:** `200 OK`
+- **Response Body:**
+
+```json
+{
+  "status": "inProgress",
+  "pieces": [
+    {
+      "pieceCid": "<piece-CID-v2>",
+      "status": "complete"
+    },
+    {
+      "pieceCid": "<piece-CID-v2>",
+      "status": "inProgress"
+    }
+  ]
+}
+```
+
+- **Status Values:**
+    - `"pending"`: Piece is queued but download hasn't started.
+    - `"inProgress"`: Download task is actively running.
+    - `"retrying"`: Download task is running after one or more failures.
+    - `"complete"`: Piece successfully downloaded and verified.
+    - `"failed"`: Piece permanently failed after exhausting retries.
+
+#### Errors
+
+- `400 Bad Request`: Validation error, missing parameters, invalid pieceCid format, or invalid `sourceUrl`.
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `403 Forbidden`: `recordKeeper` is not allowed.
+- `500 Internal Server Error`: Failed to query or store pull task.
 
 ---
 
@@ -394,7 +752,7 @@ Authorization: Bearer <JWT-token>
 
 ### Token Contents
 
-The JWT token should be signed using ECDSA with the `ES256` algorithm and contain the following claim:
+The JWT token should be signed using **ECDSA** (`ES256`) or **EdDSA** (`Ed25519`) and contain the following claim:
 
 - `service_name`: The name of the service (string). This acts as the service identifier.
 
@@ -406,11 +764,11 @@ The server verifies the JWT token as follows:
     - The server reads the `Authorization` header and extracts the token following the `Bearer` prefix.
 
 2. **Parsing and Validating the Token:**
-    - The token is parsed and validated using the `ES256` signing method.
+    - The token is parsed and validated using `ES256` (ECDSA) or `Ed25519` (EdDSA) signing methods.
     - The `service_name` claim is extracted from the token.
 
 3. **Retrieving the Public Key:**
-    - The server retrieves the public key associated with the `service_name` from its database or configuration.
+    - The server queries the `pdp_services` table for the public key associated with the `service_name`.
     - **Note:** The PDP Service should provide the PDP provider (SP) with the `service_name` they should use and the corresponding public key.
 
 4. **Verifying the Signature:**
@@ -437,7 +795,7 @@ The server verifies the JWT token as follows:
 
 - **Public Key Retrieval Failure:**
     - **Status Code:** `401 Unauthorized`
-    - **Message:** `failed to retrieve public key for service_name`
+    - **Message:** `failed to retrieve public key for service_id <name>`
 
 - **Signature Verification Failure:**
     - **Status Code:** `401 Unauthorized`
@@ -456,12 +814,12 @@ When adding pieces to a data set using the `POST /pdp/data-sets/{dataSetId}/piec
     - The subPieces must have been previously uploaded and stored on the server.
 
 2. **Ordering SubPieces:**
-    - **Important:** SubPieces must be ordered from **largest to smallest size**.
+    - **Important:** SubPieces must be ordered from **largest to smallest padded size**.
     - This ordering ensures that no padding is required between the subPieces, aligning them correctly for piece computation.
 
 3. **Piece Sizes and Alignment:**
-    - Each subPiece corresponds to a data segment with a size that is a power of two (e.g., 128 bytes, 256 bytes, 512 bytes).
-    - The concatenation of the subPieces must not require padding to align to the sector size used in the computation.
+    - Each subPiece corresponds to a data segment with a padded size that is a power of two (e.g., 128 bytes, 256 bytes, 512 bytes).
+    - The concatenation of the subPieces must not require padding to align correctly.
 
 4. **Computing the Piece CID:**
     - The server uses the `GenerateUnsealedCID` function to compute the piece CID from the subPieces.
@@ -470,29 +828,34 @@ When adding pieces to a data set using the `POST /pdp/data-sets/{dataSetId}/piec
 
 5. **Validation of Computed Piece CID:**
     - The computed piece CID is compared with the `pieceCid` provided in the request.
-    - If the computed piece CID does not match the provided `pieceCid`, the request is rejected with an error.
+    - The raw size encoded in the provided pieceCid (v2) must match the sum of all subPiece raw sizes.
+    - If there is any mismatch, the request is rejected.
 
 ### Constraints and Requirements
 
 - **SubPieces Ownership:** All subPiece CIDs must belong to the requesting service.
 - **SubPieces Existence:** All subPiece CIDs must be valid and previously stored on the server.
-- **Ordering of SubPieces:** Must be ordered from largest to smallest. The sizes must be decreasing or equal; no subPiece can be larger than the preceding one.
-- **SubPiece Sizes:** Each subPiece size must be a power of two and at least 128 bytes.
-- **Total Size Limit:** The total size of the concatenated subPieces must not exceed the maximum allowed sector size.
+- **Ordering of SubPieces:** Must be ordered from largest to smallest (descending padded size). No subPiece can be larger than the preceding one.
+- **SubPiece Sizes:** Each subPiece padded size must be a power of two and at least 128 bytes.
+- **Raw Size Consistency:** Sum of subPiece raw sizes must equal the raw size encoded in the aggregate `pieceCid` (v2).
 
 ### Error Responses
 
 - **Invalid SubPiece Order:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `SubPieces must be in descending order of size`
+    - **Message:** `subPieces must be in descending order of size, piece <N> <CID> is larger than prev subPiece <CID>`
 
 - **SubPiece Not Found or Unauthorized:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `subPiece CID <CID> not found or does not belong to service`
+    - **Message:** `subPiece CID <CID> not found or does not belong to service <name>`
 
 - **Piece CID Mismatch:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `provided PieceCID does not match generated PieceCID`
+    - **Message:** `provided PieceCid does not match generated PieceCid: <provided> != <generated>`
+
+- **Raw Size Mismatch:**
+    - **Status Code:** `400 Bad Request`
+    - **Message:** `raw size mismatch: expected <N>, got <M>`
 
 ### Piece Computation Function
 
@@ -502,29 +865,22 @@ func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.Pie
 
 Where:
 
-- `pieceInfos` is a list of pieces (subPieces) with their sizes and CIDs.
+- `pieceInfos` is a list of pieces (subPieces) with their padded sizes and CIDs.
 - The function builds a CommP tree from the subPieces, combining them correctly according to their sizes and alignment.
 
 ---
 
 ## Data Models
 
-### PieceHash
+### PieceCid V2 Format
 
-Represents hash information about a piece.
+The PDP API uses CommP **v2** CIDs in external-facing fields. A CommP v2 CID encodes both the commitment hash and the raw (unpadded) piece size:
 
-```json
-{
-  "name": "<hash-function-name>",
-  "hash": "<hex-encoded-hash>",
-  "size": <size-in-bytes>
-}
-```
+- **Codec:** `fil-commitment-unsealed` (0xf101)
+- **Multihash:** `sha2-256-trunc254-padded` with the raw size appended
+- **Version:** CIDv1
 
-- **Fields:**
-    - `name`: Name of the hash function used (e.g., `"sha2-256"`, `"sha2-256-trunc254-padded"`).
-    - `hash`: Hex-encoded hash value.
-    - `size`: Size of the piece in bytes.
+This allows the recipient to know both the content hash and the raw size from the CID alone.
 
 ### PieceEntry
 
@@ -533,17 +889,17 @@ Represents a piece entry in a data set.
 ```json
 {
   "pieceId": <pieceID>,
-  "pieceCid": "<pieceCID>",
-  "subPieceCid": "<subPieceCID>",
+  "pieceCid": "<pieceCID-v2>",
+  "subPieceCid": "<subPieceCID-v2>",
   "subPieceOffset": <subPieceOffset>
 }
 ```
 
 - **Fields:**
     - `pieceId`: The ID of the piece.
-    - `pieceCid`: The CID of the piece.
-    - `subPieceCid`: The CID of the subPiece.
-    - `subPieceOffset`: The offset of the subPiece.
+    - `pieceCid`: The CID of the aggregate piece (v2 format).
+    - `subPieceCid`: The CID of the subPiece (v2 format).
+    - `subPieceOffset`: The byte offset of the subPiece within the aggregate piece.
 
 ---
 
@@ -551,10 +907,12 @@ Represents a piece entry in a data set.
 
 - **400 Bad Request:** The request is invalid or missing required parameters.
 - **401 Unauthorized:** Missing or invalid JWT token.
+- **403 Forbidden:** The operation is not permitted (e.g., recordKeeper not whitelisted for public service).
 - **404 Not Found:** The requested resource was not found.
 - **409 Conflict:** The request could not be completed due to a conflict with the current state of the resource.
 - **413 Payload Too Large:** The uploaded data exceeds the maximum allowed size.
 - **500 Internal Server Error:** An unexpected error occurred on the server.
+- **501 Not Implemented:** The endpoint exists in the routing but is not yet implemented.
 
 Error responses typically include an error message in the response body.
 
@@ -562,7 +920,7 @@ Error responses typically include an error message in the response body.
 
 ## Example Usage
 
-### Uploading a Piece
+### Uploading a Piece (Classic)
 
 1. **Initiate Upload:**
 
@@ -575,11 +933,7 @@ Error responses typically include an error message in the response body.
    Content-Type: application/json
 
    {
-     "check": {
-       "name": "sha2-256",
-       "hash": "<hex-encoded-sha256-hash>",
-       "size": 12345
-     },
+     "pieceCid": "<CommP-v2-CID>",
      "notify": "https://example.com/notify"
    }
    ```
@@ -593,7 +947,7 @@ Error responses typically include an error message in the response body.
       Content-Type: application/json
  
       {
-        "pieceCID": "<piece-CID>"
+        "pieceCid": "<piece-CID-v2>"
       }
       ```
 
@@ -637,7 +991,7 @@ Error responses typically include an error message in the response body.
      "service": "<service-name>",
      "pieceCID": "<piece-CID>",
      "notify_url": "https://example.com/notify",
-     "check_hash_codec": "sha2-256",
+     "check_hash_codec": "sha2-256-trunc254-padded",
      "check_hash": "<b64-byte-array-of-hash>"
    }
    ```
@@ -645,6 +999,47 @@ Error responses typically include an error message in the response body.
    **Your Response:**
 
    ```http
+   HTTP/1.1 200 OK
+   ```
+
+### Uploading a Piece (Streaming)
+
+1. **Create Upload Session:**
+
+   ```http
+   POST /pdp/piece/uploads HTTP/1.1
+   Host: example.com
+   Authorization: Bearer <JWT-token>
+
+   HTTP/1.1 201 Created
+   Location: /pdp/piece/uploads/{uploadUUID}
+   ```
+
+2. **Stream Data:**
+
+   ```http
+   PUT /pdp/piece/uploads/{uploadUUID} HTTP/1.1
+   Host: example.com
+   Authorization: Bearer <JWT-token>
+   Content-Type: application/octet-stream
+
+   <binary piece data>
+
+   HTTP/1.1 204 No Content
+   ```
+
+3. **Finalize Upload:**
+
+   ```http
+   POST /pdp/piece/uploads/{uploadUUID} HTTP/1.1
+   Host: example.com
+   Authorization: Bearer <JWT-token>
+   Content-Type: application/json
+
+   {
+     "pieceCid": "<CommP-v2-CID>"
+   }
+
    HTTP/1.1 200 OK
    ```
 
@@ -660,6 +1055,37 @@ Content-Type: application/json
 
 {
   "recordKeeper": "0x1234567890abcdef..."
+}
+```
+
+**Response:**
+
+```http
+HTTP/1.1 201 Created
+Location: /pdp/data-sets/created/0xabc123...
+```
+
+### Creating a Data Set and Adding Pieces (Atomic)
+
+**Request:**
+
+```http
+POST /pdp/data-sets/create-and-add HTTP/1.1
+Host: example.com
+Authorization: Bearer <JWT-token>
+Content-Type: application/json
+
+{
+  "recordKeeper": "0x1234567890abcdef...",
+  "pieces": [
+    {
+      "pieceCid": "<pieceCID>",
+      "subPieces": [
+        { "subPieceCid": "<subPieceCID1>" },
+        { "subPieceCid": "<subPieceCID2>" }
+      ]
+    }
+  ]
 }
 ```
 
@@ -689,8 +1115,7 @@ Content-Type: application/json
         { "subPieceCid": "<subPieceCID2>" },
         { "subPieceCid": "<subPieceCID3>" }
       ]
-    },
-    // ... Additional pieces if needed
+    }
   ]
 }
 ```
@@ -699,4 +1124,29 @@ Content-Type: application/json
 
 ```http
 HTTP/1.1 201 Created
+Location: /pdp/data-sets/{dataSetId}/pieces/added/0xabc123...
+```
+
+### Deleting a Piece
+
+**Request:**
+
+```http
+DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId} HTTP/1.1
+Host: example.com
+Authorization: Bearer <JWT-token>
+Content-Type: application/json
+
+{}
+```
+
+**Response:**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "txHash": "0xabc123..."
+}
 ```
