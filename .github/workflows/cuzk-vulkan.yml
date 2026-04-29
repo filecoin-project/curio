@@ -1,0 +1,50 @@
+name: cuzk Vulkan
+
+on:
+  push:
+    paths:
+      - "extern/cuzk/**"
+      - "extern/ec-gpu-gen/**"
+      - "extern/bellperson/**"
+      - ".github/workflows/cuzk-vulkan.yml"
+      - "cuzk-vulkan-optimization-roadmap.md"
+  pull_request:
+    paths:
+      - "extern/cuzk/**"
+      - "extern/ec-gpu-gen/**"
+      - "extern/bellperson/**"
+      - ".github/workflows/cuzk-vulkan.yml"
+      - "cuzk-vulkan-optimization-roadmap.md"
+
+jobs:
+  cpu:
+    name: cuzk Phase 0 + cuzk-vk build (hosted)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extern/cuzk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Phase 0 tests + cuzk-vk smoke (script)
+        env:
+          CUZK_VK_SKIP_SMOKE: "1"
+        run: bash scripts/run-all-tests.sh
+
+  # Requires org runner labels [self-hosted, vulkan, amd] — enable when available.
+  amd-vulkan:
+    name: cuzk-vk integration (self-hosted AMD)
+    if: false
+    runs-on: [self-hosted, vulkan, amd]
+    defaults:
+      run:
+        working-directory: extern/cuzk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Full cuzk-vk tests + bellperson mimc (Vulkan feature)
+        run: |
+          cargo test -p cuzk-vk
+          cd ../bellperson && cargo test --no-default-features --features groth16,vulkan-cuzk --test mimc

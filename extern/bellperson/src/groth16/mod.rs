@@ -1,0 +1,51 @@
+//! The [Groth16] proving system.
+//!
+//! [Groth16]: https://eprint.iacr.org/2016/260
+
+#[cfg(all(feature = "cuda-supraseal", feature = "vulkan-cuzk"))]
+compile_error!(
+    "features `cuda-supraseal` and `vulkan-cuzk` are mutually exclusive — enable at most one GPU backend"
+);
+
+pub mod aggregate;
+#[cfg(feature = "vulkan-cuzk")]
+pub mod vulkan_cuzk;
+#[cfg(not(feature = "cuda-supraseal"))]
+mod ext;
+#[cfg(feature = "cuda-supraseal")]
+mod ext_supraseal;
+mod generator;
+#[cfg(not(target_arch = "wasm32"))]
+mod mapped_params;
+mod params;
+mod proof;
+mod prover;
+#[cfg(feature = "cuda-supraseal")]
+mod supraseal_params;
+mod verifier;
+mod verifying_key;
+
+mod multiscalar;
+
+#[cfg(not(feature = "cuda-supraseal"))]
+pub use self::ext::*;
+#[cfg(feature = "cuda-supraseal")]
+pub use self::ext_supraseal::*;
+pub use self::generator::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self::mapped_params::*;
+pub use self::params::*;
+pub use self::proof::*;
+#[cfg(feature = "cuda-supraseal")]
+pub use self::prover::supraseal::{
+    alloc_gpu_mutex, finish_pending_proof, free_gpu_mutex, prove_from_assignments, prove_start,
+    synthesize_circuits_batch, synthesize_circuits_batch_with_hint,
+    synthesize_circuits_batch_with_prover_factory, GpuMutexPtr, PendingProofHandle,
+    SendableGpuMutex, SynthesisCapacityHint,
+};
+#[cfg(feature = "cuda-supraseal")]
+pub use self::prover::{PinnedReturnFn, ProvingAssignment};
+#[cfg(feature = "cuda-supraseal")]
+pub use self::supraseal_params::SuprasealParameters;
+pub use self::verifier::*;
+pub use self::verifying_key::*;

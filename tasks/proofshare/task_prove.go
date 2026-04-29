@@ -3,6 +3,7 @@ package proofshare
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -18,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofsvc"
@@ -32,25 +34,54 @@ type TaskProvideSnark struct {
 	db          *harmonydb.DB
 	paramsReady func() (bool, error)
 
+	cuzkClient *cuzk.Client
+
 	max int
 }
 
-func NewTaskProvideSnark(db *harmonydb.DB, paramck func() (bool, error), max int) *TaskProvideSnark {
+func NewTaskProvideSnark(db *harmonydb.DB, paramck func() (bool, error), max int, cuzkClient *cuzk.Client) *TaskProvideSnark {
 	t := &TaskProvideSnark{
 		db:          db,
 		paramsReady: paramck,
 		max:         max,
+		cuzkClient:  cuzkClient,
 	}
 	t.cleanupWorker()
 	return t
 }
 
 func (t *TaskProvideSnark) cleanupAbandonedTasks() error {
-	_, err := t.db.Exec(context.Background(), `
-		DELETE FROM proofshare_queue
-		WHERE compute_done = FALSE AND compute_task_id IS NOT NULL AND compute_task_id NOT IN (SELECT id FROM harmony_task)
+	ctx := context.Background()
+
+	// Reset orphaned compute tasks so they can be re-assigned, instead of
+	// deleting them (which would lose work already fetched from the service).
+	n, err := t.db.Exec(ctx, `
+		UPDATE proofshare_queue SET compute_task_id = NULL
+		WHERE compute_done = FALSE AND compute_task_id IS NOT NULL
+		  AND compute_task_id NOT IN (SELECT id FROM harmony_task)
 	`)
-	return err
+	if err != nil {
+		return xerrors.Errorf("resetting orphaned compute tasks: %w", err)
+	}
+	if n > 0 {
+		log.Infow("reset orphaned proofshare compute tasks", "count", n)
+	}
+
+	// Purge completed+submitted rows older than 2 days to keep the table
+	// from growing unboundedly (the dedup SELECT and service_id queries
+	// scan the whole table).
+	n, err = t.db.Exec(ctx, `
+		DELETE FROM proofshare_queue
+		WHERE submit_done = TRUE AND obtained_at < NOW() - INTERVAL '2 days'
+	`)
+	if err != nil {
+		return xerrors.Errorf("purging old completed proofshare rows: %w", err)
+	}
+	if n > 0 {
+		log.Infow("purged old completed proofshare rows", "count", n)
+	}
+
+	return nil
 }
 
 func (t *TaskProvideSnark) cleanupWorker() {
@@ -104,17 +135,21 @@ func (t *TaskProvideSnark) Adder(add harmonytask.AddTaskFunc) {
 
 // CanAccept implements harmonytask.TaskInterface.
 func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	rdy, err := t.paramsReady()
-	if err != nil {
-		return nil, xerrors.Errorf("failed to setup params: %w", err)
-	}
-	if !rdy {
-		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
+	if len(ids) == 0 {
 		return []harmonytask.TaskID{}, nil
 	}
 
-	if len(ids) == 0 {
-		return []harmonytask.TaskID{}, nil
+	// When cuzk is enabled, the shared Max limiter handles backpressure.
+	// Fall through to ordering logic below.
+	if t.cuzkClient == nil || !t.cuzkClient.Enabled() {
+		rdy, err := t.paramsReady()
+		if err != nil {
+			return nil, xerrors.Errorf("failed to setup params: %w", err)
+		}
+		if !rdy {
+			log.Infow("PSProve.CanAccept() params not ready, not scheduling")
+			return []harmonytask.TaskID{}, nil
+		}
 	}
 
 	// Convert task IDs to int64 slice for SQL query
@@ -125,7 +160,7 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 	// Query to find the task with the oldest obtained_at
 	var oldestTaskIDs []harmonytask.TaskID
-	err = t.db.Select(context.Background(), &oldestTaskIDs, `
+	err := t.db.Select(context.Background(), &oldestTaskIDs, `
 		SELECT compute_task_id 
 		FROM proofshare_queue 
 		WHERE compute_task_id = ANY($1) 
@@ -177,7 +212,7 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("failed to unmarshal request: %w", err)
 	}
 
-	proof, err := computeProof(ctx, taskID, request)
+	proof, err := computeProof(ctx, taskID, request, t.cuzkClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to compute proof: %w", err)
 	}
@@ -202,16 +237,28 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
+	ram := uint64(50 << 30) // todo correct value
 	if seal.IsDevnet {
 		gpu = 0
 	}
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		gpu = 0
+		ram = 1 << 30
+	}
+	var maxLimiter taskhelp.Limiter
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		maxLimiter = t.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(t.max)
+	}
+
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(t.max),
+		Max:  maxLimiter,
 		Name: "PSProve",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,
-			Ram: 50 << 30, // todo correct value
+			Ram: ram,
 		},
 		MaxFailures: 20,
 		RetryWait: func(retries int) time.Duration {
@@ -220,13 +267,13 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func computeProof(ctx context.Context, taskID harmonytask.TaskID, request common.ProofData) ([]byte, error) {
+func computeProof(ctx context.Context, taskID harmonytask.TaskID, request common.ProofData, cuzkClient *cuzk.Client) ([]byte, error) {
 	if request.PoRep != nil {
 		if request.SectorID == nil {
 			return nil, xerrors.Errorf("sector id is required")
 		}
 
-		return computePoRep(ctx, request.PoRep, *request.SectorID)
+		return computePoRep(ctx, taskID, request.PoRep, *request.SectorID, cuzkClient)
 	}
 
 	if request.Snap != nil {
@@ -234,24 +281,84 @@ func computeProof(ctx context.Context, taskID harmonytask.TaskID, request common
 			return nil, xerrors.Errorf("sector id is required")
 		}
 
-		return computeSnap(ctx, taskID, request.Snap, *request.SectorID)
+		return computeSnap(ctx, taskID, request.Snap, *request.SectorID, cuzkClient)
 	}
 
 	return nil, xerrors.Errorf("unknown proof request type")
 }
 
-func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID abi.SectorID) ([]byte, error) {
+func computePoRep(ctx context.Context, taskID harmonytask.TaskID, request *proof.Commit1OutRaw, sectorID abi.SectorID, cuzkClient *cuzk.Client) ([]byte, error) {
 	// Serialize the commit1out to JSON to pass as vanilla proof
 	vproof, err := json.Marshal(request)
 	if err != nil {
 		return nil, xerrors.Errorf("marshaling vanilla proof: %w", err)
 	}
 
-	ctx = ffiselect.WithLogCtx(ctx, "sector", sectorID)
-
-	proof, err := ffiselect.FFISelect.SealCommitPhase2(ctx, vproof, sectorID.Number, sectorID.Miner)
+	spt, err := request.RegisteredProof.ToABI()
 	if err != nil {
-		return nil, xerrors.Errorf("computing seal proof failed: %w", err)
+		return nil, xerrors.Errorf("invalid registered proof: %w", err)
+	}
+
+	useCuzk := cuzkClient != nil && cuzkClient.Enabled()
+
+	log.Infow("PSProve computePoRep starting",
+		"sector", sectorID,
+		"registeredProof", request.RegisteredProof,
+		"spt", spt,
+		"vproofLen", len(vproof),
+		"commR", fmt.Sprintf("%x", request.CommR[:8]),
+		"commD", fmt.Sprintf("%x", request.CommD[:8]),
+		"replicaID", fmt.Sprintf("%x", request.ReplicaID[:8]),
+		"seed", fmt.Sprintf("%x", request.Seed[:8]),
+		"ticket", fmt.Sprintf("%x", request.Ticket[:8]),
+		"useCuzk", useCuzk,
+	)
+
+	var snarkProof []byte
+
+	if useCuzk {
+		ssize, err := spt.SectorSize()
+		if err != nil {
+			return nil, xerrors.Errorf("getting sector size: %w", err)
+		}
+
+		// Use the shared wrapC1Output helper (same as lib/ffi/cuzk_funcs.go)
+		wrapped, err := wrapC1ForCuzk(vproof, uint64(sectorID.Number), uint64(ssize))
+		if err != nil {
+			return nil, xerrors.Errorf("wrapping C1 output for cuzk: %w", err)
+		}
+
+		log.Infow("PSProve cuzk request",
+			"sector", sectorID,
+			"wrappedLen", len(wrapped),
+			"sectorSize", ssize,
+		)
+
+		resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+			RequestId:       fmt.Sprintf("ps-porep-%d-%d-%d", sectorID.Miner, sectorID.Number, taskID),
+			ProofKind:       cuzk.ProofKind_POREP_SEAL_COMMIT,
+			SectorSize:      uint64(ssize),
+			RegisteredProof: uint64(spt),
+			Priority:        cuzk.Priority_NORMAL,
+			VanillaProof:    wrapped,
+			SectorNumber:    uint64(sectorID.Number),
+			MinerId:         uint64(sectorID.Miner),
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("cuzk porep prove failed: %w", err)
+		}
+		snarkProof = resp.Proof
+
+		log.Infow("PSProve cuzk proof received",
+			"sector", sectorID,
+			"proofLen", len(snarkProof),
+		)
+	} else {
+		ctx = ffiselect.WithLogCtx(ctx, "sector", sectorID)
+		snarkProof, err = ffiselect.FFISelect.SealCommitPhase2(ctx, vproof, sectorID.Number, sectorID.Miner)
+		if err != nil {
+			return nil, xerrors.Errorf("computing seal proof failed: %w", err)
+		}
 	}
 
 	commR, err := commcid.ReplicaCommitmentV1ToCID(request.CommR[:])
@@ -263,18 +370,13 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 		return nil, xerrors.Errorf("invalid CommD: %w", err)
 	}
 
-	spt, err := request.RegisteredProof.ToABI()
-	if err != nil {
-		return nil, xerrors.Errorf("invalid registered proof: %w", err)
-	}
-
 	ok, err := ffi.VerifySeal(proof2.SealVerifyInfo{
 		SealProof:             spt,
 		SectorID:              sectorID,
 		DealIDs:               nil,
 		Randomness:            abi.SealRandomness(request.Ticket[:]),
 		InteractiveRandomness: abi.InteractiveSealRandomness(request.Seed[:]),
-		Proof:                 proof,
+		Proof:                 snarkProof,
 		SealedCID:             commR,
 		UnsealedCID:           commD,
 	})
@@ -282,13 +384,70 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 		return nil, xerrors.Errorf("failed to verify proof: %w", err)
 	}
 	if !ok {
-		return nil, xerrors.Errorf("porep failed to validate")
+		log.Errorw("PSProve PoRep proof FAILED validation",
+			"sector", sectorID,
+			"useCuzk", useCuzk,
+			"proofLen", len(snarkProof),
+			"registeredProof", request.RegisteredProof,
+			"spt", spt,
+			"sealedCID", commR,
+			"unsealedCID", commD,
+			"commR", fmt.Sprintf("%x", request.CommR),
+			"commD", fmt.Sprintf("%x", request.CommD),
+			"replicaID", fmt.Sprintf("%x", request.ReplicaID),
+			"seed", fmt.Sprintf("%x", request.Seed),
+			"ticket", fmt.Sprintf("%x", request.Ticket),
+			"vproofLen", len(vproof),
+		)
+		return nil, xerrors.Errorf("porep failed to validate (sector=%v, cuzk=%v, proofLen=%d, spt=%d)",
+			sectorID, useCuzk, len(snarkProof), spt)
 	}
 
-	return proof, nil
+	log.Infow("PSProve PoRep proof validated",
+		"sector", sectorID,
+		"useCuzk", useCuzk,
+		"proofLen", len(snarkProof),
+	)
+
+	return snarkProof, nil
 }
 
-func computeSnap(ctx context.Context, taskID harmonytask.TaskID, request *proof.Snap, sectorID abi.SectorID) ([]byte, error) {
+// wrapC1ForCuzk wraps the SealCommitPhase1Output JSON in the C1OutputWrapper
+// envelope that the cuzk Rust server expects. This mirrors wrapC1Output in
+// lib/ffi/cuzk_funcs.go.
+func wrapC1ForCuzk(c1JSON []byte, sectorNumber uint64, sectorSize uint64) ([]byte, error) {
+	type c1OutputWrapper struct {
+		SectorNum  int64  `json:"SectorNum"`
+		Phase1Out  []byte `json:"Phase1Out"`
+		SectorSize uint64 `json:"SectorSize"`
+	}
+	return json.Marshal(c1OutputWrapper{
+		SectorNum:  int64(sectorNumber),
+		Phase1Out:  c1JSON,
+		SectorSize: sectorSize,
+	})
+}
+
+func computeSnap(ctx context.Context, taskID harmonytask.TaskID, request *proof.Snap, sectorID abi.SectorID, cuzkClient *cuzk.Client) ([]byte, error) {
+	if cuzkClient != nil && cuzkClient.Enabled() {
+		resp, err := cuzkClient.Prove(ctx, &cuzk.SubmitProofRequest{
+			RequestId:       fmt.Sprintf("ps-snap-%d-%d-%d", sectorID.Miner, sectorID.Number, taskID),
+			ProofKind:       cuzk.ProofKind_SNAP_DEALS_UPDATE,
+			RegisteredProof: uint64(request.ProofType),
+			Priority:        cuzk.Priority_NORMAL,
+			VanillaProofs:   request.Proofs,
+			SectorNumber:    uint64(sectorID.Number),
+			MinerId:         uint64(sectorID.Miner),
+			CommROld:        request.OldR[:],
+			CommRNew:        request.NewR[:],
+			CommDNew:        request.NewD[:],
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("cuzk snap prove failed: %w", err)
+		}
+		return resp.Proof, nil
+	}
+
 	oldR, err := commcid.ReplicaCommitmentV1ToCID(request.OldR[:])
 	if err != nil {
 		return nil, xerrors.Errorf("invalid OldR: %w", err)
@@ -303,12 +462,12 @@ func computeSnap(ctx context.Context, taskID harmonytask.TaskID, request *proof.
 	}
 
 	ctx = ffiselect.WithLogCtx(ctx, "sector", sectorID, "task", taskID, "oldR", oldR, "newR", newR, "newD", newD)
-	proof, err := ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, request.ProofType, oldR, newR, newD, request.Proofs)
+	snarkProof, err := ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, request.ProofType, oldR, newR, newD, request.Proofs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate update proof: %w", err)
 	}
 
-	return proof, nil
+	return snarkProof, nil
 }
 
 var _ = harmonytask.Reg(&TaskProvideSnark{})

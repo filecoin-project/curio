@@ -1,0 +1,70 @@
+// One Cooley–Tukey radix-2 DIT stage (Montgomery Fr). Matches `ntt.rs` `fr_ntt_inplace` after bitrev.
+// `buf.d[0]` = n, `buf.d[1]` = log_n. Per-stage twiddle base `wlen` at `OFF_WSTEP + stage * 8`.
+// Push: `stage` in [0, log_n). `local_size_x = 256`.
+
+#define FR_NTT_MAX_N 16384u
+#define FR_NTT_MAX_LOG 32u
+#define OFF_DATA 64u
+#define OFF_SCRATCH (64u + FR_NTT_MAX_N * 8u)
+#define OFF_WSTEP (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    uint stage;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+} pc;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u];
+} buf;
+
+void fr_load_at(uint base, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fr_store_at(uint base, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void main() {
+    uint n = buf.d[0];
+    uint log_n = buf.d[1];
+    uint stage = pc.stage;
+    if (stage >= log_n) {
+        return;
+    }
+
+    uint half = 1u << stage;
+    uint m = half << 1u;
+    uint num_bfly = n >> 1u;
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= num_bfly) {
+        return;
+    }
+
+    uint block_id = tid / half;
+    uint j_in = tid % half;
+    uint idx = block_id * m + j_in;
+    uint idx2 = idx + half;
+
+    @@FR_T@@ wlen;
+    fr_load_at(OFF_WSTEP + stage * 8u, wlen);
+    @@FR_T@@ w = fr_pow_u32(wlen, j_in);
+
+    @@FR_T@@ u;
+    @@FR_T@@ v;
+    fr_load_at(OFF_DATA + idx * 8u, u);
+    fr_load_at(OFF_DATA + idx2 * 8u, v);
+    v = fr_mul_mont_cios(v, w);
+    @@FR_T@@ out_u = fr_add_mod(u, v);
+    @@FR_T@@ out_v = fr_sub_mod(u, v);
+    fr_store_at(OFF_DATA + idx * 8u, out_u);
+    fr_store_at(OFF_DATA + idx2 * 8u, out_v);
+}

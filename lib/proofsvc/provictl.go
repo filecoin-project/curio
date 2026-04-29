@@ -49,6 +49,12 @@ func recordProvictlDuration(call string, start time.Time) {
 
 const marketUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
 
+// ErrTooManyRequests is returned by CreateWorkAsk when the remote service
+// responds with HTTP 429. Callers should back off and retry later instead of
+// blocking inside CreateWorkAsk, so that the poll loop can continue discovering
+// work that was matched to existing asks.
+var ErrTooManyRequests = xerrors.New("too many requests")
+
 // retryWithBackoff executes the given function with exponential backoff
 // It will retry until the context is canceled or the function succeeds
 // Uses generics to provide type safety for the result
@@ -94,68 +100,43 @@ func CreateWorkAsk(ctx context.Context, resolver *AddressResolver, signer addres
 	defer recordProvictlDuration("CreateWorkAsk", start)
 	priceStr := price.String()
 
-	backoff := 3 * time.Second
-	maxBackoff := 5 * time.Minute
-	var lastErr error
-
-	for {
-		select {
-		case <-ctx.Done():
-			if lastErr != nil {
-				return 0, xerrors.Errorf("context canceled: %w (last error: %v)", ctx.Err(), lastErr)
-			}
-			return 0, xerrors.Errorf("context canceled: %w", ctx.Err())
-		default:
-		}
-
-		// Create signature for the work ask
-		signature, err := Sign(ctx, resolver, signer, "work-ask", []byte(priceStr), time.Now())
-		if err != nil {
-			return 0, xerrors.Errorf("failed to sign work ask: %w", err)
-		}
-
-		req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s&signature=%s",
-			marketUrl, signer.String(), priceStr, signature), nil)
-		if err != nil {
-			return 0, xerrors.Errorf("failed to create request: %w", err)
-		}
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return 0, xerrors.Errorf("failed to send request: %w", err)
-		}
-
-		if resp.StatusCode == http.StatusOK {
-			var workAsk common.WorkAsk
-			if err := json.NewDecoder(resp.Body).Decode(&workAsk); err != nil {
-				_ = resp.Body.Close()
-				return 0, xerrors.Errorf("failed to unmarshal response body: %w", err)
-			}
-			_ = resp.Body.Close()
-			return workAsk.ID, nil
-		}
-
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			lastErr = xerrors.Errorf("too many requests: %s - %s", resp.Status, string(bodyBytes))
-			log.Warnw("create work ask rate limited, retrying", "error", lastErr, "backoff", backoff)
-
-			select {
-			case <-ctx.Done():
-				return 0, xerrors.Errorf("context canceled during backoff: %w (last error: %v)", ctx.Err(), lastErr)
-			case <-time.After(backoff):
-			}
-
-			// Exponential backoff with maximum
-			backoff = min(backoff*2, maxBackoff)
-			continue
-		}
-
-		// For any other non-OK status, return error immediately
-		return 0, xerrors.Errorf("failed to create work ask: %s - %s", resp.Status, string(bodyBytes))
+	// Create signature for the work ask
+	signature, err := Sign(ctx, resolver, signer, "work-ask", []byte(priceStr), time.Now())
+	if err != nil {
+		return 0, xerrors.Errorf("failed to sign work ask: %w", err)
 	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s&signature=%s",
+		marketUrl, signer.String(), priceStr, signature), nil)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to send request: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		var workAsk common.WorkAsk
+		if err := json.NewDecoder(resp.Body).Decode(&workAsk); err != nil {
+			_ = resp.Body.Close()
+			return 0, xerrors.Errorf("failed to unmarshal response body: %w", err)
+		}
+		_ = resp.Body.Close()
+		return workAsk.ID, nil
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		log.Warnw("create work ask rate limited", "status", resp.Status, "body", string(bodyBytes))
+		return 0, ErrTooManyRequests
+	}
+
+	// For any other non-OK status, return error immediately
+	return 0, xerrors.Errorf("failed to create work ask: %s - %s", resp.Status, string(bodyBytes))
 }
 
 func PollWork(address string) (common.WorkResponse, error) {
