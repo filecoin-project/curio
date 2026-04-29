@@ -116,9 +116,17 @@ Because the full settlement of payments is an important precondition for the ful
 
 ## Settle Task 
 
-The settle task is scheduled twice a day through the IAmBored entrypoint.  Upon waking up the settle task queries the `eth_keys` table for the first keys it finds with role == `pdp`.  The task then queries the provider registry to learn the payee address.  `Settle` task then delegates to the `filecoinpayment` library method `SettleLockupPeriod` to attempt to settle all rails in need of settlement that are paying out to the payee address using the FWSS contract as the rail's operator contract.
+## Settle Task 
 
-`SettleLockupPeriod` uses eth call methods on the filecoin-pay contract to lookup all rails operator and payee.  The method's purpose is to periodically settle payment rails paying out to the payee address.  To achieve this gas and local-resource efficiently the method schedules settlement as lazily as safely possible.  It settles rails that have any possibility of client default between this run of the task and the next expected run in 12 hours.  To determine this condition each rail's `settledUpTo` and `lockupPeriod` value is inspected.  When a rail has not been settled for over one `lockupPeriod` the client can be in default.  `SettleLockupPeriod` settles all rails that are within one day of meeting this condition.  Additionally all termianted rails in the process of finishing out their last `lockupPeriod` of life are marked for settlement.  For more about the details of termination and lockup periods and how this exactly determines default risk see the filecoin-pay [documentation](https://github.com/FilOzone/filecoin-pay/blob/main/README.md#per-rail-lockup-the-guarantee-mechanism).
+The settle task is scheduled twice a day (every 12 hours) through the IAmBored entrypoint.  Upon waking up the settle task queries the `eth_keys` table for the first keys it finds with role == `pdp`.  The task then queries the provider registry to learn the payee address.  `Settle` task then delegates to the `filecoinpayment` library method `SettleLockupPeriod` to attempt to settle all rails in need of settlement that are paying out to the payee address using the FWSS contract as the rail's operator contract.
+
+`SettleLockupPeriod` uses eth call methods on the filecoin-pay contract to lookup all rails operator and payee.  The method's purpose is to periodically settle payment rails paying out to the payee address that are denominated in USDFC.  Such rails that are candidates for settlement include:
+
+1. Rails that have been terminated, passed their lockup period by no more than 7 days, and is not yet successfully settled
+2. Rails that have a lockup period less than one day (special case: settle whenever SettleLockupPeriod is run)
+3. Rails that have not been settled since min(lockupPeriod - 1 day, 7 days). In this scheme, we always attempt to settle a rail once every 7 days, and for rails that have a lockup period of less than 7 days we settle them more frequently, but 1 day shorter than their lockup period so as to avoid getting too close to the end of the lockup period.
+
+For more about the details of filecoin pay termination and lockup periods and how this exactly determines default risk see the filecoin-pay [documentation](https://github.com/FilOzone/filecoin-pay/blob/main/README.md#per-rail-lockup-the-guarantee-mechanism).
 
 Using `multicall.Multicall3Call` the task settles rails in batches of 10 and atomically adds the tx hashes to `message_waits_eth` and the settlement tracking table `filecoin_payment_transactions`.
 
