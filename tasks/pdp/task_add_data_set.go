@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"errors"
+	"math/big"
 	"strings"
 	"time"
 
@@ -89,7 +90,7 @@ func (p *PDPTaskAddDataSet) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		contract.SybilFee(),
+		big.NewInt(0),
 		0,
 		nil,
 		data,

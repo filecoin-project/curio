@@ -264,6 +264,10 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPv0_InitPP",
+		// Handoff from data onboarding (PDPv0_Notify → PDPv0_PullPiece → PDPv0_SaveCache).
+		// InitPP checks on-chain leaf count before the first challenge request; proving
+		// continues PDPv0_InitPP → PDPv0_Prove.
+		MayFollow: []string{"PDPv0_SaveCache"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
