@@ -27,3 +27,40 @@ func TestFindPreferredTaskRunOrder_unrelated(t *testing.T) {
 	require.Empty(t, got["a"])
 	require.Empty(t, got["b"])
 }
+
+func TestAssertMayFollowAcyclic_ok(t *testing.T) {
+	require.NotPanics(t, func() {
+		AssertMayFollowAcyclic(map[string][]string{
+			"a": {},
+			"b": {"a"},
+			"c": {"a", "b"},
+		})
+	})
+}
+
+func TestAssertMayFollowAcyclic_selfLoop(t *testing.T) {
+	require.Panics(t, func() {
+		AssertMayFollowAcyclic(map[string][]string{
+			"a": {"a"},
+		})
+	})
+}
+
+func TestAssertMayFollowAcyclic_twoCycle(t *testing.T) {
+	require.Panics(t, func() {
+		AssertMayFollowAcyclic(map[string][]string{
+			"a": {"b"},
+			"b": {"a"},
+		})
+	})
+}
+
+func TestAssertMayFollowAcyclic_longerCycle(t *testing.T) {
+	require.Panics(t, func() {
+		AssertMayFollowAcyclic(map[string][]string{
+			"a": {"c"},
+			"b": {"a"},
+			"c": {"b"},
+		})
+	})
+}

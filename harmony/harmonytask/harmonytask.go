@@ -280,6 +280,8 @@ func NewWithReg(
 
 	mayFollows := make(map[string][]string)
 
+	mayFollows := make(map[string][]string)
+
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
@@ -516,6 +518,7 @@ func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, prefer
 		if alreadySeen[na.name] {
 			continue
 		}
+		// Run downstream pipeline stages (pipeline end first), then this type.
 		for _, name := range preferredTaskRunOrder[na.name] {
 			if !alreadySeen[name] {
 				alreadySeen[name] = true
