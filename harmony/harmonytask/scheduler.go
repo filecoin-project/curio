@@ -432,7 +432,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 	for i, h := range e.handlers {
 		names[i] = h.Name
 	}
-	err := e.db.Select(context.Background(), &rows,
+	err := e.cfg.db.Select(context.Background(), &rows,
 		`SELECT id, name, update_time, posted_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
 	if err != nil {
 		log.Errorw("failed to poll tasks from db", "error", err)

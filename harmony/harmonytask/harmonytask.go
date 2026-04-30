@@ -280,8 +280,6 @@ func NewWithReg(
 
 	mayFollows := make(map[string][]string)
 
-	mayFollows := make(map[string][]string)
-
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
