@@ -12,7 +12,7 @@ import (
 type HarmonyTaskStats struct {
 	Name       string `db:"name" json:"name"`
 	Success    int    `db:"success" json:"success"`
-	Failure    int    `db:"failed" json:"failed"`
+	Failure    int    `db:"failure" json:"failure"`
 	TotalCount int    `db:"total" json:"total"`
 }
 
