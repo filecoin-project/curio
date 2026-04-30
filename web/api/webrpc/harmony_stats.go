@@ -25,7 +25,7 @@ func (a *WebRPC) HarmonyTaskStats(ctx context.Context) ([]HarmonyTaskStats, erro
 						task_id,
 						BOOL_OR(result) AS succeeded
 					FROM harmony_task_history
-					WHERE work_end > CURRENT_TIMESTAMP - INTERVAL '1 hour'
+					WHERE work_end > CURRENT_TIMESTAMP - INTERVAL '1 day'
 					GROUP BY name, task_id
 				)
 				SELECT
