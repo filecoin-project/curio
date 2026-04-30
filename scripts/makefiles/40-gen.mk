@@ -71,7 +71,7 @@ go-generate:
 	  CGO_ALLOW="$(subst ",,$(CGO_LDFLAGS_ALLOW))"; \
 	  GO_FLAGS="$(GOFLAGS) -tags=$(CURIO_TAGS_CSV)"; \
 	  for p in $$(go list ./...); do \
-	    tf="$$(mktemp -t go-gen-time.XXXXXX)"; \
+	    tf="$$(mktemp "$${TMPDIR:-/tmp}/go-gen-time.XXXXXX")"; \
 	    cmd=(env CGO_LDFLAGS_ALLOW="$$CGO_ALLOW" GOFLAGS="$$GO_FLAGS" $(GOCC) generate "$$p"); \
 	    printf "CMD: "; printf "%q " "$${cmd[@]}"; echo ""; \
 	    if /usr/bin/time -p -o "$$tf" "$${cmd[@]}"; then \
@@ -92,8 +92,10 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
+# Pin swag to the same major as CI (.github/workflows/ci.yml) so `make gen` works without a global swag install.
+SWAG_VERSION ?= v1.16.4
 marketgen:
-	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
+	$(GOCC) run github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION) init -dir market/mk20/http -g http.go -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
 gen-deps: $(BUILD_DEPS)

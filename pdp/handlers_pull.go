@@ -151,8 +151,8 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 	}
 
 	// Build addPieces calldata
-	// When dataSetId is 0 (create new), use recordKeeper address and sybil fee
-	// When dataSetId > 0 (add to existing), use zero address and no fee
+	// When dataSetId is 0 (create new), use recordKeeper address
+	// When dataSetId > 0 (add to existing), use zero address for listener
 	isCreateNew := params.DataSetId.Cmp(big.NewInt(0)) == 0
 	listenerAddr := common.Address{}
 	if isCreateNew {
@@ -164,12 +164,8 @@ func (v *EthCallValidator) ValidateAddPieces(ctx context.Context, params *AddPie
 		return fmt.Errorf("failed to pack addPieces call: %w", err)
 	}
 
-	// eth_call to validate
+	// eth_call to validate — match tx value used for dataset creation (no sybil fee)
 	value := big.NewInt(0)
-	if isCreateNew {
-		// Sybil fee only required for create-new case
-		value = contract.SybilFee()
-	}
 	msg := ethereum.CallMsg{
 		From:  v.senderAddr,
 		To:    new(contract.ContractAddresses().PDPVerifier),

@@ -362,8 +362,8 @@ github.com/filecoin-project/go-data-transfer/v2 v2.0.0 h1:SUU6c0+K9K9WY16Ur9+cX1
 github.com/filecoin-project/go-data-transfer/v2 v2.0.0/go.mod h1:VdCAN4UqvZzbtTMVUi4yA2TKdzG1CtgjGzs7mdnRPWk=
 github.com/filecoin-project/go-ds-versioning v0.1.2 h1:to4pTadv3IeV1wvgbCbN6Vqd+fu+7tveXgv/rCEZy6w=
 github.com/filecoin-project/go-ds-versioning v0.1.2/go.mod h1:C9/l9PnB1+mwPa26BBVpCjG/XQCB0yj/q5CK2J8X1I4=
-github.com/filecoin-project/go-f3 v0.8.12 h1:+AybcpFs+KM3qSNALYSHuY5zzWlWmJfiw3aZzO0nyh0=
-github.com/filecoin-project/go-f3 v0.8.12/go.mod h1:DyAT+PKCN1WfMK39qy3E+qUDSk/pdQhXL2TgfTtwm4M=
+github.com/filecoin-project/go-f3 v0.8.13 h1:fqWrWDIh5xUp4f06Z3gIK8o0VCq2kfdsgBcItacZUgM=
+github.com/filecoin-project/go-f3 v0.8.13/go.mod h1:HCtZMa27a+Cdnjcgb0zLZTbZDvahN+JwP3QBxw6FnxI=
 github.com/filecoin-project/go-fil-commcid v0.3.1 h1:4EfxpHSlvtkOqa9weG2Yt5kxFmPib2xU7Uc9Lbqk7fs=
 github.com/filecoin-project/go-fil-commcid v0.3.1/go.mod h1:z7Ssf8d7kspF9QRAVHDbZ+43JK4mkhbGH5lyph1TnKY=
 github.com/filecoin-project/go-fil-commp-hashhash v0.4.0 h1:wmIYOYQmvQHBrilk4qP6UuYrBxH2ojLiBi8eavRjmG8=
@@ -400,8 +400,8 @@ github.com/filecoin-project/go-statestore v0.2.0 h1:cRRO0aPLrxKQCZ2UOQbzFGn4WDNd
 github.com/filecoin-project/go-statestore v0.2.0/go.mod h1:8sjBYbS35HwPzct7iT4lIXjLlYyPor80aU7t7a/Kspo=
 github.com/filecoin-project/go-storedcounter v0.1.0 h1:Mui6wSUBC+cQGHbDUBcO7rfh5zQkWJM/CpAZa/uOuus=
 github.com/filecoin-project/go-storedcounter v0.1.0/go.mod h1:4ceukaXi4vFURIoxYMfKzaRF5Xv/Pinh2oTnoxpv+z8=
-github.com/filecoin-project/lotus v1.35.1 h1:C53pdz82kWR0fUcUpZCi2P2BUE/mbtXVfmCqo1ZgFiM=
-github.com/filecoin-project/lotus v1.35.1/go.mod h1:0ZgPi9kXwvIpng+ZL+28lKiil/l/Lu8F3Ls1iVxx5vY=
+github.com/filecoin-project/lotus v1.36.0-rc1 h1:1qOxGq3+9XTyNt51gKuCjfS5T59+mZzf1cyBNxCEevo=
+github.com/filecoin-project/lotus v1.36.0-rc1/go.mod h1:tzFOxSSszbfgocCRMsAraa9C3Jj3iEIEiOY9Pf9CsmY=
 github.com/filecoin-project/pubsub v1.0.0 h1:ZTmT27U07e54qV1mMiQo4HDr0buo8I1LDHBYLXlsNXM=
 github.com/filecoin-project/pubsub v1.0.0/go.mod h1:GkpB33CcUtUNrLPhJgfdy4FDx4OMNR9k+46DHx/Lqrg=
 github.com/filecoin-project/specs-actors v0.9.13/go.mod h1:TS1AW/7LbG+615j4NsjMK1qlpAwaFsG9w0V2tg2gSao=
@@ -1050,8 +1050,8 @@ github.com/mattn/go-isatty v0.0.21/go.mod h1:ZXfXG4SQHsB/w3ZeOYbR0PrPwLy+n6xiMrJ
 github.com/mattn/go-runewidth v0.0.10/go.mod h1:RAqKPSqVFrSLVXbA8x7dzmKdmGzieGRCM46jaSJTDAk=
 github.com/mattn/go-runewidth v0.0.23 h1:7ykA0T0jkPpzSvMS5i9uoNn2Xy3R383f9HDx3RybWcw=
 github.com/mattn/go-runewidth v0.0.23/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=
-github.com/mattn/go-sqlite3 v1.14.34 h1:3NtcvcUnFBPsuRcno8pUtupspG/GM+9nZ88zgJcp6Zk=
-github.com/mattn/go-sqlite3 v1.14.34/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
+github.com/mattn/go-sqlite3 v1.14.42 h1:MigqEP4ZmHw3aIdIT7T+9TLa90Z6smwcthx+Azv4Cgo=
+github.com/mattn/go-sqlite3 v1.14.42/go.mod h1:pjEuOr8IwzLJP2MfGeTb0A35jauH+C2kbHKBr7yXKVQ=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/miekg/dns v1.0.14/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/miekg/dns v1.1.12/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
