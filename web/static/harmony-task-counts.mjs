@@ -16,7 +16,7 @@ customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends
     calculatePercentages() {
         this.data = this.data.map(task => ({
             ...task,
-            FailedPercentage: task.failed > 0 ? `${((task.failed / task.total) * 100).toFixed(2)}%` : '0%'
+            FailedPercentage: task.failure > 0 ? `${((task.failure / task.total) * 100).toFixed(2)}%` : '0%'
         }));
     }
 
@@ -45,7 +45,7 @@ customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends
                     <tr class="${task.FalseCount > task.TrueCount && task.TrueCount === 0 ? 'row-error' : ''}">
                         <td><a href="/pages/task/?name=${task.name}">${task.name}</a></td>
                         <td>${task.success}</td>
-                        <td>${task.failed} (${task.FailedPercentage})</td>
+                        <td>${task.failure} (${task.FailedPercentage})</td>
                     </tr>
                     `)}
                 </tbody>
