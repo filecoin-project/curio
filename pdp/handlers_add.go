@@ -346,6 +346,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
+		return
 	}
 
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
