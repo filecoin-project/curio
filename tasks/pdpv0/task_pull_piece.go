@@ -437,8 +437,9 @@ func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_PullPiece",
-		Max:  taskhelp.Max(t.max),
+		Name:      "PDPv0_PullPiece",
+		Max:       taskhelp.Max(t.max),
+		MayFollow: []string{"PDPv0_Notify"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

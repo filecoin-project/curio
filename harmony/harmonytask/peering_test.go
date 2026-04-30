@@ -318,3 +318,12 @@ func TestTellOthersDelivery(t *testing.T) {
 		}
 	})
 }
+
+// TestNoopPeerConnector guards harmonytask.New(..., nil): startPeering must
+// substitute a non-nil PeerConnectorInterface before calling SetOnConnect.
+func TestNoopPeerConnector(t *testing.T) {
+	var c PeerConnectorInterface = noopPeerConnector{}
+	require.NotPanics(t, func() { c.SetOnConnect(func(string, PeerConnection) {}) })
+	_, err := c.ConnectToPeer("any")
+	require.ErrorContains(t, err, "peering disabled")
+}

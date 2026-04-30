@@ -54,8 +54,9 @@ func (s *PipelineGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *PipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "PipelineGC",
+		Max:       taskhelp.Max(1),
+		Name:      "PipelineGC",
+		MayFollow: []string{"CommitBatch", "MoveStorage", "UpdateBatch"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

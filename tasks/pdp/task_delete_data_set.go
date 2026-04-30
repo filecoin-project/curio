@@ -148,8 +148,9 @@ func (p *PDPTaskDeleteDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmo
 
 func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: "PDPDelDataSet",
+		Max:       taskhelp.Max(50),
+		Name:      "PDPDelDataSet",
+		MayFollow: []string{"PDPAddDataSet"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

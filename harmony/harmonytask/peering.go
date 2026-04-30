@@ -105,10 +105,24 @@ type peering struct {
 	m         map[string][]int // task type name -> indexes into peers slice
 }
 
+// noopPeerConnector stands in when PeerConnectorInterface is nil (e.g. tests
+// that only need a TaskEngine). Outbound ConnectToPeer always fails; inbound
+// peering is unused.
+type noopPeerConnector struct{}
+
+func (noopPeerConnector) ConnectToPeer(string) (PeerConnection, error) {
+	return nil, xerrors.Errorf("peering disabled (nil PeerConnectorInterface)")
+}
+
+func (noopPeerConnector) SetOnConnect(func(string, PeerConnection)) {}
+
 // startPeering initializes the peering layer and begins connecting to all
 // known nodes in the cluster. Connections happen asynchronously so New()
 // doesn't block on slow/unreachable peers.
 func startPeering(h *TaskEngine, peerConnector PeerConnectorInterface) *peering {
+	if peerConnector == nil {
+		peerConnector = noopPeerConnector{}
+	}
 	p := &peering{
 		h:             h,
 		peerConnector: peerConnector,

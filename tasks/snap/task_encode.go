@@ -274,8 +274,9 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(e.max),
-		Name: "UpdateEncode",
+		Max:       taskhelp.Max(e.max),
+		Name:      "UpdateEncode",
+		MayFollow: []string{"AggregateDeals"},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value

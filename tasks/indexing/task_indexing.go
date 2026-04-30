@@ -739,7 +739,8 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
 
 	return harmonytask.TaskTypeDetails{
-		Name: "Indexing",
+		Name:      "Indexing",
+		MayFollow: []string{"CommitBatch", "UpdateBatch"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),

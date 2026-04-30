@@ -251,6 +251,9 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "PDPInitPP",
+		// End of data onboarding (piece aggregation); InitPP needs on-chain leaves before
+		// the first challenge request. Proving pipeline continues: PDPInitPP → PDPProve.
+		MayFollow: []string{"AggregatePDPDeal"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

@@ -40,6 +40,7 @@ type testTask struct {
 	maxFail       uint
 	retryWait     func(int) time.Duration
 	timeSensitive bool
+	mayFollow     []string // pipeline predecessors (see harmonytask.TaskTypeDetails.MayFollow)
 	doneCh        chan harmonytask.TaskID
 	doFunc        func(context.Context, harmonytask.TaskID, func() bool) (bool, error)
 	canAcceptFunc func([]harmonytask.TaskID, *harmonytask.TaskEngine) ([]harmonytask.TaskID, error)
@@ -103,6 +104,7 @@ func (t *testTask) TypeDetails() harmonytask.TaskTypeDetails {
 	if t.maxN > 0 {
 		ttd.Max = taskhelp.Max(t.maxN)
 	}
+	ttd.MayFollow = t.mayFollow
 	return ttd
 }
 
@@ -399,6 +401,109 @@ func TestSchedulerConcurrentMultiNode(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, hosts, 1, "%s should run on exactly one host", name)
 	}
+}
+
+// TestSchedulerOldestFirstAcrossTypes verifies the scheduler runs the task type
+// whose oldest queued work is older before another unrelated type (no MayFollow
+// pipeline between them).
+func TestSchedulerOldestFirstAcrossTypes(t *testing.T) {
+	db := getDB(t)
+
+	var orderMu sync.Mutex
+	var execOrder []string
+	record := func(name string) {
+		orderMu.Lock()
+		execOrder = append(execOrder, name)
+		orderMu.Unlock()
+	}
+
+	tA := newTestTask("Old1stA", 1)
+	tB := newTestTask("Old1stB", 1)
+	tA.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		record("Old1stA")
+		tA.doneCh <- id
+		return true, nil
+	}
+	tB.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		record("Old1stB")
+		tB.doneCh <- id
+		return true, nil
+	}
+	t.Cleanup(cleanupTasks(tA, tB))
+
+	// One CPU total so only one task runs at a time; ordering is deterministic.
+	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{tA, tB}, "old1:1000", resources.Resources{Cpu: 1, Ram: 1 << 20})
+	e.TestONLY_SetPollDuration(50 * time.Millisecond)
+
+	// Type A posted first (older) then B — A should run first.
+	e.AddTaskByName("Old1stA", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	time.Sleep(50 * time.Millisecond)
+	e.AddTaskByName("Old1stB", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+
+	waitForTasks(t, tA.doneCh, 1, taskTimeout)
+	waitForTasks(t, tB.doneCh, 1, taskTimeout)
+
+	orderMu.Lock()
+	defer orderMu.Unlock()
+	require.Equal(t, []string{"Old1stA", "Old1stB"}, execOrder, "expected older posted type first")
+}
+
+// TestSchedulerPipelineDownstreamOrder verifies that when a pipeline has
+// MayFollow downstream stages, those stages are scheduled in pipeline-end
+// order (minimize latency) before the pipeline head, while the overall
+// waterfall still prioritizes the globally oldest queued work.
+func TestSchedulerPipelineDownstreamOrder(t *testing.T) {
+	db := getDB(t)
+
+	var orderMu sync.Mutex
+	var execOrder []string
+	record := func(name string) {
+		orderMu.Lock()
+		execOrder = append(execOrder, name)
+		orderMu.Unlock()
+	}
+
+	tChild := newTestTask("Pipe2Ch", 1)
+	tMid := newTestTask("Pipe2Mid", 1)
+	tRoot := newTestTask("Pipe2Rt", 1)
+	tChild.mayFollow = nil
+	tMid.mayFollow = []string{"Pipe2Ch"}
+	tRoot.mayFollow = []string{"Pipe2Mid"}
+
+	tChild.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		record("Pipe2Ch")
+		tChild.doneCh <- id
+		return true, nil
+	}
+	tMid.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		record("Pipe2Mid")
+		tMid.doneCh <- id
+		return true, nil
+	}
+	tRoot.doFunc = func(ctx context.Context, id harmonytask.TaskID, so func() bool) (bool, error) {
+		record("Pipe2Rt")
+		tRoot.doneCh <- id
+		return true, nil
+	}
+	t.Cleanup(cleanupTasks(tChild, tMid, tRoot))
+
+	e := makeEngineWithResources(t, db, []harmonytask.TaskInterface{tChild, tMid, tRoot}, "pipe2:1000", resources.Resources{Cpu: 1, Ram: 1 << 20})
+	e.TestONLY_SetPollDuration(50 * time.Millisecond)
+
+	// Post oldest→newest along the pipeline so the global oldest anchor is Pipe2Ch.
+	e.AddTaskByName("Pipe2Ch", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	time.Sleep(50 * time.Millisecond)
+	e.AddTaskByName("Pipe2Mid", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+	time.Sleep(50 * time.Millisecond)
+	e.AddTaskByName("Pipe2Rt", func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) { return true, nil })
+
+	waitForTasks(t, tChild.doneCh, 1, taskTimeout)
+	waitForTasks(t, tMid.doneCh, 1, taskTimeout)
+	waitForTasks(t, tRoot.doneCh, 1, taskTimeout)
+
+	orderMu.Lock()
+	defer orderMu.Unlock()
+	require.Equal(t, []string{"Pipe2Rt", "Pipe2Mid", "Pipe2Ch"}, execOrder, "expected pipeline end first, then upstream, then head")
 }
 
 func TestSchedulerMaxConcurrency(t *testing.T) {

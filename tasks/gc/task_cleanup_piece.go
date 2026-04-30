@@ -429,8 +429,9 @@ func (p *PieceCleanupTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (p *PieceCleanupTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(50),
-		Name: "PieceCleanup",
+		Max:       taskhelp.Max(50),
+		Name:      "PieceCleanup",
+		MayFollow: []string{"Indexing", "PDPIndexing", "PDPv0_Indexing"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

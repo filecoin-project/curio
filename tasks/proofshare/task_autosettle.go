@@ -267,8 +267,9 @@ func (t *TaskAutosettle) trackSettlement(ctx context.Context, providerID int64, 
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskAutosettle) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "PSAutoSettle",
+		Max:       taskhelp.Max(1),
+		Name:      "PSAutoSettle",
+		MayFollow: []string{"PShareSubmit", "SendMessage"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

@@ -196,7 +196,8 @@ func (f *F3Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEng
 
 func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: taskhelp.BackgroundTask("F3Participate"),
+		Name:      taskhelp.BackgroundTask("F3Participate"),
+		MayFollow: []string{"WinPost"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

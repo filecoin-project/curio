@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask/treehelper"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
@@ -64,6 +66,7 @@ type TaskTypeDetails struct {
 	// Tasks added will be proposed to CanAccept() on this machine.
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
+
 	// This is starved on busy machines, so use it to gather "above and beyond" work only.
 	IAmBored func(AddTaskFunc) error
 
@@ -189,6 +192,8 @@ type TaskEngine struct {
 	preemptCostMu      sync.Mutex
 	preemptCostChs     map[TaskID]chan preemptCostResponse
 	preemptCostPending map[TaskID][]preemptCostResponse // buffered until channel registered
+
+	preferredTaskRunOrder map[string][]string
 }
 
 type TaskID int
@@ -196,6 +201,9 @@ type TaskID int
 // New creates a TaskEngine that manages the given task implementations.
 // The engine is task-agnostic: it handles scheduling, resource tracking,
 // peering, and retries while delegating all domain logic to TaskInterface.
+//
+// peerConnector may be nil for tests or single-node setups that do not open
+// peer connections; outbound peering is then a no-op.
 //
 // Startup sequence:
 //  1. Register this machine's resources in the DB.
@@ -245,6 +253,8 @@ func NewWithReg(
 	e.peering = startPeering(e, peerConnector)
 	e.lastCleanup.Store(time.Now())
 
+	mayFollows := make(map[string][]string)
+
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
@@ -268,7 +278,10 @@ func NewWithReg(
 
 		e.handlers = append(e.handlers, &h)
 		e.taskMap[h.Name] = &h
+		mayFollows[h.Name] = h.MayFollow
 	}
+
+	e.preferredTaskRunOrder = treehelper.FindPreferredTaskRunOrder(mayFollows)
 
 	// Resurrect tasks that were owned by this machine before a restart.
 	// These tasks are already claimed in the DB (owner_id = us) so considerWork
@@ -398,7 +411,7 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
 
 	}()
-	for _, v := range e.handlers {
+	for _, v := range oldestFirstSeq(e.taskMap, taskSource, e.preferredTaskRunOrder) {
 		if !schedulable {
 			for relatedTaskName := range v.SchedulingOverrides {
 				if len(taskSource.GetTasks(relatedTaskName)) > 0 {
@@ -458,6 +471,44 @@ func (e *TaskEngine) pollerTryAllWork(taskSource taskSource, eventEmitter eventE
 		}
 	}
 	return nil
+}
+
+func oldestFirstSeq(taskTypes map[string]*taskTypeHandler, ts taskSource, preferredTaskRunOrder map[string][]string) []*taskTypeHandler {
+	type nameAndAge struct {
+		name string
+		age  time.Time
+	}
+	var oldestInOrder []nameAndAge
+	for name := range taskTypes {
+		tasks := ts.GetTasks(name)
+		if len(tasks) == 0 {
+			continue
+		}
+		oldestInOrder = append(oldestInOrder, nameAndAge{name: name, age: tasks[0].PostedTime})
+	}
+	sort.Slice(oldestInOrder, func(i, j int) bool {
+		return oldestInOrder[i].age.Before(oldestInOrder[j].age)
+	})
+
+	var result []*taskTypeHandler
+	alreadySeen := make(map[string]bool)
+	for _, na := range oldestInOrder {
+		if alreadySeen[na.name] {
+			continue
+		}
+		// Run downstream pipeline stages (pipeline end first), then this type.
+		for _, name := range preferredTaskRunOrder[na.name] {
+			if !alreadySeen[name] {
+				alreadySeen[name] = true
+				result = append(result, taskTypes[name])
+			}
+		}
+		if !alreadySeen[na.name] {
+			alreadySeen[na.name] = true
+			result = append(result, taskTypes[na.name])
+		}
+	}
+	return result
 }
 
 var rlog = logging.Logger("harmony-res")

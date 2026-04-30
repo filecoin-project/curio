@@ -294,7 +294,8 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPIndexing",
+		Name:      "PDPIndexing",
+		MayFollow: []string{"PDPProve", "AggregatePDPDeal"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: uint64(P.insertBatchSize * P.insertConcurrency * 56 * 2),

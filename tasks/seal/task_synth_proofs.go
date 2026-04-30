@@ -203,8 +203,9 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(s.max),
-		Name: "SyntheticProofs",
+		Max:       taskhelp.Max(s.max),
+		Name:      "SyntheticProofs",
+		MayFollow: []string{"TreeRC"},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,

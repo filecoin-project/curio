@@ -146,6 +146,11 @@ func (e *TaskEngine) startScheduler() {
 						if len(tasks) == 0 {
 							continue
 						}
+
+						sort.Slice(tasks, func(i, j int) bool {
+							return taskLessByPostedTime(tasks[i], tasks[j])
+						})
+						dbTasks[h.Name] = tasks
 						ids := make([]TaskID, len(tasks))
 						for i, t := range tasks {
 							ids[i] = t.ID
@@ -348,7 +353,6 @@ type taskSource interface {
 }
 
 func (e *TaskEngine) tryStartTask(taskName string, taskSource taskSource, eventEmitter eventEmitter) error {
-
 	h := e.taskMap[taskName]
 	if h != nil && h.TimeSensitive {
 		if _, capErr := h.AssertMachineHasCapacity(); capErr != nil {
@@ -391,6 +395,11 @@ func (t taskSourceLocal) GetTasks(taskName string) []task {
 	return tasks
 }
 
+// eventEmitter is the feedback channel from task goroutines back to the
+// scheduler. Because task goroutines run concurrently with the scheduler,
+// they cannot modify the scheduler's in-memory state directly. Instead,
+// they emit events that the scheduler processes on its own thread.
+//
 // Emits are called from other threads, so we cannot change t.availableTasks.
 // This pattern keeps the scheduler single-threaded (no locks on
 // availableTasks) while allowing concurrent task execution to communicate
@@ -439,6 +448,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 		ID         TaskID    `db:"id"`
 		Name       string    `db:"name"`
 		UpdateTime time.Time `db:"update_time"`
+		PostedTime time.Time `db:"posted_time"`
 		Retries    int       `db:"retries"`
 	}
 	names := make([]string, len(e.handlers))
@@ -446,7 +456,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 		names[i] = h.Name
 	}
 	err := e.db.Select(context.Background(), &rows,
-		`SELECT id, name, update_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
+		`SELECT id, name, update_time, posted_time, retries FROM harmony_task WHERE owner_id IS NULL AND name = ANY($1)`, names)
 	if err != nil {
 		log.Errorw("failed to poll tasks from db", "error", err)
 		return nil
@@ -466,6 +476,7 @@ func (e *TaskEngine) pollAllTaskTypes() map[string][]task {
 		result[r.Name] = append(result[r.Name], task{
 			ID:         r.ID,
 			UpdateTime: r.UpdateTime,
+			PostedTime: r.PostedTime,
 			Retries:    r.Retries,
 		})
 	}

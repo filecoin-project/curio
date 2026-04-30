@@ -128,7 +128,8 @@ func (t *TerminateFWSSTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *TerminateFWSSTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_TermFWSS",
+		Name:      "PDPv0_TermFWSS",
+		MayFollow: []string{"PDPv0_Prove"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

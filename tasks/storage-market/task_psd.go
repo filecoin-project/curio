@@ -290,8 +290,9 @@ func (p *PSDTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine)
 
 func (p *PSDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(10),
-		Name: "PSD",
+		Max:       taskhelp.Max(10),
+		Name:      "PSD",
+		MayFollow: []string{"CommP"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

@@ -4,24 +4,26 @@ manager. This clean interface lets task implementers avoid scheduling and
 cluster coordination; they only implement work units.
 
 Tasks are small pieces of work split out by hardware limits, parallelism,
-reliability, or other reasons. The task system is designed to take work we are
-capable of doing up to the limit of our resources. Order priority may starve
-lower priority tasks, so within a priority class, we should prefer the oldest
-tasks first.
+reliability, or other reasons. The task system runs work the node can do up to
+resource limits. Ordering priority may starve lower priorities, so within a
+priority class prefer the oldest tasks first.
 
 The hot path is event-driven scheduling with peer-to-peer coordination: nodes
-tell each other about new work and task starts over HTTP so the cluster reacts
-in milliseconds without waiting for a database round-trip for every change. The database still drives authoritative claims (UPDATE ...
+tell each other about new work, preempt-cost handshakes, and task starts over
+HTTP so the cluster reacts in milliseconds without waiting for a database
+round-trip for every change. The database still drives authoritative claims (UPDATE ...
 SKIP LOCKED) and holds the queue. A background DB poller remains as a safety
 net and for periodic housekeeping (e.g. POLL_RARELY), and the poller
 goroutine also runs heavier queries such as precomputing CanAccept caches and
 node cordon/restart flags, so not all work is “push-driven.”
 
 The task system tries to run any work the node can do up to resource limits.
-As queues build, it can reserve resources for soft-claimed (reserved) tasks
-so higher-priority work is not starved and clusters can respect run order.
-Ordering priority may starve lower priorities, so within a class prefer the
-oldest tasks first.
+As queues build, it can reserve resources for soft-claimed (reserved) tasks so
+higher-priority work is not starved and clusters can respect run order.
+
+Polling alone would be too database-heavy for steady-state coordination, so
+nodes contact each other to share work and announce starts; the authoritative
+claim still happens in the database.
 
 	ex: prio: prio.P0 | prio.LessThan('x', 'y', 'z') | prio.PipelineOrder('a1', 'b2', 'c3')
 
@@ -41,7 +43,7 @@ The system is built around three cooperating layers:
 
  2. **Peering** (peering.go) — On startup each node connects to every
     known peer (from harmony_machines) over HTTP. Peers exchange JSON
-    messages for verbs such as newTask, preemptCost, and started. That
+    messages for verbs such as newTask, started, and preemptCost. That
     replaces the old “poll the DB every few seconds per task type” steady
     state with push-style notifications, cutting average task-start
     latency for latency-sensitive pipelines.

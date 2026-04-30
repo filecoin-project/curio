@@ -247,8 +247,9 @@ func (e *ExpMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (e *ExpMgrTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(1),
-		Name: "ExpMgr",
+		Max:       taskhelp.Max(1),
+		Name:      "ExpMgr",
+		MayFollow: []string{"WdPost", "SectorMetadata"},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

@@ -213,8 +213,9 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(f.max),
-		Name: "Finalize",
+		Max:       taskhelp.Max(f.max),
+		Name:      "Finalize",
+		MayFollow: []string{"PoRep"},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
