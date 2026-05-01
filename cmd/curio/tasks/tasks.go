@@ -257,8 +257,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		})
 	})
 
+	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
+
 	{
-		var sdeps cuhttp.ServiceDeps
+		var sdeps = cuhttp.ServiceDeps{
+			AlertTask: amTask,
+		}
 		// Market tasks
 		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
@@ -374,7 +378,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 
-	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
 
 	pcl := gc.NewPieceCleanupTask(db, iStore)

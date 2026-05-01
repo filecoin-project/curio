@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	blocks "github.com/ipfs/go-block-format"
@@ -52,6 +53,9 @@ type AlertTask struct {
 	db      *harmonydb.DB
 	plugins []plugin.Plugin
 	al      *curioalerting.AlertingSystem
+
+	pingMu       sync.Mutex
+	pingProblems []string
 }
 
 type alertOut struct {
@@ -100,6 +104,16 @@ func NewAlertTask(
 	}
 }
 
+// Problems returns the ping-relevant alert results from the most recent
+// AlertTask run (ChainSync, PermanentStorageSpace, Balance Check).
+// Returns nil before the first run — the node is assumed healthy until
+// the first periodic check completes.
+func (a *AlertTask) Problems() []string {
+	a.pingMu.Lock()
+	defer a.pingMu.Unlock()
+	return a.pingProblems
+}
+
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
@@ -116,6 +130,26 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	for _, al := range AlertFuncs {
 		al(altrs)
 	}
+
+	// Update the ping-relevant subset for the /ping health endpoint.
+	var pingProblems []string
+	for _, name := range []string{"ChainSync", "PermanentStorageSpace", "Balance Check"} {
+		out, ok := altrs.alertMap[name]
+		if !ok || out == nil {
+			continue
+		}
+		if out.err != nil {
+			pingProblems = append(pingProblems, fmt.Sprintf("%s error: %s", name, out.err))
+		} else if out.alertString != "" {
+			pingProblems = append(pingProblems, fmt.Sprintf("%s: %s", name, strings.TrimSpace(out.alertString)))
+		}
+	}
+	if len(pingProblems) > 0 {
+		log.Warnf("Ping health check problems: %s", strings.Join(pingProblems, "; "))
+	}
+	a.pingMu.Lock()
+	a.pingProblems = pingProblems
+	a.pingMu.Unlock()
 
 	// Load active mutes from database
 	var mutes []alertMute
