@@ -71,7 +71,7 @@ type alerts struct {
 	api      AlertAPI
 	db       *harmonydb.DB
 	cfg      config.CurioAlertingConfig
-	alertMap map[alertName]*alertOut
+	alertMap map[AlertName]*alertOut
 }
 
 type AlertFunc func(al *alerts)
@@ -81,22 +81,22 @@ type alertMute struct {
 	Pattern   *string `db:"pattern"`
 }
 
-type alertName string
+type AlertName string
 
 const (
-	Name_BalanceCheck          alertName = "Balance Check"
-	Name_TaskFailures          alertName = "TaskFailures"
-	Name_PDPTaskFailures       alertName = "PDPTaskFailures"
-	Name_PermanentStorageSpace alertName = "PermanentStorageSpace"
-	Name_WindowPost            alertName = "WindowPost"
-	Name_WinningPost           alertName = "WinningPost"
-	Name_NowCheck              alertName = "NowCheck"
-	Name_ChainSync             alertName = "ChainSync"
-	Name_MissingSectors        alertName = "MissingSectors"
-	Name_PendingMessages       alertName = "PendingMessages"
+	Name_BalanceCheck          AlertName = "Balance Check"
+	Name_TaskFailures          AlertName = "TaskFailures"
+	Name_PDPTaskFailures       AlertName = "PDPTaskFailures"
+	Name_PermanentStorageSpace AlertName = "PermanentStorageSpace"
+	Name_WindowPost            AlertName = "WindowPost"
+	Name_WinningPost           AlertName = "WinningPost"
+	Name_NowCheck              AlertName = "NowCheck"
+	Name_ChainSync             AlertName = "ChainSync"
+	Name_MissingSectors        AlertName = "MissingSectors"
+	Name_PendingMessages       AlertName = "PendingMessages"
 )
 
-var AlertFuncs = map[alertName]AlertFunc{
+var AlertFuncs = map[AlertName]AlertFunc{
 	Name_BalanceCheck:          balanceCheck,
 	Name_TaskFailures:          taskFailureCheck,
 	Name_PDPTaskFailures:       pdpTaskFailureCheck,
@@ -109,7 +109,7 @@ var AlertFuncs = map[alertName]AlertFunc{
 	Name_PendingMessages:       pendingMessagesCheck,
 }
 
-var PingHealthFuncs = map[alertName]AlertFunc{
+var PingHealthFuncs = map[AlertName]AlertFunc{
 	Name_BalanceCheck:          AlertFuncs[Name_BalanceCheck],
 	Name_ChainSync:             AlertFuncs[Name_ChainSync],
 	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
@@ -158,7 +158,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		api:      a.api,
 		db:       a.db,
 		cfg:      a.cfg,
-		alertMap: map[alertName]*alertOut{},
+		alertMap: map[AlertName]*alertOut{},
 	}
 
 	for al := range funcsByInterval(now) {

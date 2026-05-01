@@ -168,7 +168,7 @@ var pdpTasks = []string{
 // and pdpTaskFailureCheck. It queries harmony_task_history for failures over
 // the given interval, alerts on any failure in sensitiveTasks, and alerts on
 // >5 failures for all other tasks or machines.
-func taskFailureCheckWith(al *alerts, name alertName, interval time.Duration, sensitiveTasks []string) {
+func taskFailureCheckWith(al *alerts, name AlertName, interval time.Duration, sensitiveTasks []string) {
 	al.alertMap[name] = &alertOut{}
 
 	type taskFailure struct {
