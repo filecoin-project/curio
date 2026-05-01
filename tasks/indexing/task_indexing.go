@@ -36,6 +36,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -53,6 +54,11 @@ type IndexingTask struct {
 	insertConcurrency int
 	insertBatchSize   int
 	max               taskhelp.Limiter
+
+	// Stored by Adder() so Wake() can dispatch a schedule pass on demand
+	// (e.g. CommitBatch/UpdateBatch task completion) without waiting for the
+	// next IAmBored cycle.
+	adder promise.Promise[harmonytask.AddTaskFunc]
 }
 
 func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
@@ -822,6 +828,24 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 }
 
 func (i *IndexingTask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	i.adder.Set(taskFunc)
+}
+
+// Wake triggers an immediate schedule() pass without waiting for the next IAmBored
+// tick. It is safe to call from any goroutine; if the adder is not yet ready (e.g.
+// during startup) the call is a no-op and the periodic IAmBored cycle will pick up
+// the work as before.
+func (i *IndexingTask) Wake() {
+	if i == nil || !i.adder.IsSet() {
+		return
+	}
+	taskFunc := i.adder.Val(context.Background())
+	if taskFunc == nil {
+		return
+	}
+	if err := i.schedule(context.Background(), taskFunc); err != nil {
+		log.Errorf("indexing wake schedule: %s", err)
+	}
 }
 
 func (i *IndexingTask) GetSpid(db *harmonydb.DB, taskID int64) string {

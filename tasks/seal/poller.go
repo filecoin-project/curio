@@ -3,6 +3,7 @@ package seal
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -40,6 +41,11 @@ const (
 )
 
 const sealPollerInterval = 60 * time.Second
+
+// sealPollerWakeMinInterval caps how often completion-driven wakes may trigger poll().
+// Idle ticker (sealPollerInterval) is unchanged; wakes provide a fast path for events
+// like CommitBatch/PreCommitBatch completion or chain message landing.
+const sealPollerWakeMinInterval = 2 * time.Second
 const seedEpochConfidence = 3
 
 type SealPollerAPI interface {
@@ -73,6 +79,13 @@ type SealPoller struct {
 	cfg pollerConfig
 
 	pollers [numPollers]promise.Promise[harmonytask.AddTaskFunc]
+
+	// Wake-driven polls: at most one every sealPollerWakeMinInterval (see WakePoll).
+	wakeMu       sync.Mutex
+	lastWakePoll time.Time
+	wakeTimer    *time.Timer     // non-nil while a wake delivery is already scheduled
+	wakeReq      chan struct{}   // unbuffered: run one wake-driven poll
+	wakeLoopCtx  context.Context // set in RunPoller before the loop starts
 }
 
 func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
@@ -94,24 +107,78 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *Se
 	}
 
 	return &SealPoller{
-		db:  db,
-		api: api,
-		cfg: c,
+		db:          db,
+		api:         api,
+		cfg:         c,
+		wakeReq:     make(chan struct{}),
+		wakeLoopCtx: context.Background(),
 	}
 }
 
+// WakePoll asks the seal poller to run poll() sooner than the idle ticker, but not more
+// often than sealPollerWakeMinInterval since the last wake-driven poll (idle ticker is
+// unchanged). Use this from task-completion or chain-event callbacks (e.g. CommitBatch
+// task done, message_waits row populated) so the pipeline doesn't have to wait up to
+// sealPollerInterval before the next stage is dispatched or a landed message is noticed.
+func (s *SealPoller) WakePoll() {
+	if s == nil || s.wakeReq == nil {
+		return
+	}
+	s.wakeMu.Lock()
+	if s.wakeTimer != nil {
+		s.wakeMu.Unlock()
+		return
+	}
+	wait := time.Until(s.lastWakePoll.Add(sealPollerWakeMinInterval))
+	if wait < 0 {
+		wait = 0
+	}
+	s.wakeTimer = time.AfterFunc(wait, func() {
+		loopCtx := s.wakeLoopCtx
+		if loopCtx == nil {
+			loopCtx = context.Background()
+		}
+		select {
+		case s.wakeReq <- struct{}{}:
+		case <-loopCtx.Done():
+		}
+		s.wakeMu.Lock()
+		s.wakeTimer = nil
+		s.wakeMu.Unlock()
+	})
+	s.wakeMu.Unlock()
+}
+
 func (s *SealPoller) RunPoller(ctx context.Context) {
+	s.wakeLoopCtx = ctx
 	ticker := time.NewTicker(sealPollerInterval)
 	defer ticker.Stop()
+	defer func() {
+		s.wakeMu.Lock()
+		if s.wakeTimer != nil {
+			s.wakeTimer.Stop()
+			s.wakeTimer = nil
+		}
+		s.wakeMu.Unlock()
+	}()
+
+	doPoll := func() {
+		if err := s.poll(ctx); err != nil {
+			log.Errorw("polling failed", "error", err)
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.poll(ctx); err != nil {
-				log.Errorw("polling failed", "error", err)
-			}
+			doPoll()
+		case <-s.wakeReq:
+			s.wakeMu.Lock()
+			s.lastWakePoll = time.Now()
+			s.wakeMu.Unlock()
+			doPoll()
 		}
 	}
 }

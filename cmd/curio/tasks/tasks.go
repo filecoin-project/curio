@@ -115,6 +115,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	var parkPiecePoll *piece2.ParkPieceTask
 	var cleanupPiecePoll *piece2.CleanupPieceTask
 	var storePiecePoll *piece2.ParkPieceTask
+	var indexingTask *indexing.IndexingTask
+	var ipniTask *indexing.IPNITask
 
 	sender, sendTask := message.NewSender(full, full, db, cfg.Fees.MaximizeFeeCap)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
@@ -361,8 +363,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
-		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, cfg, idxMax, iStore)
+		indexingTask = indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		ipniTask = indexing.NewIPNITask(db, cfg, idxMax, iStore)
 		pdpv1IdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpv1IPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
@@ -397,6 +399,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		return nil, err
 	}
 	if sealPoller != nil {
+		// Sector-targeted SignalNext: tasks that always relate to a single sector
+		// publish (spID, secNum) via the seal.PipelineRef context. Use SignalNext
+		// when known to advance the pipeline as soon as their work is done.
 		for _, taskName := range []string{"SDR", "TreeD", "TreeRC", "SyntheticProofs", "PoRep", "Finalize", "MoveStorage"} {
 			taskName := taskName
 			ht.OnTaskComplete(taskName, func(ctx context.Context, _ harmonytask.TaskID, success bool) {
@@ -410,16 +415,54 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				sealPoller.SignalNext(ctx, spID, secNum)
 			})
 		}
+		// Batch and cross-sector tasks: PreCommitBatch / CommitBatch / UpdateBatch
+		// affect many sectors at once; SendMessage is a generic message-send used
+		// by many seal stages. Wake the whole poller so every queued sector that
+		// just became eligible (after_*_msg flipped, message landing arming
+		// message_waits, etc.) is re-evaluated promptly.
+		for _, taskName := range []string{"PreCommitBatch", "CommitBatch", "UpdateBatch", "SendMessage"} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+				if success {
+					sealPoller.WakePoll()
+				}
+			})
+		}
 	}
 	if dealMarket != nil {
-		ht.OnTaskComplete("ParkPiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+		// Each of these tasks advances the storage-market pipeline by one stage:
+		// ParkPiece/StorePiece -> started, CommP -> after_commp,
+		// PSD -> publish msg sent, FindDeal -> after_find_deal,
+		// AggregateDeals -> after_aggregate (mk20). Without these wakes, the
+		// next stage would have to wait up to dealPollerIdleInterval (~30s)
+		// before processMk12Deal/processMk20Deal is run again.
+		for _, taskName := range []string{"ParkPiece", "StorePiece", "CommP", "PSD", "FindDeal", "AggregateDeals"} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+				if success {
+					dealMarket.WakeDealPoller()
+				}
+			})
+		}
+	}
+	// Indexing/IPNI use IAmBored polling at 30s intervals as a fallback. Wake
+	// them directly when the upstream stage that flips their gating column
+	// (sealed=true / indexed=true) completes, so we don't lose up to 30s per
+	// pipeline.
+	if indexingTask != nil {
+		for _, taskName := range []string{"CommitBatch", "UpdateBatch"} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+				if success {
+					indexingTask.Wake()
+				}
+			})
+		}
+	}
+	if ipniTask != nil {
+		ht.OnTaskComplete("Indexing", func(_ context.Context, _ harmonytask.TaskID, success bool) {
 			if success {
-				dealMarket.WakeDealPoller()
-			}
-		})
-		ht.OnTaskComplete("StorePiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
-			if success {
-				dealMarket.WakeDealPoller()
+				ipniTask.Wake()
 			}
 		})
 	}
@@ -456,6 +499,17 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
 			return nil, err
+		}
+		// When a tracked message lands on chain, the row in message_waits is
+		// filled in. The seal poller (after_precommit_msg_success /
+		// after_commit_msg_success) and the deal market poller (publish msg
+		// finality for FindDeal) both gate progress on these rows; wake them
+		// so the next stage isn't delayed by up to the idle poll interval.
+		if sealPoller != nil {
+			watcher.AddOnLanded(sealPoller.WakePoll)
+		}
+		if dealMarket != nil {
+			watcher.AddOnLanded(dealMarket.WakeDealPoller)
 		}
 		_ = watcher
 	}
