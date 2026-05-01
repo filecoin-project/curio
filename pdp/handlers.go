@@ -174,6 +174,7 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	_, err := p.AuthService(r)
 	if err != nil {
 		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
+		return
 	}
 
 	// Return 200 OK
@@ -188,6 +189,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
+		return
 	}
 
 	// Extract pieceCid from URL and convert to v1 for DB query
@@ -1016,6 +1018,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
+		return
 	}
 
 	// Step 2: Extract and validate parameters
