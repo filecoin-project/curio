@@ -138,15 +138,36 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 	}
 
 	for _, railId := range settle.Rails {
-		view, err := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
-		if err != nil {
-			log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", err)
+		view, getRailErr := payment.GetRail(contract.EthCallOpts(ctx), big.NewInt(railId))
+
+		dataSet, dsErr := fwssv.RailToDataSet(contract.EthCallOpts(ctx), big.NewInt(railId))
+		if dsErr != nil {
+			log.Errorw("failed to get rail to data set, skipping termination checks", "railId", railId, "error", dsErr)
 			continue
 		}
 
-		dataSet, err := fwssv.RailToDataSet(contract.EthCallOpts(ctx), big.NewInt(railId))
-		if err != nil {
-			log.Errorw("failed to get rail to data set, skipping termination checks", "railId", railId, "error", err)
+		// FilecoinPay zeroes the rail struct atomically with the final settle, so
+		// post-confirm GetRail reverts and the readable EndEpoch==SettledUpTo path
+		// below cannot fire. Treat the revert as finalization when FWSS still maps
+		// the rail and the lockup has elapsed.
+		if getRailErr != nil {
+			if dataSet.Int64() == 0 {
+				log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", getRailErr)
+				continue
+			}
+			finalized, finErr := pipelineFinalizationElapsed(ctx, db, dataSet.Int64(), current)
+			if finErr != nil {
+				log.Warnw("failed to check deletion pipeline state, skipping", "railId", railId, "dataSetId", dataSet.Int64(), "error", finErr)
+				continue
+			}
+			if !finalized {
+				log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", getRailErr)
+				continue
+			}
+			log.Infow("rail finalized, inferred from getRail revert", "railId", railId, "dataSetId", dataSet.Int64())
+			if err := ensureDataSetDeletion(ctx, db, dataSet.Int64()); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -207,4 +228,27 @@ func ensureDataSetDeletion(ctx context.Context, db *harmonydb.DB, dataSetID int6
 		return xerrors.Errorf("expected to update 1 row, updated %d", n)
 	}
 	return nil
+}
+
+// pipelineFinalizationElapsed reports whether after_terminate_service is set
+// and service_termination_epoch (pdpEndEpoch) has elapsed. With both met, a
+// GetRail revert on the rail uniquely indicates finalization.
+func pipelineFinalizationElapsed(ctx context.Context, db *harmonydb.DB, dataSetID int64, current uint64) (bool, error) {
+	type row struct {
+		Epoch *int64 `db:"service_termination_epoch"`
+		After bool   `db:"after_terminate_service"`
+	}
+	var rows []row
+	err := db.Select(ctx, &rows, `
+		SELECT service_termination_epoch, after_terminate_service
+		FROM pdp_delete_data_set
+		WHERE id = $1
+	`, dataSetID)
+	if err != nil {
+		return false, xerrors.Errorf("query pdp_delete_data_set: %w", err)
+	}
+	if len(rows) == 0 || !rows[0].After || rows[0].Epoch == nil {
+		return false, nil
+	}
+	return uint64(*rows[0].Epoch) <= current, nil
 }
