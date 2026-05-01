@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -34,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -90,6 +92,17 @@ type SubmitTask struct {
 	sender *message.Sender
 	as     *multictladdr.MultiAddressSelector
 	cfg    submitConfig
+
+	// Stored by Adder() so Wake() can dispatch a schedule pass on demand
+	// (e.g. prove message landing on chain) without waiting for the next
+	// IAmBored cycle.
+	adder promise.Promise[harmonytask.AddTaskFunc]
+
+	// Hooks invoked after schedule()'s updateLanded path flips sealed=TRUE on
+	// at least one deal-pipeline row. Wire indexing wakes here so they fire
+	// the moment the snap pipeline becomes index-eligible.
+	hookMu   sync.Mutex
+	onSealed []func()
 }
 
 func NewSubmitTask(db *harmonydb.DB, api SubmitTaskNodeAPI, bstore curiochain.CurioBlockstore,
@@ -724,7 +737,12 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 		})
 	}
 
+	// dealsSealed totals the deal-pipeline rows updateLanded flipped to
+	// sealed=TRUE in this pass; used to drive notifySealed() once the tx commits.
+	var dealsSealed int
+
 	comm, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		dealsSealed = 0
 		// update landed
 		var tasks []struct {
 			SpID         int64 `db:"sp_id"`
@@ -737,10 +755,12 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 		}
 
 		for _, t := range tasks {
-			if err := s.updateLanded(ctx, tx, t.SpID, t.SectorNumber); err != nil {
+			n, err := s.updateLanded(ctx, tx, t.SpID, t.SectorNumber)
+			if err != nil {
 				log.Errorw("updating landed", "sp", t.SpID, "sector", t.SectorNumber, "err", err)
 				return false, xerrors.Errorf("updating landed for sp %d, sector %d: %w", t.SpID, t.SectorNumber, err)
 			}
+			dealsSealed += n
 		}
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -752,10 +772,23 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 		return xerrors.Errorf("updating landed: transaction failed")
 	}
 
+	// Notify hooks (e.g. IndexingTask.Wake) once the sealed=TRUE update has
+	// landed, so downstream stages don't have to wait for the next IAmBored
+	// cycle (~30s) to discover the newly-eligible deals.
+	if dealsSealed > 0 {
+		s.notifySealed()
+	}
+
 	return nil
 }
 
-func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, sectorNum int64) error {
+// updateLanded checks if the prove message for (spId, sectorNum) has landed on
+// chain and, if so, advances the snap pipeline (after_prove_msg_success=TRUE)
+// and flips sealed=TRUE on any associated deal-pipeline rows.
+//
+// Returns the number of deal-pipeline rows flipped to sealed=TRUE in this call
+// so the caller can drive notifySealed() exactly once per real transition.
+func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, sectorNum int64) (int, error) {
 	var execResult []struct {
 		ProveMsgCID          string `db:"prove_msg_cid"`
 		UpdateSealedCID      string `db:"update_sealed_cid"`
@@ -771,13 +804,13 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 					JOIN message_waits ON spipeline.prove_msg_cid = message_waits.signed_message_cid
 					WHERE sp_id = $1 AND sector_number = $2 AND executed_tsk_epoch IS NOT NULL`, spId, sectorNum)
 	if err != nil {
-		return xerrors.Errorf("failed to query message_waits: %w", err)
+		return 0, xerrors.Errorf("failed to query message_waits: %w", err)
 	}
 
 	if len(execResult) > 0 {
 		maddr, err := address.NewIDAddress(uint64(spId))
 		if err != nil {
-			return err
+			return 0, err
 		}
 		switch exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) {
 		case exitcode.Ok:
@@ -793,40 +826,40 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 						after_prove_msg_success = FALSE, after_submit = FALSE
 						WHERE sp_id = $1 AND sector_number = $2 AND after_prove_msg_success = FALSE AND after_submit = TRUE`, spId, sectorNum)
 			if err != nil {
-				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: %w", err)
+				return 0, xerrors.Errorf("update sectors_snap_pipeline to retry prove send: %w", err)
 			}
 			if n == 0 {
-				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: no rows updated")
+				return 0, xerrors.Errorf("update sectors_snap_pipeline to retry prove send: no rows updated")
 			}
-			return nil
+			return 0, nil
 		case exitcode.ErrNotFound:
 			// message not found, but maybe it's fine?
 
 			si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)
 			if err != nil {
-				return xerrors.Errorf("get sector info: %w", err)
+				return 0, xerrors.Errorf("get sector info: %w", err)
 			}
 			if si != nil && si.SealedCID.String() == execResult[0].UpdateSealedCID {
-				return nil
+				return 0, nil
 			}
 
-			return xerrors.Errorf("sector info after prove message not found not as expected")
+			return 0, xerrors.Errorf("sector info after prove message not found not as expected")
 		default:
-			return xerrors.Errorf("prove message (m:%s) failed with exit code %s", execResult[0].ProveMsgCID, exitcode.ExitCode(execResult[0].ExecutedRcptExitCode))
+			return 0, xerrors.Errorf("prove message (m:%s) failed with exit code %s", execResult[0].ProveMsgCID, exitcode.ExitCode(execResult[0].ExecutedRcptExitCode))
 		}
 
 		si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)
 		if err != nil {
-			return xerrors.Errorf("get sector info: %w", err)
+			return 0, xerrors.Errorf("get sector info: %w", err)
 		}
 
 		if si == nil {
 			log.Errorw("todo handle missing sector info (not found after cron)", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
-			return xerrors.Errorf("sector info not found after prove message SP %d, sector %d, exec_epoch %d, exec_tskcid %s, msg_cid %s", spId, sectorNum, execResult[0].ExecutedTskEpoch, execResult[0].ExecutedTskCID, execResult[0].ExecutedMsgCID)
+			return 0, xerrors.Errorf("sector info not found after prove message SP %d, sector %d, exec_epoch %d, exec_tskcid %s, msg_cid %s", spId, sectorNum, execResult[0].ExecutedTskEpoch, execResult[0].ExecutedTskCID, execResult[0].ExecutedMsgCID)
 		} else {
 			if si.SealedCID.String() != execResult[0].UpdateSealedCID {
 				log.Errorw("sector sealed CID mismatch after update?!", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
-				return xerrors.Errorf("sector sealed CID mismatch after update?! SP %d, sector %d, exec_epoch %d, exec_tskcid %s, msg_cid %s", spId, sectorNum, execResult[0].ExecutedTskEpoch, execResult[0].ExecutedTskCID, execResult[0].ExecutedMsgCID)
+				return 0, xerrors.Errorf("sector sealed CID mismatch after update?! SP %d, sector %d, exec_epoch %d, exec_tskcid %s, msg_cid %s", spId, sectorNum, execResult[0].ExecutedTskEpoch, execResult[0].ExecutedTskCID, execResult[0].ExecutedMsgCID)
 			}
 			// yay!
 
@@ -835,27 +868,88 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE`,
 				execResult[0].ExecutedTskCID, spId, sectorNum)
 			if err != nil {
-				return xerrors.Errorf("update sectors_snap_pipeline: %w", err)
+				return 0, xerrors.Errorf("update sectors_snap_pipeline: %w", err)
 			}
+
+			var sealedDeals int
 
 			n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, spId, sectorNum)
 			if err != nil {
-				return xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
+				return 0, xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
 			}
 			log.Debugw("marked mk12 deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
+			sealedDeals += n
 
 			n, err = tx.Exec(`UPDATE market_mk20_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, spId, sectorNum)
 			if err != nil {
-				return xerrors.Errorf("update market_mk20_pipeline: %w", err)
+				return 0, xerrors.Errorf("update market_mk20_pipeline: %w", err)
 			}
 			log.Debugw("marked mk20 deals as sealed", "sp", spId, "sector", sectorNum, "count", n)
+			sealedDeals += n
+
+			return sealedDeals, nil
 		}
 	}
 
-	return nil
+	return 0, nil
 }
 
 func (s *SubmitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	s.adder.Set(taskFunc)
+}
+
+// Wake triggers an immediate schedule() pass without waiting for the next
+// IAmBored tick. Use this when an upstream event (e.g. prove message landing
+// on chain) makes it likely that updateLanded would now find work — calling
+// Wake collapses the worst-case ~10s IAmBored gap.
+func (s *SubmitTask) Wake() {
+	if s == nil || !s.adder.IsSet() {
+		return
+	}
+	taskFunc := s.adder.Val(context.Background())
+	if taskFunc == nil {
+		return
+	}
+	if err := s.schedule(context.Background(), taskFunc); err != nil {
+		log.Errorf("snap submit wake schedule: %s", err)
+	}
+}
+
+// AddOnSealed registers a callback fired (best-effort, in a goroutine) right
+// after schedule()'s updateLanded path flips sealed=TRUE on one or more deal
+// pipeline rows. Use this to wake downstream stages (e.g. IndexingTask) at
+// the precise moment the snap pipeline becomes index-eligible.
+//
+// Safe to call concurrently with itself.
+func (s *SubmitTask) AddOnSealed(fn func()) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
+	s.onSealed = append(s.onSealed, fn)
+}
+
+// notifySealed invokes registered onSealed hooks asynchronously so that the
+// updateLanded transaction's commit path is not blocked by hook work (which
+// itself may take its own DB transactions, e.g. IndexingTask.Wake).
+func (s *SubmitTask) notifySealed() {
+	if s == nil {
+		return
+	}
+	s.hookMu.Lock()
+	if len(s.onSealed) == 0 {
+		s.hookMu.Unlock()
+		return
+	}
+	fns := make([]func(), len(s.onSealed))
+	copy(fns, s.onSealed)
+	s.hookMu.Unlock()
+	go func() {
+		for _, fn := range fns {
+			fn()
+		}
+	}()
 }
 
 func (s *SubmitTask) GetSpid(db *harmonydb.DB, taskID int64) string {

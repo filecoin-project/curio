@@ -35,6 +35,12 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 	maxBatch := s.cfg.preCommit.MaxPreCommitBatch
 	currentHeight := int64(ts.Height())
 
+	// earliestDeadline is the soonest moment at which a not-yet-fired batch will
+	// become timeout-eligible; we use it to schedule a wakePollAt so the next
+	// poll runs exactly when the deadline elapses (instead of waiting for the
+	// idle ticker).
+	var earliestDeadline time.Time
+
 	s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		var rows []BatchRow
 		err := tx.Select(&rows, `
@@ -83,34 +89,53 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 		}
 
 		now := time.Now()
-		for _, batch := range GroupBatchRows(rows) {
-			result := EvalBatchTimeout(batch.EarliestReady, timeout, batch.MinStartEpoch, slackEpochs, currentHeight, now, len(batch.SectorNums), maxBatch)
-			if !result.ShouldFire {
+		// First pass: find a batch ready to fire AND track the soonest deadline
+		// across batches that aren't ready yet, so we can schedule a wake.
+		var firing *BatchCandidate
+		var firingResult BatchEvalResult
+		batches := GroupBatchRows(rows)
+		for i := range batches {
+			b := &batches[i]
+			result := EvalBatchTimeout(b.EarliestReady, timeout, b.MinStartEpoch, slackEpochs, currentHeight, now, len(b.SectorNums), maxBatch)
+			if result.ShouldFire {
+				if firing == nil {
+					firing = b
+					firingResult = result
+				}
 				continue
 			}
-
-			n, err := tx.Exec(`
-				UPDATE sectors_sdr_pipeline
-				SET task_id_precommit_msg = $1
-				WHERE sp_id = $2
-					AND reg_seal_proof = $3
-					AND sector_number = ANY($4::bigint[])
-					AND after_synth = TRUE
-					AND task_id_precommit_msg IS NULL
-					AND after_precommit_msg = FALSE`,
-				id, batch.SpID, batch.RegSealProof, batch.SectorNums)
-			if err != nil {
-				return false, xerrors.Errorf("assigning precommit batch: %w", err)
-			}
-
-			if n > 0 {
-				log.Infow("Assigned precommit batch", "task_id", id, "sectors", n, "reason", result.Reason)
-				return true, nil
+			deadline := b.EarliestReady.Add(timeout)
+			if earliestDeadline.IsZero() || deadline.Before(earliestDeadline) {
+				earliestDeadline = deadline
 			}
 		}
 
+		if firing == nil {
+			return false, nil
+		}
+
+		n, err := tx.Exec(`
+			UPDATE sectors_sdr_pipeline
+			SET task_id_precommit_msg = $1
+			WHERE sp_id = $2
+				AND reg_seal_proof = $3
+				AND sector_number = ANY($4::bigint[])
+				AND after_synth = TRUE
+				AND task_id_precommit_msg IS NULL
+				AND after_precommit_msg = FALSE`,
+			id, firing.SpID, firing.RegSealProof, firing.SectorNums)
+		if err != nil {
+			return false, xerrors.Errorf("assigning precommit batch: %w", err)
+		}
+
+		if n > 0 {
+			log.Infow("Assigned precommit batch", "task_id", id, "sectors", n, "reason", firingResult.Reason)
+			return true, nil
+		}
 		return false, nil
 	})
+
+	s.wakePollAt(earliestDeadline)
 }
 
 type dbExecResult struct {

@@ -86,6 +86,19 @@ type SealPoller struct {
 	wakeTimer    *time.Timer     // non-nil while a wake delivery is already scheduled
 	wakeReq      chan struct{}   // unbuffered: run one wake-driven poll
 	wakeLoopCtx  context.Context // set in RunPoller before the loop starts
+
+	// Future-deadline wake: at most one timer scheduled for the soonest pending
+	// batch (or other) deadline. Used to fire poll() right when a batch becomes
+	// timeout-eligible without waiting for the next sealPollerInterval tick.
+	deadlineMu    sync.Mutex
+	deadlineTimer *time.Timer
+	deadlineAt    time.Time
+
+	// Hooks invoked after pollCommitMsgLanded flips sealed=TRUE on at least one
+	// market_mk12_deal_pipeline / market_mk20_pipeline row. Wire indexing wakes
+	// here so they fire exactly when the deal pipeline becomes index-eligible.
+	hookMu   sync.Mutex
+	onSealed []func()
 }
 
 func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
@@ -113,6 +126,77 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *Se
 		wakeReq:     make(chan struct{}),
 		wakeLoopCtx: context.Background(),
 	}
+}
+
+// AddOnSealed registers a callback fired (best-effort, in a goroutine) right
+// after pollCommitMsgLanded flips sealed=TRUE on one or more deal-pipeline rows.
+// Use this to wake downstream stages (e.g. IndexingTask) at the precise moment
+// the deal becomes index-eligible — `OnTaskComplete("CommitBatch")` is too early
+// because at that point the commit message has been queued but has not yet
+// landed on chain.
+//
+// Must be called before RunPoller starts; safe to call concurrently with itself.
+func (s *SealPoller) AddOnSealed(fn func()) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
+	s.onSealed = append(s.onSealed, fn)
+}
+
+// notifySealed invokes registered onSealed hooks asynchronously so that callers
+// inside a DB transaction commit path are not blocked by hook work (which itself
+// may take its own DB transactions, e.g. IndexingTask.Wake).
+func (s *SealPoller) notifySealed() {
+	if s == nil {
+		return
+	}
+	s.hookMu.Lock()
+	if len(s.onSealed) == 0 {
+		s.hookMu.Unlock()
+		return
+	}
+	fns := make([]func(), len(s.onSealed))
+	copy(fns, s.onSealed)
+	s.hookMu.Unlock()
+	go func() {
+		for _, fn := range fns {
+			fn()
+		}
+	}()
+}
+
+// wakePollAt schedules a one-shot wake at time `at`. If `at` is in the past, it
+// wakes immediately; if a sooner wake is already pending, this is a no-op. The
+// resulting WakePoll honours sealPollerWakeMinInterval. Intended for batch
+// timeout deadlines so poll() runs the moment a batch becomes dispatchable
+// instead of waiting for the next sealPollerInterval tick.
+func (s *SealPoller) wakePollAt(at time.Time) {
+	if s == nil || at.IsZero() {
+		return
+	}
+	d := time.Until(at)
+	if d <= 0 {
+		s.WakePoll()
+		return
+	}
+	s.deadlineMu.Lock()
+	defer s.deadlineMu.Unlock()
+	// If we already have a sooner-or-equal pending timer, leave it alone.
+	if s.deadlineTimer != nil && !s.deadlineAt.After(at) {
+		return
+	}
+	if s.deadlineTimer != nil {
+		s.deadlineTimer.Stop()
+	}
+	s.deadlineAt = at
+	s.deadlineTimer = time.AfterFunc(d, func() {
+		s.deadlineMu.Lock()
+		s.deadlineTimer = nil
+		s.deadlineMu.Unlock()
+		s.WakePoll()
+	})
 }
 
 // WakePoll asks the seal poller to run poll() sooner than the idle ticker, but not more
@@ -160,6 +244,12 @@ func (s *SealPoller) RunPoller(ctx context.Context) {
 			s.wakeTimer = nil
 		}
 		s.wakeMu.Unlock()
+		s.deadlineMu.Lock()
+		if s.deadlineTimer != nil {
+			s.deadlineTimer.Stop()
+			s.deadlineTimer = nil
+		}
+		s.deadlineMu.Unlock()
 	}()
 
 	doPoll := func() {

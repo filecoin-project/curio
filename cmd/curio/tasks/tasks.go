@@ -236,8 +236,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	var p2Active sealsupra.P2Active
 	var sealPoller *seal.SealPoller
+	var snapSubmit *snap.SubmitTask
 	if hasAnySealingTask {
-		sealingTasks, p2a, sp, spp, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		sealingTasks, p2a, sp, spp, ss, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
 		if err != nil {
 			return nil, err
 		}
@@ -245,6 +246,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		p2Active = p2a
 		sealPoller = sp
 		storePiecePoll = spp
+		snapSubmit = ss
 	}
 
 	{
@@ -450,13 +452,20 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	// (sealed=true / indexed=true) completes, so we don't lose up to 30s per
 	// pipeline.
 	if indexingTask != nil {
-		for _, taskName := range []string{"CommitBatch", "UpdateBatch"} {
-			taskName := taskName
-			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
-				if success {
-					indexingTask.Wake()
-				}
-			})
+		// For the regular seal pipeline, sealed=TRUE is flipped by
+		// pollCommitMsgLanded *after* the commit message lands on chain — well
+		// after the CommitBatch task itself completes. Hook into the seal
+		// poller's onSealed callback so the indexing wake fires at the precise
+		// moment the deal becomes eligible for indexing.
+		if sealPoller != nil {
+			sealPoller.AddOnSealed(indexingTask.Wake)
+		}
+		// For the snap pipeline, sealed=TRUE is flipped inside the snap submit
+		// task's schedule() updateLanded path, which runs from its IAmBored
+		// cycle (and now also from Wake — see below). Hook into the snap
+		// submit task's onSealed for the same precise-timing reason.
+		if snapSubmit != nil {
+			snapSubmit.AddOnSealed(indexingTask.Wake)
 		}
 	}
 	if ipniTask != nil {
@@ -511,6 +520,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if dealMarket != nil {
 			watcher.AddOnLanded(dealMarket.WakeDealPoller)
 		}
+		// Snap pipeline: prove-message landing arms updateLanded (which flips
+		// sealed=TRUE for snap deals) but the snap submit task only checks
+		// from its IAmBored cycle. Wake it directly so the deal becomes
+		// index-eligible without waiting up to ~10s for the next bored tick.
+		if snapSubmit != nil {
+			watcher.AddOnLanded(snapSubmit.Wake)
+		}
 		_ = watcher
 	}
 
@@ -534,9 +550,10 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, *seal.SealPoller, *piece2.ParkPieceTask, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, *seal.SealPoller, *piece2.ParkPieceTask, *snap.SubmitTask, error) {
 	var activeTasks []harmonytask.TaskInterface
 	var storePiecePoll *piece2.ParkPieceTask
+	var snapSubmit *snap.SubmitTask
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
@@ -567,7 +584,7 @@ func addSealingTasks(
 			cfg.Seal.LayerNVMEDevices,
 			machineHostPort, db, full, stor, si, slr)
 		if err != nil {
-			return nil, nil, sp, nil, xerrors.Errorf("setting up batch sealer: %w", err)
+			return nil, nil, sp, nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
 		slotMgr = sm
 		p2Active = p2a
@@ -609,7 +626,7 @@ func addSealingTasks(
 
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
-			return nil, nil, sp, nil, err
+			return nil, nil, sp, nil, nil, err
 		}
 		storePiecePoll = storePieceTask
 
@@ -647,6 +664,7 @@ func addSealingTasks(
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
+		snapSubmit = submitTask
 		activeTasks = append(activeTasks, submitTask)
 	}
 
@@ -683,7 +701,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
-	return activeTasks, p2Active, sp, storePiecePoll, nil
+	return activeTasks, p2Active, sp, storePiecePoll, snapSubmit, nil
 }
 
 func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {
