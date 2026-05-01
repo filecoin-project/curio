@@ -55,7 +55,7 @@ type AlertTask struct {
 	al      *curioalerting.AlertingSystem
 
 	pingMu       sync.Mutex
-	pingProblems []string
+	pingProblems bool
 }
 
 type alertOut struct {
@@ -108,7 +108,7 @@ func NewAlertTask(
 // AlertTask run (ChainSync, PermanentStorageSpace, Balance Check).
 // Returns nil before the first run — the node is assumed healthy until
 // the first periodic check completes.
-func (a *AlertTask) Problems() []string {
+func (a *AlertTask) Problems() bool {
 	a.pingMu.Lock()
 	defer a.pingMu.Unlock()
 	return a.pingProblems
@@ -132,24 +132,17 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Update the ping-relevant subset for the /ping health endpoint.
-	var pingProblems []string
 	for _, name := range []string{"ChainSync", "PermanentStorageSpace", "Balance Check"} {
 		out, ok := altrs.alertMap[name]
-		if !ok || out == nil {
+		if !ok || out == nil || out.err == nil || out.alertString == "" {
 			continue
 		}
-		if out.err != nil {
-			pingProblems = append(pingProblems, fmt.Sprintf("%s error: %s", name, out.err))
-		} else if out.alertString != "" {
-			pingProblems = append(pingProblems, fmt.Sprintf("%s: %s", name, strings.TrimSpace(out.alertString)))
-		}
+		log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
+		a.pingMu.Lock()
+		a.pingProblems = true
+		a.pingMu.Unlock()
+		break
 	}
-	if len(pingProblems) > 0 {
-		log.Warnf("Ping health check problems: %s", strings.Join(pingProblems, "; "))
-	}
-	a.pingMu.Lock()
-	a.pingProblems = pingProblems
-	a.pingMu.Unlock()
 
 	// Load active mutes from database
 	var mutes []alertMute
