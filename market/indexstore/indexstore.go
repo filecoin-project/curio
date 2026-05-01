@@ -226,14 +226,9 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 	maxRetries := 20
 	backoff := 20 * time.Second
 	maxBackoff := 180 * time.Second
-	session, err := i.cluster.CreateSession()
-	if err != nil {
-		log.Errorw("failed to create session", "err", err)
-		return err
-	}
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		start := time.Now()
-		err = session.ExecuteBatch(batch)
+		err = i.session.ExecuteBatch(batch)
 		if time.Since(start) > 30*time.Second {
 			log.Warnw("Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
 		} else {
@@ -345,11 +340,7 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 	var blockSize uint64
 
 	qry := `SELECT PieceCid, BlockSize FROM PayloadToPieces WHERE PayloadMultihash = ?`
-	session, err := i.cluster.CreateSession()
-	if err != nil {
-		return nil, err
-	}
-	iter := session.Query(qry, []byte(m)).WithContext(ctx).Iter()
+	iter := i.session.Query(qry, []byte(m)).WithContext(ctx).Iter()
 	for iter.Scan(&pieceCidBytes, &blockSize) {
 		pcid, err := cid.Parse(pieceCidBytes)
 		if err != nil {
@@ -531,12 +522,8 @@ func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid
 
 func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid) ([]Record, error) {
 	var recs []Record
-	session, err := i.cluster.CreateSession()
-	if err != nil {
-		return nil, err
-	}
 	qry := `SELECT AggregatePieceCid, UnpaddedOffset, UnpaddedLength FROM aggregate_by_piece WHERE PieceCid = ?`
-	iter := session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
+	iter := i.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
 	var r []byte
 	var idx, length int64
 	for iter.Scan(&r, &idx, &length) {
