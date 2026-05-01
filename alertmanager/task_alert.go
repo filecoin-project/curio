@@ -86,6 +86,7 @@ type alertName string
 const (
 	Name_BalanceCheck          alertName = "Balance Check"
 	Name_TaskFailures          alertName = "TaskFailures"
+	Name_PDPTaskFailures       alertName = "PDPTaskFailures"
 	Name_PermanentStorageSpace alertName = "PermanentStorageSpace"
 	Name_WindowPost            alertName = "WindowPost"
 	Name_WinningPost           alertName = "WinningPost"
@@ -98,6 +99,7 @@ const (
 var AlertFuncs = map[alertName]AlertFunc{
 	Name_BalanceCheck:          balanceCheck,
 	Name_TaskFailures:          taskFailureCheck,
+	Name_PDPTaskFailures:       pdpTaskFailureCheck,
 	Name_PermanentStorageSpace: permanentStorageCheck,
 	Name_WindowPost:            wdPostCheck,
 	Name_WinningPost:           wnPostCheck,
@@ -111,6 +113,7 @@ var PingHealthFuncs = map[alertName]AlertFunc{
 	Name_BalanceCheck:          AlertFuncs[Name_BalanceCheck],
 	Name_ChainSync:             AlertFuncs[Name_ChainSync],
 	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
+	Name_PDPTaskFailures:       AlertFuncs[Name_PDPTaskFailures],
 }
 
 func isPingHealthOnly(now time.Time) bool {

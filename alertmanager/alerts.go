@@ -151,11 +151,25 @@ func balanceCheck(al *alerts) {
 	}
 }
 
-// taskFailureCheck retrieves the task failure counts from the database for a specific time period.
-// It then checks for specific sealing tasks and tasks with more than 5 failures to generate alerts.
-func taskFailureCheck(al *alerts) {
-	Name := Name_TaskFailures
-	al.alertMap[Name] = &alertOut{}
+// sealingTasks are sealing-pipeline task names; any single failure triggers an alert.
+var sealingTasks = []string{"SDR", "TreeD", "TreeRC", "PreCommitSubmit", "PoRep", "Finalize", "MoveStorage", "CommitSubmit", "WdPost", "ParkPiece"}
+
+// pdpTasks are PDP v1 and v0 task names; any single failure triggers an alert.
+var pdpTasks = []string{
+	// PDP v1
+	"PDPProve", "PDPAddPiece", "PDPDeletePiece", "PDPAddDataSet", "PDPDelDataSet",
+	"PDPInitPP", "PDPProvingPeriod", "PDPNotify", "PDPCommP", "PDPSaveCache", "AggregatePDPDeal",
+	// PDP v0
+	"PDPv0_Prove", "PDPv0_PullPiece", "PDPv0_SaveCache", "PDPv0_InitPP",
+	"PDPv0_ProvPeriod", "PDPv0_Notify", "PDPv0_DelDataSet", "PDPv0_TermFWSS",
+}
+
+// taskFailureCheckWith is the parameterized core shared by taskFailureCheck
+// and pdpTaskFailureCheck. It queries harmony_task_history for failures over
+// the given interval, alerts on any failure in sensitiveTasks, and alerts on
+// >5 failures for all other tasks or machines.
+func taskFailureCheckWith(al *alerts, name alertName, interval time.Duration, sensitiveTasks []string) {
+	al.alertMap[name] = &alertOut{}
 
 	type taskFailure struct {
 		Machine  string `db:"completed_by_host_and_port"`
@@ -171,52 +185,42 @@ func taskFailureCheck(al *alerts) {
 								WHERE result = FALSE
 								  AND work_end >= NOW() - $1::interval
 								GROUP BY completed_by_host_and_port, name
-								ORDER BY completed_by_host_and_port, name;`, fmt.Sprintf("%f Minutes", AlertMangerInterval.Minutes()))
+								ORDER BY completed_by_host_and_port, name;`, fmt.Sprintf("%f Minutes", interval.Minutes()))
 	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("getting failed task count: %w", err)
+		al.alertMap[name].err = xerrors.Errorf("getting failed task count: %w", err)
 		return
 	}
 
 	mmap := make(map[string]int)
 	tmap := make(map[string]int)
 
-	if len(taskFailures) > 0 {
-		for _, tf := range taskFailures {
-			_, ok := tmap[tf.Name]
-			if !ok {
-				tmap[tf.Name] = tf.Failures
-			} else {
-				tmap[tf.Name] += tf.Failures
-			}
-			_, ok = mmap[tf.Machine]
-			if !ok {
-				mmap[tf.Machine] = tf.Failures
-			} else {
-				mmap[tf.Machine] += tf.Failures
-			}
+	for _, tf := range taskFailures {
+		tmap[tf.Name] += tf.Failures
+		mmap[tf.Machine] += tf.Failures
+	}
+
+	for taskName, count := range tmap {
+		if slices.Contains(sensitiveTasks, taskName) || count > 5 {
+			al.alertMap[name].alertString += fmt.Sprintf("Task: %s, Failures: %d. ", taskName, count)
 		}
 	}
 
-	sealingTasks := []string{"SDR", "TreeD", "TreeRC", "PreCommitSubmit", "PoRep", "Finalize", "MoveStorage", "CommitSubmit", "WdPost", "ParkPiece"}
-	contains := func(s []string, e string) bool {
-		return slices.Contains(s, e)
-	}
-
-	// Alerts for any sealing pipeline failures. Other tasks should have at least 5 failures for an alert
-	for name, count := range tmap {
-		if contains(sealingTasks, name) {
-			al.alertMap[Name].alertString += fmt.Sprintf("Task: %s, Failures: %d. ", name, count)
-		} else if count > 5 {
-			al.alertMap[Name].alertString += fmt.Sprintf("Task: %s, Failures: %d. ", name, count)
-		}
-	}
-
-	// Alert if a machine failed more than 5 tasks
-	for name, count := range mmap {
+	for machine, count := range mmap {
 		if count > 5 {
-			al.alertMap[Name].alertString += fmt.Sprintf("Machine: %s, Failures: %d. ", name, count)
+			al.alertMap[name].alertString += fmt.Sprintf("Machine: %s, Failures: %d. ", machine, count)
 		}
 	}
+}
+
+// taskFailureCheck checks all tasks over the last FullAlertInterval.
+func taskFailureCheck(al *alerts) {
+	taskFailureCheckWith(al, Name_TaskFailures, FullAlertInterval, sealingTasks)
+}
+
+// pdpTaskFailureCheck checks PDP (v1 and v0) tasks over the last
+// AlertMangerInterval so failures surface on every ping-health cadence.
+func pdpTaskFailureCheck(al *alerts) {
+	taskFailureCheckWith(al, Name_PDPTaskFailures, AlertMangerInterval, pdpTasks)
 }
 
 // permanentStorageCheck retrieves the storage details from the database and checks if there is sufficient space for sealing sectors.
@@ -440,7 +444,7 @@ func wdPostCheck(al *alerts) {
 	}
 
 	// Calculate from epoch for last AlertMangerInterval
-	from := max(head.Height()-abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
+	from := max(head.Height()-abi.ChainEpoch(math.Ceil(FullAlertInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
 	_, miners, err := al.getAddresses()
 	if err != nil {
@@ -628,7 +632,7 @@ func wnPostCheck(al *alerts) {
 	}
 
 	// Calculate from epoch for last AlertMangerInterval
-	from := max(head.Height()-abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
+	from := max(head.Height()-abi.ChainEpoch(math.Ceil(FullAlertInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
 	var wnDetails []struct {
 		Miner    int64          `db:"sp_id"`
@@ -662,12 +666,12 @@ func wnPostCheck(al *alerts) {
 
 	// If we have no task created for any miner ID, this is a serious issue
 	if count == 0 {
-		al.alertMap[Name].alertString += "No winningPost tasks found in the last " + humanize.Time(time.Now().Add(-AlertMangerInterval))
+		al.alertMap[Name].alertString += "No winningPost tasks found in the last " + humanize.Time(time.Now().Add(-FullAlertInterval))
 		return
 	}
 
 	// Calculate how many tasks should be in DB for AlertMangerInterval (epochs) as each epoch should have 1 task
-	expected := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
+	expected := int64(math.Ceil(FullAlertInterval.Seconds() / float64(build.BlockDelaySecs)))
 	if (head.Height() - abi.ChainEpoch(expected)) < 0 {
 		expected = int64(head.Height())
 	}
