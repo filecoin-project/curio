@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -47,13 +48,56 @@ type ipniEntry struct {
 	Prev cid.Cid
 }
 
+type entryCacheValue struct {
+	prom *promise.Promise[result.Result[ipniEntry]]
+
+	origin           string
+	mu               sync.Mutex
+	ready            bool
+	consumedByDemand bool
+}
+
+func newEntryCacheValue(origin string) *entryCacheValue {
+	return &entryCacheValue{
+		prom:   &promise.Promise[result.Result[ipniEntry]]{},
+		origin: origin,
+	}
+}
+
+func (v *entryCacheValue) state() string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.ready {
+		return entryCacheStateReady
+	}
+	return entryCacheStateInflight
+}
+
+func (v *entryCacheValue) markReady() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ready = true
+}
+
+func (v *entryCacheValue) markConsumedByDemand() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.consumedByDemand = true
+}
+
+func (v *entryCacheValue) speculativeUnused() bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.origin == entryCacheOriginSpeculative && !v.consumedByDemand
+}
+
 type ServeChunker struct {
 	db            *harmonydb.DB
 	pieceProvider *pieceprovider.SectorReader
 	indexStore    *indexstore.IndexStore
 	cpr           *cachedreader.CachedPieceReader
 
-	entryCache *lru.Cache[cid.Cid, *promise.Promise[result.Result[ipniEntry]]]
+	entryCache *lru.Cache[cid.Cid, *entryCacheValue]
 
 	// small cache keeping track of which piece CIDs (v2) shouldn't be skipped. Entries expire after NoSkipCacheTTL
 	noSkipCache *lru.Cache[cid.Cid, time.Time]
@@ -70,7 +114,11 @@ func NewServeChunker(db *harmonydb.DB, pieceProvider *pieceprovider.SectorReader
 		indexStore:    indexStore,
 		cpr:           cpr,
 
-		entryCache:  must.One(lru.New[cid.Cid, *promise.Promise[result.Result[ipniEntry]]](EntryCacheSize)),
+		entryCache: must.One(lru.NewWithEvict[cid.Cid, *entryCacheValue](EntryCacheSize, func(_ cid.Cid, v *entryCacheValue) {
+			if v.speculativeUnused() {
+				recordEntrySpeculativeUnused()
+			}
+		})),
 		noSkipCache: must.One(lru.New[cid.Cid, time.Time](EntryCacheSize)),
 	}
 }
@@ -90,6 +138,8 @@ func (p *ServeChunker) GetEntry(ctx context.Context, block cid.Cid) (b []byte, e
 
 func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated bool) (b []byte, err error) {
 	var prevChunk cid.Cid
+	request := entryRequestLabel(speculated)
+	recordEntryRequest(request)
 
 	defer func() {
 		defer func() {
@@ -109,8 +159,26 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		}
 	}()
 
-	if b, ok := p.entryCache.Get(block); ok {
-		v := b.Val(rctx)
+	cacheEntry := newEntryCacheValue(entryCacheOriginLabel(speculated))
+	cacheHit := false
+	if existing, ok, _ := p.entryCache.PeekOrAdd(block, cacheEntry); ok {
+		cacheHit = true
+		cacheEntry = existing
+		if refreshed, ok := p.entryCache.Get(block); ok {
+			cacheEntry = refreshed
+		}
+
+		origin := cacheEntry.origin
+		state := cacheEntry.state()
+		if request == entryRequestDemand {
+			cacheEntry.markConsumedByDemand()
+		}
+		recordEntryCacheLookup(request, entryCacheResultHit)
+		recordEntryCacheHit(request, origin, state)
+
+		waitStart := time.Now()
+		v := cacheEntry.prom.Val(rctx)
+		observeEntryCacheHitWait(request, origin, state, time.Since(waitStart))
 		if v.Error == nil {
 			prevChunk = v.Value.Prev
 			return v.Value.Data, nil
@@ -119,15 +187,22 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 			return v.Value.Data, v.Error
 		}
 		log.Errorw("Error in cached promise", "block", block, "error", v.Error)
+		if cacheEntry.speculativeUnused() {
+			recordEntrySpeculativeUnused()
+		}
+		cacheEntry = newEntryCacheValue(entryCacheOriginLabel(speculated))
+		p.entryCache.Add(block, cacheEntry)
 	}
 
-	prom := &promise.Promise[result.Result[ipniEntry]]{}
-	p.entryCache.Add(block, prom)
+	if !cacheHit {
+		recordEntryCacheLookup(request, entryCacheResultMiss)
+	}
 	defer func() {
-		prom.Set(result.Result[ipniEntry]{Value: ipniEntry{
+		cacheEntry.prom.Set(result.Result[ipniEntry]{Value: ipniEntry{
 			Data: b,
 			Prev: prevChunk,
 		}, Error: err})
+		cacheEntry.markReady()
 	}()
 
 	// We should use background context to avoid early exit
@@ -255,50 +330,55 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	}
 
 	if chunk.IsPDP {
-		if chunk.NumBlocks != 1 {
-			return nil, xerrors.Errorf("Expected 1 block for PDP piece announcement, got %d", chunk.NumBlocks)
-		}
-		if chunk.PrevCID.Valid {
-			return nil, xerrors.Errorf("Expected no previous chunk for PDP piece announcement, got %s", chunk.PrevCID.String)
-		}
+		reconstructStart := time.Now()
+		out, recErr := func() ([]byte, error) {
+			if chunk.NumBlocks != 1 {
+				return nil, xerrors.Errorf("Expected 1 block for PDP piece announcement, got %d", chunk.NumBlocks)
+			}
+			if chunk.PrevCID.Valid {
+				return nil, xerrors.Errorf("Expected no previous chunk for PDP piece announcement, got %s", chunk.PrevCID.String)
+			}
 
-		if !chunk.FirstCID.Valid {
-			return nil, xerrors.Errorf("chunk does not have first CID")
-		}
+			if !chunk.FirstCID.Valid {
+				return nil, xerrors.Errorf("chunk does not have first CID")
+			}
 
-		cb, err := hex.DecodeString(chunk.FirstCID.String)
-		if err != nil {
-			return nil, xerrors.Errorf("decoding first CID: %w", err)
-		}
-
-		mhs := make([]multihash.Multihash, 0, 1)
-		mhs = append(mhs, cb)
-
-		chunkNode, err := NewEntriesChunkNode(mhs, next)
-		if err != nil {
-			return nil, xerrors.Errorf("creating chunk node: %w", err)
-		}
-
-		if validate {
-			link, err := ipniculib.NodeToLink(chunkNode, ipniculib.EntryLinkproto)
+			cb, err := hex.DecodeString(chunk.FirstCID.String)
 			if err != nil {
-				return nil, err
+				return nil, xerrors.Errorf("decoding first CID: %w", err)
 			}
 
-			if link.String() != block.String() {
-				return nil, xerrors.Errorf("car chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), block.String())
+			mhs := make([]multihash.Multihash, 0, 1)
+			mhs = append(mhs, cb)
+
+			chunkNode, err := NewEntriesChunkNode(mhs, next)
+			if err != nil {
+				return nil, xerrors.Errorf("creating chunk node: %w", err)
 			}
-		}
 
-		b := new(bytes.Buffer)
-		err = dagcbor.Encode(chunkNode, b)
-		if err != nil {
-			return nil, xerrors.Errorf("encoding chunk node: %w", err)
-		}
+			if validate {
+				link, err := ipniculib.NodeToLink(chunkNode, ipniculib.EntryLinkproto)
+				if err != nil {
+					return nil, err
+				}
 
-		log.Infow("Served a PDP chunk", "chunk", chunk, "piece", pieceCidv2, "startOffset", 0, "numBlocks", 1, "speculated", speculated)
+				if link.String() != block.String() {
+					return nil, xerrors.Errorf("car chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), block.String())
+				}
+			}
 
-		return b.Bytes(), nil
+			b := new(bytes.Buffer)
+			err = dagcbor.Encode(chunkNode, b)
+			if err != nil {
+				return nil, xerrors.Errorf("encoding chunk node: %w", err)
+			}
+
+			log.Infow("Served a PDP chunk", "chunk", chunk, "piece", pieceCidv2, "startOffset", 0, "numBlocks", 1, "speculated", speculated)
+
+			return b.Bytes(), nil
+		}()
+		observeEntryReconstruction(request, entryReconstructionSourcePDP, time.Since(reconstructStart), recErr)
+		return out, recErr
 	}
 
 	if !chunk.FromCar {
@@ -313,23 +393,25 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 
 		firstHash := multihash.Multihash(cb)
 
-		return p.reconstructChunkFromDB(ctx, block, pieceCidv2, firstHash, next, chunk.NumBlocks, speculated)
+		return p.reconstructChunkFromDB(ctx, block, pieceCidv2, firstHash, next, chunk.NumBlocks, request, speculated)
 	}
 
 	if !chunk.StartOffset.Valid {
 		return nil, xerrors.Errorf("chunk does not have start offset")
 	}
 
-	return p.reconstructChunkFromCar(ctx, block, pieceCidv2, chunk.StartOffset.Int64, next, chunk.NumBlocks, speculated)
+	return p.reconstructChunkFromCar(ctx, block, pieceCidv2, chunk.StartOffset.Int64, next, chunk.NumBlocks, request, speculated)
 }
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.
-func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piecev2 cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
+func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piecev2 cid.Cid, startOff int64, next ipld.Link, numBlocks int64, request string, speculate bool) (out []byte, err error) {
 	start := time.Now()
+	defer func() {
+		observeEntryReconstruction(request, entryReconstructionSourceCar, time.Since(start), err)
+	}()
 
 	pieceCid := piecev2
 	if commcidv2.IsPieceCidV2(piecev2) {
-		var err error
 		pieceCid, _, err = commcid.PieceCidV1FromV2(piecev2)
 		if err != nil {
 			return nil, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
@@ -399,11 +481,13 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 }
 
 // ReconstructChunkFromDB reconstructs a chunk from the database.
-func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
+func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, request string, speculate bool) (out []byte, err error) {
 	start := time.Now()
+	defer func() {
+		observeEntryReconstruction(request, entryReconstructionSourceDB, time.Since(start), err)
+	}()
 
 	var mhs []multihash.Multihash
-	var err error
 
 	// Handle exception for PDP piece announcement with FilecoinPieceHttp{} metadata
 	if numBlocks == 1 {

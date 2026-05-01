@@ -362,7 +362,14 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 func (p *Provider) handleGetHead(w http.ResponseWriter, r *http.Request) {
 	log.Infow("Received IPNI request", "path", r.URL.Path)
 
+	start := time.Now()
 	providerID := chi.URLParam(r, "providerId")
+	mw := &metricResponseWriter{ResponseWriter: w}
+	w = mw
+	defer func() {
+		recordProviderHTTPRequest(providerID, "head", mw.Status(), time.Since(start))
+	}()
+
 	sh, err := p.getHead(r.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, chunker.ErrNotFound) {
@@ -386,9 +393,13 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 	reqCid := chi.URLParam(r, "cid")
 
 	start := time.Now()
+	content := "unknown"
+	mw := &metricResponseWriter{ResponseWriter: w}
+	w = mw
 
 	defer func() {
 		log.Infow("Served IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID, "took", time.Since(start), "remote_addr", r.RemoteAddr)
+		recordProviderHTTPRequest(providerID, content, mw.Status(), time.Since(start))
 	}()
 
 	b, err := cid.Parse(reqCid)
@@ -402,6 +413,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	switch h {
 	case ipnisync.CidSchemaAdvertisement:
+		content = "advertisement"
 		ad, err := p.getAdBytes(r.Context(), b, providerID)
 		if err != nil {
 			if errors.Is(err, chunker.ErrNotFound) {
@@ -423,6 +435,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		go p.logPDPFetch(providerID, b.String())
 		return
 	case ipnisync.CidSchemaEntryChunk:
+		content = "entry"
 		entry, err := p.sc.GetEntry(r.Context(), b)
 		if err != nil {
 			if errors.Is(err, chunker.ErrNotFound) {
@@ -454,10 +467,12 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 						http.Error(w, "", http.StatusNotFound)
 						return
 					}
+					content = "entry"
 					log.Errorf("failed to get entry %s for peer %s: %v", b.String(), providerID, err)
 					http.Error(w, "", http.StatusInternalServerError)
 					return
 				}
+				content = "entry"
 				w.WriteHeader(http.StatusOK)
 				w.Header().Set("Content-Type", "application/cbor")
 				_, err = w.Write(entry)
@@ -466,10 +481,12 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
+			content = "advertisement"
 			log.Errorf("failed to get ad %s for peer %s: %v", b.String(), providerID, err)
 			http.Error(w, "", http.StatusInternalServerError)
 			return
 		}
+		content = "advertisement"
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, err = w.Write(ad)
@@ -628,8 +645,10 @@ func (p *Provider) publishHead(ctx context.Context) {
 		log.Infow("Publishing head for provider", "provider", provider, "cid", c.String())
 		err = p.publishhttp(ctx, c, provider)
 		if err != nil {
+			recordAnnounceAttempt(provider, "error")
 			log.Errorw("failed to publish head for provide", "provider", provider, "error", err)
 		} else {
+			recordAnnounceAttempt(provider, "success")
 			p.latest[provider] = c
 		}
 
@@ -690,11 +709,14 @@ type loggingRoundTripper struct {
 func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	log.Infow("Announcing IPNI advertisement", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String())
 
+	start := time.Now()
 	res, err := lrt.proxied.RoundTrip(req)
 	if err != nil {
+		observeAnnounceHTTPRoundTrip(lrt.peer, "error", time.Since(start))
 		log.Warnw("IPNI announcement request failed", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "err", err)
 		return nil, err
 	}
+	observeAnnounceHTTPRoundTrip(lrt.peer, fmt.Sprintf("%d", res.StatusCode), time.Since(start))
 
 	log.Infow("IPNI announcement response", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "status", res.StatusCode)
 	return res, nil
