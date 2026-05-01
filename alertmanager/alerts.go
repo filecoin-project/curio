@@ -54,7 +54,7 @@ func (n *AlertNow) AddAlert(msg string) {
 }
 
 func NowCheck(al *alerts) {
-	Name := "NowCheck"
+	Name := Name_NowCheck
 	al.alertMap[Name] = &alertOut{}
 
 	type NowType struct {
@@ -109,7 +109,7 @@ func NowCheck(al *alerts) {
 // If the balance of an address is below MinimumWalletBalance, it adds an alert to the alert map.
 // If there are any errors encountered during the process, the err field of the alert map is populated.
 func balanceCheck(al *alerts) {
-	Name := "Balance Check"
+	Name := Name_BalanceCheck
 	al.alertMap[Name] = &alertOut{}
 
 	var ret strings.Builder
@@ -154,7 +154,7 @@ func balanceCheck(al *alerts) {
 // taskFailureCheck retrieves the task failure counts from the database for a specific time period.
 // It then checks for specific sealing tasks and tasks with more than 5 failures to generate alerts.
 func taskFailureCheck(al *alerts) {
-	Name := "TaskFailures"
+	Name := Name_TaskFailures
 	al.alertMap[Name] = &alertOut{}
 
 	type taskFailure struct {
@@ -226,7 +226,7 @@ func taskFailureCheck(al *alerts) {
 // It checks if there is enough available storage for each sector and updates the sectorMap accordingly.
 // If any sectors are unaccounted for, it calculates the total missing space and adds an alert to the alert map.
 func permanentStorageCheck(al *alerts) {
-	Name := "PermanentStorageSpace"
+	Name := Name_PermanentStorageSpace
 	al.alertMap[Name] = &alertOut{}
 	// Get all storage path for permanent storages
 	type storage struct {
@@ -431,7 +431,7 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 }
 
 func wdPostCheck(al *alerts) {
-	Name := "WindowPost"
+	Name := Name_WindowPost
 	al.alertMap[Name] = &alertOut{}
 	head, err := al.api.ChainHead(al.ctx)
 	if err != nil {
@@ -608,7 +608,7 @@ func wdPostCheck(al *alerts) {
 }
 
 func wnPostCheck(al *alerts) {
-	Name := "WinningPost"
+	Name := Name_WinningPost
 	al.alertMap[Name] = &alertOut{}
 
 	_, miners, err := al.getAddresses()
@@ -705,7 +705,7 @@ func wnPostCheck(al *alerts) {
 }
 
 func chainSyncCheck(al *alerts) {
-	Name := "ChainSync"
+	Name := Name_ChainSync
 	al.alertMap[Name] = &alertOut{}
 
 	type minimalApiInfo struct {
@@ -799,7 +799,7 @@ func chainSyncCheck(al *alerts) {
 }
 
 func missingSectorCheck(al *alerts) {
-	Name := "MissingSectors"
+	Name := Name_MissingSectors
 	al.alertMap[Name] = &alertOut{}
 
 	var sectors []struct {
@@ -877,7 +877,7 @@ func missingSectorCheck(al *alerts) {
 }
 
 func pendingMessagesCheck(al *alerts) {
-	Name := "PendingMessages"
+	Name := Name_PendingMessages
 	al.alertMap[Name] = &alertOut{}
 
 	var messages []struct {
