@@ -460,10 +460,20 @@ func waitForAllVariantCompletion(t *testing.T, ctx context.Context, db *harmonyd
 			}
 		}
 
-		if allComplete {
-			return true, nil
+		if !allComplete {
+			return false, nil
 		}
-		return false, nil
+
+		// Sector files must be in their final storage location before retrieval
+		// assertions run. With fast task wakes, deal-pipeline complete=TRUE
+		// can be set before MoveStorage finishes, so gate on that too.
+		var notMoved int
+		if err := db.QueryRow(ctx,
+			`SELECT COUNT(*) FROM sectors_sdr_pipeline WHERE after_move_storage = FALSE AND failed = FALSE`,
+		).Scan(&notMoved); err != nil {
+			return false, xerrors.Errorf("query move_storage: %w", err)
+		}
+		return notMoved == 0, nil
 	}
 
 	// Translate helper timeout into clearer test error text and print one final progress dump.
