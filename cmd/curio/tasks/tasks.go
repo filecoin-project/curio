@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
+	curiobuild "github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cuhttp"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -582,10 +583,10 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		sort.Strings(miners)
 
 		_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
-		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
+		(tasks, layers, startup_time, miners, machine_id, machine_name, version) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6, version=$7`,
 			strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
-			time.Now(), strings.Join(miners, ","), machineID, machineName)
+			time.Now(), strings.Join(miners, ","), machineID, machineName, curiobuild.UserVersion())
 
 		if err != nil {
 			log.Errorf("failed to update machine details: %s", err)

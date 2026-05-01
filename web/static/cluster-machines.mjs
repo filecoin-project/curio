@@ -84,6 +84,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                         : ''
                                     }
                                     <th>Last Contact</th>
+                                    <th>Version</th>
                                     <th>Uptime</th>
                                     <th>Scheduling</th>
                                     ${
@@ -118,6 +119,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                         : ''
                                     }
                                     <td>${item.SinceContact}</td>
+                                    <td>${item.Version ?? ''}</td>
                                     <td>${item.Uptime}</td>
 
                                     <td style="white-space: nowrap;">
