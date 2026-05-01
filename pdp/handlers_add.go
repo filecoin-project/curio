@@ -346,6 +346,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		log.Warnf("Failed to process AddPieces request data: %+v", err)
 		httpServerError(w, http.StatusBadRequest, "Failed to process request: "+err.Error(), err)
+		return
 	}
 
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
@@ -453,7 +454,6 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		// Return true to commit the transaction
 		return true, nil
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
