@@ -367,6 +367,7 @@ func seedVariantPipelines(
 				URL:           v.pieceRefURL,
 				Announce:      v.shouldIndex,
 				FastRetrieval: true,
+				ShouldIndex:   v.shouldIndex,
 				Verified:      v.verified,
 				StartEpoch:    startEpoch,
 				EndEpoch:      endEpoch,
@@ -387,6 +388,7 @@ func seedVariantPipelines(
 				Announce:      v.shouldIndex,
 				ClientPeerID:  clientPeerID,
 				FastRetrieval: true,
+				ShouldIndex:   v.shouldIndex,
 				Signed:        v.signed,
 			})
 		})
