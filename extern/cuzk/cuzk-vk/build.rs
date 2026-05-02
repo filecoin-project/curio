@@ -114,6 +114,52 @@ fn fr_ntt8_twiddle_inv_const_glsl() -> String {
     out
 }
 
+/// Generate a GLSL global helper function that returns a constant `Scalar` in Montgomery form.
+fn const_scalar_fn_glsl(fn_name: &str, fr_t: &str, scalar: &Scalar) -> String {
+    let limbs = mont_u32_limbs_build(scalar);
+    let assignments: String = limbs
+        .iter()
+        .enumerate()
+        .map(|(i, u)| format!("    x.val[{}] = {}u;", i, u))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{fr_t} {fn_name}() {{\n    {fr_t} x;\n{assignments}\n    return x;\n}}\n")
+}
+
+/// Global helper function `radix4_i_unit()` returning the 4th root of unity
+/// `ω^(n/4) = ROOT_OF_UNITY^(2^(S-2))` in Montgomery form (constant for any `n`).
+///
+/// A helper function (rather than a global `const uint[]` array) is used because
+/// Naga's GLSL frontend rejects the `uint[]()` constructor syntax in this context.
+/// The function name `radix4_i_unit` is the same regardless of forward/inverse;
+/// `@@RADIX4_I_UNIT@@` is substituted with the full function definition including body.
+fn radix4_i_unit_glsl(fr_t: &str, inverse: bool) -> String {
+    let k = Scalar::S; // = 32 for BLS12-381 Fr
+    // i_unit = ROOT_OF_UNITY^(2^(S-2)); inverse: ω^(-n/4) = i_unit^(-1)
+    let i_unit_fwd = Scalar::ROOT_OF_UNITY.pow_vartime([1u64 << (k - 2)]);
+    let scalar = if inverse { i_unit_fwd.invert().unwrap() } else { i_unit_fwd };
+    const_scalar_fn_glsl("radix4_i_unit", fr_t, &scalar)
+}
+
+/// Global helper `radix8_omega8()` returning the 8th root of unity
+/// `ω^(n/8) = ROOT_OF_UNITY^(2^(S-3))` in Montgomery form (constant for any `n`).
+/// For inverse NTT: `ω^(-n/8) = ROOT_OF_UNITY^(7·2^(S-3))`.
+fn radix8_omega8_glsl(fr_t: &str, inverse: bool) -> String {
+    let k = Scalar::S;
+    let exp = if inverse { 7u64 << (k - 3) } else { 1u64 << (k - 3) };
+    let scalar = Scalar::ROOT_OF_UNITY.pow_vartime([exp]);
+    const_scalar_fn_glsl("radix8_omega8", fr_t, &scalar)
+}
+
+/// Global helper `radix8_omega8_cube()` returning `ω^(3n/8) = ROOT_OF_UNITY^(3·2^(S-3))`.
+/// For inverse NTT: `ω^(-3n/8) = ROOT_OF_UNITY^(5·2^(S-3))`.
+fn radix8_omega8_cube_glsl(fr_t: &str, inverse: bool) -> String {
+    let k = Scalar::S;
+    let exp = if inverse { 5u64 << (k - 3) } else { 3u64 << (k - 3) };
+    let scalar = Scalar::ROOT_OF_UNITY.pow_vartime([exp]);
+    const_scalar_fn_glsl("radix8_omega8_cube", fr_t, &scalar)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = env::var("OUT_DIR")?;
     let out = Path::new(&out_dir);
@@ -356,6 +402,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::copy(out.join("fr_ntt_general_radix2_stage.spv"), &radix2_spec_spv)?;
     }
     println!("cargo:rerun-if-changed={}", radix2_spec_tail_path.display());
+
+    // §8.2 B.1 — radix-4 DIT NTT stage (forward + inverse), same tail, different i_unit constant.
+    let radix4_tail_path = manifest.join("shaders/fr_ntt_general_radix4_stage_tail.comp");
+    let radix4_tail_raw = fs::read_to_string(&radix4_tail_path)?
+        .replace("@@FR_T@@", &fr_t)
+        .replace("@@FR_P@@", &fr_p)
+        .replace("@@FR_INV@@", &fr_inv)
+        .replace("@@FR_ONE@@", &format!("{}_ONE", fr_t));
+    for (inverse, spv_name) in [(false, "fr_ntt_general_radix4_fwd_stage.spv"), (true, "fr_ntt_general_radix4_inv_stage.spv")] {
+        let i_unit_glsl = radix4_i_unit_glsl(&fr_t, inverse);
+        let tail = radix4_tail_raw.replace("@@RADIX4_I_UNIT@@", &i_unit_glsl);
+        let full = format!("{}\n{}\n{}", &fr, fr_helpers, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+    }
+    println!("cargo:rerun-if-changed={}", radix4_tail_path.display());
+
+    // §8.2 B.2 — radix-8 DIT NTT stage (forward + inverse), half-split butterfly.
+    let radix8_tail_path = manifest.join("shaders/fr_ntt_general_radix8_stage_tail.comp");
+    let radix8_tail_raw = fs::read_to_string(&radix8_tail_path)?
+        .replace("@@FR_T@@", &fr_t)
+        .replace("@@FR_P@@", &fr_p)
+        .replace("@@FR_INV@@", &fr_inv)
+        .replace("@@FR_ONE@@", &format!("{}_ONE", fr_t));
+    for (inverse, spv_name) in [(false, "fr_ntt_general_radix8_fwd_stage.spv"), (true, "fr_ntt_general_radix8_inv_stage.spv")] {
+        let tail = radix8_tail_raw
+            .replace("@@RADIX4_I_UNIT@@", &radix4_i_unit_glsl(&fr_t, inverse))
+            .replace("@@RADIX8_OMEGA8@@", &radix8_omega8_glsl(&fr_t, inverse))
+            .replace("@@RADIX8_OMEGA8_CUBE@@", &radix8_omega8_cube_glsl(&fr_t, inverse));
+        let full = format!("{}\n{}\n{}", &fr, fr_helpers, tail);
+        compile_glsl_compute(&full, &out.join(spv_name))?;
+    }
+    println!("cargo:rerun-if-changed={}", radix8_tail_path.display());
 
     println!("cargo:rerun-if-changed=build.rs");
     Ok(())

@@ -59,6 +59,8 @@ cargo test -p cuzk-vk --test fr_coeff_wise_mult_gpu
 cargo test -p cuzk-vk --test fr_sub_mult_constant_gpu
 cargo test -p cuzk-vk --test fr_ntt8_gpu
 cargo test -p cuzk-vk --test fr_ntt_general_gpu
+cargo test -p cuzk-vk --test fr_ntt_radix4_gpu
+cargo test -p cuzk-vk --test fr_ntt_radix8_gpu
 cargo test -p cuzk-vk --test msm_dispatch_grid_gpu
 cargo test -p cuzk-vk --test g1_bucket_window4_gpu
 cargo test -p cuzk-vk --test g1_pippenger_full_width_gpu

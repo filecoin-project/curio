@@ -1,0 +1,146 @@
+// DIT Cooley–Tukey radix-8 NTT stage (Montgomery Fr). §8.2 B.2.
+//
+// Same SSBO layout as `fr_ntt_general_radix2_stage_tail.comp`.
+// Push constants: `octet` (= 8^k for stage k) and `wlen_slot` (SSBO slot for the
+// per-group twiddle base, read from OFF_WSTEP + wlen_slot * 8).
+//
+// Decomposition — half-split DIT butterfly on bit-reversed input:
+//   1. Pre-twiddle: y_k = u_k * w^k where w = wlen^(j_in).
+//   2. 4-point DFT of {y0,y1,y2,y3} using formula B (half-split, same as radix-4 stage):
+//        A0=y0+y1,  B0=y0-y1
+//        A1=y2+y3,  B1=(y2-y3)·i_unit       (i_unit = ω^(n/4))
+//        E0=A0+A1,  E1=B0+B1,  E2=A0-A1,  E3=B0-B1
+//   3. 4-point DFT of {y4,y5,y6,y7}:
+//        A2=y4+y5,  B2=y4-y5
+//        A3=y6+y7,  B3=(y6-y7)·i_unit
+//        F0=A2+A3,  F1=B2+B3,  F2=A2-A3,  F3=B2-B3
+//   4. Combine with 8th-root twiddles (ω8 = ω^(n/8)):
+//        out[0]=E0+F0,          out[4]=E0-F0
+//        out[1]=E1+F1·ω8,       out[5]=E1-F1·ω8
+//        out[2]=E2+F2·i_unit,   out[6]=E2-F2·i_unit   (ω8²=i_unit)
+//        out[3]=E3+F3·ω8³,      out[7]=E3-F3·ω8³
+//   5. Store eight outputs in-place.
+//
+// Constants `radix4_i_unit()`, `radix8_omega8()`, `radix8_omega8_cube()` are
+// global helper functions injected by build.rs — independent of n and forward/inverse.
+
+#define FR_NTT_MAX_N   16384u
+#define FR_NTT_MAX_LOG 32u
+#define OFF_DATA       64u
+#define OFF_SCRATCH    (64u + FR_NTT_MAX_N * 8u)
+#define OFF_WSTEP      (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
+
+@@RADIX4_I_UNIT@@
+@@RADIX8_OMEGA8@@
+@@RADIX8_OMEGA8_CUBE@@
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    uint octet;     // 8^k: 1, 8, 64, …
+    uint wlen_slot; // SSBO wstep slot index for the group twiddle base
+    uint _p0;
+    uint _p1;
+} pc;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u];
+} buf;
+
+void fr_load_at(uint base, out @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fr_store_at(uint base, @@FR_T@@ x) {
+    for (uint i = 0u; i < 8u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void main() {
+    uint n        = buf.d[0];
+    uint octet    = pc.octet;
+    uint num_bfly = n >> 3u;   // n/8 butterfly groups total
+
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= num_bfly) {
+        return;
+    }
+
+    uint m        = octet << 3u;   // m = 8 * octet (block size)
+    uint block_id = tid / octet;
+    uint j_in     = tid % octet;
+    uint base     = block_id * m + j_in;
+
+    // Per-group twiddle base wlen = ω^(n/m), read from SSBO.
+    @@FR_T@@ wlen;
+    fr_load_at(OFF_WSTEP + pc.wlen_slot * 8u, wlen);
+
+    // w = wlen^(j_in); w², …, w^7.
+    @@FR_T@@ w  = fr_pow_u32(wlen, j_in);
+    @@FR_T@@ w2 = fr_mul_mont_cios(w, w);
+    @@FR_T@@ w3 = fr_mul_mont_cios(w2, w);
+    @@FR_T@@ w4 = fr_mul_mont_cios(w2, w2);
+    @@FR_T@@ w5 = fr_mul_mont_cios(w4, w);
+    @@FR_T@@ w6 = fr_mul_mont_cios(w4, w2);
+    @@FR_T@@ w7 = fr_mul_mont_cios(w4, w3);
+
+    // Load 8 input elements.
+    @@FR_T@@ u0, u1, u2, u3, u4, u5, u6, u7;
+    fr_load_at(OFF_DATA + base              * 8u, u0);
+    fr_load_at(OFF_DATA + (base +     octet) * 8u, u1);
+    fr_load_at(OFF_DATA + (base + 2u*octet) * 8u, u2);
+    fr_load_at(OFF_DATA + (base + 3u*octet) * 8u, u3);
+    fr_load_at(OFF_DATA + (base + 4u*octet) * 8u, u4);
+    fr_load_at(OFF_DATA + (base + 5u*octet) * 8u, u5);
+    fr_load_at(OFF_DATA + (base + 6u*octet) * 8u, u6);
+    fr_load_at(OFF_DATA + (base + 7u*octet) * 8u, u7);
+
+    // Pre-twiddle: y_k = u_k * w^k.
+    @@FR_T@@ y1 = fr_mul_mont_cios(u1, w);
+    @@FR_T@@ y2 = fr_mul_mont_cios(u2, w2);
+    @@FR_T@@ y3 = fr_mul_mont_cios(u3, w3);
+    @@FR_T@@ y4 = fr_mul_mont_cios(u4, w4);
+    @@FR_T@@ y5 = fr_mul_mont_cios(u5, w5);
+    @@FR_T@@ y6 = fr_mul_mont_cios(u6, w6);
+    @@FR_T@@ y7 = fr_mul_mont_cios(u7, w7);
+
+    // 4-point DFT of {y0=u0, y1, y2, y3} using half-split formula B.
+    @@FR_T@@ iu = radix4_i_unit();
+    @@FR_T@@ A0 = fr_add_mod(u0, y1);
+    @@FR_T@@ B0 = fr_sub_mod(u0, y1);
+    @@FR_T@@ A1 = fr_add_mod(y2, y3);
+    @@FR_T@@ B1 = fr_mul_mont_cios(fr_sub_mod(y2, y3), iu);
+    @@FR_T@@ E0 = fr_add_mod(A0, A1);
+    @@FR_T@@ E1 = fr_add_mod(B0, B1);
+    @@FR_T@@ E2 = fr_sub_mod(A0, A1);
+    @@FR_T@@ E3 = fr_sub_mod(B0, B1);
+
+    // 4-point DFT of {y4, y5, y6, y7} using half-split formula B.
+    @@FR_T@@ A2 = fr_add_mod(y4, y5);
+    @@FR_T@@ B2 = fr_sub_mod(y4, y5);
+    @@FR_T@@ A3 = fr_add_mod(y6, y7);
+    @@FR_T@@ B3 = fr_mul_mont_cios(fr_sub_mod(y6, y7), iu);
+    @@FR_T@@ F0 = fr_add_mod(A2, A3);
+    @@FR_T@@ F1 = fr_add_mod(B2, B3);
+    @@FR_T@@ F2 = fr_sub_mod(A2, A3);
+    @@FR_T@@ F3 = fr_sub_mod(B2, B3);
+
+    // Combine with 8th-root twiddles.
+    @@FR_T@@ w8  = radix8_omega8();
+    @@FR_T@@ w8c = radix8_omega8_cube();
+    @@FR_T@@ G1 = fr_mul_mont_cios(F1, w8);
+    @@FR_T@@ G2 = fr_mul_mont_cios(F2, iu);   // ω8² = i_unit
+    @@FR_T@@ G3 = fr_mul_mont_cios(F3, w8c);
+
+    fr_store_at(OFF_DATA + base              * 8u, fr_add_mod(E0, F0));
+    fr_store_at(OFF_DATA + (base +     octet) * 8u, fr_add_mod(E1, G1));
+    fr_store_at(OFF_DATA + (base + 2u*octet) * 8u, fr_add_mod(E2, G2));
+    fr_store_at(OFF_DATA + (base + 3u*octet) * 8u, fr_add_mod(E3, G3));
+    fr_store_at(OFF_DATA + (base + 4u*octet) * 8u, fr_sub_mod(E0, F0));
+    fr_store_at(OFF_DATA + (base + 5u*octet) * 8u, fr_sub_mod(E1, G1));
+    fr_store_at(OFF_DATA + (base + 6u*octet) * 8u, fr_sub_mod(E2, G2));
+    fr_store_at(OFF_DATA + (base + 7u*octet) * 8u, fr_sub_mod(E3, G3));
+}
