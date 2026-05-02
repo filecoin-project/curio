@@ -9,6 +9,23 @@ use blstrs::Scalar;
 
 use crate::g1::BLS12_381_FR_U32_LIMBS;
 
+/// Least significant `bits` of `s` as an integer, reading **canonical** `Scalar::to_bytes_le` (LE).
+///
+/// Used to feed the Phase H **u64** bit-plane MSM path with truncated coefficients (`bits ≤ 64`).
+/// This is **not** modular reduction in Fr; it is the low `bits` of the canonical encoding interpreted
+/// as an unsigned integer (see [`crate::split_msm::g1_msm_bitplanes_scalars_trunc_gpu_host`]).
+#[inline]
+pub fn scalar_low_u64_canonical(s: &Scalar, bits: u32) -> u64 {
+    debug_assert!(bits > 0 && bits <= 64);
+    let b = s.to_bytes_le();
+    let v = u64::from_le_bytes(b[..8].try_into().expect("8 bytes"));
+    if bits == 64 {
+        v
+    } else {
+        v & ((1u64 << bits) - 1)
+    }
+}
+
 /// Pack a scalar into eight little-endian `u32` words (32 bytes total).
 #[inline]
 pub fn scalar_to_le_u32_limbs(s: &Scalar) -> [u32; BLS12_381_FR_U32_LIMBS] {
@@ -78,6 +95,15 @@ mod tests {
             let m = scalar_montgomery_u32_limbs(&s);
             let back = scalar_from_montgomery_u32_limbs(&m);
             assert_eq!(back, s);
+        }
+    }
+
+    #[test]
+    fn scalar_low_u64_canonical_agrees_with_scalar_from_small() {
+        for bits in [8u32, 24, 40] {
+            let k = 0x123456789abcdefu64 & ((1u64 << bits) - 1);
+            let s = Scalar::from(k);
+            assert_eq!(scalar_low_u64_canonical(&s, bits), k);
         }
     }
 }

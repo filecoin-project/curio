@@ -73,6 +73,7 @@ pub fn run_fr_add_mod_gpu(dev: &VulkanDevice, a: &Scalar, b: &Scalar) -> Result<
             &wbytes,
             32,
             &mut out32,
+            None,
         )?;
     }
     unpack_fr_out(&out32)
@@ -94,6 +95,7 @@ pub fn run_fr_sub_mod_gpu(dev: &VulkanDevice, a: &Scalar, b: &Scalar) -> Result<
             &wbytes,
             32,
             &mut out32,
+            None,
         )?;
     }
     unpack_fr_out(&out32)
@@ -115,6 +117,7 @@ pub fn run_fr_mul_mod_gpu(dev: &VulkanDevice, a: &Scalar, b: &Scalar) -> Result<
             &wbytes,
             32,
             &mut out32,
+            None,
         )?;
     }
     Ok(unpack_fr_mont_mul_out(&out32))

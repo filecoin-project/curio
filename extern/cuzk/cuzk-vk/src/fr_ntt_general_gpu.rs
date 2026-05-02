@@ -22,6 +22,18 @@ pub const FR_NTT_GENERAL_MAX_N: usize = 16384;
 /// Per-stage `wlen` slots reserved (must match `FR_NTT_MAX_LOG` in shaders).
 pub const FR_NTT_GENERAL_MAX_LOG: usize = 32;
 
+/// Compute passes in [`run_fr_ntt_general_forward_gpu`] (radix-2: bitrev + copy + `log_n` half butterflies).
+#[inline]
+pub const fn fr_ntt_general_forward_pass_count_radix2(log_n: u32) -> u32 {
+    2 + log_n
+}
+
+/// Compute passes in [`run_fr_ntt_general_inverse_gpu`] (forward-shaped stages + `scale_ninv`).
+#[inline]
+pub const fn fr_ntt_general_inverse_pass_count_radix2(log_n: u32) -> u32 {
+    3 + log_n
+}
+
 const WG: u32 = 256;
 
 /// Total `u32` words in the general-NTT SSBO (header + data + scratch + twiddle bases).
@@ -161,7 +173,7 @@ pub fn run_fr_ntt_general_forward_gpu(dev: &VulkanDevice, coeffs: &[Scalar]) -> 
     )))?;
     let w_radix = spirv_words(include_bytes!(concat!(
         env!("OUT_DIR"),
-        "/fr_ntt_general_radix2_stage.spv"
+        "/fr_ntt_general_radix2_stage_spec.spv"
     )))?;
 
     let dn = n as u32;
@@ -170,18 +182,41 @@ pub fn run_fr_ntt_general_forward_gpu(dev: &VulkanDevice, coeffs: &[Scalar]) -> 
         spirv_words: &w_bitrev,
         dispatch: dispatch_for_n(dn),
         push_constants: push_zero(),
+        stage_spec: None,
     });
     passes.push(ComputePassDesc {
         spirv_words: &w_copy,
         dispatch: dispatch_for_n(dn),
         push_constants: push_zero(),
+        stage_spec: None,
     });
-    for s in 0..log_n {
-        passes.push(ComputePassDesc {
-            spirv_words: &w_radix,
-            dispatch: dispatch_for_half(dn),
-            push_constants: push_stage(s),
-        });
+    #[cfg(fr_ntt_radix2_spec)]
+    {
+        let radix2_spec_le = WG.to_le_bytes();
+        let radix2_spec_map = [crate::vk_oneshot::spec_map_u32(0, 0)];
+        let radix2_spec_blob = crate::vk_oneshot::ComputeShaderStageSpec {
+            map_entries: &radix2_spec_map,
+            data: &radix2_spec_le,
+        };
+        for s in 0..log_n {
+            passes.push(ComputePassDesc {
+                spirv_words: &w_radix,
+                dispatch: dispatch_for_half(dn),
+                push_constants: push_stage(s),
+                stage_spec: Some(&radix2_spec_blob),
+            });
+        }
+    }
+    #[cfg(not(fr_ntt_radix2_spec))]
+    {
+        for s in 0..log_n {
+            passes.push(ComputePassDesc {
+                spirv_words: &w_radix,
+                dispatch: dispatch_for_half(dn),
+                push_constants: push_stage(s),
+                stage_spec: None,
+            });
+        }
     }
 
     let mut readback = vec![0u8; read_len];
@@ -235,7 +270,7 @@ pub fn run_fr_ntt_general_inverse_gpu(dev: &VulkanDevice, evals: &[Scalar]) -> R
     )))?;
     let w_radix = spirv_words(include_bytes!(concat!(
         env!("OUT_DIR"),
-        "/fr_ntt_general_radix2_stage.spv"
+        "/fr_ntt_general_radix2_stage_spec.spv"
     )))?;
     let w_scale = spirv_words(include_bytes!(concat!(
         env!("OUT_DIR"),
@@ -248,23 +283,47 @@ pub fn run_fr_ntt_general_inverse_gpu(dev: &VulkanDevice, evals: &[Scalar]) -> R
         spirv_words: &w_bitrev,
         dispatch: dispatch_for_n(dn),
         push_constants: push_zero(),
+        stage_spec: None,
     });
     passes.push(ComputePassDesc {
         spirv_words: &w_copy,
         dispatch: dispatch_for_n(dn),
         push_constants: push_zero(),
+        stage_spec: None,
     });
-    for s in 0..log_n {
-        passes.push(ComputePassDesc {
-            spirv_words: &w_radix,
-            dispatch: dispatch_for_half(dn),
-            push_constants: push_stage(s),
-        });
+    #[cfg(fr_ntt_radix2_spec)]
+    {
+        let radix2_spec_le = WG.to_le_bytes();
+        let radix2_spec_map = [crate::vk_oneshot::spec_map_u32(0, 0)];
+        let radix2_spec_blob = crate::vk_oneshot::ComputeShaderStageSpec {
+            map_entries: &radix2_spec_map,
+            data: &radix2_spec_le,
+        };
+        for s in 0..log_n {
+            passes.push(ComputePassDesc {
+                spirv_words: &w_radix,
+                dispatch: dispatch_for_half(dn),
+                push_constants: push_stage(s),
+                stage_spec: Some(&radix2_spec_blob),
+            });
+        }
+    }
+    #[cfg(not(fr_ntt_radix2_spec))]
+    {
+        for s in 0..log_n {
+            passes.push(ComputePassDesc {
+                spirv_words: &w_radix,
+                dispatch: dispatch_for_half(dn),
+                push_constants: push_stage(s),
+                stage_spec: None,
+            });
+        }
     }
     passes.push(ComputePassDesc {
         spirv_words: &w_scale,
         dispatch: dispatch_for_n(dn),
         push_constants: push_zero(),
+        stage_spec: None,
     });
 
     let mut readback = vec![0u8; read_len];
@@ -286,4 +345,23 @@ pub fn run_fr_ntt_general_inverse_gpu(dev: &VulkanDevice, evals: &[Scalar]) -> R
 pub fn run_fr_ntt_general_roundtrip_gpu(dev: &VulkanDevice, coeffs: &[Scalar]) -> Result<Vec<Scalar>> {
     let fwd = run_fr_ntt_general_forward_gpu(dev, coeffs)?;
     run_fr_ntt_general_inverse_gpu(dev, &fwd)
+}
+
+#[cfg(test)]
+mod radix2_pass_count_tests {
+    use super::*;
+
+    #[test]
+    fn forward_pass_count_matches_gpu_dispatch_list() {
+        for log_n in 1u32..=14 {
+            assert_eq!(fr_ntt_general_forward_pass_count_radix2(log_n), 2 + log_n);
+        }
+    }
+
+    #[test]
+    fn inverse_pass_count_matches_gpu_dispatch_list() {
+        for log_n in 1u32..=14 {
+            assert_eq!(fr_ntt_general_inverse_pass_count_radix2(log_n), 3 + log_n);
+        }
+    }
 }

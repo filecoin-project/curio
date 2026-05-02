@@ -18,3 +18,14 @@ fn msm_dispatch_grid_hitcount_matches_host() {
     let got = run_msm_dispatch_hitcount_smoke(&dev, d).expect("dispatch smoke");
     assert_eq!(u64::from(got), d.invocation_count());
 }
+
+#[test]
+fn msm_dispatch_grid_hitcount_matches_host_local_x_32() {
+    if skip_vulkan_smoke() {
+        return;
+    }
+    let dev = VulkanDevice::new().expect("Vulkan init");
+    let d = MsmBucketReduceDispatch::dense(100, 4, 32);
+    let got = run_msm_dispatch_hitcount_smoke(&dev, d).expect("dispatch smoke local_x=32");
+    assert_eq!(u64::from(got), d.invocation_count());
+}

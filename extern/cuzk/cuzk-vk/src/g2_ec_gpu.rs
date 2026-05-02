@@ -1,5 +1,8 @@
 //! G2 Jacobian / XYZZ point ops on the GPU (Montgomery `Fp2` limbs).
 
+#[allow(dead_code)]
+const _G2_JAC_ADD216_SPIRV_STAMP: &str = env!("CUZK_VK_G2_JAC_ADD216_STAMP");
+
 use std::io::Cursor;
 
 use anyhow::{Context, Result};
@@ -33,12 +36,27 @@ fn get_fp24(buf: &[u8], off_u32: usize) -> [u32; BLS12_381_FP2_U32_LIMBS] {
     out
 }
 
+fn is_g2_jac_identity(p: &G2JacobianLimbs) -> bool {
+    p.z.iter().all(|&w| w == 0)
+}
+
 /// `a + b` on G2 Jacobian points (Montgomery `Fp2` I/O).
+///
+/// Identity inputs (`Z == 0`) are short-circuited on the host so callers (notably
+/// [`crate::g2_batch_gpu::run_g2_batch_jacobian_accum_bitmap_gpu`]) can safely seed the
+/// accumulator with the point at infinity. The kernel itself does not handle identity
+/// operands.
 pub fn run_g2_jacobian_add_gpu(
     dev: &VulkanDevice,
     a: &G2JacobianLimbs,
     b: &G2JacobianLimbs,
 ) -> Result<G2JacobianLimbs> {
+    if is_g2_jac_identity(a) {
+        return Ok(*b);
+    }
+    if is_g2_jac_identity(b) {
+        return Ok(*a);
+    }
     let spirv = include_bytes!(concat!(env!("OUT_DIR"), "/g2_jacobian_add216.spv"));
     let spirv_words =
         read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g2_jacobian_add216")?;
@@ -60,6 +78,7 @@ pub fn run_g2_jacobian_add_gpu(
             &wbytes,
             out.len(),
             &mut out,
+            None,
         )?;
     }
     Ok(G2JacobianLimbs {
@@ -94,6 +113,7 @@ pub fn run_g2_xyzz_add_mixed_gpu(dev: &VulkanDevice, xyzz: &mut G2XyzzLimbs, p2:
             &wbytes,
             read_len,
             &mut out,
+            None,
         )?;
     }
     xyzz.x = get_fp24(&out, 0);

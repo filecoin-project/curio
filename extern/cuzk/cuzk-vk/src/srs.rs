@@ -6,7 +6,8 @@
 //!
 //! Host helpers: [`srs_read_file`], [`srs_read_file_spawn`] (§C.2 disk overlap), [`srs_decode_ic_g1`], [`srs_decode_h_g1`], [`srs_decode_l_g1`],
 //! [`srs_decode_a_g1`], [`srs_decode_bg1_g1`], [`srs_decode_bg2_g2`], [`srs_synthetic_partition_smoke_blob`]
-//! (see `tests/srs_file_ic.rs`). GPU limb staging smoke: [`crate::srs_gpu`] (G1+G2).
+//! (see `tests/srs_file_ic.rs`). GPU limb staging smoke: [`crate::srs_gpu`] (G1+G2). VRAM **copy**
+//! path: [`crate::srs_staging_gpu`] (`vkCmdCopyBuffer` device-preferring round-trip).
 
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;

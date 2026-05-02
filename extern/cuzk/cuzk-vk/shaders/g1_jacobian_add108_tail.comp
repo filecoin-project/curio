@@ -1,5 +1,15 @@
-// Jacobian G1 add (short Weierstrass a=0): `POINT_add` + `POINT_double` from `ec-gpu-gen/src/cl/ec.cl`.
-// SSBO `d[108]`: out (0..35) = a+b; in a (36..71), in b (72..107). Montgomery `Fp` limbs (@@FP_T@@).
+// Jacobian G1 add (a=0): pure ADDITION-only kernel. Mirrors the `add` branch
+// of `blst_p1_add_or_double` (EFD `add-1998-cmo-2`, the formula used by
+// `blstrs::G1Projective::add` for distinct points). The host is responsible
+// for routing the inputs:
+//   * a = identity (Z = 0) → return b
+//   * b = identity (Z = 0) → return a
+//   * a == b on the curve → dispatch the dedicated doubling kernel
+//     (`g1_jacobian_dbl108.spv`)
+// All other cases hit this kernel directly. No conditional branching is done
+// here: Naga + MoltenVK silently corrupts large `@@FP_T@@`-valued locals
+// across `if` bodies on Apple M2, so the kernel is intentionally
+// straight-line.
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
@@ -13,38 +23,11 @@ void fp_load_j(uint base, out @@FP_T@@ x) {
     }
 }
 
-void fp_store_j(uint base, @@FP_T@@ x) {
-    for (uint i = 0u; i < 12u; i++) {
-        buf.d[base + i] = x.val[i];
-    }
-}
-
-void jac_double(inout @@FP_T@@ ix, inout @@FP_T@@ iy, inout @@FP_T@@ iz) {
-    if (fp_is_zero(iz)) {
-        return;
-    }
-    @@FP_T@@ A = fp_mul_mont_cios(ix, ix);
-    @@FP_T@@ B = fp_mul_mont_cios(iy, iy);
-    @@FP_T@@ C = fp_mul_mont_cios(B, B);
-    @@FP_T@@ d = fp_add_mod(ix, B);
-    d = fp_mul_mont_cios(d, d);
-    d = fp_sub_mod(fp_sub_mod(d, A), C);
-    d = fp_dbl(d);
-    @@FP_T@@ e = fp_add_mod(fp_dbl(A), A);
-    @@FP_T@@ f = fp_mul_mont_cios(e, e);
-    iz = fp_mul_mont_cios(iy, iz);
-    iz = fp_dbl(iz);
-    ix = fp_sub_mod(fp_sub_mod(f, d), d);
-    C = fp_dbl(C);
-    C = fp_dbl(C);
-    C = fp_dbl(C);
-    iy = fp_sub_mod(fp_mul_mont_cios(fp_sub_mod(d, ix), e), C);
-}
-
 void main() {
     if (gl_GlobalInvocationID.x != 0u) {
         return;
     }
+
     @@FP_T@@ ax;
     @@FP_T@@ ay;
     @@FP_T@@ az;
@@ -58,50 +41,33 @@ void main() {
     fp_load_j(84u, by);
     fp_load_j(96u, bz);
 
-    if (fp_is_zero(az)) {
-        fp_store_j(0u, bx);
-        fp_store_j(12u, by);
-        fp_store_j(24u, bz);
-        return;
-    }
-    if (fp_is_zero(bz)) {
-        fp_store_j(0u, ax);
-        fp_store_j(12u, ay);
-        fp_store_j(24u, az);
-        return;
-    }
-
     @@FP_T@@ z1z1 = fp_mul_mont_cios(az, az);
     @@FP_T@@ z2z2 = fp_mul_mont_cios(bz, bz);
     @@FP_T@@ u1 = fp_mul_mont_cios(ax, z2z2);
     @@FP_T@@ u2 = fp_mul_mont_cios(bx, z1z1);
-    @@FP_T@@ s1 = fp_mul_mont_cios(fp_mul_mont_cios(ay, bz), z2z2);
-    @@FP_T@@ s2 = fp_mul_mont_cios(fp_mul_mont_cios(by, az), z1z1);
-
-    if (fp_eq(u1, u2) && fp_eq(s1, s2)) {
-        jac_double(ax, ay, az);
-        fp_store_j(0u, ax);
-        fp_store_j(12u, ay);
-        fp_store_j(24u, az);
-        return;
-    }
-
+    @@FP_T@@ ay_bz = fp_mul_mont_cios(ay, bz);
+    @@FP_T@@ s1 = fp_mul_mont_cios(ay_bz, z2z2);
+    @@FP_T@@ by_az = fp_mul_mont_cios(by, az);
+    @@FP_T@@ s2 = fp_mul_mont_cios(by_az, z1z1);
     @@FP_T@@ h = fp_sub_mod(u2, u1);
-    @@FP_T@@ i = fp_dbl(h);
-    i = fp_mul_mont_cios(i, i);
-    @@FP_T@@ j = fp_mul_mont_cios(h, i);
-    @@FP_T@@ r = fp_dbl(fp_sub_mod(s2, s1));
-    @@FP_T@@ v = fp_mul_mont_cios(u1, i);
-    @@FP_T@@ rx = fp_sub_mod(fp_sub_mod(fp_sub_mod(fp_mul_mont_cios(r, r), j), v), v);
-    @@FP_T@@ ry = fp_mul_mont_cios(fp_sub_mod(v, rx), r);
-    s1 = fp_dbl(fp_mul_mont_cios(s1, j));
-    ry = fp_sub_mod(ry, s1);
-    @@FP_T@@ rz = fp_add_mod(az, bz);
-    rz = fp_mul_mont_cios(rz, rz);
-    rz = fp_sub_mod(fp_sub_mod(rz, z1z1), z2z2);
-    rz = fp_mul_mont_cios(rz, h);
+    @@FP_T@@ hh = fp_mul_mont_cios(h, h);
+    @@FP_T@@ hhh = fp_mul_mont_cios(h, hh);
+    @@FP_T@@ r = fp_sub_mod(s2, s1);
+    @@FP_T@@ v = fp_mul_mont_cios(u1, hh);
+    @@FP_T@@ r2 = fp_mul_mont_cios(r, r);
+    @@FP_T@@ twov = fp_dbl(v);
+    @@FP_T@@ r2_minus_hhh = fp_sub_mod(r2, hhh);
+    @@FP_T@@ ox = fp_sub_mod(r2_minus_hhh, twov);
+    @@FP_T@@ v_minus_ox = fp_sub_mod(v, ox);
+    @@FP_T@@ ry_a = fp_mul_mont_cios(v_minus_ox, r);
+    @@FP_T@@ s1hhh = fp_mul_mont_cios(s1, hhh);
+    @@FP_T@@ oy = fp_sub_mod(ry_a, s1hhh);
+    @@FP_T@@ az_bz = fp_mul_mont_cios(az, bz);
+    @@FP_T@@ oz = fp_mul_mont_cios(az_bz, h);
 
-    fp_store_j(0u, rx);
-    fp_store_j(12u, ry);
-    fp_store_j(24u, rz);
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[i]       = ox.val[i];
+        buf.d[12u + i] = oy.val[i];
+        buf.d[24u + i] = oz.val[i];
+    }
 }

@@ -5,7 +5,8 @@
 //!
 //! The proving entry point here is still the native bellperson Groth16 API (`ext`); `cuzk-vk`
 //! supplies Vulkan compute primitives and partition smoke (`prove_groth16_partition`) for the
-//! Filecoin cuZK integration path.
+//! Filecoin cuZK integration path. **`VkGroth16Job::witness_ntt_coeffs`** (B₂) optionally drives the
+//! partition Fr NTT round-trip with caller-supplied field elements.
 
 pub use cuzk_vk::{
     prove_groth16_partition, VkGroth16Job, VkProofKind, VkProofTimings, VkProverContext,

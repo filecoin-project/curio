@@ -1,5 +1,10 @@
 // Appended after `glsl_32_bit_field_params::<Scalar>()` + inverse twiddle + `NTT8_NINV` from build.rs.
 // Inverse radix-2 Fr NTT for n=8 (Montgomery limbs). Matches `fr_ntt_inplace(..., omega^{-1})` then × n^{-1}.
+//
+// Same Naga + MoltenVK workaround as `fr_ntt8_forward_tail.comp`: hold the eight elements
+// in named `Fr` locals (`a0..a7`) loaded in bit-reversed order and run the 12 butterflies
+// inline (no `uint tmp[64]` scratch, no buffer-resident permutation, no inline butterfly
+// helper). The final `× n^{-1}` is applied once per local before storing back.
 // @@FR_T@@, @@FR_P@@, @@FR_INV@@, @@FR_ONE@@
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -172,34 +177,6 @@ void store_fr(uint e, @@FR_T@@ x) {
     }
 }
 
-void bitrev8_perm() {
-    uint tmp[64];
-    for (uint k = 0u; k < 8u; k++) {
-        for (uint i = 0u; i < 8u; i++) {
-            tmp[k * 8u + i] = buf.d[k * 8u + i];
-        }
-    }
-    uint br[8] = uint[](0u, 4u, 2u, 6u, 1u, 5u, 3u, 7u);
-    for (uint k = 0u; k < 8u; k++) {
-        uint src = br[k];
-        for (uint i = 0u; i < 8u; i++) {
-            buf.d[k * 8u + i] = tmp[src * 8u + i];
-        }
-    }
-}
-
-void butterfly(uint eu, uint ev, @@FR_T@@ w) {
-    @@FR_T@@ u;
-    @@FR_T@@ v;
-    load_fr(eu, u);
-    load_fr(ev, v);
-    @@FR_T@@ tv = fr_mul_mont_cios(v, w);
-    @@FR_T@@ up = fr_add_mod(u, tv);
-    @@FR_T@@ um = fr_sub_mod(u, tv);
-    store_fr(eu, up);
-    store_fr(ev, um);
-}
-
 @@FR_T@@ fr_ntt8_load_inv_w4() {
     @@FR_T@@ w;
     for (uint i = 0u; i < 8u; i++) {
@@ -245,30 +222,132 @@ void main() {
         return;
     }
 
-    bitrev8_perm();
+    @@FR_T@@ a0;
+    @@FR_T@@ a1;
+    @@FR_T@@ a2;
+    @@FR_T@@ a3;
+    @@FR_T@@ a4;
+    @@FR_T@@ a5;
+    @@FR_T@@ a6;
+    @@FR_T@@ a7;
+    load_fr(0u, a0);
+    load_fr(4u, a1);
+    load_fr(2u, a2);
+    load_fr(6u, a3);
+    load_fr(1u, a4);
+    load_fr(5u, a5);
+    load_fr(3u, a6);
+    load_fr(7u, a7);
 
     @@FR_T@@ one = fr_load_one();
+    @@FR_T@@ w4 = fr_ntt8_load_inv_w4();
+    @@FR_T@@ w8 = fr_ntt8_load_inv_w8();
+    @@FR_T@@ w82 = fr_ntt8_load_inv_w82();
+    @@FR_T@@ w83 = fr_ntt8_load_inv_w83();
 
-    butterfly(0u, 1u, one);
-    butterfly(2u, 3u, one);
-    butterfly(4u, 5u, one);
-    butterfly(6u, 7u, one);
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a1, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a1 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a3, one);
+        @@FR_T@@ up = fr_add_mod(a2, tv);
+        @@FR_T@@ um = fr_sub_mod(a2, tv);
+        a2 = up;
+        a3 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a5, one);
+        @@FR_T@@ up = fr_add_mod(a4, tv);
+        @@FR_T@@ um = fr_sub_mod(a4, tv);
+        a4 = up;
+        a5 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, one);
+        @@FR_T@@ up = fr_add_mod(a6, tv);
+        @@FR_T@@ um = fr_sub_mod(a6, tv);
+        a6 = up;
+        a7 = um;
+    }
 
-    butterfly(0u, 2u, one);
-    butterfly(1u, 3u, fr_ntt8_load_inv_w4());
-    butterfly(4u, 6u, one);
-    butterfly(5u, 7u, fr_ntt8_load_inv_w4());
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a2, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a2 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a3, w4);
+        @@FR_T@@ up = fr_add_mod(a1, tv);
+        @@FR_T@@ um = fr_sub_mod(a1, tv);
+        a1 = up;
+        a3 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a6, one);
+        @@FR_T@@ up = fr_add_mod(a4, tv);
+        @@FR_T@@ um = fr_sub_mod(a4, tv);
+        a4 = up;
+        a6 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, w4);
+        @@FR_T@@ up = fr_add_mod(a5, tv);
+        @@FR_T@@ um = fr_sub_mod(a5, tv);
+        a5 = up;
+        a7 = um;
+    }
 
-    butterfly(0u, 4u, one);
-    butterfly(1u, 5u, fr_ntt8_load_inv_w8());
-    butterfly(2u, 6u, fr_ntt8_load_inv_w82());
-    butterfly(3u, 7u, fr_ntt8_load_inv_w83());
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a4, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a4 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a5, w8);
+        @@FR_T@@ up = fr_add_mod(a1, tv);
+        @@FR_T@@ um = fr_sub_mod(a1, tv);
+        a1 = up;
+        a5 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a6, w82);
+        @@FR_T@@ up = fr_add_mod(a2, tv);
+        @@FR_T@@ um = fr_sub_mod(a2, tv);
+        a2 = up;
+        a6 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, w83);
+        @@FR_T@@ up = fr_add_mod(a3, tv);
+        @@FR_T@@ um = fr_sub_mod(a3, tv);
+        a3 = up;
+        a7 = um;
+    }
 
     @@FR_T@@ ninv = fr_ntt8_load_ninv();
-    for (uint e = 0u; e < 8u; e++) {
-        @@FR_T@@ x;
-        load_fr(e, x);
-        x = fr_mul_mont_cios(x, ninv);
-        store_fr(e, x);
-    }
+    a0 = fr_mul_mont_cios(a0, ninv);
+    a1 = fr_mul_mont_cios(a1, ninv);
+    a2 = fr_mul_mont_cios(a2, ninv);
+    a3 = fr_mul_mont_cios(a3, ninv);
+    a4 = fr_mul_mont_cios(a4, ninv);
+    a5 = fr_mul_mont_cios(a5, ninv);
+    a6 = fr_mul_mont_cios(a6, ninv);
+    a7 = fr_mul_mont_cios(a7, ninv);
+
+    store_fr(0u, a0);
+    store_fr(1u, a1);
+    store_fr(2u, a2);
+    store_fr(3u, a3);
+    store_fr(4u, a4);
+    store_fr(5u, a5);
+    store_fr(6u, a6);
+    store_fr(7u, a7);
 }

@@ -34,6 +34,7 @@ mod tests {
             kind: VkProofKind::PoRepC2,
             circuit_log_n: 4,
             partition_index: None,
+            witness_ntt_coeffs: None,
         };
         let t = prove_groth16_partition(&ctx, &job).expect("partition smoke");
         assert!(t.total.as_nanos() > 0);

@@ -15,7 +15,10 @@ use crate::ec::{
 use crate::g1::BLS12_381_FP_U32_LIMBS;
 use crate::vk_oneshot;
 
-const BUF_ALIGN: u64 = 4096;
+/// Storage buffer / mapped range size for the bitmap-accum kernel. Must cover the full SSBO
+/// (`G1_BATCH_ACC_SSBO_BYTES` = 6544 B for `MAX_POINTS = 64`) rounded up to a 4 KiB page so the
+/// host visible allocation lines up with MoltenVK's preferred backing.
+const BUF_SIZE: u64 = ((G1_BATCH_ACC_SSBO_BYTES as u64) + 4095) & !4095;
 
 fn put_u32(buf: &mut [u8], word: usize, v: u32) {
     let o = word * 4;
@@ -70,12 +73,13 @@ pub fn run_g1_batch_jacobian_accum_bitmap_gpu(
         vk_oneshot::run_compute_1x_storage_buffer(
             dev,
             &spirv_words,
-            BUF_ALIGN,
-            BUF_ALIGN,
+            BUF_SIZE,
+            BUF_SIZE,
             (1, 1, 1),
             &wbytes,
             read_len,
             &mut out,
+            None,
         )?;
     }
     Ok(G1JacobianLimbs {

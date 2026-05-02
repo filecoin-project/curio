@@ -1,5 +1,14 @@
 // Appended after `glsl_32_bit_field_params::<Scalar>()` + twiddle `const uint` block from build.rs.
 // Forward radix-2 Fr NTT for n=8 (Montgomery limbs). SSBO `uint d[64]` — element `e` at `d[e*8+limb]`.
+//
+// Naga + MoltenVK note: the previous version used a `uint tmp[64]` scratch in
+// `bitrev8_perm()` and a separate `butterfly(eu, ev, w)` helper that round-tripped through
+// the SSBO. On Apple-M2 this miscompiled to "kernel zeroes the buffer", so the whole NTT
+// returned all zeros. This rewrite holds the eight elements in eight named `Fr` locals
+// (`a0..a7`) loaded in bit-reversed order, then runs the 12 butterflies inline. No large
+// local arrays, no buffer-resident permutation, no `inout @@FR_T@@` parameters in the hot
+// path — only the proven `fp_mul12_tail.comp`-shaped helpers (small stack arrays, struct
+// returns).
 // @@FR_T@@, @@FR_P@@, @@FR_INV@@, @@FR_ONE@@
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -172,35 +181,6 @@ void store_fr(uint e, @@FR_T@@ x) {
     }
 }
 
-void bitrev8_perm() {
-    // Flat `uint` scratch (no `Fr[8]`): naga SPIR-V can panic on array-of-struct temporaries.
-    uint tmp[64];
-    for (uint k = 0u; k < 8u; k++) {
-        for (uint i = 0u; i < 8u; i++) {
-            tmp[k * 8u + i] = buf.d[k * 8u + i];
-        }
-    }
-    uint br[8] = uint[](0u, 4u, 2u, 6u, 1u, 5u, 3u, 7u);
-    for (uint k = 0u; k < 8u; k++) {
-        uint src = br[k];
-        for (uint i = 0u; i < 8u; i++) {
-            buf.d[k * 8u + i] = tmp[src * 8u + i];
-        }
-    }
-}
-
-void butterfly(uint eu, uint ev, @@FR_T@@ w) {
-    @@FR_T@@ u;
-    @@FR_T@@ v;
-    load_fr(eu, u);
-    load_fr(ev, v);
-    @@FR_T@@ tv = fr_mul_mont_cios(v, w);
-    @@FR_T@@ up = fr_add_mod(u, tv);
-    @@FR_T@@ um = fr_sub_mod(u, tv);
-    store_fr(eu, up);
-    store_fr(ev, um);
-}
-
 @@FR_T@@ fr_ntt8_load_w4() {
     @@FR_T@@ w;
     for (uint i = 0u; i < 8u; i++) {
@@ -238,22 +218,126 @@ void main() {
         return;
     }
 
-    bitrev8_perm();
+    // Load eight elements directly in bit-reversed order. n=8 br = [0,4,2,6,1,5,3,7].
+    @@FR_T@@ a0;
+    @@FR_T@@ a1;
+    @@FR_T@@ a2;
+    @@FR_T@@ a3;
+    @@FR_T@@ a4;
+    @@FR_T@@ a5;
+    @@FR_T@@ a6;
+    @@FR_T@@ a7;
+    load_fr(0u, a0);
+    load_fr(4u, a1);
+    load_fr(2u, a2);
+    load_fr(6u, a3);
+    load_fr(1u, a4);
+    load_fr(5u, a5);
+    load_fr(3u, a6);
+    load_fr(7u, a7);
 
     @@FR_T@@ one = fr_load_one();
+    @@FR_T@@ w4 = fr_ntt8_load_w4();
+    @@FR_T@@ w8 = fr_ntt8_load_w8();
+    @@FR_T@@ w82 = fr_ntt8_load_w82();
+    @@FR_T@@ w83 = fr_ntt8_load_w83();
 
-    butterfly(0u, 1u, one);
-    butterfly(2u, 3u, one);
-    butterfly(4u, 5u, one);
-    butterfly(6u, 7u, one);
+    // Stage 0 (m=2, w=ONE for both halves). butterfly(u, v, w) → (u+v*w, u-v*w).
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a1, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a1 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a3, one);
+        @@FR_T@@ up = fr_add_mod(a2, tv);
+        @@FR_T@@ um = fr_sub_mod(a2, tv);
+        a2 = up;
+        a3 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a5, one);
+        @@FR_T@@ up = fr_add_mod(a4, tv);
+        @@FR_T@@ um = fr_sub_mod(a4, tv);
+        a4 = up;
+        a5 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, one);
+        @@FR_T@@ up = fr_add_mod(a6, tv);
+        @@FR_T@@ um = fr_sub_mod(a6, tv);
+        a6 = up;
+        a7 = um;
+    }
 
-    butterfly(0u, 2u, one);
-    butterfly(1u, 3u, fr_ntt8_load_w4());
-    butterfly(4u, 6u, one);
-    butterfly(5u, 7u, fr_ntt8_load_w4());
+    // Stage 1 (m=4): butterflies (0,2,1), (1,3,w4), (4,6,1), (5,7,w4).
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a2, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a2 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a3, w4);
+        @@FR_T@@ up = fr_add_mod(a1, tv);
+        @@FR_T@@ um = fr_sub_mod(a1, tv);
+        a1 = up;
+        a3 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a6, one);
+        @@FR_T@@ up = fr_add_mod(a4, tv);
+        @@FR_T@@ um = fr_sub_mod(a4, tv);
+        a4 = up;
+        a6 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, w4);
+        @@FR_T@@ up = fr_add_mod(a5, tv);
+        @@FR_T@@ um = fr_sub_mod(a5, tv);
+        a5 = up;
+        a7 = um;
+    }
 
-    butterfly(0u, 4u, one);
-    butterfly(1u, 5u, fr_ntt8_load_w8());
-    butterfly(2u, 6u, fr_ntt8_load_w82());
-    butterfly(3u, 7u, fr_ntt8_load_w83());
+    // Stage 2 (m=8): butterflies (0,4,1), (1,5,w8), (2,6,w82), (3,7,w83).
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a4, one);
+        @@FR_T@@ up = fr_add_mod(a0, tv);
+        @@FR_T@@ um = fr_sub_mod(a0, tv);
+        a0 = up;
+        a4 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a5, w8);
+        @@FR_T@@ up = fr_add_mod(a1, tv);
+        @@FR_T@@ um = fr_sub_mod(a1, tv);
+        a1 = up;
+        a5 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a6, w82);
+        @@FR_T@@ up = fr_add_mod(a2, tv);
+        @@FR_T@@ um = fr_sub_mod(a2, tv);
+        a2 = up;
+        a6 = um;
+    }
+    {
+        @@FR_T@@ tv = fr_mul_mont_cios(a7, w83);
+        @@FR_T@@ up = fr_add_mod(a3, tv);
+        @@FR_T@@ um = fr_sub_mod(a3, tv);
+        a3 = up;
+        a7 = um;
+    }
+
+    store_fr(0u, a0);
+    store_fr(1u, a1);
+    store_fr(2u, a2);
+    store_fr(3u, a3);
+    store_fr(4u, a4);
+    store_fr(5u, a5);
+    store_fr(6u, a6);
+    store_fr(7u, a7);
 }

@@ -6,6 +6,9 @@ license = "Apache-2.0"
 description = "Vulkan compute backend for cuZK Groth16 (BLS12-381)"
 build = "build.rs"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fr_ntt_radix2_spec)'] }
+
 [dependencies]
 anyhow = "1"
 ash = { version = "0.38", default-features = false, features = ["loaded", "debug"] }

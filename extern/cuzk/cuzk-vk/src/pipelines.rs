@@ -16,3 +16,24 @@ pub const fn align_up_u64(value: u64, align: u64) -> u64 {
 /// Reserved for future pooled pipelines / on-disk cache metadata (§C.1 remainder).
 #[derive(Debug, Default)]
 pub struct ComputePipelineCache;
+
+/// Little-endian **four bytes** for one `uint` GLSL specialization constant (`layout(constant_id = N) const uint …`).
+///
+/// **Milestone B₂ §8.3 C.3:** internal `vk_oneshot` compute paths take optional specialization data; smoke in [`crate::spec_constant_smoke_gpu`];
+/// production-shaped use in [`crate::msm_gpu::run_msm_dispatch_hitcount_smoke`] (workgroup `local_size_x` = **SpecId 0**).
+/// **Remainder:** Fr NTT / bucket MSM tails still naga-compiled (`constant_id` / `local_size_x_id` unsupported there).
+#[inline]
+pub const fn spec_constant_u32_le(val: u32) -> [u8; 4] {
+    val.to_le_bytes()
+}
+
+#[cfg(test)]
+mod spec_tests {
+    use super::*;
+
+    #[test]
+    fn spec_constant_u32_le_roundtrip() {
+        let v = 0x0a0b0c0du32;
+        assert_eq!(u32::from_le_bytes(spec_constant_u32_le(v)), v);
+    }
+}

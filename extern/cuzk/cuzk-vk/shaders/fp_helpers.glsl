@@ -95,24 +95,33 @@ bool fp_gte_val(@@FP_T@@ a, @@FP_T@@ b) {
     return p;
 }
 
+// Write to a fresh local `r` instead of mutating `a` in place. naga's GLSL frontend does not
+// reliably copy struct value parameters, so e.g. `fp_dbl(v) = fp_add_raw(v, v)` would otherwise
+// alias `a` and `b` to the caller's `v` and corrupt it during the carry propagation.
 @@FP_T@@ fp_add_raw(@@FP_T@@ a, @@FP_T@@ b) {
+    @@FP_T@@ r;
     uint carry = 0u;
     for (uint i = 0u; i < 12u; i++) {
-        uint old = a.val[i];
-        a.val[i] = old + b.val[i] + carry;
-        carry = (carry != 0u) ? ((old >= a.val[i]) ? 1u : 0u) : ((old > a.val[i]) ? 1u : 0u);
+        uint ai = a.val[i];
+        uint bi = b.val[i];
+        uint sum = ai + bi + carry;
+        r.val[i] = sum;
+        carry = (carry != 0u) ? ((ai >= sum) ? 1u : 0u) : ((ai > sum) ? 1u : 0u);
     }
-    return a;
+    return r;
 }
 
 @@FP_T@@ fp_sub_raw(@@FP_T@@ a, @@FP_T@@ b) {
+    @@FP_T@@ r;
     uint borrow = 0u;
     for (uint i = 0u; i < 12u; i++) {
-        uint old = a.val[i];
-        a.val[i] = old - b.val[i] - borrow;
-        borrow = (borrow != 0u) ? ((old <= a.val[i]) ? 1u : 0u) : ((old < a.val[i]) ? 1u : 0u);
+        uint ai = a.val[i];
+        uint bi = b.val[i];
+        uint diff = ai - bi - borrow;
+        r.val[i] = diff;
+        borrow = (borrow != 0u) ? ((ai <= diff) ? 1u : 0u) : ((ai < diff) ? 1u : 0u);
     }
-    return a;
+    return r;
 }
 
 @@FP_T@@ fp_add_mod(@@FP_T@@ a, @@FP_T@@ b) {

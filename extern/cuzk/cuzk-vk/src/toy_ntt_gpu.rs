@@ -29,6 +29,7 @@ pub fn run_toy_ntt8_gpu(dev: &VulkanDevice, data: &mut [u32; 8]) -> Result<()> {
             &wbytes,
             32,
             &mut out,
+            None,
         )?;
     }
     for i in 0..8 {

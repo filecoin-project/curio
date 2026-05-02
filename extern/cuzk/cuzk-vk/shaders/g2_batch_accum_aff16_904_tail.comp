@@ -1,9 +1,19 @@
 // Phase G: sum up to 16 affine G2 points selected by 16-bit bitmap (low bits of `d[1]`).
-// Workgroup 8, Jacobian tree in `shared` (72 `u32` / partial). Layout: `d[0]=n`, `d[1]=bitmap`,
-// Jacobian out words 64..135, affines `x||y` (Fp2) at word 136 + `idx*48`.
+//
+// Layout: `d[0]=n`, `d[1]=bitmap`, Jacobian out at words 64..135, affines `x||y` (Fp2) at
+// word 136 + `idx*48`.
+//
+// Single-invocation kernel. Earlier versions used a workgroup of 8 threads with a shared-
+// memory tree reduction and `inout @@FP_T@@` parameters in `jac_add_g2_assign` /
+// `jac_double_g2`. Both patterns hit Naga + MoltenVK codegen bugs on Apple M2 (`out` /
+// `inout` `@@FP_T@@` parameters silently corrupted, `if`-bodies dropping writes to large
+// struct locals). We keep `main` straight-line and dispatch addition vs. "acc was the
+// identity" via a small integer `mode`. The addition itself is the same EFD `add-1998-
+// cmo-2` (a=0) formula used by `g2_jacobian_add216_tail.comp`, copied verbatim so any
+// future fix to that shader transfers cleanly.
 
 #define G2_BATCH_MAX 16u
-#define G2_BATCH_WG 8u
+#define G2_BATCH_WG 1u
 #define OFF_N 0u
 #define OFF_BM 1u
 #define HEADER 64u
@@ -16,258 +26,143 @@ layout(set = 0, binding = 0) buffer Data {
     uint d[HEADER + 72u + G2_BATCH_MAX * 48u];
 } buf;
 
-shared uint sj[G2_BATCH_WG * 72u];
-
-void load2_buf(uint w, out @@FP_T@@ c0, out @@FP_T@@ c1) {
-    for (uint i = 0u; i < 12u; i++) {
-        c0.val[i] = buf.d[w + i];
-        c1.val[i] = buf.d[w + 12u + i];
-    }
-}
-
-void store2_buf(uint w, @@FP_T@@ c0, @@FP_T@@ c1) {
-    for (uint i = 0u; i < 12u; i++) {
-        buf.d[w + i] = c0.val[i];
-        buf.d[w + 12u + i] = c1.val[i];
-    }
-}
-
-void jac_load_s2(uint slot, out @@FP_T@@ ax0, out @@FP_T@@ ax1, out @@FP_T@@ ay0, out @@FP_T@@ ay1, out @@FP_T@@ az0, out @@FP_T@@ az1) {
-    uint b = slot * 72u;
-    for (uint i = 0u; i < 12u; i++) {
-        ax0.val[i] = sj[b + i];
-        ax1.val[i] = sj[b + 12u + i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        ay0.val[i] = sj[b + 24u + i];
-        ay1.val[i] = sj[b + 36u + i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        az0.val[i] = sj[b + 48u + i];
-        az1.val[i] = sj[b + 60u + i];
-    }
-}
-
-void jac_store_s2(uint slot, @@FP_T@@ ax0, @@FP_T@@ ax1, @@FP_T@@ ay0, @@FP_T@@ ay1, @@FP_T@@ az0, @@FP_T@@ az1) {
-    uint b = slot * 72u;
-    for (uint i = 0u; i < 12u; i++) {
-        sj[b + i] = ax0.val[i];
-        sj[b + 12u + i] = ax1.val[i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        sj[b + 24u + i] = ay0.val[i];
-        sj[b + 36u + i] = ay1.val[i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        sj[b + 48u + i] = az0.val[i];
-        sj[b + 60u + i] = az1.val[i];
-    }
-}
-
-void jac_double_g2(inout @@FP_T@@ ix0, inout @@FP_T@@ ix1, inout @@FP_T@@ iy0, inout @@FP_T@@ iy1, inout @@FP_T@@ iz0, inout @@FP_T@@ iz1) {
-    if (fp2_is_zero(iz0, iz1)) {
-        return;
-    }
-    @@FP_T@@ A0;
-    @@FP_T@@ A1;
-    fp2_sqr_m(ix0, ix1, A0, A1);
-    @@FP_T@@ B0;
-    @@FP_T@@ B1;
-    fp2_sqr_m(iy0, iy1, B0, B1);
-    @@FP_T@@ C0;
-    @@FP_T@@ C1;
-    fp2_sqr_m(B0, B1, C0, C1);
-    @@FP_T@@ d0;
-    @@FP_T@@ d1;
-    fp2_add_c(ix0, ix1, B0, B1, d0, d1);
-    fp2_sqr_m(d0, d1, d0, d1);
-    @@FP_T@@ t0;
-    @@FP_T@@ t1;
-    fp2_sub_c(d0, d1, A0, A1, t0, t1);
-    fp2_sub_c(t0, t1, C0, C1, d0, d1);
-    fp2_dbl_c(d0, d1, d0, d1);
-    @@FP_T@@ e0;
-    @@FP_T@@ e1;
-    fp2_dbl_c(A0, A1, e0, e1);
-    fp2_add_c(e0, e1, A0, A1, e0, e1);
-    @@FP_T@@ f0;
-    @@FP_T@@ f1;
-    fp2_sqr_m(e0, e1, f0, f1);
-    fp2_mul_m(iy0, iy1, iz0, iz1, iz0, iz1);
-    fp2_dbl_c(iz0, iz1, iz0, iz1);
-    fp2_sub_c(f0, f1, d0, d1, ix0, ix1);
-    fp2_sub_c(ix0, ix1, d0, d1, ix0, ix1);
-    fp2_dbl_c(C0, C1, C0, C1);
-    fp2_dbl_c(C0, C1, C0, C1);
-    fp2_dbl_c(C0, C1, C0, C1);
-    @@FP_T@@ u0;
-    @@FP_T@@ u1;
-    fp2_sub_c(d0, d1, ix0, ix1, u0, u1);
-    fp2_mul_m(u0, u1, e0, e1, iy0, iy1);
-    fp2_sub_c(iy0, iy1, C0, C1, iy0, iy1);
-}
-
-void jac_add_g2_assign(
-    inout @@FP_T@@ ax0,
-    inout @@FP_T@@ ax1,
-    inout @@FP_T@@ ay0,
-    inout @@FP_T@@ ay1,
-    inout @@FP_T@@ az0,
-    inout @@FP_T@@ az1,
-    @@FP_T@@ bx0,
-    @@FP_T@@ bx1,
-    @@FP_T@@ by0,
-    @@FP_T@@ by1,
-    @@FP_T@@ bz0,
-    @@FP_T@@ bz1) {
-    if (fp2_is_zero(az0, az1)) {
-        ax0 = bx0;
-        ax1 = bx1;
-        ay0 = by0;
-        ay1 = by1;
-        az0 = bz0;
-        az1 = bz1;
-        return;
-    }
-    if (fp2_is_zero(bz0, bz1)) {
-        return;
-    }
-
-    @@FP_T@@ z1z10;
-    @@FP_T@@ z1z11;
-    fp2_sqr_m(az0, az1, z1z10, z1z11);
-    @@FP_T@@ z2z20;
-    @@FP_T@@ z2z21;
-    fp2_sqr_m(bz0, bz1, z2z20, z2z21);
-    @@FP_T@@ u10;
-    @@FP_T@@ u11;
-    fp2_mul_m(ax0, ax1, z2z20, z2z21, u10, u11);
-    @@FP_T@@ u20;
-    @@FP_T@@ u21;
-    fp2_mul_m(bx0, bx1, z1z10, z1z11, u20, u21);
-    @@FP_T@@ s10;
-    @@FP_T@@ s11;
-    fp2_mul_m(ay0, ay1, bz0, bz1, s10, s11);
-    fp2_mul_m(s10, s11, z2z20, z2z21, s10, s11);
-    @@FP_T@@ s20;
-    @@FP_T@@ s21;
-    fp2_mul_m(by0, by1, az0, az1, s20, s21);
-    fp2_mul_m(s20, s21, z1z10, z1z11, s20, s21);
-
-    if (fp2_eq(u10, u11, u20, u21) && fp2_eq(s10, s11, s20, s21)) {
-        jac_double_g2(ax0, ax1, ay0, ay1, az0, az1);
-        return;
-    }
-
-    @@FP_T@@ h0;
-    @@FP_T@@ h1;
-    fp2_sub_c(u20, u21, u10, u11, h0, h1);
-    @@FP_T@@ i0;
-    @@FP_T@@ i1;
-    fp2_dbl_c(h0, h1, i0, i1);
-    fp2_sqr_m(i0, i1, i0, i1);
-    @@FP_T@@ j0;
-    @@FP_T@@ j1;
-    fp2_mul_m(h0, h1, i0, i1, j0, j1);
-    @@FP_T@@ r0;
-    @@FP_T@@ r1;
-    fp2_sub_c(s20, s21, s10, s11, r0, r1);
-    fp2_dbl_c(r0, r1, r0, r1);
-    @@FP_T@@ v0;
-    @@FP_T@@ v1;
-    fp2_mul_m(u10, u11, i0, i1, v0, v1);
-    @@FP_T@@ rx0;
-    @@FP_T@@ rx1;
-    fp2_sqr_m(r0, r1, rx0, rx1);
-    fp2_sub_c(rx0, rx1, j0, j1, rx0, rx1);
-    fp2_sub_c(rx0, rx1, v0, v1, rx0, rx1);
-    fp2_sub_c(rx0, rx1, v0, v1, rx0, rx1);
-    @@FP_T@@ ry0;
-    @@FP_T@@ ry1;
-    fp2_sub_c(v0, v1, rx0, rx1, ry0, ry1);
-    fp2_mul_m(ry0, ry1, r0, r1, ry0, ry1);
-    fp2_mul_m(s10, s11, j0, j1, s10, s11);
-    fp2_dbl_c(s10, s11, s10, s11);
-    fp2_sub_c(ry0, ry1, s10, s11, ry0, ry1);
-    @@FP_T@@ rz0;
-    @@FP_T@@ rz1;
-    fp2_add_c(az0, az1, bz0, bz1, rz0, rz1);
-    fp2_sqr_m(rz0, rz1, rz0, rz1);
-    fp2_sub_c(rz0, rz1, z1z10, z1z11, rz0, rz1);
-    fp2_sub_c(rz0, rz1, z2z20, z2z21, rz0, rz1);
-    fp2_mul_m(rz0, rz1, h0, h1, rz0, rz1);
-
-    ax0 = rx0;
-    ax1 = rx1;
-    ay0 = ry0;
-    ay1 = ry1;
-    az0 = rz0;
-    az1 = rz1;
-}
-
 void main() {
-    uint tid = gl_LocalInvocationID.x;
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
     uint n = buf.d[OFF_N];
     uint bitmap = buf.d[OFF_BM];
 
-    @@FP_T@@ ax0 = fp_zero();
-    @@FP_T@@ ax1 = fp_zero();
-    @@FP_T@@ ay0 = fp_zero();
-    @@FP_T@@ ay1 = fp_zero();
-    @@FP_T@@ az0 = fp_zero();
-    @@FP_T@@ az1 = fp_zero();
+    @@FP_T@@ ax0;
+    @@FP_T@@ ax1;
+    @@FP_T@@ ay0;
+    @@FP_T@@ ay1;
+    @@FP_T@@ az0;
+    @@FP_T@@ az1;
+    for (uint i = 0u; i < 12u; i++) {
+        ax0.val[i] = 0u;
+        ax1.val[i] = 0u;
+        ay0.val[i] = 0u;
+        ay1.val[i] = 0u;
+        az0.val[i] = 0u;
+        az1.val[i] = 0u;
+    }
 
-    for (uint pi = tid; pi < n && pi < G2_BATCH_MAX; pi += G2_BATCH_WG) {
+    for (uint pi = 0u; pi < n && pi < G2_BATCH_MAX; pi += 1u) {
         if (((bitmap >> pi) & 1u) == 0u) {
             continue;
         }
+
         uint ab = OFF_AFF + pi * 48u;
-        @@FP_T@@ px0;
-        @@FP_T@@ px1;
-        @@FP_T@@ py0;
-        @@FP_T@@ py1;
-        load2_buf(ab, px0, px1);
-        load2_buf(ab + 24u, py0, py1);
+        @@FP_T@@ bx0;
+        @@FP_T@@ bx1;
+        @@FP_T@@ by0;
+        @@FP_T@@ by1;
+        for (uint i = 0u; i < 12u; i++) {
+            bx0.val[i] = buf.d[ab + i];
+            bx1.val[i] = buf.d[ab + 12u + i];
+            by0.val[i] = buf.d[ab + 24u + i];
+            by1.val[i] = buf.d[ab + 36u + i];
+        }
         @@FP_T@@ bz0 = fp_one();
         @@FP_T@@ bz1 = fp_zero();
-        jac_add_g2_assign(ax0, ax1, ay0, ay1, az0, az1, px0, px1, py0, py1, bz0, bz1);
-    }
 
-    jac_store_s2(tid, ax0, ax1, ay0, ay1, az0, az1);
-    barrier();
-
-    for (uint stride = 4u; stride > 0u; stride >>= 1u) {
-        if (tid < stride) {
-            @@FP_T@@ jx0;
-            @@FP_T@@ jx1;
-            @@FP_T@@ jy0;
-            @@FP_T@@ jy1;
-            @@FP_T@@ jz0;
-            @@FP_T@@ jz1;
-            @@FP_T@@ kx0;
-            @@FP_T@@ kx1;
-            @@FP_T@@ ky0;
-            @@FP_T@@ ky1;
-            @@FP_T@@ kz0;
-            @@FP_T@@ kz1;
-            jac_load_s2(tid, jx0, jx1, jy0, jy1, jz0, jz1);
-            jac_load_s2(tid + stride, kx0, kx1, ky0, ky1, kz0, kz1);
-            jac_add_g2_assign(jx0, jx1, jy0, jy1, jz0, jz1, kx0, kx1, ky0, ky1, kz0, kz1);
-            jac_store_s2(tid, jx0, jx1, jy0, jy1, jz0, jz1);
+        // Detect "acc is the point at infinity" via a hand-inlined limb counter; Naga
+        // miscompiles `if (fp2_is_zero(struct))` for large `@@FP_T@@` structs on M2.
+        uint az_nz = 0u;
+        for (uint i = 0u; i < 12u; i++) {
+            if (az0.val[i] != 0u) { az_nz = az_nz + 1u; }
+            if (az1.val[i] != 0u) { az_nz = az_nz + 1u; }
         }
-        barrier();
+
+        // EFD `add-1998-cmo-2` (a=0). Same formula as `g2_jacobian_add216_tail.comp`.
+        @@FP_T@@ z1z10;
+        @@FP_T@@ z1z11;
+        fp2_sqr_m(az0, az1, z1z10, z1z11);
+        @@FP_T@@ z2z20;
+        @@FP_T@@ z2z21;
+        fp2_sqr_m(bz0, bz1, z2z20, z2z21);
+        @@FP_T@@ u10;
+        @@FP_T@@ u11;
+        fp2_mul_m(ax0, ax1, z2z20, z2z21, u10, u11);
+        @@FP_T@@ u20;
+        @@FP_T@@ u21;
+        fp2_mul_m(bx0, bx1, z1z10, z1z11, u20, u21);
+        @@FP_T@@ s10;
+        @@FP_T@@ s11;
+        fp2_mul_m(ay0, ay1, bz0, bz1, s10, s11);
+        fp2_mul_m(s10, s11, z2z20, z2z21, s10, s11);
+        @@FP_T@@ s20;
+        @@FP_T@@ s21;
+        fp2_mul_m(by0, by1, az0, az1, s20, s21);
+        fp2_mul_m(s20, s21, z1z10, z1z11, s20, s21);
+        @@FP_T@@ h0;
+        @@FP_T@@ h1;
+        fp2_sub_c(u20, u21, u10, u11, h0, h1);
+        @@FP_T@@ hh0;
+        @@FP_T@@ hh1;
+        fp2_sqr_m(h0, h1, hh0, hh1);
+        @@FP_T@@ hhh0;
+        @@FP_T@@ hhh1;
+        fp2_mul_m(h0, h1, hh0, hh1, hhh0, hhh1);
+        @@FP_T@@ r0;
+        @@FP_T@@ r1;
+        fp2_sub_c(s20, s21, s10, s11, r0, r1);
+        @@FP_T@@ v0;
+        @@FP_T@@ v1;
+        fp2_mul_m(u10, u11, hh0, hh1, v0, v1);
+        @@FP_T@@ ii0;
+        @@FP_T@@ ii1;
+        fp2_sqr_m(r0, r1, ii0, ii1);
+        @@FP_T@@ rx0;
+        @@FP_T@@ rx1;
+        fp2_sub_c(ii0, ii1, hhh0, hhh1, rx0, rx1);
+        @@FP_T@@ jj0;
+        @@FP_T@@ jj1;
+        fp2_dbl_c(v0, v1, jj0, jj1);
+        fp2_sub_c(rx0, rx1, jj0, jj1, rx0, rx1);
+        @@FP_T@@ ry0;
+        @@FP_T@@ ry1;
+        fp2_sub_c(v0, v1, rx0, rx1, ry0, ry1);
+        fp2_mul_m(ry0, ry1, r0, r1, ry0, ry1);
+        @@FP_T@@ s1hhh0;
+        @@FP_T@@ s1hhh1;
+        fp2_mul_m(s10, s11, hhh0, hhh1, s1hhh0, s1hhh1);
+        fp2_sub_c(ry0, ry1, s1hhh0, s1hhh1, ry0, ry1);
+        @@FP_T@@ rz0;
+        @@FP_T@@ rz1;
+        fp2_mul_m(az0, az1, bz0, bz1, rz0, rz1);
+        fp2_mul_m(rz0, rz1, h0, h1, rz0, rz1);
+
+        // mode 0 = acc was identity → take new point; mode 1 = real EFD addition.
+        uint mode = (az_nz == 0u) ? 0u : 1u;
+        if (mode == 0u) {
+            for (uint i = 0u; i < 12u; i++) {
+                ax0.val[i] = bx0.val[i];
+                ax1.val[i] = bx1.val[i];
+                ay0.val[i] = by0.val[i];
+                ay1.val[i] = by1.val[i];
+                az0.val[i] = bz0.val[i];
+                az1.val[i] = bz1.val[i];
+            }
+        } else {
+            for (uint i = 0u; i < 12u; i++) {
+                ax0.val[i] = rx0.val[i];
+                ax1.val[i] = rx1.val[i];
+                ay0.val[i] = ry0.val[i];
+                ay1.val[i] = ry1.val[i];
+                az0.val[i] = rz0.val[i];
+                az1.val[i] = rz1.val[i];
+            }
+        }
     }
 
-    if (tid == 0u) {
-        @@FP_T@@ ox0;
-        @@FP_T@@ ox1;
-        @@FP_T@@ oy0;
-        @@FP_T@@ oy1;
-        @@FP_T@@ oz0;
-        @@FP_T@@ oz1;
-        jac_load_s2(0u, ox0, ox1, oy0, oy1, oz0, oz1);
-        store2_buf(OFF_JAC_OUT, ox0, ox1);
-        store2_buf(OFF_JAC_OUT + 24u, oy0, oy1);
-        store2_buf(OFF_JAC_OUT + 48u, oz0, oz1);
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[OFF_JAC_OUT + i]        = ax0.val[i];
+        buf.d[OFF_JAC_OUT + 12u + i]  = ax1.val[i];
+        buf.d[OFF_JAC_OUT + 24u + i]  = ay0.val[i];
+        buf.d[OFF_JAC_OUT + 36u + i]  = ay1.val[i];
+        buf.d[OFF_JAC_OUT + 48u + i]  = az0.val[i];
+        buf.d[OFF_JAC_OUT + 60u + i]  = az1.val[i];
     }
 }

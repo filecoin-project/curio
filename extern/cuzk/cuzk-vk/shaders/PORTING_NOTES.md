@@ -58,8 +58,8 @@ Document deviations when the Vulkan shader intentionally simplifies sppark’s w
 
 ## Phase H–J host modules (Rust)
 
-- [`split_msm.rs`](../src/split_msm.rs) — G1 MSM as per-bit GPU bitmap batch sums + host `2^b` combine (small `u64` scalars, `n ≤ 64`).
-- [`srs.rs`](../src/srs.rs) — SRS file byte layout constants + walk past VK + six big-endian counts and affine blobs (`groth16_srs.cuh`); decode `ic` / `h` / `l` / `a` / `b_g1` / `b_g2`; synthetic partition smoke blob for [`prove_groth16_partition`](../src/prover.rs) B₀; **`srs_read_file_spawn`** for overlapping disk read with host work (§C.2 slice — GPU upload overlap still open).
+- [`split_msm.rs`](../src/split_msm.rs) — G1 MSM as per-bit GPU bitmap batch sums + host `2^b` combine (small `u64` scalars, `n ≤ 64`); **B₂:** [`g1_msm_bitplanes_scalars_trunc_gpu_host`](../src/split_msm.rs) feeds the same path from truncated [`Scalar`] canonical bits (`tests/split_msm_scalar_trunc_gpu.rs`).
+- [`srs.rs`](../src/srs.rs) — SRS file byte layout constants + walk past VK + six big-endian counts and affine blobs (`groth16_srs.cuh`); decode `ic` / `h` / `l` / `a` / `b_g1` / `b_g2`; synthetic partition smoke blob for [`prove_groth16_partition`](../src/prover.rs) B₀; **`srs_read_file_spawn`** for overlapping disk read with host work (§C.2 B₁). **B₂:** [`srs_staging_gpu.rs`](../src/srs_staging_gpu.rs) `vkCmdCopyBuffer` to device-preferring memory (`tests/srs_staging_device_local_gpu.rs`).
 - [`srs_gpu.rs`](../src/srs_gpu.rs) — G1 `g1_reverse24` and **G2** `g2_reverse48` Montgomery limb staging smoke vs CPU (`tests/srs_g1_gpu_reverse24.rs`, `tests/srs_g2_gpu_reverse48.rs`).
 - [`h_term.rs`](../src/h_term.rs) / [`h_term_gpu.rs`](../src/h_term_gpu.rs) — Groth16 H quotient scalars (CPU = bellperson `execute_fft`; GPU = general Fr NTT + host coset / vanishing glue).
 

@@ -1,9 +1,19 @@
-// Phase G: sum selected affine G1 points (Montgomery) with 64-bit bitmap (two `u32` words).
-// Workgroup 8, up to 64 affines. `d[0]=n`, `d[1]=bitmap_lo`, `d[2]=bitmap_hi`, header 64 words,
-// out Jacobian words 64..99, affines at word 100 + `idx*24`.
+// Phase G: sum selected affine G1 points (Montgomery) with a 64-bit bitmap (two `u32`).
+//
+// Layout: `d[0]=n`, `d[1]=bitmap_lo`, `d[2]=bitmap_hi`, header 64 words, out Jacobian at
+// words 64..99, affines at word 100 + `idx*24`.
+//
+// Single-invocation kernel. Earlier versions used a workgroup of 8 threads with a shared-
+// memory tree reduction and a `jac_acc_add` helper taking `inout @@FP_T@@` parameters.
+// Both patterns hit Naga + MoltenVK codegen bugs on Apple M2 (large `@@FP_T@@`-typed
+// `inout`/`out` parameters silently corrupted, `if`-body branches dropping writes to
+// large struct locals). The current kernel keeps everything in one straight-line `main`,
+// inlines the addition formula, and uses an integer `mode` register to dispatch among
+// "acc was identity → take new point" vs "real EFD `add-1998-cmo-2` add". With n ≤ 64
+// the linear-cost overhead is negligible.
 
 #define G1_BATCH_MAX_POINTS 64u
-#define G1_BATCH_WG 8u
+#define G1_BATCH_WG 1u
 #define OFF_N 0u
 #define OFF_BM_LO 1u
 #define OFF_BM_HI 2u
@@ -17,111 +27,6 @@ layout(set = 0, binding = 0) buffer Data {
     uint d[HEADER + 36u + G1_BATCH_MAX_POINTS * 24u];
 } buf;
 
-shared uint sj[G1_BATCH_WG * 36u];
-
-void fp_load_w(uint base, out @@FP_T@@ x) {
-    for (uint i = 0u; i < 12u; i++) {
-        x.val[i] = buf.d[base + i];
-    }
-}
-
-void fp_store_w(uint base, @@FP_T@@ x) {
-    for (uint i = 0u; i < 12u; i++) {
-        buf.d[base + i] = x.val[i];
-    }
-}
-
-void jac_load_s(uint slot, out @@FP_T@@ ax, out @@FP_T@@ ay, out @@FP_T@@ az) {
-    uint b = slot * 36u;
-    for (uint i = 0u; i < 12u; i++) {
-        ax.val[i] = sj[b + i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        ay.val[i] = sj[b + 12u + i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        az.val[i] = sj[b + 24u + i];
-    }
-}
-
-void jac_store_s(uint slot, @@FP_T@@ ax, @@FP_T@@ ay, @@FP_T@@ az) {
-    uint b = slot * 36u;
-    for (uint i = 0u; i < 12u; i++) {
-        sj[b + i] = ax.val[i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        sj[b + 12u + i] = ay.val[i];
-    }
-    for (uint i = 0u; i < 12u; i++) {
-        sj[b + 24u + i] = az.val[i];
-    }
-}
-
-void jac_double(inout @@FP_T@@ ix, inout @@FP_T@@ iy, inout @@FP_T@@ iz) {
-    if (fp_is_zero(iz)) {
-        return;
-    }
-    @@FP_T@@ A = fp_mul_mont_cios(ix, ix);
-    @@FP_T@@ B = fp_mul_mont_cios(iy, iy);
-    @@FP_T@@ C = fp_mul_mont_cios(B, B);
-    @@FP_T@@ d = fp_add_mod(ix, B);
-    d = fp_mul_mont_cios(d, d);
-    d = fp_sub_mod(fp_sub_mod(d, A), C);
-    d = fp_dbl(d);
-    @@FP_T@@ e = fp_add_mod(fp_dbl(A), A);
-    @@FP_T@@ f = fp_mul_mont_cios(e, e);
-    iz = fp_mul_mont_cios(iy, iz);
-    iz = fp_dbl(iz);
-    ix = fp_sub_mod(fp_sub_mod(f, d), d);
-    C = fp_dbl(C);
-    C = fp_dbl(C);
-    C = fp_dbl(C);
-    iy = fp_sub_mod(fp_mul_mont_cios(fp_sub_mod(d, ix), e), C);
-}
-
-void jac_add_assign(inout @@FP_T@@ ax, inout @@FP_T@@ ay, inout @@FP_T@@ az, @@FP_T@@ bx, @@FP_T@@ by, @@FP_T@@ bz) {
-    if (fp_is_zero(az)) {
-        ax = bx;
-        ay = by;
-        az = bz;
-        return;
-    }
-    if (fp_is_zero(bz)) {
-        return;
-    }
-
-    @@FP_T@@ z1z1 = fp_mul_mont_cios(az, az);
-    @@FP_T@@ z2z2 = fp_mul_mont_cios(bz, bz);
-    @@FP_T@@ u1 = fp_mul_mont_cios(ax, z2z2);
-    @@FP_T@@ u2 = fp_mul_mont_cios(bx, z1z1);
-    @@FP_T@@ s1 = fp_mul_mont_cios(fp_mul_mont_cios(ay, bz), z2z2);
-    @@FP_T@@ s2 = fp_mul_mont_cios(fp_mul_mont_cios(by, az), z1z1);
-
-    if (fp_eq(u1, u2) && fp_eq(s1, s2)) {
-        jac_double(ax, ay, az);
-        return;
-    }
-
-    @@FP_T@@ h = fp_sub_mod(u2, u1);
-    @@FP_T@@ i = fp_dbl(h);
-    i = fp_mul_mont_cios(i, i);
-    @@FP_T@@ j = fp_mul_mont_cios(h, i);
-    @@FP_T@@ r = fp_dbl(fp_sub_mod(s2, s1));
-    @@FP_T@@ v = fp_mul_mont_cios(u1, i);
-    @@FP_T@@ rx = fp_sub_mod(fp_sub_mod(fp_sub_mod(fp_mul_mont_cios(r, r), j), v), v);
-    @@FP_T@@ ry = fp_mul_mont_cios(fp_sub_mod(v, rx), r);
-    s1 = fp_dbl(fp_mul_mont_cios(s1, j));
-    ry = fp_sub_mod(ry, s1);
-    @@FP_T@@ rz = fp_add_mod(az, bz);
-    rz = fp_mul_mont_cios(rz, rz);
-    rz = fp_sub_mod(fp_sub_mod(rz, z1z1), z2z2);
-    rz = fp_mul_mont_cios(rz, h);
-
-    ax = rx;
-    ay = ry;
-    az = rz;
-}
-
 bool bitmap_test(uint pi) {
     if (pi < 32u) {
         return ((buf.d[OFF_BM_LO] >> pi) & 1u) != 0u;
@@ -130,52 +35,94 @@ bool bitmap_test(uint pi) {
 }
 
 void main() {
-    uint tid = gl_LocalInvocationID.x;
+    if (gl_GlobalInvocationID.x != 0u) {
+        return;
+    }
     uint n = buf.d[OFF_N];
 
-    @@FP_T@@ ax = fp_zero();
-    @@FP_T@@ ay = fp_zero();
-    @@FP_T@@ az = fp_zero();
+    @@FP_T@@ ax;
+    @@FP_T@@ ay;
+    @@FP_T@@ az;
+    for (uint i = 0u; i < 12u; i++) {
+        ax.val[i] = 0u;
+        ay.val[i] = 0u;
+        az.val[i] = 0u;
+    }
+    @@FP_T@@ bz_one = fp_one();
 
-    for (uint pi = tid; pi < n && pi < G1_BATCH_MAX_POINTS; pi += G1_BATCH_WG) {
+    for (uint pi = 0u; pi < n && pi < G1_BATCH_MAX_POINTS; pi += 1u) {
         if (!bitmap_test(pi)) {
             continue;
         }
+
         uint ab = OFF_AFF + pi * 24u;
-        @@FP_T@@ px;
-        @@FP_T@@ py;
-        fp_load_w(ab, px);
-        fp_load_w(ab + 12u, py);
-        @@FP_T@@ bz = fp_one();
-        jac_add_assign(ax, ay, az, px, py, bz);
-    }
-
-    jac_store_s(tid, ax, ay, az);
-    barrier();
-
-    for (uint stride = 4u; stride > 0u; stride >>= 1u) {
-        if (tid < stride) {
-            @@FP_T@@ jx;
-            @@FP_T@@ jy;
-            @@FP_T@@ jz;
-            @@FP_T@@ kx;
-            @@FP_T@@ ky;
-            @@FP_T@@ kz;
-            jac_load_s(tid, jx, jy, jz);
-            jac_load_s(tid + stride, kx, ky, kz);
-            jac_add_assign(jx, jy, jz, kx, ky, kz);
-            jac_store_s(tid, jx, jy, jz);
+        @@FP_T@@ bx;
+        @@FP_T@@ by;
+        for (uint i = 0u; i < 12u; i++) {
+            bx.val[i] = buf.d[ab + i];
+            by.val[i] = buf.d[ab + 12u + i];
         }
-        barrier();
+        @@FP_T@@ bz = bz_one;
+
+        // Snapshot the running accumulator into pure locals so the addition formula reads
+        // from function-scope variables only (avoids Naga's miscompilation of repeated
+        // reads through a long `inout`-style chain).
+        @@FP_T@@ ax0;
+        @@FP_T@@ ay0;
+        @@FP_T@@ az0;
+        uint az_nz = 0u;
+        for (uint i = 0u; i < 12u; i++) {
+            ax0.val[i] = ax.val[i];
+            ay0.val[i] = ay.val[i];
+            az0.val[i] = az.val[i];
+            if (az.val[i] != 0u) { az_nz = az_nz + 1u; }
+        }
+
+        // EFD `add-1998-cmo-2` (a=0). Always computed; result is selected via `mode` below.
+        @@FP_T@@ z1z1 = fp_mul_mont_cios(az0, az0);
+        @@FP_T@@ z2z2 = fp_mul_mont_cios(bz, bz);
+        @@FP_T@@ u1 = fp_mul_mont_cios(ax0, z2z2);
+        @@FP_T@@ u2 = fp_mul_mont_cios(bx, z1z1);
+        @@FP_T@@ ay_bz = fp_mul_mont_cios(ay0, bz);
+        @@FP_T@@ s1 = fp_mul_mont_cios(ay_bz, z2z2);
+        @@FP_T@@ by_az = fp_mul_mont_cios(by, az0);
+        @@FP_T@@ s2 = fp_mul_mont_cios(by_az, z1z1);
+        @@FP_T@@ h = fp_sub_mod(u2, u1);
+        @@FP_T@@ hh = fp_mul_mont_cios(h, h);
+        @@FP_T@@ hhh = fp_mul_mont_cios(h, hh);
+        @@FP_T@@ r = fp_sub_mod(s2, s1);
+        @@FP_T@@ v = fp_mul_mont_cios(u1, hh);
+        @@FP_T@@ r2 = fp_mul_mont_cios(r, r);
+        @@FP_T@@ twov = fp_dbl(v);
+        @@FP_T@@ r2_hhh = fp_sub_mod(r2, hhh);
+        @@FP_T@@ rx = fp_sub_mod(r2_hhh, twov);
+        @@FP_T@@ v_minus_rx = fp_sub_mod(v, rx);
+        @@FP_T@@ ry_a = fp_mul_mont_cios(v_minus_rx, r);
+        @@FP_T@@ s1hhh = fp_mul_mont_cios(s1, hhh);
+        @@FP_T@@ ry = fp_sub_mod(ry_a, s1hhh);
+        @@FP_T@@ az_bz = fp_mul_mont_cios(az0, bz);
+        @@FP_T@@ rz = fp_mul_mont_cios(az_bz, h);
+
+        // mode 0 = acc was identity → copy new point; mode 1 = real EFD addition.
+        uint mode = (az_nz == 0u) ? 0u : 1u;
+        if (mode == 0u) {
+            for (uint i = 0u; i < 12u; i++) {
+                ax.val[i] = bx.val[i];
+                ay.val[i] = by.val[i];
+                az.val[i] = bz.val[i];
+            }
+        } else {
+            for (uint i = 0u; i < 12u; i++) {
+                ax.val[i] = rx.val[i];
+                ay.val[i] = ry.val[i];
+                az.val[i] = rz.val[i];
+            }
+        }
     }
 
-    if (tid == 0u) {
-        @@FP_T@@ ox;
-        @@FP_T@@ oy;
-        @@FP_T@@ oz;
-        jac_load_s(0u, ox, oy, oz);
-        fp_store_w(OFF_JAC_OUT, ox);
-        fp_store_w(OFF_JAC_OUT + 12u, oy);
-        fp_store_w(OFF_JAC_OUT + 24u, oz);
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[OFF_JAC_OUT + i] = ax.val[i];
+        buf.d[OFF_JAC_OUT + 12u + i] = ay.val[i];
+        buf.d[OFF_JAC_OUT + 24u + i] = az.val[i];
     }
 }

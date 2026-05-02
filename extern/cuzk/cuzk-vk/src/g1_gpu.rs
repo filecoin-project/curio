@@ -27,6 +27,7 @@ pub fn run_g1_reverse24_gpu(dev: &VulkanDevice, limbs: &mut G1AffineLimbs) -> Re
             &inb,
             G1_AFFINE_LIMB_BYTES,
             &mut out,
+            None,
         )?;
     }
     *limbs = g1_limbs_from_le_bytes(&out);

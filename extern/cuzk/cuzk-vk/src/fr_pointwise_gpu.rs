@@ -100,6 +100,7 @@ pub fn run_fr_coeff_wise_mult_gpu(
             &write_bytes,
             read_bytes,
             &mut read_back,
+            None,
         )?;
     }
     let dr = bytes_to_u32s(&read_back, read_words);
@@ -153,6 +154,7 @@ pub fn run_fr_sub_mult_constant_gpu(
             &write_bytes,
             read_bytes,
             &mut read_back,
+            None,
         )?;
     }
     let dr = bytes_to_u32s(&read_back, read_words);

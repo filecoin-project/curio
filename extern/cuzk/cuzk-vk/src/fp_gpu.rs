@@ -69,6 +69,7 @@ pub fn run_fp_add_mod_gpu(dev: &VulkanDevice, a: &Fp, b: &Fp) -> Result<Fp> {
             &wbytes,
             48,
             &mut out48,
+            None,
         )?;
     }
     unpack_fp_out(&out48)
@@ -90,6 +91,7 @@ pub fn run_fp_sub_mod_gpu(dev: &VulkanDevice, a: &Fp, b: &Fp) -> Result<Fp> {
             &wbytes,
             48,
             &mut out48,
+            None,
         )?;
     }
     unpack_fp_out(&out48)
@@ -111,6 +113,7 @@ pub fn run_fp_mul_mod_gpu(dev: &VulkanDevice, a: &Fp, b: &Fp) -> Result<Fp> {
             &wbytes,
             48,
             &mut out48,
+            None,
         )?;
     }
     Ok(unpack_fp_mont_mul_out(&out48))

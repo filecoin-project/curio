@@ -19,6 +19,19 @@ pub struct G1JacobianLimbs {
     pub z: [u32; BLS12_381_FP_U32_LIMBS],
 }
 
+impl G1JacobianLimbs {
+    /// Point-at-infinity sentinel (`Z = 0`), used by the host-side dispatcher
+    /// in [`crate::g1_ec_gpu::run_g1_jacobian_add_gpu`] to short-circuit the
+    /// identity input case without touching the GPU.
+    pub fn zero() -> Self {
+        Self {
+            x: [0u32; BLS12_381_FP_U32_LIMBS],
+            y: [0u32; BLS12_381_FP_U32_LIMBS],
+            z: [0u32; BLS12_381_FP_U32_LIMBS],
+        }
+    }
+}
+
 /// G1 XYZZ bucket state: `X`, `Y`, `ZZZ` (\(Z^3\)), `ZZ` (\(Z^2\)) — sppark member order.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,6 +52,24 @@ pub const G1_XYZZ_POINT_BYTES: usize = 4 * BLS12_381_FP_U32_LIMBS * 4;
 /// SSBO for mixed add: XYZZ (48 words) + affine `x||y` (24 words) = 72 × `u32`.
 pub const G1_XYZZ_ADD_MIXED_SSBO_BYTES: usize = 72 * 4;
 
+/// §8.1 Pippenger bucket accumulate — one thread per bucket, iterates all N affine points.
+/// See `g1_pippenger_bucket_acc_tail.comp`.
+pub const G1_PIPP_LOCAL_X: u32 = 256;
+/// Maximum points per window dispatch.
+pub const G1_PIPP_MAX_N: usize = 16384;
+/// Maximum bucket count (= 1 << 16 for w=16).
+pub const G1_PIPP_MAX_BUCKET_COUNT: usize = 65536;
+pub const G1_PIPP_HEADER: usize = 64;
+pub const G1_PIPP_OFF_N: usize = 0;
+pub const G1_PIPP_OFF_BUCKET_COUNT: usize = 1;
+pub const G1_PIPP_OFF_DIG: usize = G1_PIPP_HEADER;
+pub const G1_PIPP_OFF_AFF: usize = G1_PIPP_OFF_DIG + G1_PIPP_MAX_N;
+pub const G1_PIPP_OFF_BUCKET_JAC: usize =
+    G1_PIPP_OFF_AFF + G1_PIPP_MAX_N * 2 * BLS12_381_FP_U32_LIMBS;
+pub const G1_PIPP_SSBO_U32: usize =
+    G1_PIPP_OFF_BUCKET_JAC + G1_PIPP_MAX_BUCKET_COUNT * 3 * BLS12_381_FP_U32_LIMBS;
+pub const G1_PIPP_SSBO_BYTES: usize = G1_PIPP_SSBO_U32 * 4;
+
 /// Phase G: bitmap-selected sum of up to 64 affine G1 points (Jacobian out). See `g1_batch_accum_bitmap1636_tail.comp`.
 pub const G1_BATCH_ACC_MAX_POINTS: usize = 64;
 pub const G1_BATCH_ACC_HEADER_WORDS: usize = 64;
@@ -47,6 +78,21 @@ pub const G1_BATCH_ACC_JAC_WORDS: usize = 3 * BLS12_381_FP_U32_LIMBS;
 pub const G1_BATCH_ACC_SSBO_U32: usize =
     G1_BATCH_ACC_HEADER_WORDS + G1_BATCH_ACC_JAC_WORDS + G1_BATCH_ACC_MAX_POINTS * 2 * BLS12_381_FP_U32_LIMBS;
 pub const G1_BATCH_ACC_SSBO_BYTES: usize = G1_BATCH_ACC_SSBO_U32 * 4;
+
+/// Single-window **bucket sums** (Jacobian per bucket) for Pippenger-style MSM; see `g1_bucket_sum_window4_n32_tail.comp`.
+pub const G1_BUCKET_MSM_WINDOW_BITS: u32 = 4;
+pub const G1_BUCKET_MSM_BUCKETS: usize = 1 << G1_BUCKET_MSM_WINDOW_BITS;
+pub const G1_BUCKET_MSM_MAX_POINTS: usize = 32;
+pub const G1_BUCKET_MSM_HEADER_WORDS: usize = 64;
+pub const G1_BUCKET_MSM_JAC_PER_BUCKET_WORDS: usize = G1_BATCH_ACC_JAC_WORDS;
+pub const G1_BUCKET_MSM_OFF_N: usize = 0;
+pub const G1_BUCKET_MSM_OFF_BUCKET_JAC: usize = G1_BUCKET_MSM_HEADER_WORDS;
+pub const G1_BUCKET_MSM_OFF_DIGITS: usize =
+    G1_BUCKET_MSM_OFF_BUCKET_JAC + G1_BUCKET_MSM_BUCKETS * G1_BUCKET_MSM_JAC_PER_BUCKET_WORDS;
+pub const G1_BUCKET_MSM_OFF_AFF: usize = G1_BUCKET_MSM_OFF_DIGITS + G1_BUCKET_MSM_MAX_POINTS;
+pub const G1_BUCKET_MSM_SSBO_U32: usize =
+    G1_BUCKET_MSM_OFF_AFF + G1_BUCKET_MSM_MAX_POINTS * 2 * BLS12_381_FP_U32_LIMBS;
+pub const G1_BUCKET_MSM_SSBO_BYTES: usize = G1_BUCKET_MSM_SSBO_U32 * 4;
 
 /// G2 Jacobian: Montgomery `Fp2` limbs for each of `X, Y, Z` (`c0||c1` per [`crate::fp2`]).
 pub const G2_JACOBIAN_U32: usize = 3 * crate::fp2::BLS12_381_FP2_U32_LIMBS;

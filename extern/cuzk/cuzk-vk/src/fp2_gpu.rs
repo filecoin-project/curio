@@ -87,6 +87,7 @@ pub fn run_fp2_add_mod_gpu(dev: &VulkanDevice, a: &Fp2, b: &Fp2) -> Result<Fp2> 
             &wbytes,
             OUT_BYTES,
             &mut out96,
+            None,
         )?;
     }
     unpack_fp2_out(&out96)
@@ -108,6 +109,7 @@ pub fn run_fp2_sub_mod_gpu(dev: &VulkanDevice, a: &Fp2, b: &Fp2) -> Result<Fp2> 
             &wbytes,
             OUT_BYTES,
             &mut out96,
+            None,
         )?;
     }
     unpack_fp2_out(&out96)
@@ -129,6 +131,7 @@ pub fn run_fp2_mul_mod_gpu(dev: &VulkanDevice, a: &Fp2, b: &Fp2) -> Result<Fp2> 
             &wbytes,
             OUT_BYTES,
             &mut out96,
+            None,
         )?;
     }
     Ok(unpack_fp2_mont_out(&out96))
@@ -150,6 +153,7 @@ pub fn run_fp2_sqr_mod_gpu(dev: &VulkanDevice, a: &Fp2) -> Result<Fp2> {
             &wbytes,
             OUT_BYTES,
             &mut out96,
+            None,
         )?;
     }
     Ok(unpack_fp2_mont_out(&out96))

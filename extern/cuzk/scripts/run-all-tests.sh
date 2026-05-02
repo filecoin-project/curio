@@ -13,6 +13,7 @@
 #   CUZK_RUN_BELLPERSON=1 also run bellperson mimc + `cargo check --features groth16,vulkan-cuzk` (extern/bellperson).
 #   `bellperson-vk-smoke` workspace crate always runs: typechecks bellperson↔cuzk-vk optional link under [patch].
 #   Milestone A correctness slice for `cuzk-vk` is documented in repo-root `cuzk-vulkan-optimization-roadmap.md` §3.2.1.
+#   Milestone B integration (B₁) vs parity (B₂): `extern/cuzk/MILESTONE_B.md`.
 
 set -euo pipefail
 

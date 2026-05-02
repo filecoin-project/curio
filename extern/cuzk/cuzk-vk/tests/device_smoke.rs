@@ -13,5 +13,9 @@ fn vulkan_device_can_enumerate_and_create_compute_queue() {
     if skip_vulkan_smoke() {
         return;
     }
-    let _dev = VulkanDevice::new().expect("Vulkan init");
+    let dev = VulkanDevice::new().expect("Vulkan init");
+    let info = dev.physical_device_info();
+    assert!(!info.device_name.is_empty());
+    assert!(!info.driver_version.is_empty());
+    assert!(!info.api_version.is_empty());
 }

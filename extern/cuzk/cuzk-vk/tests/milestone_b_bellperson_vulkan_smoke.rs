@@ -1,8 +1,8 @@
-//! Milestone B — **§3.2 step 11 slice:** native bellperson Groth16 **prove + verify** (uses the BLS12-381
-//! **pairing** engine), then [`cuzk_vk::prove_groth16_partition`] on a live ICD (`CUZK_VK_SKIP_SMOKE=0`).
+//! **Milestone B₁ (integration)** — **§3.2 step 11:** native bellperson Groth16 **prove + verify**
+//! (BLS12-381 **pairing**), then [`cuzk_vk::prove_groth16_partition`] on a live ICD (`CUZK_VK_SKIP_SMOKE=0`).
 //!
-//! This does **not** route bellperson’s R1CS witness through Vulkan kernels yet; it gates that the
-//! optional `bellperson` stack and `cuzk-vk` smoke coexist on the same machine for future E2E work.
+//! **B₂ slice:** [`VkGroth16Job::witness_ntt_coeffs`] runs caller Fr values through the partition GPU NTT leg;
+//! full bellperson R1CS into Vulkan prove remains future work — [`MILESTONE_B.md`](../../MILESTONE_B.md).
 
 mod common;
 
@@ -17,7 +17,8 @@ use rand::thread_rng;
 
 use common::MulCircuit;
 use cuzk_vk::{
-    prove_groth16_partition, VkGroth16Job, VkProofKind, VkProverContext, VulkanDevice,
+    msm_config_for_device, prove_groth16_partition, VkGroth16Job, VkProofKind, VkProverContext,
+    VulkanDevice,
 };
 
 fn skip_vulkan_smoke() -> bool {
@@ -61,11 +62,19 @@ fn bellperson_groth16_verify_then_vulkan_partition_smoke() {
         Ok(d) => Arc::new(d),
         Err(_) => return,
     };
+    let msm = msm_config_for_device(&dev.physical_device_info());
+    assert!((1..=31).contains(&msm.window_bits));
+
     let ctx = VkProverContext::new(dev);
+    let n = 1usize << 4;
+    let witness_ntt_coeffs: Vec<Scalar> = (0..n)
+        .map(|i| Scalar::from(1000u64 + i as u64))
+        .collect();
     let job = VkGroth16Job {
         kind: VkProofKind::PoRepC2,
         circuit_log_n: 4,
         partition_index: None,
+        witness_ntt_coeffs: Some(witness_ntt_coeffs),
     };
     let t = prove_groth16_partition(&ctx, &job).expect("partition smoke after bellperson");
     assert!(t.total.as_nanos() > 0);

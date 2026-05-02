@@ -8,6 +8,7 @@ on:
       - "extern/bellperson/**"
       - ".github/workflows/cuzk-vulkan.yml"
       - "cuzk-vulkan-optimization-roadmap.md"
+      - "benchmarks/cuzk-vk/**"
   pull_request:
     paths:
       - "extern/cuzk/**"
@@ -15,6 +16,7 @@ on:
       - "extern/bellperson/**"
       - ".github/workflows/cuzk-vulkan.yml"
       - "cuzk-vulkan-optimization-roadmap.md"
+      - "benchmarks/cuzk-vk/**"
 
 jobs:
   cpu:
@@ -32,6 +34,20 @@ jobs:
         env:
           CUZK_VK_SKIP_SMOKE: "1"
         run: bash scripts/run-all-tests.sh
+
+      - name: §1 partition timing CSV row (Lavapipe + prove path)
+        working-directory: extern/cuzk
+        env:
+          CUZK_VK_SKIP_SMOKE: "1"
+          CUZK_VK_CI_TIMINGS_ROW: "1"
+          CUZK_VK_BENCH_CSV: ${{ github.workspace }}/benchmarks/cuzk-vk/results-ci-github-actions.csv
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers
+          export VK_ICD_FILENAMES="$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)"
+          if [[ -z "${VK_ICD_FILENAMES}" ]]; then echo "Lavapipe ICD not found"; ls -la /usr/share/vulkan/icd.d/ || true; exit 1; fi
+          echo "VK_ICD_FILENAMES=${VK_ICD_FILENAMES}"
+          cargo test -p cuzk-vk --test ci_partition_csv_row -- --test-threads=1
 
   # Requires org runner labels [self-hosted, vulkan, amd] — enable when available.
   amd-vulkan:

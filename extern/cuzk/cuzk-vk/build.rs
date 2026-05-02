@@ -1,8 +1,11 @@
 //! Emit GLSL field params + compile compute shaders to SPIR-V via `naga` (no system shaderc).
 
+use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs;
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use blstrs::{Fp, Scalar};
 use blst::blst_fr;
@@ -12,6 +15,14 @@ use naga::back::spv;
 use naga::front::glsl::{Frontend, Options};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::ShaderStage;
+
+/// Fingerprint concatenated GLSL so `cargo:rustc-env` changes when sources change, forcing
+/// `include_bytes!(…/g1_jacobian_add108.spv)` to re-embed (some incremental Cargo paths miss OUT_DIR).
+fn glsl_embed_stamp(data: &str) -> u64 {
+    let mut h = DefaultHasher::new();
+    h.write(data.as_bytes());
+    h.finish()
+}
 
 fn compile_glsl_compute(src: &str, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let mut frontend = Frontend::default();
@@ -116,13 +127,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("shaders/toy_ntt8.comp", "toy_ntt8.spv"),
         ("shaders/g1_reverse24.comp", "g1_reverse24.spv"),
         ("shaders/g2_reverse48.comp", "g2_reverse48.spv"),
-        ("shaders/msm_dispatch_grid_smoke.comp", "msm_dispatch_grid_smoke.spv"),
     ] {
         let src_path = manifest.join(rel);
         let glsl = fs::read_to_string(&src_path)?;
         compile_glsl_compute(&glsl, &out.join(spv_name))?;
         println!("cargo:rerun-if-changed={}", src_path.display());
     }
+
+    let spec_prebuilt = manifest.join("shaders/spec_constant_smoke_prebuilt.spv");
+    fs::copy(&spec_prebuilt, &out.join("spec_constant_smoke.spv"))?;
+    println!("cargo:rerun-if-changed={}", spec_prebuilt.display());
+    let spec_glsl = manifest.join("shaders/spec_constant_smoke.comp");
+    println!("cargo:rerun-if-changed={}", spec_glsl.display());
+
+    let msm_prebuilt = manifest.join("shaders/msm_dispatch_grid_smoke_prebuilt.spv");
+    fs::copy(&msm_prebuilt, &out.join("msm_dispatch_grid_smoke.spv"))?;
+    println!("cargo:rerun-if-changed={}", msm_prebuilt.display());
+    let msm_glsl = manifest.join("shaders/msm_dispatch_grid_smoke.comp");
+    println!("cargo:rerun-if-changed={}", msm_glsl.display());
 
     let fr_t = Scalar::name();
     let fr_p = format!("{}_P", fr_t);
@@ -189,8 +211,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (tail_name, spv_name) in [
         ("g1_jacobian_add108_tail.comp", "g1_jacobian_add108.spv"),
+        ("g1_jacobian_dbl108_tail.comp", "g1_jacobian_dbl108.spv"),
         ("g1_xyzz_add_mixed72_tail.comp", "g1_xyzz_add_mixed72.spv"),
         ("g1_batch_accum_bitmap1636_tail.comp", "g1_batch_accum_bitmap1636.spv"),
+        ("g1_bucket_sum_window4_n32_tail.comp", "g1_bucket_sum_window4_n32.spv"),
+        ("g1_pippenger_bucket_acc_tail.comp", "g1_pippenger_bucket_acc.spv"),
+        ("g1_mega_strip_circuit_hit_tail.comp", "g1_mega_strip_circuit_hit.spv"),
+        ("gpu_echo_u32_tail.comp", "gpu_echo_u32.spv"),
     ] {
         let tail_path = manifest.join("shaders").join(tail_name);
         let tail = fs::read_to_string(&tail_path)?
@@ -201,6 +228,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let full = format!("{}\n{}\n{}", &fp, fp_helpers, tail);
         compile_glsl_compute(&full, &out.join(spv_name))?;
         println!("cargo:rerun-if-changed={}", tail_path.display());
+        if spv_name == "g1_jacobian_add108.spv" {
+            println!(
+                "cargo:rustc-env=CUZK_VK_G1_JAC_ADD108_STAMP={:016x}",
+                glsl_embed_stamp(&full)
+            );
+        }
     }
 
     let fp2_ops_path = manifest.join("shaders/fp2_mont_ops.glsl");
@@ -221,6 +254,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let full = format!("{}\n{}\n{}\n{}", &fp, fp_helpers, fp2_ops, tail);
         compile_glsl_compute(&full, &out.join(spv_name))?;
         println!("cargo:rerun-if-changed={}", tail_path.display());
+        if spv_name == "g2_jacobian_add216.spv" {
+            println!(
+                "cargo:rustc-env=CUZK_VK_G2_JAC_ADD216_STAMP={:016x}",
+                glsl_embed_stamp(&full)
+            );
+        }
     }
 
     let ntt8_path = manifest.join("shaders/fr_ntt8_forward_tail.comp");
@@ -290,6 +329,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compile_glsl_compute(&full, &out.join(spv_name))?;
         println!("cargo:rerun-if-changed={}", tail_path.display());
     }
+
+    // Optional glslang path: radix-2 stage with `local_size_x_id = 0` (host passes WG=256 as spec).
+    let radix2_spec_tail_path = manifest.join("shaders/fr_ntt_general_radix2_stage_spec_tail.comp");
+    let radix2_spec_tail = fs::read_to_string(&radix2_spec_tail_path)?
+        .replace("@@FR_T@@", &fr_t)
+        .replace("@@FR_P@@", &fr_p)
+        .replace("@@FR_INV@@", &fr_inv)
+        .replace("@@FR_ONE@@", &format!("{}_ONE", fr_t));
+    let radix2_spec_glsl = out.join("fr_ntt_radix2_stage_spec_full.glsl");
+    fs::write(
+        &radix2_spec_glsl,
+        format!("#version 450\n{}\n{}\n{}", &fr, fr_helpers, radix2_spec_tail),
+    )?;
+    let radix2_spec_spv = out.join("fr_ntt_general_radix2_stage_spec.spv");
+    let glslang_ok = Command::new("glslangValidator")
+        .args(["-V", "-S", "comp", "-o"])
+        .arg(&radix2_spec_spv)
+        .arg(&radix2_spec_glsl)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if glslang_ok {
+        println!("cargo:rustc-cfg=fr_ntt_radix2_spec");
+    } else {
+        fs::copy(out.join("fr_ntt_general_radix2_stage.spv"), &radix2_spec_spv)?;
+    }
+    println!("cargo:rerun-if-changed={}", radix2_spec_tail_path.display());
 
     println!("cargo:rerun-if-changed=build.rs");
     Ok(())

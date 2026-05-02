@@ -1,0 +1,123 @@
+// One unsigned **4-bit window**: each thread `b ∈ [0,15)` accumulates Σ P_i over digit_i == b (Jacobian).
+// `buf.d[OFF_N]=n`, digits at `OFF_DIG + i`, affines Montgomery `x||y` at `OFF_AFF + i*24`, bucket Jacobians at `OFF_BUCKET + b*36`.
+// Dispatch `(1,1,1)` with `local_size_x = 16`.
+
+#define OFF_N 0u
+#define OFF_BUCKET 64u
+#define OFF_DIG 640u
+#define OFF_AFF 672u
+#define G1_BUCKET_MAX_N 32u
+#define G1_BUCKET_WG 16u
+
+layout(local_size_x = G1_BUCKET_WG, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[1440];
+} buf;
+
+void fp_load_w(uint base, out @@FP_T@@ x) {
+    for (uint i = 0u; i < 12u; i++) {
+        x.val[i] = buf.d[base + i];
+    }
+}
+
+void fp_store_w(uint base, @@FP_T@@ x) {
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[base + i] = x.val[i];
+    }
+}
+
+void jac_double(inout @@FP_T@@ ix, inout @@FP_T@@ iy, inout @@FP_T@@ iz) {
+    if (fp_is_zero(iz)) {
+        return;
+    }
+    @@FP_T@@ A = fp_mul_mont_cios(ix, ix);
+    @@FP_T@@ B = fp_mul_mont_cios(iy, iy);
+    @@FP_T@@ C = fp_mul_mont_cios(B, B);
+    @@FP_T@@ d = fp_add_mod(ix, B);
+    d = fp_mul_mont_cios(d, d);
+    d = fp_sub_mod(fp_sub_mod(d, A), C);
+    d = fp_dbl(d);
+    @@FP_T@@ e = fp_add_mod(fp_dbl(A), A);
+    @@FP_T@@ f = fp_mul_mont_cios(e, e);
+    iz = fp_mul_mont_cios(iy, iz);
+    iz = fp_dbl(iz);
+    ix = fp_sub_mod(fp_sub_mod(f, d), d);
+    C = fp_dbl(C);
+    C = fp_dbl(C);
+    C = fp_dbl(C);
+    iy = fp_sub_mod(fp_mul_mont_cios(fp_sub_mod(d, ix), e), C);
+}
+
+void jac_add_assign(inout @@FP_T@@ ax, inout @@FP_T@@ ay, inout @@FP_T@@ az, @@FP_T@@ bx, @@FP_T@@ by, @@FP_T@@ bz) {
+    if (fp_is_zero(az)) {
+        ax = bx;
+        ay = by;
+        az = bz;
+        return;
+    }
+    if (fp_is_zero(bz)) {
+        return;
+    }
+
+    @@FP_T@@ z1z1 = fp_mul_mont_cios(az, az);
+    @@FP_T@@ z2z2 = fp_mul_mont_cios(bz, bz);
+    @@FP_T@@ u1 = fp_mul_mont_cios(ax, z2z2);
+    @@FP_T@@ u2 = fp_mul_mont_cios(bx, z1z1);
+    @@FP_T@@ s1 = fp_mul_mont_cios(fp_mul_mont_cios(ay, bz), z2z2);
+    @@FP_T@@ s2 = fp_mul_mont_cios(fp_mul_mont_cios(by, az), z1z1);
+
+    if (fp_eq(u1, u2) && fp_eq(s1, s2)) {
+        jac_double(ax, ay, az);
+        return;
+    }
+
+    @@FP_T@@ h = fp_sub_mod(u2, u1);
+    @@FP_T@@ i = fp_dbl(h);
+    i = fp_mul_mont_cios(i, i);
+    @@FP_T@@ j = fp_mul_mont_cios(h, i);
+    @@FP_T@@ r = fp_dbl(fp_sub_mod(s2, s1));
+    @@FP_T@@ v = fp_mul_mont_cios(u1, i);
+    @@FP_T@@ rx = fp_sub_mod(fp_sub_mod(fp_sub_mod(fp_mul_mont_cios(r, r), j), v), v);
+    @@FP_T@@ ry = fp_mul_mont_cios(fp_sub_mod(v, rx), r);
+    s1 = fp_dbl(fp_mul_mont_cios(s1, j));
+    ry = fp_sub_mod(ry, s1);
+    @@FP_T@@ rz = fp_add_mod(az, bz);
+    rz = fp_mul_mont_cios(rz, rz);
+    rz = fp_sub_mod(fp_sub_mod(rz, z1z1), z2z2);
+    rz = fp_mul_mont_cios(rz, h);
+
+    ax = rx;
+    ay = ry;
+    az = rz;
+}
+
+void main() {
+    uint b = gl_LocalInvocationID.x;
+    uint n = buf.d[OFF_N];
+    if (n > G1_BUCKET_MAX_N) {
+        n = G1_BUCKET_MAX_N;
+    }
+
+    @@FP_T@@ ax = fp_zero();
+    @@FP_T@@ ay = fp_zero();
+    @@FP_T@@ az = fp_zero();
+
+    for (uint i = 0u; i < n; i++) {
+        if (buf.d[OFF_DIG + i] != b) {
+            continue;
+        }
+        uint ab = OFF_AFF + i * 24u;
+        @@FP_T@@ px;
+        @@FP_T@@ py;
+        fp_load_w(ab, px);
+        fp_load_w(ab + 12u, py);
+        @@FP_T@@ bz = fp_one();
+        jac_add_assign(ax, ay, az, px, py, bz);
+    }
+
+    uint ob = OFF_BUCKET + b * 36u;
+    fp_store_w(ob, ax);
+    fp_store_w(ob + 12u, ay);
+    fp_store_w(ob + 24u, az);
+}

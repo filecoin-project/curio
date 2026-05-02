@@ -76,6 +76,61 @@ impl MsmBucketReduceDispatch {
     }
 }
 
+/// Host-side **X-grid** for mega-dispatch when `batch_circuits` independent circuits share one
+/// contiguous `groups_x` strip (§8.4 **D.1** scheduling sketch — actual cross-circuit bucket sharing is still open).
+#[inline]
+pub fn msm_mega_dense_groups_x(groups_x_per_circuit: u32, batch_circuits: u32) -> u32 {
+    groups_x_per_circuit.saturating_mul(batch_circuits.max(1))
+}
+
+/// §8.4 **D.1** — dense mega-strip layout (host grid only; shader still TBD).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MegaMsmDenseStrip {
+    pub groups_x_per_circuit: u32,
+    pub batch_circuits: u32,
+    pub local_x: u32,
+}
+
+impl MegaMsmDenseStrip {
+    #[inline]
+    pub fn groups_x_total(self) -> u32 {
+        msm_mega_dense_groups_x(self.groups_x_per_circuit, self.batch_circuits)
+    }
+
+    /// Which circuit owns global linear thread id `tid` (sketch for future `gl_GlobalInvocationID.x`).
+    #[inline]
+    pub fn circuit_for_linear_tid(self, tid: u64) -> u32 {
+        let strip = self.groups_x_per_circuit as u64 * self.local_x as u64;
+        if strip == 0 {
+            return 0;
+        }
+        let c = (tid / strip).min(self.batch_circuits.saturating_sub(1) as u64);
+        c as u32
+    }
+}
+
+/// §8.4 **D.2** — naive SRS window table reads: each circuit pays full `windows` fetches.
+#[inline]
+pub fn srs_window_table_reads_naive(circuits: u64, windows_per_circuit: u64) -> u64 {
+    circuits.saturating_mul(windows_per_circuit)
+}
+
+/// Host model when circuits `1..N` amortize duplicate SRS traffic by **`sharing >= 1`**
+/// (1 = no sharing; larger = more reuse of the first circuit’s window table).
+#[inline]
+pub fn srs_window_table_reads_with_sharing(
+    circuits: u64,
+    windows_per_circuit: u64,
+    sharing: u64,
+) -> u64 {
+    if circuits == 0 || windows_per_circuit == 0 {
+        return 0;
+    }
+    let s = sharing.max(1);
+    let marginal = windows_per_circuit.div_ceil(s);
+    windows_per_circuit.saturating_add((circuits - 1).saturating_mul(marginal))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +155,31 @@ mod tests {
         assert_eq!(d.groups_x, 40);
         assert_eq!(d.groups_y, 65536);
         assert_eq!(d.dispatch(), (40, 65536, 1));
+    }
+
+    #[test]
+    fn msm_mega_dense_groups_x_scales_batch() {
+        assert_eq!(msm_mega_dense_groups_x(40, 1), 40);
+        assert_eq!(msm_mega_dense_groups_x(40, 10), 400);
+    }
+
+    #[test]
+    fn mega_strip_circuit_for_tid_monotonic() {
+        let m = MegaMsmDenseStrip {
+            groups_x_per_circuit: 2,
+            batch_circuits: 3,
+            local_x: 64,
+        };
+        assert_eq!(m.groups_x_total(), 6);
+        assert_eq!(m.circuit_for_linear_tid(0), 0);
+        assert_eq!(m.circuit_for_linear_tid(2 * 64 - 1), 0);
+        assert_eq!(m.circuit_for_linear_tid(2 * 64), 1);
+    }
+
+    #[test]
+    fn srs_window_reads_sharing_vs_naive() {
+        assert_eq!(srs_window_table_reads_naive(10, 16), 160);
+        assert_eq!(srs_window_table_reads_with_sharing(10, 16, 1), 160);
+        assert_eq!(srs_window_table_reads_with_sharing(10, 16, 4), 16 + 9 * 4);
     }
 }

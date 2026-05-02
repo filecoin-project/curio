@@ -63,6 +63,7 @@ fn run_ntt8_spirv(
             &wbytes,
             NTT8_BYTES,
             &mut readback,
+            None,
         )?;
     }
     Ok(unpack_ntt8_mont(&readback))

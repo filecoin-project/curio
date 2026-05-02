@@ -18,4 +18,7 @@ fn fr_ntt_plan_rejects_log_above_two_adicity() {
 fn fr_ntt_plan_accepts_log_14() {
     let p = FrNttPlan::try_new(14).expect("log 14");
     assert_eq!(p.n, 16384);
+    assert_eq!(p.stage_wlens.len(), 14);
+    assert_eq!(FrNttPlan::fused_layer_count(14, 1), 14);
+    assert_eq!(FrNttPlan::fused_layer_count(14, 2), 7);
 }

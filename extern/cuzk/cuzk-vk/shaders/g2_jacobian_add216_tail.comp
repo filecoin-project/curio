@@ -1,4 +1,4 @@
-// G2 Jacobian add (Fp2 Montgomery limbs): same `POINT_add` / `POINT_double` as `g1_jacobian_add108_tail.comp`.
+// G2 Jacobian add (Fp2 Montgomery limbs): same distinct-point / double split as `g1_jacobian_add108_tail.comp`.
 // SSBO `d[216]`: out (0..71), a (72..143), b (144..215). Each coordinate is 24 × `u32` (`c0||c1`).
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -132,39 +132,37 @@ void main() {
     @@FP_T@@ h0;
     @@FP_T@@ h1;
     fp2_sub_c(u20, u21, u10, u11, h0, h1);
-    @@FP_T@@ i0;
-    @@FP_T@@ i1;
-    fp2_dbl_c(h0, h1, i0, i1);
-    fp2_sqr_m(i0, i1, i0, i1);
-    @@FP_T@@ j0;
-    @@FP_T@@ j1;
-    fp2_mul_m(h0, h1, i0, i1, j0, j1);
+    @@FP_T@@ hh0;
+    @@FP_T@@ hh1;
+    fp2_sqr_m(h0, h1, hh0, hh1);
+    @@FP_T@@ hhh0;
+    @@FP_T@@ hhh1;
+    fp2_mul_m(h0, h1, hh0, hh1, hhh0, hhh1);
     @@FP_T@@ r0;
     @@FP_T@@ r1;
     fp2_sub_c(s20, s21, s10, s11, r0, r1);
-    fp2_dbl_c(r0, r1, r0, r1);
     @@FP_T@@ v0;
     @@FP_T@@ v1;
-    fp2_mul_m(u10, u11, i0, i1, v0, v1);
+    fp2_mul_m(u10, u11, hh0, hh1, v0, v1);
+    @@FP_T@@ i0;
+    @@FP_T@@ i1;
+    fp2_sqr_m(r0, r1, i0, i1);
     @@FP_T@@ rx0;
     @@FP_T@@ rx1;
-    fp2_sqr_m(r0, r1, rx0, rx1);
+    fp2_sub_c(i0, i1, hhh0, hhh1, rx0, rx1);
+    @@FP_T@@ j0;
+    @@FP_T@@ j1;
+    fp2_dbl_c(v0, v1, j0, j1);
     fp2_sub_c(rx0, rx1, j0, j1, rx0, rx1);
-    fp2_sub_c(rx0, rx1, v0, v1, rx0, rx1);
-    fp2_sub_c(rx0, rx1, v0, v1, rx0, rx1);
     @@FP_T@@ ry0;
     @@FP_T@@ ry1;
     fp2_sub_c(v0, v1, rx0, rx1, ry0, ry1);
     fp2_mul_m(ry0, ry1, r0, r1, ry0, ry1);
-    fp2_mul_m(s10, s11, j0, j1, s10, s11);
-    fp2_dbl_c(s10, s11, s10, s11);
-    fp2_sub_c(ry0, ry1, s10, s11, ry0, ry1);
+    fp2_mul_m(s10, s11, hhh0, hhh1, i0, i1);
+    fp2_sub_c(ry0, ry1, i0, i1, ry0, ry1);
     @@FP_T@@ rz0;
     @@FP_T@@ rz1;
-    fp2_add_c(az0, az1, bz0, bz1, rz0, rz1);
-    fp2_sqr_m(rz0, rz1, rz0, rz1);
-    fp2_sub_c(rz0, rz1, z1z10, z1z11, rz0, rz1);
-    fp2_sub_c(rz0, rz1, z2z20, z2z21, rz0, rz1);
+    fp2_mul_m(az0, az1, bz0, bz1, rz0, rz1);
     fp2_mul_m(rz0, rz1, h0, h1, rz0, rz1);
 
     store_fp2(0u, rx0, rx1);

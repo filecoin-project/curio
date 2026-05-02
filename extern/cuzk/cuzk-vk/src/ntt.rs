@@ -1,7 +1,8 @@
 //! CPU reference radix-2 NTT over Fr (`blstrs::Scalar`) for power-of-two lengths.
 //!
 //! Vulkan: forward + inverse **n = 8** are in [`crate::fr_ntt_gpu`]; power-of-two **n ≤ 2^14** in
-//! [`crate::fr_ntt_general_gpu`]. Larger *n* or coset-fused paths may still use this module on the host.
+//! [`crate::fr_ntt_general_gpu`]. [`FrNttPlan::fused_layer_count`] previews radix-4/8 **dispatch depth**
+//! (B₂ §8.2 scheduling only — GPU radix butterflies still TBD). Larger *n* or coset-fused paths may still use this module on the host.
 
 use blstrs::Scalar;
 use ff::{Field, PrimeField};
@@ -49,6 +50,17 @@ impl FrNttPlan {
             omega_inv,
             stage_wlens,
         })
+    }
+
+    /// Fused butterfly **layer count** if each layer consumed `radix_log2` bits of index space
+    /// (§8.2 **B.1** scheduling preview; GPU radix-4/8 shaders still open).
+    ///
+    /// Radix-2: `radix_log2 = 1` ⇒ `log_n` layers (matches [`Self::stage_wlens`] length). Radix-4:
+    /// `radix_log2 = 2` ⇒ `ceil(log_n / 2)` layers, etc.
+    #[inline]
+    pub fn fused_layer_count(log_n: u32, radix_log2: u32) -> u32 {
+        assert!(radix_log2 >= 1);
+        log_n.div_ceil(radix_log2)
     }
 }
 
@@ -161,5 +173,13 @@ mod tests {
             Err(FrNttPlanError::LogNTooLarge { .. })
         ));
         assert!(matches!(FrNttPlan::try_new(0), Err(FrNttPlanError::LogNZero)));
+    }
+
+    #[test]
+    fn fr_ntt_fused_layer_count_radix_preview() {
+        assert_eq!(FrNttPlan::fused_layer_count(14, 1), 14);
+        assert_eq!(FrNttPlan::fused_layer_count(14, 2), 7);
+        assert_eq!(FrNttPlan::fused_layer_count(15, 2), 8);
+        assert_eq!(FrNttPlan::fused_layer_count(14, 3), 5);
     }
 }

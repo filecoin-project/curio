@@ -24,10 +24,30 @@ pub(crate) fn find_memory_type(
     None
 }
 
+/// One `uint` map entry for [`vk::SpecializationInfo`] (size = 4, little-endian payload in `data`).
+#[inline]
+pub(crate) fn spec_map_u32(constant_id: u32, byte_offset: u32) -> vk::SpecializationMapEntry {
+    vk::SpecializationMapEntry {
+        constant_id,
+        offset: byte_offset,
+        size: 4,
+    }
+}
+
+/// Map entries + raw specialization blob for one compute stage (`vk::SpecializationInfo`).
+#[derive(Clone, Copy)]
+pub(crate) struct ComputeShaderStageSpec<'a> {
+    pub map_entries: &'a [vk::SpecializationMapEntry],
+    pub data: &'a [u8],
+}
+
 /// Run a compute shader (`entry` = `"main"`) with one storage buffer, one `dispatch` of `(gx,gy,gz)`.
 ///
 /// `buffer_size` is allocated (at least `req.size`); `map_size` is mapped / barrier range (often `buffer_size`).
 /// Writes `write` bytes at offset 0 before dispatch; reads `read_len` bytes at offset 0 after completion.
+///
+/// `stage_spec`: optional [`ComputeShaderStageSpec`] for `vk::PipelineShaderStageCreateInfo::specialization_info`
+/// (e.g. `layout(constant_id = …)` in GLSL).
 pub(crate) unsafe fn run_compute_1x_storage_buffer(
     dev: &VulkanDevice,
     spirv_words: &[u32],
@@ -37,6 +57,7 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
     write: &[u8],
     read_len: usize,
     read_out: &mut [u8],
+    stage_spec: Option<&ComputeShaderStageSpec<'_>>,
 ) -> Result<()> {
     anyhow::ensure!(
         write.len() as u64 <= buffer_size && read_len <= map_size as usize,
@@ -78,10 +99,18 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
         )
         .context("create_pipeline_layout")?;
 
-    let stage = vk::PipelineShaderStageCreateInfo::default()
+    let spec_info_storage = stage_spec.map(|s| {
+        vk::SpecializationInfo::default()
+            .map_entries(s.map_entries)
+            .data(s.data)
+    });
+    let mut stage = vk::PipelineShaderStageCreateInfo::default()
         .stage(vk::ShaderStageFlags::COMPUTE)
         .module(shader_mod)
         .name(&entry);
+    if let Some(ref si) = spec_info_storage {
+        stage = stage.specialization_info(si);
+    }
 
     let cpci = vk::ComputePipelineCreateInfo::default()
         .layout(pipeline_layout)
@@ -156,6 +185,12 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
     let mapped = std::slice::from_raw_parts_mut(ptr as *mut u8, map_size as usize);
     mapped.fill(0);
     mapped[..write.len()].copy_from_slice(write);
+    dev.device
+        .flush_mapped_memory_ranges(&[vk::MappedMemoryRange::default()
+            .memory(mem)
+            .offset(0)
+            .size(write.len() as u64)])
+        .context("flush_mapped_memory_ranges")?;
 
     let buf_info = vk::DescriptorBufferInfo::default()
         .buffer(buf)
@@ -205,18 +240,41 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
         &[desc_set],
         &[],
     );
+    // Host memcpy into the mapped SSBO is not automatically visible to the compute stage on
+    // every implementation (MoltenVK / Apple in particular). Without this barrier, the shader
+    // can read stale or zeroed storage and return wrong-but-deterministic curve data.
+    let buf_barrier_host_to_shader = vk::BufferMemoryBarrier::default()
+        .buffer(buf)
+        .offset(0)
+        .size(vk::WHOLE_SIZE)
+        .src_access_mask(vk::AccessFlags::HOST_WRITE)
+        .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);
+    dev.device.cmd_pipeline_barrier(
+        cmd_buf,
+        vk::PipelineStageFlags::HOST,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::DependencyFlags::empty(),
+        &[],
+        std::slice::from_ref(&buf_barrier_host_to_shader),
+        &[],
+    );
     let (gx, gy, gz) = dispatch;
     dev.device.cmd_dispatch(cmd_buf, gx, gy, gz);
-    let barrier = vk::MemoryBarrier::default()
+    // SSBO → host readback: use an explicit buffer barrier (some Metal/MoltenVK stacks are
+    // unreliable with only a global memory barrier for storage writes).
+    let buf_barrier_host = vk::BufferMemoryBarrier::default()
+        .buffer(buf)
+        .offset(0)
+        .size(vk::WHOLE_SIZE)
         .src_access_mask(vk::AccessFlags::SHADER_WRITE)
         .dst_access_mask(vk::AccessFlags::HOST_READ);
     dev.device.cmd_pipeline_barrier(
         cmd_buf,
         vk::PipelineStageFlags::COMPUTE_SHADER,
-        vk::PipelineStageFlags::HOST,
+        vk::PipelineStageFlags::ALL_COMMANDS,
         vk::DependencyFlags::empty(),
-        std::slice::from_ref(&barrier),
         &[],
+        std::slice::from_ref(&buf_barrier_host),
         &[],
     );
     dev.device.end_command_buffer(cmd_buf).context("end_command_buffer")?;
@@ -229,6 +287,13 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
     dev.device
         .wait_for_fences(&[fence], true, u64::MAX)
         .context("wait_for_fences")?;
+
+    dev.device
+        .invalidate_mapped_memory_ranges(&[vk::MappedMemoryRange::default()
+            .memory(mem)
+            .offset(0)
+            .size(vk::WHOLE_SIZE)])
+        .context("invalidate_mapped_memory_ranges")?;
 
     let out = std::slice::from_raw_parts(ptr as *const u8, map_size as usize);
     read_out[..read_len].copy_from_slice(&out[..read_len]);
@@ -255,6 +320,8 @@ pub(crate) struct ComputePassDesc<'a> {
     pub dispatch: (u32, u32, u32),
     /// Push constants (16 bytes, compute stage offset 0). Unused words should be zero.
     pub push_constants: [u8; PUSH_CONSTANT_BYTES],
+    /// Optional per-pass specialization constants for the compute stage.
+    pub stage_spec: Option<ComputeShaderStageSpec<'a>>,
 }
 
 /// Run several compute passes on the same storage buffer: one write at offset 0, then
@@ -326,10 +393,18 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
             )
             .context("create_shader_module (passes)")?;
 
-        let stage = vk::PipelineShaderStageCreateInfo::default()
+        let spec_info_storage = pass.stage_spec.map(|s| {
+            vk::SpecializationInfo::default()
+                .map_entries(s.map_entries)
+                .data(s.data)
+        });
+        let mut stage = vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::COMPUTE)
             .module(shader_mod)
             .name(&entry);
+        if let Some(ref si) = spec_info_storage {
+            stage = stage.specialization_info(si);
+        }
 
         let cpci = vk::ComputePipelineCreateInfo::default()
             .layout(pipeline_layout)
@@ -419,6 +494,12 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
     let mapped = std::slice::from_raw_parts_mut(ptr as *mut u8, map_size as usize);
     mapped.fill(0);
     mapped[..initial_write.len()].copy_from_slice(initial_write);
+    dev.device
+        .flush_mapped_memory_ranges(&[vk::MappedMemoryRange::default()
+            .memory(mem)
+            .offset(0)
+            .size(initial_write.len() as u64)])
+        .context("flush_mapped_memory_ranges (passes)")?;
 
     let buf_info = vk::DescriptorBufferInfo::default()
         .buffer(buf)
@@ -481,6 +562,23 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
             &[desc_set],
             &[],
         );
+        if pi == 0 {
+            let buf_barrier_host_to_shader = vk::BufferMemoryBarrier::default()
+                .buffer(buf)
+                .offset(0)
+                .size(vk::WHOLE_SIZE)
+                .src_access_mask(vk::AccessFlags::HOST_WRITE)
+                .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);
+            dev.device.cmd_pipeline_barrier(
+                cmd_buf,
+                vk::PipelineStageFlags::HOST,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                std::slice::from_ref(&buf_barrier_host_to_shader),
+                &[],
+            );
+        }
         dev.device.cmd_push_constants(
             cmd_buf,
             pipeline_layout,
@@ -504,16 +602,19 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
         }
     }
 
-    let mem_barrier_host = vk::MemoryBarrier::default()
+    let buf_barrier_host = vk::BufferMemoryBarrier::default()
+        .buffer(buf)
+        .offset(0)
+        .size(vk::WHOLE_SIZE)
         .src_access_mask(vk::AccessFlags::SHADER_WRITE)
         .dst_access_mask(vk::AccessFlags::HOST_READ);
     dev.device.cmd_pipeline_barrier(
         cmd_buf,
         vk::PipelineStageFlags::COMPUTE_SHADER,
-        vk::PipelineStageFlags::HOST,
+        vk::PipelineStageFlags::ALL_COMMANDS,
         vk::DependencyFlags::empty(),
-        std::slice::from_ref(&mem_barrier_host),
         &[],
+        std::slice::from_ref(&buf_barrier_host),
         &[],
     );
     dev.device
@@ -528,6 +629,13 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
     dev.device
         .wait_for_fences(&[fence], true, u64::MAX)
         .context("wait_for_fences (passes)")?;
+
+    dev.device
+        .invalidate_mapped_memory_ranges(&[vk::MappedMemoryRange::default()
+            .memory(mem)
+            .offset(0)
+            .size(vk::WHOLE_SIZE)])
+        .context("invalidate_mapped_memory_ranges (passes)")?;
 
     let out = std::slice::from_raw_parts(ptr as *const u8, map_size as usize);
     read_out[..read_len].copy_from_slice(&out[..read_len]);

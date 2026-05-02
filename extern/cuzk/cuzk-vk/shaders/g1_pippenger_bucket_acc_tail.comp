@@ -1,0 +1,138 @@
+// Pippenger bucket accumulate — one thread per unsigned bucket b.
+//
+// For each window of a full 255-bit scalar MSM, each thread accumulates
+// all affine G1 points whose digit equals b into a Jacobian running sum.
+//
+// SSBO layout (u32 words):
+//   d[0]               = n          (number of points, ≤ G1_PIPP_MAX_N)
+//   d[1]               = bucket_count (= 1 << window_bits, ≤ G1_PIPP_MAX_BUCKET_COUNT)
+//   d[2..64)           = padding / reserved
+//   d[64 .. 64+n)      = digits[0..n]  (each in 0..bucket_count)
+//   d[16448 + i*24 ..+24) = affine point i (x||y, 12 u32 each, Montgomery Fp)
+//   d[409664 + b*36 ..+36) = Jacobian bucket b output (x||y||z, 12 u32 each)
+//
+// Uses the same straight-line EFD accumulation pattern as
+// g1_batch_accum_bitmap1636_tail.comp: no inout @@FP_T@@ parameters,
+// no bool-returning fp helpers, mode-select instead of early return.
+
+#define G1_PIPP_LOCAL_X     256u
+#define G1_PIPP_MAX_N       16384u
+#define G1_PIPP_MAX_BUCKET  65536u
+#define OFF_N               0u
+#define OFF_BUCKET_COUNT    1u
+#define OFF_DIG             64u
+#define OFF_AFF             16448u
+#define OFF_BUCKET_JAC      409664u
+// Total SSBO words: OFF_BUCKET_JAC + G1_PIPP_MAX_BUCKET * 36 = 409664 + 2359296 = 2768960
+#define SSBO_WORDS          2768960u
+
+layout(local_size_x = G1_PIPP_LOCAL_X, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Data {
+    uint d[SSBO_WORDS];
+} buf;
+
+void main() {
+    uint b = gl_GlobalInvocationID.x;
+    uint bucket_count = buf.d[OFF_BUCKET_COUNT];
+
+    if (b >= bucket_count) {
+        return;
+    }
+
+    uint n = buf.d[OFF_N];
+
+    // Running Jacobian accumulator for this bucket — Z=0 encodes the identity.
+    @@FP_T@@ ax;
+    @@FP_T@@ ay;
+    @@FP_T@@ az;
+    for (uint i = 0u; i < 12u; i++) {
+        ax.val[i] = 0u;
+        ay.val[i] = 0u;
+        az.val[i] = 0u;
+    }
+    // Pre-compute Mont(1) for the bz operand (affine → Jacobian Z = 1).
+    @@FP_T@@ bz_one = fp_one();
+
+    for (uint pi = 0u; pi < n && pi < G1_PIPP_MAX_N; pi += 1u) {
+        // Skip points whose digit does not belong to this bucket.
+        if (buf.d[OFF_DIG + pi] != b) {
+            continue;
+        }
+
+        // Load affine point pi (Montgomery Fp x||y).
+        uint ab = OFF_AFF + pi * 24u;
+        @@FP_T@@ bx;
+        @@FP_T@@ by;
+        for (uint i = 0u; i < 12u; i++) {
+            bx.val[i] = buf.d[ab + i];
+            by.val[i] = buf.d[ab + 12u + i];
+        }
+        @@FP_T@@ bz = bz_one;
+
+        // Snapshot the running accumulator into pure locals so the EFD formula
+        // reads only from scalars (avoids Naga's miscompilation of repeated
+        // reads through mutable struct fields across if-bodies).
+        @@FP_T@@ ax0;
+        @@FP_T@@ ay0;
+        @@FP_T@@ az0;
+        uint az_nz = 0u;
+        for (uint i = 0u; i < 12u; i++) {
+            ax0.val[i] = ax.val[i];
+            ay0.val[i] = ay.val[i];
+            az0.val[i] = az.val[i];
+            if (az.val[i] != 0u) { az_nz = az_nz + 1u; }
+        }
+
+        // EFD add-1998-cmo-2 (a=0 short Weierstrass). Always computed;
+        // result selected via mode below.
+        @@FP_T@@ z1z1  = fp_mul_mont_cios(az0, az0);
+        @@FP_T@@ z2z2  = fp_mul_mont_cios(bz,  bz);
+        @@FP_T@@ u1    = fp_mul_mont_cios(ax0, z2z2);
+        @@FP_T@@ u2    = fp_mul_mont_cios(bx,  z1z1);
+        @@FP_T@@ ay_bz = fp_mul_mont_cios(ay0, bz);
+        @@FP_T@@ s1    = fp_mul_mont_cios(ay_bz, z2z2);
+        @@FP_T@@ by_az = fp_mul_mont_cios(by,  az0);
+        @@FP_T@@ s2    = fp_mul_mont_cios(by_az, z1z1);
+        @@FP_T@@ h     = fp_sub_mod(u2, u1);
+        @@FP_T@@ hh    = fp_mul_mont_cios(h,  h);
+        @@FP_T@@ hhh   = fp_mul_mont_cios(h,  hh);
+        @@FP_T@@ r     = fp_sub_mod(s2, s1);
+        @@FP_T@@ v     = fp_mul_mont_cios(u1, hh);
+        @@FP_T@@ r2    = fp_mul_mont_cios(r,  r);
+        @@FP_T@@ twov  = fp_dbl(v);
+        @@FP_T@@ r2mhhh = fp_sub_mod(r2,   hhh);
+        @@FP_T@@ rx    = fp_sub_mod(r2mhhh, twov);
+        @@FP_T@@ vmrx  = fp_sub_mod(v,  rx);
+        @@FP_T@@ ry_a  = fp_mul_mont_cios(vmrx, r);
+        @@FP_T@@ s1hhh = fp_mul_mont_cios(s1,  hhh);
+        @@FP_T@@ ry    = fp_sub_mod(ry_a, s1hhh);
+        @@FP_T@@ az_bz = fp_mul_mont_cios(az0, bz);
+        @@FP_T@@ rz    = fp_mul_mont_cios(az_bz, h);
+
+        // mode 0 → acc was identity, copy new point.
+        // mode 1 → use EFD result.
+        uint mode = (az_nz == 0u) ? 0u : 1u;
+        if (mode == 0u) {
+            for (uint i = 0u; i < 12u; i++) {
+                ax.val[i] = bx.val[i];
+                ay.val[i] = by.val[i];
+                az.val[i] = bz.val[i];
+            }
+        } else {
+            for (uint i = 0u; i < 12u; i++) {
+                ax.val[i] = rx.val[i];
+                ay.val[i] = ry.val[i];
+                az.val[i] = rz.val[i];
+            }
+        }
+    }
+
+    // Write Jacobian result for bucket b.
+    uint ob = OFF_BUCKET_JAC + b * 36u;
+    for (uint i = 0u; i < 12u; i++) {
+        buf.d[ob + i]       = ax.val[i];
+        buf.d[ob + 12u + i] = ay.val[i];
+        buf.d[ob + 24u + i] = az.val[i];
+    }
+}
