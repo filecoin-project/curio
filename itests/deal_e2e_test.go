@@ -356,23 +356,23 @@ func seedVariantPipelines(
 				if v.allocationID == nil {
 					return false, fmt.Errorf("ddo deal %s missing allocation", v.name)
 				}
-			return true, helpers.SeedMK12DDOPendingDeal(tx, helpers.MK12DDOPendingSeed{
-				UUID:          v.dealID,
-				SPID:          spID,
-				Client:        v.clientIDAddr.String(),
-				PieceCID:      v.fixture.PieceCIDV1.String(),
-				PieceSize:     v.fixture.PieceSize,
-				RawSize:       v.fixture.RawSize,
-				Offline:       false,
-				URL:           v.pieceRefURL,
-				Announce:      v.shouldIndex,
-				FastRetrieval: true,
-				ShouldIndex:   v.shouldIndex,
-				Verified:      v.verified,
-				StartEpoch:    startEpoch,
-				EndEpoch:      endEpoch,
-				AllocationID:  int64(*v.allocationID),
-			})
+				return true, helpers.SeedMK12DDOPendingDeal(tx, helpers.MK12DDOPendingSeed{
+					UUID:          v.dealID,
+					SPID:          spID,
+					Client:        v.clientIDAddr.String(),
+					PieceCID:      v.fixture.PieceCIDV1.String(),
+					PieceSize:     v.fixture.PieceSize,
+					RawSize:       v.fixture.RawSize,
+					Offline:       false,
+					URL:           v.pieceRefURL,
+					Announce:      v.shouldIndex,
+					FastRetrieval: true,
+					ShouldIndex:   v.shouldIndex,
+					Verified:      v.verified,
+					StartEpoch:    startEpoch,
+					EndEpoch:      endEpoch,
+					AllocationID:  int64(*v.allocationID),
+				})
 			}
 
 			// Remaining MK12 variants seed classic F05 pending rows with signed proposal payload.
