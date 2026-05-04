@@ -32,7 +32,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
-const AlertMangerInterval = 5 * time.Minute
+const AlertManagerInterval = 5 * time.Minute
 const FullAlertInterval = 30 * time.Minute
 
 var log = logging.Logger("curio/alertmanager")
@@ -117,7 +117,7 @@ var PingHealthFuncs = map[AlertName]AlertFunc{
 }
 
 func isPingHealthOnly(now time.Time) bool {
-	return now.Unix()%int64(FullAlertInterval.Seconds()) < int64(AlertMangerInterval.Seconds())
+	return now.Unix()%int64(FullAlertInterval.Seconds()) < int64(AlertManagerInterval.Seconds())
 }
 func funcsByInterval(now time.Time) iter.Seq[AlertFunc] {
 	if isPingHealthOnly(now) {
@@ -318,7 +318,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 			Gpu: 0,
 		},
-		IAmBored: harmonytask.SingletonTaskAdder(AlertMangerInterval, a),
+		IAmBored: harmonytask.SingletonTaskAdder(AlertManagerInterval, a),
 	}
 }
 

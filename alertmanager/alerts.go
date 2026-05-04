@@ -220,7 +220,7 @@ func taskFailureCheck(al *alerts) {
 // pdpTaskFailureCheck checks PDP (v1 and v0) tasks over the last
 // AlertMangerInterval so failures surface on every ping-health cadence.
 func pdpTaskFailureCheck(al *alerts) {
-	taskFailureCheckWith(al, Name_PDPTaskFailures, AlertMangerInterval, pdpTasks)
+	taskFailureCheckWith(al, Name_PDPTaskFailures, AlertManagerInterval, pdpTasks)
 }
 
 // permanentStorageCheck retrieves the storage details from the database and checks if there is sufficient space for sealing sectors.
