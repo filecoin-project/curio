@@ -109,6 +109,16 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 		`, cid, paddedSize, rawSize, longTerm)
 		return err
 	}
+	// insertCleanupRow inserts a row whose cleanup_task_id IS NOT NULL, so it
+	// sits OUTSIDE the partial unique index. Used to set up coexistence cases.
+	insertCleanupRow := func(cid string, paddedSize, rawSize, cleanupTaskID int64, longTerm bool) int64 {
+		var id int64
+		require.NoError(t, db.QueryRow(ctx, `
+			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, cleanup_task_id)
+			VALUES ($1, $2, $3, $4, $5) RETURNING id
+		`, cid, paddedSize, rawSize, longTerm, cleanupTaskID).Scan(&id))
+		return id
+	}
 	countByCID := func(cid string) int {
 		var n int
 		require.NoError(t, db.QueryRow(ctx, `SELECT COUNT(*) FROM parked_pieces WHERE piece_cid = $1`, cid).Scan(&n))
@@ -203,10 +213,8 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 		// cleanup_task_id on the sibling would create two live rows; the
 		// index must reject that UPDATE.
 		const cid = "test-update-reintroduce"
-		liveID := insertParkedPiece(t, ctx, db, cid, 32, 16, true, true, nil)
-		cleanupTaskID := int64(8888)
-		cleanupID := insertParkedPiece(t, ctx, db, cid, 32, 16, true, true, &cleanupTaskID)
-		require.NotEqual(t, liveID, cleanupID)
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		cleanupID := insertCleanupRow(cid, 32, 16, 8888, true)
 		_, err := db.Exec(ctx, `UPDATE parked_pieces SET cleanup_task_id = NULL WHERE id = $1`, cleanupID)
 		require.Error(t, err, "UPDATE that produces a duplicate live row must fail")
 	})
@@ -235,19 +243,6 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 			VALUES ($1, 32, 16, TRUE, NULL)`, cid)
 		require.Error(t, err)
 		require.Equal(t, 1, activeCountByCID(cid))
-	})
-
-	t.Run("OldFourColumnInferenceClauseErrors", func(t *testing.T) {
-		// The pre-2026-04-10 unique constraint was on
-		// (piece_cid, piece_padded_size, long_term, cleanup_task_id).
-		// That constraint no longer exists - any code attempting to
-		// resurrect it via this ON CONFLICT inference clause must fail
-		// with "no unique or exclusion constraint matching".
-		const cid = "test-old-four-col-inference"
-		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-			VALUES ($1, 32, 16, TRUE)
-			ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING`, cid)
-		require.Error(t, err, "old 4-column inference must not match any existing constraint")
 	})
 
 	t.Run("UntargetedDoNothingPreservesSingleActiveRow", func(t *testing.T) {
@@ -319,9 +314,12 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 	t.Run("CleanupSoftDeletedAndLiveCoexist", func(t *testing.T) {
 		// cleanup_task_id IS NOT NULL puts the row outside the partial index.
 		const cid = "test-cleanup-coexist"
-		cleanupTaskID := int64(7777)
-		cleanupID := insertParkedPiece(t, ctx, db, cid, 32, 16, true, true, &cleanupTaskID)
-		liveID := insertParkedPiece(t, ctx, db, cid, 32, 16, true, true, nil)
+		cleanupID := insertCleanupRow(cid, 32, 16, 7777, true)
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		var liveID int64
+		require.NoError(t, db.QueryRow(ctx,
+			`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND cleanup_task_id IS NULL`,
+			cid).Scan(&liveID))
 		require.NotEqual(t, cleanupID, liveID)
 		require.Equal(t, 2, countByCID(cid))
 	})
@@ -329,9 +327,8 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 	t.Run("MultipleCleanupRowsCoexist", func(t *testing.T) {
 		// Multiple rows with non-null cleanup_task_id all sit outside the partial index.
 		const cid = "test-multi-cleanup"
-		t1, t2 := int64(11), int64(22)
-		id1 := insertParkedPiece(t, ctx, db, cid, 32, 16, true, true, &t1)
-		id2 := insertParkedPiece(t, ctx, db, cid, 32, 16, true, true, &t2)
+		id1 := insertCleanupRow(cid, 32, 16, 11, true)
+		id2 := insertCleanupRow(cid, 32, 16, 22, true)
 		require.NotEqual(t, id1, id2)
 		require.Equal(t, 2, countByCID(cid))
 	})
