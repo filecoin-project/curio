@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp"
@@ -260,27 +261,7 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		// Create parked_pieces entry
-		var parkedPieceID int64
-		err = tx.QueryRow(`
-							WITH existing_piece AS (
-							  SELECT id
-							  FROM parked_pieces
-							  WHERE piece_cid = $1
-								AND piece_padded_size = $2
-								AND long_term = TRUE
-								AND cleanup_task_id IS NULL
-							),
-							inserted_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							  SELECT $1, $2, $3, TRUE
-							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
-							  RETURNING id
-							)
-							SELECT id FROM existing_piece
-							UNION ALL
-							SELECT id FROM inserted_piece
-							LIMIT 1;
-		`, item.PieceCid, paddedSize, item.PieceRawSize).Scan(&parkedPieceID)
+		parkedPieceID, err := parkpiece.Upsert(tx, item.PieceCid, int64(paddedSize), item.PieceRawSize, true)
 		if err != nil {
 			return false, xerrors.Errorf("insert parked_pieces: %w", err)
 		}
