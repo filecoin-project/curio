@@ -266,8 +266,7 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 
 	t.Run("ConcurrentRawInsertsAllButOneFail", func(t *testing.T) {
 		// N goroutines race to INSERT the same key. Exactly one must win;
-		// the rest must fail with 23505. This is the property the
-		// pre-PR code violated by using a check-then-insert CTE.
+		// the rest must fail with 23505.
 		const (
 			cid = "test-concurrent-raw"
 			n   = 20
@@ -412,9 +411,8 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 	})
 
 	t.Run("UpsertConcurrentSamePieceConverges", func(t *testing.T) {
-		// The race the PR is meant to fix: N goroutines concurrently call
-		// Upsert with the same key. All must succeed, all must return the
-		// same id, and exactly one row must exist.
+		// N goroutines concurrently call Upsert with the same key. All must
+		// succeed, all must return the same id, and exactly one row must exist.
 		const (
 			cid = "test-upsert-concurrent"
 			n   = 32
