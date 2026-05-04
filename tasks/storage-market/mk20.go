@@ -492,32 +492,13 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				batch.Queue(`WITH existing_piece AS (
-									  SELECT id
-									  FROM parked_pieces
-									  WHERE piece_cid = $1
-										AND piece_padded_size = $2
-										AND long_term = FALSE
-										AND cleanup_task_id IS NULL
-									),
-									insert_piece AS (
+				batch.Queue(`WITH selected_piece AS (
 									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-									  SELECT $1, $2, $3, FALSE
-									  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+									  VALUES ($1, $2, $3, FALSE)
+									  ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
+									  -- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
+									  DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
 									  RETURNING id
-									),
-									inserted_piece AS (
-									SELECT id FROM existing_piece
-									UNION ALL
-									SELECT id FROM insert_piece
-									LIMIT 1
-									),
-									selected_piece AS (
-									  SELECT COALESCE(
-										(SELECT id FROM inserted_piece),
-										(SELECT id FROM parked_pieces
-										 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
-									  ) AS id
 									),
 									inserted_ref AS (
 									  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
@@ -768,27 +749,14 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										  FROM market_mk20_pipeline
 										  WHERE id = $1 AND piece_cid = $2 AND piece_size = $3
 										),
-										existing_piece AS (
-										  SELECT pp.id AS piece_id
-										  FROM parked_pieces pp
-										  JOIN pipeline_piece p ON true
-										  WHERE pp.piece_cid = $2
-											AND pp.piece_padded_size = $3
-											AND pp.long_term = NOT (p.deal_aggregation > 0)
-											AND pp.cleanup_task_id IS NULL
-										),
-										insert_piece AS (
+										selected_piece AS (
 										  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
 										  SELECT $2, $3, $4, NOT (p.deal_aggregation > 0)
 										  FROM pipeline_piece p
-										  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
+										  ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
+										  -- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
+										  DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
 										  RETURNING id AS piece_id
-										),
-										selected_piece AS (
-										  SELECT piece_id FROM existing_piece
-										  UNION ALL
-										  SELECT piece_id FROM insert_piece
-										  LIMIT 1
 										),
 										inserted_ref AS (
 										  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
