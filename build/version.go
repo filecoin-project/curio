@@ -65,3 +65,20 @@ func UserVersion() string {
 	}
 	return BuildVersion + BuildTypeString() + CurrentCommit
 }
+
+// CommitIDPrefix returns the first 7 characters of the git commit id embedded in
+// CurrentCommit (+git_<hash>_<committer ISO time>). Empty when no commit segment is present.
+func CommitIDPrefix() string {
+	const pfx = "+git_"
+	if !strings.HasPrefix(CurrentCommit, pfx) {
+		return ""
+	}
+	rest := strings.TrimPrefix(CurrentCommit, pfx)
+	if i := strings.Index(rest, "_"); i >= 0 {
+		rest = rest[:i]
+	}
+	if len(rest) > 7 {
+		return rest[:7]
+	}
+	return rest
+}

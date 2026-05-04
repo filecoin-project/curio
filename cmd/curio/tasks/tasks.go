@@ -586,7 +586,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		(tasks, layers, startup_time, miners, machine_id, machine_name, version) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6, version=$7`,
 			strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
-			time.Now(), strings.Join(miners, ","), machineID, machineName, curiobuild.UserVersion())
+			time.Now(), strings.Join(miners, ","), machineID, machineName, curiobuild.CommitIDPrefix())
 
 		if err != nil {
 			log.Errorf("failed to update machine details: %s", err)
