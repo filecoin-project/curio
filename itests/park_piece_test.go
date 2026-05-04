@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/piece"
@@ -79,6 +81,425 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	accepted, err = ppt.CanAccept(ids, engine)
 	require.NoError(t, err)
 	require.Nil(t, accepted, "should reject all when at capacity")
+}
+
+// TestParkedPiecesActivePieceKey is a regression guard for the
+// parked_pieces_active_piece_key partial unique index and the parkpiece
+// upsert helpers. The index enforces at most one row per
+// (piece_cid, piece_padded_size, long_term) where cleanup_task_id IS NULL.
+// Loosening it reintroduces the check-then-insert race that produced
+// duplicate rows in production (see task_fix_park_piece_unique.go for the
+// legacy cleanup).
+//
+// Subtests are grouped: NEGATIVE (must fail / preserve invariant),
+// POSITIVE (outside the index predicate, must succeed), HELPER
+// (parkpiece.Upsert / UpsertSkip behaviour).
+func TestParkedPiecesActivePieceKey(t *testing.T) {
+	ctx := t.Context()
+	db, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	require.True(t, parkedPieceIndexExists(t, ctx, db),
+		"parked_pieces_active_piece_key must be present and well-formed for these tests to mean anything")
+
+	rawInsert := func(cid string, paddedSize, rawSize int64, longTerm bool) error {
+		_, err := db.Exec(ctx, `
+			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+			VALUES ($1, $2, $3, $4)
+		`, cid, paddedSize, rawSize, longTerm)
+		return err
+	}
+	// insertCleanupRow inserts a row whose cleanup_task_id IS NOT NULL, so it
+	// sits OUTSIDE the partial unique index. Used to set up coexistence cases.
+	insertCleanupRow := func(cid string, paddedSize, rawSize, cleanupTaskID int64, longTerm bool) int64 {
+		var id int64
+		require.NoError(t, db.QueryRow(ctx, `
+			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, cleanup_task_id)
+			VALUES ($1, $2, $3, $4, $5) RETURNING id
+		`, cid, paddedSize, rawSize, longTerm, cleanupTaskID).Scan(&id))
+		return id
+	}
+	countByCID := func(cid string) int {
+		var n int
+		require.NoError(t, db.QueryRow(ctx, `SELECT COUNT(*) FROM parked_pieces WHERE piece_cid = $1`, cid).Scan(&n))
+		return n
+	}
+	activeCountByCID := func(cid string) int {
+		var n int
+		require.NoError(t, db.QueryRow(ctx,
+			`SELECT COUNT(*) FROM parked_pieces WHERE piece_cid = $1 AND cleanup_task_id IS NULL`,
+			cid).Scan(&n))
+		return n
+	}
+	// assertNoActiveDuplicates is the global invariant: across the entire
+	// parked_pieces table, no (piece_cid, piece_padded_size, long_term)
+	// triple may have more than one row with cleanup_task_id IS NULL.
+	assertNoActiveDuplicates := func(t *testing.T) {
+		t.Helper()
+		var dupes int
+		require.NoError(t, db.QueryRow(ctx, `
+			SELECT COUNT(*) FROM (
+				SELECT piece_cid, piece_padded_size, long_term
+				FROM parked_pieces
+				WHERE cleanup_task_id IS NULL
+				GROUP BY 1, 2, 3
+				HAVING COUNT(*) > 1
+			) AS d`).Scan(&dupes))
+		require.Equal(t, 0, dupes, "table-wide invariant violated: active duplicates exist")
+	}
+
+	// NEGATIVE: must fail or preserve the invariant.
+
+	t.Run("DirectDuplicateInsertFails", func(t *testing.T) {
+		const cid = "test-direct-duplicate"
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		err := rawInsert(cid, 32, 16, true)
+		require.Error(t, err)
+		require.True(t, harmonydb.IsErrUniqueContraint(err), "expected unique-violation, got %v", err)
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("DifferentRawSizeStillFails", func(t *testing.T) {
+		// piece_raw_size is NOT in the index key; same (cid, padded, long_term) must still conflict.
+		const cid = "test-different-rawsize"
+		require.NoError(t, rawInsert(cid, 32, 10, true))
+		require.Error(t, rawInsert(cid, 32, 20, true))
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("DifferentSkipStillFails", func(t *testing.T) {
+		const cid = "test-different-skip"
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+			VALUES ($1, 32, 16, TRUE, FALSE)`, cid)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+			VALUES ($1, 32, 16, TRUE, TRUE)`, cid)
+		require.Error(t, err)
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("DifferentCompleteStillFails", func(t *testing.T) {
+		const cid = "test-different-complete"
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, complete)
+			VALUES ($1, 32, 16, TRUE, FALSE)`, cid)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, complete)
+			VALUES ($1, 32, 16, TRUE, TRUE)`, cid)
+		require.Error(t, err)
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("MultiRowInsertWithInternalDuplicateFails", func(t *testing.T) {
+		// Two duplicates inside a single INSERT statement. Atomic - neither row should land.
+		const cid = "test-multirow-duplicate"
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+			VALUES ($1, 32, 16, TRUE), ($1, 32, 16, TRUE)`, cid)
+		require.Error(t, err)
+		require.Equal(t, 0, countByCID(cid))
+	})
+
+	t.Run("InsertFromSelectFails", func(t *testing.T) {
+		// INSERT ... SELECT does not get to bypass the index.
+		const cid = "test-insert-from-select"
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+			SELECT piece_cid, piece_padded_size, piece_raw_size, long_term FROM parked_pieces WHERE piece_cid = $1`, cid)
+		require.Error(t, err)
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("UpdateToReintroduceConflictFails", func(t *testing.T) {
+		// A live row plus a cleanup-marked sibling can coexist. Clearing the
+		// cleanup_task_id on the sibling would create two live rows; the
+		// index must reject that UPDATE.
+		const cid = "test-update-reintroduce"
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		cleanupID := insertCleanupRow(cid, 32, 16, 8888, true)
+		_, err := db.Exec(ctx, `UPDATE parked_pieces SET cleanup_task_id = NULL WHERE id = $1`, cleanupID)
+		require.Error(t, err, "UPDATE that produces a duplicate live row must fail")
+	})
+
+	t.Run("DifferentTaskIDStillFails", func(t *testing.T) {
+		// task_id (the work-task pointer) is NOT cleanup_task_id. Two rows
+		// with different task_id but cleanup_task_id NULL on both must still
+		// collide on the partial index.
+		const cid = "test-different-taskid"
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, task_id)
+			VALUES ($1, 32, 16, TRUE, 100)`, cid)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, task_id)
+			VALUES ($1, 32, 16, TRUE, 200)`, cid)
+		require.Error(t, err)
+		require.Equal(t, 1, activeCountByCID(cid))
+	})
+
+	t.Run("ExplicitNullCleanupTaskIDStillFails", func(t *testing.T) {
+		// Spelling cleanup_task_id = NULL explicitly must behave the same as the default.
+		const cid = "test-explicit-null-cleanup"
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, cleanup_task_id)
+			VALUES ($1, 32, 16, TRUE, NULL)`, cid)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, cleanup_task_id)
+			VALUES ($1, 32, 16, TRUE, NULL)`, cid)
+		require.Error(t, err)
+		require.Equal(t, 1, activeCountByCID(cid))
+	})
+
+	t.Run("UntargetedDoNothingPreservesSingleActiveRow", func(t *testing.T) {
+		// Untargeted ON CONFLICT DO NOTHING does not error, but it also
+		// must not produce a second active row. The partial unique index
+		// still catches the conflict; DO NOTHING just swallows it.
+		const cid = "test-untargeted-do-nothing"
+		_, err := db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+			VALUES ($1, 32, 16, TRUE)`, cid)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+			VALUES ($1, 32, 16, TRUE) ON CONFLICT DO NOTHING`, cid)
+		require.NoError(t, err, "untargeted DO NOTHING must succeed silently")
+		require.Equal(t, 1, activeCountByCID(cid), "no second active row may exist")
+	})
+
+	t.Run("ConcurrentRawInsertsAllButOneFail", func(t *testing.T) {
+		// N goroutines race to INSERT the same key. Exactly one must win;
+		// the rest must fail with 23505.
+		const (
+			cid = "test-concurrent-raw"
+			n   = 20
+		)
+		var (
+			wg      sync.WaitGroup
+			barrier = make(chan struct{})
+			errs    = make([]error, n)
+		)
+		for i := range n {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				<-barrier
+				errs[idx] = rawInsert(cid, 32, 16, true)
+			}(i)
+		}
+		close(barrier)
+		wg.Wait()
+
+		successes := 0
+		for _, err := range errs {
+			if err == nil {
+				successes++
+				continue
+			}
+			require.True(t, harmonydb.IsErrUniqueContraint(err), "unexpected error: %v", err)
+		}
+		require.Equal(t, 1, successes, "exactly one direct insert must win")
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	// POSITIVE: outside the index predicate or differ on a key column.
+
+	t.Run("DifferentLongTermSucceeds", func(t *testing.T) {
+		// long_term IS part of the index key.
+		const cid = "test-different-longterm"
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		require.NoError(t, rawInsert(cid, 32, 16, false))
+		require.Equal(t, 2, countByCID(cid))
+	})
+
+	t.Run("DifferentPaddedSizeSucceeds", func(t *testing.T) {
+		const cid = "test-different-padded"
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		require.NoError(t, rawInsert(cid, 64, 32, true))
+		require.Equal(t, 2, countByCID(cid))
+	})
+
+	t.Run("CleanupSoftDeletedAndLiveCoexist", func(t *testing.T) {
+		// cleanup_task_id IS NOT NULL puts the row outside the partial index.
+		const cid = "test-cleanup-coexist"
+		cleanupID := insertCleanupRow(cid, 32, 16, 7777, true)
+		require.NoError(t, rawInsert(cid, 32, 16, true))
+		var liveID int64
+		require.NoError(t, db.QueryRow(ctx,
+			`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND cleanup_task_id IS NULL`,
+			cid).Scan(&liveID))
+		require.NotEqual(t, cleanupID, liveID)
+		require.Equal(t, 2, countByCID(cid))
+	})
+
+	t.Run("MultipleCleanupRowsCoexist", func(t *testing.T) {
+		// Multiple rows with non-null cleanup_task_id all sit outside the partial index.
+		const cid = "test-multi-cleanup"
+		id1 := insertCleanupRow(cid, 32, 16, 11, true)
+		id2 := insertCleanupRow(cid, 32, 16, 22, true)
+		require.NotEqual(t, id1, id2)
+		require.Equal(t, 2, countByCID(cid))
+	})
+
+	// HELPER: parkpiece.Upsert / UpsertSkip behaviour.
+
+	upsert := func(t *testing.T, cid string, paddedSize, rawSize int64, longTerm bool) int64 {
+		t.Helper()
+		var id int64
+		_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			pid, perr := parkpiece.Upsert(tx, cid, paddedSize, rawSize, longTerm)
+			if perr != nil {
+				return false, perr
+			}
+			id = pid
+			return true, nil
+		}, harmonydb.OptionRetry())
+		require.NoError(t, err)
+		return id
+	}
+	upsertSkip := func(t *testing.T, cid string, paddedSize, rawSize int64, longTerm, skip bool) int64 {
+		t.Helper()
+		var id int64
+		_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			pid, perr := parkpiece.UpsertSkip(tx, cid, paddedSize, rawSize, longTerm, skip)
+			if perr != nil {
+				return false, perr
+			}
+			id = pid
+			return true, nil
+		}, harmonydb.OptionRetry())
+		require.NoError(t, err)
+		return id
+	}
+
+	t.Run("UpsertIdempotent", func(t *testing.T) {
+		const cid = "test-upsert-idempotent"
+		id1 := upsert(t, cid, 32, 16, true)
+		id2 := upsert(t, cid, 32, 16, true)
+		require.Equal(t, id1, id2, "second Upsert must return the existing row id")
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("UpsertAfterRawInsertReturnsExistingID", func(t *testing.T) {
+		// Mixed: a row created by direct INSERT must be discoverable by Upsert.
+		const cid = "test-upsert-after-raw"
+		rawID := insertParkedPiece(t, ctx, db, cid, 32, 16, false, true, nil)
+		upsertID := upsert(t, cid, 32, 16, true)
+		require.Equal(t, rawID, upsertID)
+		require.Equal(t, 1, countByCID(cid))
+	})
+
+	t.Run("UpsertWithDifferentRawSizeKeepsSingleRow", func(t *testing.T) {
+		// Calling Upsert twice with different raw_size must converge on
+		// one row. DO UPDATE writes EXCLUDED.piece_raw_size on the
+		// conflict path, so the row's raw_size reflects the latest call.
+		const cid = "test-upsert-different-rawsize"
+		id1 := upsert(t, cid, 32, 10, true)
+		id2 := upsert(t, cid, 32, 20, true)
+		require.Equal(t, id1, id2)
+		require.Equal(t, 1, activeCountByCID(cid))
+		var rawSize int64
+		require.NoError(t, db.QueryRow(ctx, `SELECT piece_raw_size FROM parked_pieces WHERE id = $1`, id1).Scan(&rawSize))
+		require.EqualValues(t, 20, rawSize, "DO UPDATE must apply the new raw_size on conflict")
+	})
+
+	t.Run("UpsertSkipPreservesExistingSkip", func(t *testing.T) {
+		// DO UPDATE only touches piece_raw_size, so the existing skip value
+		// is preserved across subsequent UpsertSkip calls.
+		const cid = "test-upsert-skip-preserve"
+		id1 := upsertSkip(t, cid, 32, 16, true, true)
+		id2 := upsertSkip(t, cid, 32, 16, true, false)
+		require.Equal(t, id1, id2)
+		var skip bool
+		require.NoError(t, db.QueryRow(ctx, `SELECT skip FROM parked_pieces WHERE id = $1`, id1).Scan(&skip))
+		require.True(t, skip, "DO UPDATE must not overwrite skip on the conflict path")
+	})
+
+	t.Run("UpsertConcurrentSamePieceConverges", func(t *testing.T) {
+		// N goroutines concurrently call Upsert with the same key. All must
+		// succeed, all must return the same id, and exactly one row must exist.
+		const (
+			cid = "test-upsert-concurrent"
+			n   = 32
+		)
+		var (
+			wg      sync.WaitGroup
+			barrier = make(chan struct{})
+			ids     = make([]int64, n)
+			errs    = make([]error, n)
+		)
+		for i := range n {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				<-barrier
+				_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+					pid, perr := parkpiece.Upsert(tx, cid, 32, 16, true)
+					if perr != nil {
+						return false, perr
+					}
+					ids[idx] = pid
+					return true, nil
+				}, harmonydb.OptionRetry())
+				errs[idx] = err
+			}(i)
+		}
+		close(barrier)
+		wg.Wait()
+
+		for i, e := range errs {
+			require.NoErrorf(t, e, "goroutine %d failed", i)
+		}
+		for i := 1; i < n; i++ {
+			require.Equal(t, ids[0], ids[i], "all goroutines must return the same id")
+		}
+		require.Equal(t, 1, activeCountByCID(cid))
+	})
+
+	t.Run("UpsertMixedConcurrentConverges", func(t *testing.T) {
+		// Mix Upsert and UpsertSkip on the same key concurrently. Both
+		// helpers target the same partial unique index; all writers must
+		// converge on a single row regardless of which helper they used.
+		const (
+			cid = "test-upsert-mixed-concurrent"
+			n   = 32
+		)
+		var (
+			wg      sync.WaitGroup
+			barrier = make(chan struct{})
+			ids     = make([]int64, n)
+			errs    = make([]error, n)
+		)
+		for i := range n {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				<-barrier
+				_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+					var (
+						pid  int64
+						perr error
+					)
+					if idx%2 == 0 {
+						pid, perr = parkpiece.Upsert(tx, cid, 32, 16, true)
+					} else {
+						pid, perr = parkpiece.UpsertSkip(tx, cid, 32, 16, true, true)
+					}
+					if perr != nil {
+						return false, perr
+					}
+					ids[idx] = pid
+					return true, nil
+				}, harmonydb.OptionRetry())
+				errs[idx] = err
+			}(i)
+		}
+		close(barrier)
+		wg.Wait()
+
+		for i, e := range errs {
+			require.NoErrorf(t, e, "goroutine %d (idx%%2=%d) failed", i, i%2)
+		}
+		for i := 1; i < n; i++ {
+			require.Equal(t, ids[0], ids[i], "all goroutines must return the same id regardless of helper")
+		}
+		require.Equal(t, 1, activeCountByCID(cid))
+	})
+
+	// Final invariant across all subtests above.
+	assertNoActiveDuplicates(t)
 }
 
 func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {

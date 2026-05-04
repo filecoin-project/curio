@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market/backpressure"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
@@ -581,26 +582,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					// Piece does not exist, attempt to insert
-					err = tx.QueryRow(`
-							WITH existing_piece AS (
-							  SELECT id
-							  FROM parked_pieces
-							  WHERE piece_cid = $1
-								AND piece_padded_size = $2
-								AND long_term = FALSE
-								AND cleanup_task_id IS NULL
-							),
-							inserted_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							  SELECT $1, $2, $3, FALSE
-							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
-							  RETURNING id
-							)
-							SELECT id FROM existing_piece
-							UNION ALL
-							SELECT id FROM inserted_piece
-							LIMIT 1;`, prop.PieceCID.String(), int64(prop.PieceSize), int64(deal.Transfer.Size)).Scan(&pieceID)
+					pieceID, err = parkpiece.Upsert(tx, prop.PieceCID.String(), int64(prop.PieceSize), int64(deal.Transfer.Size), false)
 					if err != nil {
 						return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 					}
