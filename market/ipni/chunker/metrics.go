@@ -41,32 +41,32 @@ var (
 	sourceTag, _  = tag.NewKey("source")
 
 	entryRequests = stats.Int64(
-		"curio_ipni_entry_requests_total",
-		"Total number of IPNI entry requests handled by the entry chunker.",
+		"ipni_entry_requests_total",
+		"Total number of IPNI entry requests handled by the serve chunker.",
 		stats.UnitDimensionless,
 	)
 	entryCacheLookups = stats.Int64(
-		"curio_ipni_entry_cache_lookups_total",
+		"ipni_entry_cache_lookups_total",
 		"Total number of IPNI entry cache lookups.",
 		stats.UnitDimensionless,
 	)
 	entryCacheHits = stats.Int64(
-		"curio_ipni_entry_cache_hits_total",
+		"ipni_entry_cache_hits_total",
 		"Total number of IPNI entry cache hits by request type, cache origin, and readiness state.",
 		stats.UnitDimensionless,
 	)
 	entryCacheHitWaitDuration = stats.Float64(
-		"curio_ipni_entry_cache_hit_wait_seconds",
+		"ipni_entry_cache_hit_wait_seconds",
 		"Duration callers wait after hitting the IPNI entry cache.",
 		stats.UnitSeconds,
 	)
 	entrySpeculativeUnused = stats.Int64(
-		"curio_ipni_entry_speculative_unused_total",
+		"ipni_entry_speculative_unused_total",
 		"Total number of speculative IPNI entry cache fills evicted without being consumed by a demand request.",
 		stats.UnitDimensionless,
 	)
 	entryReconstructionDuration = stats.Float64(
-		"curio_ipni_entry_reconstruction_seconds",
+		"ipni_entry_reconstruction_seconds",
 		"Duration of IPNI entry reconstruction after cache miss.",
 		stats.UnitSeconds,
 	)

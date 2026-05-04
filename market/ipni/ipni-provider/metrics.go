@@ -48,22 +48,22 @@ var (
 	resultTag, _   = tag.NewKey("result")
 
 	ipniProviderHTTPRequests = stats.Int64(
-		"curio_ipni_provider_http_requests_total",
+		"ipni_provider_http_requests_total",
 		"Total number of inbound IPNI provider HTTP requests.",
 		stats.UnitDimensionless,
 	)
 	ipniProviderHTTPRequestDuration = stats.Float64(
-		"curio_ipni_provider_http_request_seconds",
+		"ipni_provider_http_request_seconds",
 		"Duration of inbound IPNI provider HTTP requests in seconds.",
 		stats.UnitSeconds,
 	)
 	ipniAnnounceAttempts = stats.Int64(
-		"curio_ipni_announce_attempts_total",
+		"ipni_announce_attempts_total",
 		"Total number of IPNI direct announce attempts.",
 		stats.UnitDimensionless,
 	)
 	ipniAnnounceHTTPRoundTripDuration = stats.Float64(
-		"curio_ipni_announce_http_roundtrip_seconds",
+		"ipni_announce_http_roundtrip_seconds",
 		"Duration of outbound IPNI announce HTTP round trips in seconds.",
 		stats.UnitSeconds,
 	)
