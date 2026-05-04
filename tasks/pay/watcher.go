@@ -146,13 +146,17 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 			continue
 		}
 
-		// FilecoinPay zeroes the rail struct atomically with the final settle, so
-		// post-confirm GetRail reverts and the readable EndEpoch==SettledUpTo path
-		// below cannot fire. Treat the revert as finalization when FWSS still maps
-		// the rail and the lockup has elapsed.
+		// FilecoinPay zeroes the rail atomically with the final settle, so
+		// post-confirm GetRail reverts with RailInactiveOrSettled and the readable
+		// EndEpoch==SettledUpTo path below cannot fire. Treat that specific revert
+		// as finalization when FWSS still maps the rail and the lockup has elapsed.
 		if getRailErr != nil {
-			if dataSet.Int64() == 0 {
+			if !IsRailInactiveOrSettledError(getRailErr) {
 				log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", getRailErr)
+				continue
+			}
+			if dataSet.Int64() == 0 {
+				log.Errorw("rail finalized but no FWSS dataset mapping, skipping", "railId", railId)
 				continue
 			}
 			finalized, finErr := pipelineFinalizationElapsed(ctx, db, dataSet.Int64(), current)
@@ -161,7 +165,7 @@ func verifySettle(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthC
 				continue
 			}
 			if !finalized {
-				log.Errorw("failed to get rail, skipping termination checks", "railId", railId, "error", getRailErr)
+				log.Warnw("rail finalized on chain but pipeline state not caught up, skipping", "railId", railId, "dataSetId", dataSet.Int64())
 				continue
 			}
 			log.Infow("rail finalized, inferred from getRail revert", "railId", railId, "dataSetId", dataSet.Int64())
