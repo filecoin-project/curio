@@ -82,3 +82,12 @@ func CommitIDPrefix() string {
 	}
 	return rest
 }
+
+// ClusterMachineVersionLabel returns the dotted release (BuildVersion) plus an optional short git hash for cluster UI, e.g. "1.27.4 abcdef1".
+func ClusterMachineVersionLabel() string {
+	v := BuildVersion
+	if g := CommitIDPrefix(); g != "" {
+		return v + " " + g
+	}
+	return v
+}

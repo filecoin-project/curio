@@ -31,3 +31,17 @@ func TestCommitIDPrefix(t *testing.T) {
 		t.Fatalf("got %q want empty", got)
 	}
 }
+
+func TestClusterMachineVersionLabel(t *testing.T) {
+	saved := CurrentCommit
+	t.Cleanup(func() { CurrentCommit = saved })
+
+	CurrentCommit = "+git_abcdef12345678_2024-01-01T00:00:00Z"
+	if got := ClusterMachineVersionLabel(); got != BuildVersion+" abcdef1" {
+		t.Fatalf("got %q want %q + abcdef1", got, BuildVersion)
+	}
+	CurrentCommit = ""
+	if got := ClusterMachineVersionLabel(); got != BuildVersion {
+		t.Fatalf("got %q want %q", got, BuildVersion)
+	}
+}

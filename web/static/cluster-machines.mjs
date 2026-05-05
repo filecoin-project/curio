@@ -9,8 +9,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
 
     static styles = css`
         .col-build-git {
-            width: 10rem;
-            max-width: 10rem;
+            max-width: 20rem;
             min-width: 0;
             overflow-x: auto;
             overflow-y: hidden;
