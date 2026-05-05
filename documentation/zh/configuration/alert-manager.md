@@ -34,7 +34,7 @@ Curio 默认集成了 [PagerDuty.com](https://www.pagerduty.com/)，允许向存
 3. 在创建服务过程中，在"Integration"页面上，选择"Events API V2"。
 4. 服务创建完成后，从服务中复制"Integration Key"，并将其粘贴到"base"层配置中的"PagerDutyIntegrationKey"。
 5. 在配置层中启用插件。
-6. 重启其中一个节点，它现在将每小时生成关键警报。
+6. 重启其中一个节点，此后它会在每个整点生成关键警报。
 
 
 [Alerting]

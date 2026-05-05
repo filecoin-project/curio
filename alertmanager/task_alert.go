@@ -6,7 +6,10 @@ package alertmanager
 import (
 	"context"
 	"fmt"
+	"iter"
+	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	blocks "github.com/ipfs/go-block-format"
@@ -29,7 +32,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
-const AlertMangerInterval = 30 * time.Minute
+const AlertManagerInterval = 5 * time.Minute
+const FullAlertInterval = 30 * time.Minute
 
 var log = logging.Logger("curio/alertmanager")
 
@@ -52,6 +56,9 @@ type AlertTask struct {
 	db      *harmonydb.DB
 	plugins []plugin.Plugin
 	al      *curioalerting.AlertingSystem
+
+	pingMu       sync.Mutex
+	pingProblems bool
 }
 
 type alertOut struct {
@@ -64,7 +71,7 @@ type alerts struct {
 	api      AlertAPI
 	db       *harmonydb.DB
 	cfg      config.CurioAlertingConfig
-	alertMap map[string]*alertOut
+	alertMap map[AlertName]*alertOut
 }
 
 type AlertFunc func(al *alerts)
@@ -74,16 +81,49 @@ type alertMute struct {
 	Pattern   *string `db:"pattern"`
 }
 
-var AlertFuncs = []AlertFunc{
-	balanceCheck,
-	taskFailureCheck,
-	permanentStorageCheck,
-	wdPostCheck,
-	wnPostCheck,
-	NowCheck,
-	chainSyncCheck,
-	missingSectorCheck,
-	pendingMessagesCheck,
+type AlertName string
+
+const (
+	Name_BalanceCheck          AlertName = "Balance Check"
+	Name_TaskFailures          AlertName = "TaskFailures"
+	Name_PDPTaskFailures       AlertName = "PDPTaskFailures"
+	Name_PermanentStorageSpace AlertName = "PermanentStorageSpace"
+	Name_WindowPost            AlertName = "WindowPost"
+	Name_WinningPost           AlertName = "WinningPost"
+	Name_NowCheck              AlertName = "NowCheck"
+	Name_ChainSync             AlertName = "ChainSync"
+	Name_MissingSectors        AlertName = "MissingSectors"
+	Name_PendingMessages       AlertName = "PendingMessages"
+)
+
+var AlertFuncs = map[AlertName]AlertFunc{
+	Name_BalanceCheck:          balanceCheck,
+	Name_TaskFailures:          taskFailureCheck,
+	Name_PDPTaskFailures:       pdpTaskFailureCheck,
+	Name_PermanentStorageSpace: permanentStorageCheck,
+	Name_WindowPost:            wdPostCheck,
+	Name_WinningPost:           wnPostCheck,
+	Name_NowCheck:              NowCheck,
+	Name_ChainSync:             chainSyncCheck,
+	Name_MissingSectors:        missingSectorCheck,
+	Name_PendingMessages:       pendingMessagesCheck,
+}
+
+var PingHealthFuncs = map[AlertName]AlertFunc{
+	Name_BalanceCheck:          AlertFuncs[Name_BalanceCheck],
+	Name_ChainSync:             AlertFuncs[Name_ChainSync],
+	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
+	Name_PDPTaskFailures:       AlertFuncs[Name_PDPTaskFailures],
+}
+
+func isPingHealthOnly(now time.Time) bool {
+	return now.Unix()%int64(FullAlertInterval.Seconds()) < int64(AlertManagerInterval.Seconds())
+}
+func funcsByInterval(now time.Time) iter.Seq[AlertFunc] {
+	if isPingHealthOnly(now) {
+		return maps.Values(PingHealthFuncs)
+	}
+	return maps.Values(AlertFuncs)
 }
 
 func NewAlertTask(
@@ -100,21 +140,45 @@ func NewAlertTask(
 	}
 }
 
+// Problems returns the ping-relevant alert results from the most recent
+// AlertTask run (ChainSync, PermanentStorageSpace, Balance Check).
+// Returns nil before the first run — the node is assumed healthy until
+// the first periodic check completes.
+func (a *AlertTask) Problems() bool {
+	a.pingMu.Lock()
+	defer a.pingMu.Unlock()
+	return a.pingProblems
+}
+
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	now := time.Now()
 	ctx := context.Background()
-
-	alMap := make(map[string]*alertOut)
-
 	altrs := &alerts{
 		ctx:      ctx,
 		api:      a.api,
 		db:       a.db,
 		cfg:      a.cfg,
-		alertMap: alMap,
+		alertMap: map[AlertName]*alertOut{},
 	}
 
-	for _, al := range AlertFuncs {
+	for al := range funcsByInterval(now) {
 		al(altrs)
+	}
+
+	// Update the ping-relevant subset for the /ping health endpoint.
+	for name := range maps.Keys(PingHealthFuncs) {
+		out, ok := altrs.alertMap[name]
+		if !ok || out == nil || out.err == nil || out.alertString == "" {
+			continue
+		}
+		log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
+		a.pingMu.Lock()
+		a.pingProblems = true
+		a.pingMu.Unlock()
+		break
+	}
+	if isPingHealthOnly(now) {
+		return true, nil
 	}
 
 	// Load active mutes from database
@@ -130,7 +194,6 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	details := make(map[string]any)
-	now := time.Now()
 
 	// Process regular alerts
 	for k, v := range altrs.alertMap {
@@ -145,7 +208,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			}
 
 			// Check if this alert should be muted
-			muted := isAlertMuted(k, alertMsg, mutes)
+			muted := isAlertMuted(string(k), alertMsg, mutes)
 			if muted {
 				log.Debugf("Alert %s muted: %s", k, alertMsg)
 			}
@@ -161,7 +224,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 			// Only add to details for sending if not muted
 			if !muted {
-				details[k] = alertMsg
+				details[string(k)] = alertMsg
 			}
 		}
 	}
@@ -225,9 +288,9 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 // isAlertMuted checks if an alert matches any active mute patterns
-func isAlertMuted(alertName, alertMessage string, mutes []alertMute) bool {
+func isAlertMuted(alertName string, alertMessage string, mutes []alertMute) bool {
 	for _, mute := range mutes {
-		if mute.AlertName != alertName {
+		if mute.AlertName != string(alertName) {
 			continue
 		}
 		// If no pattern, mute entire category
@@ -255,7 +318,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 			Gpu: 0,
 		},
-		IAmBored: harmonytask.SingletonTaskAdder(AlertMangerInterval, a),
+		IAmBored: harmonytask.SingletonTaskAdder(AlertManagerInterval, a),
 	}
 }
 

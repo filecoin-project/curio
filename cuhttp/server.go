@@ -19,6 +19,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -142,6 +143,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 type ServiceDeps struct {
 	EthSender  *message.SenderETH
 	DealMarket *storage_market.CurioStorageDealMarket
+	AlertTask  *alertmanager.AlertTask
 }
 
 // This starts the public-facing server for market calls.
@@ -313,7 +315,7 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	libp2p.Router(r, rd)
 
 	if sd.EthSender != nil {
-		pdsvc := pdp.NewPDPService(ctx, d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
+		pdsvc := pdp.NewPDPService(ctx, d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, sd.AlertTask)
 		pdp.Routes(r, pdsvc)
 	}
 
