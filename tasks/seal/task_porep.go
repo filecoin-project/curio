@@ -20,8 +20,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
-
 	"github.com/filecoin-project/curio/tasks/tasknames"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
