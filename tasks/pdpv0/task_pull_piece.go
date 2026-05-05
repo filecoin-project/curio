@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var (
@@ -439,7 +440,7 @@ func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_PullPiece",
+		Name: tasknames.PDPv0_PullPiece,
 		Max:  taskhelp.Max(t.max),
 		Cost: resources.Resources{
 			Cpu: 1,

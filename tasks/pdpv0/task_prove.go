@@ -38,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
@@ -953,7 +954,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	const proveTaskRAM = 3 << 30 // 3 GiB
 
 	return harmonytask.TaskTypeDetails{
-		Name:          "PDPv0_Prove",
+		Name:          tasknames.PDPv0_Prove,
 		TimeSensitive: true,
 		Cost: resources.Resources{
 			Cpu: 1,

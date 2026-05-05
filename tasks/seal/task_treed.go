@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type TreeDTask struct {
@@ -76,7 +77,7 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(t.max),
-		Name: "TreeD",
+		Name: tasknames.TreeD,
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30,

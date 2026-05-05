@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
@@ -152,16 +153,42 @@ func balanceCheck(al *alerts) {
 }
 
 // sealingTasks are sealing-pipeline task names; any single failure triggers an alert.
-var sealingTasks = []string{"SDR", "TreeD", "TreeRC", "PreCommitSubmit", "PoRep", "Finalize", "MoveStorage", "CommitSubmit", "WdPost", "ParkPiece"}
+var sealingTasks = []string{
+	tasknames.SDR,
+	tasknames.TreeD,
+	tasknames.TreeRC,
+	tasknames.PreCommitBatch,
+	tasknames.PoRep,
+	tasknames.Finalize,
+	tasknames.MoveStorage,
+	tasknames.CommitBatch,
+	tasknames.WdPost,
+	tasknames.ParkPiece,
+}
 
 // pdpTasks are PDP v1 and v0 task names; any single failure triggers an alert.
 var pdpTasks = []string{
 	// PDP v1
-	"PDPProve", "PDPAddPiece", "PDPDeletePiece", "PDPAddDataSet", "PDPDelDataSet",
-	"PDPInitPP", "PDPProvingPeriod", "PDPNotify", "PDPCommP", "PDPSaveCache", "AggregatePDPDeal",
+	tasknames.PDPProve,
+	tasknames.PDPAddPiece,
+	tasknames.PDPDeletePiece,
+	tasknames.PDPAddDataSet,
+	tasknames.PDPDelDataSet,
+	tasknames.PDPInitPP,
+	tasknames.PDPProvingPeriod,
+	tasknames.PDPNotify,
+	tasknames.PDPCommP,
+	tasknames.PDPSaveCache,
+	tasknames.AggregatePDPDeal,
 	// PDP v0
-	"PDPv0_Prove", "PDPv0_PullPiece", "PDPv0_SaveCache", "PDPv0_InitPP",
-	"PDPv0_ProvPeriod", "PDPv0_Notify", "PDPv0_DelDataSet", "PDPv0_TermFWSS",
+	tasknames.PDPv0_Prove,
+	tasknames.PDPv0_PullPiece,
+	tasknames.PDPv0_SaveCache,
+	tasknames.PDPv0_InitPP,
+	tasknames.PDPv0_ProvPeriod,
+	tasknames.PDPv0_Notify,
+	tasknames.PDPv0_DelDataSet,
+	tasknames.PDPv0_TermFWSS,
 }
 
 // taskFailureCheckWith is the parameterized core shared by taskFailureCheck

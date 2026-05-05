@@ -121,7 +121,8 @@ fi
 
 # Install Python build tools in the virtual environment
 echo "Installing Python build tools in virtual environment..."
-pip install --upgrade pip
+# --ignore-installed: broken venv pip (missing RECORD) cannot be uninstalled; upgrade in place
+python -m pip install --upgrade --ignore-installed pip
 pip install meson ninja pyelftools
 
 # Ensure venv is in PATH for subprocesses
