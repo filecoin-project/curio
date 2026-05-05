@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPCommpTask struct {
@@ -191,7 +192,7 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(c.max),
-		Name: "PDPCommP",
+		Name: tasknames.PDPCommP,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

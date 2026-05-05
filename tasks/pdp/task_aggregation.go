@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregatePDPDealTask struct {
@@ -321,7 +322,7 @@ func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmo
 func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "AggregatePDPDeal",
+		Name: tasknames.AggregatePDPDeal,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

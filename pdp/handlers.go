@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/yugabyte/pgx/v5"
 
+	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
@@ -65,6 +66,8 @@ type PDPService struct {
 	ethClient ethchain.EthClient
 	filClient PDPServiceNodeApi
 
+	alertTask *alertmanager.AlertTask
+
 	pullHandler *PullHandler
 }
 
@@ -72,8 +75,8 @@ type PDPServiceNodeApi interface {
 	ChainHead(ctx context.Context) (*types2.TipSet, error)
 }
 
-// NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec ethchain.EthClient, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
+// NewPDPService creates a new instance of PDPService with the provided stores.
+func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore, ec ethchain.EthClient, fc PDPServiceNodeApi, sn *message.SenderETH, alertTask *alertmanager.AlertTask) *PDPService {
 	auth := &NullAuth{}
 	pullStore := NewDBPullStore(db)
 	pullValidator := NewEthCallValidator(ec, db)
@@ -86,6 +89,8 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 		sender:    sn,
 		ethClient: ec,
 		filClient: fc,
+
+		alertTask: alertTask,
 
 		pullHandler: NewPullHandler(auth, pullStore, pullValidator),
 	}
@@ -170,14 +175,17 @@ func Routes(r *chi.Mux, p *PDPService) {
 // Handler functions
 
 func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
-	// Verify that the request is authorized using ECDSA JWT
 	_, err := p.AuthService(r)
 	if err != nil {
 		httpServerError(w, http.StatusUnauthorized, "Failed to authorize request", err)
 		return
 	}
 
-	// Return 200 OK
+	if p.alertTask != nil && p.alertTask.Problems() {
+		httpServerError(w, http.StatusServiceUnavailable, "Service Unavailable", nil)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

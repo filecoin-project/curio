@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -427,7 +428,7 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Name:          "WdPost",
+		Name:          tasknames.WdPost,
 		Max:           taskhelp.Max(t.max),
 		MaxFailures:   5,
 		TimeSensitive: true,
