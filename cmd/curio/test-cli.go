@@ -252,7 +252,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 
 		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
 			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Chain, deps.Verif, nil, nil, nil,
-			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks)
+			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks, nil)
 		if err != nil {
 			return err
 		}
@@ -332,7 +332,7 @@ var wdPostVanillaCmd = &cli.Command{
 
 		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
 			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Chain, deps.Verif, nil, nil, nil,
-			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks)
+			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks, nil)
 		if err != nil {
 			return err
 		}
