@@ -682,6 +682,41 @@ func (e *TaskEngine) singletonRunNowPoller() {
 	}
 }
 
+// RestartTaskByID re-inserts a previously-failed task into harmony_task using
+// its original ID, then notifies the scheduler so it can claim the work
+// immediately without waiting for a DB poll cycle. If the task is already
+// pending or running (unique-constraint violation), it is silently skipped.
+func (e *TaskEngine) RestartTaskByID(id TaskID, name string, postedTime time.Time) error {
+	_, err := e.cfg.db.BeginTransaction(e.cfg.ctx, func(tx *harmonydb.Tx) (bool, error) {
+		_, err := tx.Exec(`
+			INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
+			VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
+		`, id, postedTime, e.cfg.ownerID, name)
+		if err != nil {
+			return false, fmt.Errorf("RestartTaskByID: insert failed: %w", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		if harmonydb.IsErrUniqueContraint(err) {
+			log.Debugf("RestartTaskByID(%d, %s): task already pending/running, skipping", id, name)
+			return nil
+		}
+		return err
+	}
+
+	go func() {
+		e.schedulerChannel <- schedulerEvent{
+			TaskID:     id,
+			TaskType:   name,
+			Source:     schedulerSourceAdded,
+			PostedTime: postedTime,
+		}
+	}()
+
+	return nil
+}
+
 // AddTaskByName is the single entry point for creating new tasks in the system.
 // It performs a transactional DB insert (owner_id=NULL), then emits a
 // schedulerSourceAdded event so the scheduler immediately considers the new

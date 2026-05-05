@@ -175,15 +175,9 @@ func (a *WebRPC) RestartFailedTask(ctx context.Context, taskID int64) error {
 		return fmt.Errorf("task was successful, cannot restart")
 	}
 
-	// Insert into harmony_task
-	_, err = a.deps.DB.Exec(ctx, `
-        INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
-        VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
-    `, taskID, postedTime, a.deps.MachineID, name)
-
-	if err != nil {
-		return fmt.Errorf("failed to insert into harmony_task: %w", err)
+	if a.deps.TaskEngine == nil {
+		return fmt.Errorf("task engine not available")
 	}
 
-	return nil
+	return a.deps.TaskEngine.RestartTaskByID(harmonytask.TaskID(taskID), name, postedTime)
 }

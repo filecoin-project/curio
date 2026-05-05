@@ -36,6 +36,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/deps/stats"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/ethchain"
@@ -172,6 +173,7 @@ type Deps struct {
 	Name              string
 	MachineID         *int64
 	Alert             *alertmanager.AlertNow
+	TaskEngine        *harmonytask.TaskEngine
 	IndexStore        *indexstore.IndexStore
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
