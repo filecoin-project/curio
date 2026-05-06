@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -57,7 +58,11 @@ const (
 	numPollers
 )
 
-const dealPollerInterval = 3 * time.Second
+// dealPollerIdleInterval is the gap after each poll() before the next idle (timer-driven) poll.
+const dealPollerIdleInterval = 30 * time.Second
+
+// wakePollMinInterval caps how often completion-driven wakes may trigger poll().
+const wakePollMinInterval = 10 * time.Second
 
 type storageMarketAPI interface {
 	mk12.MK12API
@@ -78,7 +83,15 @@ type CurioStorageDealMarket struct {
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
-	bp          *lazy.Lazy[*backpressure.CachedBackPressure]
+
+	// Wake-driven polls: at most one every wakePollMinInterval (see WakeDealPoller).
+	wakeMu             sync.Mutex
+	lastWakeDrivenPoll time.Time
+	wakePollTimer      *time.Timer     // non-nil while a wake delivery is already scheduled
+	wakePollReq        chan struct{}   // unbuffered: run one wake-driven poll
+	wakePollLoopCtx    context.Context // set in StartMarket before runPoller starts
+
+	bp *lazy.Lazy[*backpressure.CachedBackPressure]
 }
 
 type MK12Pipeline struct {
@@ -123,17 +136,50 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 	}
 
 	return &CurioStorageDealMarket{
-		cfg:       cfg,
-		db:        db,
-		api:       mapi,
-		miners:    miners,
-		si:        si,
-		urls:      urls,
-		as:        as,
-		ethClient: ethClient,
-		sc:        sc,
-		bp:        backpressure.NewCachedBackPressure(),
+		cfg:             cfg,
+		db:              db,
+		api:             mapi,
+		miners:          miners,
+		si:              si,
+		urls:            urls,
+		as:              as,
+		ethClient:       ethClient,
+		sc:              sc,
+		wakePollReq:     make(chan struct{}),
+		wakePollLoopCtx: context.Background(),
+		bp:              backpressure.NewCachedBackPressure(),
 	}
+}
+
+// WakeDealPoller asks the poller to run poll() sooner than the idle ticker, but not more
+// often than wakePollMinInterval since the last wake-driven poll (idle ticker is unchanged).
+func (d *CurioStorageDealMarket) WakeDealPoller() {
+	if d == nil || d.wakePollReq == nil {
+		return
+	}
+	d.wakeMu.Lock()
+	if d.wakePollTimer != nil {
+		d.wakeMu.Unlock()
+		return
+	}
+	wait := time.Until(d.lastWakeDrivenPoll.Add(wakePollMinInterval))
+	if wait < 0 {
+		wait = 0
+	}
+	d.wakePollTimer = time.AfterFunc(wait, func() {
+		loopCtx := d.wakePollLoopCtx
+		if loopCtx == nil {
+			loopCtx = context.Background()
+		}
+		select {
+		case d.wakePollReq <- struct{}{}:
+		case <-loopCtx.Done():
+		}
+		d.wakeMu.Lock()
+		d.wakePollTimer = nil
+		d.wakeMu.Unlock()
+	})
+	d.wakeMu.Unlock()
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
@@ -195,6 +241,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			log.Errorf("Miners changed from %d to %d. . Restart required for Market Ingest to work.", len(prevMiners), len(newMiners))
 		}
 	})
+	d.wakePollLoopCtx = ctx
 	go d.runPoller(ctx)
 
 	return nil
@@ -206,15 +253,44 @@ func (d *CurioStorageDealMarket) runPoller(ctx context.Context) {
 	go d.pipelineInsertLoop(ctx)
 	go d.migratePieceCIDV2(ctx)
 
-	ticker := time.NewTicker(dealPollerInterval)
-	defer ticker.Stop()
+	idleTimer := time.NewTimer(dealPollerIdleInterval)
+	resetIdleAfterPoll := func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(dealPollerIdleInterval)
+	}
+	defer func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		d.wakeMu.Lock()
+		if d.wakePollTimer != nil {
+			d.wakePollTimer.Stop()
+			d.wakePollTimer = nil
+		}
+		d.wakeMu.Unlock()
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-d.wakePollReq:
+			d.wakeMu.Lock()
+			d.lastWakeDrivenPoll = time.Now()
+			d.wakeMu.Unlock()
 			d.poll(ctx)
+			resetIdleAfterPoll()
+		case <-idleTimer.C:
+			d.poll(ctx)
+			resetIdleAfterPoll()
 		}
 	}
 }

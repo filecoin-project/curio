@@ -16,12 +16,13 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("pdpv0")
 
 // NotifyPollInterval is how often to poll for uploads ready to finalize.
-var NotifyPollInterval = 2 * time.Second
+var NotifyPollInterval = 5 * time.Second
 
 // PDPNotifyTask finalizes completed piece uploads.
 //
@@ -190,7 +191,7 @@ func (t *PDPNotifyTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_Notify",
+		Name: tasknames.PDPv0_Notify,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20, // 128MB

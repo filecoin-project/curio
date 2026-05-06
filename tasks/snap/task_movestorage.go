@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type MoveStorageTask struct {
@@ -129,8 +130,8 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(m.max),
-		Name:      "UpdateStore",
-		MayFollow: []string{"UpdateEncode"},
+		Name:      tasknames.UpdateStore,
+		MayFollow: []string{tasknames.UpdateEncode},
 		Cost: resources.Resources{
 			Cpu:     cpu,
 			Ram:     128 << 20,

@@ -9,20 +9,21 @@ import (
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 // List of tasks that are considered "priority"
 // When all machines in the cluster are responsible for PSProve AND those tasks
 // ProofShare asks will be suspended until the priority tasks get assigned to machines
 var PrioTasks = []string{
-	"PoRep",
-	"UpdateProve",
-	"WdPost",
-	"WinPost",
-	"TreeRC",
+	tasknames.PoRep,
+	tasknames.UpdateProve,
+	tasknames.WdPost,
+	tasknames.WinPost,
+	tasknames.TreeRC,
 }
 
-const PSProveTask = "PSProve"
+const PSProveTask = tasknames.PSProve
 
 // GetMinimumConflictSet returns a slice of task names from PrioTasks which are NOT supported by any
 // machine that can run PSProve. The intention is to identify which task types might starve when

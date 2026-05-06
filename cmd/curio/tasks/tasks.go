@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
+	curiobuild "github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cuhttp"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -29,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
@@ -38,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
@@ -69,12 +72,12 @@ var log = logging.Logger("curio/deps")
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
 	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
 	as *multictladdr.MultiAddressSelector, addresses *config.Dynamic[map[dtypes.MinerAddress]bool], db *harmonydb.DB,
-	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
+	stor paths.Store, idx paths.SectorIndex, max int, cuzkClient *cuzk.Client) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
 	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, pc.SingleCheckTimeout, pc.PartitionCheckTimeout)
 
-	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout)
+	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout, cuzkClient)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -110,6 +113,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	chainSched := chainsched.New(full)
 
 	var activeTasks []harmonytask.TaskInterface
+
+	var dealMarket *storage_market.CurioStorageDealMarket
+	var parkPiecePoll *piece2.ParkPieceTask
+	var cleanupPiecePoll *piece2.CleanupPieceTask
+	var storePiecePoll *piece2.ParkPieceTask
+	var indexingTask *indexing.IndexingTask
+	var ipniTask *indexing.IPNITask
 
 	sender, sendTask := message.NewSender(full, full, db, cfg.Fees.MaximizeFeeCap)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
@@ -173,6 +183,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		return senderEth
 	}
 
+	// Initialize cuzk client if configured (shared across PoSt and sealing tasks)
+	var cuzkClient *cuzk.Client
+	if cfg.Cuzk.Address != "" {
+		cuzkClient = cuzk.NewClient(cfg.Cuzk.Address, cfg.Cuzk.MaxPending, cfg.Cuzk.ProveTimeout)
+		log.Infow("cuzk proving daemon enabled", "addr", cfg.Cuzk.Address, "maxPending", cfg.Cuzk.MaxPending, "proveTimeout", cfg.Cuzk.ProveTimeout)
+	}
+
 	///////////////////////////////////////////////////////////////////////
 	///// Task Selection
 	///////////////////////////////////////////////////////////////////////
@@ -182,7 +199,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if cfg.Subsystems.EnableWindowPost {
 			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
 				ctx, cfg.Fees, cfg.Proving, full, verif, asyncParams(), sender, chainSched,
-				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
+				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks, cuzkClient)
 
 			if err != nil {
 				return nil, err
@@ -192,7 +209,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		if cfg.Subsystems.EnableWinningPost {
 			store := dependencies.Stor
-			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
+			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs, cuzkClient)
 			inclCkTask := winning.NewInclusionCheckTask(db, full)
 			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
 
@@ -228,26 +245,32 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableRemoteProofs
 
 	var p2Active sealsupra.P2Active
+	var sealPoller *seal.SealPoller
+	var snapSubmit *snap.SubmitTask
 	if hasAnySealingTask {
-		sealingTasks, p2a, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		sealingTasks, p2a, sp, spp, ss, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover, cuzkClient)
 		if err != nil {
 			return nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
 		p2Active = p2a
+		sealPoller = sp
+		storePiecePoll = spp
+		snapSubmit = ss
 	}
 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
+			var err error
+			parkPiecePoll, err = piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active, cfg.Subsystems.ParkPieceMinFreeStoragePercent)
 			if err != nil {
 				return nil, err
 			}
-			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			cleanupPiecePoll = piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
 			pfix := piece2.NewFixParkPieceTask(db, must.One(slrLazy.Val()))
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask, pfix)
+			activeTasks = append(activeTasks, parkPiecePoll, cleanupPiecePoll, aggregateChunksTask, pfix)
 		}
 	}
 
@@ -257,31 +280,34 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		})
 	})
 
+	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
+
 	{
-		var sdeps cuhttp.ServiceDeps
+		var sdeps = cuhttp.ServiceDeps{
+			AlertTask: amTask,
+		}
 		// Market tasks
-		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
-			err := dm.StartMarket(ctx)
+			dealMarket = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
+			err := dealMarket.StartMarket(ctx)
 			if err != nil {
 				return nil, err
 			}
 
-			sdeps.DealMarket = dm
+			sdeps.DealMarket = dealMarket
 
 			if cfg.Subsystems.EnableCommP {
-				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
+				commpTask := storage_market.NewCommpTask(dealMarket, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
 
-			aggTask := storage_market.NewAggregateTask(dm, db, must.One(slrLazy.Val()), lstor, full)
+			aggTask := storage_market.NewAggregateTask(dealMarket, db, must.One(slrLazy.Val()), lstor, full)
 			activeTasks = append(activeTasks, aggTask)
 
 			// PSD and Deal find task do not require many resources. They can run on all machines
-			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
-			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
+			psdTask := storage_market.NewPSDTask(dealMarket, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
+			dealFindTask := storage_market.NewFindDealTask(dealMarket, db, full, &cfg.Market.StorageMarketConfig.MK12)
 
 			checkIndexesTask := indexing.NewCheckIndexesTask(db, iStore)
 
@@ -289,7 +315,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			// Start libp2p hosts and handle streams. This is a special function which calls the shutdown channel
 			// instead of returning the error. This design is to allow libp2p take over if required
-			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
+			go libp2p.NewDealProvider(ctx, db, cfg, dealMarket.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
 		sc, err := slrLazy.Val()
 		if err != nil {
@@ -353,8 +379,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
-		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, cfg, idxMax, iStore)
+		indexingTask = indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		ipniTask = indexing.NewIPNITask(db, cfg, idxMax, iStore)
 		pdpv1IdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
 		pdpv1IPNITask := indexing.NewPDPIPNITask(db, cfg, idxMax, iStore)
 		fixRawSizeTask := storage_market.NewFixRawSize(db, sc, dependencies.SectorReader)
@@ -374,7 +400,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 
-	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
 
 	pcl := gc.NewPieceCleanupTask(db, iStore)
@@ -388,6 +413,106 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	if err != nil {
 		return nil, err
 	}
+	if sealPoller != nil {
+		// Sector-targeted SignalNext: tasks that always relate to a single sector
+		// publish (spID, secNum) via the seal.PipelineRef context. Use SignalNext
+		// when known to advance the pipeline as soon as their work is done.
+		for _, taskName := range []string{tasknames.SDR, tasknames.TreeD, tasknames.TreeRC, tasknames.SyntheticProofs, tasknames.PoRep, tasknames.Finalize, tasknames.MoveStorage} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(ctx context.Context, _ harmonytask.TaskID, success bool) {
+				if !success {
+					return
+				}
+				spID, secNum, ok := seal.PipelineRef(ctx)
+				if !ok {
+					return
+				}
+				sealPoller.SignalNext(ctx, spID, secNum)
+			})
+		}
+		// Batch and cross-sector tasks: PreCommitBatch / CommitBatch / UpdateBatch
+		// affect many sectors at once; SendMessage is a generic message-send used
+		// by many seal stages. Wake the whole poller so every queued sector that
+		// just became eligible (after_*_msg flipped, message landing arming
+		// message_waits, etc.) is re-evaluated promptly.
+		for _, taskName := range []string{tasknames.PreCommitBatch, tasknames.CommitBatch, tasknames.UpdateBatch, tasknames.SendMessage} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+				if success {
+					sealPoller.WakePoll()
+				}
+			})
+		}
+	}
+	if dealMarket != nil {
+		// Each of these tasks advances the storage-market pipeline by one stage:
+		// ParkPiece/StorePiece -> started, CommP -> after_commp,
+		// PSD -> publish msg sent, FindDeal -> after_find_deal,
+		// AggregateDeals -> after_aggregate (mk20). Without these wakes, the
+		// next stage would have to wait up to dealPollerIdleInterval (~30s)
+		// before processMk12Deal/processMk20Deal is run again.
+		for _, taskName := range []string{tasknames.ParkPiece, tasknames.StorePiece, tasknames.CommP, tasknames.PSD, tasknames.FindDeal, tasknames.AggregateDeals} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+				if success {
+					dealMarket.WakeDealPoller()
+				}
+			})
+		}
+	}
+	// Indexing/IPNI use IAmBored polling at 30s intervals as a fallback. Wake
+	// them directly when the upstream stage that flips their gating column
+	// (sealed=true / indexed=true) completes, so we don't lose up to 30s per
+	// pipeline.
+	if indexingTask != nil {
+		// For the regular seal pipeline, sealed=TRUE is flipped by
+		// pollCommitMsgLanded *after* the commit message lands on chain — well
+		// after the CommitBatch task itself completes. Hook into the seal
+		// poller's onSealed callback so the indexing wake fires at the precise
+		// moment the deal becomes eligible for indexing.
+		if sealPoller != nil {
+			sealPoller.AddOnSealed(indexingTask.Wake)
+		}
+		// For the snap pipeline, sealed=TRUE is flipped inside the snap submit
+		// task's schedule() updateLanded path, which runs from its IAmBored
+		// cycle (and now also from Wake — see below). Hook into the snap
+		// submit task's onSealed for the same precise-timing reason.
+		if snapSubmit != nil {
+			snapSubmit.AddOnSealed(indexingTask.Wake)
+		}
+	}
+	if ipniTask != nil {
+		ht.OnTaskComplete(tasknames.Indexing, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				ipniTask.Wake()
+			}
+		})
+	}
+	if cleanupPiecePoll != nil {
+		ht.OnTaskComplete(tasknames.ParkPiece, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				cleanupPiecePoll.WakePoll()
+			}
+		})
+		ht.OnTaskComplete(tasknames.StorePiece, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				cleanupPiecePoll.WakePoll()
+			}
+		})
+	}
+	if parkPiecePoll != nil || storePiecePoll != nil {
+		ht.OnTaskComplete(tasknames.DropPiece, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if !success {
+				return
+			}
+			if parkPiecePoll != nil {
+				parkPiecePoll.WakePoll()
+			}
+			if storePiecePoll != nil {
+				storePiecePoll.WakePoll()
+			}
+		})
+	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
 	*dependencies.MachineID = int64(ht.ResourcesAvailable().MachineID)
@@ -396,6 +521,24 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
 			return nil, err
+		}
+		// When a tracked message lands on chain, the row in message_waits is
+		// filled in. The seal poller (after_precommit_msg_success /
+		// after_commit_msg_success) and the deal market poller (publish msg
+		// finality for FindDeal) both gate progress on these rows; wake them
+		// so the next stage isn't delayed by up to the idle poll interval.
+		if sealPoller != nil {
+			watcher.AddOnLanded(sealPoller.WakePoll)
+		}
+		if dealMarket != nil {
+			watcher.AddOnLanded(dealMarket.WakeDealPoller)
+		}
+		// Snap pipeline: prove-message landing arms updateLanded (which flips
+		// sealed=TRUE for snap deals) but the snap submit task only checks
+		// from its IAmBored cycle. Wake it directly so the deal becomes
+		// index-eligible without waiting up to ~10s for the next bored tick.
+		if snapSubmit != nil {
+			watcher.AddOnLanded(snapSubmit.Wake)
 		}
 		_ = watcher
 	}
@@ -420,8 +563,11 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, sealsupra.P2Active, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover,
+	cuzkClient *cuzk.Client) ([]harmonytask.TaskInterface, sealsupra.P2Active, *seal.SealPoller, *piece2.ParkPieceTask, *snap.SubmitTask, error) {
 	var activeTasks []harmonytask.TaskInterface
+	var storePiecePoll *piece2.ParkPieceTask
+	var snapSubmit *snap.SubmitTask
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
@@ -452,7 +598,7 @@ func addSealingTasks(
 			cfg.Seal.LayerNVMEDevices,
 			machineHostPort, db, full, stor, si, slr)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
+			return nil, nil, sp, nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
 		slotMgr = sm
 		p2Active = p2a
@@ -485,7 +631,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, precommitTask)
 	}
 	if cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableRemoteProofs {
-		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks)
+		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, porepTask)
 	}
 	if cfg.Subsystems.EnableMoveStorage {
@@ -494,8 +640,9 @@ func addSealingTasks(
 
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, sp, nil, nil, err
 		}
+		storePiecePoll = storePieceTask
 
 		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
 		if !cfg.Subsystems.EnableParkPiece {
@@ -526,17 +673,18 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, scrubCommRTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
-		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks, cuzkClient)
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
+		snapSubmit = submitTask
 		activeTasks = append(activeTasks, submitTask)
 	}
 
 	if cfg.Subsystems.EnableProofShare {
 		requestProofsTask := proofshare.NewTaskRequestProofs(db, full, asyncParams())
-		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
+		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks, cuzkClient)
 		submitTask := proofshare.NewTaskSubmit(db, full)
 		autosettleTask := proofshare.NewTaskAutosettle(db, full, sender)
 		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask, autosettleTask)
@@ -567,7 +715,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
-	return activeTasks, p2Active, nil
+	return activeTasks, p2Active, sp, storePiecePoll, snapSubmit, nil
 }
 
 func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {
@@ -582,10 +730,10 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		sort.Strings(miners)
 
 		_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
-		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
+		(tasks, layers, startup_time, miners, machine_id, machine_name, version) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6, version=$7`,
 			strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
-			time.Now(), strings.Join(miners, ","), machineID, machineName)
+			time.Now(), strings.Join(miners, ","), machineID, machineName, curiobuild.ClusterMachineVersionLabel())
 
 		if err != nil {
 			log.Errorf("failed to update machine details: %s", err)
@@ -593,7 +741,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		}
 
 		// maybePostWarning
-		if !lo.Contains(taskNames, "WdPost") && !lo.Contains(taskNames, "WinPost") {
+		if !lo.Contains(taskNames, tasknames.WdPost) && !lo.Contains(taskNames, tasknames.WinPost) {
 			// Maybe we aren't running a PoSt for these miners?
 			var allMachines []struct {
 				MachineID int    `db:"machine_id"`
@@ -612,7 +760,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 					if !lo.Contains(strings.Split(m.Miners, ","), miner) {
 						continue
 					}
-					if lo.Contains(strings.Split(m.Tasks, ","), "WdPost") && lo.Contains(strings.Split(m.Tasks, ","), "WinPost") {
+					if lo.Contains(strings.Split(m.Tasks, ","), tasknames.WdPost) && lo.Contains(strings.Split(m.Tasks, ","), tasknames.WinPost) {
 						myPostIsHandled = true
 						break
 					}

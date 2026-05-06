@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type FixRawSize struct {
@@ -143,8 +144,8 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(16),
-		Name:      "FixRawSize",
-		MayFollow: []string{"Indexing"},
+		Name:      tasknames.FixRawSize,
+		MayFollow: []string{tasknames.Indexing},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
@@ -155,6 +156,7 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 			if time.Since(f.startTime) < time.Hour {
 				return nil
 			}
+
 			return f.schedule(context.Background(), taskFunc)
 		}),
 	}

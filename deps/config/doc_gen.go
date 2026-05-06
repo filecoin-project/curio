@@ -267,6 +267,14 @@ Updates will affect running instances.`,
 
 			Comment: `Batching represents the batching configuration for pre-commit, commit, and update operations.`,
 		},
+		{
+			Name: "Cuzk",
+			Type: "CuzkConfig",
+
+			Comment: `Cuzk configures integration with the cuzk proving daemon.
+When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+to an external cuzk daemon over gRPC instead of using local GPU resources.`,
+		},
 	},
 	"CurioFees": {
 		{
@@ -432,6 +440,29 @@ Updates will affect running instances.`,
 			Comment: `DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
 Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
 When enabled, all deals will be processed as snap deals. (Default: false)`,
+		},
+		{
+			Name: "DisableSSRFProtection",
+			Type: "bool",
+
+			Comment: `DisableSSRFProtection disables all SSRF (Server-Side Request Forgery) protection
+on deal data URL fetching. When true, URLs pointing to private IPs, loopback
+addresses, and local hostnames are allowed. URL structure validation (scheme,
+control characters) is still enforced.
+WARNING: Only enable in development or testing environments. (Default: false)
+Updates will affect running instances.`,
+		},
+		{
+			Name: "SSRFAllowedHosts",
+			Type: "[]string",
+
+			Comment: `SSRFAllowedHosts is a list of hosts or host:port pairs that are allowed through
+SSRF protection. Matched hosts bypass IP and hostname restrictions while other
+safety checks (URL scheme, headers) remain active.
+Entries without a port match any port for that host.
+Example: ["192.168.1.100:8080", "my-dev-server.local"]
+(Default: [])
+Updates will affect running instances.`,
 		},
 	},
 	"CurioProvingConfig": {
@@ -899,6 +930,33 @@ via Client Settings on the Proofshare webui page. Buy delay can also be set in t
 
 			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
 NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
+		},
+	},
+	"CuzkConfig": {
+		{
+			Name: "Address",
+			Type: "string",
+
+			Comment: `Address of the cuzk daemon gRPC endpoint.
+Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+Empty string disables cuzk integration. (Default: "")`,
+		},
+		{
+			Name: "MaxPending",
+			Type: "int",
+
+			Comment: `MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+(Default: 10)`,
+		},
+		{
+			Name: "ProveTimeout",
+			Type: "time.Duration",
+
+			Comment: `ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+If the proof is not completed within this duration, the task will be retried.
+Time duration string (e.g., "30m", "1h"). (Default: "30m")`,
 		},
 	},
 	"HTTPConfig": {

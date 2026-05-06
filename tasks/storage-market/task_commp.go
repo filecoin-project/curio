@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -359,8 +360,8 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(c.max),
-		Name:      "CommP",
-		MayFollow: []string{"ParkPiece"},
+		Name:      tasknames.CommP,
+		MayFollow: []string{tasknames.ParkPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

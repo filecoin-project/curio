@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,7 @@ type MachineSummary struct {
 	Gpu            int
 	Layers         string
 	Uptime         string
+	Version        string
 	Unschedulable  bool
 	RestartRequest string
 	Restarting     bool
@@ -47,7 +49,8 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 							hmd.machine_name,
 							hmd.tasks,
 							hmd.layers,
-							hmd.startup_time
+							hmd.startup_time,
+							hmd.version
 						FROM 
 							harmony_machines hm
 						LEFT JOIN 
@@ -66,9 +69,13 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		var ram int64
 		var uptime time.Time
 		var restartRequest *time.Time
+		var version sql.NullString
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &m.Name, &m.Tasks, &m.Layers, &uptime, &version); err != nil {
 			return nil, err // Handle error
+		}
+		if version.Valid {
+			m.Version = version.String
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
 		m.RamHumanized = humanize.Bytes(uint64(ram))

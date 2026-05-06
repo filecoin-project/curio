@@ -71,6 +71,9 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxQueueSnapProve:  NewDynamic(0),
 
 			MaxDealWaitTime: NewDynamic(time.Hour),
+
+			DisableSSRFProtection: NewDynamic(false),
+			SSRFAllowedHosts:      NewDynamic([]string{}),
 		},
 		Alerting: CurioAlertingConfig{
 			MinimumWalletBalance: types.MustParseFIL("5"),
@@ -125,6 +128,10 @@ func DefaultCurioConfig() *CurioConfig {
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"},
 				},
 			},
+		},
+		Cuzk: CuzkConfig{
+			MaxPending:   10,
+			ProveTimeout: 30 * time.Minute,
 		},
 		HTTP: HTTPConfig{
 			DomainName:        "",
@@ -189,6 +196,11 @@ type CurioConfig struct {
 
 	// Batching represents the batching configuration for pre-commit, commit, and update operations.
 	Batching CurioBatchingConfig
+
+	// Cuzk configures integration with the cuzk proving daemon.
+	// When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+	// to an external cuzk daemon over gRPC instead of using local GPU resources.
+	Cuzk CuzkConfig
 }
 
 type BatchFeeConfig struct {
@@ -534,6 +546,29 @@ type CurioProvingConfig struct {
 	PartitionCheckTimeout time.Duration
 }
 
+// CuzkConfig configures integration with an external cuzk proving daemon.
+// The cuzk daemon is a persistent GPU-resident SNARK proving engine that keeps SRS parameters
+// loaded in memory across proofs, eliminating the 30-90s SRS loading overhead per proof.
+// When enabled, Curio delegates SNARK computations to cuzk over gRPC and uses pipeline
+// backpressure (via GetStatus) instead of local GPU/RAM resource accounting.
+type CuzkConfig struct {
+	// Address of the cuzk daemon gRPC endpoint.
+	// Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+	// Empty string disables cuzk integration. (Default: "")
+	Address string
+
+	// MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+	// before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+	// queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+	// (Default: 10)
+	MaxPending int
+
+	// ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+	// If the proof is not completed within this duration, the task will be retried.
+	// Time duration string (e.g., "30m", "1h"). (Default: "30m")
+	ProveTimeout time.Duration
+}
+
 type CurioIngestConfig struct {
 	// MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
 	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
@@ -612,6 +647,23 @@ type CurioIngestConfig struct {
 	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
 	// When enabled, all deals will be processed as snap deals. (Default: false)
 	DoSnap bool
+
+	// DisableSSRFProtection disables all SSRF (Server-Side Request Forgery) protection
+	// on deal data URL fetching. When true, URLs pointing to private IPs, loopback
+	// addresses, and local hostnames are allowed. URL structure validation (scheme,
+	// control characters) is still enforced.
+	// WARNING: Only enable in development or testing environments. (Default: false)
+	// Updates will affect running instances.
+	DisableSSRFProtection *Dynamic[bool]
+
+	// SSRFAllowedHosts is a list of hosts or host:port pairs that are allowed through
+	// SSRF protection. Matched hosts bypass IP and hostname restrictions while other
+	// safety checks (URL scheme, headers) remain active.
+	// Entries without a port match any port for that host.
+	// Example: ["192.168.1.100:8080", "my-dev-server.local"]
+	// (Default: [])
+	// Updates will affect running instances.
+	SSRFAllowedHosts *Dynamic[[]string]
 }
 
 type CurioAlertingConfig struct {

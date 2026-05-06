@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const MinSnapSchedInterval = 10 * time.Second
@@ -275,8 +276,8 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(e.max),
-		Name:      "UpdateEncode",
-		MayFollow: []string{"AggregateDeals"},
+		Name:      tasknames.UpdateEncode,
+		MayFollow: []string{tasknames.AggregateDeals},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value

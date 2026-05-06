@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -130,8 +131,8 @@ func (t *TaskUnsealSdr) TypeDetails() harmonytask.TaskTypeDetails {
 
 	res := harmonytask.TaskTypeDetails{
 		Max:       t.max,
-		Name:      "SDRKeyRegen",
-		MayFollow: []string{"MoveStorage", "UpdateStore"},
+		Name:      tasknames.SDRKeyRegen,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,

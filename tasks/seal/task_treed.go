@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type TreeDTask struct {
@@ -76,8 +77,8 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
-		Name:      "TreeD",
-		MayFollow: []string{"SDR"},
+		Name:      tasknames.TreeD,
+		MayFollow: []string{tasknames.SDR},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30,
@@ -161,6 +162,7 @@ func (t *TreeDTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	sref := storiface.SectorRef{
 		ID: abi.SectorID{

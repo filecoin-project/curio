@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -272,8 +273,8 @@ func (s *StorageEndpointGC) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 func (s *StorageEndpointGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "StorageMetaGC",
-		MayFollow: []string{"MoveStorage", "UpdateStore"},
+		Name:      tasknames.StorageMetaGC,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

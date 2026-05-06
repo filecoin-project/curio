@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type SenderETH struct {
@@ -235,7 +236,7 @@ func (s *SendTaskETH) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 func (s *SendTaskETH) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1024),
-		Name: "SendTransaction",
+		Name: tasknames.SendTransaction,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

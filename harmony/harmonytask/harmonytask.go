@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -97,6 +98,8 @@ type TaskInterface interface {
 	// ONLY be called by harmonytask.
 	// Indicate if the task no-longer needs scheduling with done=true including
 	// cases where it's past the deadline.
+	// Optional: call SetMeta(ctx, key, value) with task-specific keys so
+	// TaskEngine.OnTaskComplete callbacks receive metadata after a successful run.
 	Do(ctx context.Context, taskID TaskID, stillOwned func() bool) (done bool, err error)
 
 	// CanAccept should return if the task can run on this machine. It should
@@ -176,6 +179,9 @@ type TaskEngine struct {
 	// channel value itself is replaced in one place (New) before startScheduler
 	// is called, so concurrent access to the channel is safe.
 	schedulerChannel chan schedulerEvent
+
+	completionMu        sync.RWMutex
+	completionCallbacks map[string][]TaskCompleteFunc
 }
 
 // taskEngineConfig holds fields that are set once during New() and never
@@ -271,8 +277,9 @@ func NewWithReg(
 		state: taskEngineState{
 			preemptBids: preemptbids.New(),
 		},
-		taskMap:          make(map[string]*taskTypeHandler, len(impls)),
-		schedulerChannel: make(chan schedulerEvent, 100),
+		taskMap:             make(map[string]*taskTypeHandler, len(impls)),
+		schedulerChannel:    make(chan schedulerEvent, 100),
+		completionCallbacks: make(map[string][]TaskCompleteFunc),
 	}
 	e.atomics.pollDuration.Store(pollRarely)
 	e.atomics.lastCleanup.Store(time.Now())
@@ -673,6 +680,41 @@ func (e *TaskEngine) singletonRunNowPoller() {
 			}
 		}
 	}
+}
+
+// RestartTaskByID re-inserts a previously-failed task into harmony_task using
+// its original ID, then notifies the scheduler so it can claim the work
+// immediately without waiting for a DB poll cycle. If the task is already
+// pending or running (unique-constraint violation), it is silently skipped.
+func (e *TaskEngine) RestartTaskByID(id TaskID, name string, postedTime time.Time) error {
+	_, err := e.cfg.db.BeginTransaction(e.cfg.ctx, func(tx *harmonydb.Tx) (bool, error) {
+		_, err := tx.Exec(`
+			INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
+			VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
+		`, id, postedTime, e.cfg.ownerID, name)
+		if err != nil {
+			return false, fmt.Errorf("RestartTaskByID: insert failed: %w", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		if harmonydb.IsErrUniqueContraint(err) {
+			log.Debugf("RestartTaskByID(%d, %s): task already pending/running, skipping", id, name)
+			return nil
+		}
+		return err
+	}
+
+	go func() {
+		e.schedulerChannel <- schedulerEvent{
+			TaskID:     id,
+			TaskType:   name,
+			Source:     schedulerSourceAdded,
+			PostedTime: postedTime,
+		}
+	}()
+
+	return nil
 }
 
 // AddTaskByName is the single entry point for creating new tasks in the system.

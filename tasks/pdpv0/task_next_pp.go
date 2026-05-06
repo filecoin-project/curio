@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -398,9 +399,9 @@ func (n *NextProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *harm
 
 func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:          "PDPv0_ProvPeriod",
+		Name:          tasknames.PDPv0_ProvPeriod,
 		TimeSensitive: true,
-		MayFollow:     []string{"PDPv0_Prove"},
+		MayFollow:     []string{tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

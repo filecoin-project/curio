@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PieceCleanupTask struct {
@@ -430,8 +431,8 @@ func (p *PieceCleanupTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (p *PieceCleanupTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "PieceCleanup",
-		MayFollow: []string{"Indexing", "PDPIndexing", "PDPv0_Indexing"},
+		Name:      tasknames.PieceCleanup,
+		MayFollow: []string{tasknames.Indexing, tasknames.PDPIndexing, tasknames.PDPv0_Indexing},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

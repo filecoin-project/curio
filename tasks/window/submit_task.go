@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -188,8 +189,8 @@ func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(128),
-		Name:      "WdPostSubmit",
-		MayFollow: []string{"WdPost"},
+		Name:      tasknames.WdPostSubmit,
+		MayFollow: []string{tasknames.WdPost},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

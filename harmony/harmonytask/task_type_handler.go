@@ -250,6 +250,8 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 	i := 0
 	for _, tID := range tIDs {
 		taskCtx, taskCancel := context.WithCancel(h.TaskEngine.cfg.ctx)
+		meta := &completionMeta{vals: make(map[any]any)}
+		taskCtx = context.WithValue(taskCtx, completionMetaKey{}, meta)
 		handle := h.running.Start(int64(tID), taskCancel)
 
 		go func(tID TaskID, releaseStorage func(), handle *runregistry.Handle) {
@@ -287,6 +289,9 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 					releaseStorage()
 				}
 				h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
+				if done {
+					h.TaskEngine.invokeTaskCompleteCallbacks(h.Name, meta, tID)
+				}
 				eventEmitter.EmitTaskCompleted(h.Name, done)
 				if !done {
 					for _, t := range tasks {

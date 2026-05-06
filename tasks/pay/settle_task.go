@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("filecoin-pay-settle")
@@ -90,8 +91,8 @@ func (s *SettleTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "Settle",
-		MayFollow: []string{"SendTransaction"},
+		Name:      tasknames.Settle,
+		MayFollow: []string{tasknames.SendTransaction},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

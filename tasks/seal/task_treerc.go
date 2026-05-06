@@ -19,6 +19,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type TreeRCTask struct {
@@ -61,6 +62,7 @@ func (t *TreeRCTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
 	}
 	sectorParams := sectorParamsArr[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{sectorParams.SpID, sectorParams.SectorNumber})
 
 	commd, err := cid.Parse(sectorParams.CommD)
 	if err != nil {
@@ -160,8 +162,8 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
-		Name:      "TreeRC",
-		MayFollow: []string{"TreeD"},
+		Name:      tasknames.TreeRC,
+		MayFollow: []string{tasknames.TreeD},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     gpu,

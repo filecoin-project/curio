@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPTaskDeletePiece struct {
@@ -147,8 +148,8 @@ func (p *PDPTaskDeletePiece) CanAccept(ids []harmonytask.TaskID, engine *harmony
 func (p *PDPTaskDeletePiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "PDPDeletePiece",
-		MayFollow: []string{"PDPAddPiece"},
+		Name:      tasknames.PDPDeletePiece,
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

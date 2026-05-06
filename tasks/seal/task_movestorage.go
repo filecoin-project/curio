@@ -19,6 +19,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type MoveStorageTask struct {
@@ -54,6 +55,7 @@ func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, sti
 		return false, xerrors.Errorf("expected one task")
 	}
 	task := tasks[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{task.SpID, task.SectorNumber})
 
 	sector := storiface.SectorRef{
 		ID: abi.SectorID{
@@ -185,8 +187,8 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(m.max),
-		Name:      "MoveStorage",
-		MayFollow: []string{"Finalize"},
+		Name:      tasknames.MoveStorage,
+		MayFollow: []string{tasknames.Finalize},
 		Cost: resources.Resources{
 			Cpu:     cpu,
 			Gpu:     0,

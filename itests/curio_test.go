@@ -194,7 +194,8 @@ func TestCurioHappyPath(t *testing.T) {
 												failed_reason,
 												start_epoch
 											FROM 
-												sectors_sdr_pipeline;`)
+												sectors_sdr_pipeline
+											ORDER BY sector_number;`)
 		require.NoError(t, err)
 		for i, task := range pollTask {
 			t.Logf("Task %d: SpID=%d, SectorNumber=%d, RegisteredSealProof=%d, TicketEpoch=%s, TaskSDR=%s, AfterSDR=%t, TaskTreeD=%s, AfterTreeD=%t, TaskTreeC=%s, AfterTreeC=%t, TaskTreeR=%s, AfterTreeR=%t, TaskSynth=%s, AfterSynth=%t, PreCommitReadyAt=%s, TaskPrecommitMsg=%s, AfterPrecommitMsg=%t, AfterPrecommitMsgSuccess=%t, SeedEpoch=%s, TaskPoRep=%s, AfterPoRep=%t, TaskFinalize=%s, AfterFinalize=%t, TaskMoveStorage=%s, AfterMoveStorage=%t, CommitReadyAt=%s, TaskCommitMsg=%s, AfterCommitMsg=%t, AfterCommitMsgSuccess=%t, Failed=%t, FailedReason=%s, StartEpoch=%s",

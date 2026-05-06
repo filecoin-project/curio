@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 // TODO: This task should be removed at NV30 upgrade along with CTEs for parked_piece insert
@@ -33,6 +34,7 @@ func NewFixParkPieceTask(db *harmonydb.DB, sc *ffi.SealCalls) *FixParkPieceTask 
 }
 
 func (f *FixParkPieceTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+
 	// Check index first
 	var exists bool
 	err = f.db.QueryRow(ctx, `
@@ -204,7 +206,7 @@ func (f *FixParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (f *FixParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "FixParkPiece",
+		Name: tasknames.FixParkPiece,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

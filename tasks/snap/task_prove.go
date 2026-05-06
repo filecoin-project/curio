@@ -16,10 +16,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type ProveTask struct {
@@ -29,9 +31,11 @@ type ProveTask struct {
 	sc          *ffi.SealCalls
 	db          *harmonydb.DB
 	paramsReady func() (bool, error)
+
+	cuzkClient *cuzk.Client
 }
 
-func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, error), enableRemoteProofs bool, max int) *ProveTask {
+func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, error), enableRemoteProofs bool, max int, cuzkClient *cuzk.Client) *ProveTask {
 	return &ProveTask{
 		max: max,
 
@@ -40,6 +44,7 @@ func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, err
 
 		paramsReady:        paramck,
 		enableRemoteProofs: enableRemoteProofs,
+		cuzkClient:         cuzkClient,
 	}
 }
 
@@ -93,7 +98,12 @@ func (p *ProveTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
-	proof, err := p.sc.ProveUpdate(ctx, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sector, cidKey, cidSealed, cidUnsealed)
+	var proof []byte
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		proof, err = p.sc.ProveUpdateCuzk(ctx, p.cuzkClient, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sector, cidKey, cidSealed, cidUnsealed)
+	} else {
+		proof, err = p.sc.ProveUpdate(ctx, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sector, cidKey, cidSealed, cidUnsealed)
+	}
 	if err != nil {
 		return false, xerrors.Errorf("update prove: %w", err)
 	}
@@ -121,12 +131,17 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 		return []harmonytask.TaskID{}, nil
 	}
 
+	// When cuzk is enabled, the shared Max limiter handles backpressure.
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		return ids, nil
+	}
+
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
 	}
 	if !rdy {
-		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
+		log.Infow("UpdateProve.CanAccept() params not ready, not scheduling")
 		return []harmonytask.TaskID{}, nil
 	}
 
@@ -135,17 +150,29 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
+	ram := uint64(50 << 30) // todo correct value
 	if seal.IsDevnet {
 		gpu = 0
 	}
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		gpu = 0
+		ram = 1 << 30
+	}
+	var maxLimiter taskhelp.Limiter
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		maxLimiter = p.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(p.max)
+	}
+
 	return harmonytask.TaskTypeDetails{
-		Max:       taskhelp.Max(p.max),
-		Name:      "UpdateProve",
-		MayFollow: []string{"UpdateEncode"},
+		Max:       maxLimiter,
+		Name:      tasknames.UpdateProve,
+		MayFollow: []string{tasknames.UpdateEncode},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,
-			Ram: 50 << 30, // todo correct value
+			Ram: ram,
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {

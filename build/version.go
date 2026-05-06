@@ -41,7 +41,7 @@ func BuildTypeString() string {
 }
 
 // Intent: Major.Network.Patch
-var BuildVersionArray = [3]int{1, 27, 4}
+var BuildVersionArray = [3]int{1, 28, 0}
 
 // RC
 var BuildVersionRC = 0
@@ -64,4 +64,30 @@ func UserVersion() string {
 		return BuildVersion
 	}
 	return BuildVersion + BuildTypeString() + CurrentCommit
+}
+
+// CommitIDPrefix returns the first 7 characters of the git commit id embedded in
+// CurrentCommit (+git_<hash>_<committer ISO time>). Empty when no commit segment is present.
+func CommitIDPrefix() string {
+	const pfx = "+git_"
+	if !strings.HasPrefix(CurrentCommit, pfx) {
+		return ""
+	}
+	rest := strings.TrimPrefix(CurrentCommit, pfx)
+	if i := strings.Index(rest, "_"); i >= 0 {
+		rest = rest[:i]
+	}
+	if len(rest) > 7 {
+		return rest[:7]
+	}
+	return rest
+}
+
+// ClusterMachineVersionLabel returns the dotted release (BuildVersion) plus an optional short git hash for cluster UI, e.g. "1.27.4 abcdef1".
+func ClusterMachineVersionLabel() string {
+	v := BuildVersion
+	if g := CommitIDPrefix(); g != "" {
+		return v + " " + g
+	}
+	return v
 }

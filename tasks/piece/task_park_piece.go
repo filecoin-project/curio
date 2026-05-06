@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("cu-piece")
@@ -33,6 +34,9 @@ type ParkPieceTask struct {
 	remote *paths.Remote
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
+
+	// wake coalesces wake signals for pollPieceTasks (buffered 1).
+	wake chan struct{}
 
 	max                   int
 	minFreeStoragePercent float64
@@ -59,6 +63,7 @@ func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, ma
 		db:                    db,
 		sc:                    sc,
 		remote:                remote,
+		wake:                  make(chan struct{}, 1),
 		max:                   max,
 		maxInPark:             maxInPark,
 		longTerm:              longTerm,
@@ -72,8 +77,28 @@ func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, ma
 	return pt, nil
 }
 
+// WakePoll nudges pollPieceTasks to run soon (e.g. after new rows are inserted).
+func (p *ParkPieceTask) WakePoll() {
+	if p == nil || p.wake == nil {
+		return
+	}
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
 func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
+	ticker := time.NewTicker(PieceParkPollInterval)
+	defer ticker.Stop()
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.wake:
+		case <-ticker.C:
+		}
+
 		// Select parked pieces with no task_id and matching longTerm flag
 		var pieceIDs []struct {
 			ID storiface.PieceNumber `db:"id"`
@@ -89,12 +114,10 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
         `, p.longTerm)
 		if err != nil {
 			log.Errorf("failed to get parked pieces: %s", err)
-			time.Sleep(PieceParkPollInterval)
 			continue
 		}
 
 		if len(pieceIDs) == 0 {
-			time.Sleep(PieceParkPollInterval)
 			continue
 		}
 
@@ -265,9 +288,9 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	const maxSizePiece = 64 << 30
 
-	taskName := "ParkPiece"
+	taskName := tasknames.ParkPiece
 	if p.longTerm {
-		taskName = "StorePiece"
+		taskName = tasknames.StorePiece
 	}
 
 	storageType := storiface.PathSealing
