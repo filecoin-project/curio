@@ -112,7 +112,13 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 										    JOIN parked_piece_refs ppr ON pr.piece_ref = ppr.ref_id
 										    JOIN parked_pieces pp ON ppr.piece_id = pp.id
 										WHERE pr.data_set_refcount = 0
-										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '24 hours'`)
+										  AND pr.created_at <= TIMEZONE('UTC', NOW()) - INTERVAL '24 hours'
+										  AND NOT EXISTS (
+										      SELECT 1 FROM pdp_data_set_piece_adds a
+										      WHERE a.pdp_pieceref = pr.id
+										        AND a.pieces_added = FALSE
+										        AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
+										  )`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
@@ -154,15 +160,24 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 		failed := true
 		for range 5 {
 			comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-				var refCount0 bool
-				err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0)`, piece.ID).Scan(&refCount0)
+				var deletable bool
+				err = tx.QueryRow(`SELECT EXISTS(
+					SELECT 1 FROM pdp_piecerefs
+					WHERE id = $1 AND data_set_refcount = 0
+					  AND NOT EXISTS (
+					      SELECT 1 FROM pdp_data_set_piece_adds a
+					      WHERE a.pdp_pieceref = $1
+					        AND a.pieces_added = FALSE
+					        AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
+					  )
+				)`, piece.ID).Scan(&deletable)
 				if err != nil {
 					return false, xerrors.Errorf("failed to check if piece is referenced: %w", err)
 				}
 
-				if !refCount0 {
+				if !deletable {
 					skipLoop = true
-					log.Debugf("Piece %s with pdp_piecerefs ID %d is referenced by a dataSet, skipping cleanup", piece.PieceCID, piece.ID)
+					log.Debugf("Piece %s with pdp_piecerefs ID %d is referenced or has in-flight piece adds, skipping cleanup", piece.PieceCID, piece.ID)
 					return false, nil
 				}
 
@@ -173,9 +188,22 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 				}
 
 				// Let's drop the PDP piece ref even if we don't publish the removal ad
-				n, err := tx.Exec(`DELETE FROM pdp_piecerefs WHERE id = $1 AND data_set_refcount = 0`, piece.ID)
+				n, err := tx.Exec(`DELETE FROM pdp_piecerefs
+					WHERE id = $1 AND data_set_refcount = 0
+					  AND NOT EXISTS (
+					      SELECT 1 FROM pdp_data_set_piece_adds a
+					      WHERE a.pdp_pieceref = $1
+					        AND a.pieces_added = FALSE
+					        AND (a.add_message_ok IS NULL OR a.add_message_ok = TRUE)
+					  )`, piece.ID)
 				if err != nil {
 					return false, xerrors.Errorf("failed to delete PDP piece ref id=%d: %w", piece.ID, err)
+				}
+
+				if n == 0 {
+					skipLoop = true
+					log.Infof("Piece %s with pdp_piecerefs ID %d became referenced or in-flight; skipping cleanup", piece.PieceCID, piece.ID)
+					return false, nil
 				}
 
 				if n != 1 {

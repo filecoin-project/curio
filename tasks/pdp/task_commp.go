@@ -191,8 +191,8 @@ func (c *PDPCommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 func (c *PDPCommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(c.max),
-		MayFollow: []string{tasknames.PDPAddDataSet},
 		Name:      tasknames.PDPCommP,
+		MayFollow: []string{tasknames.PDPAddDataSet},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,
