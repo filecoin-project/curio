@@ -28,29 +28,29 @@ const (
 	WinInclCheck  = "WinInclCheck"
 
 	// Piece / storage-market pipeline
-	ParkPiece     = "ParkPiece"
-	StorePiece    = "StorePiece"
-	DropPiece     = "DropPiece"
-	FixParkPiece  = "FixParkPiece"
+	ParkPiece       = "ParkPiece"
+	StorePiece      = "StorePiece"
+	DropPiece       = "DropPiece"
+	FixParkPiece    = "FixParkPiece"
 	AggregateChunks = "AggregateChunks"
-	CommP         = "CommP"
-	PSD           = "PSD"
-	FindDeal      = "FindDeal"
-	AggregateDeals = "AggregateDeals"
-	FixRawSize    = "FixRawSize"
+	CommP           = "CommP"
+	PSD             = "PSD"
+	FindDeal        = "FindDeal"
+	AggregateDeals  = "AggregateDeals"
+	FixRawSize      = "FixRawSize"
 
 	// Messaging
 	SendMessage     = "SendMessage"
 	SendTransaction = "SendTransaction"
 
 	// Indexing / IPNI
-	Indexing        = "Indexing"
-	IPNI            = "IPNI"
-	CheckIndex      = "CheckIndex"
-	PDPIndexing     = "PDPIndexing"
-	PDPIpni         = "PDPIpni"
-	PDPv0_Indexing  = "PDPv0_Indexing"
-	PDPv0_IPNI      = "PDPv0_IPNI"
+	Indexing       = "Indexing"
+	IPNI           = "IPNI"
+	CheckIndex     = "CheckIndex"
+	PDPIndexing    = "PDPIndexing"
+	PDPIpni        = "PDPIpni"
+	PDPv0_Indexing = "PDPv0_Indexing"
+	PDPv0_IPNI     = "PDPv0_IPNI"
 
 	// GC & housekeeping
 	StorageMetaGC  = "StorageMetaGC"

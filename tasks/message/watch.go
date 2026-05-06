@@ -224,7 +224,7 @@ func (mw *MessageWatcher) update() {
 	// full poller interval before noticing.
 	if landed > 0 {
 		for _, fn := range mw.onLanded {
-			fn()
+			go fn()
 		}
 	}
 }
