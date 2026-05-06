@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 // MinSizeForCache is the minimum piece size for which we will build and
@@ -178,8 +179,8 @@ func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "PDPv0_SaveCache",
-		MayFollow: []string{"PDPv0_PullPiece"},
+		Name:      tasknames.PDPv0_SaveCache,
+		MayFollow: []string{tasknames.PDPv0_PullPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

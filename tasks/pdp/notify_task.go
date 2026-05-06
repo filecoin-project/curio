@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logger.Logger("pdp")
@@ -119,8 +120,8 @@ func (t *PDPNotifyTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPNotify",
-		MayFollow: []string{"PDPAddPiece"},
+		Name:      tasknames.PDPNotify,
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20, // 128MB

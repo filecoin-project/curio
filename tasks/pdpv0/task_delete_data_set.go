@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type DeleteDataSetTask struct {
@@ -139,8 +140,8 @@ func (t *DeleteDataSetTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *DeleteDataSetTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPv0_DelDataSet",
-		MayFollow: []string{"PDPv0_Prove"},
+		Name:      tasknames.PDPv0_DelDataSet,
+		MayFollow: []string{tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

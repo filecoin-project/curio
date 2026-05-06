@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -26,6 +27,15 @@ type SSRFPolicy struct {
 
 	AllowLoopbackIPs    bool
 	AllowLocalHostnames bool
+	AllowPrivateIPs     bool
+
+	// AllowedHosts is a list of host or host:port entries that bypass IP and
+	// hostname validation. Entries without a port match any port for that host.
+	AllowedHosts []string
+
+	// Disabled skips all SSRF host/IP/header validation. URL structure checks
+	// (scheme, control characters) are still enforced.
+	Disabled bool
 }
 
 func DefaultSSRFPolicy() SSRFPolicy {
@@ -40,10 +50,19 @@ func DefaultSSRFPolicy() SSRFPolicy {
 	}
 }
 
+var globalSSRFOverride atomic.Pointer[SSRFPolicy]
+
+// SetGlobalSSRFOverride installs a fallback SSRFPolicy that is used whenever
+// a caller passes a nil policy. Call with nil to clear the override.
+func SetGlobalSSRFOverride(p *SSRFPolicy) {
+	globalSSRFOverride.Store(p)
+}
+
 // ValidateClientFetchURL is for early deal/proposal validation.
 func ValidateClientFetchURL(raw string, headers http.Header, policy *SSRFPolicy) (*url.URL, error) {
 	policy = withSSRFDefaults(policy)
 
+	// Always validate basic URL structure.
 	if raw == "" {
 		return nil, errors.New("url is empty")
 	}
@@ -68,19 +87,29 @@ func ValidateClientFetchURL(raw string, headers http.Header, policy *SSRFPolicy)
 	}
 	u.Scheme = scheme
 
-	host := u.Hostname()
-	if err := validateFetchHostSyntax(host, policy); err != nil {
-		return nil, err
+	if policy.Disabled {
+		return u, nil
 	}
 
-	if _, err := normalizedFetchPort(u); err != nil {
+	host := u.Hostname()
+	port, err := normalizedFetchPort(u)
+	if err != nil {
 		return nil, err
+	}
+	allowed := isHostAllowed(host, port, policy.AllowedHosts)
+
+	if !allowed {
+		if err := validateFetchHostSyntax(host, policy); err != nil {
+			return nil, err
+		}
 	}
 
 	// Catch unsafe IP literals early. DNS names are checked at dial time.
-	if ip, err := netip.ParseAddr(host); err == nil {
-		if err := validateFetchIP(ip, policy); err != nil {
-			return nil, err
+	if !allowed {
+		if ip, err := netip.ParseAddr(host); err == nil {
+			if err := validateFetchIP(ip, policy); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -184,11 +213,23 @@ func ssrfSafeDial(ctx context.Context, network, addr string, policy *SSRFPolicy)
 	if err != nil {
 		return nil, xerrors.Errorf("split dial address: %w", err)
 	}
+
+	dialer := net.Dialer{Timeout: policy.DialTimeout, KeepAlive: 30 * time.Second}
+
+	if policy.Disabled {
+		return dialer.DialContext(ctx, network, addr)
+	}
+
 	if err := validateFetchPort(port); err != nil {
 		return nil, err
 	}
-	if err := validateFetchHostSyntax(host, policy); err != nil {
-		return nil, err
+
+	allowed := isHostAllowed(host, port, policy.AllowedHosts)
+
+	if !allowed {
+		if err := validateFetchHostSyntax(host, policy); err != nil {
+			return nil, err
+		}
 	}
 
 	ips, err := resolveFetchHost(ctx, host)
@@ -199,13 +240,13 @@ func ssrfSafeDial(ctx context.Context, network, addr string, policy *SSRFPolicy)
 		return nil, xerrors.Errorf("host %q resolved to no addresses", host)
 	}
 
-	for _, ip := range ips {
-		if err := validateFetchIP(ip, policy); err != nil {
-			return nil, xerrors.Errorf("unsafe resolved address %s for %q: %w", ip, host, err)
+	if !allowed {
+		for _, ip := range ips {
+			if err := validateFetchIP(ip, policy); err != nil {
+				return nil, xerrors.Errorf("unsafe resolved address %s for %q: %w", ip, host, err)
+			}
 		}
 	}
-
-	dialer := net.Dialer{Timeout: policy.DialTimeout, KeepAlive: 30 * time.Second}
 
 	var lastErr error
 	for _, ip := range ips {
@@ -274,15 +315,26 @@ func validateFetchIP(ip netip.Addr, policy *SSRFPolicy) error {
 		return xerrors.Errorf("non-public ip %s is not allowed", ip)
 	}
 	if ip.IsPrivate() {
+		if policy.AllowPrivateIPs {
+			return nil
+		}
 		return xerrors.Errorf("non-public ip %s is not allowed", ip)
 	}
-	if ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+	if ip.IsLinkLocalUnicast() {
+		if policy.AllowPrivateIPs {
+			return nil
+		}
+		return xerrors.Errorf("non-public ip %s is not allowed", ip)
+	}
+	if ip.IsUnspecified() || ip.IsMulticast() {
 		return xerrors.Errorf("non-public ip %s is not allowed", ip)
 	}
 
-	for _, p := range forbiddenFetchPrefixes {
-		if p.Contains(ip) {
-			return xerrors.Errorf("forbidden ip range %s", p)
+	if !policy.AllowPrivateIPs {
+		for _, p := range forbiddenFetchPrefixes {
+			if p.Contains(ip) {
+				return xerrors.Errorf("forbidden ip range %s", p)
+			}
 		}
 	}
 
@@ -313,6 +365,25 @@ var forbiddenFetchPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fc00::/7"),
 	netip.MustParsePrefix("fe80::/10"),
 	netip.MustParsePrefix("ff00::/8"),
+}
+
+// isHostAllowed reports whether host:port is covered by any entry in the
+// allow-list. Entries may be "host" (matches any port) or "host:port".
+func isHostAllowed(host, port string, allowed []string) bool {
+	for _, entry := range allowed {
+		eHost, ePort, err := net.SplitHostPort(entry)
+		if err != nil {
+			// No port in entry — match any port for this host.
+			if strings.EqualFold(host, entry) {
+				return true
+			}
+			continue
+		}
+		if strings.EqualFold(host, eHost) && port == ePort {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizedFetchPort(u *url.URL) (string, error) {
@@ -352,7 +423,11 @@ func withSSRFDefaults(p *SSRFPolicy) *SSRFPolicy {
 	d := DefaultSSRFPolicy()
 
 	if p == nil {
-		return &d
+		if override := globalSSRFOverride.Load(); override != nil {
+			p = override
+		} else {
+			return &d
+		}
 	}
 
 	cfg := *p

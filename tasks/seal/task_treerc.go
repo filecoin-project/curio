@@ -19,6 +19,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type TreeRCTask struct {
@@ -160,8 +161,8 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
-		Name:      "TreeRC",
-		MayFollow: []string{"TreeD"},
+		Name:      tasknames.TreeRC,
+		MayFollow: []string{tasknames.TreeD},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     gpu,

@@ -25,10 +25,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -72,6 +74,8 @@ type WdPostTask struct {
 	verifier     storiface.Verifier
 	paramsReady  func() (bool, error)
 
+	cuzkClient *cuzk.Client
+
 	windowPoStTF promise.Promise[harmonytask.AddTaskFunc]
 
 	actors               *config.Dynamic[map[dtypes.MinerAddress]bool]
@@ -98,6 +102,7 @@ func NewWdPostTask(db *harmonydb.DB,
 	max int,
 	parallel int,
 	challengeReadTimeout time.Duration,
+	cuzkClient *cuzk.Client,
 ) (*WdPostTask, error) {
 	t := &WdPostTask{
 		db:  db,
@@ -107,6 +112,8 @@ func NewWdPostTask(db *harmonydb.DB,
 		storage:      storage,
 		verifier:     verifier,
 		paramsReady:  paramck,
+
+		cuzkClient: cuzkClient,
 
 		actors:               actors,
 		max:                  max,
@@ -306,13 +313,19 @@ func (t *WdPostTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 }
 
 func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	rdy, err := t.paramsReady()
-	if err != nil {
-		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
-	}
-	if !rdy {
-		log.Infow("WdPostTask.CanAccept() params not ready, not scheduling")
-		return []harmonytask.TaskID{}, nil
+	// When cuzk handles SNARK computation, proof params are not needed locally.
+	// The shared Max limiter (from cuzkClient.TaskMax()) enforces MaxPending.
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		// fall through to deadline-based filtering below
+	} else {
+		rdy, err := t.paramsReady()
+		if err != nil {
+			return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
+		}
+		if !rdy {
+			log.Infow("WdPostTask.CanAccept() params not ready, not scheduling")
+			return []harmonytask.TaskID{}, nil
+		}
 	}
 
 	// GetEpoch
@@ -423,10 +436,25 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 		ram = 1 << 30
 	}
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		// When cuzk handles SNARK computation, the local node only generates
+		// vanilla proofs (CPU-only) and submits via gRPC.
+		gpu = 0
+		ram = 1 << 30
+	}
+
+	var maxLimiter taskhelp.Limiter
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		// Use the shared cuzk limiter so all CuZK task types share one
+		// in-flight count bounded by MaxPending.
+		maxLimiter = t.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(t.max)
+	}
 
 	return harmonytask.TaskTypeDetails{
-		Name:          "WdPost",
-		Max:           taskhelp.Max(t.max),
+		Max:           maxLimiter,
+		Name:          tasknames.WdPost,
 		MaxFailures:   5,
 		TimeSensitive: true,
 		Cost: resources.Resources{

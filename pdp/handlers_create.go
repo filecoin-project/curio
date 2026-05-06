@@ -160,7 +160,6 @@ func (p *PDPService) handleCreateDataSetAndAddPieces(w http.ResponseWriter, r *h
 
 		return true, err
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		log.Errorf("Failed to insert into message_waits_eth, pdp_data_set_piece_adds and pdp_data_set_creates: %+v", err)
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)
@@ -314,7 +313,6 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 
 		return true, nil
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		log.Errorf("Failed to insert database tracking records: %+v", err)
 		httpServerError(w, http.StatusInternalServerError, "Internal server error", err)

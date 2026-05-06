@@ -25,3 +25,7 @@ Current experimental features are listed below.
 {% content-ref url="Snark-Market-Consumer.md" %}
 [Snark-Market-Consumer.md](Snark-Market-Consumer.md)
 {% endcontent-ref %}
+
+{% content-ref url="cuzk-proving-daemon.md" %}
+[cuzk-proving-daemon.md](cuzk-proving-daemon.md)
+{% endcontent-ref %}

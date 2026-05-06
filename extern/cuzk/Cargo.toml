@@ -1,0 +1,91 @@
+[workspace]
+resolver = "2"
+members = [
+    "cuzk-proto",
+    "cuzk-core",
+    "cuzk-server",
+    "cuzk-daemon",
+    "cuzk-bench",
+    "cuzk-pce",
+    # "cuzk-ffi",  # Future: C ABI for Go embedding
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/filecoin-project/curio"
+
+[workspace.dependencies]
+# Internal crates
+cuzk-proto = { path = "cuzk-proto" }
+cuzk-core = { path = "cuzk-core" }
+cuzk-pce = { path = "cuzk-pce" }
+cuzk-server = { path = "cuzk-server" }
+
+# gRPC / async
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+base64 = "0.22"
+cid = { version = "0.11", default-features = false, features = ["alloc"] }
+
+# Filecoin proving stack — Phase 0 uses these directly.
+# Activated with cuda-supraseal for best GPU performance.
+filecoin-proofs-api = { version = "19.0", default-features = false }
+
+# Direct deps on storage-proofs crates (Phase 2: direct circuit construction).
+# These are already transitive deps via filecoin-proofs-api.
+filecoin-proofs = { version = "19.0", default-features = false }
+storage-proofs-core = { version = "19.0", default-features = false }
+storage-proofs-porep = { version = "19.0", default-features = false }
+storage-proofs-post = { version = "19.0", default-features = false }
+storage-proofs-update = { version = "19.0", default-features = false }
+
+# Forked bellperson with split synthesis/GPU API (Phase 2).
+# The [patch.crates-io] below ensures ALL transitive deps use the fork.
+bellperson = { path = "../bellperson", default-features = false }
+
+# BLS12-381 types (already transitive via bellperson/blstrs)
+blstrs = "0.7"
+ff = "0.13"
+rayon = "1.10"
+rand_core = "0.6"
+bincode = "1.3"
+
+# Filecoin hashers (Domain trait, already transitive via filecoin-proofs)
+filecoin-hashers = { version = "14.0", default-features = false, features = ["poseidon", "sha256"] }
+
+# PCE dependencies
+ec-gpu-gen = { version = "0.7", default-features = false }
+bitvec = "1"
+
+[patch.crates-io]
+bellperson = { path = "../bellperson" }
+bellpepper-core = { path = "../bellpepper-core" }
+supraseal-c2 = { path = "../supraseal-c2" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

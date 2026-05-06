@@ -24,6 +24,7 @@ import (
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
 
 	"github.com/filecoin-project/curio/build"
+	curioffi "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -551,6 +552,11 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 }
 
 func (t *WdPostTask) GenerateWindowPoStWithVanilla(ctx context.Context, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, proofs [][]byte, partitionIdx int) (proof.PoStProof, error) {
+	// When cuzk is enabled, delegate SNARK computation to the daemon.
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		return curioffi.WindowPoStCuzk(ctx, t.cuzkClient, proofType, minerID, randomness, proofs, partitionIdx)
+	}
+
 	ctx = ffiselect.WithLogCtx(ctx, "miner", minerID, "proofType", proofType, "randomness", randomness, "partitionIdx", partitionIdx)
 	pp, err := ffiselect.FFISelect.GenerateSinglePartitionWindowPoStWithVanilla(ctx, proofType, minerID, randomness, proofs, uint(partitionIdx))
 	if err != nil {

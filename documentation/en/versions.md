@@ -21,6 +21,7 @@ This is the compatibility matrix for the latest free Curio releases.
 | v1.27.2                                                      | v1.34.1       | Mainnet | NA         | v2025.1 / Automatic | 0.30 / Automatic |
 | v1.27.3                                                      | v1.34.1       | Mainnet | NA         | v2025.1 / Automatic | 0.30 / Automatic |
 | v1.27.4                                                      | v1.35.1       | Mainnet | NA         | v2025.1 / Automatic | 0.33 / Automatic |
+| v1.28.0                                                      | v1.36.0       | Mainnet | NA         | v2025.1 / Automatic | 0.33 / Automatic |
 
 {% hint style="danger" %}
 Releases in <mark style="color:red;">red color</mark> are **not recommended**. Please proceed with the next stable release.

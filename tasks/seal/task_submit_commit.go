@@ -32,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
@@ -652,8 +653,8 @@ func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.Ta
 func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(128),
-		Name:      "CommitBatch",
-		MayFollow: []string{"PoRep"},
+		Name:      tasknames.CommitBatch,
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

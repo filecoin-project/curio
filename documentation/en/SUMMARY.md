@@ -70,3 +70,4 @@
   * [Snark Market (Consumer)](experimental-features/Snark-Market-Consumer.md)
   * [Market 2.0 API](experimental-features/market-2.0-api.md)
   * [Wallet Exporter](experimental-features/Wallet-Exporter.md)
+  * [cuzk Proving Daemon](experimental-features/cuzk-proving-daemon.md)

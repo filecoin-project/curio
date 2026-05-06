@@ -27,6 +27,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/dealdata"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/proof"
 )
 
@@ -298,26 +299,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// 1. Create a long-term parked piece entry
-		var parkedPieceID int64
-		err := tx.QueryRow(`
-							WITH existing_piece AS (
-							  SELECT id
-							  FROM parked_pieces
-							  WHERE piece_cid = $1
-								AND piece_padded_size = $2
-								AND long_term = TRUE
-								AND cleanup_task_id IS NULL
-							),
-							inserted_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							  SELECT $1, $2, $3, TRUE
-							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
-							  RETURNING id
-							)
-							SELECT id FROM existing_piece
-							UNION ALL
-							SELECT id FROM inserted_piece
-							LIMIT 1;`, pieceCIDComputed.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+		parkedPieceID, err := parkpiece.Upsert(tx, pieceCIDComputed.String(), int64(paddedPieceSize), readSize, true)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
@@ -537,27 +519,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 
 	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// 1. Create a long-term parked piece entry
-		var parkedPieceID int64
-		err := tx.QueryRow(`
-							WITH existing_piece AS (
-							  SELECT id
-							  FROM parked_pieces
-							  WHERE piece_cid = $1
-								AND piece_padded_size = $2
-								AND long_term = TRUE
-								AND cleanup_task_id IS NULL
-							),
-							inserted_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							  SELECT $1, $2, $3, TRUE
-							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
-							  RETURNING id
-							)
-							SELECT id FROM existing_piece
-							UNION ALL
-							SELECT id FROM inserted_piece
-							LIMIT 1;
-        `, pcid.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+		parkedPieceID, err := parkpiece.Upsert(tx, pcid.String(), int64(paddedPieceSize), readSize, true)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}

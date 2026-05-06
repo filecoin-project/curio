@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPTaskAddDataSet struct {
@@ -138,7 +139,7 @@ func (p *PDPTaskAddDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 func (p *PDPTaskAddDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPAddDataSet",
+		Name: tasknames.PDPAddDataSet,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
