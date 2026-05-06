@@ -202,7 +202,7 @@ func processIndexingAndIPNICleanup(ctx context.Context, db *harmonydb.DB, cfg *c
 
 				if n == 0 {
 					skipLoop = true
-					log.Debugf("Piece %s with pdp_piecerefs ID %d became referenced or in-flight; skipping cleanup", piece.PieceCID, piece.ID)
+					log.Infof("Piece %s with pdp_piecerefs ID %d became referenced or in-flight; skipping cleanup", piece.PieceCID, piece.ID)
 					return false, nil
 				}
 
