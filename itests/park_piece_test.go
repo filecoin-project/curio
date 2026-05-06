@@ -83,17 +83,13 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 	require.Nil(t, accepted, "should reject all when at capacity")
 }
 
-// TestParkedPiecesActivePieceKey is a regression guard for the
-// parked_pieces_active_piece_key partial unique index and the parkpiece
-// upsert helpers. The index enforces at most one row per
-// (piece_cid, piece_padded_size, long_term) where cleanup_task_id IS NULL.
-// Loosening it reintroduces the check-then-insert race that produced
-// duplicate rows in production (see task_fix_park_piece_unique.go for the
-// legacy cleanup).
+// TestParkedPiecesActivePieceKey asserts that
+// parked_pieces_active_piece_key enforces at most one row per
+// (piece_cid, piece_padded_size, long_term) where cleanup_task_id IS NULL,
+// and that parkpiece.Upsert / UpsertSkip respect that invariant.
 //
-// Subtests are grouped: NEGATIVE (must fail / preserve invariant),
-// POSITIVE (outside the index predicate, must succeed), HELPER
-// (parkpiece.Upsert / UpsertSkip behaviour).
+// Subtests: NEGATIVE (must fail or preserve invariant), POSITIVE (outside
+// the predicate, must succeed), HELPER (Upsert / UpsertSkip behaviour).
 func TestParkedPiecesActivePieceKey(t *testing.T) {
 	ctx := t.Context()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
@@ -498,7 +494,29 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 		require.Equal(t, 1, activeCountByCID(cid))
 	})
 
-	// Final invariant across all subtests above.
+	t.Run("UpsertFallsBackWhenIndexMissing", func(t *testing.T) {
+		// Without the index, ON CONFLICT inference raises 42P10; the helper
+		// must fall back to check-then-insert.
+		const cid = "test-upsert-fallback"
+		dropParkedPieceIndex(t, ctx, db)
+		t.Cleanup(func() {
+			_, err := db.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS parked_pieces_active_piece_key
+				ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL`)
+			require.NoError(t, err)
+		})
+
+		id1 := upsert(t, cid, 32, 16, true)
+		id2 := upsert(t, cid, 32, 16, true)
+		require.Equal(t, id1, id2)
+		require.Equal(t, 1, activeCountByCID(cid))
+
+		const skipCid = "test-upsert-skip-fallback"
+		idA := upsertSkip(t, skipCid, 32, 16, true, true)
+		idB := upsertSkip(t, skipCid, 32, 16, true, false)
+		require.Equal(t, idA, idB)
+		require.Equal(t, 1, activeCountByCID(skipCid))
+	})
+
 	assertNoActiveDuplicates(t)
 }
 
@@ -514,9 +532,9 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name                    string
-		setup                   func(t *testing.T, ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls) []refExpectation
-		expectIndexAfterCleanup bool
+		name             string
+		setup            func(t *testing.T, ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls) []refExpectation
+		expectIndexAfter bool
 	}{
 		{
 			name: "moves refs from incomplete row without task",
@@ -539,7 +557,7 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 					{refID: loserRef, expectedPieceID: winnerID},
 				}
 			},
-			expectIndexAfterCleanup: true,
+			expectIndexAfter: true,
 		},
 		{
 			name: "moves refs from incomplete row with stale task",
@@ -563,7 +581,7 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 					{refID: loserRef, expectedPieceID: winnerID},
 				}
 			},
-			expectIndexAfterCleanup: true,
+			expectIndexAfter: true,
 		},
 		{
 			name: "skips active incomplete row but moves stale sibling",
@@ -592,7 +610,7 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 					{refID: staleRef, expectedPieceID: winnerID},
 				}
 			},
-			expectIndexAfterCleanup: false,
+			expectIndexAfter: false,
 		},
 		{
 			name: "chooses readable winner among multiple complete rows",
@@ -620,10 +638,10 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 					{refID: staleRef, expectedPieceID: readableWinnerID},
 				}
 			},
-			expectIndexAfterCleanup: true,
+			expectIndexAfter: true,
 		},
 		{
-			name: "does not move refs when no readable complete winner exists",
+			name: "falls back to lowest-id non-active when no readable winner exists",
 			setup: func(t *testing.T, ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls) []refExpectation {
 				const (
 					pieceCID   = "fix-piece-no-readable-winner"
@@ -640,10 +658,36 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 
 				return []refExpectation{
 					{refID: unreadableRef, expectedPieceID: unreadableCompleteID},
-					{refID: staleRef, expectedPieceID: staleLoserID},
+					{refID: staleRef, expectedPieceID: unreadableCompleteID},
 				}
 			},
-			expectIndexAfterCleanup: false,
+			expectIndexAfter: true,
+		},
+		{
+			name: "consolidates all-incomplete group via lowest-id fallback",
+			setup: func(t *testing.T, ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls) []refExpectation {
+				const (
+					pieceCID   = "fix-piece-all-incomplete"
+					paddedSize = int64(32)
+					rawSize    = int64(16)
+				)
+
+				winnerID := insertParkedPiece(t, ctx, db, pieceCID, paddedSize, rawSize, false, true, nil)
+				winnerRef := insertParkedPieceRef(t, ctx, db, winnerID, true)
+
+				loser1ID := insertParkedPiece(t, ctx, db, pieceCID, paddedSize, rawSize, false, true, nil)
+				loser1Ref := insertParkedPieceRef(t, ctx, db, loser1ID, true)
+
+				loser2ID := insertParkedPiece(t, ctx, db, pieceCID, paddedSize, rawSize, false, true, nil)
+				loser2Ref := insertParkedPieceRef(t, ctx, db, loser2ID, true)
+
+				return []refExpectation{
+					{refID: winnerRef, expectedPieceID: winnerID},
+					{refID: loser1Ref, expectedPieceID: winnerID},
+					{refID: loser2Ref, expectedPieceID: winnerID},
+				}
+			},
+			expectIndexAfter: true,
 		},
 	}
 
@@ -654,41 +698,63 @@ func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
 
 			expectedRefs := tc.setup(t, ctx, db, sc)
 
+			// Active rows in a group block index creation; the task returns
+			// success and leaves the index absent for the next pass.
 			fixTask := piece.NewFixParkPieceTask(db, sc)
 			done, err := fixTask.Do(0, func() bool { return true })
-			require.False(t, done)
-			require.ErrorContains(t, err, "creating index")
+			require.True(t, done)
+			require.NoError(t, err)
 
 			for _, expected := range expectedRefs {
 				require.Equal(t, expected.expectedPieceID, parkedPieceIDForRef(t, ctx, db, expected.refID))
 			}
-
-			cleanupTaskIDs := markOrphanPiecesForCleanup(t, ctx, db)
-			if len(cleanupTaskIDs) > 0 {
-				cleanupTask := piece.NewCleanupPieceTask(db, sc, 0)
-				for _, cleanupTaskID := range cleanupTaskIDs {
-					done, err = cleanupTask.Do(cleanupTaskID, func() bool { return true })
-					require.True(t, done)
-					require.NoError(t, err)
-				}
-			}
-
-			done, err = fixTask.Do(0, func() bool { return true })
-			if tc.expectIndexAfterCleanup {
-				require.True(t, done)
-				require.NoError(t, err)
-				require.True(t, parkedPieceIndexExists(t, ctx, db))
-			} else {
-				require.False(t, done)
-				require.ErrorContains(t, err, "creating index")
-				require.False(t, parkedPieceIndexExists(t, ctx, db))
-			}
-
-			for _, expected := range expectedRefs {
-				require.Equal(t, expected.expectedPieceID, parkedPieceIDForRef(t, ctx, db, expected.refID))
-			}
+			require.Equal(t, tc.expectIndexAfter, parkedPieceIndexExists(t, ctx, db))
 		})
 	}
+}
+
+// TestFixParkPieceTask_RecoversInvalidIndex asserts that an INVALID
+// parked_pieces_active_piece_key is dropped and recreated, not skipped via
+// CREATE UNIQUE INDEX IF NOT EXISTS.
+func TestFixParkPieceTask_RecoversInvalidIndex(t *testing.T) {
+	oldInterval := piece.PieceParkPollInterval
+	piece.PieceParkPollInterval = time.Hour
+	t.Cleanup(func() { piece.PieceParkPollInterval = oldInterval })
+
+	ctx, db, sc, _, _ := setupPieceParkTestEnv(t)
+	dropParkedPieceIndex(t, ctx, db)
+
+	const (
+		pieceCID   = "fix-piece-invalid-index"
+		paddedSize = int64(32)
+		rawSize    = int64(16)
+	)
+	winnerID := insertParkedPiece(t, ctx, db, pieceCID, paddedSize, rawSize, false, true, nil)
+	winnerRef := insertParkedPieceRef(t, ctx, db, winnerID, true)
+	loserID := insertParkedPiece(t, ctx, db, pieceCID, paddedSize, rawSize, false, true, nil)
+	loserRef := insertParkedPieceRef(t, ctx, db, loserID, true)
+
+	// CONCURRENTLY against pre-existing duplicates fails and leaves the
+	// index INVALID, matching the on-disk state from the racy upload era.
+	_, err := db.Exec(ctx, `CREATE UNIQUE INDEX CONCURRENTLY parked_pieces_active_piece_key
+		ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL`)
+	require.Error(t, err)
+
+	var indisvalid bool
+	require.NoError(t, db.QueryRow(ctx, `
+		SELECT indisvalid FROM pg_index
+		WHERE indexrelid = (SELECT oid FROM pg_class WHERE relname = 'parked_pieces_active_piece_key')`).Scan(&indisvalid))
+	require.False(t, indisvalid)
+	require.False(t, parkedPieceIndexExists(t, ctx, db))
+
+	fixTask := piece.NewFixParkPieceTask(db, sc)
+	done, err := fixTask.Do(0, func() bool { return true })
+	require.True(t, done)
+	require.NoError(t, err)
+
+	require.True(t, parkedPieceIndexExists(t, ctx, db))
+	require.Equal(t, winnerID, parkedPieceIDForRef(t, ctx, db, winnerRef))
+	require.Equal(t, winnerID, parkedPieceIDForRef(t, ctx, db, loserRef))
 }
 
 func setupPieceParkTestEnv(t *testing.T) (context.Context, *harmonydb.DB, *ffi.SealCalls, *paths.Remote, storiface.ID) {
@@ -792,34 +858,6 @@ func parkedPieceIDForRef(t *testing.T, ctx context.Context, db *harmonydb.DB, re
 	err := db.QueryRow(ctx, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refID).Scan(&pieceID)
 	require.NoError(t, err)
 	return pieceID
-}
-
-func markOrphanPiecesForCleanup(t *testing.T, ctx context.Context, db *harmonydb.DB) []harmonytask.TaskID {
-	t.Helper()
-
-	var orphanPieceIDs []int64
-	err := db.Select(ctx, &orphanPieceIDs, `
-		SELECT pp.id
-		FROM parked_pieces pp
-		WHERE pp.cleanup_task_id IS NULL
-		  AND NOT EXISTS (
-			  SELECT 1
-			  FROM parked_piece_refs ppr
-			  WHERE ppr.piece_id = pp.id
-		  )
-		ORDER BY pp.id
-	`)
-	require.NoError(t, err)
-
-	taskIDs := make([]harmonytask.TaskID, 0, len(orphanPieceIDs))
-	for i, pieceID := range orphanPieceIDs {
-		taskID := harmonytask.TaskID(10_000 + i + int(pieceID))
-		_, err := db.Exec(ctx, `UPDATE parked_pieces SET cleanup_task_id = $1 WHERE id = $2`, taskID, pieceID)
-		require.NoError(t, err)
-		taskIDs = append(taskIDs, taskID)
-	}
-
-	return taskIDs
 }
 
 func parkedPieceIndexExists(t *testing.T, ctx context.Context, db *harmonydb.DB) bool {
