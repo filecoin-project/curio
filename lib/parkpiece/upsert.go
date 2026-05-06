@@ -18,14 +18,17 @@ import (
 // index. Falls back to check-then-insert (not race-safe) if that index is
 // missing or INVALID. Must run inside a transaction.
 func Upsert(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm bool) (int64, error) {
-	var id int64
-	err := tx.QueryRow(`
-		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
-		-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-		DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
-		RETURNING id`, pieceCID, paddedSize, rawSize, longTerm).Scan(&id)
+	id, err := withSavepoint(tx, func() (int64, error) {
+		var id int64
+		err := tx.QueryRow(`
+			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
+			-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
+			DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
+			RETURNING id`, pieceCID, paddedSize, rawSize, longTerm).Scan(&id)
+		return id, err
+	})
 	if err == nil {
 		return id, nil
 	}
@@ -38,14 +41,17 @@ func Upsert(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTe
 // UpsertSkip is Upsert with an explicit skip value for new rows. Existing
 // rows keep their skip value.
 func UpsertSkip(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm, skip bool) (int64, error) {
-	var id int64
-	err := tx.QueryRow(`
-		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
-		-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-		DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
-		RETURNING id`, pieceCID, paddedSize, rawSize, longTerm, skip).Scan(&id)
+	id, err := withSavepoint(tx, func() (int64, error) {
+		var id int64
+		err := tx.QueryRow(`
+			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
+			-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
+			DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
+			RETURNING id`, pieceCID, paddedSize, rawSize, longTerm, skip).Scan(&id)
+		return id, err
+	})
 	if err == nil {
 		return id, nil
 	}
@@ -53,6 +59,26 @@ func UpsertSkip(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, lo
 		return upsertFallback(tx, pieceCID, paddedSize, rawSize, longTerm, &skip)
 	}
 	return 0, xerrors.Errorf("upsert parked_pieces: %w", err)
+}
+
+// withSavepoint wraps run in a SAVEPOINT so an error (notably 42P10 from a
+// missing/INVALID index) doesn't poison the caller's transaction. On error,
+// the savepoint is rolled back and the original error returned.
+func withSavepoint(tx *harmonydb.Tx, run func() (int64, error)) (int64, error) {
+	if _, err := tx.Exec(`SAVEPOINT parkpiece_upsert`); err != nil {
+		return 0, xerrors.Errorf("savepoint: %w", err)
+	}
+	id, err := run()
+	if err != nil {
+		if _, rerr := tx.Exec(`ROLLBACK TO SAVEPOINT parkpiece_upsert`); rerr != nil {
+			return 0, xerrors.Errorf("rollback savepoint: %w (orig: %v)", rerr, err)
+		}
+		return 0, err
+	}
+	if _, rerr := tx.Exec(`RELEASE SAVEPOINT parkpiece_upsert`); rerr != nil {
+		return 0, xerrors.Errorf("release savepoint: %w", rerr)
+	}
+	return id, nil
 }
 
 // upsertFallback is the non-atomic check-then-insert path used when the

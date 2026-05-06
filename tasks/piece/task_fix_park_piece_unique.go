@@ -194,6 +194,15 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		if err != nil {
 			return false, xerrors.Errorf("consolidating duplicate group: %w", err)
 		}
+
+		// Best-effort: remove the on-disk piece data for losers we just
+		// deleted from the DB. Errors are logged; orphan cleanup will
+		// catch any stragglers.
+		for _, loserID := range loserIDs {
+			if rerr := f.sc.RemovePiece(ctx, storiface.PieceNumber(loserID)); rerr != nil {
+				log.Errorw("removing piece after consolidation", "piece_id", loserID, "error", rerr)
+			}
+		}
 	}
 
 	// IF NOT EXISTS is a no-op against an existing INVALID index, so drop

@@ -844,9 +844,9 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 
-		batch := &pgx.Batch{}
-		batchSize := 5000
-
+		// Per-item rather than batched so parkpiece.Upsert can savepoint
+		// around its ON CONFLICT and fall back when the partial unique
+		// index is missing or INVALID.
 		for k, v := range toDownload {
 			for _, src := range v {
 				headers, err := json.Marshal(src.Headers)
@@ -856,50 +856,28 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				batch.Queue(`
-							WITH selected_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-							  VALUES ($1, $2, $3, FALSE)
-							  ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
-							  -- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-							  DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
-							  RETURNING id
-							),
-							inserted_ref AS (
-							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-							  SELECT id, $4, $5, FALSE FROM selected_piece
-							  RETURNING ref_id
-							)
-							INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
-							VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
-							ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
-							SET ref_ids = array_append(
-							  market_mk20_download_pipeline.ref_ids,
-							  (SELECT ref_id FROM inserted_ref)
-							)
-							WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
-					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, ProductNamePDPV1, k.PieceCIDV2.String())
-			}
-
-			if batch.Len() > batchSize {
-				res, err := tx.SendBatch(ctx, batch)
+				pieceID, err := parkpiece.Upsert(tx, k.PieceCID.String(), int64(k.Size), int64(k.RawSize), false)
 				if err != nil {
-					return xerrors.Errorf("failed to send batch: %w", err)
+					return xerrors.Errorf("upserting parked_pieces: %w", err)
 				}
-				if err := res.Close(); err != nil {
-					return xerrors.Errorf("closing parked piece query batch: %w", err)
+				var refID int64
+				err = tx.QueryRow(`
+					INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+					VALUES ($1, $2, $3, FALSE)
+					RETURNING ref_id`, pieceID, src.URL, headers).Scan(&refID)
+				if err != nil {
+					return xerrors.Errorf("inserting parked_piece_refs: %w", err)
 				}
-				batch = &pgx.Batch{}
-			}
-		}
-
-		if batch.Len() > 0 {
-			res, err := tx.SendBatch(ctx, batch)
-			if err != nil {
-				return xerrors.Errorf("failed to send batch: %w", err)
-			}
-			if err := res.Close(); err != nil {
-				return xerrors.Errorf("closing parked piece query batch: %w", err)
+				_, err = tx.Exec(`
+					INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+					VALUES ($1, $2, $3, ARRAY[$4::bigint])
+					ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
+					SET ref_ids = array_append(market_mk20_download_pipeline.ref_ids, $4::bigint)
+					WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[$4::bigint]`,
+					k.ID, k.PieceCIDV2.String(), ProductNamePDPV1, refID)
+				if err != nil {
+					return xerrors.Errorf("upserting market_mk20_download_pipeline: %w", err)
+				}
 			}
 		}
 
