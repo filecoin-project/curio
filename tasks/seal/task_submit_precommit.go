@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -354,7 +355,7 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1024),
-		Name:      "PreCommitBatch",
+		Name:      tasknames.PreCommitBatch,
 		MayFollow: []string{"SyntheticProofs"},
 		Cost: resources.Resources{
 			Cpu: 0,

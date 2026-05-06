@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
@@ -171,8 +172,8 @@ func (p *PDPTaskAddPiece) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "PDPAddPiece",
 		MayFollow: []string{"PDPCommP"},
+		Name:      tasknames.PDPAddPiece,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

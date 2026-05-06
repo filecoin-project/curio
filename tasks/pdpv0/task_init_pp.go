@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -263,7 +264,7 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_InitPP",
+		Name: tasknames.PDPv0_InitPP,
 		// Handoff from data onboarding (PDPv0_Notify → PDPv0_PullPiece → PDPv0_SaveCache).
 		// InitPP checks on-chain leaf count before the first challenge request; proving
 		// continues PDPv0_InitPP → PDPv0_Prove.

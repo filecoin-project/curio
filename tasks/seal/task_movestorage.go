@@ -19,6 +19,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type MoveStorageTask struct {
@@ -186,7 +187,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(m.max),
-		Name:      "MoveStorage",
+		Name:      tasknames.MoveStorage,
 		MayFollow: []string{"Finalize"},
 		Cost: resources.Resources{
 			Cpu:     cpu,

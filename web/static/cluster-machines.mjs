@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import { LitElement, css, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
 customElements.define('cluster-machines', class ClusterMachines extends LitElement {
@@ -6,6 +6,17 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
         data: { type: Array },
         detailed: { type: Boolean }
     };
+
+    static styles = css`
+        .col-build-git {
+            max-width: 20rem;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+    `;
 
     constructor() {
         super();
@@ -84,6 +95,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                         : ''
                                     }
                                     <th>Last Contact</th>
+                                    <th class="col-build-git">Build's Git</th>
                                     <th>Uptime</th>
                                     <th>Scheduling</th>
                                     ${
@@ -118,6 +130,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                         : ''
                                     }
                                     <td>${item.SinceContact}</td>
+                                    <td class="col-build-git">${item.Version ?? ''}</td>
                                     <td>${item.Uptime}</td>
 
                                     <td style="white-space: nowrap;">

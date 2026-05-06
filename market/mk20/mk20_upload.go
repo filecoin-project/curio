@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
@@ -355,25 +356,7 @@ func (m *MK20) HandleUploadChunk(ctx context.Context, id ulid.ULID, chunk int, d
 
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				err = tx.QueryRow(`
-							WITH existing_piece AS (
-							  SELECT id
-							  FROM parked_pieces
-							  WHERE piece_cid = $1
-								AND piece_padded_size = $2
-								AND long_term = FALSE
-								AND cleanup_task_id IS NULL
-							),
-							inserted_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-							  SELECT $1, $2, $3, FALSE, TRUE
-							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
-							  RETURNING id
-							)
-							SELECT id FROM existing_piece
-							UNION ALL
-							SELECT id FROM inserted_piece
-							LIMIT 1;`, tpcid.String(), tsize, n).Scan(&pnum)
+				pnum, err = parkpiece.UpsertSkip(tx, tpcid.String(), int64(tsize), int64(n), false, true)
 				if err != nil {
 					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}
@@ -775,25 +758,7 @@ func (m *MK20) HandleSerialUpload(ctx context.Context, id ulid.ULID, body io.Rea
 
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				err = tx.QueryRow(`
-							WITH existing_piece AS (
-							  SELECT id
-							  FROM parked_pieces
-							  WHERE piece_cid = $1
-								AND piece_padded_size = $2
-								AND long_term = TRUE
-								AND cleanup_task_id IS NULL
-							),
-							inserted_piece AS (
-							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-							  SELECT $1, $2, $3, TRUE, TRUE
-							  WHERE NOT EXISTS (SELECT 1 FROM existing_piece)
-							  RETURNING id
-							)
-							SELECT id FROM existing_piece
-							UNION ALL
-							SELECT id FROM inserted_piece
-							LIMIT 1;`, tpcid.String(), tsize, trSize).Scan(&pnum)
+				pnum, err = parkpiece.UpsertSkip(tx, tpcid.String(), int64(tsize), int64(trSize), true, true)
 				if err != nil {
 					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}

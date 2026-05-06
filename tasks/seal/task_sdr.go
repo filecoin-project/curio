@@ -21,6 +21,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -190,7 +191,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	res := harmonytask.TaskTypeDetails{
 		Max:  s.max,
-		Name: "SDR",
+		Name: tasknames.SDR,
 		// sectors_sdr_pipeline rows are created when deals are ingested into a sector (see storageingest).
 		// SupraSeal uses dynamic task names (BatchNN-<size>) and may insert rows from its own scheduler.
 		MayFollow: []string{"AggregateDeals"},

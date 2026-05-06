@@ -155,6 +155,7 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 			if time.Since(f.startTime) < time.Hour {
 				return nil
 			}
+
 			return f.schedule(context.Background(), taskFunc)
 		}),
 	}

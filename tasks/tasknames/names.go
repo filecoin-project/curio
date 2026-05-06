@@ -1,0 +1,36 @@
+// Package tasknames holds harmony task name strings used in harmony_task.name and alert filters.
+// It must not import application packages to avoid cycles (e.g. tasks/pdpv0 → pdp → alertmanager).
+package tasknames
+
+const (
+	SDR              = "SDR"
+	TreeD            = "TreeD"
+	TreeRC           = "TreeRC"
+	PreCommitBatch   = "PreCommitBatch"
+	PoRep            = "PoRep"
+	Finalize         = "Finalize"
+	MoveStorage      = "MoveStorage"
+	CommitBatch      = "CommitBatch"
+	WdPost           = "WdPost"
+	ParkPiece        = "ParkPiece"
+	StorePiece       = "StorePiece"
+	PDPProve         = "PDPProve"
+	PDPAddPiece      = "PDPAddPiece"
+	PDPDeletePiece   = "PDPDeletePiece"
+	PDPAddDataSet    = "PDPAddDataSet"
+	PDPDelDataSet    = "PDPDelDataSet"
+	PDPInitPP        = "PDPInitPP"
+	PDPProvingPeriod = "PDPProvingPeriod"
+	PDPNotify        = "PDPNotify"
+	PDPCommP         = "PDPCommP"
+	PDPSaveCache     = "PDPSaveCache"
+	AggregatePDPDeal = "AggregatePDPDeal"
+	PDPv0_Prove      = "PDPv0_Prove"
+	PDPv0_PullPiece  = "PDPv0_PullPiece"
+	PDPv0_SaveCache  = "PDPv0_SaveCache"
+	PDPv0_InitPP     = "PDPv0_InitPP"
+	PDPv0_ProvPeriod = "PDPv0_ProvPeriod"
+	PDPv0_Notify     = "PDPv0_Notify"
+	PDPv0_DelDataSet = "PDPv0_DelDataSet"
+	PDPv0_TermFWSS   = "PDPv0_TermFWSS"
+)

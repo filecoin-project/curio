@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
@@ -538,7 +539,7 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPProve",
+		Name: tasknames.PDPProve,
 		// PDPInitPP → PDPProve → PDPProvingPeriod; do not merge onboarding here.
 		MayFollow: []string{"PDPInitPP"},
 		Cost: resources.Resources{

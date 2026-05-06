@@ -18,8 +18,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/cuzk"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -36,11 +38,13 @@ type PoRepTask struct {
 	sc          *ffi.SealCalls
 	paramsReady func() (bool, error)
 
+	cuzkClient *cuzk.Client
+
 	max                int
 	enableRemoteProofs bool
 }
 
-func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int) *PoRepTask {
+func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int, cuzkClient *cuzk.Client) *PoRepTask {
 	return &PoRepTask{
 		db:                 db,
 		api:                api,
@@ -49,6 +53,7 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 		paramsReady:        paramck,
 		max:                maxPoRep,
 		enableRemoteProofs: enableRemoteProofs,
+		cuzkClient:         cuzkClient,
 	}
 }
 
@@ -118,17 +123,13 @@ func (p *PoRepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 
 	// COMPUTE THE PROOF!
 
-	proof, err := p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+	var proof []byte
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		proof, err = p.sc.PoRepSnarkCuzk(ctx, p.cuzkClient, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+	} else {
+		proof, err = p.sc.PoRepSnark(ctx, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
+	}
 	if err != nil {
-		//end, rerr := p.recoverErrors(ctx, sectorParams.SpID, sectorParams.SectorNumber, err)
-		//if rerr != nil {
-		//	return false, xerrors.Errorf("recover errors: %w", rerr)
-		//}
-		//if end {
-		//	// done, but the error handling has stored a different than success state
-		//	return true, nil
-		//}
-
 		return false, xerrors.Errorf("failed to compute seal proof: %w", err)
 	}
 
@@ -160,6 +161,13 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngin
 		return []harmonytask.TaskID{}, nil
 	}
 
+	// When cuzk is enabled, the shared Max limiter (from cuzkClient.TaskMax())
+	// enforces MaxPending across all CuZK task types. CanAccept just needs to
+	// accept all IDs — harmonytask's Max.AtMax() / Headroom() gate handles the cap.
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		return ids, nil
+	}
+
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
@@ -180,9 +188,25 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 		mem = 1 << 30
 	}
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		// When cuzk handles SNARK computation, the local node only needs to
+		// generate vanilla proofs (CPU-only) and submit via gRPC.
+		// GPU and large RAM are not needed locally.
+		gpu = 0
+		mem = 1 << 30
+	}
+	var maxLimiter taskhelp.Limiter
+	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
+		// Use the shared cuzk limiter so all CuZK task types (PoRep, Snap,
+		// ProofShare) share one in-flight count bounded by MaxPending.
+		maxLimiter = p.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(p.max)
+	}
+
 	res := harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(p.max),
-		Name: "PoRep",
+		Max:  maxLimiter,
+		Name: tasknames.PoRep,
 		// PreCommit on-chain + message delivery (message_waits) gates seed_epoch; poller enqueues PoRep.
 		MayFollow: []string{"PreCommitBatch", "SendMessage"},
 		Cost: resources.Resources{

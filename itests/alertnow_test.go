@@ -28,7 +28,9 @@ func TestAlertNow(t *testing.T) {
 	an.AddAlert("testMessage")
 
 	as := curioalerting.NewAlertingSystem()
-	alertmanager.AlertFuncs = []alertmanager.AlertFunc{alertmanager.NowCheck}
+	alertmanager.AlertFuncs = map[alertmanager.AlertName]alertmanager.AlertFunc{
+		alertmanager.Name_NowCheck: alertmanager.NowCheck,
+	}
 	// Create a new alert task
 	at := alertmanager.NewAlertTask(nil, db, config.CurioAlertingConfig{}, as)
 	done, err := at.Do(context.Background(), 123, func() bool { return true })

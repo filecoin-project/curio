@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const MinSizeForCache = uint64(32 * 1024 * 1024)
@@ -155,7 +156,7 @@ func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "PDPSaveCache",
+		Name:      tasknames.PDPSaveCache,
 		MayFollow: []string{"PDPCommP"},
 		Cost: resources.Resources{
 			Cpu: 1,

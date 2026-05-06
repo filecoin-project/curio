@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type TerminateFWSSTask struct {
@@ -128,7 +129,7 @@ func (t *TerminateFWSSTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (t *TerminateFWSSTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPv0_TermFWSS",
+		Name:      tasknames.PDPv0_TermFWSS,
 		MayFollow: []string{"PDPv0_Prove"},
 		Cost: resources.Resources{
 			Cpu: 1,
