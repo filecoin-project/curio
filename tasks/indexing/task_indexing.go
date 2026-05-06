@@ -774,11 +774,12 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 			// Indexing job must be created for every deal to make sure piece details are inserted in DB
 			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
 			// by the Do()
-			err := tx.Select(&mk12Pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
+		err := tx.Select(&mk12Pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL
             										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
+            										AND indexing_created_at IS NOT NULL
+												ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending mk12 indexing tasks: %w", err)
 			}
@@ -800,11 +801,12 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				UUID string `db:"id"`
 			}
 
-			err = tx.Select(&mk20Pendings, `SELECT id FROM market_mk20_pipeline 
+		err = tx.Select(&mk20Pendings, `SELECT id FROM market_mk20_pipeline 
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL
             										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC LIMIT 1;`)
+            										AND indexing_created_at IS NOT NULL
+												ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting mk20 pending indexing tasks: %w", err)
 			}
