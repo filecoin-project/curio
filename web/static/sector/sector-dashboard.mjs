@@ -100,16 +100,26 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
 
         const totals = this.spStats.reduce((acc, sp) => {
             acc.total += sp.total_count;
+            acc.live += sp.live_count;
+            acc.nonLive += sp.non_live_count;
             acc.cc += sp.cc_count;
             acc.nonCC += sp.non_cc_count;
             return acc;
-        }, { total: 0, cc: 0, nonCC: 0 });
+        }, { total: 0, live: 0, nonLive: 0, cc: 0, nonCC: 0 });
 
         return html`
             <div class="stat-overview">
                 <div class="stat-item">
                     <div class="stat-value">${totals.total.toLocaleString()}</div>
                     <div class="stat-label">Total Sectors</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${totals.live.toLocaleString()}</div>
+                    <div class="stat-label">Live</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" style="${totals.nonLive > 0 ? 'color: var(--color-warning-main, #FFD600);' : ''}">${totals.nonLive.toLocaleString()}</div>
+                    <div class="stat-label">Non-Live</div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-value">${totals.cc.toLocaleString()}</div>
@@ -134,6 +144,8 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
                     <tr>
                         <th>SP Address</th>
                         <th>Total Sectors</th>
+                        <th>Live</th>
+                        <th>Non-Live</th>
                         <th>CC Sectors</th>
                         <th>Deal Sectors</th>
                         <th>Deal %</th>
@@ -148,6 +160,8 @@ customElements.define('sector-dashboard', class SectorDashboard extends LitEleme
                             <tr>
                                 <td><strong>${sp.sp_address}</strong></td>
                                 <td>${sp.total_count.toLocaleString()}</td>
+                                <td>${sp.live_count.toLocaleString()}</td>
+                                <td style="${sp.non_live_count > 0 ? 'color: var(--color-warning-main, #FFD600);' : ''}">${sp.non_live_count.toLocaleString()}</td>
                                 <td>${sp.cc_count.toLocaleString()}</td>
                                 <td>${sp.non_cc_count.toLocaleString()}</td>
                                 <td>${dealPercent}%</td>

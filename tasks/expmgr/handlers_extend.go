@@ -97,6 +97,8 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND sm.is_cc = $4
@@ -114,6 +116,8 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND sm.is_cc = $4
@@ -130,6 +134,8 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND (sm.min_claim_epoch IS NULL OR sm.min_claim_epoch > $4)
@@ -146,6 +152,8 @@ func (e *ExpMgrTask) handleExtend(ctx context.Context, cfg extendPresetConfig) (
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $2
 			  AND sm.expiration_epoch < $3
+			  AND sm.is_live = TRUE
+			  AND sm.is_faulty = FALSE
 			  AND sm.deadline IS NOT NULL
 			  AND sm.partition IS NOT NULL
 			  AND NOT EXISTS (SELECT 1 FROM sectors_snap_pipeline ssp WHERE ssp.sp_id = sm.sp_id AND ssp.sector_number = sm.sector_num)
