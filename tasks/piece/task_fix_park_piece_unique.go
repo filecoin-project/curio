@@ -73,22 +73,11 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return true, nil
 	}
 
-	/*
-		Look at duplicate groups across all active parked_pieces rows, not just completed rows,
-		but only processes groups that have at least one complete row.
-		It picks a readable complete row as the winner, moves refs from stale/no-task losers to that winner,
-		and skips losers whose task_id still exists in harmony_task.
-
-		Covered Cases:
-		1. complete + incomplete with task_id IS NULL
-		2. complete + incomplete with stale task_id
-		3. multiple complete rows
-		4. active incomplete rows are left alone
-
-		Ignored:
-		1. unique incomplete rows
-		2. duplicate groups with no complete row
-	*/
+	// For each duplicate group, pick a winner (complete+readable, else
+	// lowest-id non-active), move non-active refs onto it, delete the
+	// now-refless losers. Active rows are left alone and revisited next
+	// pass. Then drop and recreate the index unconditionally - IF NOT
+	// EXISTS is a no-op against an existing INVALID index.
 	type duplicateKey struct {
 		PieceCid  string
 		PieceSize int64
@@ -118,7 +107,6 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 									WHERE cleanup_task_id IS NULL
 									GROUP BY 1,2,3
 									HAVING count(*) > 1
-									   AND bool_or(complete)
 								) dup ON dup.piece_cid = pp.piece_cid
 									 AND dup.piece_padded_size = pp.piece_padded_size
 									 AND dup.long_term = pp.long_term
@@ -144,56 +132,90 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	for _, key := range keys {
-		dup := duplicates[key]
-		if stillOwned() {
-			var winner *int64
-			for _, row := range dup {
-				if !row.Complete {
-					continue
-				}
-
-				// Verify that the piece is still parked
-				// If piece exists then check if we can access the data
-				pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(row.ID))
-				if err != nil {
-					// If piece does not exist then we check the next one
-					continue
-				}
-				_ = pr.Close()
-				winner = new(row.ID)
-				break
-			}
-
-			if winner == nil {
-				continue
-			}
-
-			var loserIDs []int64
-			for _, row := range dup {
-				if row.ID == *winner {
-					continue
-				}
-				if row.TaskActive {
-					continue
-				}
-				loserIDs = append(loserIDs, row.ID)
-			}
-
-			if len(loserIDs) == 0 {
-				continue
-			}
-
-			_, err = f.db.Exec(ctx, `UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, *winner, loserIDs)
-			if err != nil {
-				return false, xerrors.Errorf("updating parked piece refs: %w", err)
-			}
-		} else {
+		if !stillOwned() {
 			return false, nil
+		}
+		dup := duplicates[key]
+
+		// Prefer complete + readable; ORDER BY puts complete rows first, so
+		// the first non-active row is the lowest-id fallback.
+		var winner, fallback *int64
+		for _, row := range dup {
+			if row.TaskActive {
+				continue
+			}
+			if fallback == nil {
+				fallback = new(row.ID)
+			}
+			if !row.Complete {
+				continue
+			}
+			pr, err := f.sc.PieceReader(ctx, storiface.PieceNumber(row.ID))
+			if err != nil {
+				continue
+			}
+			_ = pr.Close()
+			winner = new(row.ID)
+			break
+		}
+		if winner == nil {
+			winner = fallback
+		}
+		if winner == nil {
+			// All rows active; retry next pass.
+			continue
+		}
+
+		var loserIDs []int64
+		for _, row := range dup {
+			if row.ID == *winner {
+				continue
+			}
+			if row.TaskActive {
+				continue
+			}
+			loserIDs = append(loserIDs, row.ID)
+		}
+		if len(loserIDs) == 0 {
+			continue
+		}
+
+		// Move refs and delete refless losers atomically so the partial
+		// index sees a clean state.
+		_, err = f.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			if _, terr := tx.Exec(`UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = ANY($2::bigint[]);`, *winner, loserIDs); terr != nil {
+				return false, xerrors.Errorf("updating parked_piece_refs: %w", terr)
+			}
+			if _, terr := tx.Exec(`DELETE FROM parked_pieces WHERE id = ANY($1::bigint[]);`, loserIDs); terr != nil {
+				return false, xerrors.Errorf("deleting refless loser rows: %w", terr)
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("consolidating duplicate group: %w", err)
+		}
+
+		// Best-effort: remove the on-disk piece data for losers we just
+		// deleted from the DB. Errors are logged; orphan cleanup will
+		// catch any stragglers.
+		for _, loserID := range loserIDs {
+			if rerr := f.sc.RemovePiece(ctx, storiface.PieceNumber(loserID)); rerr != nil {
+				log.Errorw("removing piece after consolidation", "piece_id", loserID, "error", rerr)
+			}
 		}
 	}
 
-	_, err = f.db.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`)
-	if err != nil {
+	// IF NOT EXISTS is a no-op against an existing INVALID index, so drop
+	// unconditionally before creating.
+	if _, err = f.db.Exec(ctx, `DROP INDEX IF EXISTS parked_pieces_active_piece_key;`); err != nil {
+		return false, xerrors.Errorf("dropping parked_pieces_active_piece_key: %w", err)
+	}
+	if _, err = f.db.Exec(ctx, `CREATE UNIQUE INDEX parked_pieces_active_piece_key ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL;`); err != nil {
+		if harmonydb.IsErrUniqueContraint(err) {
+			// Active rows in some groups blocked consolidation; retry next pass.
+			log.Warnf("parked_pieces_active_piece_key not yet creatable: %s", err)
+			return true, nil
+		}
 		return false, xerrors.Errorf("creating index: %w", err)
 	}
 
