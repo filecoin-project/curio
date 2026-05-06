@@ -184,6 +184,16 @@ This document lists all Prometheus metrics exported by Curio. All metrics use th
 | `curio_http/request_count` | gauge/counter | Counter of HTTP requests |
 | `curio_http/response_bytes_count` | gauge/counter | Sum of HTTP response content-length |
 | `curio_http/response_status_count` | gauge/counter | Counter of HTTP response status codes |
+| `curio_ipni_announce_attempts_total` | gauge/counter | Total number of IPNI direct announce attempts. |
+| `curio_ipni_announce_http_roundtrip_seconds` | gauge | Duration of outbound IPNI announce HTTP round trips in seconds. |
+| `curio_ipni_entry_cache_hit_wait_seconds` | gauge | Duration callers wait after hitting the IPNI entry cache. |
+| `curio_ipni_entry_cache_hits_total` | gauge/counter | Total number of IPNI entry cache hits by request type, cache origin, and readiness state. |
+| `curio_ipni_entry_cache_lookups_total` | gauge/counter | Total number of IPNI entry cache lookups. |
+| `curio_ipni_entry_reconstruction_seconds` | gauge | Duration of IPNI entry reconstruction after cache miss. |
+| `curio_ipni_entry_requests_total` | gauge/counter | Total number of IPNI entry requests handled by the serve chunker. |
+| `curio_ipni_entry_speculative_unused_total` | gauge/counter | Total number of speculative IPNI entry cache fills evicted without being consumed by a demand request. |
+| `curio_ipni_provider_http_request_seconds` | gauge | Duration of inbound IPNI provider HTTP requests in seconds. |
+| `curio_ipni_provider_http_requests_total` | gauge/counter | Total number of inbound IPNI provider HTTP requests. |
 | `curio_pdp/piece_by_cid_200_response_count` | gauge/counter | Counter of /piece/<piece-cid> 200 responses for PDP |
 | `curio_pdp/piece_by_cid_request_count` | gauge/counter | Counter of /piece/<piece-cid> requests for PDP |
 | `curio_pdp/piece_by_cid_request_duration_ms` | gauge | Time spent retrieving a piece by cid for PDP |
