@@ -4,85 +4,82 @@ package parkpiece
 
 import (
 	"errors"
+	"sync/atomic"
 
-	"github.com/jackc/pgerrcode"
 	"github.com/yugabyte/pgx/v5"
-	"github.com/yugabyte/pgx/v5/pgconn"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-// Upsert returns the id of the existing live row, or inserts and returns a
-// new one. Race-safe under the parked_pieces_active_piece_key partial unique
-// index. Falls back to check-then-insert (not race-safe) if that index is
-// missing or INVALID. Must run inside a transaction.
+var activePieceIndexKnownValid atomic.Bool
+
+// Upsert returns the id for the active parked_pieces row matching
+// (piece_cid, piece_padded_size, long_term), inserting it when no active row is
+// present. When parked_pieces_active_piece_key is known valid, this uses the
+// partial unique index as the concurrency guard and performs a no-op conflict
+// update only so RETURNING can report the existing row id. When the index is
+// missing or INVALID, this avoids ON CONFLICT entirely and uses the degraded
+// check-then-insert fallback; that fallback can race and create duplicates
+// until FixParkPieceTask repairs the table/index.
 func Upsert(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm bool) (int64, error) {
-	id, err := withSavepoint(tx, func() (int64, error) {
+	indexValid, err := ActiveIndexValid(tx)
+	if err != nil {
+		return 0, xerrors.Errorf("checking parked_pieces_active_piece_key: %w", err)
+	}
+
+	if indexValid {
 		var id int64
-		err := tx.QueryRow(`
+		err = tx.QueryRow(`
 			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
 			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
 			-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-			DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
+			DO UPDATE SET piece_cid = parked_pieces.piece_cid
 			RETURNING id`, pieceCID, paddedSize, rawSize, longTerm).Scan(&id)
-		return id, err
-	})
-	if err == nil {
+		if err != nil {
+			return 0, xerrors.Errorf("upsert parked_pieces: %w", err)
+		}
 		return id, nil
 	}
-	if isErrInferenceUnmatched(err) {
-		return upsertFallback(tx, pieceCID, paddedSize, rawSize, longTerm, nil)
-	}
-	return 0, xerrors.Errorf("upsert parked_pieces: %w", err)
+
+	return upsertFallback(tx, pieceCID, paddedSize, rawSize, longTerm, nil)
 }
 
-// UpsertSkip is Upsert with an explicit skip value for new rows. Existing
-// rows keep their skip value.
+// UpsertSkip is Upsert plus a skip value for newly inserted rows. The skip
+// flag is intentionally insert-only: if the piece already exists, both the
+// valid-index path and fallback path return the existing id without changing
+// the existing row's skip or raw-size metadata.
 func UpsertSkip(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm, skip bool) (int64, error) {
-	id, err := withSavepoint(tx, func() (int64, error) {
+	indexValid, err := ActiveIndexValid(tx)
+	if err != nil {
+		return 0, xerrors.Errorf("checking parked_pieces_active_piece_key: %w", err)
+	}
+
+	if indexValid {
 		var id int64
-		err := tx.QueryRow(`
+		err = tx.QueryRow(`
 			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL
 			-- no-op SET so RETURNING fires on the conflict path (DO NOTHING returns no rows)
-			DO UPDATE SET piece_raw_size = EXCLUDED.piece_raw_size
+			DO UPDATE SET piece_cid = parked_pieces.piece_cid
 			RETURNING id`, pieceCID, paddedSize, rawSize, longTerm, skip).Scan(&id)
-		return id, err
-	})
-	if err == nil {
+		if err != nil {
+			return 0, xerrors.Errorf("upsert parked_pieces: %w", err)
+		}
 		return id, nil
 	}
-	if isErrInferenceUnmatched(err) {
-		return upsertFallback(tx, pieceCID, paddedSize, rawSize, longTerm, &skip)
-	}
-	return 0, xerrors.Errorf("upsert parked_pieces: %w", err)
+
+	return upsertFallback(tx, pieceCID, paddedSize, rawSize, longTerm, &skip)
 }
 
-// withSavepoint wraps run in a SAVEPOINT so an error (notably 42P10 from a
-// missing/INVALID index) doesn't poison the caller's transaction. On error,
-// the savepoint is rolled back and the original error returned.
-func withSavepoint(tx *harmonydb.Tx, run func() (int64, error)) (int64, error) {
-	if _, err := tx.Exec(`SAVEPOINT parkpiece_upsert`); err != nil {
-		return 0, xerrors.Errorf("savepoint: %w", err)
-	}
-	id, err := run()
-	if err != nil {
-		if _, rerr := tx.Exec(`ROLLBACK TO SAVEPOINT parkpiece_upsert`); rerr != nil {
-			return 0, xerrors.Errorf("rollback savepoint: %w (orig: %v)", rerr, err)
-		}
-		return 0, err
-	}
-	if _, rerr := tx.Exec(`RELEASE SAVEPOINT parkpiece_upsert`); rerr != nil {
-		return 0, xerrors.Errorf("release savepoint: %w", rerr)
-	}
-	return id, nil
-}
-
-// upsertFallback is the non-atomic check-then-insert path used when the
-// partial unique index isn't bindable. skip is applied only on insert.
+// upsertFallback is the non-atomic check-then-insert path used while the
+// partial unique index cannot be bound by ON CONFLICT. It first reuses the
+// lowest-id active row for the key, and inserts only when no active row exists.
+// There is deliberately no lock here; callers accept the same temporary
+// duplicate risk that the cleanup task is responsible for repairing. skip is
+// applied only to the inserted row.
 func upsertFallback(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64, longTerm bool, skip *bool) (int64, error) {
 	var id int64
 	err := tx.QueryRow(`
@@ -112,9 +109,66 @@ func upsertFallback(tx *harmonydb.Tx, pieceCID string, paddedSize, rawSize int64
 	return id, nil
 }
 
-// isErrInferenceUnmatched is PG 42P10 - ON CONFLICT inference could not bind
-// to any unique constraint or VALID unique index.
-func isErrInferenceUnmatched(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.InvalidColumnReference
+// ActiveIndexValid returns whether parked_pieces_active_piece_key is present,
+// valid, and shaped exactly as the upsert helpers require. It caches only a
+// positive answer: once this process has observed the index as valid, later
+// calls skip the catalog lookup. Missing, invalid, or wrongly-shaped states are
+// rechecked on every call so a repair that drops/recreates the index can be
+// observed without restarting the process.
+func ActiveIndexValid(tx *harmonydb.Tx) (bool, error) {
+	if activePieceIndexKnownValid.Load() {
+		return true, nil
+	}
+
+	return RefreshActiveIndexValid(tx)
+}
+
+// RefreshActiveIndexValid checks the catalog even if this process previously
+// cached the index as valid. Repair code uses this path because it must be
+// authoritative when deciding whether to drop/recreate the index. The result
+// refreshes the positive cache; a false result clears a stale positive cache
+// but is still not a negative cache because ActiveIndexValid will requery while
+// the flag is false.
+func RefreshActiveIndexValid(tx *harmonydb.Tx) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_index ix
+			JOIN pg_catalog.pg_class idx ON idx.oid = ix.indexrelid
+			JOIN pg_catalog.pg_class tbl ON tbl.oid = ix.indrelid
+			JOIN pg_catalog.pg_namespace ns ON ns.oid = tbl.relnamespace
+			JOIN pg_catalog.pg_am am ON am.oid = idx.relam
+			WHERE ns.nspname = current_schema()
+			  AND idx.relnamespace = ns.oid
+			  AND tbl.relname = 'parked_pieces'
+			  AND idx.relname = 'parked_pieces_active_piece_key'
+			  AND idx.relkind = 'i'
+			  AND am.amname = 'btree'
+			  AND ix.indisunique
+			  AND ix.indisvalid
+			  AND ix.indisready
+			  AND ix.indislive
+			  AND ix.indnkeyatts = 3
+			  AND ix.indnatts = 3
+			  AND ix.indexprs IS NULL
+			  AND ARRAY(
+				  SELECT pg_catalog.pg_get_indexdef(ix.indexrelid, n, true)
+				  FROM generate_series(1, ix.indnkeyatts) AS n
+				  ORDER BY n
+			  ) = ARRAY['piece_cid', 'piece_padded_size', 'long_term']
+			  AND pg_catalog.pg_get_expr(ix.indpred, ix.indrelid, false) = '(cleanup_task_id IS NULL)'
+		)`).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	activePieceIndexKnownValid.Store(exists)
+	return exists, nil
+}
+
+// ResetActiveIndexValidCacheForTest clears the process-local valid-index cache.
+// Production code should not call this; it exists so tests that drop or corrupt
+// the index are not order-dependent.
+func ResetActiveIndexValidCacheForTest() {
+	activePieceIndexKnownValid.Store(false)
 }

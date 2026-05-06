@@ -844,9 +844,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 
-		// Per-item rather than batched so parkpiece.Upsert can savepoint
-		// around its ON CONFLICT and fall back when the partial unique
-		// index is missing or INVALID.
+		var downloadRefs []ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
 				headers, err := json.Marshal(src.Headers)
@@ -856,29 +854,20 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				if headers == nil {
 					headers = []byte("{}")
 				}
-				pieceID, err := parkpiece.Upsert(tx, k.PieceCID.String(), int64(k.Size), int64(k.RawSize), false)
-				if err != nil {
-					return xerrors.Errorf("upserting parked_pieces: %w", err)
-				}
-				var refID int64
-				err = tx.QueryRow(`
-					INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-					VALUES ($1, $2, $3, FALSE)
-					RETURNING ref_id`, pieceID, src.URL, headers).Scan(&refID)
-				if err != nil {
-					return xerrors.Errorf("inserting parked_piece_refs: %w", err)
-				}
-				_, err = tx.Exec(`
-					INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
-					VALUES ($1, $2, $3, ARRAY[$4::bigint])
-					ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
-					SET ref_ids = array_append(market_mk20_download_pipeline.ref_ids, $4::bigint)
-					WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[$4::bigint]`,
-					k.ID, k.PieceCIDV2.String(), ProductNamePDPV1, refID)
-				if err != nil {
-					return xerrors.Errorf("upserting market_mk20_download_pipeline: %w", err)
-				}
+				downloadRefs = append(downloadRefs, ParkedPieceDownloadRef{
+					ID:         k.ID,
+					PieceCIDV2: k.PieceCIDV2.String(),
+					PieceCID:   k.PieceCID.String(),
+					PaddedSize: int64(k.Size),
+					RawSize:    int64(k.RawSize),
+					URL:        src.URL,
+					Headers:    headers,
+					LongTerm:   false,
+				})
 			}
+		}
+		if err := InsertParkedPieceDownloadRefsBatch(ctx, tx, ProductNamePDPV1, downloadRefs); err != nil {
+			return xerrors.Errorf("inserting parked piece download refs: %w", err)
 		}
 
 		pBatch := &pgx.Batch{}

@@ -2,7 +2,6 @@ package piece
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
@@ -35,38 +35,17 @@ func NewFixParkPieceTask(db *harmonydb.DB, sc *ffi.SealCalls) *FixParkPieceTask 
 func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
-	// Check index first
 	var exists bool
-	err = f.db.QueryRow(ctx, `
-					SELECT EXISTS (
-						SELECT 1
-						FROM pg_catalog.pg_index ix
-						JOIN pg_catalog.pg_class idx ON idx.oid = ix.indexrelid
-						JOIN pg_catalog.pg_class tbl ON tbl.oid = ix.indrelid
-						JOIN pg_catalog.pg_namespace ns ON ns.oid = tbl.relnamespace
-						JOIN pg_catalog.pg_am am ON am.oid = idx.relam
-						WHERE ns.nspname = current_schema()
-						  AND idx.relnamespace = ns.oid
-						  AND tbl.relname = 'parked_pieces'
-						  AND idx.relname = 'parked_pieces_active_piece_key'
-						  AND idx.relkind = 'i'
-						  AND am.amname = 'btree'
-						  AND ix.indisunique
-						  AND ix.indisvalid
-						  AND ix.indisready
-						  AND ix.indislive
-						  AND ix.indnkeyatts = 3
-						  AND ix.indnatts = 3
-						  AND ix.indexprs IS NULL
-						  AND ARRAY(
-							  SELECT pg_catalog.pg_get_indexdef(ix.indexrelid, n, true)
-							  FROM generate_series(1, ix.indnkeyatts) AS n
-							  ORDER BY n
-						  ) = ARRAY['piece_cid', 'piece_padded_size', 'long_term']
-						  AND pg_catalog.pg_get_expr(ix.indpred, ix.indrelid, false) = '(cleanup_task_id IS NULL)'
-					);`).Scan(&exists)
+	_, err = f.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var terr error
+		exists, terr = parkpiece.RefreshActiveIndexValid(tx)
+		if terr != nil {
+			return false, terr
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, fmt.Errorf("checking if index exists: %w", err)
+		return false, xerrors.Errorf("checking if index exists: %w", err)
 	}
 
 	if exists {

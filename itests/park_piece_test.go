@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	marketmk20 "github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/tasks/piece"
 )
 
@@ -91,6 +93,9 @@ func TestParkPieceCanAccept_SliceBounds(t *testing.T) {
 // Subtests: NEGATIVE (must fail or preserve invariant), POSITIVE (outside
 // the predicate, must succeed), HELPER (Upsert / UpsertSkip behaviour).
 func TestParkedPiecesActivePieceKey(t *testing.T) {
+	parkpiece.ResetActiveIndexValidCacheForTest()
+	t.Cleanup(parkpiece.ResetActiveIndexValidCacheForTest)
+
 	ctx := t.Context()
 	db, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
@@ -377,10 +382,9 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 		require.Equal(t, 1, countByCID(cid))
 	})
 
-	t.Run("UpsertWithDifferentRawSizeKeepsSingleRow", func(t *testing.T) {
+	t.Run("UpsertWithDifferentRawSizeKeepsExistingMetadata", func(t *testing.T) {
 		// Calling Upsert twice with different raw_size must converge on
-		// one row. DO UPDATE writes EXCLUDED.piece_raw_size on the
-		// conflict path, so the row's raw_size reflects the latest call.
+		// one row without rewriting existing metadata on the conflict path.
 		const cid = "test-upsert-different-rawsize"
 		id1 := upsert(t, cid, 32, 10, true)
 		id2 := upsert(t, cid, 32, 20, true)
@@ -388,7 +392,7 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 		require.Equal(t, 1, activeCountByCID(cid))
 		var rawSize int64
 		require.NoError(t, db.QueryRow(ctx, `SELECT piece_raw_size FROM parked_pieces WHERE id = $1`, id1).Scan(&rawSize))
-		require.EqualValues(t, 20, rawSize, "DO UPDATE must apply the new raw_size on conflict")
+		require.EqualValues(t, 10, rawSize, "conflict path must preserve existing raw_size")
 	})
 
 	t.Run("UpsertSkipPreservesExistingSkip", func(t *testing.T) {
@@ -498,11 +502,13 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 		// Without the index, ON CONFLICT inference raises 42P10; the helper
 		// must fall back to check-then-insert.
 		const cid = "test-upsert-fallback"
+		parkpiece.ResetActiveIndexValidCacheForTest()
 		dropParkedPieceIndex(t, ctx, db)
 		t.Cleanup(func() {
 			_, err := db.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS parked_pieces_active_piece_key
 				ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL`)
 			require.NoError(t, err)
+			parkpiece.ResetActiveIndexValidCacheForTest()
 		})
 
 		id1 := upsert(t, cid, 32, 16, true)
@@ -518,6 +524,63 @@ func TestParkedPiecesActivePieceKey(t *testing.T) {
 	})
 
 	assertNoActiveDuplicates(t)
+}
+
+func TestParkedPieceDownloadRefsBatch(t *testing.T) {
+	t.Run("valid index", func(t *testing.T) {
+		parkpiece.ResetActiveIndexValidCacheForTest()
+		t.Cleanup(parkpiece.ResetActiveIndexValidCacheForTest)
+
+		ctx := t.Context()
+		db, err := harmonydb.NewFromConfigWithITestID(t)
+		require.NoError(t, err)
+		require.True(t, parkedPieceIndexExists(t, ctx, db))
+
+		refs := batchDownloadRefs("batch-valid")
+		insertDownloadRefsBatch(t, ctx, db, refs)
+		assertDownloadRefsBatch(t, ctx, db, "batch-valid", refs)
+	})
+
+	t.Run("missing index fallback", func(t *testing.T) {
+		parkpiece.ResetActiveIndexValidCacheForTest()
+		t.Cleanup(parkpiece.ResetActiveIndexValidCacheForTest)
+
+		ctx := t.Context()
+		db, err := harmonydb.NewFromConfigWithITestID(t)
+		require.NoError(t, err)
+		dropParkedPieceIndex(t, ctx, db)
+
+		refs := batchDownloadRefs("batch-missing")
+		insertDownloadRefsBatch(t, ctx, db, refs)
+		assertDownloadRefsBatch(t, ctx, db, "batch-missing", refs)
+	})
+
+	t.Run("invalid index fallback", func(t *testing.T) {
+		parkpiece.ResetActiveIndexValidCacheForTest()
+		t.Cleanup(parkpiece.ResetActiveIndexValidCacheForTest)
+
+		ctx := t.Context()
+		db, err := harmonydb.NewFromConfigWithITestID(t)
+		require.NoError(t, err)
+		dropParkedPieceIndex(t, ctx, db)
+
+		const (
+			dupCID     = "batch-invalid-duplicate"
+			paddedSize = int64(32)
+			rawSize    = int64(16)
+		)
+		insertParkedPiece(t, ctx, db, dupCID, paddedSize, rawSize, false, true, nil)
+		insertParkedPiece(t, ctx, db, dupCID, paddedSize, rawSize, false, true, nil)
+
+		_, err = db.Exec(ctx, `CREATE UNIQUE INDEX CONCURRENTLY parked_pieces_active_piece_key
+			ON parked_pieces (piece_cid, piece_padded_size, long_term) WHERE cleanup_task_id IS NULL`)
+		require.Error(t, err)
+		require.False(t, parkedPieceIndexExists(t, ctx, db))
+
+		refs := batchDownloadRefs("batch-invalid")
+		insertDownloadRefsBatch(t, ctx, db, refs)
+		assertDownloadRefsBatch(t, ctx, db, "batch-invalid", refs)
+	})
 }
 
 func TestFixParkPieceTask_RepairsDuplicateRefs(t *testing.T) {
@@ -858,6 +921,113 @@ func parkedPieceIDForRef(t *testing.T, ctx context.Context, db *harmonydb.DB, re
 	err := db.QueryRow(ctx, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refID).Scan(&pieceID)
 	require.NoError(t, err)
 	return pieceID
+}
+
+const (
+	batchDownloadUniquePieceCount = 9500
+	batchDownloadRefCount         = 10000
+)
+
+func batchDownloadRefs(prefix string) []marketmk20.ParkedPieceDownloadRef {
+	refs := make([]marketmk20.ParkedPieceDownloadRef, 0, batchDownloadRefCount)
+	for refIndex := 0; refIndex < batchDownloadRefCount; refIndex++ {
+		pieceIndex := refIndex
+		if pieceIndex >= batchDownloadUniquePieceCount {
+			pieceIndex -= batchDownloadUniquePieceCount
+		}
+
+		paddedSize := int64(32 + 32*(pieceIndex%32))
+		refs = append(refs, marketmk20.ParkedPieceDownloadRef{
+			ID:         prefix,
+			PieceCIDV2: prefix + "-piece-v2-" + strconv.Itoa(pieceIndex),
+			PieceCID:   prefix + "-piece-v1-" + strconv.Itoa(pieceIndex),
+			PaddedSize: paddedSize,
+			RawSize:    paddedSize / 2,
+			URL:        "https://example.invalid/" + prefix + "/ref/" + strconv.Itoa(refIndex) + "/piece/" + strconv.Itoa(pieceIndex),
+			Headers:    []byte(`{"X-Test":["` + prefix + "-" + strconv.Itoa(refIndex) + `"]}`),
+			LongTerm:   false,
+		})
+	}
+	return refs
+}
+
+func insertDownloadRefsBatch(t *testing.T, ctx context.Context, db *harmonydb.DB, refs []marketmk20.ParkedPieceDownloadRef) {
+	t.Helper()
+
+	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		if err := marketmk20.InsertParkedPieceDownloadRefsBatch(ctx, tx, marketmk20.ProductNamePDPV1, refs); err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	require.NoError(t, err)
+}
+
+func assertDownloadRefsBatch(t *testing.T, ctx context.Context, db *harmonydb.DB, prefix string, refs []marketmk20.ParkedPieceDownloadRef) {
+	t.Helper()
+
+	var activePieces int
+	require.NoError(t, db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM parked_pieces
+		WHERE piece_cid LIKE $1
+		  AND cleanup_task_id IS NULL`, prefix+"-piece-v1-%").Scan(&activePieces))
+	require.Equal(t, batchDownloadUniquePieceCount, activePieces)
+
+	var refCount int
+	require.NoError(t, db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM parked_piece_refs
+		WHERE data_url LIKE $1`, "https://example.invalid/"+prefix+"/%").Scan(&refCount))
+	require.Equal(t, len(refs), refCount)
+
+	expectedByURL := map[string]marketmk20.ParkedPieceDownloadRef{}
+	expectedByPieceCIDV2 := map[string]int{}
+	for _, ref := range refs {
+		require.NotContains(t, expectedByURL, ref.URL)
+		expectedByURL[ref.URL] = ref
+		expectedByPieceCIDV2[ref.PieceCIDV2]++
+	}
+	for pieceCIDV2, expectedCount := range expectedByPieceCIDV2 {
+		var refIDs []int64
+		require.NoError(t, db.QueryRow(ctx, `
+			SELECT ref_ids FROM market_mk20_download_pipeline
+			WHERE id = $1 AND piece_cid_v2 = $2 AND product = $3`,
+			prefix, pieceCIDV2, marketmk20.ProductNamePDPV1).Scan(&refIDs))
+		require.Len(t, refIDs, expectedCount)
+	}
+
+	type pipelineRefRow struct {
+		PieceCIDV2  string `db:"piece_cid_v2"`
+		PieceCID    string `db:"piece_cid"`
+		DataURL     string `db:"data_url"`
+		DataHeaders string `db:"data_headers"`
+	}
+	var rows []pipelineRefRow
+	require.NoError(t, db.Select(ctx, &rows, `
+		SELECT mp.piece_cid_v2,
+		       pp.piece_cid,
+		       ppr.data_url,
+		       ppr.data_headers::text AS data_headers
+		FROM market_mk20_download_pipeline mp
+		CROSS JOIN LATERAL unnest(mp.ref_ids) AS refs(ref_id)
+		JOIN parked_piece_refs ppr ON ppr.ref_id = refs.ref_id
+		JOIN parked_pieces pp ON pp.id = ppr.piece_id
+		WHERE mp.id = $1
+		  AND mp.product = $2
+		  AND ppr.data_url LIKE $3`,
+		prefix, marketmk20.ProductNamePDPV1, "https://example.invalid/"+prefix+"/%"))
+	require.Len(t, rows, len(refs))
+
+	seenByURL := map[string]struct{}{}
+	for _, row := range rows {
+		expected, ok := expectedByURL[row.DataURL]
+		require.True(t, ok, "unexpected pipeline ref url %s", row.DataURL)
+		require.NotContains(t, seenByURL, row.DataURL)
+		seenByURL[row.DataURL] = struct{}{}
+		require.Equal(t, expected.PieceCIDV2, row.PieceCIDV2)
+		require.Equal(t, expected.PieceCID, row.PieceCID)
+		require.JSONEq(t, string(expected.Headers), row.DataHeaders)
+	}
+	require.Len(t, seenByURL, len(refs))
 }
 
 func parkedPieceIndexExists(t *testing.T, ctx context.Context, db *harmonydb.DB) bool {
