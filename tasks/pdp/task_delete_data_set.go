@@ -151,7 +151,7 @@ func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
 		Name:      tasknames.PDPDelDataSet,
-		MayFollow: []string{"PDPAddDataSet"},
+		MayFollow: []string{tasknames.PDPAddDataSet},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

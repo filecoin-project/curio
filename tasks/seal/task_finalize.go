@@ -217,7 +217,7 @@ func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(f.max),
 		Name:      tasknames.Finalize,
-		MayFollow: []string{"PoRep"},
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

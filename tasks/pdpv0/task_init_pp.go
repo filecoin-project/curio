@@ -268,7 +268,7 @@ func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 		// Handoff from data onboarding (PDPv0_Notify → PDPv0_PullPiece → PDPv0_SaveCache).
 		// InitPP checks on-chain leaf count before the first challenge request; proving
 		// continues PDPv0_InitPP → PDPv0_Prove.
-		MayFollow: []string{"PDPv0_SaveCache"},
+		MayFollow: []string{tasknames.PDPv0_SaveCache},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

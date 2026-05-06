@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var ilog = logging.Logger("ipni")
@@ -441,8 +442,8 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "IPNI",
-		MayFollow: []string{"Indexing"},
+		Name:      tasknames.IPNI,
+		MayFollow: []string{tasknames.Indexing},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

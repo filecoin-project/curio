@@ -321,7 +321,7 @@ func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmo
 func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		MayFollow: []string{"PDPAddPiece"},
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Name:      tasknames.AggregatePDPDeal,
 		Cost: resources.Resources{
 			Cpu: 1,

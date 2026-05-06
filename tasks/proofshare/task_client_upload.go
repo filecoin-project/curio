@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -132,8 +133,8 @@ func (t *TaskClientUpload) Do(ctx context.Context, taskID harmonytask.TaskID, st
 func (t *TaskClientUpload) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
-		Name:      "PSPutVanilla",
-		MayFollow: []string{"PoRep"},
+		Name:      tasknames.PSPutVanilla,
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20,

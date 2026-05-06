@@ -157,7 +157,7 @@ func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
 		Name:      tasknames.PDPSaveCache,
-		MayFollow: []string{"PDPCommP"},
+		MayFollow: []string{tasknames.PDPCommP},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

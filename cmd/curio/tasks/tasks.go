@@ -40,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/tasks/balancemgr"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 	"github.com/filecoin-project/curio/tasks/expmgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
@@ -416,7 +417,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		// Sector-targeted SignalNext: tasks that always relate to a single sector
 		// publish (spID, secNum) via the seal.PipelineRef context. Use SignalNext
 		// when known to advance the pipeline as soon as their work is done.
-		for _, taskName := range []string{"SDR", "TreeD", "TreeRC", "SyntheticProofs", "PoRep", "Finalize", "MoveStorage"} {
+		for _, taskName := range []string{tasknames.SDR, tasknames.TreeD, tasknames.TreeRC, tasknames.SyntheticProofs, tasknames.PoRep, tasknames.Finalize, tasknames.MoveStorage} {
 			taskName := taskName
 			ht.OnTaskComplete(taskName, func(ctx context.Context, _ harmonytask.TaskID, success bool) {
 				if !success {
@@ -434,7 +435,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		// by many seal stages. Wake the whole poller so every queued sector that
 		// just became eligible (after_*_msg flipped, message landing arming
 		// message_waits, etc.) is re-evaluated promptly.
-		for _, taskName := range []string{"PreCommitBatch", "CommitBatch", "UpdateBatch", "SendMessage"} {
+		for _, taskName := range []string{tasknames.PreCommitBatch, tasknames.CommitBatch, tasknames.UpdateBatch, tasknames.SendMessage} {
 			taskName := taskName
 			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 				if success {
@@ -450,7 +451,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		// AggregateDeals -> after_aggregate (mk20). Without these wakes, the
 		// next stage would have to wait up to dealPollerIdleInterval (~30s)
 		// before processMk12Deal/processMk20Deal is run again.
-		for _, taskName := range []string{"ParkPiece", "StorePiece", "CommP", "PSD", "FindDeal", "AggregateDeals"} {
+		for _, taskName := range []string{tasknames.ParkPiece, tasknames.StorePiece, tasknames.CommP, tasknames.PSD, tasknames.FindDeal, tasknames.AggregateDeals} {
 			taskName := taskName
 			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 				if success {
@@ -481,26 +482,26 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 	if ipniTask != nil {
-		ht.OnTaskComplete("Indexing", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+		ht.OnTaskComplete(tasknames.Indexing, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 			if success {
 				ipniTask.Wake()
 			}
 		})
 	}
 	if cleanupPiecePoll != nil {
-		ht.OnTaskComplete("ParkPiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+		ht.OnTaskComplete(tasknames.ParkPiece, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 			if success {
 				cleanupPiecePoll.WakePoll()
 			}
 		})
-		ht.OnTaskComplete("StorePiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+		ht.OnTaskComplete(tasknames.StorePiece, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 			if success {
 				cleanupPiecePoll.WakePoll()
 			}
 		})
 	}
 	if parkPiecePoll != nil || storePiecePoll != nil {
-		ht.OnTaskComplete("DropPiece", func(_ context.Context, _ harmonytask.TaskID, success bool) {
+		ht.OnTaskComplete(tasknames.DropPiece, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 			if !success {
 				return
 			}
@@ -740,7 +741,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		}
 
 		// maybePostWarning
-		if !lo.Contains(taskNames, "WdPost") && !lo.Contains(taskNames, "WinPost") {
+		if !lo.Contains(taskNames, tasknames.WdPost) && !lo.Contains(taskNames, tasknames.WinPost) {
 			// Maybe we aren't running a PoSt for these miners?
 			var allMachines []struct {
 				MachineID int    `db:"machine_id"`
@@ -759,7 +760,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 					if !lo.Contains(strings.Split(m.Miners, ","), miner) {
 						continue
 					}
-					if lo.Contains(strings.Split(m.Tasks, ","), "WdPost") && lo.Contains(strings.Split(m.Tasks, ","), "WinPost") {
+					if lo.Contains(strings.Split(m.Tasks, ","), tasknames.WdPost) && lo.Contains(strings.Split(m.Tasks, ","), tasknames.WinPost) {
 						myPostIsHandled = true
 						break
 					}

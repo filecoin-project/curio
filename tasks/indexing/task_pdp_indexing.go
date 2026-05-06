@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPIndexingTask struct {
@@ -294,8 +295,8 @@ func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPIndexing",
-		MayFollow: []string{"PDPProve", "AggregatePDPDeal"},
+		Name:      tasknames.PDPIndexing,
+		MayFollow: []string{tasknames.PDPProve, tasknames.AggregatePDPDeal},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: uint64(P.insertBatchSize * P.insertConcurrency * 56 * 2),

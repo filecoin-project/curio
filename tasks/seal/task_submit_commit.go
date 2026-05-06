@@ -654,7 +654,7 @@ func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(128),
 		Name:      tasknames.CommitBatch,
-		MayFollow: []string{"PoRep"},
+		MayFollow: []string{tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

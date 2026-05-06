@@ -149,7 +149,7 @@ func (p *PDPTaskDeletePiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
 		Name:      tasknames.PDPDeletePiece,
-		MayFollow: []string{"PDPAddPiece"},
+		MayFollow: []string{tasknames.PDPAddPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

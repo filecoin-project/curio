@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const ProveAdderInterval = 10 * time.Second
@@ -253,8 +254,8 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       maxLimiter,
-		Name:      "PSProve",
-		MayFollow: []string{"bg:PShareRequest", "PoRep"},
+		Name:      tasknames.PSProve,
+		MayFollow: []string{"bg:PShareRequest", tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,

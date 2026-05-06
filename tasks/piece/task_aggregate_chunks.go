@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregateChunksTask struct {
@@ -364,8 +365,8 @@ func (a *AggregateChunksTask) CanAccept(ids []harmonytask.TaskID, engine *harmon
 func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "AggregateChunks",
-		MayFollow: []string{"ParkPiece", "StorePiece"},
+		Name:      tasknames.AggregateChunks,
+		MayFollow: []string{tasknames.ParkPiece, tasknames.StorePiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

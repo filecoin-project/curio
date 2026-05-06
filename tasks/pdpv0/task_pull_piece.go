@@ -421,7 +421,7 @@ func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:      tasknames.PDPv0_PullPiece,
 		Max:       taskhelp.Max(t.max),
-		MayFollow: []string{"PDPv0_Notify"},
+		MayFollow: []string{tasknames.PDPv0_Notify},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

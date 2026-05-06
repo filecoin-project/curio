@@ -401,7 +401,7 @@ func (n *NextProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:          tasknames.PDPv0_ProvPeriod,
 		TimeSensitive: true,
-		MayFollow:     []string{"PDPv0_Prove"},
+		MayFollow:     []string{tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

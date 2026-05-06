@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -221,8 +222,8 @@ func (t *TaskClientPoll) Do(ctx context.Context, taskID harmonytask.TaskID, stil
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PSClientPoll",
-		MayFollow: []string{"PSPutVanilla"},
+		Name:      tasknames.PSClientPoll,
+		MayFollow: []string{tasknames.PSPutVanilla},
 		CanYield:  true,
 		Cost: resources.Resources{
 			Cpu: 0,

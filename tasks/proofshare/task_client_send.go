@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/proofsvc"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -611,7 +612,7 @@ func (t *TaskClientSend) pickCandidateRequest(ctx context.Context, requests []Ca
 func (t *TaskClientSend) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:      taskhelp.BackgroundTask("PSClientSend"),
-		MayFollow: []string{"PSClientPoll"},
+		MayFollow: []string{tasknames.PSClientPoll},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20,

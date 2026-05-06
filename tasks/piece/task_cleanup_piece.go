@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type CleanupPieceTask struct {
@@ -156,8 +157,8 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(c.max),
-		Name:      "DropPiece",
-		MayFollow: []string{"MoveStorage", "UpdateStore"},
+		Name:      tasknames.DropPiece,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,

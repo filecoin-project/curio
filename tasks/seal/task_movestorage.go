@@ -188,7 +188,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(m.max),
 		Name:      tasknames.MoveStorage,
-		MayFollow: []string{"Finalize"},
+		MayFollow: []string{tasknames.Finalize},
 		Cost: resources.Resources{
 			Cpu:     cpu,
 			Gpu:     0,

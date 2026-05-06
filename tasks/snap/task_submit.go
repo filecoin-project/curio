@@ -38,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -550,8 +551,8 @@ func (s *SubmitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngi
 
 func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "UpdateBatch",
-		MayFollow: []string{"UpdateProve", "SendMessage"},
+		Name:      tasknames.UpdateBatch,
+		MayFollow: []string{tasknames.UpdateProve, tasknames.SendMessage},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

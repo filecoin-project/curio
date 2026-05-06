@@ -194,7 +194,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: tasknames.SDR,
 		// sectors_sdr_pipeline rows are created when deals are ingested into a sector (see storageingest).
 		// SupraSeal uses dynamic task names (BatchNN-<size>) and may insert rows from its own scheduler.
-		MayFollow: []string{"AggregateDeals"},
+		MayFollow: []string{tasknames.AggregateDeals},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,

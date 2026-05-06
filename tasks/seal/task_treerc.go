@@ -163,7 +163,7 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
 		Name:      tasknames.TreeRC,
-		MayFollow: []string{"TreeD"},
+		MayFollow: []string{tasknames.TreeD},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     gpu,

@@ -33,6 +33,7 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const PDP_v1_SP_ID = -1
@@ -433,8 +434,8 @@ func (P *PDPIPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 
 func (P *PDPIPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPIpni",
-		MayFollow: []string{"PDPIndexing"},
+		Name:      tasknames.PDPIpni,
+		MayFollow: []string{tasknames.PDPIndexing},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

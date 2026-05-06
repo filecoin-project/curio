@@ -172,7 +172,7 @@ func (p *PDPTaskAddPiece) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		MayFollow: []string{"PDPCommP"},
+		MayFollow: []string{tasknames.PDPCommP},
 		Name:      tasknames.PDPAddPiece,
 		Cost: resources.Resources{
 			Cpu: 1,

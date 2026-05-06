@@ -40,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("indexing")
@@ -745,8 +746,8 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
 
 	return harmonytask.TaskTypeDetails{
-		Name:      "Indexing",
-		MayFollow: []string{"CommitBatch", "UpdateBatch"},
+		Name:      tasknames.Indexing,
+		MayFollow: []string{tasknames.CommitBatch, tasknames.UpdateBatch},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),

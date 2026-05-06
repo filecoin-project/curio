@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregateDealTask struct {
@@ -356,8 +357,8 @@ func (a *AggregateDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.T
 func (a *AggregateDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "AggregateDeals",
-		MayFollow: []string{"FindDeal"},
+		Name:      tasknames.AggregateDeals,
+		MayFollow: []string{tasknames.FindDeal},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

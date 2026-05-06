@@ -78,7 +78,7 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
 		Name:      tasknames.TreeD,
-		MayFollow: []string{"SDR"},
+		MayFollow: []string{tasknames.SDR},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     1 << 30,

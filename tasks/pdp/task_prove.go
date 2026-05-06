@@ -541,7 +541,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: tasknames.PDPProve,
 		// PDPInitPP → PDPProve → PDPProvingPeriod; do not merge onboarding here.
-		MayFollow: []string{"PDPInitPP"},
+		MayFollow: []string{tasknames.PDPInitPP},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -483,8 +484,8 @@ func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "StorageGCMark",
-		MayFollow: []string{"MoveStorage", "UpdateStore"},
+		Name:      tasknames.StorageGCMark,
+		MayFollow: []string{tasknames.MoveStorage, tasknames.UpdateStore},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

@@ -208,7 +208,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Max:  maxLimiter,
 		Name: tasknames.PoRep,
 		// PreCommit on-chain + message delivery (message_waits) gates seed_epoch; poller enqueues PoRep.
-		MayFollow: []string{"PreCommitBatch", "SendMessage"},
+		MayFollow: []string{tasknames.PreCommitBatch, tasknames.SendMessage},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,

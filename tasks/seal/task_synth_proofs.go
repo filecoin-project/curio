@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type SyntheticProofTask struct {
@@ -205,8 +206,8 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	res := harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(s.max),
-		Name:      "SyntheticProofs",
-		MayFollow: []string{"TreeRC"},
+		Name:      tasknames.SyntheticProofs,
+		MayFollow: []string{tasknames.TreeRC},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,
