@@ -3,8 +3,12 @@ package alertmanager
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -26,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/lists"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/blockstore"
@@ -374,6 +379,8 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			}
 		}
 	}
+
+	// TODO:  Use forEachConfig here
 
 	addrMap := make(map[string]struct{})
 	minerMap := make(map[string]struct{})
@@ -745,51 +752,23 @@ func chainSyncCheck(al *alerts) {
 		}
 	}
 
-	rpcInfos := map[string]minimalApiInfo{} // config name -> api info
-	confNameToAddr := map[string]string{}   // config name -> api address
+	var rpcInfos []string // config name -> api info
 
-	// Get all config from DB
-	rows, err := al.db.Query(al.ctx, `SELECT title, config FROM harmony_config`)
+	err := forEachConfig[minimalApiInfo](al.ctx, al.db, func(name string, info minimalApiInfo) error {
+		rpcInfos = append(rpcInfos, info.Apis.ChainApiInfo...)
+		return nil
+	})
+
 	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("getting db configs: %w", err)
+		al.alertMap[Name].err = xerrors.Errorf("getting RPC API info: %w", err)
 		return
-	}
-
-	configs := make(map[string]string)
-	for rows.Next() {
-		var title, cfg string
-		if err := rows.Scan(&title, &cfg); err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("scanning db configs: %w", err)
-			return
-		}
-		configs[title] = cfg
-	}
-
-	// Parse all configs minimal to get API
-	for name, tomlStr := range configs {
-		var info minimalApiInfo
-		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("unmarshaling %s config: %w", name, err)
-			continue
-		}
-
-		if len(info.Apis.ChainApiInfo) == 0 {
-			continue
-		}
-
-		rpcInfos[name] = info
-
-		for _, addr := range info.Apis.ChainApiInfo {
-			ai := cliutil.ParseApiInfo(addr)
-			confNameToAddr[name] = ai.Addr
-		}
 	}
 
 	dedup := map[string]bool{} // for dedup by address
 
 	// For each unique API (chain), check if in sync
-	for _, info := range rpcInfos {
-		ai := cliutil.ParseApiInfo(info.Apis.ChainApiInfo[0])
+	for _, info := range lists.UniqNoAlloc(rpcInfos) {
+		ai := cliutil.ParseApiInfo(info)
 		if dedup[ai.Addr] {
 			continue
 		}
@@ -936,4 +915,220 @@ func pendingMessagesCheck(al *alerts) {
 	if len(msgs) > 0 {
 		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending for more than 1 hour: %s", strings.Join(msgs, ", "))
 	}
+}
+
+type AddrInfo struct {
+	ID    string   `json:"ID"`
+	Addrs []string `json:"Addrs"`
+}
+
+type Advertisement struct {
+	Slash string `json:"/"`
+}
+
+type ParsedResponse struct {
+	AddrInfo              AddrInfo       `json:"AddrInfo"`
+	LastAdvertisement     Advertisement  `json:"LastAdvertisement"`
+	LastAdvertisementTime time.Time      `json:"LastAdvertisementTime"`
+	Publisher             AddrInfo       `json:"Publisher"`
+	ExtendedProviders     map[string]any `json:"ExtendedProviders"`
+	FrozenAt              string         `json:"FrozenAt"`
+	LastError             string         `json:"LastError"`
+}
+
+func ipniSyncCheck(al *alerts) {
+	Name := Name_IPNISync
+	al.alertMap[Name] = &alertOut{}
+
+	var summary []struct {
+		SpId   int64  `db:"sp_id"`
+		PeerID string `db:"peer_id"`
+		Head   string `db:"head"`
+		Miner  string
+	}
+
+	err := al.db.Select(al.ctx, &summary, `SELECT 
+												ipp.sp_id,
+												ipp.peer_id,
+												ih.head
+												FROM ipni_peerid ipp
+												LEFT JOIN ipni_head ih ON ipp.peer_id = ih.provider`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("failed to fetch the provider details from DB: %w", err)
+		return
+	}
+
+	for i := range summary {
+		if summary[i].SpId <= 0 {
+			summary[i].Miner = "PDP"
+		} else {
+			maddr, err := address.NewIDAddress(uint64(summary[i].SpId))
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("failed to parse miner address: %w", err)
+				return
+			}
+			summary[i].Miner = maddr.String()
+		}
+	}
+
+	type minimalIpniInfo struct {
+		Market struct {
+			StorageMarketConfig struct {
+				IPNI struct {
+					ServiceURL []string
+				}
+			}
+		}
+	}
+
+	var services []string
+
+	err = forEachConfig[minimalIpniInfo](al.ctx, al.db, func(name string, info minimalIpniInfo) error {
+		services = append(services, info.Market.StorageMarketConfig.IPNI.ServiceURL...)
+		return nil
+	})
+
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting IPNI services: %w", err)
+		return
+	}
+
+	for _, service := range lists.UniqNoAlloc(services) {
+		for _, d := range summary {
+			url := service + "/providers/" + d.PeerID
+			resp, err := http.Get(url)
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("Failed to fetch data from IPNI service: %s\n", err)
+				return
+			}
+			defer func(Body io.ReadCloser) {
+				_ = Body.Close()
+			}(resp.Body)
+			if resp.StatusCode == http.StatusNotFound {
+				al.alertMap[Name].alertString += fmt.Sprintf("PeerID %s for provider %s not found in IPNI service: %s\n", d.PeerID, d.Miner, url)
+			}
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+				al.alertMap[Name].err = xerrors.Errorf("Failed to fetch data from IPNI service: %s\n", resp.Status)
+				return
+			}
+			out, err := io.ReadAll(resp.Body)
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("Failed to read response body: %w", err)
+				return
+			}
+			var parsed ParsedResponse
+			err = json.Unmarshal(out, &parsed)
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("Failed to unmarshal IPNI service response: %w", err)
+				return
+			}
+			if parsed.LastAdvertisement.Slash == d.Head {
+				continue
+			}
+
+			if parsed.LastError != "" {
+				al.alertMap[Name].alertString += fmt.Sprintf("IPNI service %s is not synced for %s provider: %s\n", service, d.Miner, parsed.LastError)
+				continue
+			}
+
+			if parsed.LastAdvertisementTime.IsZero() {
+				al.alertMap[Name].alertString += fmt.Sprintf("IPNI service %s is not synced for %s provider: LastAdvertisementTime is zero\n", service, d.Miner)
+				continue
+			}
+
+			if parsed.LastAdvertisementTime.Before(time.Now().Add(-1 * time.Hour)) {
+				al.alertMap[Name].alertString += fmt.Sprintf("IPNI service %s is not synced for %s provider in last 1 hour: LastAdvertisementTime is too old\n", service, d.Miner)
+				continue
+			}
+		}
+	}
+}
+
+func forEachConfig[T any](ctx context.Context, db *harmonydb.DB, cb func(name string, v T) error) error {
+	confs, err := loadConfigs(ctx, db)
+	if err != nil {
+		return err
+	}
+
+	for name, tomlStr := range confs {
+		var info T
+
+		// Use reflection to check if `T` has an `Addresses` field
+		v := reflect.ValueOf(&info).Elem()
+		t := v.Type()
+
+		var addressesField reflect.Value
+		var addressesFieldIndex int
+
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			if field.Type.Kind() == reflect.Slice && field.Type.Elem() == reflect.TypeFor[config.CurioAddresses]() {
+				addressesField = v.Field(i)
+				addressesFieldIndex = i
+				break
+			}
+		}
+
+		// If `Addresses` exists, pre-parse TOML to detect its length
+		if addressesField.IsValid() {
+			var lengthDetector struct {
+				Addresses []struct{} `toml:"Addresses"`
+			}
+			_, err := toml.Decode(tomlStr, &lengthDetector)
+			if err != nil {
+				return xerrors.Errorf("Error decoding TOML for length detection for layer %s: %w", name, err)
+			}
+
+			currentLen := addressesField.Len()
+			requiredLen := len(lengthDetector.Addresses)
+
+			// Pre-allocate the correct length in `info`
+			if currentLen < requiredLen {
+				preAllocated := make([]config.CurioAddresses, requiredLen)
+				for i := range preAllocated {
+					preAllocated[i] = config.CurioAddresses{
+						PreCommitControl:      []string{},
+						CommitControl:         []string{},
+						DealPublishControl:    []string{},
+						TerminateControl:      []string{},
+						DisableOwnerFallback:  false,
+						DisableWorkerFallback: false,
+						MinerAddresses:        []string{},
+						BalanceManager:        config.DefaultBalanceManager(),
+					}
+				}
+				v.Field(addressesFieldIndex).Set(reflect.ValueOf(preAllocated))
+			}
+		}
+
+		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
+			return xerrors.Errorf("unmarshaling %s config: %w", name, err)
+		}
+
+		if err := cb(name, info); err != nil {
+			return xerrors.Errorf("cb: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func loadConfigs(ctx context.Context, db *harmonydb.DB) (map[string]string, error) {
+	rows, err := db.Query(ctx, `SELECT title, config FROM harmony_config`)
+	if err != nil {
+		return nil, xerrors.Errorf("getting db configs: %w", err)
+	}
+
+	defer rows.Close()
+
+	configs := make(map[string]string)
+	for rows.Next() {
+		var title, config string
+		if err := rows.Scan(&title, &config); err != nil {
+			return nil, xerrors.Errorf("scanning db configs: %w", err)
+		}
+		configs[title] = config
+	}
+
+	return configs, nil
 }
