@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/build"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/alertmanager/plugin"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
