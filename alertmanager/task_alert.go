@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/alertmanager/plugin"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -151,7 +152,7 @@ func (a *AlertTask) Problems() bool {
 }
 
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	now := time.Now()
+	now := build.Clock.Now()
 	ctx := context.Background()
 	altrs := &alerts{
 		ctx:      ctx,
