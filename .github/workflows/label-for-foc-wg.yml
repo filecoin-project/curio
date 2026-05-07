@@ -1,4 +1,4 @@
-name: Label PDPv0 Issues and PRs
+name: Label PDP Issues and PRs
 
 on:
   issues:
@@ -11,14 +11,14 @@ on:
       - edited
 
 jobs:
-  label-pdpv0:
-    name: Add team/fs-wg label to PDPv0 issues and PRs
+  label-pdp:
+    name: Add team/fs-wg label to PDP issues and PRs
     runs-on: ubuntu-latest
     permissions:
       issues: write
       pull-requests: write
     steps:
-      - name: Check title and add label
+      - name: Check title and changed files and add label
         uses: actions/github-script@v7
         with:
           # A PAT is used instead of the default GITHUB_TOKEN because events triggered
@@ -27,9 +27,26 @@ jobs:
           github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}
           script: |
             const title = context.payload.issue?.title || context.payload.pull_request?.title || '';
+            const body = context.payload.issue?.body || context.payload.pull_request?.body || '';
             const number = context.payload.issue?.number || context.payload.pull_request?.number;
-            
-            if (title.toLowerCase().includes('pdpv0')) {
+            const normalizedTitle = title.toLowerCase();
+            const normalizedBody = body.toLowerCase();
+            const titleMatches = normalizedTitle.includes('pdp');
+            const bodyMatches = normalizedBody.includes('pdp');
+
+            let hasPdpFilePath = false;
+            if (context.eventName === 'pull_request_target' && context.payload.pull_request?.number) {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                per_page: 100
+              });
+
+              hasPdpFilePath = files.some((file) => file.filename.toLowerCase().includes('pdp'));
+            }
+
+            if (titleMatches || bodyMatches || hasPdpFilePath) {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -38,5 +55,5 @@ jobs:
               });
               console.log(`Added team/fs-wg label to #${number}`);
             } else {
-              console.log(`Title does not contain pdpv0: "${title}"`);
+              console.log(`No PDP match for #${number} (title, body, or file paths)`);
             }
