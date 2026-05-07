@@ -640,8 +640,17 @@ func TruncateAndMoveUnsealed(tempUnsealed, unsealed string, ssize abi.SectorSize
 	return nil
 }
 
+func finalizeExistingFileTypes(proofType abi.RegisteredSealProof, keepUnsealed bool) storiface.SectorFileType {
+	existing := storiface.FTCache
+	if abi.Synthetic[proofType] && keepUnsealed {
+		existing |= storiface.FTUnsealed
+	}
+
+	return existing
+}
+
 func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.SectorRef, keepUnsealed bool) error {
-	sectorPaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
+	sectorPaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, finalizeExistingFileTypes(sector.ProofType, keepUnsealed), storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
