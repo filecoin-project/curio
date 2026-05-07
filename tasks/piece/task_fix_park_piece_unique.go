@@ -49,6 +49,7 @@ func (f *FixParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	if exists {
+		log.Infow("parked_pieces_active_piece_key already exists", "task_id", taskID)
 		return true, nil
 	}
 
