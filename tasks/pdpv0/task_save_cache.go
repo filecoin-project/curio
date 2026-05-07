@@ -89,7 +89,7 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	// Build the merkle tree and save a middle layer for fast proving
-	// Only for pieces larger than 100 MiB
+	// Only for pieces larger than 32 MiB
 	if task.RawSize <= MinSizeForCache {
 		log.Debugw("PDPv0_SaveCache: piece below cache threshold, skipping layer build", "pieceCID", task.PieceCID, "rawSize", task.RawSize, "threshold", MinSizeForCache)
 	}
