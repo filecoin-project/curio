@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/curio/build"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -151,7 +152,7 @@ func (a *AlertTask) Problems() bool {
 }
 
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	now := time.Now()
+	now := build.Clock.Now()
 	ctx := context.Background()
 	altrs := &alerts{
 		ctx:      ctx,
