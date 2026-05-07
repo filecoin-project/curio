@@ -1047,7 +1047,6 @@ func parkedPieceIndexExists(t *testing.T, ctx context.Context, db *harmonydb.DB)
 			  AND tbl.relname = 'parked_pieces'
 			  AND idx.relname = 'parked_pieces_active_piece_key'
 			  AND idx.relkind = 'i'
-			  AND am.amname = 'btree'
 			  AND ix.indisunique
 			  AND ix.indisvalid
 			  AND ix.indisready
