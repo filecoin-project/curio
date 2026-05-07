@@ -224,7 +224,7 @@ jobs:
           retention-days: 1
 
   test-lib-proof:
-    runs-on: ["self-hosted", "linux", "x64", "4xlarge+curio"]
+    runs-on: ["self-hosted", "linux", "x64", "4xlarge+amd+curio"]
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
