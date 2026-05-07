@@ -453,7 +453,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, pieceID int6
 	var mProof *proof.RawMerkleProof
 
 	// Try cached proof for large pieces
-	if pi.RawSize >= MinSizeForCache {
+	if uint64(pi.Size) > MinSizeForCache {
 		cachedProof, cacheErr := proof.GenerateCachedProof(ctx, &cprPieceReader{cpr: p.cpr}, &idxProofCache{idx: p.idx}, pcid, challengedLeaf)
 		if cacheErr != nil {
 			log.Errorw("cached proof generation failed", "piece", pcid, "error", cacheErr)

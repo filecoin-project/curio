@@ -679,7 +679,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	var subPieceProof *proof.RawMerkleProof
 
 	isIdxNotNull := p.idx != nil
-	isLargeSubPiece := challSubPiece.SubPieceSize >= int64(MinSizeForCache) && challSubPiece.PieceRawSize > 0
+	isLargeSubPiece := uint64(challSubPiece.SubPieceSize) > MinSizeForCache && challSubPiece.PieceRawSize > 0
 	isUsingCachedProof := isIdxNotNull && isLargeSubPiece
 
 	// Try cached approach for large sub-pieces
