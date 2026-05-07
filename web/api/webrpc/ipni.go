@@ -19,6 +19,7 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/lists"
 	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -275,7 +276,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 
 	var services []string
 
-	err = forEachConfig[minimalIpniInfo](a, func(name string, info minimalIpniInfo) error {
+	err = config.ForEachConfig[minimalIpniInfo](ctx, a.deps.DB, func(name string, info minimalIpniInfo) error {
 		services = append(services, info.Market.StorageMarketConfig.IPNI.ServiceURL...)
 		return nil
 	})

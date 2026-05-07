@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/deps/config"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -63,7 +64,7 @@ func (a *WebRPC) NetSummary(ctx context.Context) (NetSummaryResponse, error) {
 	}
 
 	var rpcInfos []string
-	err := forEachConfig[minimalApiInfo](a, func(_ string, info minimalApiInfo) error {
+	err := config.ForEachConfig[minimalApiInfo](ctx, a.deps.DB, func(_ string, info minimalApiInfo) error {
 		rpcInfos = append(rpcInfos, info.Apis.ChainApiInfo...)
 		return nil
 	})

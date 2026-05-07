@@ -8,16 +8,13 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -120,13 +117,7 @@ func balanceCheck(al *alerts) {
 
 	var ret strings.Builder
 
-	uniqueAddrs, _, err := al.getAddresses()
-	if err != nil {
-		al.alertMap[Name].err = err
-		return
-	}
-
-	for _, addr := range uniqueAddrs {
+	for _, addr := range al.walletAddrs {
 		keyAddr, err := al.api.StateAccountKey(al.ctx, addr, types.EmptyTSK)
 		if err != nil {
 			al.alertMap[Name].err = xerrors.Errorf("getting account key: %w", err)
@@ -343,8 +334,8 @@ func permanentStorageCheck(al *alerts) {
 // getAddresses retrieves machine details from the database, stores them in an array and compares layers for uniqueness.
 // It employs addrMap to handle unique addresses, and generated slices for configuration fields and MinerAddresses.
 // The function iterates over layers, storing decoded configuration and verifying address existence in addrMap.
-// It ends by returning unique addresses and miner slices.
-func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
+// It ends by setting unique addresses and miner slices in the alerts struct which others can reuse. This must be called before other alerts funcs.
+func (al *alerts) getAddresses() error {
 	// MachineDetails represents the structure of data received from the SQL query.
 	type machineDetail struct {
 		ID          int
@@ -359,7 +350,7 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 				FROM harmony_machines m
 				LEFT JOIN harmony_machine_details d ON m.id = d.machine_id;`)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("getting config layers for all machines: %w", err)
+		return xerrors.Errorf("getting config layers for all machines: %w", err)
 	}
 
 	// UniqueLayers takes an array of MachineDetails and returns a slice of unique layers.
@@ -380,59 +371,49 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 		}
 	}
 
-	// TODO:  Use forEachConfig here
-
 	addrMap := make(map[string]struct{})
 	minerMap := make(map[string]struct{})
 
-	// Get all unique addresses
-	for _, layer := range uniqueLayers {
-		text := ""
-		cfg := config.DefaultCurioConfig()
-		err := al.db.QueryRow(al.ctx, `SELECT config FROM harmony_config WHERE title=$1`, layer).Scan(&text)
-		if err != nil {
-			if strings.Contains(err.Error(), pgx.ErrNoRows.Error()) {
-				return nil, nil, xerrors.Errorf("missing layer '%s' ", layer)
-			}
-			return nil, nil, xerrors.Errorf("could not read layer '%s': %w", layer, err)
+	if len(uniqueLayers) > 0 {
+		type minimalAddressInfo struct {
+			Addresses []config.CurioAddresses `toml:"Addresses"`
 		}
 
-		err = config.FixTOML(text, cfg)
-		if err != nil {
-			return nil, nil, err
-		}
+		err = config.ForEachConfig[minimalAddressInfo](al.ctx, al.db, func(name string, info minimalAddressInfo) error {
+			if !slices.Contains(uniqueLayers, name) {
+				return nil
+			}
 
-		_, err = config.TransparentDecode(text, cfg)
+			for i := range info.Addresses {
+				prec := info.Addresses[i].PreCommitControl
+				com := info.Addresses[i].CommitControl
+				term := info.Addresses[i].TerminateControl
+				miners := info.Addresses[i].MinerAddresses
+				for j := range prec {
+					if prec[j] != "" {
+						addrMap[prec[j]] = struct{}{}
+					}
+				}
+				for j := range com {
+					if com[j] != "" {
+						addrMap[com[j]] = struct{}{}
+					}
+				}
+				for j := range term {
+					if term[j] != "" {
+						addrMap[term[j]] = struct{}{}
+					}
+				}
+				for j := range miners {
+					if miners[j] != "" {
+						minerMap[miners[j]] = struct{}{}
+					}
+				}
+			}
+			return nil
+		})
 		if err != nil {
-			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
-		}
-
-		addrs := cfg.Addresses.Get()
-		for i := range addrs {
-			prec := addrs[i].PreCommitControl
-			com := addrs[i].CommitControl
-			term := addrs[i].TerminateControl
-			miners := addrs[i].MinerAddresses
-			for j := range prec {
-				if prec[j] != "" {
-					addrMap[prec[j]] = struct{}{}
-				}
-			}
-			for j := range com {
-				if com[j] != "" {
-					addrMap[com[j]] = struct{}{}
-				}
-			}
-			for j := range term {
-				if term[j] != "" {
-					addrMap[term[j]] = struct{}{}
-				}
-			}
-			for j := range miners {
-				if miners[j] != "" {
-					minerMap[miners[j]] = struct{}{}
-				}
-			}
+			return err
 		}
 	}
 
@@ -442,11 +423,11 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 	for m := range minerMap {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		info, err := al.api.StateMinerInfo(al.ctx, maddr, types.EmptyTSK)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		minerAddrs = append(minerAddrs, maddr)
 		addrMap[info.Worker.String()] = struct{}{}
@@ -460,12 +441,15 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 	for w := range addrMap {
 		waddr, err := address.NewFromString(w)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		wallets = append(wallets, waddr)
 	}
 
-	return wallets, minerAddrs, nil
+	al.minerAddrs = minerAddrs
+	al.walletAddrs = wallets
+
+	return nil
 }
 
 func wdPostCheck(al *alerts) {
@@ -480,11 +464,7 @@ func wdPostCheck(al *alerts) {
 	// Calculate from epoch for last AlertMangerInterval
 	from := max(head.Height()-abi.ChainEpoch(math.Ceil(FullAlertInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
-	_, miners, err := al.getAddresses()
-	if err != nil {
-		al.alertMap[Name].err = err
-		return
-	}
+	miners := al.minerAddrs
 
 	// Start from the newest finalized tipset.
 	h, err := al.api.ChainGetTipSet(al.ctx, head.Parents())
@@ -649,11 +629,7 @@ func wnPostCheck(al *alerts) {
 	Name := Name_WinningPost
 	al.alertMap[Name] = &alertOut{}
 
-	_, miners, err := al.getAddresses()
-	if err != nil {
-		al.alertMap[Name].err = err
-		return
-	}
+	miners := al.minerAddrs
 
 	if len(miners) == 0 {
 		return
@@ -754,7 +730,7 @@ func chainSyncCheck(al *alerts) {
 
 	var rpcInfos []string // config name -> api info
 
-	err := forEachConfig[minimalApiInfo](al.ctx, al.db, func(name string, info minimalApiInfo) error {
+	err := config.ForEachConfig[minimalApiInfo](al.ctx, al.db, func(name string, info minimalApiInfo) error {
 		rpcInfos = append(rpcInfos, info.Apis.ChainApiInfo...)
 		return nil
 	})
@@ -983,7 +959,7 @@ func ipniSyncCheck(al *alerts) {
 
 	var services []string
 
-	err = forEachConfig[minimalIpniInfo](al.ctx, al.db, func(name string, info minimalIpniInfo) error {
+	err = config.ForEachConfig[minimalIpniInfo](al.ctx, al.db, func(name string, info minimalIpniInfo) error {
 		services = append(services, info.Market.StorageMarketConfig.IPNI.ServiceURL...)
 		return nil
 	})
@@ -1042,93 +1018,4 @@ func ipniSyncCheck(al *alerts) {
 			}
 		}
 	}
-}
-
-func forEachConfig[T any](ctx context.Context, db *harmonydb.DB, cb func(name string, v T) error) error {
-	confs, err := loadConfigs(ctx, db)
-	if err != nil {
-		return err
-	}
-
-	for name, tomlStr := range confs {
-		var info T
-
-		// Use reflection to check if `T` has an `Addresses` field
-		v := reflect.ValueOf(&info).Elem()
-		t := v.Type()
-
-		var addressesField reflect.Value
-		var addressesFieldIndex int
-
-		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
-			if field.Type.Kind() == reflect.Slice && field.Type.Elem() == reflect.TypeFor[config.CurioAddresses]() {
-				addressesField = v.Field(i)
-				addressesFieldIndex = i
-				break
-			}
-		}
-
-		// If `Addresses` exists, pre-parse TOML to detect its length
-		if addressesField.IsValid() {
-			var lengthDetector struct {
-				Addresses []struct{} `toml:"Addresses"`
-			}
-			_, err := toml.Decode(tomlStr, &lengthDetector)
-			if err != nil {
-				return xerrors.Errorf("Error decoding TOML for length detection for layer %s: %w", name, err)
-			}
-
-			currentLen := addressesField.Len()
-			requiredLen := len(lengthDetector.Addresses)
-
-			// Pre-allocate the correct length in `info`
-			if currentLen < requiredLen {
-				preAllocated := make([]config.CurioAddresses, requiredLen)
-				for i := range preAllocated {
-					preAllocated[i] = config.CurioAddresses{
-						PreCommitControl:      []string{},
-						CommitControl:         []string{},
-						DealPublishControl:    []string{},
-						TerminateControl:      []string{},
-						DisableOwnerFallback:  false,
-						DisableWorkerFallback: false,
-						MinerAddresses:        []string{},
-						BalanceManager:        config.DefaultBalanceManager(),
-					}
-				}
-				v.Field(addressesFieldIndex).Set(reflect.ValueOf(preAllocated))
-			}
-		}
-
-		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
-			return xerrors.Errorf("unmarshaling %s config: %w", name, err)
-		}
-
-		if err := cb(name, info); err != nil {
-			return xerrors.Errorf("cb: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func loadConfigs(ctx context.Context, db *harmonydb.DB) (map[string]string, error) {
-	rows, err := db.Query(ctx, `SELECT title, config FROM harmony_config`)
-	if err != nil {
-		return nil, xerrors.Errorf("getting db configs: %w", err)
-	}
-
-	defer rows.Close()
-
-	configs := make(map[string]string)
-	for rows.Next() {
-		var title, config string
-		if err := rows.Scan(&title, &config); err != nil {
-			return nil, xerrors.Errorf("scanning db configs: %w", err)
-		}
-		configs[title] = config
-	}
-
-	return configs, nil
 }

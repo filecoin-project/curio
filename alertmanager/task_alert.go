@@ -15,6 +15,7 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
@@ -67,11 +68,13 @@ type alertOut struct {
 }
 
 type alerts struct {
-	ctx      context.Context
-	api      AlertAPI
-	db       *harmonydb.DB
-	cfg      config.CurioAlertingConfig
-	alertMap map[AlertName]*alertOut
+	ctx         context.Context
+	api         AlertAPI
+	db          *harmonydb.DB
+	cfg         config.CurioAlertingConfig
+	alertMap    map[AlertName]*alertOut
+	minerAddrs  []address.Address
+	walletAddrs []address.Address
 }
 
 type AlertFunc func(al *alerts)
@@ -162,6 +165,11 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		db:       a.db,
 		cfg:      a.cfg,
 		alertMap: map[AlertName]*alertOut{},
+	}
+
+	err = altrs.getAddresses()
+	if err != nil {
+		return false, xerrors.Errorf("getting addresses: %w", err)
 	}
 
 	for al := range funcsByInterval(now) {
