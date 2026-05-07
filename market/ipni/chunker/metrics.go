@@ -58,7 +58,7 @@ var (
 	entryCacheHitWaitDuration = stats.Float64(
 		"ipni_entry_cache_hit_wait_seconds",
 		"Duration callers wait after hitting the IPNI entry cache.",
-		stats.UnitSeconds,
+		stats.UnitMilliseconds,
 	)
 	entrySpeculativeUnused = stats.Int64(
 		"ipni_entry_speculative_unused_total",
@@ -68,7 +68,7 @@ var (
 	entryReconstructionDuration = stats.Float64(
 		"ipni_entry_reconstruction_seconds",
 		"Duration of IPNI entry reconstruction after cache miss.",
-		stats.UnitSeconds,
+		stats.UnitMilliseconds,
 	)
 )
 
