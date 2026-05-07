@@ -42,10 +42,6 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 //
 // kvFn, if non-nil, is invoked at request time to extract additional context
 // (typically chi URL params) included on both the Begin and End lines.
-//
-// Only state-changing verbs (POST/PUT/DELETE) should be instrumented; GET
-// traffic is intentionally excluded to keep the lifecycle stream signal-rich
-// for centralized log viewers.
 func instrument(event string, h http.HandlerFunc, kvFn func(*http.Request) []any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rec := newStatusRecorder(w)
@@ -53,8 +49,8 @@ func instrument(event string, h http.HandlerFunc, kvFn func(*http.Request) []any
 		if kvFn != nil {
 			extra = kvFn(r)
 		}
-		base := make([]any, 0, 6+len(extra))
-		base = append(base, "event", event, "method", r.Method, "path", r.URL.Path)
+		base := make([]any, 0, 4+len(extra))
+		base = append(base, "method", r.Method, "path", r.URL.Path)
 		base = append(base, extra...)
 		lifecycleLog.Debugw("[Begin "+event+"]", base...)
 		start := time.Now()

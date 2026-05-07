@@ -115,12 +115,6 @@ func kvUploadUUID(r *http.Request) []any {
 }
 
 // Routes registers the HTTP routes with the provided router.
-//
-// State-changing routes (POST/PUT/DELETE) are wrapped with the `instrument`
-// middleware so each request emits "[Begin <event>]" / "[End <event>]" lines
-// on the `pdp-lifecycle` logger. GET routes are intentionally not wrapped:
-// they are high-volume reads that would dilute the lifecycle signal used by
-// centralized log viewers (e.g. Betterstack) to detect inbound-request issues.
 func Routes(r *chi.Mux, p *PDPService) {
 	// Routes for data sets
 	r.Route(path.Join(PDPRoutePath, "/data-sets"), func(r chi.Router) {
