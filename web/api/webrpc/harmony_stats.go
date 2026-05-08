@@ -9,24 +9,33 @@ import (
 	"github.com/filecoin-project/go-address"
 )
 
-// SELECT name, count(case when result = 'true' then 1 end) as true_count,
-//    count(case when result = 'false' then 1 end) as false_count, count(*) as total_count
-//    from harmony_task_history where work_end > current_timestamp - interval '1 day'
-//    group by name order by total_count desc
-
 type HarmonyTaskStats struct {
-	Name       string `db:"name"`
-	TrueCount  int    `db:"true_count"`
-	FalseCount int    `db:"false_count"`
-	TotalCount int    `db:"total_count"`
+	Name       string `db:"name" json:"name"`
+	Success    int    `db:"success" json:"success"`
+	Failure    int    `db:"failure" json:"failure"`
+	TotalCount int    `db:"total" json:"total"`
 }
 
 func (a *WebRPC) HarmonyTaskStats(ctx context.Context) ([]HarmonyTaskStats, error) {
 	var stats []HarmonyTaskStats
-	err := a.deps.DB.Select(ctx, &stats, `SELECT name, count(case when result = 'true' then 1 end) as true_count,
-		count(case when result = 'false' then 1 end) as false_count, count(*) as total_count
-		from harmony_task_history where work_end > current_timestamp - interval '1 day'
-		group by name order by total_count desc`)
+	err := a.deps.DB.Select(ctx, &stats, `
+				WITH per_task AS (
+					SELECT
+						name,
+						task_id,
+						BOOL_OR(result) AS succeeded
+					FROM harmony_task_history
+					WHERE work_end > CURRENT_TIMESTAMP - INTERVAL '1 day'
+					GROUP BY name, task_id
+				)
+				SELECT
+					name,
+					COUNT(*) FILTER (WHERE succeeded) AS success,
+					COUNT(*) FILTER (WHERE NOT succeeded) AS failure,
+					COUNT(*) AS total
+				FROM per_task
+				GROUP BY name
+				ORDER BY total DESC;`)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS harmony_task_history_recent_task_result_idx;
