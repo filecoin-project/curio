@@ -90,6 +90,7 @@ func (f *FindDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 		return false, xerrors.Errorf("expected 1 deal, got %d", len(bdeals))
 	}
 	bd := bdeals[0]
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: bd.UUID, IsMK12: true})
 
 	expired, err := checkExpiry(ctx, f.db, f.api, bd.UUID, f.sm.pin.GetExpectedSealDuration())
 	if err != nil {

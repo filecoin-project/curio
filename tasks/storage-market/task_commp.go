@@ -103,6 +103,7 @@ func (c *CommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		return false, xerrors.Errorf("expected 1 piece, got %d", len(pieces))
 	}
 	piece := pieces[0]
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: piece.ID, IsMK12: piece.MK12Piece})
 
 	if piece.MK12Piece {
 		expired, err := checkExpiry(ctx, c.db, c.api, piece.ID, c.sm.pin.GetExpectedSealDuration())

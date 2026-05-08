@@ -182,6 +182,87 @@ func (d *CurioStorageDealMarket) WakeDealPoller() {
 	d.wakeMu.Unlock()
 }
 
+// SignalNext runs the per-deal pipeline logic for a single deal immediately
+// after a task completes, so the next stage can start without waiting for the
+// periodic poller. Analogous to seal.SealPoller.SignalNext.
+func (d *CurioStorageDealMarket) SignalNext(ctx context.Context, ref MarketRef) {
+	if d == nil {
+		return
+	}
+	if ref.IsMK12 {
+		d.signalNextMK12(ctx, ref.ID)
+	} else {
+		d.signalNextMK20(ctx, ref.ID)
+	}
+}
+
+func (d *CurioStorageDealMarket) signalNextMK12(ctx context.Context, uuid string) {
+	var deals []MK12Pipeline
+	err := d.db.Select(ctx, &deals, `SELECT 
+		p.uuid AS uuid,
+		p.sp_id AS sp_id,
+		p.started AS started,
+		p.piece_cid AS piece_cid,
+		p.piece_size AS piece_size,
+		p.raw_size AS raw_size,
+		p.offline AS offline,
+		p.url AS url,
+		p.headers AS headers,
+		p.is_ddo AS is_ddo,
+		p.commp_task_id AS commp_task_id,
+		p.after_commp AS after_commp,
+		p.psd_task_id AS psd_task_id,
+		p.after_psd AS after_psd,
+		p.find_deal_task_id AS find_deal_task_id,
+		p.after_find_deal AS after_find_deal,
+		p.psd_wait_time AS psd_wait_time,
+		p.sector AS sector,
+		p.sector_offset AS sector_offset
+	FROM market_mk12_deal_pipeline p
+	WHERE p.uuid = $1`, uuid)
+	if err != nil {
+		log.Errorw("SignalNext MK12: select pipeline", "error", err, "uuid", uuid)
+		return
+	}
+	if len(deals) == 0 {
+		return
+	}
+
+	if err := d.processMk12Deal(ctx, deals[0]); err != nil {
+		log.Errorw("SignalNext MK12: process deal", "error", err, "uuid", uuid)
+	}
+
+	if err := d.addPSDTask(ctx); err != nil {
+		log.Errorw("SignalNext MK12: addPSDTask", "error", err)
+	}
+}
+
+func (d *CurioStorageDealMarket) signalNextMK20(ctx context.Context, id string) {
+	var pieces []MK20PipelinePiece
+	err := d.db.Select(ctx, &pieces, `SELECT 
+		id, sp_id, contract, client, piece_cid_v2, piece_cid,
+		piece_size, raw_size, offline, url, indexing, announce,
+		allocation_id, duration, piece_aggregation, started,
+		downloaded, commp_task_id, after_commp, deal_aggregation,
+		aggr_index, agg_task_id, aggregated, sector, reg_seal_proof,
+		sector_offset, indexing_created_at, indexing_task_id, indexed
+	FROM market_mk20_pipeline
+	WHERE id = $1 AND complete = false`, id)
+	if err != nil {
+		log.Errorw("SignalNext MK20: select pipeline", "error", err, "id", id)
+		return
+	}
+
+	for _, piece := range pieces {
+		if err := d.processMk20Pieces(ctx, piece); err != nil {
+			log.Errorw("SignalNext MK20: process piece", "error", err, "id", id)
+		}
+	}
+
+	d.processMK20DealAggregation(ctx)
+	d.processMK20DealIngestion(ctx)
+}
+
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 

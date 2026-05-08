@@ -427,7 +427,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				if !ok {
 					return
 				}
-				sealPoller.SignalNext(ctx, spID, secNum)
+				go sealPoller.SignalNext(ctx, spID, secNum)
 			})
 		}
 		// Batch and cross-sector tasks: PreCommitBatch / CommitBatch / UpdateBatch
@@ -445,13 +445,28 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		}
 	}
 	if dealMarket != nil {
-		// Each of these tasks advances the storage-market pipeline by one stage:
-		// ParkPiece/StorePiece -> started, CommP -> after_commp,
-		// PSD -> publish msg sent, FindDeal -> after_find_deal,
-		// AggregateDeals -> after_aggregate (mk20). Without these wakes, the
-		// next stage would have to wait up to dealPollerIdleInterval (~30s)
-		// before processMk12Deal/processMk20Deal is run again.
-		for _, taskName := range []string{tasknames.ParkPiece, tasknames.StorePiece, tasknames.CommP, tasknames.PSD, tasknames.FindDeal, tasknames.AggregateDeals} {
+		// Per-deal SignalNext: tasks that relate to a single deal publish their
+		// MarketRef via SetMeta. Use SignalNext to dispatch the next stage for
+		// that specific deal immediately, without re-evaluating all deals.
+		for _, taskName := range []string{tasknames.CommP, tasknames.FindDeal, tasknames.AggregateDeals} {
+			taskName := taskName
+			ht.OnTaskComplete(taskName, func(ctx context.Context, _ harmonytask.TaskID, success bool) {
+				if !success {
+					return
+				}
+				ref, ok := storage_market.MarketPipelineRef(ctx)
+				if !ok {
+					dealMarket.WakeDealPoller()
+					return
+				}
+				dealMarket.SignalNext(ctx, ref)
+			})
+		}
+		// Batch and external-trigger tasks: ParkPiece/StorePiece flip the
+		// "started"/"downloaded" flag for potentially many deals; PSD is a
+		// multi-deal batch publish. Wake the whole poller so every eligible
+		// deal is re-evaluated.
+		for _, taskName := range []string{tasknames.ParkPiece, tasknames.StorePiece, tasknames.PSD} {
 			taskName := taskName
 			ht.OnTaskComplete(taskName, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 				if success {

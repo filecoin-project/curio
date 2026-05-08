@@ -83,6 +83,7 @@ func (a *AggregateDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	if len(pieces) == 0 {
 		return false, xerrors.Errorf("no pieces to aggregate for task %d", taskID)
 	}
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: pieces[0].ID, IsMK12: false})
 
 	if len(pieces) == 1 {
 		n, err := a.db.Exec(ctx, `UPDATE market_mk20_pipeline SET aggregated = TRUE, agg_task_id = NULL 
