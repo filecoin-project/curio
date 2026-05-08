@@ -233,7 +233,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		if !pcid.Equals(calculatedCommp.PieceCID) {
-			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", pcid, calculatedCommp.PieceCID)
+			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", calculatedCommp.PieceCID, pcid)
 		}
 
 		var n int
