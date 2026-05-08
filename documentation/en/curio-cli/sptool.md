@@ -7,7 +7,7 @@ USAGE:
    sptool [global options] command [command options]
 
 VERSION:
-   1.27.3-rc2
+   1.28.0
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -500,6 +500,7 @@ COMMANDS:
    spark        Manage Smart Contract PeerID used by Spark
    mk12-client  mk12 client for Curio
    mk20-client  mk20 client for Curio
+   stats        Curio Node Stats
    help, h      Shows a list of commands or help for one command
 
 OPTIONS:
@@ -948,8 +949,8 @@ OPTIONS:
    --provider value                               storage provider on-chain address
    --pcidv2 value                                 pcidv2 of the CAR file
    --duration value                               duration of the deal in epochs (default: 518400)
-   --contract-address value                       contract address of the deal
-   --contract-verify-method value                 contract verify method of the deal
+   --market-address value                         market contract address of the deal
+   --market-deal-id value                         market deal ID (default: 0)
    --allocation value                             allocation id of the deal (default: 0)
    --indexing                                     indicates that an deal should be indexed (default: true)
    --wallet value                                 wallet address to be used to initiate the deal
@@ -1043,4 +1044,16 @@ OPTIONS:
    --id value        deal id
    --wallet value    wallet address to be used to initiate the deal
    --help, -h        show help
+```
+
+### sptool toolbox stats
+```
+NAME:
+   sptool toolbox stats - Curio Node Stats
+
+USAGE:
+   sptool toolbox stats [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```

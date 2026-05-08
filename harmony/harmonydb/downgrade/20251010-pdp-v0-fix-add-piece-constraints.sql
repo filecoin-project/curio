@@ -1,0 +1,1 @@
+-- no-op downgrade: constraint shape changes are retained

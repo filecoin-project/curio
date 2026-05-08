@@ -1,0 +1,36 @@
+[package]
+name = "bellpepper-core"
+authors = [
+  "porcuquine <porcuquine@gmail.com>",
+  "dignifiedquire <me@dignifiedquire.com>",
+  "Sean Bowe <ewillbefull@gmail.com>",
+]
+description = "Core elements for a SNARK Circuit library"
+documentation = "https://docs.rs/bellpepper-core"
+homepage = "https://github.com/lurk-lab/bellpepper"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/lurk-lab/bellpepper"
+version = "0.2.1"
+readme = "../../README.md"
+edition = "2021"
+rust-version = "1.64.0"
+
+[dependencies]
+blake2s_simd = { workspace = true }
+byteorder = { workspace = true }
+ff = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0.44"
+
+[dev-dependencies]
+blstrs = { workspace = true }
+criterion = "0.4.0"
+rand_core = { workspace = true}
+rand_xorshift = { workspace = true }
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[[bench]]
+name = "lc"
+harness = false

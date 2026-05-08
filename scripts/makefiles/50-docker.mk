@@ -5,7 +5,7 @@ build_lotus ?= 0
 curio_docker_user ?= curio
 curio_base_image = $(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source ?= 0
-lotus_version ?= v1.34.2
+lotus_version ?= v1.35.1
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -61,6 +61,11 @@ docker/curio:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
+docker/contracts-bootstrap:
+	cd docker/contracts-bootstrap && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/contracts-bootstrap-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/contracts-bootstrap
+
 docker/piece-server:
 	cd docker/piece-server && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/piece-server-dev:dev \
 		--build-arg BUILD_VERSION=dev .
@@ -71,7 +76,7 @@ docker/indexer:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/indexer
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/piece-server docker/indexer
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/contracts-bootstrap docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:

@@ -81,7 +81,7 @@ func part2(base, product, extra string) {
 
 	OrPanic(sh.Command("cp", "-r", "apt/DEBIAN", dir).Run())
 	sess := sh.NewSession()
-	for _, env := range strings.Split(extra, " ") {
+	for env := range strings.SplitSeq(extra, " ") {
 		if len(env) == 0 {
 			continue
 		}

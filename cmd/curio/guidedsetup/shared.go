@@ -52,7 +52,7 @@ func (storageMiner) Type() string {
 	return "StorageMiner"
 }
 
-func (storageMiner) Config() interface{} {
+func (storageMiner) Config() any {
 	return config.DefaultStorageMiner()
 }
 
@@ -318,8 +318,7 @@ func cidPtrToStrptr(c *cid.Cid) *string {
 	if c == nil {
 		return nil
 	}
-	s := c.String()
-	return &s
+	return new(c.String())
 }
 
 func coalescePtrs[A any](a, b *A) *A {
@@ -388,13 +387,14 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 			_, err := tx.Exec(`
         INSERT INTO sectors_meta (sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
                                   orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
-                                  msg_cid_precommit, msg_cid_commit, msg_cid_update, seed_epoch, seed_value)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                                  msg_cid_precommit, msg_cid_commit, msg_cid_update, seed_epoch, seed_value, has_sector_key)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         ON CONFLICT (sp_id, sector_num) DO UPDATE
         SET reg_seal_proof = excluded.reg_seal_proof, ticket_epoch = excluded.ticket_epoch, ticket_value = excluded.ticket_value,
             orig_sealed_cid = excluded.orig_sealed_cid, orig_unsealed_cid = excluded.orig_unsealed_cid, cur_sealed_cid = excluded.cur_sealed_cid,
             cur_unsealed_cid = excluded.cur_unsealed_cid, msg_cid_precommit = excluded.msg_cid_precommit, msg_cid_commit = excluded.msg_cid_commit,
-            msg_cid_update = excluded.msg_cid_update, seed_epoch = excluded.seed_epoch, seed_value = excluded.seed_value`,
+            msg_cid_update = excluded.msg_cid_update, seed_epoch = excluded.seed_epoch, seed_value = excluded.seed_value,
+            has_sector_key = excluded.has_sector_key`,
 				mid,
 				sectr.SectorNumber,
 				sectr.SectorType,
@@ -409,6 +409,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 				cidPtrToStrptr(sectr.ReplicaUpdateMessage),
 				sectr.SeedEpoch,
 				sectr.SeedValue,
+				sectr.UpdateSealed != nil, // has_sector_key: true if sector was snap-upgraded in lotus
 			)
 			if err != nil {
 				b, _ := json.MarshalIndent(sectr, "", "  ")
@@ -438,16 +439,14 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 						if err != nil {
 							return false, xerrors.Errorf("error marshalling JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
 						}
-						ps := string(pam)
-						pamJSON = &ps
+						pamJSON = new(string(pam))
 					}
 					if piece.Impl().DealProposal != nil {
 						dealProposalJSON, err := json.Marshal(piece.Impl().DealProposal)
 						if err != nil {
 							return false, xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
 						}
-						dp := string(dealProposalJSON)
-						dealProposalJSONStr = &dp
+						dealProposalJSONStr = new(string(dealProposalJSON))
 					}
 
 				}

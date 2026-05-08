@@ -35,108 +35,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/info/": {
-            "get": {
-                "description": "- OpenAPI spec UI for the Market 2.0 APIs",
-                "summary": "OpenAPI Spec UI",
-                "responses": {}
-            }
-        },
-        "/info/swagger.json": {
-            "get": {
-                "description": "- OpenAPI spec for the Market 2.0 APIs in JSON format",
-                "summary": "OpenAPI Spec JSON",
-                "responses": {}
-            }
-        },
-        "/info/swagger.yaml": {
-            "get": {
-                "description": "- OpenAPI spec for the Market 2.0 APIs in YAML format",
-                "summary": "OpenAPI Spec YAML",
-                "responses": {}
-            }
-        },
-        "/products": {
-            "get": {
-                "description": "List of supported products",
-                "summary": "List of supported products",
-                "responses": {
-                    "200": {
-                        "description": "Array of products supported by the SP",
-                        "schema": {
-                            "$ref": "#/definitions/mk20.SupportedProducts"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/sources": {
-            "get": {
-                "description": "List of supported data sources",
-                "summary": "List of supported data sources",
-                "responses": {
-                    "200": {
-                        "description": "Array of dats sources supported by the SP",
-                        "schema": {
-                            "$ref": "#/definitions/mk20.SupportedDataSources"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/status/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "CurioAuth": []
-                    }
-                ],
-                "description": "Current status of MK20 deal per product",
-                "summary": "Status of the MK20 deal",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "the status response for deal products with their respective deal statuses",
-                        "schema": {
-                            "$ref": "#/definitions/mk20.DealProductStatusResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request - Invalid input or validation error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/store": {
+        "/deal": {
             "post": {
                 "security": [
                     {
@@ -247,14 +146,115 @@ const docTemplate = `{
                 }
             }
         },
-        "/update/{id}": {
+        "/info/": {
+            "get": {
+                "description": "- OpenAPI spec UI for the Market 2.0 APIs",
+                "summary": "OpenAPI Spec UI",
+                "responses": {}
+            }
+        },
+        "/info/swagger.json": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in JSON format",
+                "summary": "OpenAPI Spec JSON",
+                "responses": {}
+            }
+        },
+        "/info/swagger.yaml": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in YAML format",
+                "summary": "OpenAPI Spec YAML",
+                "responses": {}
+            }
+        },
+        "/products": {
+            "get": {
+                "description": "List of supported products",
+                "summary": "List of supported products",
+                "responses": {
+                    "200": {
+                        "description": "Array of products supported by the SP",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedProducts"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/sources": {
+            "get": {
+                "description": "List of supported data sources",
+                "summary": "List of supported data sources",
+                "responses": {
+                    "200": {
+                        "description": "Array of dats sources supported by the SP",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.SupportedDataSources"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/status/{id}": {
             "get": {
                 "security": [
                     {
                         "CurioAuth": []
                     }
                 ],
-                "description": "Useful for adding adding additional products and updating PoRep duration",
+                "description": "Current status of MK20 deal per product",
+                "summary": "Status of the MK20 deal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the status response for deal products with their respective deal statuses",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealProductStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/update/{id}": {
+            "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Useful for filling missing data or adding product fields on supported update paths. Existing data and product fields are not replaced.",
                 "consumes": [
                     "application/json"
                 ],
@@ -891,43 +891,32 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "contract_address": {
-                    "description": "ContractAddress specifies the address of the contract governing the deal",
-                    "type": "string"
-                },
-                "contract_verify_method": {
-                    "description": "ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract",
-                    "type": "string"
-                },
-                "contract_verify_method_Params": {
-                    "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
                 "duration": {
                     "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
                     "type": "integer"
                 },
-                "notification_address": {
-                    "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
+                "market_address": {
+                    "description": "MarketAddress specifies the address of the market governing the deal",
                     "type": "string"
                 },
-                "notification_payload": {
-                    "description": "NotificationPayload holds the notification data typically in a serialized byte array format.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                "market_deal_id": {
+                    "description": "MarketDealID specifies the deal ID for the market actor at MarketAddress",
+                    "type": "integer"
                 },
-                "piece_manager": {
-                    "description": "Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs",
+                "notification_address": {
+                    "description": "NotificationAddress specifies the address to which notifications will be relayed to when sector is activated",
                     "allOf": [
                         {
                             "$ref": "#/definitions/address.Address"
                         }
                     ]
+                },
+                "notification_payload": {
+                    "description": "NotificationPayload holds the notification data, typically in a serialized byte array format.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "provider": {
                     "description": "Provider specifies the address of the provider",
@@ -936,6 +925,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/address.Address"
                         }
                     ]
+                },
+                "start_epoch": {
+                    "description": "StartEpoch optionally specifies the epoch by which a deal should be active on the chain",
+                    "type": "integer"
                 }
             }
         },
@@ -1453,7 +1446,7 @@ const docTemplate = `{
     },
     "securityDefinitions": {
         "CurioAuth": {
-            "description": "Use the format: ` + "`" + `CurioAuth PublicKeyType:PublicKey:Signature` + "`" + `\n\n- ` + "`" + `PublicKeyType` + "`" + `: String representation of type of wallet (e.g., \"ed25519\", \"bls\", \"secp256k1\")\n- ` + "`" + `PublicKey` + "`" + `: Base64 string of public key bytes\n- ` + "`" + `Signature` + "`" + `: Signature is Base64 string of signature bytes.\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.\n- The raw public key bytes (not a human-readable address)\n- The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)\n- These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
+            "description": "Use the format: ` + "`" + `CurioAuth KeyType:AddressBytes:Signature` + "`" + `\n\n- ` + "`" + `KeyType` + "`" + `: String representation of type of wallet (e.g., \"bls\", \"secp256k1\", \"delegated\")\n- ` + "`" + `AddressBytes` + "`" + `: Base64 string of Filecoin address bytes (` + "`" + `address.Address.Bytes()` + "`" + `), not the human-readable address string.\n- ` + "`" + `Signature` + "`" + `: Base64 string of Filecoin signature bytes (` + "`" + `crypto.Signature.MarshalBinary()` + "`" + `).\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.\n- The Filecoin address bytes\n- The HTTP request method in uppercase (e.g., ` + "`" + `POST` + "`" + `)\n- The escaped request URL path without query string (e.g., ` + "`" + `/market/mk20/deal` + "`" + `)\n- The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)\n- These four byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"

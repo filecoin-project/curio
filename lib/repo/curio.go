@@ -10,7 +10,7 @@ func (curio) Type() string {
 	return "Curio"
 }
 
-func (curio) Config() interface{} {
+func (curio) Config() any {
 	return &struct{}{}
 }
 

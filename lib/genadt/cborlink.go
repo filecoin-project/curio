@@ -89,7 +89,7 @@ func (cl *CborLink[T]) Store(st Store, val T) error {
 // This works if T is always a pointer-to-struct type.
 // If T can be a non-pointer type, you might handle differently.
 func newValue[T any]() T {
-	typ := reflect.TypeOf((*T)(nil)).Elem()
+	typ := reflect.TypeFor[T]()
 	// typ is "T" itself; if T is a pointer type, typ.Kind() == reflect.Pointer.
 	valPtr := reflect.New(typ.Elem()) // allocate struct under pointer
 	return valPtr.Interface().(T)

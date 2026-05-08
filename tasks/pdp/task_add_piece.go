@@ -9,7 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -18,9 +17,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
@@ -32,10 +33,10 @@ type PDPServiceNodeApi interface {
 type PDPTaskAddPiece struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient ethchain.EthClient
 }
 
-func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client) *PDPTaskAddPiece {
+func NewPDPTaskAddPiece(db *harmonydb.DB, sender *message.SenderETH, ethClient ethchain.EthClient) *PDPTaskAddPiece {
 	return &PDPTaskAddPiece{
 		db:        db,
 		sender:    sender,
@@ -172,7 +173,7 @@ func (p *PDPTaskAddPiece) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 func (p *PDPTaskAddPiece) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPAddPiece",
+		Name: tasknames.PDPAddPiece,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

@@ -1,12 +1,25 @@
 name: 'Install Dependencies'
 description: 'Install common dependencies'
 
+inputs:
+  skip:
+    default: "false"
+    description: "when true, only apt-get update (refresh indexes) then git/submodules; skips apt install and GCC alternatives for pre-provisioned runners"
+
 runs:
   using: 'composite'
   steps:
+    - name: Update apt cache
+      run: |
+        # GitHub-hosted images occasionally ship stale apt lists; apt then tries to fetch
+        # package revisions that were rotated off security.ubuntu.com (404). Force a
+        # full index refresh before install.
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo apt-get update -y
+      shell: bash
+
     - name: Install dependencies
       run: |
-        sudo apt-get update
         sudo apt-get install -y \
           build-essential \
           gcc-13 g++-13 \
@@ -20,6 +33,7 @@ runs:
           libfuse3-dev uuid-dev libssl-dev libnuma-dev libaio-dev libarchive-dev libkeyutils-dev libncurses-dev \
           libgmp-dev libconfig++-dev
       shell: bash
+      if: ${{ inputs.skip == 'false' }}
 
     - name: Set up GCC 13 as default
       run: |
@@ -30,6 +44,7 @@ runs:
         echo "CC=gcc-13" >> $GITHUB_ENV
         echo "CXX=g++-13" >> $GITHUB_ENV
       shell: bash
+      if: ${{ inputs.skip == 'false' }}
 
     # NOTE: CI sometimes flakes on large/full fetches (HTTP/2 early EOF).
     # We only need tags (and only from origin) for versioning/metadata, so keep

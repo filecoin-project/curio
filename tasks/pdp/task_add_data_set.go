@@ -3,12 +3,12 @@ package pdp
 import (
 	"context"
 	"errors"
+	"math/big"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -16,19 +16,21 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPTaskAddDataSet struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient *ethclient.Client
+	ethClient ethchain.EthClient
 	filClient PDPServiceNodeApi
 }
 
-func NewPDPTaskAddDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client, filClient PDPServiceNodeApi) *PDPTaskAddDataSet {
+func NewPDPTaskAddDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient ethchain.EthClient, filClient PDPServiceNodeApi) *PDPTaskAddDataSet {
 	return &PDPTaskAddDataSet{
 		db:        db,
 		sender:    sender,
@@ -89,7 +91,7 @@ func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		contract.SybilFee(),
+		big.NewInt(0),
 		0,
 		nil,
 		data,
@@ -137,7 +139,7 @@ func (p *PDPTaskAddDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 func (p *PDPTaskAddDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPAddDataSet",
+		Name: tasknames.PDPAddDataSet,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

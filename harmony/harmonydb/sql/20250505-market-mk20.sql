@@ -4,6 +4,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'market_mk12_deals' 
+        AND table_schema = current_schema()
         AND column_name = 'raw_size'
     ) THEN
         ALTER TABLE market_mk12_deals ADD COLUMN IF NOT EXISTS raw_size BIGINT;
@@ -16,6 +17,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'market_direct_deals' 
+        AND table_schema = current_schema()
         AND column_name = 'raw_size'
     ) THEN
         ALTER TABLE market_direct_deals ADD COLUMN IF NOT EXISTS raw_size BIGINT;
@@ -36,6 +38,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
         WHERE table_name = 'market_piece_metadata' 
+        AND table_schema = current_schema()
         AND constraint_type = 'PRIMARY KEY'
     ) THEN
         ALTER TABLE market_piece_metadata ADD PRIMARY KEY (piece_cid, piece_size);
@@ -56,6 +59,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
         WHERE table_name = 'market_piece_deal' 
+        AND table_schema = current_schema()
         AND constraint_type = 'PRIMARY KEY'
     ) THEN
         ALTER TABLE market_piece_deal ADD PRIMARY KEY (id, sp_id, piece_cid, piece_length);
@@ -68,6 +72,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'market_piece_deal' 
+        AND table_schema = current_schema()
         AND column_name = 'piece_ref'
     ) THEN
         ALTER TABLE market_piece_deal ADD COLUMN IF NOT EXISTS piece_ref BIGINT;
@@ -84,6 +89,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'parked_pieces' 
+        AND table_schema = current_schema()
         AND column_name = 'skip'
     ) THEN
         ALTER TABLE parked_pieces ADD COLUMN IF NOT EXISTS skip BOOLEAN NOT NULL DEFAULT FALSE;
@@ -96,6 +102,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'ipni' 
+        AND table_schema = current_schema()
         AND column_name = 'piece_cid_v2'
     ) THEN
         ALTER TABLE ipni ADD COLUMN IF NOT EXISTS piece_cid_v2 TEXT;
@@ -108,6 +115,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'ipni' 
+        AND table_schema = current_schema()
         AND column_name = 'metadata'
     ) THEN
         ALTER TABLE ipni ADD COLUMN IF NOT EXISTS metadata BYTEA NOT NULL DEFAULT '\xa01200';
@@ -121,6 +129,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'ipni_chunks' 
+        AND table_schema = current_schema()
         AND column_name = 'is_pdp'
     ) THEN
         ALTER TABLE ipni_chunks ADD COLUMN IF NOT EXISTS is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
@@ -136,6 +145,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
         WHERE table_name = 'ipni_chunks' 
+        AND table_schema = current_schema()
         AND constraint_name = 'ipni_chunks_piece_cid_is_pdp_chunk_num_key'
     ) THEN
         ALTER TABLE ipni_chunks ADD CONSTRAINT ipni_chunks_piece_cid_is_pdp_chunk_num_key
@@ -200,6 +210,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'ipni_task' 
+        AND table_schema = current_schema()
         AND column_name = 'id'
     ) THEN
         ALTER TABLE ipni_task ADD COLUMN IF NOT EXISTS id TEXT;
@@ -257,19 +268,19 @@ $$ LANGUAGE plpgsql;
 -- Update raw_size for existing deals (One time backfill migration)
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_mk12_deals' AND column_name = 'raw_size') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_mk12_deals' AND table_schema = current_schema() AND column_name = 'raw_size') THEN
         EXECUTE 'UPDATE market_mk12_deals d SET raw_size = mpd.raw_size FROM market_piece_deal mpd WHERE d.uuid = mpd.id';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_direct_deals' AND column_name = 'raw_size') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_direct_deals' AND table_schema = current_schema() AND column_name = 'raw_size') THEN
         EXECUTE 'UPDATE market_direct_deals d SET raw_size = mpd.raw_size FROM market_piece_deal mpd WHERE d.uuid = mpd.id';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_mk12_deals' AND column_name = 'raw_size') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_mk12_deals' AND table_schema = current_schema() AND column_name = 'raw_size') THEN
         EXECUTE 'UPDATE market_mk12_deals d SET raw_size = p.raw_size FROM market_mk12_deal_pipeline p WHERE d.uuid = p.uuid AND d.raw_size IS NULL AND p.raw_size IS NOT NULL';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_direct_deals' AND column_name = 'raw_size') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'market_direct_deals' AND table_schema = current_schema() AND column_name = 'raw_size') THEN
         EXECUTE 'UPDATE market_direct_deals d SET raw_size = p.raw_size FROM market_mk12_deal_pipeline p WHERE d.uuid = p.uuid AND d.raw_size IS NULL AND p.raw_size IS NOT NULL';
     END IF;
 END $$;
@@ -1012,5 +1023,4 @@ begin
     return updated_count;
 end;
 $$;
-
 

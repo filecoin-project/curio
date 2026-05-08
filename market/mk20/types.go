@@ -1,6 +1,7 @@
 package mk20
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/ipfs/go-cid"
@@ -206,7 +207,7 @@ const (
 )
 
 type product interface {
-	Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error)
+	Validate(ctx context.Context, db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error)
 	ProductName() ProductName
 }
 

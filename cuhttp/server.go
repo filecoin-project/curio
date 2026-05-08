@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -19,14 +20,18 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/alertmanager"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/market/denylist"
 	mhttp "github.com/filecoin-project/curio/market/http"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
 	"github.com/filecoin-project/curio/market/sealmarket"
+	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
@@ -68,7 +73,7 @@ func secureHeaders(csp string) func(http.Handler) http.Handler {
 func corsHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
 		// Expose Location header for PDP Piece upload
 		w.Header().Set("Access-Control-Expose-Headers", "Location")
@@ -141,6 +146,7 @@ type ServiceDeps struct {
 	EthSender  *message.SenderETH
 	DealMarket *storage_market.CurioStorageDealMarket
 	SealMarket *sealmarket.SealMarket
+	AlertTask  *alertmanager.AlertTask
 }
 
 // This starts the public-facing server for market calls.
@@ -157,6 +163,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders(cfg.CSP))
 	chiRouter.Use(corsHeaders) // allows market calls from other domains
+
+	corsOrigin := "https://" + cfg.DomainName
+	if devURL := os.Getenv("DEV_CURIO_EXTERNAL_URL"); devURL != "" {
+		corsOrigin = devURL
+	}
+	chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{corsOrigin})))
 
 	// Set up the compression middleware with custom compression levels
 	compressionMw, err := compressionMiddleware(&cfg.CompressionLevels)
@@ -180,6 +192,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprintf(w, "Service is up and running")
+	})
+
+	// Status endpoint to check the health of the service
+	chiRouter.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "%s", build.UserVersion())
 	})
 
 	// TODO: Attach a info page here with details about all the service and endpoints
@@ -228,7 +246,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		} else {
 			serr = server.Serve(ln)
 		}
-		if serr != nil && serr != http.ErrServerClosed {
+		if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
 			log.Errorf("Failed to start HTTP server: %s", serr)
 			panic(serr)
 		}
@@ -290,11 +308,10 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	// attached when the deal market subsystem is enabled. Other HTTP features
 	// (e.g. remote seal) can run without these dependencies.
 	if d.Cfg.Subsystems.EnableDealMarket {
-		// Attach retrievals
-		rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
-		retrieval.Router(r, rp)
+		df := denylist.NewFilter(ctx, d.Cfg.HTTP.DenylistServers)
+		rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader, df)
+		retrieval.Router(r, rp, df)
 
-		// Attach IPNI
 		ipp, err := ipni_provider.NewProvider(d)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to create new ipni provider: %w", err)
@@ -303,16 +320,9 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 
 		go ipp.StartPublishing(ctx)
 
-		// Attach LibP2P redirector
 		rd := libp2p.NewRedirector(d.DB)
 		libp2p.Router(r, rd)
 
-		//if sd.EthSender != nil {
-		//	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
-		//	pdp.Routes(r, pdsvc)
-		//}
-
-		// Attach the market handler
 		dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to create new market handler: %w", err)
@@ -320,7 +330,11 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 		mhttp.Router(r, dh)
 	}
 
-	// Attach remote seal market
+	if sd.EthSender != nil {
+		pdsvc := pdp.NewPDPService(ctx, d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, sd.AlertTask)
+		pdp.Routes(r, pdsvc)
+	}
+
 	if sd.SealMarket != nil {
 		sealmarket.Routes(r, sd.SealMarket)
 	}

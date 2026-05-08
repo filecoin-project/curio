@@ -12,12 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
@@ -26,6 +26,7 @@ const (
 	// defaultEthCallTimeout is the timeout for sets of Ethereum client calls per transaction
 	// (i.e. receipt and transaction data)
 	defaultEthCallTimeout = 30 * time.Second
+	MinEthConfidence      = 1
 )
 
 // EthClient is an interface for the Ethereum client operations we need
@@ -54,7 +55,7 @@ type MessageWatcherEth struct {
 	ethCallTimeout time.Duration
 }
 
-func NewMessageWatcherEth(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chainsched.CurioChainSched, api *ethclient.Client) (*MessageWatcherEth, error) {
+func NewMessageWatcherEth(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chainsched.CurioChainSched, api ethchain.EthClient) (*MessageWatcherEth, error) {
 	mw := &MessageWatcherEth{
 		txMgr:          NewHarmonyEthTxManager(db),
 		ht:             ht,
@@ -94,10 +95,10 @@ func (mw *MessageWatcherEth) update() {
 	bestBlockNumber := mw.bestBlockNumber.Load()
 	log.Debugw("MessageWatcherEth update starting", "bestBlockNumber", bestBlockNumber)
 
-	confirmedBlockNumber := new(big.Int).Sub(bestBlockNumber, big.NewInt(MinConfidence))
+	confirmedBlockNumber := new(big.Int).Sub(bestBlockNumber, big.NewInt(MinEthConfidence))
 	if confirmedBlockNumber.Sign() < 0 {
 		// Not enough blocks yet
-		log.Debugw("Not enough blocks for confirmations", "bestBlockNumber", bestBlockNumber, "minConfidence", MinConfidence)
+		log.Debugw("Not enough blocks for confirmations", "bestBlockNumber", bestBlockNumber, "minConfidence", MinEthConfidence)
 		return
 	}
 
@@ -168,14 +169,14 @@ func (mw *MessageWatcherEth) update() {
 
 		// Check if the transaction has enough confirmations
 		confirmations := new(big.Int).Sub(bestBlockNumber, receipt.BlockNumber)
-		if confirmations.Cmp(big.NewInt(MinConfidence)) < 0 {
+		if confirmations.Cmp(big.NewInt(MinEthConfidence)) < 0 {
 			ethCancel()
 			// Not enough confirmations yet
 			waitingConfirmations++
 			log.Debugw("Transaction waiting for confirmations",
 				"txHash", txHash.Hex(),
 				"confirmations", confirmations,
-				"required", MinConfidence,
+				"required", MinEthConfidence,
 				"blockNumber", receipt.BlockNumber)
 			continue
 		}

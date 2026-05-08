@@ -1,7 +1,6 @@
 package itests
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -16,11 +15,9 @@ import (
 )
 
 func TestCrud(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	sharedITestID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 
 	//cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
@@ -48,11 +45,9 @@ func TestCrud(t *testing.T) {
 }
 
 func TestTransaction(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)")
 	require.NoError(t, err)
@@ -112,11 +107,9 @@ func TestTransaction(t *testing.T) {
 }
 
 func TestPartialWalk(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, false)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
 	require.NoError(t, err)
 	_, err = cdb.Exec(ctx, `
 			INSERT INTO 
@@ -157,11 +150,13 @@ func TestPartialWalk(t *testing.T) {
 }
 
 func TestDowngradeTo(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	testID := harmonydb.ITestNewID()
-	cdb, err := harmonydb.NewFromConfigWithITestID(t, testID, true)
+	cdb, err := harmonydb.NewFromConfigWithITestID(t)
+	require.NoError(t, err)
+
+	// Let's ensure all applied are time.now() and not template time
+	_, err = cdb.Exec(ctx, `UPDATE base SET applied = NOW()`)
 	require.NoError(t, err)
 
 	// The setup: lets make revert files going forward in time, but ignore the past.
@@ -171,6 +166,12 @@ func TestDowngradeTo(t *testing.T) {
 	if rowCt == 0 {
 		t.Fatal("no rows in save set")
 	}
+	// DowngradeTo selects rows with applied >= TO_DATE(last_good). A reused itest
+	// template may have old applied timestamps for newer migrations; refresh them
+	// so forward-dated entries are actually eligible for downgrade (deterministic).
+	_, err = cdb.Exec(ctx, "UPDATE base SET applied = CURRENT_TIMESTAMP WHERE entry > '20250815'")
+	require.NoError(t, err)
+
 	n, _ := strconv.Atoi(time.Now().AddDate(0, 0, -1).Format("20060102"))
 	err = cdb.DowngradeTo(ctx, n)
 	require.NoError(t, err, "error reverting. All sql entries need a revert file.")

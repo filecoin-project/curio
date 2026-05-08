@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const MinConfidence = 1
+const MinConfidence = 5
 
 type MessageWaiterApi interface {
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
@@ -205,8 +205,7 @@ func (mw *MessageWatcher) Stop(ctx context.Context) error {
 }
 
 func (mw *MessageWatcher) processHeadChange(ctx context.Context, revert *types.TipSet, apply *types.TipSet) error {
-	best := apply.Key()
-	mw.bestTs.Store(&best)
+	mw.bestTs.Store(new(apply.Key()))
 	select {
 	case mw.updateCh <- struct{}{}:
 	default:

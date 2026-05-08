@@ -294,11 +294,11 @@ var indexSampleCmd = &cli.Command{
 			CID string `json:"cid"`
 		}
 
-		mhMap := make([]map[string]interface{}, 0, len(samples))
+		mhMap := make([]map[string]any, 0, len(samples))
 		jsonMap := make(map[string]mhJson, len(samples))
 		for _, sample := range samples {
 			cidv1 := cid.NewCidV1(cid.DagProtobuf, sample)
-			m := map[string]interface{}{
+			m := map[string]any{
 				MhHex: sample.HexString(),
 				MhB58: sample.B58String(),
 				CID:   cidv1.String(),
@@ -329,7 +329,7 @@ var indexSampleCmd = &cli.Command{
 	},
 }
 
-func PrintJson(obj interface{}) error {
+func PrintJson(obj any) error {
 	resJson, err := json.MarshalIndent(obj, "", "  ")
 	if err != nil {
 		return xerrors.Errorf("marshalling json: %w", err)

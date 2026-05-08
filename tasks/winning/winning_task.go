@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"slices"
 	"sort"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/cuzk"
+	curioffi "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
@@ -53,6 +56,8 @@ type WinPostTask struct {
 	paths       *paths.Remote
 	verifier    storiface.Verifier
 	paramsReady func() (bool, error)
+
+	cuzkClient *cuzk.Client
 
 	api    WinPostAPI
 	actors *config.Dynamic[map[dtypes.MinerAddress]bool]
@@ -79,13 +84,14 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors *config.Dynamic[map[dtypes.MinerAddress]bool]) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors *config.Dynamic[map[dtypes.MinerAddress]bool], cuzkClient *cuzk.Client) *WinPostTask {
 	t := &WinPostTask{
 		max:         max,
 		db:          db,
 		paths:       remote,
 		verifier:    verifier,
 		paramsReady: paramck,
+		cuzkClient:  cuzkClient,
 		api:         api,
 		actors:      actors,
 	}
@@ -508,7 +514,6 @@ func (t *WinPostTask) generateWinningPost(
 	eg := errgroup.Group{}
 
 	for i, s := range sectors {
-		i, s := i, s
 		eg.Go(func() error {
 			vanilla, err := t.paths.GenerateSingleVanillaProof(ctx, mid, s, ppt)
 			if err != nil {
@@ -525,19 +530,29 @@ func (t *WinPostTask) generateWinningPost(
 		return nil, err
 	}
 
+	// When cuzk is enabled, delegate SNARK computation to the daemon.
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		return curioffi.WinningPoStCuzk(ctx, t.cuzkClient, ppt, mid, randomness, vproofs)
+	}
+
 	ctx = ffiselect.WithLogCtx(ctx, "miner", mid, "randomness", randomness, "sectors", sectors)
 	return ffiselect.FFISelect.GenerateWinningPoStWithVanilla(ctx, ppt, mid, randomness, vproofs)
 
 }
 
 func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	rdy, err := t.paramsReady()
-	if err != nil {
-		return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
-	}
-	if !rdy {
-		log.Infow("WinPostTask.CanAccept() params not ready, not scheduling")
-		return []harmonytask.TaskID{}, nil
+	// When cuzk handles SNARK computation, proof params are not needed locally.
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		// fall through to sorting below
+	} else {
+		rdy, err := t.paramsReady()
+		if err != nil {
+			return []harmonytask.TaskID{}, xerrors.Errorf("failed to setup params: %w", err)
+		}
+		if !rdy {
+			log.Infow("WinPostTask.CanAccept() params not ready, not scheduling")
+			return []harmonytask.TaskID{}, nil
+		}
 	}
 
 	if len(ids) == 0 {
@@ -558,10 +573,24 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	if seal.IsDevnet {
 		gpu = 0
 	}
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		// When cuzk handles SNARK computation, the local node only generates
+		// vanilla proofs (CPU-only) and submits via gRPC.
+		gpu = 0
+	}
+
+	var maxLimiter taskhelp.Limiter
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		// Use the shared cuzk limiter so all CuZK task types share one
+		// in-flight count bounded by MaxPending.
+		maxLimiter = t.cuzkClient.TaskMax()
+	} else {
+		maxLimiter = taskhelp.Max(t.max)
+	}
 
 	return harmonytask.TaskTypeDetails{
 		Name:          "WinPost",
-		Max:           taskhelp.Max(t.max),
+		Max:           maxLimiter,
 		TimeSensitive: true,
 
 		// We're not allowing retry to be conservative. Retry in winningPoSt done badly can lead to slashing, and
@@ -724,11 +753,8 @@ func (t *WinPostTask) mineBasic(ctx context.Context) {
 					// if it's not we risk getting slashed
 
 					var foundOurs bool
-					for _, c2 := range workBase.TipSet.Cids() {
-						if c == c2 {
-							foundOurs = true
-							break
-						}
+					if slices.Contains(workBase.TipSet.Cids(), c) {
+						foundOurs = true
 					}
 					if !foundOurs {
 						log.Errorw("our block was not included in the tipset, aborting", "tipset", workBase.TipSet.Cids(), "ourBlock", c)

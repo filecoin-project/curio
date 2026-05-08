@@ -9,13 +9,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -30,10 +29,12 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/market/backpressure"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -41,6 +42,7 @@ import (
 
 	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -70,12 +72,13 @@ type CurioStorageDealMarket struct {
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	MK20Handler *mk20.MK20
-	ethClient   *ethclient.Client
+	ethClient   ethchain.EthClient
 	si          paths.SectorIndex
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
+	bp          *lazy.Lazy[*backpressure.CachedBackPressure]
 }
 
 type MK12Pipeline struct {
@@ -112,7 +115,7 @@ type MK12Pipeline struct {
 	Offset sql.NullInt64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *harmonydb.DB, cfg *config.CurioConfig, ethClient ethchain.EthClient, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	urls := make(map[string]http.Header)
 	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
@@ -129,13 +132,14 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 		as:        as,
 		ethClient: ethClient,
 		sc:        sc,
+		bp:        backpressure.NewCachedBackPressure(),
 	}
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as)
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as, d.bp)
 	if err != nil {
 		return err
 	}
@@ -164,13 +168,13 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		}
 		d.miners.OnChange(func() {
 			newMiners := d.miners.Get()
-			if !cmp.Equal(prevMiners, newMiners, config.BigIntComparer) {
+			if !reflect.DeepEqual(prevMiners, newMiners) {
 				log.Errorf("Miners changed from %d to %d. . Restart required for Market 1.2 Ingest to work.", len(prevMiners), len(newMiners))
 			}
 		})
 	}
 
-	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
+	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc, d.bp)
 	if err != nil {
 		return err
 	}
@@ -295,12 +299,11 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// gas cost for PSD messages
 	err = d.addPSDTask(ctx)
 	if err != nil {
-		log.Errorf("%w", err)
+		log.Errorf("%s", err)
 	}
 
 	// Process deals
 	for _, deal := range deals {
-		deal := deal
 		err := d.processMk12Deal(ctx, deal)
 		if err != nil {
 			log.Errorf("process deal: %s", err)

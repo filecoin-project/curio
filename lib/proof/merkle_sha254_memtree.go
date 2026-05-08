@@ -49,7 +49,7 @@ func BuildSha254Memtree(rawIn io.Reader, size abi.UnpaddedPieceSize) ([]byte, er
 		prevLevelStart := levelStarts[level-1]
 		currLevelStart := levelStarts[level]
 
-		for i := int64(0); i < levelNodes; i++ {
+		for i := range levelNodes {
 			leftOffset := prevLevelStart + (2*i)*NODE_SIZE
 
 			d.Reset()
@@ -98,7 +98,7 @@ func BuildSha254MemtreeFromSnapshot(data []byte) ([]byte, error) {
 		prevLevelStart := levelStarts[level-1]
 		currLevelStart := levelStarts[level]
 
-		for i := int64(0); i < levelNodes; i++ {
+		for i := range levelNodes {
 			leftOffset := prevLevelStart + (2*i)*NODE_SIZE
 
 			d.Reset()

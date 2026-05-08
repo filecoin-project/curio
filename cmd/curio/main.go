@@ -81,7 +81,6 @@ func main() {
 	}()
 
 	for _, cmd := range local {
-		cmd := cmd
 		originBefore := cmd.Before
 		cmd.Before = func(cctx *cli.Context) error {
 			if jaeger != nil {
@@ -237,8 +236,7 @@ func runApp(app *cli.App) {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
 		}
 
-		var phe *PrintHelpErr
-		if errors.As(err, &phe) {
+		if phe, ok := errors.AsType[*PrintHelpErr](err); ok {
 			_ = cli.ShowCommandHelp(phe.Ctx, phe.Ctx.Command.Name)
 		}
 		os.Exit(1)

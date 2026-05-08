@@ -102,5 +102,6 @@ var toolboxCmd = &cli.Command{
 		sparkCmd,
 		mk12Clientcmd,
 		mk20Clientcmd,
+		statsCmd,
 	},
 }

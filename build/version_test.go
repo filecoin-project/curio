@@ -13,3 +13,35 @@ func TestBuildVersionNotZero(t *testing.T) {
 		t.Fatal("BuildVersion should not be empty")
 	}
 }
+
+func TestCommitIDPrefix(t *testing.T) {
+	saved := CurrentCommit
+	t.Cleanup(func() { CurrentCommit = saved })
+
+	CurrentCommit = "+git_abcdef12345678_2024-01-01T00:00:00Z"
+	if got := CommitIDPrefix(); got != "abcdef1" {
+		t.Fatalf("got %q want abcdef1", got)
+	}
+	CurrentCommit = "+git_abcd_2024-01-01T00:00:00Z"
+	if got := CommitIDPrefix(); got != "abcd" {
+		t.Fatalf("got %q want abcd", got)
+	}
+	CurrentCommit = ""
+	if got := CommitIDPrefix(); got != "" {
+		t.Fatalf("got %q want empty", got)
+	}
+}
+
+func TestClusterMachineVersionLabel(t *testing.T) {
+	saved := CurrentCommit
+	t.Cleanup(func() { CurrentCommit = saved })
+
+	CurrentCommit = "+git_abcdef12345678_2024-01-01T00:00:00Z"
+	if got := ClusterMachineVersionLabel(); got != BuildVersion+" abcdef1" {
+		t.Fatalf("got %q want %q + abcdef1", got, BuildVersion)
+	}
+	CurrentCommit = ""
+	if got := ClusterMachineVersionLabel(); got != BuildVersion {
+		t.Fatalf("got %q want %q", got, BuildVersion)
+	}
+}

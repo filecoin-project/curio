@@ -7,8 +7,8 @@ import (
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
+	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -60,10 +60,7 @@ func (w *DataCidWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	for len(p) > 0 {
 		buffered := int(w.len % int64(len(w.buf)))
-		toBuffer := len(w.buf) - buffered
-		if toBuffer > len(p) {
-			toBuffer = len(p)
-		}
+		toBuffer := min(len(w.buf)-buffered, len(p))
 
 		copied := copy(w.buf[buffered:], p[:toBuffer])
 		p = p[copied:]
@@ -136,7 +133,7 @@ func (w *DataCidWriter) Sum() (DataCIDSize, error) {
 
 	// pad with zero pieces to power-of-two size
 	fillerLeaves := (1 << (bits.Len(uint(len(leaves) - 1)))) - len(leaves)
-	for i := 0; i < fillerLeaves; i++ {
+	for range fillerLeaves {
 		leaves = append(leaves, zerocomm.ZeroPieceCommitment(CommPBuf))
 	}
 
@@ -156,14 +153,14 @@ func (w *DataCidWriter) Sum() (DataCIDSize, error) {
 		}
 	}
 
-	p, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1, pieces)
+	p, paddedSize, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1, pieces)
 	if err != nil {
 		return DataCIDSize{}, xerrors.Errorf("generating unsealed CID: %w", err)
 	}
 
 	return DataCIDSize{
 		PayloadSize: rawLen,
-		PieceSize:   abi.PaddedPieceSize(len(leaves)) * commPBufPad,
+		PieceSize:   paddedSize * commPBufPad,
 		PieceCID:    p,
 	}, nil
 }

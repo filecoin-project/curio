@@ -110,7 +110,7 @@ func CreateStorageMiner(ctx context.Context, chain CreateMinerChainAPI, owner, w
 		return address.Undef, xerrors.Errorf("getting miner creation deposit: %w", err)
 	}
 
-	scaledDeposit := types.BigDiv(types.BigMul(value, types.NewInt(uint64(1.5*100))), types.NewInt(100))
+	scaledDeposit := types.BigDiv(types.BigMul(value, types.NewInt(uint64(DepositMarginFactor*100))), types.NewInt(100))
 
 	createStorageMinerMsg := &types.Message{
 		To:    power.Address,

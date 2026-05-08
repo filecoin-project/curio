@@ -2,7 +2,7 @@ package seal
 
 import (
 	"context"
-	"math"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -68,7 +68,6 @@ func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) err
 }
 
 func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
-	// Exit early if the poller is set i.e. Commit task is not enabled on the node
 	if !s.pollers[pollerCommitMsg].IsSet() {
 		return
 	}
@@ -79,36 +78,81 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 		return
 	}
 
-	slackEpoch := int64(math.Ceil(s.cfg.commit.Slack.Seconds() / float64(build.BlockDelaySecs)))
+	slackEpochs := SlackEpochs(s.cfg.commit.Slack, build.BlockDelaySecs)
+	timeout := s.cfg.commit.Timeout
+	maxBatch := s.cfg.commit.MaxCommitBatch
+	currentHeight := int64(ts.Height())
 
 	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-		var updatedCount int64
-		var reason string
-
-		log.Debugw("Trying to assign a commit batch",
-			"slack_epoch", slackEpoch,
-			"current_height", ts.Height(),
-			"max_batch", s.cfg.commit.MaxCommitBatch,
-			"new_task_id", id,
-			"timeout_secs", s.cfg.commit.Timeout.Seconds())
-
-		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_commit_msgs($1, $2, $3, $4, $5)`,
-			slackEpoch,                          // p_slack_epoch
-			ts.Height(),                         // p_current_height
-			s.cfg.commit.MaxCommitBatch,         // p_max_batch
-			id,                                  // p_new_task_id
-			int(s.cfg.commit.Timeout.Seconds()), // p_timeout_secs
-		).Scan(&updatedCount, &reason)
+		var rows []BatchRow
+		err := tx.Select(&rows, `
+			WITH initial AS (
+				SELECT
+					sp_id,
+					sector_number,
+					start_epoch,
+					COALESCE(commit_ready_at, '1970-01-01 00:00:00+00'::TIMESTAMPTZ) AS ready_at,
+					reg_seal_proof
+				FROM sectors_sdr_pipeline
+				WHERE after_porep = TRUE
+					AND porep_proof IS NOT NULL
+					AND task_id_commit_msg IS NULL
+					AND after_commit_msg = FALSE
+					AND start_epoch IS NOT NULL
+			),
+			numbered AS (
+				SELECT l.*,
+					ROW_NUMBER() OVER (
+						PARTITION BY l.sp_id, l.reg_seal_proof
+						ORDER BY l.ready_at
+					) AS rn
+				FROM initial l
+			)
+			SELECT
+				sp_id,
+				sector_number,
+				start_epoch,
+				ready_at,
+				reg_seal_proof,
+				FLOOR((rn - 1)::NUMERIC / $1)::BIGINT AS batch_index
+			FROM numbered
+			ORDER BY sp_id, reg_seal_proof, batch_index, ready_at`,
+			s.cfg.commit.MaxCommitBatch)
 		if err != nil {
-			return false, err
+			return false, xerrors.Errorf("getting commit batch candidates: %w", err)
 		}
 
-		if updatedCount > 0 {
-			log.Debugf("Assigned %d sectors to commit batch with taskID %d with reason %s", updatedCount, id, reason)
-			return true, nil
-		} else {
-			log.Debugf("No commit batch assigned for ID %d", id)
+		if len(rows) == 0 {
+			return false, nil
 		}
+
+		now := time.Now()
+		for _, batch := range GroupBatchRows(rows) {
+			result := EvalBatchTimeout(batch.EarliestReady, timeout, batch.MinStartEpoch, slackEpochs, currentHeight, now, len(batch.SectorNums), maxBatch)
+			if !result.ShouldFire {
+				continue
+			}
+
+			n, err := tx.Exec(`
+				UPDATE sectors_sdr_pipeline
+				SET task_id_commit_msg = $1
+				WHERE sp_id = $2
+					AND reg_seal_proof = $3
+					AND sector_number = ANY($4::bigint[])
+					AND after_porep = TRUE
+					AND task_id_commit_msg IS NULL
+					AND after_commit_msg = FALSE`,
+				id, batch.SpID, batch.RegSealProof, batch.SectorNums)
+			if err != nil {
+				return false, xerrors.Errorf("assigning commit batch: %w", err)
+			}
+
+			if n > 0 {
+				log.Infow("Assigned commit batch", "task_id", id, "sectors", n, "reason", result.Reason)
+				return true, nil
+			}
+		}
+
 		return false, nil
 	})
 }

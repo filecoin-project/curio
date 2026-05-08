@@ -57,10 +57,7 @@ func testPieceGetter(data []byte) pieceGetter {
 		if offset >= uint64(len(data)) {
 			return newMockReadCloser([]byte{}), nil
 		}
-		end := offset + size
-		if end > uint64(len(data)) {
-			end = uint64(len(data))
-		}
+		end := min(offset+size, uint64(len(data)))
 		return newMockReadCloser(data[offset:end]), nil
 	}
 }
@@ -101,10 +98,7 @@ func (t *trackingPieceGetter) get(offset, size uint64) (io.ReadCloser, error) {
 		t.readerRefs = append(t.readerRefs, rc)
 		return rc, nil
 	}
-	end := offset + size
-	if end > uint64(len(t.data)) {
-		end = uint64(len(t.data))
-	}
+	end := min(offset+size, uint64(len(t.data)))
 	rc := newMockReadCloser(t.data[offset:end])
 	t.readerRefs = append(t.readerRefs, rc)
 	return rc, nil
@@ -814,12 +808,12 @@ func TestPieceReader_ConcurrentAccess(t *testing.T) {
 		numGoroutines := 10
 		readsPerGoroutine := 100
 
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
 				buf := make([]byte, 100)
-				for j := 0; j < readsPerGoroutine; j++ {
+				for j := range readsPerGoroutine {
 					offset := int64((id*readsPerGoroutine + j) % (dataSize - 100))
 					_, err := pr.ReadAt(buf, offset)
 					if err != nil && err != io.EOF {
@@ -845,23 +839,19 @@ func TestPieceReader_ConcurrentAccess(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// Reader goroutine
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			buf := make([]byte, 100)
-			for i := 0; i < 100; i++ {
+			for range 100 {
 				_, _ = pr.Read(buf)
 			}
-		}()
+		})
 
 		// Seeker goroutine
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 100; i++ {
+		wg.Go(func() {
+			for i := range 100 {
 				_, _ = pr.Seek(int64(i*100%len(data)), io.SeekStart)
 			}
-		}()
+		})
 
 		wg.Wait()
 	})
@@ -1028,10 +1018,7 @@ func TestPieceReader_GetReaderErrors(t *testing.T) {
 				if offset >= uint64(len(data)) {
 					return newMockReadCloser([]byte{}), nil
 				}
-				end := offset + size
-				if end > uint64(len(data)) {
-					end = uint64(len(data))
-				}
+				end := min(offset+size, uint64(len(data)))
 				return newMockReadCloser(data[offset:end]), nil
 			},
 			pieceCid: testCid,
@@ -1077,10 +1064,7 @@ func TestPieceReader_GetReaderErrors(t *testing.T) {
 				if offset >= uint64(len(data)) {
 					return newMockReadCloser([]byte{}), nil
 				}
-				end := offset + size
-				if end > uint64(len(data)) {
-					end = uint64(len(data))
-				}
+				end := min(offset+size, uint64(len(data)))
 				return newMockReadCloser(data[offset:end]), nil
 			},
 			pieceCid: testCid,
@@ -1138,7 +1122,7 @@ func TestPieceReader_SmallVsLargeReads(t *testing.T) {
 		assert.Equal(t, int(MinRandomReadSize/2), n)
 
 		// Verify data
-		for i := 0; i < len(smallBuf); i++ {
+		for i := range smallBuf {
 			assert.Equal(t, byte(i%256), smallBuf[i], "mismatch at position %d", i)
 		}
 	})
@@ -1161,7 +1145,7 @@ func TestPieceReader_SmallVsLargeReads(t *testing.T) {
 		assert.Equal(t, int(MinRandomReadSize*2), n)
 
 		// Verify data
-		for i := 0; i < len(largeBuf); i++ {
+		for i := range largeBuf {
 			assert.Equal(t, byte(i%256), largeBuf[i], "mismatch at position %d", i)
 		}
 	})
@@ -1314,7 +1298,7 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 
 		// Verify every single byte
 		require.Equal(t, len(data), totalRead, "should read all data")
-		for i := 0; i < len(data); i++ {
+		for i := range data {
 			assert.Equal(t, data[i], result[i], "mismatch at position %d: expected %d, got %d", i, data[i], result[i])
 		}
 	})
@@ -1359,7 +1343,7 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 			}
 
 			// Verify each byte
-			for i := 0; i < n; i++ {
+			for i := range n {
 				expectedByte := byte((int(tc.offset) + i) * 7 % 256)
 				assert.Equal(t, expectedByte, buf[i],
 					"mismatch at ReadAt offset=%d, buf[%d]: expected %d, got %d",
@@ -1399,7 +1383,7 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 			assert.Equal(t, expectedLen, n, "at position %d", pos)
 
 			// Verify data
-			for i := 0; i < n; i++ {
+			for i := range n {
 				expected := byte((int(pos) + i) % 256)
 				assert.Equal(t, expected, buf[i],
 					"mismatch after seek to %d, buf[%d]: expected %d, got %d",
@@ -1423,7 +1407,7 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 		n1, err := pr.Read(buf1)
 		require.NoError(t, err)
 		assert.Equal(t, 100, n1)
-		for i := 0; i < n1; i++ {
+		for i := range n1 {
 			assert.Equal(t, byte(i%256), buf1[i], "Read buf[%d]", i)
 		}
 
@@ -1432,7 +1416,7 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 		n2, err := pr.ReadAt(buf2, 500)
 		require.NoError(t, err)
 		assert.Equal(t, 50, n2)
-		for i := 0; i < n2; i++ {
+		for i := range n2 {
 			assert.Equal(t, byte((500+i)%256), buf2[i], "ReadAt buf[%d]", i)
 		}
 
@@ -1441,7 +1425,7 @@ func TestPieceReader_DataCorrectness(t *testing.T) {
 		n3, err := pr.Read(buf3)
 		require.NoError(t, err)
 		assert.Equal(t, 100, n3)
-		for i := 0; i < n3; i++ {
+		for i := range n3 {
 			assert.Equal(t, byte((100+i)%256), buf3[i], "Second Read buf[%d]", i)
 		}
 	})
@@ -1481,7 +1465,7 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 100, n)
 		// Verify data starts at byte 100
-		for i := 0; i < n; i++ {
+		for i := range n {
 			assert.Equal(t, byte((100+i)%256), buf[i])
 		}
 		assert.Equal(t, int64(200), pr.seqAt)
@@ -1502,7 +1486,7 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 
 		// Read multiple times
 		results := make([][]byte, 5)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			results[i] = make([]byte, size)
 			n, err := pr.ReadAt(results[i], offset)
 			require.NoError(t, err)
@@ -1515,7 +1499,7 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 		}
 
 		// Verify correctness
-		for i := 0; i < size; i++ {
+		for i := range size {
 			assert.Equal(t, byte((int(offset)+i)%256), results[0][i])
 		}
 	})
@@ -1576,11 +1560,11 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 		errCh := make(chan error, 100)
 
 		// Spawn multiple goroutines doing ReadAt
-		for g := 0; g < 10; g++ {
+		for g := range 10 {
 			wg.Add(1)
 			go func(goroutineID int) {
 				defer wg.Done()
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					offset := int64((goroutineID*1000 + i*10) % len(data))
 					size := 50
 					if offset+int64(size) > int64(len(data)) {
@@ -1595,7 +1579,7 @@ func TestPieceReader_ReadAtSemantics(t *testing.T) {
 					}
 
 					// Verify data
-					for j := 0; j < n; j++ {
+					for j := range n {
 						expected := byte((int(offset) + j) % 256)
 						if buf[j] != expected {
 							errCh <- errors.New("data mismatch in concurrent ReadAt")
@@ -1761,7 +1745,7 @@ func TestPieceReader_SeekSemantics(t *testing.T) {
 			_ = pr.Close()
 		}()
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			_, err := pr.Seek(100, io.SeekStart)
 			require.NoError(t, err)
 
@@ -1771,7 +1755,7 @@ func TestPieceReader_SeekSemantics(t *testing.T) {
 			assert.Equal(t, 10, n)
 
 			// Verify same data each time
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				assert.Equal(t, byte((100+j)%256), buf[j])
 			}
 		}

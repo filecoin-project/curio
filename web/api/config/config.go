@@ -70,7 +70,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 					Pattern: "1 fil/0.03 fil/0.31/1 attofil",
 				}
 			}
-			if i == reflect.TypeOf(time.Second) { // Override the Pattern for duration
+			if i == reflect.TypeFor[time.Duration]() { // Override the Pattern for duration
 				return &jsonschema.Schema{
 					Type:    "string",
 					Pattern: "0h0m0s",
@@ -149,7 +149,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		for _, v := range []*jsonschema.Schema{s.Items, s.AdditionalProperties, s.Not, s.If, s.Then, s.Else} {
 			allOpt(v)
 		}
-		for _, v := range []interface{}{s.AllOf, s.AnyOf, s.OneOf} {
+		for _, v := range []any{s.AllOf, s.AnyOf, s.OneOf} {
 			for _, sub := range v.([]*jsonschema.Schema) {
 				allOpt(sub)
 			}

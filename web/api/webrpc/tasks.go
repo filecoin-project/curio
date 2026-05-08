@@ -106,7 +106,7 @@ func (a *WebRPC) GetTaskStatus(ctx context.Context, taskID int64) (*TaskStatus, 
 
 	if err == nil {
 		status.Name = name
-		status.PostedAt = strPtr(postedTime.Format(time.RFC3339))
+		status.PostedAt = new(postedTime.Format(time.RFC3339))
 		if ownerID.Valid {
 			status.Status = "running"
 			status.OwnerID = &ownerID.Int64
@@ -133,7 +133,7 @@ func (a *WebRPC) GetTaskStatus(ctx context.Context, taskID int64) (*TaskStatus, 
 	}
 
 	status.Name = name
-	status.PostedAt = strPtr(postedTime.Format(time.RFC3339))
+	status.PostedAt = new(postedTime.Format(time.RFC3339))
 	if result {
 		status.Status = "done"
 	} else {
@@ -141,10 +141,6 @@ func (a *WebRPC) GetTaskStatus(ctx context.Context, taskID int64) (*TaskStatus, 
 	}
 
 	return status, nil
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 func (a *WebRPC) RestartFailedTask(ctx context.Context, taskID int64) error {

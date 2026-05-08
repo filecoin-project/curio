@@ -21,8 +21,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/testutils"
-	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/itests/helpers"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -64,14 +63,11 @@ func TestRemoteSealHappyPath(t *testing.T) {
 	sharedITestID := harmonydb.ITestNewID()
 	t.Logf("sharedITestID: %s", sharedITestID)
 
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID, true)
+	db, err := harmonydb.NewFromConfigWithITestID(t, harmonydb.ItestID(sharedITestID), harmonydb.YugabyteDB(true))
 	require.NoError(t, err)
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{testutils.EnvElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, testutils.YBCQLPort(), config.DefaultCurioConfig())
-	require.NoError(t, err)
-	err = idxStore.Start(ctx, true)
-	require.NoError(t, err)
+	idxStore := helpers.NewIndexStore(ctx, t, config.DefaultCurioConfig())
 
 	// Create miner
 	addr := miner.OwnerKey.Address

@@ -66,10 +66,7 @@ func (c *InitialChunker) Accept(mhs []multihash.Multihash) error {
 }
 
 func (c *InitialChunker) chunk() error {
-	l := c.chunkSize
-	if len(c.dbMultihashes) < l {
-		l = len(c.dbMultihashes)
-	}
+	l := min(len(c.dbMultihashes), c.chunkSize)
 	mhs := make([]multihash.Multihash, l)
 	copy(mhs, c.dbMultihashes[:l])
 

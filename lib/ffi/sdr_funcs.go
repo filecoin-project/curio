@@ -315,7 +315,7 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 
 	if found, ok := abi.Synthetic[sector.ProofType]; !ok && !found {
 		// Generate 3 random commits
-		for i := 0; i < C1CheckNumber; i++ {
+		for range C1CheckNumber {
 			var sd [32]byte
 			_, _ = rand.Read(sd[:])
 			_, err = ffi.SealCommitPhase1(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
@@ -434,7 +434,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 		phase1Output.Labels["StackedDrg2KiBV1"] = &Labels{}
 		phase1Output.RegisteredProof = "StackedDrg2KiBV1_1"
 
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			phase1Output.Labels["StackedDrg2KiBV1"].Labels = append(phase1Output.Labels["StackedDrg2KiBV1"].Labels, Config{
 				ID:            fmt.Sprintf("layer-%d", i+1),
 				Path:          "/placeholder",
@@ -449,7 +449,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 		phase1Output.Labels["StackedDrg8MiBV1"] = &Labels{}
 		phase1Output.RegisteredProof = "StackedDrg8MiBV1_1"
 
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			phase1Output.Labels["StackedDrg8MiBV1"].Labels = append(phase1Output.Labels["StackedDrg8MiBV1"].Labels, Config{
 				ID:            fmt.Sprintf("layer-%d", i+1),
 				Path:          "/placeholder",
@@ -464,7 +464,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 		phase1Output.Labels["StackedDrg512MiBV1"] = &Labels{}
 		phase1Output.RegisteredProof = "StackedDrg512MiBV1_1"
 
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			phase1Output.Labels["StackedDrg512MiBV1"].Labels = append(phase1Output.Labels["StackedDrg512MiBV1"].Labels, Config{
 				ID:            fmt.Sprintf("layer-%d", i+1),
 				Path:          "placeholder",
@@ -479,7 +479,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 		phase1Output.Labels["StackedDrg32GiBV1"] = &Labels{}
 		phase1Output.RegisteredProof = "StackedDrg32GiBV1_1"
 
-		for i := 0; i < 11; i++ {
+		for i := range 11 {
 			phase1Output.Labels["StackedDrg32GiBV1"].Labels = append(phase1Output.Labels["StackedDrg32GiBV1"].Labels, Config{
 				ID:            fmt.Sprintf("layer-%d", i+1),
 				Path:          "/placeholder",
@@ -494,7 +494,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 		phase1Output.Labels["StackedDrg64GiBV1"] = &Labels{}
 		phase1Output.RegisteredProof = "StackedDrg64GiBV1_1"
 
-		for i := 0; i < 11; i++ {
+		for i := range 11 {
 			phase1Output.Labels["StackedDrg64GiBV1"].Labels = append(phase1Output.Labels["StackedDrg64GiBV1"].Labels, Config{
 				ID:            fmt.Sprintf("layer-%d", i+1),
 				Path:          "/placeholder",
@@ -647,8 +647,17 @@ func TruncateAndMoveUnsealed(tempUnsealed, unsealed string, ssize abi.SectorSize
 	return nil
 }
 
+func finalizeExistingFileTypes(proofType abi.RegisteredSealProof, keepUnsealed bool) storiface.SectorFileType {
+	existing := storiface.FTCache
+	if abi.Synthetic[proofType] && keepUnsealed {
+		existing |= storiface.FTUnsealed
+	}
+
+	return existing
+}
+
 func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.SectorRef, keepUnsealed bool) error {
-	sectorPaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
+	sectorPaths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, nil, sector, finalizeExistingFileTypes(sector.ProofType, keepUnsealed), storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -837,7 +846,7 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 	}
 
 	// Generate 3 random commits
-	for i := 0; i < C1CheckNumber; i++ {
+	for range C1CheckNumber {
 		var sd [32]byte
 		_, _ = rand.Read(sd[:])
 		_, err = ffi.SealCommitPhase1(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)

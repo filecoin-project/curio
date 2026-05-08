@@ -39,7 +39,9 @@ class DealDetails extends LitElement {
                 {property: 'Client Peer ID', value: html`<cu-wallet wallet_id=${entry.client_peer_id}></cu-wallet>`},
                 {property: 'Chain Deal ID', value: entry.chain_deal_id},
                 {property: 'Publish CID', value: entry.publish_cid},
-                {property: 'Piece CID', value: entry.piece_cid},
+                {property: 'Piece CID', value: entry.piece_cid_v2 && entry.piece_cid_v2.trim() !== ''
+                        ? html`${entry.piece_cid}`
+                        : html`<a href="/pages/piece/?id=${entry.piece_cid_v2}">${entry.piece_cid_v2}</a>`},
                 {property: 'Piece CID V2', value: entry.piece_cid_v2 && entry.piece_cid_v2.trim() !== ''
                         ? html`<a href="/pages/piece/?id=${entry.piece_cid_v2}">${entry.piece_cid_v2}</a>`
                         : 'N/A'},

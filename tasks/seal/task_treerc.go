@@ -19,6 +19,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 // ProviderPollerTreeRC is an interface that allows registering the TreeRC task's
@@ -191,7 +192,7 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(t.max),
-		Name: "TreeRC",
+		Name: tasknames.TreeRC,
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     gpu,

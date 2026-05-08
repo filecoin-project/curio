@@ -39,7 +39,7 @@ import (
 
 var T = setupLang()
 
-func setupLang() func(key message.Reference, a ...interface{}) string {
+func setupLang() func(key message.Reference, a ...any) string {
 	lang, _ := SetupLanguage()
 	return lang
 }
@@ -50,7 +50,7 @@ var notice = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#CCCCCC")).
 	Background(lipgloss.Color("#333300")).MarginBottom(1)
 
-func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func(style lipgloss.Style, key message.Reference, a ...interface{})) {
+func SetupLanguage() (func(key message.Reference, a ...any) string, func(style lipgloss.Style, key message.Reference, a ...any)) {
 	langText := "en"
 	problem := false
 	if len(os.Getenv("LANG")) > 1 {
@@ -74,12 +74,12 @@ func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func
 	}
 	if problem {
 		_ = os.Setenv("LANG", "en-US") // for later users of this function
-		notice.Copy().AlignHorizontal(lipgloss.Right).
+		notice.AlignHorizontal(lipgloss.Right).
 			Render("$LANG=" + langText + " unsupported. Available: " + strings.Join(lo.Keys(have), ", "))
 	}
-	return func(key message.Reference, a ...interface{}) string {
+	return func(key message.Reference, a ...any) string {
 			return message.NewPrinter(lang).Sprintf(key, a...)
-		}, func(sty lipgloss.Style, key message.Reference, a ...interface{}) {
+		}, func(sty lipgloss.Style, key message.Reference, a ...any) {
 			msg := message.NewPrinter(lang).Sprintf(key, a...)
 			fmt.Println(sty.Render(msg))
 		}

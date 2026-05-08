@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/bits"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -299,24 +298,4 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 	}
 
 	return pcid2, nil
-}
-
-func EnvElse(env, els string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	return els
-}
-
-// YBCQLPort returns the YCQL port for test connections.  It reads
-// CURIO_HARMONYDB_CQL_PORT (set by testcontainers with dynamic port mapping)
-// and falls back to the default 9042.
-func YBCQLPort() int {
-	if v := os.Getenv("CURIO_HARMONYDB_CQL_PORT"); v != "" {
-		p, err := strconv.Atoi(v)
-		if err == nil {
-			return p
-		}
-	}
-	return 9042
 }

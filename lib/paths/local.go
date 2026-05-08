@@ -294,13 +294,12 @@ func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url strin
 		paths: map[storiface.ID]*path{},
 	}
 
-	pf := func() any {
+	localPathPublisher.Store(new(func() any {
 		l.localLk.Lock()
 		defer l.localLk.Unlock()
 
 		return l.paths
-	}
-	localPathPublisher.Store(&pf)
+	}))
 
 	return l, l.open(ctx)
 }
@@ -440,7 +439,6 @@ func (st *Local) open(ctx context.Context) error {
 	errCh := make(chan error, len(pathsToDeclare))
 
 	for _, p := range pathsToDeclare {
-		p := p
 		wg.Add(1)
 		sem <- struct{}{} // acquire semaphore
 		go func() {
@@ -704,7 +702,6 @@ func (st *Local) Reserve(ctx context.Context, sid storiface.SectorRef, ft storif
 	}()
 
 	for _, fileType := range ft.AllSet() {
-		fileType := fileType
 		id := storiface.ID(storiface.PathByType(storageIDs, fileType))
 
 		p, ok := st.paths[id]

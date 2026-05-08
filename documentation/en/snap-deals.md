@@ -183,7 +183,7 @@ Plain-English meaning:
 What to do:
 - Verify free space on the storage paths attached to the node running ParkPiece.
 - Check `AllowTypes` / `DenyTypes` in `<path>/sectorstorage.json` (if `unsealed` is effectively disallowed everywhere, ParkPiece can’t place data).
-- Check the Curio config knob `ParkPieceMinFreeStoragePercent` (default is 20%) and whether your current free space is below that threshold.
+- Check the Curio config knob `ParkPieceMinFreeStoragePercent` (default is 5%) and whether your current free space is below that threshold.
 
 See:
 - [Storage Configuration](storage-configuration.md)

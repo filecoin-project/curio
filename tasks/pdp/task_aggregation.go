@@ -21,9 +21,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregatePDPDealTask struct {
@@ -194,28 +196,25 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 		if err == nil {
 			// If piece exists then check if we can access the data
 			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
-			if err != nil {
-				// If piece does not exist then we will park it otherwise fail here
-				if !errors.Is(err, storiface.ErrSectorNotFound) {
-					// We should fail here because any subsequent operation which requires access to data will also fail
-					// till this error is fixed
-					return false, fmt.Errorf("failed to get piece reader: %w", err)
-				}
+			if err == nil {
+				defer func() {
+					_ = pr.Close()
+				}()
+				pieceParked = true
+			} else if errors.Is(err, storiface.ErrSectorNotFound) {
+				// Stale parked piece row: reuse existing row id and rewrite bytes.
+				pieceParked = false
+			} else {
+				// Any other storage error should fail fast.
+				return false, fmt.Errorf("failed to get piece reader: %w", err)
 			}
-			defer func() {
-				_ = pr.Close()
-			}()
-			pieceParked = true
 			parkedPieceID = pid
 		} else {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return false, fmt.Errorf("failed to check if piece already exists: %w", err)
 			}
 			// If piece does not exist then let's create one
-			err = tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
-				pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID)
+			parkedPieceID, err = parkpiece.UpsertSkip(tx, pi.PieceCIDV1.String(), int64(pi.Size), int64(pi.RawSize), true, true)
 			if err != nil {
 				return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 			}
@@ -323,7 +322,7 @@ func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmo
 func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "AggregatePDPDeal",
+		Name: tasknames.AggregatePDPDeal,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,
@@ -346,7 +345,7 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 				Count int    `db:"count"`
 			}
 
-			err := a.db.Select(ctx, &deals, `SELECT id, COUNT(*) AS count
+			err := tx.Select(&deals, `SELECT id, COUNT(*) AS count
 										FROM pdp_pipeline
 										GROUP BY id
 										HAVING bool_and(downloaded)
