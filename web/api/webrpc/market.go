@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/lists"
@@ -455,7 +456,7 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 
 	var miners []address.Address
 
-	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
+	err := config.ForEachConfig(ctx, a.deps.DB, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
 				maddr, err := address.NewFromString(addr)

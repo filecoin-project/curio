@@ -15,6 +15,7 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
@@ -68,11 +69,13 @@ type alertOut struct {
 }
 
 type alerts struct {
-	ctx      context.Context
-	api      AlertAPI
-	db       *harmonydb.DB
-	cfg      config.CurioAlertingConfig
-	alertMap map[AlertName]*alertOut
+	ctx         context.Context
+	api         AlertAPI
+	db          *harmonydb.DB
+	cfg         config.CurioAlertingConfig
+	alertMap    map[AlertName]*alertOut
+	minerAddrs  []address.Address
+	walletAddrs []address.Address
 }
 
 type AlertFunc func(al *alerts)
@@ -95,6 +98,7 @@ const (
 	Name_ChainSync             AlertName = "ChainSync"
 	Name_MissingSectors        AlertName = "MissingSectors"
 	Name_PendingMessages       AlertName = "PendingMessages"
+	Name_IPNISync              AlertName = "IPNISync"
 )
 
 var AlertFuncs = map[AlertName]AlertFunc{
@@ -108,6 +112,7 @@ var AlertFuncs = map[AlertName]AlertFunc{
 	Name_ChainSync:             chainSyncCheck,
 	Name_MissingSectors:        missingSectorCheck,
 	Name_PendingMessages:       pendingMessagesCheck,
+	Name_IPNISync:              ipniSyncCheck,
 }
 
 var PingHealthFuncs = map[AlertName]AlertFunc{
@@ -115,6 +120,7 @@ var PingHealthFuncs = map[AlertName]AlertFunc{
 	Name_ChainSync:             AlertFuncs[Name_ChainSync],
 	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
 	Name_PDPTaskFailures:       AlertFuncs[Name_PDPTaskFailures],
+	Name_IPNISync:              AlertFuncs[Name_IPNISync],
 }
 
 func isPingHealthOnly(now time.Time) bool {
@@ -162,6 +168,11 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		alertMap: map[AlertName]*alertOut{},
 	}
 
+	err = altrs.getAddresses()
+	if err != nil {
+		return false, xerrors.Errorf("getting addresses: %w", err)
+	}
+
 	for al := range funcsByInterval(now) {
 		al(altrs)
 	}
@@ -172,10 +183,20 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		if !ok || out == nil || out.err == nil || out.alertString == "" {
 			continue
 		}
-		log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
-		a.pingMu.Lock()
-		a.pingProblems = true
-		a.pingMu.Unlock()
+		// Only say unhealthy if PDP IPNI sync is failing, PoRep provider should not fail health check
+		if name == Name_IPNISync {
+			if strings.Contains(out.alertString, "PDP") {
+				log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
+				a.pingMu.Lock()
+				a.pingProblems = true
+				a.pingMu.Unlock()
+			}
+		} else {
+			log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
+			a.pingMu.Lock()
+			a.pingProblems = true
+			a.pingMu.Unlock()
+		}
 		break
 	}
 	if isPingHealthOnly(now) {
