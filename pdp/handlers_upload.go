@@ -27,6 +27,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/dealdata"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/proof"
 )
 
@@ -298,11 +299,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// 1. Create a long-term parked piece entry
-		var parkedPieceID int64
-		err := tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-            VALUES ($1, $2, $3, TRUE) RETURNING id
-        `, pieceCIDComputed.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+		parkedPieceID, err := parkpiece.Upsert(tx, pieceCIDComputed.String(), int64(paddedPieceSize), readSize, true)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
@@ -522,11 +519,7 @@ func (p *PDPService) handleStreamingUpload(w http.ResponseWriter, r *http.Reques
 
 	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// 1. Create a long-term parked piece entry
-		var parkedPieceID int64
-		err := tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-            VALUES ($1, $2, $3, TRUE) RETURNING id
-        `, pcid.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+		parkedPieceID, err := parkpiece.Upsert(tx, pcid.String(), int64(paddedPieceSize), readSize, true)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}

@@ -27,7 +27,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -872,8 +872,9 @@ var uploadFileCmd = &cli.Command{
 				}
 				piecesV1[j] = abi.PieceInfo{Size: piece.Size, PieceCID: pieceCidV1}
 			}
-			fmt.Printf("%d: paddedSize: %d, rawSize: %d\n", i, paddedSize, rawSize)
-			pieceCidV1, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, piecesV1)
+			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
+			pieceCidV1, _, err := commputils.PieceAggregateCommP(abi.RegisteredSealProof_StackedDrg64GiBV1_1, piecesV1)
+
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}

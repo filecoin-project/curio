@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -213,29 +214,23 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = TRUE`, pi.PieceCIDV1.String(), pi.Size).Scan(&pid)
 		if err == nil {
 			// If piece exists then check if we can access the data
-			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
-			if err != nil {
-				// If piece does not exist then we will park it otherwise fail here
-				if !errors.Is(err, storiface.ErrSectorNotFound) {
-					// We should fail here because any subsequent operation which requires access to data will also fail
-					// till this error is fixed
-					return false, fmt.Errorf("failed to get piece reader: %w", err)
-				}
+			pr, rerr := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
+			if rerr == nil {
+				defer func() { _ = pr.Close() }()
+				pieceParked = true
+			} else if errors.Is(rerr, storiface.ErrSectorNotFound) {
+				// Stale parked piece row: reuse row id, but rewrite piece bytes.
+				pieceParked = false
+			} else {
+				return false, fmt.Errorf("failed to get piece reader: %w", rerr)
 			}
-			defer func() {
-				_ = pr.Close()
-			}()
-			pieceParked = true
 			parkedPieceID = pid
 		} else {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return false, fmt.Errorf("failed to check if piece already exists: %w", err)
 			}
 			// If piece does not exist then let's create one
-			err = tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
-				pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID)
+			parkedPieceID, err = parkpiece.UpsertSkip(tx, pi.PieceCIDV1.String(), int64(pi.Size), int64(pi.RawSize), true, true)
 			if err != nil {
 				return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 			}
@@ -330,7 +325,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
             offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-			id, spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+			id, spid, ddo.MarketAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
 			false, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 			data.Format.Aggregate.Type, data.Format.Aggregate.Type)
 		if err != nil {

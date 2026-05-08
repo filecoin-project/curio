@@ -441,6 +441,29 @@ Updates will affect running instances.`,
 Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
 When enabled, all deals will be processed as snap deals. (Default: false)`,
 		},
+		{
+			Name: "DisableSSRFProtection",
+			Type: "bool",
+
+			Comment: `DisableSSRFProtection disables all SSRF (Server-Side Request Forgery) protection
+on deal data URL fetching. When true, URLs pointing to private IPs, loopback
+addresses, and local hostnames are allowed. URL structure validation (scheme,
+control characters) is still enforced.
+WARNING: Only enable in development or testing environments. (Default: false)
+Updates will affect running instances.`,
+		},
+		{
+			Name: "SSRFAllowedHosts",
+			Type: "[]string",
+
+			Comment: `SSRFAllowedHosts is a list of hosts or host:port pairs that are allowed through
+SSRF protection. Matched hosts bypass IP and hostname restrictions while other
+safety checks (URL scheme, headers) remain active.
+Entries without a port match any port for that host.
+Example: ["192.168.1.100:8080", "my-dev-server.local"]
+(Default: [])
+Updates will affect running instances.`,
+		},
 	},
 	"CurioProvingConfig": {
 		{

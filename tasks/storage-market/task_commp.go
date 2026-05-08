@@ -13,7 +13,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/writer"
+	"github.com/filecoin-project/go-commp-utils/v2/writer"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commpl "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-padreader"
@@ -233,7 +233,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		if !pcid.Equals(calculatedCommp.PieceCID) {
-			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", pcid, calculatedCommp.PieceCID)
+			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", calculatedCommp.PieceCID, pcid)
 		}
 
 		var n int

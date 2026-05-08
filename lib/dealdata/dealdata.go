@@ -13,8 +13,8 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	commputils "github.com/filecoin-project/go-commp-utils/v2"
+	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -248,7 +248,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 			pieceReaders = append(pieceReaders, nullreader.NewNullReader(fil))
 		}
 
-		out.CommD, err = nonffi.GenerateUnsealedCID(spt, pieceInfos)
+		out.CommD, _, err = commputils.PieceAggregateCommP(spt, pieceInfos)
 		if err != nil {
 			return nil, xerrors.Errorf("computing CommD: %w", err)
 		}

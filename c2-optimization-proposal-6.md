@@ -497,7 +497,7 @@ The slotted pipeline is **backward compatible**:
 
 ## Appendix: Timing Derivations
 
-All numbers from RTX 5070 Ti measurements (cuzk-project.md §14).
+All numbers from RTX 5070 Ti measurements (`extern/cuzk/cuzk-project.md` §14).
 
 ### Single-proof latency formula
 

@@ -14,9 +14,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/lib/savecache"
 	"github.com/filecoin-project/curio/lib/testutils"
 )
 
@@ -67,15 +67,16 @@ func TestNewIndexStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Calculate commP
-	cp := savecache.NewCommPWithSizeForTest(uint64(stat.Size()))
+	cp := commp.NewCalcWithSnapshot(commp.SnapshotLayerIndex(2048))
+	defer cp.Reset()
 	_, err = io.Copy(cp, f)
 	require.NoError(t, err)
 
-	digest, _, layerIdx, _, layer, err := cp.DigestWithSnapShot()
+	digest, _, layer, err := cp.DigestWithSnapshot()
 	require.NoError(t, err)
 
-	t.Logf("Layer number: %d", layerIdx)
-	t.Logf("Number of nodes in layer: %d", len(layer))
+	t.Logf("Layer number: %d", layer.LayerIndex)
+	t.Logf("Number of nodes in layer: %d", len(layer.Nodes))
 
 	pcid1, err := commcid.DataCommitmentV1ToCID(digest)
 	require.NoError(t, err)
@@ -184,15 +185,15 @@ func TestNewIndexStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test PDP layer
-	leafs := make([]NodeDigest, len(layer))
-	for i, s := range layer {
+	leafs := make([]NodeDigest, len(layer.Nodes))
+	for i, s := range layer.Nodes {
 		leafs[i] = NodeDigest{
-			Layer: layerIdx,
-			Hash:  s.Hash,
+			Layer: layer.LayerIndex,
+			Hash:  s,
 			Index: int64(i),
 		}
 	}
-	require.Equal(t, len(leafs), len(layer))
+	require.Equal(t, len(leafs), len(layer.Nodes), "leafs and nodes should have same length (%d != %d)", len(leafs), len(layer.Nodes))
 
 	// Insert the layer
 	err = idxStore.AddPDPLayer(ctx, pcid2, leafs)
@@ -202,24 +203,24 @@ func TestNewIndexStore(t *testing.T) {
 	has, ldx, err := idxStore.GetPDPLayerIndex(ctx, pcid2)
 	require.NoError(t, err)
 	require.True(t, has)
-	require.Equal(t, ldx, layerIdx)
+	require.Equal(t, ldx, layer.LayerIndex)
 
 	has, _, err = idxStore.GetPDPLayerIndex(ctx, pcid1)
 	require.NoError(t, err)
 	require.False(t, has)
 
-	outLayer, err := idxStore.GetPDPLayer(ctx, pcid2, layerIdx)
+	outLayer, err := idxStore.GetPDPLayer(ctx, pcid2, layer.LayerIndex)
 	require.NoError(t, err)
-	require.Equal(t, len(layer), len(outLayer))
+	require.Equal(t, len(layer.Nodes), len(outLayer))
 
 	// Fetch a NodeDigest
-	challenge := int64(rand.Intn(len(layer)))
-	has, node, err := idxStore.GetPDPNode(ctx, pcid2, layerIdx, challenge)
+	challenge := int64(rand.Intn(len(layer.Nodes)))
+	has, node, err := idxStore.GetPDPNode(ctx, pcid2, layer.LayerIndex, challenge)
 	require.NoError(t, err)
 	require.True(t, has)
 	require.Equal(t, node.Index, challenge)
-	require.Equal(t, node.Layer, layerIdx)
-	require.Equal(t, node.Hash, layer[challenge].Hash)
+	require.Equal(t, node.Layer, layer.LayerIndex)
+	require.Equal(t, node.Hash, layer.Nodes[challenge])
 
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
 	require.NoError(t, err)

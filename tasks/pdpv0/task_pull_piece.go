@@ -22,9 +22,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
+	"github.com/filecoin-project/curio/lib/parkpiece"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var (
@@ -260,12 +262,7 @@ func (t *PDPPullPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		// Create parked_pieces entry
-		var parkedPieceID int64
-		err = tx.QueryRow(`
-			INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-			VALUES ($1, $2, $3, TRUE)
-			RETURNING id
-		`, item.PieceCid, paddedSize, item.PieceRawSize).Scan(&parkedPieceID)
+		parkedPieceID, err := parkpiece.Upsert(tx, item.PieceCid, int64(paddedSize), item.PieceRawSize, true)
 		if err != nil {
 			return false, xerrors.Errorf("insert parked_pieces: %w", err)
 		}
@@ -424,7 +421,7 @@ func (t *PDPPullPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPv0_PullPiece",
+		Name: tasknames.PDPv0_PullPiece,
 		Max:  taskhelp.Max(t.max),
 		Cost: resources.Resources{
 			Cpu: 1,

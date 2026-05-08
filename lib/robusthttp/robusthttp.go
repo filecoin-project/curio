@@ -92,10 +92,8 @@
 package robusthttp
 
 import (
-	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -111,6 +109,8 @@ type robustHttpResponse struct {
 
 	url     string
 	headers http.Header
+
+	ssrfPolicy *SSRFPolicy
 
 	cur             io.Reader
 	curCloser       io.Closer
@@ -204,34 +204,14 @@ func (r *robustHttpResponse) finalize(failed bool) {
 
 func (r *robustHttpResponse) startReq() error {
 	log.Debugw("Entering function startReq", "url", r.url)
-	dialer := &net.Dialer{
-		Timeout: 20 * time.Second,
+
+	policy := withSSRFDefaults(r.ssrfPolicy)
+	// Validate original URL and client-supplied headers before adding internal Range.
+	if _, err := ValidateClientFetchURL(r.url, r.headers, policy); err != nil {
+		return xerrors.Errorf("unsafe fetch url: %w", err)
 	}
 
-	var nc net.Conn
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				log.Debugw("DialContext called", "network", network, "addr", addr)
-				conn, err := dialer.DialContext(ctx, network, addr)
-				if err != nil {
-					log.Errorw("DialContext error", "error", err)
-					return nil, err
-				}
-
-				nc = conn
-
-				// Set a deadline for the whole operation, including reading the response
-				if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-					log.Errorw("SetReadDeadline error", "error", err)
-					return nil, xerrors.Errorf("set deadline: %w", err)
-				}
-
-				return conn, nil
-			},
-		},
-	}
+	client, getConn := NewSSRFProtectedHTTPClient(policy, r.headers)
 
 	req, err := http.NewRequest("GET", r.url, nil)
 	if err != nil {
@@ -265,6 +245,7 @@ func (r *robustHttpResponse) startReq() error {
 		return xerrors.Errorf("http status: %d", resp.StatusCode)
 	}
 
+	nc := getConn()
 	if nc == nil {
 		log.Errorw("Connection is nil after client.Do")
 		_ = resp.Body.Close()
@@ -299,14 +280,19 @@ func (fc funcCloser) Close() error {
 }
 
 func RobustGet(url string, headers http.Header, dataSize int64, rcf func() *RateCounter) io.ReadCloser {
+	return RobustGetWithSSRFPolicy(url, headers, dataSize, rcf, nil)
+}
+
+func RobustGetWithSSRFPolicy(url string, headers http.Header, dataSize int64, rcf func() *RateCounter, policy *SSRFPolicy) io.ReadCloser {
 	recordRequestStarted()
 	incActiveTransfers()
 
 	return &robustHttpResponse{
-		getRC:    rcf,
-		url:      url,
-		dataSize: dataSize,
-		headers:  headers,
+		getRC:      rcf,
+		url:        url,
+		dataSize:   dataSize,
+		headers:    headers,
+		ssrfPolicy: policy,
 	}
 }
 

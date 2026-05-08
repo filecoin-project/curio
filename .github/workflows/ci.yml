@@ -162,7 +162,7 @@ jobs:
       matrix:
         test-suite:
           - name: test-all
-            target: "`go list ./... | grep -v curio/itests`"
+            target: "`go list ./... | grep -v curio/itests | grep -v -E 'github.com/filecoin-project/curio/lib/proof($|/)'`"
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
           - name: test-itest-batching
@@ -221,6 +221,43 @@ jobs:
         with:
           name: coverage-${{ matrix.test-suite.name }}
           path: coverage/${{ matrix.test-suite.name }}.out
+          retention-days: 1
+
+  test-lib-proof:
+    runs-on: ["self-hosted", "linux", "x64", "4xlarge+amd+curio"]
+    needs: [ci-lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/install-go
+
+      - name: Install Dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          skip: 'true'
+
+      - name: Install FFI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FFI_USE_OPENCL: 1
+        run: |
+          make deps
+        shell: bash
+
+      - name: Run lib/proof tests with coverage
+        env:
+          FFI_USE_OPENCL: 1
+        run: |
+          mkdir -p coverage
+          go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/test-lib-proof.out -covermode=atomic ./lib/proof/...
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-test-lib-proof
+          path: coverage/test-lib-proof.out
           retention-days: 1
 
   lint:
@@ -301,7 +338,8 @@ jobs:
       
       - name: Install system dependencies
         run: |
-          sudo apt-get update
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get update -y
           sudo apt-get install -y \
             build-essential \
             gcc-13 g++-13 \
@@ -574,8 +612,8 @@ jobs:
 
   coverage-report:
     runs-on: ubuntu-latest
-    needs: [test]
-    if: always() && needs.test.result != 'cancelled'
+    needs: [test, test-lib-proof]
+    if: always() && needs.test.result != 'cancelled' && needs['test-lib-proof'].result != 'cancelled'
     permissions:
       contents: read
       checks: write
@@ -631,7 +669,7 @@ jobs:
           echo "### 📊 [View Coverage Report](https://artifact.ci/${{ github.repository }}/actions/runs/${{ github.run_id }}/coverage-merged/coverage.html)" >> $GITHUB_STEP_SUMMARY
 
   required-checks-passed:
-    needs: [ci-lint, build-mainnet, build-calibnet, build-debug, build-2k, build-forest, test, lint, gofmt, build-supraseal-ubuntu24, gen-check, mod-tidy-check, coverage-report]
+    needs: [ci-lint, build-mainnet, build-calibnet, build-debug, build-2k, build-forest, test, test-lib-proof, lint, gofmt, build-supraseal-ubuntu24, gen-check, mod-tidy-check, coverage-report]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed"
