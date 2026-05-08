@@ -35,6 +35,9 @@ func WakeAllDealPollers(ctx context.Context, db *harmonydb.DB) {
 			log.Debugf("wake deal pollers: %s unreachable: %s", h.HostAndPort, err)
 			continue
 		}
-		resp.Body.Close()
+		err = resp.Body.Close()
+		if err != nil {
+			log.Warnf("wake deal pollers: failed to close response body for %s: %s", h.HostAndPort, err)
+		}
 	}
 }

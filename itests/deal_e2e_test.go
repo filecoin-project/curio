@@ -167,6 +167,19 @@ func TestDealPipelineFullPath(t *testing.T) {
 	var notCommitted int
 	require.NoError(t, db.QueryRow(ctx, `SELECT COUNT(*) FROM sectors_sdr_pipeline WHERE after_commit_msg_success = FALSE`).Scan(&notCommitted))
 	require.Equal(t, 0, notCommitted, "all sectors must reach after_commit_msg_success")
+
+	// MoveStorage makes the unsealed copy accessible at the long-term storage
+	// path. With the fast-indexing hooks (AddOnSealed → indexingTask.Wake), the
+	// deal pipeline can reach complete=TRUE before MoveStorage finishes. Wait
+	// for it so retrieval assertions don't race against file moves.
+	require.NoError(t, helpers.WaitForCondition(ctx, 60*time.Second, 2*time.Second, func() (bool, error) {
+		var notMoved int
+		if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM sectors_sdr_pipeline WHERE after_move_storage = FALSE`).Scan(&notMoved); err != nil {
+			return false, err
+		}
+		return notMoved == 0, nil
+	}))
+
 	helpers.AssertNoFailedSectors(t, ctx, db)
 
 	// Validate per-variant final pipeline flags and resulting deal/piece metadata rows.
