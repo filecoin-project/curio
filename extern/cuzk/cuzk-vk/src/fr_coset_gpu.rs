@@ -1,10 +1,9 @@
 //! Phase F — **coset forward FFT** on the GPU: multiply coefficients by `MULTIPLICATIVE_GENERATOR^i`
-//! ([`crate::h_term::fr_distribute_powers`] semantics), then [`crate::fr_ntt_general_gpu::run_fr_ntt_general_forward_gpu`].
+//! ([`crate::h_term::fr_distribute_powers`] semantics), then forward Fr NTT with pack fusion.
 //!
-//! The distribute and forward NTT are separate compute dispatches but **no scalar data round-trips
-//! through the host** between them. A single-SPV fused kernel (one dispatch) would duplicate the
-//! general NTT stage machine; this path reuses the existing tails.
-//!
+//! §8.2 **B.5:** distribute powers are fused into Fr NTT SSBO packing — **no** separate pointwise dispatch.
+//! **`n ≥ 8`:** [`crate::fr_ntt_general_gpu::run_fr_ntt_radix8_forward_gpu_distribute`] (fewer butterfly dispatches than radix-4).
+//! **`n < 8`:** [`crate::fr_ntt_general_gpu::run_fr_ntt_general_forward_gpu_distribute`] (radix-4 schedule).
 //! Matches bellperson [`bellperson::domain::EvaluationDomain::coset_fft`] output for the same
 //! coefficient vector (see `tests/fr_coset_fft_gpu.rs`).
 
@@ -13,7 +12,9 @@ use blstrs::Scalar;
 use ff::{Field, PrimeField};
 
 use crate::device::VulkanDevice;
-use crate::fr_ntt_general_gpu::run_fr_ntt_general_forward_gpu;
+use crate::fr_ntt_general_gpu::{
+    run_fr_ntt_general_forward_gpu_distribute, run_fr_ntt_radix8_forward_gpu_distribute,
+};
 use crate::fr_pointwise_gpu::{run_fr_coeff_wise_mult_gpu, FR_POINTWISE_MAX};
 
 fn fr_powers_of_base(n: usize, base: Scalar) -> Vec<Scalar> {
@@ -55,6 +56,9 @@ pub fn run_fr_coset_fft_forward_gpu(dev: &VulkanDevice, coeffs: &[Scalar]) -> Re
         n <= FR_POINTWISE_MAX,
         "n={n} exceeds FR_POINTWISE_MAX ({FR_POINTWISE_MAX})"
     );
-    let shifted = run_fr_distribute_powers_gpu(dev, coeffs, Scalar::MULTIPLICATIVE_GENERATOR)?;
-    run_fr_ntt_general_forward_gpu(dev, &shifted)
+    if n >= 8 {
+        run_fr_ntt_radix8_forward_gpu_distribute(dev, coeffs, Scalar::MULTIPLICATIVE_GENERATOR)
+    } else {
+        run_fr_ntt_general_forward_gpu_distribute(dev, coeffs, Scalar::MULTIPLICATIVE_GENERATOR)
+    }
 }

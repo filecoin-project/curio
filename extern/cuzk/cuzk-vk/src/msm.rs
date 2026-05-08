@@ -74,6 +74,24 @@ impl MsmBucketReduceDispatch {
     pub fn dispatch(self) -> (u32, u32, u32) {
         (self.groups_x, self.groups_y, 1)
     }
+
+    /// §8.4 **D.1** — mega-strip grid for batched circuits sharing one wide `groups_x` dimension.
+    ///
+    /// `groups_x` is [`MegaMsmDenseStrip::groups_x_total`] (concatenated circuit strips). `groups_y`
+    /// follows the same `2^window_bits` rule as [`Self::dense`] (bucket-column sketch). Dispatch is
+    /// `(groups_x, groups_y, 1)` with `local_x = strip.local_x`.
+    #[inline]
+    pub fn mega_dense_strip(strip: MegaMsmDenseStrip, window_bits: u32) -> Self {
+        debug_assert!(strip.local_x > 0);
+        let groups_x = strip.groups_x_total().max(1);
+        let wb = window_bits.min(31);
+        let groups_y = (1u32 << wb).max(1);
+        Self {
+            groups_x,
+            groups_y,
+            local_x: strip.local_x,
+        }
+    }
 }
 
 /// Host-side **X-grid** for mega-dispatch when `batch_circuits` independent circuits share one
@@ -83,7 +101,7 @@ pub fn msm_mega_dense_groups_x(groups_x_per_circuit: u32, batch_circuits: u32) -
     groups_x_per_circuit.saturating_mul(batch_circuits.max(1))
 }
 
-/// §8.4 **D.1** — dense mega-strip layout (host grid only; shader still TBD).
+/// §8.4 **D.1** — dense mega-strip layout (host grid + batched bucket accumulate SSBO packing — [`crate::g1_pippenger_bucket_gpu::run_g1_pippenger_window_gpu_batch_var`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MegaMsmDenseStrip {
     pub groups_x_per_circuit: u32,
@@ -181,5 +199,19 @@ mod tests {
         assert_eq!(srs_window_table_reads_naive(10, 16), 160);
         assert_eq!(srs_window_table_reads_with_sharing(10, 16, 1), 160);
         assert_eq!(srs_window_table_reads_with_sharing(10, 16, 4), 16 + 9 * 4);
+    }
+
+    #[test]
+    fn mega_dense_strip_grid_matches_mega_groups_x() {
+        let strip = MegaMsmDenseStrip {
+            groups_x_per_circuit: 2,
+            batch_circuits: 2,
+            local_x: 64,
+        };
+        let d = MsmBucketReduceDispatch::mega_dense_strip(strip, 4);
+        assert_eq!(d.groups_x, msm_mega_dense_groups_x(2, 2));
+        assert_eq!(d.groups_y, 16);
+        assert_eq!(d.local_x, 64);
+        assert_eq!(d.invocation_count(), 4 * 16 * 64);
     }
 }

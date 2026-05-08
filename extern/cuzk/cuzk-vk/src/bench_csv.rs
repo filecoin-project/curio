@@ -81,10 +81,7 @@ pub fn append_partition_benchmark_csv(path: &Path, row: &PartitionBenchRow) -> s
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
         Err(e) => return Err(e),
     };
-    let mut f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
     if need_header {
         writeln!(f, "{PARTITION_BENCH_CSV_HEADER}")?;
     }
@@ -116,10 +113,7 @@ pub fn append_partition_hardware_md(path: &Path, markdown_section: &str) -> std:
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(f)?;
     write!(f, "{markdown_section}")?;
     writeln!(f)?;
@@ -133,10 +127,7 @@ mod tests {
 
     #[test]
     fn append_partition_benchmark_csv_writes_header_and_row() {
-        let dir = std::env::temp_dir().join(format!(
-            "cuzk_vk_bench_csv_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("cuzk_vk_bench_csv_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("results-test.csv");
@@ -177,8 +168,14 @@ mod tests {
 
     #[test]
     fn duration_ms_exceeds_u64_ceiling_edges() {
-        assert!(!duration_ms_exceeds_u64_ceiling(Duration::from_millis(10), 10));
-        assert!(duration_ms_exceeds_u64_ceiling(Duration::from_millis(11), 10));
+        assert!(!duration_ms_exceeds_u64_ceiling(
+            Duration::from_millis(10),
+            10
+        ));
+        assert!(duration_ms_exceeds_u64_ceiling(
+            Duration::from_millis(11),
+            10
+        ));
     }
 
     #[test]
@@ -196,10 +193,7 @@ mod tests {
 
     #[test]
     fn append_partition_hardware_md_appends_block() {
-        let dir = std::env::temp_dir().join(format!(
-            "cuzk_vk_bench_md_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("cuzk_vk_bench_md_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("hw.md");

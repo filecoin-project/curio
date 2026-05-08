@@ -45,11 +45,7 @@ fn unpack_ntt8_mont(bytes: &[u8; NTT8_BYTES]) -> [Scalar; 8] {
     out
 }
 
-fn run_ntt8_spirv(
-    dev: &VulkanDevice,
-    spirv: &[u8],
-    coeffs: &[Scalar; 8],
-) -> Result<[Scalar; 8]> {
+fn run_ntt8_spirv(dev: &VulkanDevice, spirv: &[u8], coeffs: &[Scalar; 8]) -> Result<[Scalar; 8]> {
     let spirv_words = read_spv(&mut Cursor::new(spirv)).context("read_spv ntt8")?;
     let wbytes = pack_ntt8_mont(coeffs);
     let mut readback = [0u8; NTT8_BYTES];

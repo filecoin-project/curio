@@ -1,8 +1,8 @@
 // DIT Cooley–Tukey radix-4 NTT stage (Montgomery Fr). §8.2 B.1.
 //
 // Same SSBO layout as `fr_ntt_general_radix2_stage_tail.comp`.
-// Push constants: `quarter` (= 4^k for stage k) and `wlen_slot` (SSBO slot for the
-// per-group twiddle base, read from OFF_WSTEP + wlen_slot * 8).
+// Push constants: `quarter` (= 4^k for stage k) and `twiddle_word_off` (offset in `u32` words
+// from `OFF_TWIDDLE` to this stage's table of Montgomery `wlen^j`, `j = 0..quarter-1`). §8.2 B.4.
 //
 // RADIX4_I_UNIT_WORDS is the Montgomery representation of the 4th root of unity
 // ω^(n/4) = ROOT_OF_UNITY^(2^30) — a constant independent of n, embedded by build.rs.
@@ -30,6 +30,8 @@
 #define OFF_DATA       64u
 #define OFF_SCRATCH    (64u + FR_NTT_MAX_N * 8u)
 #define OFF_WSTEP      (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
+#define OFF_TWIDDLE    (OFF_WSTEP + FR_NTT_MAX_LOG * 8u)
+#define FR_NTT_TWIDDLE_U32 (5461u * 8u)
 
 // 4th root of unity ω^(n/4) = ROOT_OF_UNITY^(2^30) — constant for any n, provided by build.rs.
 // The function body is substituted by build.rs as per-limb assignments.
@@ -38,14 +40,14 @@
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(push_constant) uniform Push {
-    uint quarter;   // 4^k: 1, 4, 16, 64, …
-    uint wlen_slot; // SSBO wstep slot index for the group twiddle base
+    uint quarter;           // 4^k: 1, 4, 16, 64, …
+    uint twiddle_word_off;  // from OFF_TWIDDLE
     uint _p0;
     uint _p1;
 } pc;
 
 layout(set = 0, binding = 0) buffer Data {
-    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u];
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u + FR_NTT_TWIDDLE_U32];
 } buf;
 
 void fr_load_at(uint base, out @@FR_T@@ x) {
@@ -75,12 +77,9 @@ void main() {
     uint j_in     = tid % quarter;
     uint base     = block_id * m + j_in;
 
-    // Per-group twiddle base wlen = ω^(n/m), read from SSBO.
-    @@FR_T@@ wlen;
-    fr_load_at(OFF_WSTEP + pc.wlen_slot * 8u, wlen);
-
-    // w = wlen^(j_in); w² and w³.
-    @@FR_T@@ w  = fr_pow_u32(wlen, j_in);
+    // w = wlen^(j_in) from host-built twiddle table (§8.2 B.4).
+    @@FR_T@@ w;
+    fr_load_at(OFF_TWIDDLE + pc.twiddle_word_off + j_in * 8u, w);
     @@FR_T@@ w2 = fr_mul_mont_cios(w, w);
     @@FR_T@@ w3 = fr_mul_mont_cios(w2, w);
 

@@ -83,7 +83,7 @@ filecoin-hashers = { version = "14.0", default-features = false, features = ["po
 # PCE dependencies
 ec-gpu-gen = { version = "0.7", default-features = false }
 ec-gpu = "0.2"
-naga = { version = "22", default-features = false, features = ["glsl-in", "spv-out"] }
+naga = { version = "22", default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }
 bitvec = "1"
 
 [patch.crates-io]

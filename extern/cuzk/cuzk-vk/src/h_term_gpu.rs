@@ -27,7 +27,10 @@ pub fn run_fr_quotient_scalars_gpu(
     c: &[Scalar],
 ) -> Result<Vec<Scalar>> {
     let n = fr_domain_size_at_least(a.len().max(b.len()).max(c.len()));
-    ensure!(a.len() == b.len() && a.len() == c.len(), "a/b/c length mismatch");
+    ensure!(
+        a.len() == b.len() && a.len() == c.len(),
+        "a/b/c length mismatch"
+    );
     ensure!(
         n <= FR_NTT_GENERAL_MAX_N && n <= FR_POINTWISE_MAX,
         "domain n={n} exceeds Fr NTT / pointwise max"

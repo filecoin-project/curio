@@ -1,5 +1,4 @@
-//! **B₂ — witness → Vulkan:** [`VkGroth16Job::witness_ntt_coeffs`] drives the Fr NTT general
-//! round-trip in [`cuzk_vk::prove_groth16_partition`] (Vulkan smoke only).
+//! **B₂ — witness → Vulkan:** [`VkGroth16Job::witness_ntt_coeffs`] drives the partition Fr NTT GPU round-trip in [`cuzk_vk::prove_groth16_partition`] (`n = 8` → dedicated `fr_ntt8`, `n > 8` → radix-8, else radix-4; Vulkan smoke only).
 
 use std::sync::Arc;
 

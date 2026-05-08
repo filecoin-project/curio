@@ -51,8 +51,8 @@ pub fn run_g1_batch_jacobian_accum_bitmap_gpu(
     anyhow::ensure!(n <= G1_BATCH_ACC_MAX_POINTS);
     anyhow::ensure!(points.len() >= n);
     let spirv = include_bytes!(concat!(env!("OUT_DIR"), "/g1_batch_accum_bitmap1636.spv"));
-    let spirv_words =
-        read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g1_batch_accum_bitmap1636")?;
+    let spirv_words = read_spv(&mut Cursor::new(spirv.as_slice()))
+        .context("read_spv g1_batch_accum_bitmap1636")?;
 
     let mut wbytes = vec![0u8; G1_BATCH_ACC_SSBO_BYTES];
     put_u32(&mut wbytes, 0, n as u32);
@@ -90,7 +90,11 @@ pub fn run_g1_batch_jacobian_accum_bitmap_gpu(
 }
 
 /// CPU oracle: same sum as [`run_g1_batch_jacobian_accum_bitmap_gpu`].
-pub fn g1_batch_jacobian_accum_bitmap_cpu(n: usize, bitmap: u64, points: &[G1Affine]) -> G1JacobianLimbs {
+pub fn g1_batch_jacobian_accum_bitmap_cpu(
+    n: usize,
+    bitmap: u64,
+    points: &[G1Affine],
+) -> G1JacobianLimbs {
     let mut acc = G1Projective::identity();
     for i in 0..n {
         if ((bitmap >> i) & 1) == 0 {

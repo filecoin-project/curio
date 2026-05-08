@@ -1,8 +1,10 @@
 //! Host-side **MSM window** hints (roadmap **§8.1 A.1**) until per-GPU VALU profiling exists.
 //!
 //! Override with **`CUZK_VK_MSM_WINDOW_BITS`** (decimal `1..=31`) for experiments; invalid values are ignored.
+//! [`msm_config_for_pippenger_gpu`] clamps to [`crate::ec::G1_PIPP_MAX_WINDOW_BITS`] (**16**) — bucket shaders are sized for **`2^w`** rows.
 
 use crate::device::PhysicalDeviceInfo;
+use crate::ec::G1_PIPP_MAX_WINDOW_BITS;
 use crate::msm::MsmConfig;
 
 /// PCI-style vendor ids (subset; unknown vendors fall back to `16`).
@@ -36,6 +38,15 @@ pub fn msm_config_for_device(info: &PhysicalDeviceInfo) -> MsmConfig {
     }
 }
 
+/// [`msm_config_for_device`] with **`window_bits`** clamped to **[`G1_PIPP_MAX_WINDOW_BITS`]**, for paths using
+/// [`crate::g1_pippenger_bucket_gpu`] (unsigned digit buckets; SSBO / tiling budgets).
+#[inline]
+pub fn msm_config_for_pippenger_gpu(info: &PhysicalDeviceInfo) -> MsmConfig {
+    let mut c = msm_config_for_device(info);
+    c.window_bits = c.window_bits.clamp(1, G1_PIPP_MAX_WINDOW_BITS);
+    c
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,5 +58,4 @@ mod tests {
         assert_eq!(recommended_msm_window_bits(vendor::APPLE), 12);
         assert_eq!(recommended_msm_window_bits(0xffff), 16);
     }
-
 }

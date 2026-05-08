@@ -32,12 +32,13 @@ pub fn run_g1_mega_strip_circuit_hit_gpu(
     let local_x = strip.local_x;
     let batch = strip.batch_circuits.max(1);
     let total_u64 = strip.groups_x_total() as u64 * local_x as u64;
-    let total = u32::try_from(total_u64).map_err(|_| anyhow::anyhow!("mega-strip thread count overflow"))?;
+    let total = u32::try_from(total_u64)
+        .map_err(|_| anyhow::anyhow!("mega-strip thread count overflow"))?;
     anyhow::ensure!(total > 0 && total <= MAX_THREADS);
 
     let spirv = include_bytes!(concat!(env!("OUT_DIR"), "/g1_mega_strip_circuit_hit.spv"));
-    let spirv_words =
-        read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g1_mega_strip_circuit_hit")?;
+    let spirv_words = read_spv(&mut Cursor::new(spirv.as_slice()))
+        .context("read_spv g1_mega_strip_circuit_hit")?;
 
     let u32_len = HEADER_WORDS + (total as usize) * 2;
     let buf_len = u32_len * 4;

@@ -14,14 +14,15 @@ use crate::vk_oneshot;
 
 /// Maximum vector length for [`run_fr_coeff_wise_mult_gpu`] / [`run_fr_sub_mult_constant_gpu`].
 /// Kept equal to [`crate::fr_ntt_general_gpu::FR_NTT_GENERAL_MAX_N`] so coset / H-term pipelines can
-/// use the same `n` bound as general Fr NTT without a host round-trip between distribute and FFT.
+/// use the same `n` bound as general Fr NTT. **§8.2 B.5:** coset forward uses host-pack fusion instead of this kernel for `MULTIPLICATIVE_GENERATOR^i`; this kernel remains for arbitrary bases and icoset tail.
 pub const FR_POINTWISE_MAX: usize = FR_NTT_GENERAL_MAX_N;
 
 /// SSBO size in `u32` words for coefficient-wise multiply (header + `out` + `a` + `b` regions).
 pub const FR_COEFF_WISE_BUFFER_U32: usize = 64 + FR_POINTWISE_MAX * BLS12_381_FR_U32_LIMBS * 3;
 
 /// SSBO size for `sub_mult` including Montgomery `c` (8 words) after `a`/`b`.
-pub const FR_SUB_MULT_BUFFER_U32: usize = 64 + FR_POINTWISE_MAX * BLS12_381_FR_U32_LIMBS * 3 + BLS12_381_FR_U32_LIMBS;
+pub const FR_SUB_MULT_BUFFER_U32: usize =
+    64 + FR_POINTWISE_MAX * BLS12_381_FR_U32_LIMBS * 3 + BLS12_381_FR_U32_LIMBS;
 
 fn coeff_base_a() -> usize {
     64 + FR_POINTWISE_MAX * BLS12_381_FR_U32_LIMBS
@@ -35,7 +36,12 @@ fn coeff_base_c() -> usize {
     64 + 3 * FR_POINTWISE_MAX * BLS12_381_FR_U32_LIMBS
 }
 
-fn write_mont_region(buf: &mut [u32], base_word: usize, idx: usize, limbs: &[u32; BLS12_381_FR_U32_LIMBS]) {
+fn write_mont_region(
+    buf: &mut [u32],
+    base_word: usize,
+    idx: usize,
+    limbs: &[u32; BLS12_381_FR_U32_LIMBS],
+) {
     let o = base_word + idx * BLS12_381_FR_U32_LIMBS;
     buf[o..o + BLS12_381_FR_U32_LIMBS].copy_from_slice(limbs);
 }
@@ -77,8 +83,18 @@ pub fn run_fr_coeff_wise_mult_gpu(
     let mut d = vec![0u32; FR_COEFF_WISE_BUFFER_U32];
     d[0] = n as u32;
     for i in 0..n {
-        write_mont_region(&mut d, coeff_base_a(), i, &scalar_montgomery_u32_limbs(&a[i]));
-        write_mont_region(&mut d, coeff_base_b(), i, &scalar_montgomery_u32_limbs(&b[i]));
+        write_mont_region(
+            &mut d,
+            coeff_base_a(),
+            i,
+            &scalar_montgomery_u32_limbs(&a[i]),
+        );
+        write_mont_region(
+            &mut d,
+            coeff_base_b(),
+            i,
+            &scalar_montgomery_u32_limbs(&b[i]),
+        );
     }
     let write_bytes = u32s_to_bytes(&d);
     let read_words = 64 + n * BLS12_381_FR_U32_LIMBS;
@@ -129,8 +145,18 @@ pub fn run_fr_sub_mult_constant_gpu(
     let mut d = vec![0u32; FR_SUB_MULT_BUFFER_U32];
     d[0] = n as u32;
     for i in 0..n {
-        write_mont_region(&mut d, coeff_base_a(), i, &scalar_montgomery_u32_limbs(&a[i]));
-        write_mont_region(&mut d, coeff_base_b(), i, &scalar_montgomery_u32_limbs(&b[i]));
+        write_mont_region(
+            &mut d,
+            coeff_base_a(),
+            i,
+            &scalar_montgomery_u32_limbs(&a[i]),
+        );
+        write_mont_region(
+            &mut d,
+            coeff_base_b(),
+            i,
+            &scalar_montgomery_u32_limbs(&b[i]),
+        );
     }
     write_mont_region(&mut d, coeff_base_c(), 0, &scalar_montgomery_u32_limbs(c));
 

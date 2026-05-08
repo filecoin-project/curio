@@ -49,7 +49,11 @@ pub fn fr_poly_evals_to_coeffs(evals: &mut [Scalar]) {
 /// Groth16 H MSM scalars: same algebra as bellperson [`execute_fft`] (truncated to `n-1` entries).
 ///
 /// `a`, `b`, `c` must have equal length (constraint-domain witness polynomials in Lagrange form).
-pub fn fr_quotient_scalars_from_abc(a: &[Scalar], b: &[Scalar], c: &[Scalar]) -> Result<Vec<Scalar>> {
+pub fn fr_quotient_scalars_from_abc(
+    a: &[Scalar],
+    b: &[Scalar],
+    c: &[Scalar],
+) -> Result<Vec<Scalar>> {
     ensure!(
         a.len() == b.len() && a.len() == c.len(),
         "a, b, c must have equal length (got {}, {}, {})",

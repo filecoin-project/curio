@@ -1,4 +1,4 @@
-//! Emit GLSL field params + compile compute shaders to SPIR-V via `naga` (no system shaderc).
+//! Emit field-param GLSL + compile compute shaders to SPIR-V via **`naga`** (`glsl-in` / `wgsl-in`, no shaderc).
 
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -13,6 +13,7 @@ use ec_gpu::GpuName;
 use ff::{Field, PrimeField};
 use naga::back::spv;
 use naga::front::glsl::{Frontend, Options};
+use naga::front::wgsl;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::ShaderStage;
 
@@ -30,6 +31,30 @@ fn compile_glsl_compute(src: &str, dst: &Path) -> Result<(), Box<dyn std::error:
     let module = frontend
         .parse(&options, src)
         .map_err(|e| format!("naga glsl parse: {e:?}"))?;
+
+    let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
+    let info = validator.validate(&module)?;
+
+    let opts = spv::Options::default();
+    let pipeline = spv::PipelineOptions {
+        shader_stage: ShaderStage::Compute,
+        entry_point: "main".into(),
+    };
+    let words = spv::write_vec(&module, &info, &opts, Some(&pipeline))?;
+    let mut bytes = Vec::with_capacity(words.len() * 4);
+    for w in words {
+        bytes.extend_from_slice(&w.to_le_bytes());
+    }
+    fs::write(dst, bytes)?;
+    Ok(())
+}
+
+/// WGSL compute → SPIR-V (`main` entry). Used for subgroup paths where **`glsl-in`** has no shuffle builtins (**§B.3**).
+fn compile_wgsl_compute(src: &str, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut frontend = wgsl::Frontend::new();
+    let module = frontend
+        .parse(src)
+        .map_err(|e| format!("naga wgsl parse: {e:?}"))?;
 
     let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
     let info = validator.validate(&module)?;
@@ -282,6 +307,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Optional glslang: Pippenger bucket `local_size_x_id = 0` (§8.3 C.3); host passes [`G1_PIPP_LOCAL_X`].
+    let pipp_spec_tail_path = manifest.join("shaders/g1_pippenger_bucket_acc_spec_tail.comp");
+    let pipp_spec_tail = fs::read_to_string(&pipp_spec_tail_path)?
+        .replace("@@FP_T@@", &fp_t)
+        .replace("@@FP_P@@", &fp_p)
+        .replace("@@FP_INV@@", &fp_inv)
+        .replace("@@FP_ONE@@", &format!("{}_ONE", fp_t));
+    let pipp_spec_glsl = out.join("g1_pippenger_bucket_acc_spec_full.glsl");
+    fs::write(
+        &pipp_spec_glsl,
+        format!("{}\n{}\n{}", &fp, fp_helpers, pipp_spec_tail),
+    )?;
+    let pipp_spec_spv = out.join("g1_pippenger_bucket_acc_spec.spv");
+    let glslang_pipp_ok = Command::new("glslangValidator")
+        .args(["-V", "-S", "comp", "-o"])
+        .arg(&pipp_spec_spv)
+        .arg(&pipp_spec_glsl)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if glslang_pipp_ok {
+        println!("cargo:rustc-cfg=g1_pippenger_bucket_acc_spec");
+    } else {
+        fs::copy(out.join("g1_pippenger_bucket_acc.spv"), &pipp_spec_spv)?;
+    }
+    println!("cargo:rerun-if-changed={}", pipp_spec_tail_path.display());
+
     let fp2_ops_path = manifest.join("shaders/fp2_mont_ops.glsl");
     let fp2_ops = fs::read_to_string(&fp2_ops_path)?.replace("@@FP_T@@", &fp_t);
     println!("cargo:rerun-if-changed={}", fp2_ops_path.display());
@@ -386,7 +438,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let radix2_spec_glsl = out.join("fr_ntt_radix2_stage_spec_full.glsl");
     fs::write(
         &radix2_spec_glsl,
-        format!("#version 450\n{}\n{}\n{}", &fr, fr_helpers, radix2_spec_tail),
+        format!("{}\n{}\n{}", &fr, fr_helpers, radix2_spec_tail),
     )?;
     let radix2_spec_spv = out.join("fr_ntt_general_radix2_stage_spec.spv");
     let glslang_ok = Command::new("glslangValidator")
@@ -434,6 +486,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compile_glsl_compute(&full, &out.join(spv_name))?;
     }
     println!("cargo:rerun-if-changed={}", radix8_tail_path.display());
+
+    // §8.2 B.3 — WGSL subgroup smoke (`wgsl-in`; GLSL front cannot parse `subgroupShuffle` yet).
+    let wgsl_smoke_path = manifest.join("shaders/subgroup_shuffle_smoke.wgsl");
+    let wgsl_smoke = fs::read_to_string(&wgsl_smoke_path)?;
+    compile_wgsl_compute(&wgsl_smoke, &out.join("subgroup_shuffle_smoke.spv"))?;
+    println!("cargo:rerun-if-changed={}", wgsl_smoke_path.display());
 
     println!("cargo:rerun-if-changed=build.rs");
     Ok(())

@@ -7,10 +7,11 @@ use ash::util::read_spv;
 use blstrs::Fp2;
 
 use crate::device::VulkanDevice;
-use crate::fp2::{
-    fp2_from_montgomery_u32_limbs, fp2_montgomery_u32_limbs, fp2_to_le_u32_limbs, fp2_try_from_le_u32_limbs,
-};
 use crate::fp2::BLS12_381_FP2_U32_LIMBS;
+use crate::fp2::{
+    fp2_from_montgomery_u32_limbs, fp2_montgomery_u32_limbs, fp2_to_le_u32_limbs,
+    fp2_try_from_le_u32_limbs,
+};
 use crate::vk_oneshot;
 
 const FP2_IO_U32: usize = 3 * BLS12_381_FP2_U32_LIMBS; // out + a + b

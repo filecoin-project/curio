@@ -7,7 +7,7 @@ description = "Vulkan compute backend for cuZK Groth16 (BLS12-381)"
 build = "build.rs"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fr_ntt_radix2_spec)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fr_ntt_radix2_spec)', 'cfg(g1_pippenger_bucket_acc_spec)'] }
 
 [dependencies]
 anyhow = "1"

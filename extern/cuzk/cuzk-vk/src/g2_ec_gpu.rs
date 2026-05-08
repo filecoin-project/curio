@@ -89,7 +89,11 @@ pub fn run_g2_jacobian_add_gpu(
 }
 
 /// G2 XYZZ += affine `p2` (Montgomery I/O). `p2` must not be the point at infinity.
-pub fn run_g2_xyzz_add_mixed_gpu(dev: &VulkanDevice, xyzz: &mut G2XyzzLimbs, p2: &G2Affine) -> Result<()> {
+pub fn run_g2_xyzz_add_mixed_gpu(
+    dev: &VulkanDevice,
+    xyzz: &mut G2XyzzLimbs,
+    p2: &G2Affine,
+) -> Result<()> {
     let spirv = include_bytes!(concat!(env!("OUT_DIR"), "/g2_xyzz_add_mixed144.spv"));
     let spirv_words =
         read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g2_xyzz_add_mixed144")?;

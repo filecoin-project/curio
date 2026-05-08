@@ -2,7 +2,9 @@
 //!
 //! Vulkan: forward + inverse **n = 8** are in [`crate::fr_ntt_gpu`]; power-of-two **n ≤ 2^14** in
 //! [`crate::fr_ntt_general_gpu`]. [`FrNttPlan::fused_layer_count`] previews radix-4/8 **dispatch depth**
-//! (B₂ §8.2 scheduling only — GPU radix butterflies still TBD). Larger *n* or coset-fused paths may still use this module on the host.
+//! for scheduling; GPU radix paths match that depth (**§8.2 B.1/B.2**) with **B.4** SSBO twiddle tables.
+//! **B.5:** coset distribute × forward NTT packs `base^i` scaling on the host in [`crate::fr_ntt_general_gpu::pack_buf`]
+//! ([`crate::fr_coset_gpu::run_fr_coset_fft_forward_gpu`]).
 
 use blstrs::Scalar;
 use ff::{Field, PrimeField};
@@ -53,7 +55,7 @@ impl FrNttPlan {
     }
 
     /// Fused butterfly **layer count** if each layer consumed `radix_log2` bits of index space
-    /// (§8.2 **B.1** scheduling preview; GPU radix-4/8 shaders still open).
+    /// (§8.2 **B.1** scheduling preview; matches radix-4/8 GPU dispatch counts).
     ///
     /// Radix-2: `radix_log2 = 1` ⇒ `log_n` layers (matches [`Self::stage_wlens`] length). Radix-4:
     /// `radix_log2 = 2` ⇒ `ceil(log_n / 2)` layers, etc.
@@ -172,7 +174,10 @@ mod tests {
             FrNttPlan::try_new(Scalar::S + 1),
             Err(FrNttPlanError::LogNTooLarge { .. })
         ));
-        assert!(matches!(FrNttPlan::try_new(0), Err(FrNttPlanError::LogNZero)));
+        assert!(matches!(
+            FrNttPlan::try_new(0),
+            Err(FrNttPlanError::LogNZero)
+        ));
     }
 
     #[test]

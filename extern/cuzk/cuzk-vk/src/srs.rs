@@ -117,9 +117,7 @@ fn read_u32_be(data: &[u8], off: usize) -> Option<u32> {
     if off + 4 > data.len() {
         return None;
     }
-    Some(u32::from_be_bytes(
-        data[off..off + 4].try_into().ok()?,
-    ))
+    Some(u32::from_be_bytes(data[off..off + 4].try_into().ok()?))
 }
 
 /// Read an SRS file into memory (host-side; mmap can wrap this slice later).
@@ -155,8 +153,7 @@ fn srs_offset_after_ic(data: &[u8]) -> Result<usize> {
 /// `count_off` points at big-endian `n`; returns byte offset **after** `n` G1 affines (`4 + n*96` past `count_off`).
 fn srs_skip_counted_g1_array(data: &[u8], count_off: usize, label: &'static str) -> Result<usize> {
     let n = read_u32_be(data, count_off)
-        .with_context(|| format!("{label} count (off {count_off})"))?
-        as usize;
+        .with_context(|| format!("{label} count (off {count_off})"))? as usize;
     let end = count_off
         .checked_add(4)
         .and_then(|x| x.checked_add(n.checked_mul(SRS_P1_AFFINE_BYTES)?))
@@ -171,9 +168,7 @@ fn srs_decode_g1_at_array(
     idx: usize,
     label: &'static str,
 ) -> Result<G1Affine> {
-    let n = read_u32_be(data, count_off)
-        .with_context(|| format!("{label} count"))?
-        as usize;
+    let n = read_u32_be(data, count_off).with_context(|| format!("{label} count"))? as usize;
     anyhow::ensure!(idx < n, "{label}[{idx}] out of range (n={n})");
     let o = count_off
         .checked_add(4)
@@ -183,19 +178,22 @@ fn srs_decode_g1_at_array(
         o + SRS_P1_AFFINE_BYTES <= data.len(),
         "truncated {label}[{idx}]"
     );
-    srs_g1_affine_from_uncompressed_bytes(&data[o..]).with_context(|| format!("decode {label}[{idx}]"))
+    srs_g1_affine_from_uncompressed_bytes(&data[o..])
+        .with_context(|| format!("decode {label}[{idx}]"))
 }
 
 /// `count_off` points at big-endian `n`; returns byte offset after `n` G2 affines.
 fn srs_skip_counted_g2_array(data: &[u8], count_off: usize, label: &'static str) -> Result<usize> {
     let n = read_u32_be(data, count_off)
-        .with_context(|| format!("{label} G2 count (off {count_off})"))?
-        as usize;
+        .with_context(|| format!("{label} G2 count (off {count_off})"))? as usize;
     let end = count_off
         .checked_add(4)
         .and_then(|x| x.checked_add(n.checked_mul(SRS_P2_AFFINE_BYTES)?))
         .context("G2 array size overflow")?;
-    anyhow::ensure!(end <= data.len(), "truncated {label}[] G2 (need {end} bytes)");
+    anyhow::ensure!(
+        end <= data.len(),
+        "truncated {label}[] G2 (need {end} bytes)"
+    );
     Ok(end)
 }
 
@@ -205,9 +203,7 @@ fn srs_decode_g2_at_array(
     idx: usize,
     label: &'static str,
 ) -> Result<G2Affine> {
-    let n = read_u32_be(data, count_off)
-        .with_context(|| format!("{label} count"))?
-        as usize;
+    let n = read_u32_be(data, count_off).with_context(|| format!("{label} count"))? as usize;
     anyhow::ensure!(idx < n, "{label}[{idx}] out of range (n={n})");
     let o = count_off
         .checked_add(4)
@@ -217,7 +213,8 @@ fn srs_decode_g2_at_array(
         o + SRS_P2_AFFINE_BYTES <= data.len(),
         "truncated {label}[{idx}]"
     );
-    srs_g2_affine_from_uncompressed_bytes(&data[o..]).with_context(|| format!("decode {label}[{idx}]"))
+    srs_g2_affine_from_uncompressed_bytes(&data[o..])
+        .with_context(|| format!("decode {label}[{idx}]"))
 }
 
 fn srs_offset_of_n_l(data: &[u8]) -> Result<usize> {

@@ -6,10 +6,13 @@
 //! host-side `2^b` scaling. This matches integer MSM when scalars are small `u64` values
 //! (`< 2^max_bits`, `max_bits ≤ 64`, `n ≤ 64`).
 //!
-//! **Milestone B₂ §8.1 (first rung):** [`g1_msm_bitplanes_scalars_trunc_gpu_host`] accepts full
-//! [`Scalar`] operands by truncating canonical LE bits to `max_bits` (see
-//! [`crate::scalar_limbs::scalar_low_u64_canonical`]). **Still open:** 255-bit window buckets +
-//! GPU Pippenger tail (§8.1 A.4–A.7).
+//! **Milestone B₂ §8.1:** [`g1_msm_bitplanes_scalars_trunc_gpu_host`] is a **small-n teaching path**
+//! (`n ≤ 64`): truncates canonical LE bits to `max_bits ≤ 64` (see [`crate::scalar_limbs::scalar_low_u64_canonical`]).
+//! **Full-width 255-bit MSM:** [`g1_msm_pippenger_gpu`] → [`crate::g1_pippenger_bucket_gpu::run_g1_pippenger_msm_gpu`];
+//! batched circuits: [`g1_msm_pippenger_gpu_batch`] / [`g1_msm_pippenger_gpu_batch_shared_bases`] /
+//! [`G1PippengerBatchItem`] (§8.4 SSBO packing; variable `n` per circuit, tiled dispatches). **D.2:** shared SRS bases →
+//! [`g1_affine_montgomery_fp12_table`] limb reuse on the host.
+//! **Still open:** §8.1 perf levers (signed buckets, XYZZ, subgroup, …); §8.4 **D.2** GPU SRS bandwidth / device-local staging beyond host limb reuse.
 
 use anyhow::{Context, Result};
 use blstrs::{G1Affine, G1Projective, Scalar};
@@ -21,9 +24,18 @@ use crate::ec::g1_projective_from_jacobian_limbs;
 use crate::g1_batch_gpu::run_g1_batch_jacobian_accum_bitmap_gpu;
 use crate::scalar_limbs::scalar_low_u64_canonical;
 
+pub use crate::g1_pippenger_bucket_gpu::{
+    g1_affine_montgomery_fp12_table, G1AffineMontgomeryFp12, G1PippengerBatchItem,
+};
+
 /// Reference MSM for `n` affine bases and **integer** scalars `< 2^max_bits` (same semantics as the
 /// bit-plane GPU path). Uses `G1Projective` accumulation (CPU).
-pub fn g1_msm_small_u64_reference(bases: &[G1Affine], scalars_u64: &[u64], n: usize, max_bits: u32) -> G1Projective {
+pub fn g1_msm_small_u64_reference(
+    bases: &[G1Affine],
+    scalars_u64: &[u64],
+    n: usize,
+    max_bits: u32,
+) -> G1Projective {
     debug_assert!(max_bits <= 64);
     let mut acc = G1Projective::identity();
     let mask = if max_bits == 64 {
@@ -53,7 +65,9 @@ pub fn g1_msm_small_u64_agrees_with_multi_exp(
         (1u64 << max_bits) - 1
     };
     let pts: Vec<G1Projective> = (0..n).map(|i| G1Projective::from(bases[i])).collect();
-    let sc: Vec<Scalar> = (0..n).map(|i| Scalar::from(scalars_u64[i] & mask)).collect();
+    let sc: Vec<Scalar> = (0..n)
+        .map(|i| Scalar::from(scalars_u64[i] & mask))
+        .collect();
     refp == G1Projective::multi_exp(&pts, &sc)
 }
 
@@ -76,10 +90,7 @@ pub fn g1_msm_bitplanes_u64_gpu_host(
         (1u64 << max_bits) - 1
     };
     for i in 0..n {
-        anyhow::ensure!(
-            scalars_u64[i] <= cap,
-            "scalar[{i}] exceeds 2^{max_bits}-1",
-        );
+        anyhow::ensure!(scalars_u64[i] <= cap, "scalar[{i}] exceeds 2^{max_bits}-1",);
     }
 
     let mut acc = G1Projective::identity();
@@ -150,6 +161,31 @@ pub fn g1_msm_pippenger_gpu(
     window_bits: u32,
 ) -> anyhow::Result<G1Projective> {
     crate::g1_pippenger_bucket_gpu::run_g1_pippenger_msm_gpu(dev, bases, scalars, n, window_bits)
+}
+
+/// Batched full-width Pippenger MSM (§8.4 dispatch packing); see [`crate::g1_pippenger_bucket_gpu::run_g1_pippenger_msm_gpu_batch`].
+pub fn g1_msm_pippenger_gpu_batch(
+    dev: &crate::device::VulkanDevice,
+    circuits: &[G1PippengerBatchItem<'_>],
+    window_bits: u32,
+) -> anyhow::Result<Vec<G1Projective>> {
+    crate::g1_pippenger_bucket_gpu::run_g1_pippenger_msm_gpu_batch(dev, circuits, window_bits)
+}
+
+/// §8.4 **D.2** — shared SRS / fixed `h[]` table: multiple scalar MSMs over the **same** bases.
+/// See [`crate::g1_pippenger_bucket_gpu::run_g1_pippenger_msm_gpu_batch_shared_bases`].
+pub fn g1_msm_pippenger_gpu_batch_shared_bases(
+    dev: &crate::device::VulkanDevice,
+    bases: &[G1Affine],
+    scalars_rows: &[&[Scalar]],
+    window_bits: u32,
+) -> anyhow::Result<Vec<G1Projective>> {
+    crate::g1_pippenger_bucket_gpu::run_g1_pippenger_msm_gpu_batch_shared_bases(
+        dev,
+        bases,
+        scalars_rows,
+        window_bits,
+    )
 }
 
 /// Unsigned fixed-width windows over the **low 255** scalar bits (LSB-first digits). Each entry is in

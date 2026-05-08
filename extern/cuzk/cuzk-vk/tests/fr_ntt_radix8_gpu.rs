@@ -6,14 +6,15 @@
 
 use blstrs::Scalar;
 use cuzk_vk::device::VulkanDevice;
-use ff::Field;
 use cuzk_vk::fr_ntt_general_gpu::{
     fr_ntt_general_forward_pass_count_radix4, fr_ntt_general_forward_pass_count_radix8,
     fr_ntt_general_inverse_pass_count_radix8, fr_ntt_radix8_stage_counts,
-    run_fr_ntt_radix8_forward_gpu, run_fr_ntt_radix8_inverse_gpu,
+    run_fr_ntt_general_forward_gpu_distribute, run_fr_ntt_radix8_forward_gpu,
+    run_fr_ntt_radix8_forward_gpu_distribute, run_fr_ntt_radix8_inverse_gpu,
     run_fr_ntt_radix8_roundtrip_gpu,
 };
 use cuzk_vk::ntt::{fr_intt_inplace, fr_ntt_inplace, fr_omega};
+use ff::{Field, PrimeField};
 
 fn make_scalars(n: usize, seed: u64) -> Vec<Scalar> {
     let mut v = Vec::with_capacity(n);
@@ -220,5 +221,25 @@ fn fr_ntt_radix8_roundtrip_matches_input() {
         let got = run_fr_ntt_radix8_roundtrip_gpu(&dev, &coeffs)
             .unwrap_or_else(|e| panic!("roundtrip n={n}: {e}"));
         assert_eq!(got, coeffs, "roundtrip failed at log_n={log_n}");
+    }
+}
+
+/// Pack-fused coset-style scaling must agree between radix-4 and radix-8 forward schedules (`n ≥ 8`).
+#[test]
+fn radix8_forward_distribute_matches_radix4_forward_distribute() {
+    if skip_without_vulkan() {
+        eprintln!("skip: CUZK_VK_SKIP_SMOKE");
+        return;
+    }
+    let dev = VulkanDevice::new().expect("VulkanDevice::new");
+    let g = Scalar::MULTIPLICATIVE_GENERATOR;
+    for log_n in [3u32, 4, 5, 8, 9, 14] {
+        let n = 1usize << log_n;
+        let coeffs = make_scalars(n, log_n as u64 + 777);
+        let r4 = run_fr_ntt_general_forward_gpu_distribute(&dev, &coeffs, g)
+            .unwrap_or_else(|e| panic!("r4 distribute n={n}: {e}"));
+        let r8 = run_fr_ntt_radix8_forward_gpu_distribute(&dev, &coeffs, g)
+            .unwrap_or_else(|e| panic!("r8 distribute n={n}: {e}"));
+        assert_eq!(r4, r8, "distribute+forward schedule mismatch log_n={log_n}");
     }
 }

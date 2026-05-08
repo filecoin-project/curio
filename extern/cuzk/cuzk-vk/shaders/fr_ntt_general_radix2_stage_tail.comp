@@ -1,24 +1,25 @@
 // One Cooley–Tukey radix-2 DIT stage (Montgomery Fr). Matches `ntt.rs` `fr_ntt_inplace` after bitrev.
-// `buf.d[0]` = n, `buf.d[1]` = log_n. Per-stage twiddle base `wlen` at `OFF_WSTEP + stage * 8`.
-// Push: `stage` in [0, log_n). `local_size_x = 256`.
+// Twiddles `wlen^(j_in)` at `OFF_TWIDDLE + twiddle_word_off`. §8.2 B.4.
 
 #define FR_NTT_MAX_N 16384u
 #define FR_NTT_MAX_LOG 32u
 #define OFF_DATA 64u
 #define OFF_SCRATCH (64u + FR_NTT_MAX_N * 8u)
 #define OFF_WSTEP (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
+#define OFF_TWIDDLE (OFF_WSTEP + FR_NTT_MAX_LOG * 8u)
+#define FR_NTT_TWIDDLE_U32 (5461u * 8u)
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(push_constant) uniform Push {
     uint stage;
-    uint _pad0;
+    uint twiddle_word_off;
     uint _pad1;
     uint _pad2;
 } pc;
 
 layout(set = 0, binding = 0) buffer Data {
-    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u];
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u + FR_NTT_TWIDDLE_U32];
 } buf;
 
 void fr_load_at(uint base, out @@FR_T@@ x) {
@@ -54,9 +55,8 @@ void main() {
     uint idx = block_id * m + j_in;
     uint idx2 = idx + half;
 
-    @@FR_T@@ wlen;
-    fr_load_at(OFF_WSTEP + stage * 8u, wlen);
-    @@FR_T@@ w = fr_pow_u32(wlen, j_in);
+    @@FR_T@@ w;
+    fr_load_at(OFF_TWIDDLE + pc.twiddle_word_off + j_in * 8u, w);
 
     @@FR_T@@ u;
     @@FR_T@@ v;

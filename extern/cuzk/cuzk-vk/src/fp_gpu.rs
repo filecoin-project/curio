@@ -7,7 +7,10 @@ use ash::util::read_spv;
 use blstrs::Fp;
 
 use crate::device::VulkanDevice;
-use crate::fp::{fp_from_montgomery_u32_limbs, fp_montgomery_u32_limbs, fp_to_le_u32_limbs, fp_try_from_le_u32_limbs};
+use crate::fp::{
+    fp_from_montgomery_u32_limbs, fp_montgomery_u32_limbs, fp_to_le_u32_limbs,
+    fp_try_from_le_u32_limbs,
+};
 use crate::g1::BLS12_381_FP_U32_LIMBS;
 use crate::vk_oneshot;
 

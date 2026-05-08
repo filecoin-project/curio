@@ -7,6 +7,7 @@
 #define OFF_SCRATCH (64u + FR_NTT_MAX_N * 8u)
 #define OFF_WSTEP (OFF_SCRATCH + FR_NTT_MAX_N * 8u)
 #define OFF_NINV 8u
+#define FR_NTT_TWIDDLE_U32 (5461u * 8u)
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -18,7 +19,7 @@ layout(push_constant) uniform Push {
 } pc;
 
 layout(set = 0, binding = 0) buffer Data {
-    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u];
+    uint d[64u + FR_NTT_MAX_N * 8u * 2u + FR_NTT_MAX_LOG * 8u + FR_NTT_TWIDDLE_U32];
 } buf;
 
 void fr_load_at(uint base, out @@FR_T@@ x) {

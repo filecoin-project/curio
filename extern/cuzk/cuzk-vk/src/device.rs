@@ -50,9 +50,7 @@ fn vk_version_triple(ver: u32) -> String {
 
 fn physical_device_name(props: &vk::PhysicalDeviceProperties) -> String {
     let raw = props.device_name;
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(raw.as_ptr().cast(), raw.len())
-    };
+    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(raw.as_ptr().cast(), raw.len()) };
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
@@ -66,7 +64,8 @@ pub struct VulkanDevice {
     /// Primary compute queue (`queueIndex` 0).
     pub queue: vk::Queue,
     /// Second queue on [`Self::queue_family_index`] when the driver reports `queueCount ≥ 2`.
-    /// Use with timeline semaphores / `VkSemaphore` for upload↔compute overlap (still future in `srs_staging_gpu`).
+    /// Used by [`crate::srs_staging_gpu::srs_staging_device_local_upload_submit_async`] so SRS `vkCmdCopyBuffer`
+    /// can overlap Fr NTT submits on [`Self::queue`] when the driver exposes two queues on this family.
     pub queue_compute_1: Option<vk::Queue>,
     pub queue_family_index: u32,
     /// Number of queues requested on [`Self::queue_family_index`] (1 or 2).
@@ -145,10 +144,8 @@ impl VulkanDevice {
         );
 
         let physical_device = pdevices[0];
-        let queue_family_index =
-            find_compute_queue_family(&instance, physical_device).context(
-                "no queue family with COMPUTE bit — driver or device incompatible",
-            )?;
+        let queue_family_index = find_compute_queue_family(&instance, physical_device)
+            .context("no queue family with COMPUTE bit — driver or device incompatible")?;
 
         let q_props =
             unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -288,7 +285,8 @@ impl VulkanDevice {
         let bytes = self.pipeline_cache_bytes()?;
         let tmp = path.with_extension("pipeline_cache_tmp");
         std::fs::write(&tmp, &bytes).with_context(|| format!("write {}", tmp.display()))?;
-        std::fs::rename(&tmp, path).with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
         Ok(())
     }
 
@@ -356,9 +354,7 @@ fn find_compute_queue_family(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Option<u32> {
-    let props = unsafe {
-        instance.get_physical_device_queue_family_properties(physical_device)
-    };
+    let props = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
     for (i, p) in props.iter().enumerate() {
         if p.queue_flags.contains(vk::QueueFlags::COMPUTE) {
             return Some(i as u32);

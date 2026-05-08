@@ -140,7 +140,8 @@ unsafe fn run_gpu_echo_u32_dual_queue_inner(
     let pipeline_layout = dev
         .device
         .create_pipeline_layout(
-            &vk::PipelineLayoutCreateInfo::default().set_layouts(std::slice::from_ref(&desc_layout)),
+            &vk::PipelineLayoutCreateInfo::default()
+                .set_layouts(std::slice::from_ref(&desc_layout)),
             None,
         )
         .context("dual_queue: create_pipeline_layout")?;
@@ -154,10 +155,11 @@ unsafe fn run_gpu_echo_u32_dual_queue_inner(
         .layout(pipeline_layout)
         .stage(stage);
 
-    let pipeline = match dev
-        .device
-        .create_compute_pipelines(dev.pipeline_cache, std::slice::from_ref(&cpci), None)
-    {
+    let pipeline = match dev.device.create_compute_pipelines(
+        dev.pipeline_cache,
+        std::slice::from_ref(&cpci),
+        None,
+    ) {
         Ok(mut v) => v.pop().expect("one pipeline"),
         Err((_, e)) => {
             dev.device.destroy_shader_module(shader_mod, None);
@@ -294,7 +296,11 @@ unsafe fn run_gpu_echo_u32_dual_queue_inner(
         .signal_semaphores(std::slice::from_ref(&sem));
 
     dev.device
-        .queue_submit(queue_compute_1, std::slice::from_ref(&submit_copy), vk::Fence::null())
+        .queue_submit(
+            queue_compute_1,
+            std::slice::from_ref(&submit_copy),
+            vk::Fence::null(),
+        )
         .context("dual_queue: queue_submit copy")?;
 
     // --- queue: wait semaphore, echo compute, copy word 0 to staging ---
@@ -390,13 +396,17 @@ unsafe fn run_gpu_echo_u32_dual_queue_inner(
         .wait_semaphores(std::slice::from_ref(&sem))
         .wait_dst_stage_mask(&wait_stage);
 
-    let fence = dev.device.create_fence(&vk::FenceCreateInfo::default(), None)?;
+    let fence = dev
+        .device
+        .create_fence(&vk::FenceCreateInfo::default(), None)?;
     dev.device
         .queue_submit(dev.queue, std::slice::from_ref(&submit_compute), fence)
         .context("dual_queue: queue_submit compute")?;
     dev.device.wait_for_fences(&[fence], true, u64::MAX)?;
 
-    let down_ptr = dev.device.map_memory(mem_down, 0, 4, vk::MemoryMapFlags::empty())? as *const u8;
+    let down_ptr = dev
+        .device
+        .map_memory(mem_down, 0, 4, vk::MemoryMapFlags::empty())? as *const u8;
     let mut word0 = [0u8; 4];
     std::ptr::copy_nonoverlapping(down_ptr, word0.as_mut_ptr(), 4);
     dev.device.unmap_memory(mem_down);

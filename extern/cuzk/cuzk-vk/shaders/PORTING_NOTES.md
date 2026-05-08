@@ -11,6 +11,10 @@ These constraints come from compiling with **`naga`** in [`build.rs`](../build.r
 5. **Runtime-sized SSBO arrays** — `uint payload[]` after another member failed parse. Use **fixed** maximum length (e.g. `uint payload[4096]`) and enforce `thread_count <= cap` on the host.
 6. **Unsized arrays in `buffer` blocks** — prefer `uint data[MAX_N]` with host-checked `N`.
 
+## WGSL → SPIR-V (`naga` `wgsl-in`)
+
+Subgroup builtins (**§8.2 B.3**) are not available in **`naga` `glsl-in`** ([wgpu#7571](https://github.com/gfx-rs/wgpu/issues/7571)). Hot loops can be authored in **WGSL** (e.g. `subgroupShuffle`) and compiled beside GLSL: see [`build.rs`](../build.rs) `compile_wgsl_compute` and [`subgroup_shuffle_smoke.wgsl`](subgroup_shuffle_smoke.wgsl) → `subgroup_shuffle_smoke_gpu`.
+
 ## Test gating (Vulkan ICD)
 
 All GPU integration tests use:
@@ -42,7 +46,7 @@ G1/G2 EC shaders (`g1_jacobian_add108_tail.comp`, `g1_xyzz_add_mixed72_tail.comp
 
 `fr_helpers.glsl` mirrors the Fr CIOS / add / sub helpers from `fr_*8_tail.comp` for vectorized kernels: `fr_coeff_wise_mult_tail.comp` (`local_size_x = 64`, `d[0]` = `n`, max `16384` coeffs) and `fr_sub_mult_constant_tail.comp` (same + Montgomery `c` slot after the three max-length regions). It also exposes `fr_one()` / `fr_pow_u32()` (needs `@@FR_ONE@@` substitution in **`build.rs`**, same as the tails) for kernels that derive twiddles from per-stage `wlen` in the SSBO.
 
-**General Fr NTT (`n ≤ 2^14`):** `fr_ntt_general_*_tail.comp` shaders use a fixed `uint d[…]` layout (64-word header, `data[]`, `scratch[]`, then `wlen` per stage × 8 words). Bitrev is a **scatter to scratch** plus a **linear copy back** (two dispatches) so threads never read/write the same coefficient slot in one pass. Radix-2 DIT stages use `layout(push_constant)` for the stage index; `vk_oneshot::run_compute_passes_1x_storage_buffer` records one command buffer with **storage buffer barriers** between stages. **Coset** pre/post multiply is not fused here yet (roadmap §3.2 step 5).
+**General Fr NTT (`n ≤ 2^14`):** `fr_ntt_general_*_tail.comp` shaders use a fixed `uint d[…]` layout (64-word header, `data[]`, `scratch[]`, `wlen` per stage × 8 limbs, then §8.2 **B.4** twiddle blob at `OFF_TWIDDLE`). Bitrev is a **scatter to scratch** plus a **linear copy back** (two dispatches) so threads never read/write the same coefficient slot in one pass. Radix-2/4/8 DIT stages load `wlen^(j_in)` from the twiddle blob (`twiddle_word_off` push constant); `vk_oneshot::run_compute_passes_1x_storage_buffer` records one command buffer with **storage buffer barriers** between stages. **§8.2 B.5:** coset forward (`MULTIPLICATIVE_GENERATOR^i` × coeffs) is applied while packing SSBO coefficients before bitrev — see [`fr_ntt_general_forward_gpu_distribute`](../src/fr_ntt_general_gpu.rs); no separate pointwise dispatch for that leg.
 
 ## SupraSeal `batch_addition` (CUDA → Vulkan sketch)
 

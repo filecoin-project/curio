@@ -11,6 +11,9 @@ use crate::msm::msm_bucket_count;
 /// `buckets[b]` must hold `Σ_{i : digit_i = b} P_i` in the group (bucket `0` is unused for unsigned digits).
 /// Returns `Σ_{b=1}^{num_buckets-1} b * buckets[b]` in `G1`, matching `Σ_i d_i P_i` when each scalar
 /// equals its digit `d_i` in this single window (`d_i < num_buckets`).
+///
+/// Uses a backwards running-sum (**Horner** on bucket masses): only group additions, no per-bucket scalar
+/// multiply (`Σ_{b=1}^{B-1} b·Q_b` via running `+= Q_b` from `b = B-1 … 1`).
 pub fn g1_combine_single_window_bucket_sums(
     window_bits: u32,
     buckets: &[G1Projective],
@@ -23,10 +26,11 @@ pub fn g1_combine_single_window_bucket_sums(
     if buckets.len() < n {
         return None;
     }
+    let mut running = G1Projective::identity();
     let mut acc = G1Projective::identity();
-    for b in 1..n {
-        let coeff = Scalar::from(b as u64);
-        acc += buckets[b] * coeff;
+    for b in (1..n).rev() {
+        running += buckets[b];
+        acc += running;
     }
     Some(acc)
 }
@@ -37,7 +41,10 @@ pub fn g1_combine_single_window_bucket_sums(
 /// The final multiexp value is `Σ_w window_results[w] · 2^(w · window_bits)`.
 ///
 /// Handles `window_bits` up to 30 (safe for any BLS12-381 scalar window).
-pub fn g1_combine_pippenger_windows(window_bits: u32, window_results: &[G1Projective]) -> G1Projective {
+pub fn g1_combine_pippenger_windows(
+    window_bits: u32,
+    window_results: &[G1Projective],
+) -> G1Projective {
     let two = Scalar::from(2u64);
     let mut acc = G1Projective::identity();
     for (w, &wr) in window_results.iter().enumerate() {
@@ -58,6 +65,23 @@ mod tests {
     use super::*;
     use blstrs::G1Affine;
     use group::Curve;
+
+    #[test]
+    fn horner_combine_matches_naive_scalar_weights() {
+        let window_bits = 7u32;
+        let n = 1usize << window_bits;
+        let mut buckets = vec![G1Projective::identity(); n];
+        for b in 1..n {
+            buckets[b] = G1Projective::generator() * Scalar::from(b as u64 * 7 + 3);
+        }
+
+        let mut naive = G1Projective::identity();
+        for b in 1..n {
+            naive += buckets[b] * Scalar::from(b as u64);
+        }
+        let horner = g1_combine_single_window_bucket_sums(window_bits, &buckets).unwrap();
+        assert_eq!(horner, naive);
+    }
 
     #[test]
     fn single_window_combine_matches_digit_lincomb() {

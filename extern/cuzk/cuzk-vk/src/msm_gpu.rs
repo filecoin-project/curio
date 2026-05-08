@@ -1,6 +1,6 @@
-//! MSM-related GPU validation: dispatch grid vs [`crate::msm::MsmBucketReduceDispatch`] (atomics).
+//! MSM-related GPU validation: 2D `vkCmdDispatch` grid vs [`crate::msm::MsmBucketReduceDispatch`] (hit counts).
 //!
-//! Bucket MSM / curve arithmetic is still future work; see repo root `cuzk-vulkan-optimization-roadmap.md` §8.1.
+//! Grid smoke is curve-free (§8.4 mega-strip **scheduling** shares the same `(groups_x, groups_y)` geometry as future bucket kernels). Full bucket MSM: [`crate::g1_pippenger_bucket_gpu`].
 
 use std::io::Cursor;
 

@@ -22,16 +22,16 @@ const XYZZ_BUF: u64 = 512;
 /// (incremental Cargo can keep the `.rlib` while `build.rs` rewrites the `.spv`) cannot pin an
 /// out-of-date kernel. `OUT_DIR` itself is baked at compile time but is stable per package.
 fn load_out_dir_spv(name: &'static str) -> &'static [u8] {
-    static CACHE: OnceLock<std::sync::Mutex<std::collections::HashMap<&'static str, &'static [u8]>>> =
-        OnceLock::new();
+    static CACHE: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<&'static str, &'static [u8]>>,
+    > = OnceLock::new();
     let map = CACHE.get_or_init(Default::default);
     let mut guard = map.lock().expect("spv cache");
     if let Some(slice) = guard.get(name) {
         return slice;
     }
     let path = format!("{}/{}", env!("OUT_DIR"), name);
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("read SPIR-V {}: {}", path, e));
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read SPIR-V {}: {}", path, e));
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in bytes.iter() {
         h ^= b as u64;
@@ -39,7 +39,10 @@ fn load_out_dir_spv(name: &'static str) -> &'static [u8] {
     }
     eprintln!(
         "[cuzk-vk] loaded SPIR-V {} ({} bytes, fnv1a64=0x{:016x}) from {}",
-        name, bytes.len(), h, path
+        name,
+        bytes.len(),
+        h,
+        path
     );
     let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
     guard.insert(name, leaked);
@@ -78,13 +81,9 @@ fn jac_eq(a: &G1JacobianLimbs, b: &G1JacobianLimbs) -> bool {
 }
 
 /// Dispatch the dedicated doubling shader on `a` (input `b` is ignored).
-fn run_g1_jacobian_dbl_gpu(
-    dev: &VulkanDevice,
-    a: &G1JacobianLimbs,
-) -> Result<G1JacobianLimbs> {
+fn run_g1_jacobian_dbl_gpu(dev: &VulkanDevice, a: &G1JacobianLimbs) -> Result<G1JacobianLimbs> {
     let spirv = load_out_dir_spv("g1_jacobian_dbl108.spv");
-    let spirv_words =
-        read_spv(&mut Cursor::new(spirv)).context("read_spv g1_jacobian_dbl108")?;
+    let spirv_words = read_spv(&mut Cursor::new(spirv)).context("read_spv g1_jacobian_dbl108")?;
     let mut wbytes = [0u8; G1_JACOBIAN_ADD_SSBO_BYTES];
     put_fp12(&mut wbytes, 36, &a.x);
     put_fp12(&mut wbytes, 48, &a.y);
@@ -132,8 +131,7 @@ pub fn run_g1_jacobian_add_gpu(
         return run_g1_jacobian_dbl_gpu(dev, a);
     }
     let spirv = load_out_dir_spv("g1_jacobian_add108.spv");
-    let spirv_words =
-        read_spv(&mut Cursor::new(spirv)).context("read_spv g1_jacobian_add108")?;
+    let spirv_words = read_spv(&mut Cursor::new(spirv)).context("read_spv g1_jacobian_add108")?;
     let mut wbytes = [0u8; G1_JACOBIAN_ADD_SSBO_BYTES];
     put_fp12(&mut wbytes, 36, &a.x);
     put_fp12(&mut wbytes, 48, &a.y);
@@ -163,7 +161,11 @@ pub fn run_g1_jacobian_add_gpu(
 }
 
 /// XYZZ += affine `p2` (Montgomery I/O). `p2` must not be the point at infinity.
-pub fn run_g1_xyzz_add_mixed_gpu(dev: &VulkanDevice, xyzz: &mut G1XyzzLimbs, p2: &G1Affine) -> Result<()> {
+pub fn run_g1_xyzz_add_mixed_gpu(
+    dev: &VulkanDevice,
+    xyzz: &mut G1XyzzLimbs,
+    p2: &G1Affine,
+) -> Result<()> {
     let spirv = include_bytes!(concat!(env!("OUT_DIR"), "/g1_xyzz_add_mixed72.spv"));
     let spirv_words =
         read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g1_xyzz_add_mixed72")?;

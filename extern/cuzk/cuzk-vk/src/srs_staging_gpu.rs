@@ -1,9 +1,11 @@
 //! **Milestone B₂ §8.3 C.2:** move SRS-sized blobs to **device-local** (or device-preferred)
 //! memory via `vkCmdCopyBuffer`.
 //!
-//! - [`srs_staging_device_local_upload`] — staging → device, **no readback** (hot-path building block).
-//! - [`srs_staging_device_local_upload_while`] — upload on a **scoped thread** while CPU work runs (**B₂** host overlap).
-//!   Full transfer-queue / NTT pipelining remains future work.
+//! - [`srs_staging_device_local_upload`] — staging → device, **no readback** (blocking until complete).
+//! - [`srs_staging_device_local_upload_submit_async`] — submit the same transfer **without waiting**;
+//!   pairs with [`SrsDeviceLocalUploadInFlight::wait_finish`] or [`SrsDeviceLocalUploadGuard::finish`]. Uses [`crate::device::VulkanDevice::queue_compute_1`]
+//!   when present so the copy can overlap Fr NTT work on [`crate::device::VulkanDevice::queue`].
+//! - [`srs_staging_device_local_upload_while`] — upload on a **scoped thread** while CPU work runs (host overlap helper).
 //! - [`srs_device_local_buffer_download`] — device → staging for **tests / verification** only.
 //! - [`srs_staging_device_local_roundtrip`] — upload + download + equality (integration smoke).
 
@@ -26,6 +28,73 @@ impl SrsDeviceLocalBuffer {
         unsafe {
             dev.device.destroy_buffer(self.buf, None);
             dev.device.free_memory(self.mem, None);
+        }
+    }
+}
+
+/// In-flight SRS staging → device-local copy after [`srs_staging_device_local_upload_submit_async`].
+///
+/// Staging resources stay alive until [`Self::wait_finish`]; the device buffer is safe to use after the fence signals.
+pub struct SrsDeviceLocalUploadInFlight {
+    pub device_blob: SrsDeviceLocalBuffer,
+    fence: vk::Fence,
+    staging_buf: vk::Buffer,
+    staging_mem: vk::DeviceMemory,
+    cmd_pool: vk::CommandPool,
+}
+
+impl SrsDeviceLocalUploadInFlight {
+    /// Wait for the transfer to finish, free staging + pool + fence, return the device-local buffer.
+    pub fn wait_finish(self, dev: &VulkanDevice) -> Result<SrsDeviceLocalBuffer> {
+        let SrsDeviceLocalUploadInFlight {
+            device_blob,
+            fence,
+            staging_buf,
+            staging_mem,
+            cmd_pool,
+        } = self;
+        unsafe {
+            dev.device
+                .wait_for_fences(&[fence], true, u64::MAX)
+                .context("wait_for_fences (SRS upload)")?;
+            dev.device.destroy_fence(fence, None);
+            dev.device.destroy_command_pool(cmd_pool, None);
+            dev.device.destroy_buffer(staging_buf, None);
+            dev.device.free_memory(staging_mem, None);
+        }
+        Ok(device_blob)
+    }
+}
+
+/// RAII submit for §8.3 C.2: if [`Self::finish`] is not called (early `?`), [`Drop`] waits and frees staging.
+pub struct SrsDeviceLocalUploadGuard<'a> {
+    dev: &'a VulkanDevice,
+    flight: Option<SrsDeviceLocalUploadInFlight>,
+}
+
+impl<'a> SrsDeviceLocalUploadGuard<'a> {
+    pub fn submit(dev: &'a VulkanDevice, bytes: &[u8]) -> Result<Self> {
+        Ok(Self {
+            dev,
+            flight: Some(srs_staging_device_local_upload_submit_async(dev, bytes)?),
+        })
+    }
+
+    pub fn finish(mut self) -> Result<SrsDeviceLocalBuffer> {
+        let flight = self
+            .flight
+            .take()
+            .expect("SrsDeviceLocalUploadGuard::finish once");
+        let dev = self.dev;
+        std::mem::forget(self);
+        flight.wait_finish(dev)
+    }
+}
+
+impl Drop for SrsDeviceLocalUploadGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(flight) = self.flight.take() {
+            let _ = flight.wait_finish(self.dev);
         }
     }
 }
@@ -87,17 +156,33 @@ fn pick_device_local_pair(
 /// Upload `bytes` to a device-preferring buffer via staging `vkCmdCopyBuffer`; wait for completion.
 /// Buffer usage includes `TRANSFER_SRC` so [`srs_device_local_buffer_download`] / roundtrip can verify.
 /// `bytes` must be non-empty (use [`srs_staging_device_local_roundtrip`] for empty round-trip semantics).
-pub fn srs_staging_device_local_upload(dev: &VulkanDevice, bytes: &[u8]) -> Result<SrsDeviceLocalBuffer> {
-    if bytes.is_empty() {
-        bail!("srs_staging_device_local_upload: empty slice");
-    }
-    unsafe { srs_staging_device_local_upload_inner(dev, bytes) }
-}
-
-unsafe fn srs_staging_device_local_upload_inner(
+pub fn srs_staging_device_local_upload(
     dev: &VulkanDevice,
     bytes: &[u8],
 ) -> Result<SrsDeviceLocalBuffer> {
+    if bytes.is_empty() {
+        bail!("srs_staging_device_local_upload: empty slice");
+    }
+    let flight = srs_staging_device_local_upload_submit_async(dev, bytes)?;
+    flight.wait_finish(dev)
+}
+
+/// Submit SRS staging → device-local copy without waiting. Uses the **second** compute queue when
+/// [`VulkanDevice::queue_compute_1`] is `Some`, otherwise the primary queue (FIFO with later submits).
+pub fn srs_staging_device_local_upload_submit_async(
+    dev: &VulkanDevice,
+    bytes: &[u8],
+) -> Result<SrsDeviceLocalUploadInFlight> {
+    if bytes.is_empty() {
+        bail!("srs_staging_device_local_upload_submit_async: empty slice");
+    }
+    unsafe { srs_staging_device_local_upload_submit_async_inner(dev, bytes) }
+}
+
+unsafe fn srs_staging_device_local_upload_submit_async_inner(
+    dev: &VulkanDevice,
+    bytes: &[u8],
+) -> Result<SrsDeviceLocalUploadInFlight> {
     let size = bytes.len() as vk::DeviceSize;
 
     let (staging_up, mem_up) = create_buffer_with_memory(
@@ -138,7 +223,8 @@ unsafe fn srs_staging_device_local_upload_inner(
     dev.device
         .begin_command_buffer(
             cmd_buf,
-            &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            &vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
         )
         .context("begin_command_buffer")?;
 
@@ -193,34 +279,38 @@ unsafe fn srs_staging_device_local_upload_inner(
         &[],
     );
 
-    dev.device.end_command_buffer(cmd_buf).context("end_command_buffer")?;
+    dev.device
+        .end_command_buffer(cmd_buf)
+        .context("end_command_buffer")?;
 
     let fence = dev
         .device
         .create_fence(&vk::FenceCreateInfo::default(), None)
         .context("create_fence")?;
+    let upload_queue = dev.queue_compute_1.unwrap_or(dev.queue);
     let submit = vk::SubmitInfo::default().command_buffers(std::slice::from_ref(&cmd_buf));
     dev.device
-        .queue_submit(dev.queue, std::slice::from_ref(&submit), fence)
-        .context("queue_submit")?;
-    dev.device
-        .wait_for_fences(&[fence], true, u64::MAX)
-        .context("wait_for_fences")?;
+        .queue_submit(upload_queue, std::slice::from_ref(&submit), fence)
+        .context("queue_submit (SRS upload)")?;
 
-    dev.device.destroy_fence(fence, None);
-    dev.device.destroy_command_pool(cmd_pool, None);
-    dev.device.destroy_buffer(staging_up, None);
-    dev.device.free_memory(mem_up, None);
-
-    Ok(SrsDeviceLocalBuffer {
-        buf: buf_dev,
-        mem: mem_dev,
-        size,
+    Ok(SrsDeviceLocalUploadInFlight {
+        device_blob: SrsDeviceLocalBuffer {
+            buf: buf_dev,
+            mem: mem_dev,
+            size,
+        },
+        fence,
+        staging_buf: staging_up,
+        staging_mem: mem_up,
+        cmd_pool,
     })
 }
 
 /// Copy device-local buffer to host (for tests; not used on the hot prove path).
-pub fn srs_device_local_buffer_download(dev: &VulkanDevice, blob: &SrsDeviceLocalBuffer) -> Result<Vec<u8>> {
+pub fn srs_device_local_buffer_download(
+    dev: &VulkanDevice,
+    blob: &SrsDeviceLocalBuffer,
+) -> Result<Vec<u8>> {
     unsafe { srs_device_local_buffer_download_inner(dev, blob) }
 }
 
@@ -262,7 +352,8 @@ unsafe fn srs_device_local_buffer_download_inner(
     dev.device
         .begin_command_buffer(
             cmd_buf,
-            &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            &vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
         )
         .context("begin_command_buffer (download)")?;
 

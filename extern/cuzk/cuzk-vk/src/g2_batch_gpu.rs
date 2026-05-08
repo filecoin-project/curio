@@ -60,7 +60,11 @@ pub fn run_g2_batch_jacobian_accum_bitmap_gpu(
 }
 
 /// CPU oracle for [`run_g2_batch_jacobian_accum_bitmap_gpu`].
-pub fn g2_batch_jacobian_accum_bitmap_cpu(n: usize, bitmap: u32, points: &[G2Affine]) -> G2JacobianLimbs {
+pub fn g2_batch_jacobian_accum_bitmap_cpu(
+    n: usize,
+    bitmap: u32,
+    points: &[G2Affine],
+) -> G2JacobianLimbs {
     let mut acc = G2Projective::identity();
     for i in 0..n {
         if ((bitmap >> i) & 1) == 0 {

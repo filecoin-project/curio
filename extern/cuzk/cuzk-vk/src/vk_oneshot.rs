@@ -94,7 +94,8 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
     let pipeline_layout = dev
         .device
         .create_pipeline_layout(
-            &vk::PipelineLayoutCreateInfo::default().set_layouts(std::slice::from_ref(&desc_layout)),
+            &vk::PipelineLayoutCreateInfo::default()
+                .set_layouts(std::slice::from_ref(&desc_layout)),
             None,
         )
         .context("create_pipeline_layout")?;
@@ -116,10 +117,11 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
         .layout(pipeline_layout)
         .stage(stage);
 
-    let pipeline = match dev
-        .device
-        .create_compute_pipelines(dev.pipeline_cache, std::slice::from_ref(&cpci), None)
-    {
+    let pipeline = match dev.device.create_compute_pipelines(
+        dev.pipeline_cache,
+        std::slice::from_ref(&cpci),
+        None,
+    ) {
         Ok(mut v) => v.pop().expect("one pipeline"),
         Err((_, e)) => anyhow::bail!("create_compute_pipelines: {:?}", e),
     };
@@ -228,10 +230,12 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
     dev.device
         .begin_command_buffer(
             cmd_buf,
-            &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            &vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
         )
         .context("begin_command_buffer")?;
-    dev.device.cmd_bind_pipeline(cmd_buf, vk::PipelineBindPoint::COMPUTE, pipeline);
+    dev.device
+        .cmd_bind_pipeline(cmd_buf, vk::PipelineBindPoint::COMPUTE, pipeline);
     dev.device.cmd_bind_descriptor_sets(
         cmd_buf,
         vk::PipelineBindPoint::COMPUTE,
@@ -277,9 +281,13 @@ pub(crate) unsafe fn run_compute_1x_storage_buffer(
         std::slice::from_ref(&buf_barrier_host),
         &[],
     );
-    dev.device.end_command_buffer(cmd_buf).context("end_command_buffer")?;
+    dev.device
+        .end_command_buffer(cmd_buf)
+        .context("end_command_buffer")?;
 
-    let fence = dev.device.create_fence(&vk::FenceCreateInfo::default(), None)?;
+    let fence = dev
+        .device
+        .create_fence(&vk::FenceCreateInfo::default(), None)?;
     let submit = vk::SubmitInfo::default().command_buffers(std::slice::from_ref(&cmd_buf));
     dev.device
         .queue_submit(dev.queue, std::slice::from_ref(&submit), fence)
@@ -537,7 +545,8 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
     dev.device
         .begin_command_buffer(
             cmd_buf,
-            &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            &vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
         )
         .context("begin_command_buffer (passes)")?;
 
@@ -549,11 +558,8 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
         .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);
 
     for (pi, pass) in passes.iter().enumerate() {
-        dev.device.cmd_bind_pipeline(
-            cmd_buf,
-            vk::PipelineBindPoint::COMPUTE,
-            pipelines[pi],
-        );
+        dev.device
+            .cmd_bind_pipeline(cmd_buf, vk::PipelineBindPoint::COMPUTE, pipelines[pi]);
         dev.device.cmd_bind_descriptor_sets(
             cmd_buf,
             vk::PipelineBindPoint::COMPUTE,
@@ -621,7 +627,9 @@ pub(crate) unsafe fn run_compute_passes_1x_storage_buffer(
         .end_command_buffer(cmd_buf)
         .context("end_command_buffer (passes)")?;
 
-    let fence = dev.device.create_fence(&vk::FenceCreateInfo::default(), None)?;
+    let fence = dev
+        .device
+        .create_fence(&vk::FenceCreateInfo::default(), None)?;
     let submit = vk::SubmitInfo::default().command_buffers(std::slice::from_ref(&cmd_buf));
     dev.device
         .queue_submit(dev.queue, std::slice::from_ref(&submit), fence)

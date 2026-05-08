@@ -16,7 +16,8 @@ const BUF_ALIGN: u64 = 256;
 /// Same `u32[48]` reversal as [`crate::g1::g2_limbs_reverse_words_inplace`] on-device.
 pub fn run_g2_reverse48_gpu(dev: &VulkanDevice, limbs: &mut G2AffineLimbs) -> Result<()> {
     let spirv = include_bytes!(concat!(env!("OUT_DIR"), "/g2_reverse48.spv"));
-    let spirv_words = read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g2_reverse48")?;
+    let spirv_words =
+        read_spv(&mut Cursor::new(spirv.as_slice())).context("read_spv g2_reverse48")?;
     let inb = g2_limbs_to_le_bytes(limbs);
     let mut out = [0u8; G2_AFFINE_LIMB_BYTES];
     unsafe {
