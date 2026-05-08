@@ -305,6 +305,10 @@ func (t *ReorgCheckTask) rollbackDeletePiece(ctx context.Context, txHash string)
 		summary = fmt.Sprintf("deletePiece rollback unmarked_rows=%d piecerefs_already_missing=%d", n, lostRefs)
 		return true, nil
 	}, harmonydb.OptionRetry())
+	if err == nil && lostRefs > 0 {
+		log.Errorw("reorg rolled back piece deletion but pieceref data already cleaned up — DATA LOSS",
+			"tx", txHash, "lost_piecerefs", lostRefs)
+	}
 	return summary, err
 }
 
