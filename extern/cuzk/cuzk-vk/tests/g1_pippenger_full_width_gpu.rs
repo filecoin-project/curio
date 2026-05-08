@@ -2,7 +2,10 @@
 //!
 //! Tests [`run_g1_pippenger_msm_gpu`] against the CPU Pippenger reference
 //! [`g1_pippenger_msm_cpu`] and against `G1Projective::multi_exp` for various n.
-//! The `_large` test (n=1024) can be skipped by setting `CUZK_VK_SKIP_LARGE_GPU_TESTS=1`.
+//!
+//! GPU cases are skipped when `CUZK_VK_SKIP_SMOKE` is unset or `1` (same as other
+//! `cuzk-vk` integration tests), or when `VulkanDevice::new` fails (no loader/ICD).
+//! Large cases (n≥512) can also be skipped with `CUZK_VK_SKIP_LARGE_GPU_TESTS=1`.
 
 use std::sync::Arc;
 
@@ -19,8 +22,22 @@ use cuzk_vk::g1_pippenger_bucket_gpu::{
     run_g1_pippenger_msm_gpu_batch_shared_bases, G1PippengerBatchItem,
 };
 
-fn make_dev() -> Arc<VulkanDevice> {
-    Arc::new(VulkanDevice::new().expect("VulkanDevice::new"))
+/// Skip when `CUZK_VK_SKIP_SMOKE` is unset or `1`, or when no Vulkan loader/ICD.
+fn dev_or_skip() -> Option<Arc<VulkanDevice>> {
+    if matches!(
+        std::env::var("CUZK_VK_SKIP_SMOKE").as_deref(),
+        Ok("1") | Err(_)
+    ) {
+        eprintln!("skip: CUZK_VK_SKIP_SMOKE (set to 0 to run GPU Pippenger tests)");
+        return None;
+    }
+    match VulkanDevice::new() {
+        Ok(d) => Some(Arc::new(d)),
+        Err(e) => {
+            eprintln!("skip: VulkanDevice::new failed ({e})");
+            None
+        }
+    }
 }
 
 fn random_bases_and_scalars(n: usize, seed: u64) -> (Vec<G1Affine>, Vec<Scalar>) {
@@ -40,7 +57,9 @@ fn multi_exp_ref(bases: &[G1Affine], scalars: &[Scalar]) -> G1Projective {
 /// Tiny n=8 sanity check with w=4 (16 buckets, 2 windows).
 #[test]
 fn g1_pippenger_w4_n8_matches_multi_exp() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let (bases, scalars) = random_bases_and_scalars(8, 0xabc);
     let window_bits = 4u32;
     let got = run_g1_pippenger_msm_gpu(&dev, &bases, &scalars, 8, window_bits)
@@ -70,7 +89,9 @@ fn g1_pippenger_cpu_matches_multi_exp_n64() {
 /// n=64, window_bits=8 (32 windows of 8 bits → 256 buckets each).
 #[test]
 fn g1_pippenger_w8_n64_matches_multi_exp() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let (bases, scalars) = random_bases_and_scalars(64, 0xdeadbeef);
     let window_bits = 8u32;
     let got = run_g1_pippenger_msm_gpu(&dev, &bases, &scalars, 64, window_bits)
@@ -86,7 +107,9 @@ fn g1_pippenger_w8_n64_matches_multi_exp() {
 /// GPU matches CPU Pippenger reference at n=64 (validates GPU matches the reference algorithm).
 #[test]
 fn g1_pippenger_gpu_matches_cpu_n64() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let (bases, scalars) = random_bases_and_scalars(64, 0x1234);
     let window_bits = 12u32; // Apple M2 recommended window size.
     let gpu = run_g1_pippenger_msm_gpu(&dev, &bases, &scalars, 64, window_bits)
@@ -101,7 +124,9 @@ fn g1_pippenger_w12_n512_matches_multi_exp() {
     if std::env::var("CUZK_VK_SKIP_LARGE_GPU_TESTS").as_deref() == Ok("1") {
         return;
     }
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let (bases, scalars) = random_bases_and_scalars(512, 0x5555);
     let window_bits = 12u32;
     let got = run_g1_pippenger_msm_gpu(&dev, &bases, &scalars, 512, window_bits)
@@ -120,7 +145,9 @@ fn g1_pippenger_w12_n1024_matches_multi_exp() {
     if std::env::var("CUZK_VK_SKIP_LARGE_GPU_TESTS").as_deref() == Ok("1") {
         return;
     }
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let (bases, scalars) = random_bases_and_scalars(1024, 0xbabe);
     let window_bits = 12u32;
     let got = run_g1_pippenger_msm_gpu(&dev, &bases, &scalars, 1024, window_bits)
@@ -136,7 +163,9 @@ fn g1_pippenger_w12_n1024_matches_multi_exp() {
 /// §8.4 batched SSBO: two circuits per dispatch vs serial GPU MSM.
 #[test]
 fn g1_pippenger_batch_w8_n16_matches_serial_gpu() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let n = 16usize;
     let wb = 8u32;
     let (b0, s0) = random_bases_and_scalars(n, 0xba7c_0001);
@@ -166,7 +195,9 @@ fn g1_pippenger_batch_w8_n16_matches_serial_gpu() {
 /// Variable `n` per circuit in one SSBO when sizes fit (`batch ≤ 128`, `batch*n_tot` limits).
 #[test]
 fn g1_pippenger_batch_unequal_n_matches_serial_gpu() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let wb = 8u32;
     let (b0, s0) = random_bases_and_scalars(8, 0xcafe_0001);
     let (b1, s1) = random_bases_and_scalars(24, 0xcafe_0002);
@@ -193,7 +224,9 @@ fn g1_pippenger_batch_tiles_on_max_batch_circuits() {
     if std::env::var("CUZK_VK_SKIP_LARGE_GPU_TESTS").as_deref() == Ok("1") {
         return;
     }
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let n = 16usize;
     let wb = 8u32;
     let num_circuits = 129usize;
@@ -226,7 +259,9 @@ fn g1_pippenger_batch_tiles_on_max_batch_circuits() {
 /// `window_bits = 16` ⇒ `bucket_count = 65536` ⇒ one circuit per dispatch (`tile_len * bucket_count` cap).
 #[test]
 fn g1_pippenger_batch_w16_one_circuit_per_tile() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let wb = 16u32;
     let n = 4usize;
     let (b0, s0) = random_bases_and_scalars(n, 0xf111);
@@ -255,7 +290,9 @@ fn g1_pippenger_batch_w16_one_circuit_per_tile() {
 /// §8.4 **D.2** — same `h[]`-style bases, distinct scalars: GPU batch vs serial circuits.
 #[test]
 fn g1_pippenger_shared_bases_two_circuits_matches_serial_gpu() {
-    let dev = make_dev();
+    let Some(dev) = dev_or_skip() else {
+        return;
+    };
     let n = 16usize;
     let wb = 8u32;
     let (bases, _) = random_bases_and_scalars(n, 0xd200);
