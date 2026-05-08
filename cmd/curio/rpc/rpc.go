@@ -85,6 +85,16 @@ func CurioHandler(
 	if dependencies.PeerHTTP != nil {
 		mux.Handle("/peer/v1", dependencies.PeerHTTP) // Peer-to-peer HTTP POST communication
 	}
+	mux.HandleFunc("/market/wake-poller", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if dependencies.WakeDealPoller != nil {
+			dependencies.WakeDealPoller()
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.PathPrefix("/remote").HandlerFunc(remote)
 	mux.Handle("/debug/metrics", metrics.Exporter())
 	mux.Handle("/debug/service-discovery", prometheusSD)

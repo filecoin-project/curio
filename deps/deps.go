@@ -182,6 +182,7 @@ type Deps struct {
 	EthClient         *lazy.Lazy[ethchain.EthClient]
 	Sender            *message.Sender
 	PeerHTTP          *harmonypeerhttp.PeerHTTP
+	WakeDealPoller    func()
 }
 
 const (

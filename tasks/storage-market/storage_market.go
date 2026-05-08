@@ -270,6 +270,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if d.MK12Handler != nil {
+		d.MK12Handler.OnDealInserted = d.WakeDealPoller
+	}
 	prevMiners := d.miners.Get()
 
 	if d.MK12Handler != nil {
@@ -304,6 +307,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc, d.bp)
 	if err != nil {
 		return err
+	}
+	if d.MK20Handler != nil {
+		d.MK20Handler.OnDealInserted = d.WakeDealPoller
 	}
 
 	if len(prevMiners) > 0 {

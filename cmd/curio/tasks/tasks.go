@@ -296,6 +296,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			}
 
 			sdeps.DealMarket = dealMarket
+			dependencies.WakeDealPoller = dealMarket.WakeDealPoller
 
 			if cfg.Subsystems.EnableCommP {
 				commpTask := storage_market.NewCommpTask(dealMarket, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
