@@ -99,15 +99,30 @@ func NewPDPService(ctx context.Context, db *harmonydb.DB, stor paths.StashStore,
 	return p
 }
 
-// Routes registers the HTTP routes with the provided router
+// kvDataSetID extracts the dataset URL param for lifecycle logging.
+func kvDataSetID(r *http.Request) []any {
+	return []any{"dataset", chi.URLParam(r, "dataSetId")}
+}
+
+// kvDataSetPiece extracts dataset + piece URL params for lifecycle logging.
+func kvDataSetPiece(r *http.Request) []any {
+	return []any{"dataset", chi.URLParam(r, "dataSetId"), "piece_id", chi.URLParam(r, "pieceID")}
+}
+
+// kvUploadUUID extracts the upload UUID URL param for lifecycle logging.
+func kvUploadUUID(r *http.Request) []any {
+	return []any{"upload_uuid", chi.URLParam(r, "uploadUUID")}
+}
+
+// Routes registers the HTTP routes with the provided router.
 func Routes(r *chi.Mux, p *PDPService) {
 	// Routes for data sets
 	r.Route(path.Join(PDPRoutePath, "/data-sets"), func(r chi.Router) {
 		// POST /pdp/data-sets - Create a new data set
-		r.Post("/", p.handleCreateDataSet)
+		r.Post("/", instrument("dataSetCreate", p.handleCreateDataSet, nil))
 
 		// POST /pdp/data-sets/create-and-add - Create a new data set and add pieces at the same time
-		r.Post("/create-and-add", p.handleCreateDataSetAndAddPieces)
+		r.Post("/create-and-add", instrument("dataSetCreateAndAdd", p.handleCreateDataSetAndAddPieces, nil))
 
 		// GET /pdp/data-sets/created/{txHash} - Get the status of a data set creation
 		r.Get("/created/{txHash}", p.handleGetDataSetCreationStatus)
@@ -118,12 +133,12 @@ func Routes(r *chi.Mux, p *PDPService) {
 			r.Get("/", p.handleGetDataSet)
 
 			// DEL /pdp/data-sets/{set-id}
-			r.Delete("/", p.handleDeleteDataSet)
+			r.Delete("/", instrument("dataSetDelete", p.handleDeleteDataSet, kvDataSetID))
 
 			// Routes for pieces within a data set
 			r.Route("/pieces", func(r chi.Router) {
 				// POST /pdp/data-sets/{set-id}/pieces
-				r.Post("/", p.handleAddPieceToDataSet)
+				r.Post("/", instrument("pieceAdd", p.handleAddPieceToDataSet, kvDataSetID))
 
 				// GET /pdp/data-sets/{set-id}/pieces/added/{txHash}
 				r.Get("/added/{txHash}", p.handleGetPieceAdditionStatus)
@@ -134,7 +149,7 @@ func Routes(r *chi.Mux, p *PDPService) {
 					r.Get("/", p.handleGetDataSetPiece)
 
 					// DEL /pdp/data-sets/{set-id}/pieces/{piece-id}
-					r.Delete("/", p.handleDeleteDataSetPiece)
+					r.Delete("/", instrument("pieceDelete", p.handleDeleteDataSetPiece, kvDataSetPiece))
 				})
 			})
 		})
@@ -147,29 +162,25 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 	// Routes for piece storage and retrieval
 	// POST /pdp/piece
-	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
+	r.Post(path.Join(PDPRoutePath, "/piece"), instrument("pieceUploadInit", p.handlePiecePost, nil))
 
 	// GET /pdp/piece/
 	r.Get(path.Join(PDPRoutePath, "/piece/"), p.handleFindPiece)
 
 	// PUT /pdp/piece/upload/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), func(w http.ResponseWriter, r *http.Request) {
-		log.Debugw("[handlePieceUpload] -- router says upload started", "uploadUUID", chi.URLParam(r, "uploadUUID"))
-		p.handlePieceUpload(w, r)
-		log.Debugw("[handlePieceUpload] -- router says its done", "uploadUUID", chi.URLParam(r, "uploadUUID"))
-	})
+	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), instrument("pieceUpload", p.handlePieceUpload, kvUploadUUID))
 
 	// POST /pdp/piece/uploads
-	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), p.handleStreamingUploadURL)
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads"), instrument("pieceStreamInit", p.handleStreamingUploadURL, nil))
 
 	// PUT /pdp/piece/uploads/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleStreamingUpload)
+	r.Put(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), instrument("pieceStreamUpload", p.handleStreamingUpload, kvUploadUUID))
 
 	// POST /pdp/piece/uploads/{uploadUUID}
-	r.Post(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), p.handleFinalizeStreamingUpload)
+	r.Post(path.Join(PDPRoutePath, "/piece/uploads/{uploadUUID}"), instrument("pieceStreamFinalize", p.handleFinalizeStreamingUpload, kvUploadUUID))
 
 	// POST /pdp/piece/pull - Pull pieces from other SPs
-	r.Post(path.Join(PDPRoutePath, "/piece/pull"), p.pullHandler.HandlePull)
+	r.Post(path.Join(PDPRoutePath, "/piece/pull"), instrument("piecePull", p.pullHandler.HandlePull, nil))
 }
 
 // Handler functions
