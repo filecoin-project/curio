@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/yugabyte/pgx/v5"
@@ -19,7 +18,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
@@ -59,9 +57,8 @@ type ReorgCheckFilAPI interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)
 }
 
-// ReorgCheckEthAPI is the minimal Ethereum client surface for canonical receipt checks.
+// ReorgCheckEthAPI is the minimal Ethereum client surface for block hash checks.
 type ReorgCheckEthAPI interface {
-	TransactionReceipt(ctx context.Context, txHash common.Hash) (*ethtypes.Receipt, error)
 	BlockByNumber(ctx context.Context, number *big.Int) (*ethtypes.Block, error)
 }
 
@@ -72,7 +69,7 @@ type ReorgCheckTask struct {
 	chain ReorgCheckFilAPI
 }
 
-func NewReorgCheckTask(db *harmonydb.DB, eth ethchain.EthClient, chain ReorgCheckFilAPI) *ReorgCheckTask {
+func NewReorgCheckTask(db *harmonydb.DB, eth ReorgCheckEthAPI, chain ReorgCheckFilAPI) *ReorgCheckTask {
 	return &ReorgCheckTask{
 		db:    db,
 		eth:   eth,
@@ -95,12 +92,14 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	var candidates []struct {
-		TxHash       string `db:"signed_tx_hash"`
-		SendReason   string `db:"send_reason"`
-		ConfirmEpoch int64  `db:"confirmed_block_number"`
+		TxHash           string `db:"signed_tx_hash"`
+		SendReason       string `db:"send_reason"`
+		ConfirmEpoch     int64  `db:"confirmed_block_number"`
+		StoredBlockHash  string `db:"stored_block_hash"`
 	}
 	err = t.db.Select(ctx, &candidates, `
-		SELECT mwe.signed_tx_hash, mse.send_reason, mwe.confirmed_block_number
+		SELECT mwe.signed_tx_hash, mse.send_reason, mwe.confirmed_block_number,
+		       COALESCE(mwe.tx_receipt->>'blockHash', '') AS stored_block_hash
 		FROM message_waits_eth mwe
 		INNER JOIN message_sends_eth mse ON LOWER(TRIM(BOTH FROM mse.signed_hash)) = LOWER(TRIM(BOTH FROM mwe.signed_tx_hash))
 		WHERE mwe.tx_status = 'confirmed'
@@ -120,7 +119,11 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		if !stillOwned() {
 			return false, nil
 		}
-		reorged, chkErr := t.txReorgedFromChain(ctx, common.HexToHash(c.TxHash))
+		if c.StoredBlockHash == "" {
+			log.Warnw("reorg check: no stored block hash in tx_receipt, skipping", "tx", c.TxHash)
+			continue
+		}
+		reorged, chkErr := t.TxReorgedFromChain(ctx, c.ConfirmEpoch, common.HexToHash(c.StoredBlockHash))
 		if chkErr != nil {
 			log.Errorw("reorg check RPC error", "tx", c.TxHash, "err", chkErr)
 			continue
@@ -172,25 +175,17 @@ func (t *ReorgCheckTask) lastSuccessfulRunCutoff(ctx context.Context) (time.Time
 	return cutoff, nil
 }
 
-func (t *ReorgCheckTask) txReorgedFromChain(ctx context.Context, txHash common.Hash) (reorged bool, err error) {
-	receipt, err := t.eth.TransactionReceipt(ctx, txHash)
+// TxReorgedFromChain checks whether the canonical block at confirmedHeight
+// still matches storedBlockHash (from the receipt saved at confirmation time).
+// This only uses BlockByNumber, which works on snapshot-imported nodes
+// (block headers are always available, unlike TransactionReceipt which needs
+// the MsgIndex that isn't populated for pre-snapshot epochs).
+func (t *ReorgCheckTask) TxReorgedFromChain(ctx context.Context, confirmedHeight int64, storedBlockHash common.Hash) (reorged bool, err error) {
+	blk, err := t.eth.BlockByNumber(ctx, big.NewInt(confirmedHeight))
 	if err != nil {
-		if errors.Is(err, ethereum.NotFound) {
-			return true, nil
-		}
-		return false, err
+		return false, xerrors.Errorf("block by number %d: %w", confirmedHeight, err)
 	}
-	if receipt.Status != ethtypes.ReceiptStatusSuccessful {
-		return false, nil
-	}
-	blk, err := t.eth.BlockByNumber(ctx, receipt.BlockNumber)
-	if err != nil {
-		return false, xerrors.Errorf("block by number %s: %w", receipt.BlockNumber.String(), err)
-	}
-	if blk.Hash() != receipt.BlockHash {
-		return true, nil
-	}
-	return false, nil
+	return blk.Hash() != storedBlockHash, nil
 }
 
 func (t *ReorgCheckTask) rollbackByReason(ctx context.Context, sendReason, txHash string) (summary string, err error) {

@@ -3,10 +3,13 @@ package itests
 import (
 	"context"
 	"io"
+	"math/big"
 	"math/rand"
 	"os"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -20,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/pdpv0"
 
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
 )
@@ -201,6 +205,39 @@ func TestPDPProving(t *testing.T) {
 	verified := proof.VerifyProof(out.Leaf, out.Proof, rd, uint64(challenge))
 	require.True(t, verified)
 
+	// --- Reorg check: happy path (no reorg) ---
+	// Simulate a confirmed tx at height 100 with a known canonical block.
+	confirmHeight := int64(100)
+	canonicalHdr := &ethtypes.Header{Number: big.NewInt(confirmHeight), GasLimit: 30_000_000}
+	canonicalBlk := ethtypes.NewBlockWithHeader(canonicalHdr)
+
+	rt := pdpv0.NewReorgCheckTask(nil, &staticBlockEth{blk: canonicalBlk}, nil)
+
+	reorged, err := rt.TxReorgedFromChain(ctx, confirmHeight, canonicalBlk.Hash())
+	require.NoError(t, err)
+	require.False(t, reorged, "matching block hash must not be flagged as reorged")
+
+	has, layerIdxAfter, err := idxStore.GetPDPLayerIndex(ctx, pcid2)
+	require.NoError(t, err)
+	require.True(t, has, "PDP layer must still exist after non-reorg check")
+	require.Equal(t, layerIdx, layerIdxAfter)
+
+	// --- Reorg check: reorg detected ---
+	// Same height, but the stored receipt hash no longer matches the canonical block.
+	reorgedHash := common.Hash{0xDE, 0xAD}
+	reorged, err = rt.TxReorgedFromChain(ctx, confirmHeight, reorgedHash)
+	require.NoError(t, err)
+	require.True(t, reorged, "mismatched block hash must be flagged as reorged")
+
 	err = idxStore.DeletePDPLayer(ctx, pcid2)
 	require.NoError(t, err)
+}
+
+// staticBlockEth implements pdpv0.ReorgCheckEthAPI, always returning the same block.
+type staticBlockEth struct {
+	blk *ethtypes.Block
+}
+
+func (s *staticBlockEth) BlockByNumber(_ context.Context, _ *big.Int) (*ethtypes.Block, error) {
+	return s.blk, nil
 }
