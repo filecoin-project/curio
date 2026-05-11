@@ -734,7 +734,7 @@ func (e *TaskEngine) AddTaskByName(name string, extra func(TaskID, *harmonydb.Tx
 	retryWait := time.Millisecond * 100
 	var postedAt time.Time
 retryAddTask:
-	_, err := e.cfg.db.BeginTransaction(e.cfg.ctx, func(tx *harmonydb.Tx) (bool, error) {
+	committed, err := e.cfg.db.BeginTransaction(e.cfg.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		err := tx.QueryRow(`INSERT INTO harmony_task (name, added_by, posted_time) 
           VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id, posted_time`, name, e.cfg.ownerID).Scan(&tID, &postedAt)
 		if err != nil {
@@ -754,6 +754,10 @@ retryAddTask:
 			goto retryAddTask
 		}
 		log.Errorw("Could not add task. AddTasFunc failed", "error", err, "type", name)
+		return
+	}
+
+	if !committed {
 		return
 	}
 
