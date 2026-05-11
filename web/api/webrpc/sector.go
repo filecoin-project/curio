@@ -22,10 +22,33 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 const verifiedPowerGainMul = 9
+
+// SectorPartitionState contains the sector's state within its assigned deadline/partition
+type SectorPartitionState struct {
+	Deadline  uint64 `json:"deadline"`
+	Partition uint64 `json:"partition"`
+
+	// Bitfield states within the partition
+	InAllSectors        bool `json:"in_all_sectors"`
+	InLiveSectors       bool `json:"in_live_sectors"`
+	InActiveSectors     bool `json:"in_active_sectors"`
+	InFaultySectors     bool `json:"in_faulty_sectors"`
+	InRecoveringSectors bool `json:"in_recovering_sectors"`
+	InUnprovenSectors   bool `json:"in_unproven_sectors"`
+
+	// PoSt status
+	PartitionPoStSubmitted bool `json:"partition_post_submitted"`
+
+	// Proving window timing
+	IsCurrentDeadline bool    `json:"is_current_deadline"`
+	EpochsUntilProof  *int64  `json:"epochs_until_proof,omitempty"`
+	HoursUntilProof   *string `json:"hours_until_proof,omitempty"`
+}
 
 type SectorInfo struct {
 	SectorNumber       int64
@@ -46,9 +69,28 @@ type SectorInfo struct {
 	UpdateMsg          string
 	UnsealedState      *bool
 	HasUnsealed        bool
+	HasSealed          bool
+	HasUpdate          bool
 
 	PipelinePoRep *sectorListEntry
 	PipelineSnap  *sectorSnapListEntry
+
+	// On-chain partition state (detailed)
+	PartitionState *SectorPartitionState
+
+	// On-chain data for DB comparison
+	OnChain           bool
+	ChainSealedCID    string // Current sealed CID from chain (SealedCID)
+	ChainSectorKeyCID string // Original pre-snap sealed CID from chain (SectorKeyCID), empty if not snapped
+	ChainExpiration   *int64
+	ChainIsSnap       bool   // true if SectorKeyCID is set on chain
+	DBExpirationEpoch *int64 // Original DB expiration before chain overwrite (for comparison display)
+
+	// Mismatch flags (DB vs chain)
+	MismatchSealedCID    bool // cur_sealed_cid != chain SealedCID
+	MismatchSectorKeyCID bool // orig_sealed_cid != chain SectorKeyCID (for snapped sectors on chain)
+	MismatchExpiration   bool // DB expiration != chain Expiration
+	MismatchIsSnap       bool // DB snap state disagrees with chain (e.g. chain says snapped but DB CIDs are equal)
 
 	Pieces      []SectorPieceMeta
 	Locations   []LocationTable
@@ -181,6 +223,7 @@ type SectorMeta struct {
 	// Bools (NullBool = 2 bytes each)
 	IsCC          NullBool `db:"is_cc"`               // 2 bytes
 	UnsealedState NullBool `db:"target_unseal_state"` // 2 bytes
+	HasSectorKey  bool     `db:"has_sector_key"`
 }
 
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
@@ -342,9 +385,14 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	locs := []LocationTable{}
 
 	for i, loc := range sectorLocations {
-		loc := loc
 		if loc.FileType == storiface.FTUnsealed {
 			si.HasUnsealed = true
+		}
+		if loc.FileType == storiface.FTSealed {
+			si.HasSealed = true
+		}
+		if loc.FileType == storiface.FTUpdate {
+			si.HasUpdate = true
 		}
 
 		urlList := strings.Split(loc.Urls, paths.URLSeparator)
@@ -369,8 +417,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 		pathTypeStr = &pathType
 
-		fileType := loc.FileType.String()
-		fileTypeStr = &fileType
+		fileTypeStr = new(loc.FileType.String())
 
 		if i > 0 {
 			prevNonNilPathTypeLoc := i - 1
@@ -414,7 +461,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
        orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid, 
        msg_cid_precommit, msg_cid_commit, msg_cid_update, 
        expiration_epoch, deadline, partition, target_unseal_state, 
-       is_cc FROM sectors_meta 
+       is_cc, has_sector_key FROM sectors_meta 
              WHERE sp_id = $1 AND sector_num = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch sector metadata: %w", err)
@@ -431,27 +478,19 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		if sectormeta.UpdateCid.Valid {
 			si.UpdateMsg = sectormeta.UpdateCid.String
 		}
-		if sectormeta.IsCC.Valid {
-			si.IsSnap = !sectormeta.IsCC.Bool
-		} else {
-			si.IsSnap = false
-		}
+		si.IsSnap = sectormeta.HasSectorKey
 
 		if sectormeta.ExpirationEpoch.Valid {
-			e := sectormeta.ExpirationEpoch.Int64
-			si.ExpirationEpoch = &e
+			si.ExpirationEpoch = new(sectormeta.ExpirationEpoch.Int64)
 		}
 		if sectormeta.Deadline.Valid {
-			d := sectormeta.Deadline.Int64
-			si.Deadline = &d
+			si.Deadline = new(sectormeta.Deadline.Int64)
 		}
 		if sectormeta.Partition.Valid {
-			p := sectormeta.Partition.Int64
-			si.Partition = &p
+			si.Partition = new(sectormeta.Partition.Int64)
 		}
 		if sectormeta.UnsealedState.Valid {
-			u := sectormeta.UnsealedState.Bool
-			si.UnsealedState = &u
+			si.UnsealedState = new(sectormeta.UnsealedState.Bool)
 		}
 	}
 
@@ -527,15 +566,18 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
 		}
+		pieces[i].PieceCidV2 = pcid.String()
 
-		if pieces[i].DataRawSize.Valid {
+		if pieces[i].DataRawSize.Valid && pieces[i].DataRawSize.Int64 >= 127 {
 			pcid2, err := commcid.PieceCidV2FromV1(pcid, uint64(pieces[i].DataRawSize.Int64))
-
 			if err != nil {
-				return nil, xerrors.Errorf("failed to generate piece cid v2: %w", err)
+				log.Warnw("failed to generate piece cid v2, using piece cid v1",
+					"piece_cid", pieces[i].PieceCid, "raw_size", pieces[i].DataRawSize.Int64, "err", err)
+			} else {
+				pieces[i].PieceCidV2 = pcid2.String()
 			}
-
-			pieces[i].PieceCidV2 = pcid2.String()
+		} else if pieces[i].DataRawSize.Valid {
+			log.Warnw("raw_size unavailable, using piece cid v1", "piece_cid", pieces[i].PieceCid, "raw_size", pieces[i].DataRawSize.Int64)
 		}
 
 		dataUrl := ""
@@ -585,12 +627,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		pieces[i].PieceParkCreatedAt = parkedPiece[0].CreatedAt.Local()
 		pieces[i].PieceParkComplete = parkedPiece[0].Complete
 		if parkedPiece[0].ParkTaskID.Valid {
-			t := parkedPiece[0].ParkTaskID.Int64
-			pieces[i].PieceParkTaskID = &t
+			pieces[i].PieceParkTaskID = new(parkedPiece[0].ParkTaskID.Int64)
 		}
 		if parkedPiece[0].CleanupTaskID.Valid {
-			c := parkedPiece[0].CleanupTaskID.Int64
-			pieces[i].PieceParkCleanupTaskID = &c
+			pieces[i].PieceParkCleanupTaskID = new(parkedPiece[0].CleanupTaskID.Int64)
 		}
 	}
 
@@ -744,11 +784,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 				return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
 			}
 
-			d := int64(part.Deadline)
-			si.Deadline = &d
+			si.Deadline = new(int64(part.Deadline))
 
-			p := int64(part.Partition)
-			si.Partition = &p
+			si.Partition = new(int64(part.Partition))
 		}
 
 		si.ActivationEpoch = onChainInfo.Activation
@@ -757,6 +795,47 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			si.ExpirationEpoch = &expr
 		}
 		si.DealWeight = dealWeight
+
+		// Populate on-chain comparison fields
+		si.OnChain = true
+		si.ChainSealedCID = onChainInfo.SealedCID.String()
+		if onChainInfo.SectorKeyCID != nil {
+			si.ChainSectorKeyCID = onChainInfo.SectorKeyCID.String()
+			si.ChainIsSnap = true
+		}
+		chainExpr := int64(onChainInfo.Expiration)
+		si.ChainExpiration = &chainExpr
+
+		// Compute mismatches against DB values
+		if len(sectorMetas) > 0 {
+			dbMeta := sectorMetas[0]
+
+			// Preserve original DB expiration for comparison display
+			if dbMeta.ExpirationEpoch.Valid {
+				si.DBExpirationEpoch = new(dbMeta.ExpirationEpoch.Int64)
+			}
+
+			// cur_sealed_cid should match chain SealedCID
+			if dbMeta.UpdatedSealedCid != si.ChainSealedCID {
+				si.MismatchSealedCID = true
+			}
+
+			// For snapped sectors on chain: orig_sealed_cid should match chain SectorKeyCID
+			if si.ChainIsSnap && dbMeta.OrigSealedCid != si.ChainSectorKeyCID {
+				si.MismatchSectorKeyCID = true
+			}
+
+			// Expiration comparison (use original DB value, not the chain-overwritten one)
+			if dbMeta.ExpirationEpoch.Valid && dbMeta.ExpirationEpoch.Int64 != chainExpr {
+				si.MismatchExpiration = true
+			}
+
+			// Snap state: chain says snapped if SectorKeyCID != nil
+			// DB says snapped if has_sector_key is true
+			if dbMeta.HasSectorKey != si.ChainIsSnap {
+				si.MismatchIsSnap = true
+			}
+		}
 	}
 
 	si.PipelinePoRep = sle
@@ -770,7 +849,154 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	si.Resumable = hasAnyStuckTask
 	si.Restart = hasAnyStuckTask && (sle == nil || !sle.AfterSynthetic)
 
+	// Fetch partition state if we have deadline/partition info
+	if si.Deadline != nil && si.Partition != nil {
+		partState, err := a.getSectorPartitionState(ctx, maddr, abi.SectorNumber(intid), uint64(*si.Deadline), uint64(*si.Partition))
+		if err != nil {
+			// Log warning but don't fail the whole request
+			log.Warnw("failed to get sector partition state", "miner", maddr, "sector", intid, "error", err)
+		} else {
+			si.PartitionState = partState
+		}
+	}
+
 	return si, nil
+}
+
+// getSectorPartitionState retrieves detailed partition state for a sector
+func (a *WebRPC) getSectorPartitionState(ctx context.Context, maddr address.Address, sectorNum abi.SectorNumber, dlIdx, partIdx uint64) (*SectorPartitionState, error) {
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	// Get miner actor state
+	act, err := a.deps.Chain.StateGetActor(ctx, maddr, head.Key())
+	if err != nil {
+		return nil, xerrors.Errorf("getting miner actor: %w", err)
+	}
+
+	mas, err := miner.Load(a.stor, act)
+	if err != nil {
+		return nil, xerrors.Errorf("loading miner state: %w", err)
+	}
+
+	// Get deadline info
+	dinfo, err := mas.DeadlineInfo(head.Height())
+	if err != nil {
+		return nil, xerrors.Errorf("getting deadline info: %w", err)
+	}
+
+	// Get the specific deadline
+	var dlState miner.Deadline
+	err = mas.ForEachDeadline(func(idx uint64, dl miner.Deadline) error {
+		if idx == dlIdx {
+			dlState = dl
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("iterating deadlines: %w", err)
+	}
+	if dlState == nil {
+		return nil, xerrors.Errorf("deadline %d not found", dlIdx)
+	}
+
+	// Get the specific partition
+	var partState miner.Partition
+	err = dlState.ForEachPartition(func(idx uint64, part miner.Partition) error {
+		if idx == partIdx {
+			partState = part
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("iterating partitions: %w", err)
+	}
+	if partState == nil {
+		return nil, xerrors.Errorf("partition %d not found in deadline %d", partIdx, dlIdx)
+	}
+
+	// Check sector in each bitfield
+	sectorID := uint64(sectorNum)
+
+	allSectors, err := partState.AllSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting all sectors: %w", err)
+	}
+	inAll, _ := allSectors.IsSet(sectorID)
+
+	liveSectors, err := partState.LiveSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting live sectors: %w", err)
+	}
+	inLive, _ := liveSectors.IsSet(sectorID)
+
+	activeSectors, err := partState.ActiveSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting active sectors: %w", err)
+	}
+	inActive, _ := activeSectors.IsSet(sectorID)
+
+	faultySectors, err := partState.FaultySectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting faulty sectors: %w", err)
+	}
+	inFaulty, _ := faultySectors.IsSet(sectorID)
+
+	recoveringSectors, err := partState.RecoveringSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting recovering sectors: %w", err)
+	}
+	inRecovering, _ := recoveringSectors.IsSet(sectorID)
+
+	unprovenSectors, err := partState.UnprovenSectors()
+	if err != nil {
+		return nil, xerrors.Errorf("getting unproven sectors: %w", err)
+	}
+	inUnproven, _ := unprovenSectors.IsSet(sectorID)
+
+	// Check PoSt submission status for this partition
+	postsPosted, err := dlState.PartitionsPoSted()
+	if err != nil {
+		return nil, xerrors.Errorf("getting posted partitions: %w", err)
+	}
+	postSubmitted, _ := postsPosted.IsSet(partIdx)
+
+	// Build result
+	state := &SectorPartitionState{
+		Deadline:               dlIdx,
+		Partition:              partIdx,
+		InAllSectors:           inAll,
+		InLiveSectors:          inLive,
+		InActiveSectors:        inActive,
+		InFaultySectors:        inFaulty,
+		InRecoveringSectors:    inRecovering,
+		InUnprovenSectors:      inUnproven,
+		PartitionPoStSubmitted: postSubmitted,
+		IsCurrentDeadline:      dlIdx == dinfo.Index,
+	}
+
+	// Calculate time until proving window
+	if dlIdx != dinfo.Index {
+		deadlinesPerPeriod := uint64(48)
+		epochsPerDeadline := dinfo.WPoStChallengeWindow
+
+		var epochsUntilOpen abi.ChainEpoch
+		if dlIdx > dinfo.Index {
+			epochsUntilOpen = abi.ChainEpoch(dlIdx-dinfo.Index) * epochsPerDeadline
+		} else {
+			epochsUntilOpen = abi.ChainEpoch(deadlinesPerPeriod-dinfo.Index+dlIdx) * epochsPerDeadline
+		}
+		epochsUntilOpen -= (head.Height() - dinfo.Open)
+
+		state.EpochsUntilProof = new(int64(epochsUntilOpen))
+
+		hoursUntil := float64(epochsUntilOpen) * 30.0 / 3600.0
+		state.HoursUntilProof = new(fmt.Sprintf("%.1f hours", hoursUntil))
+	}
+
+	return state, nil
 }
 
 func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {
@@ -1199,7 +1425,6 @@ func (a *WebRPC) SectorDeadlineStats(ctx context.Context) ([]DeadlineStats, erro
 	deadlineInfoChan := make(chan deadlineInfo, len(stats))
 
 	for _, sp := range spMap {
-		sp := sp
 		eg.Go(func() error {
 			// Get deadlines for this miner
 			deadlines, err := a.deps.Chain.StateMinerDeadlines(ctx, sp.spAddr, types.EmptyTSK)
@@ -1562,15 +1787,13 @@ func (a *WebRPC) SectorExpManagerSPs(ctx context.Context) ([]SectorExpManagerSP,
 			Enabled:    r.Enabled,
 		}
 		if r.LastRunAt.Valid {
-			t := r.LastRunAt.Time.Format("2006-01-02 15:04:05")
-			item.LastRunAt = &t
+			item.LastRunAt = new(r.LastRunAt.Time.Format("2006-01-02 15:04:05"))
 		}
 		if r.LastMessageCID.Valid {
 			item.LastMessageCID = &r.LastMessageCID.String
 		}
 		if r.LastMessageLandedAt.Valid {
-			t := r.LastMessageLandedAt.Time.Format("2006-01-02 15:04:05")
-			item.LastMessageLandedAt = &t
+			item.LastMessageLandedAt = new(r.LastMessageLandedAt.Time.Format("2006-01-02 15:04:05"))
 		}
 		result = append(result, item)
 	}

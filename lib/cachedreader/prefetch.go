@@ -56,10 +56,7 @@ func (pr *PrefetchReader) Read(p []byte) (int, error) {
 
 		if readPos != writePos {
 			// There is buffered data ready to drain into the caller.
-			available := writePos - readPos
-			if available > uint64(len(p)) {
-				available = uint64(len(p))
-			}
+			available := min(writePos-readPos, uint64(len(p)))
 
 			start := int(readPos % pr.bufferSize)
 			toCopy := int(available)
@@ -117,16 +114,13 @@ func (pr *PrefetchReader) prefetchWorker() {
 			}
 
 			// Calculate contiguous space we can safely fill this iteration.
-			spaceAvailable := pr.bufferSize - (writePos - readPos)
-			if spaceAvailable > uint64(len(tmpBuf)) {
-				spaceAvailable = uint64(len(tmpBuf))
-			}
+			spaceAvailable := min(pr.bufferSize-(writePos-readPos), uint64(len(tmpBuf)))
 
 			// Read from source
 			n, err := pr.source.Read(tmpBuf[:spaceAvailable])
 			if n > 0 {
 				// Copy to ring buffer
-				for i := 0; i < n; i++ {
+				for i := range n {
 					pr.buffer[(writePos+uint64(i))%pr.bufferSize] = tmpBuf[i]
 				}
 				pr.writePtr.Add(uint64(n))

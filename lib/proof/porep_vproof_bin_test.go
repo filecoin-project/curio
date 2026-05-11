@@ -49,9 +49,7 @@ func TestDecode(t *testing.T) {
 	}
 
 	var proverID = [32]byte{9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}
-	pba := cgo.AsByteArray32(proverID[:])
-
-	_, err = cgo.SealCommitPhase2(cgo.AsSliceRefUint8(p1o), uint64(0), &pba)
+	_, err = cgo.SealCommitPhase2(cgo.AsSliceRefUint8(p1o), uint64(0), new(cgo.AsByteArray32(proverID[:])))
 	if err != nil {
 		t.Fatal(err)
 	}

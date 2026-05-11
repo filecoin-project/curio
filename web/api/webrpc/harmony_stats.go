@@ -4,27 +4,38 @@ import (
 	"context"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 )
 
-// SELECT name, count(case when result = 'true' then 1 end) as true_count,
-//    count(case when result = 'false' then 1 end) as false_count, count(*) as total_count
-//    from harmony_task_history where work_end > current_timestamp - interval '1 day'
-//    group by name order by total_count desc
-
 type HarmonyTaskStats struct {
-	Name       string `db:"name"`
-	TrueCount  int    `db:"true_count"`
-	FalseCount int    `db:"false_count"`
-	TotalCount int    `db:"total_count"`
+	Name       string `db:"name" json:"name"`
+	Success    int    `db:"success" json:"success"`
+	Failure    int    `db:"failure" json:"failure"`
+	TotalCount int    `db:"total" json:"total"`
 }
 
 func (a *WebRPC) HarmonyTaskStats(ctx context.Context) ([]HarmonyTaskStats, error) {
 	var stats []HarmonyTaskStats
-	err := a.deps.DB.Select(ctx, &stats, `SELECT name, count(case when result = 'true' then 1 end) as true_count,
-		count(case when result = 'false' then 1 end) as false_count, count(*) as total_count
-		from harmony_task_history where work_end > current_timestamp - interval '1 day'
-		group by name order by total_count desc`)
+	err := a.deps.DB.Select(ctx, &stats, `
+				WITH per_task AS (
+					SELECT
+						name,
+						task_id,
+						BOOL_OR(result) AS succeeded
+					FROM harmony_task_history
+					WHERE work_end > CURRENT_TIMESTAMP - INTERVAL '1 day'
+					GROUP BY name, task_id
+				)
+				SELECT
+					name,
+					COUNT(*) FILTER (WHERE succeeded) AS success,
+					COUNT(*) FILTER (WHERE NOT succeeded) AS failure,
+					COUNT(*) AS total
+				FROM per_task
+				GROUP BY name
+				ORDER BY total DESC;`)
 	if err != nil {
 		return nil, err
 	}
@@ -184,4 +195,36 @@ func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]*H
 	}
 
 	return history, nil
+}
+
+type SingletonInfo struct {
+	TaskName      string     `db:"task_name" json:"TaskName"`
+	TaskID        NullInt64  `db:"task_id" json:"TaskID"`
+	LastRunTime   *time.Time `db:"last_run_time" json:"LastRunTime"`
+	RunNowRequest bool       `db:"run_now_request" json:"RunNowRequest"`
+}
+
+func (a *WebRPC) SingletonTaskInfo(ctx context.Context, taskName string) (*SingletonInfo, error) {
+	var info []SingletonInfo
+	err := a.deps.DB.Select(ctx, &info,
+		`SELECT task_name, task_id, last_run_time, run_now_request FROM harmony_task_singletons WHERE task_name = $1`, taskName)
+	if err != nil {
+		return nil, err
+	}
+	if len(info) == 0 {
+		return nil, nil
+	}
+	return &info[0], nil
+}
+
+func (a *WebRPC) SingletonRunNow(ctx context.Context, taskName string) error {
+	n, err := a.deps.DB.Exec(ctx,
+		`UPDATE harmony_task_singletons SET run_now_request = TRUE WHERE task_name = $1`, taskName)
+	if err != nil {
+		return xerrors.Errorf("setting run_now_request: %w", err)
+	}
+	if n == 0 {
+		return xerrors.Errorf("task %q is not a registered singleton", taskName)
+	}
+	return nil
 }

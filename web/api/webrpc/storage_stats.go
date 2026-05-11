@@ -281,8 +281,7 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *i
 		if err != nil {
 			return nil, err
 		}
-		tspid := int64(sp_id)
-		spID = &tspid
+		spID = new(int64(sp_id))
 	}
 
 	if sectorNum != nil && *sectorNum < 0 {
@@ -383,6 +382,14 @@ func (a *WebRPC) StorageGCApproveAll(ctx context.Context) error {
 
 func (a *WebRPC) StorageGCUnapproveAll(ctx context.Context) error {
 	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE approved = true`)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *WebRPC) StorageGCUnapprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE sp_id = $1 AND sector_num = $2 AND sector_filetype = $3 AND storage_id = $4`, actor, sectorNum, fileType, storageID)
 	if err != nil {
 		return err
 	}

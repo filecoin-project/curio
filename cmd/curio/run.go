@@ -177,7 +177,7 @@ var webCmd = &cli.Command{
 		webtxt, err := getConfig(db, "web")
 		if err != nil || webtxt == "" {
 
-			s := `[Susbystems]
+			s := `[Subsystems]
 			EnableWebGui = true
 			`
 			if err = setConfig(db, "web", s); err != nil {

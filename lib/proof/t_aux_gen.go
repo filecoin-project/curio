@@ -41,28 +41,28 @@ func EnsureTauxForType(spt abi.RegisteredSealProof, path string) error {
 		TreeDConfig: StoreConfig{
 			Path:          path,
 			ID:            "tree-d",
-			Size:          iptr(2147483647),
+			Size:          new(uint64(2147483647)),
 			RowsToDiscard: 0,
 		},
 		TreeRConfig: StoreConfig{
 			Path:          path,
 			ID:            "tree-r-last",
-			Size:          iptr(153391689),
+			Size:          new(uint64(153391689)),
 			RowsToDiscard: treeRRowsToDiscard,
 		},
 		TreeCConfig: StoreConfig{
 			Path:          path,
 			ID:            "tree-c",
-			Size:          iptr(153391689),
+			Size:          new(uint64(153391689)),
 			RowsToDiscard: 0,
 		},
 	}
 
-	for i := 0; i < 11; i++ {
+	for i := range 11 {
 		taux.Labels.Labels = append(taux.Labels.Labels, StoreConfig{
 			Path:          path,
 			ID:            fmt.Sprintf("layer-%d", i+1),
-			Size:          iptr(1073741824),
+			Size:          new(uint64(1073741824)),
 			RowsToDiscard: 0,
 		})
 	}
@@ -77,8 +77,4 @@ func EnsureTauxForType(spt abi.RegisteredSealProof, path string) error {
 	}
 
 	return nil
-}
-
-func iptr(i uint64) *uint64 {
-	return &i
 }

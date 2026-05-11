@@ -46,23 +46,23 @@ sudo apt update && sudo apt upgrade -y && sudo apt install -y \
 
 ***
 
-### :hammer: Install Go (match `GO_VERSION_MIN`)
+### :hammer: Install Go (match `go.mod`)
 
-Curio’s minimum Go version is set in the Curio repo at `GO_VERSION_MIN`.
+Curio’s minimum Go version is set in the Curio repo at `go.mod`.
 
-Example (current repo min is **1.24.7**):
+Example (current repo min is **1.26.2**):
 
 ```sh
 sudo rm -rf /usr/local/go
-wget https://go.dev/dl/go1.24.7.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.24.7.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.2.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.2.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 go version
 ```
 
 {% hint style="success" %}
-You should see something like: `go version go1.24.7 linux/amd64`
+You should see something like: `go version go1.26.2 linux/amd64`
 {% endhint %}
 
 ***
@@ -97,6 +97,66 @@ EOF
 ```
 
 ***
+
+
+---
+
+## PDP schema / migrations (important)
+
+PDP requires database schema migrations.
+
+How to confirm PDP schema exists:
+- Connect to YSQL and verify expected tables exist in the `curio` schema.
+
+```bash
+ysqlsh -h "$CURIO_DB_HOST" -p "${CURIO_DB_PORT:-5433}" -U "$CURIO_DB_USER" -d "${CURIO_DB_NAME:-yugabyte}" -c "\dn+ curio"
+```
+
+Migration reference:
+- The PDP schema is added via Curio’s HarmonyDB migrations (for example: `harmony/harmonydb/sql/20240930-pdp.sql`).
+
+If you upgraded Curio binaries but PDP still fails:
+- check Curio logs on startup for schema upgrade output
+- confirm you are connected to the correct DB (`CURIO_DB_NAME` default `yugabyte`) and schema (`curio`)
+
+---
+
+## Ports & domain names (PDP vs Market)
+
+PDP commonly confuses operators because multiple HTTP-exposed services may exist in a Curio deployment.
+
+Recommended patterns:
+
+### Pattern A: single domain, one Curio HTTP server
+- One public domain (e.g. `curio.example.com`)
+- One HTTP server handles multiple routes
+- Reverse proxy optional (see HTTP server docs)
+
+### Pattern B: separate domains for separate services
+- `pdp.example.com` and `market.example.com`
+- Useful when you want different auth/proxying/caching policies
+
+Checklist:
+- Decide whether Curio terminates TLS or a reverse proxy does.
+- Ensure inbound 80/443 is reachable for Let’s Encrypt (if used).
+
+See:
+- `documentation/en/curio-market/curio-http-server.md`
+
+---
+
+## Troubleshooting: `pdptool ping` works locally but not remotely
+
+Common causes:
+- firewall blocks inbound traffic
+- wrong domain/port
+- TLS delegation mismatch
+
+What to do:
+- test from an external host
+- confirm DNS and ports 80/443 (or your proxy) are correct
+- include full logs + command used
+
 
 ## ⛓️ Installing and Running Lotus
 

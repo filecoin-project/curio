@@ -71,24 +71,21 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.PDPV1.ErrorMsg = pdp_error.String
 		}
 
-		if !pdp_complete.Bool {
+		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {
 			pdp := deal.Products.PDPV1
 			if pdp.AddPiece {
-				if deal.Data != nil {
-					// Check if deal is uploaded
-					var yes bool
-					err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&yes)
-					if err != nil {
-						log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
-						return &DealStatus{
-							HTTPCode: http.StatusInternalServerError,
-						}
+				var waitingForUpload bool
+				err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&waitingForUpload)
+				if err != nil {
+					log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+					return &DealStatus{
+						HTTPCode: http.StatusInternalServerError,
 					}
-					if yes {
-						ret.Response.PDPV1.State = DealStateAwaitingUpload
-					} else {
-						ret.Response.PDPV1.State = DealStateProcessing
-					}
+				}
+				if waitingForUpload {
+					ret.Response.PDPV1.State = DealStateAwaitingUpload
+				} else if deal.Data != nil {
+					ret.Response.PDPV1.State = DealStateProcessing
 				} else {
 					ret.Response.PDPV1.State = DealStateAccepted
 				}
@@ -120,7 +117,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.DDOV1.ErrorMsg = ddo_error.String
 		}
 
-		if !ddo_complete.Bool {
+		if !ddo_complete.Bool && (!ddo_error.Valid || ddo_error.String == "") {
 			state, err := m.getDDOStatus(ctx, id)
 			if err != nil {
 				log.Errorw("failed to get DDO status", "deal", id.String(), "error", err)
@@ -138,13 +135,21 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	if isPDP && isDDO {
 		ret := &DealStatus{
 			HTTPCode: http.StatusOK,
+			Response: &DealProductStatusResponse{
+				PDPV1: &DealStatusResponse{
+					State: DealStateAccepted,
+				},
+				DDOV1: &DealStatusResponse{
+					State: DealStateAccepted,
+				},
+			},
 		}
 
 		if pdp_complete.Bool {
 			ret.Response.PDPV1.State = DealStateComplete
 		}
 
-		if pdp_error.Valid {
+		if pdp_error.Valid && pdp_error.String != "" {
 			ret.Response.PDPV1.State = DealStateFailed
 			ret.Response.PDPV1.ErrorMsg = pdp_error.String
 		}
@@ -158,24 +163,21 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			ret.Response.DDOV1.ErrorMsg = ddo_error.String
 		}
 
-		if !pdp_complete.Bool {
+		if !pdp_complete.Bool && (!pdp_error.Valid || pdp_error.String == "") {
 			pdp := deal.Products.PDPV1
 			if pdp.AddPiece {
-				if deal.Data != nil {
-					// Check if deal is uploaded
-					var yes bool
-					err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&yes)
-					if err != nil {
-						log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
-						return &DealStatus{
-							HTTPCode: http.StatusInternalServerError,
-						}
+				var waitingForUpload bool
+				err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&waitingForUpload)
+				if err != nil {
+					log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+					return &DealStatus{
+						HTTPCode: http.StatusInternalServerError,
 					}
-					if yes {
-						ret.Response.PDPV1.State = DealStateAwaitingUpload
-					} else {
-						ret.Response.PDPV1.State = DealStateProcessing
-					}
+				}
+				if waitingForUpload {
+					ret.Response.PDPV1.State = DealStateAwaitingUpload
+				} else if deal.Data != nil {
+					ret.Response.PDPV1.State = DealStateProcessing
 				} else {
 					ret.Response.PDPV1.State = DealStateAccepted
 				}
@@ -186,7 +188,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			}
 		}
 
-		if !ddo_complete.Bool {
+		if !ddo_complete.Bool && (!ddo_error.Valid || ddo_error.String == "") {
 			state, err := m.getDDOStatus(ctx, id)
 			if err != nil {
 				log.Errorw("failed to get DDO status", "deal", id.String(), "error", err)
@@ -207,8 +209,17 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 }
 
 func (m *MK20) getDDOStatus(ctx context.Context, id ulid.ULID) (DealState, error) {
+	var waitingForUpload bool
+	err := m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&waitingForUpload)
+	if err != nil {
+		return DealStateAccepted, err
+	}
+	if waitingForUpload {
+		return DealStateAwaitingUpload, nil
+	}
+
 	var waitingForPipeline bool
-	err := m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
+	err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
 	if err != nil {
 		return DealStateAccepted, err
 	}

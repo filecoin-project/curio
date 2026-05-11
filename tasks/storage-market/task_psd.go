@@ -97,7 +97,6 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	var deals []deal
 
 	for _, d := range bdeals {
-		d := d
 
 		var prop market.DealProposal
 		err = json.Unmarshal(d.Prop, &prop)
@@ -128,6 +127,9 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 				ClientSignature: sig,
 			},
 		})
+	}
+	if len(deals) == 0 {
+		return false, xerrors.Errorf("no deals found")
 	}
 
 	// Validate each deal and skip(fail) the ones which fail validation
@@ -184,7 +186,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		}, mss, head.Key())
 
 		if err != nil {
-			psdlog.Errorf("simulating deal publish message: %w", err)
+			psdlog.Errorf("simulating deal publish message: %s", err.Error())
 			continue
 		}
 		psdlog.Debugf("validated deal proposal %s successfully", pcid)

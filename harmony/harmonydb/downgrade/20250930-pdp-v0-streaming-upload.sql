@@ -1,0 +1,1 @@
+-- no-op downgrade: table creation is not reverted

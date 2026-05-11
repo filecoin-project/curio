@@ -618,8 +618,7 @@ var storageRedeclareCmd = &cli.Command{
 		}
 
 		if !cctx.Bool("all") {
-			id := storiface.ID(strings.TrimSpace(cctx.Args().First()))
-			return api.StorageRedeclare(ctx, &id, cctx.Bool("drop-missing"))
+			return api.StorageRedeclare(ctx, new(storiface.ID(strings.TrimSpace(cctx.Args().First()))), cctx.Bool("drop-missing"))
 		}
 
 		local, err := api.StorageLocal(ctx)
@@ -627,8 +626,10 @@ var storageRedeclareCmd = &cli.Command{
 			return err
 		}
 
-		for l := range local {
-			return api.StorageRedeclare(ctx, &l, cctx.Bool("drop-missing"))
+		for id := range local {
+			if err := api.StorageRedeclare(ctx, new(id), cctx.Bool("drop-missing")); err != nil {
+				return err
+			}
 		}
 
 		return nil

@@ -146,6 +146,7 @@ func (t *TaskUnsealSdr) TypeDetails() harmonytask.TaskTypeDetails {
 
 	if isDevnet {
 		res.Cost.Ram = 1 << 30
+		res.Cost.Cpu = 1
 	}
 
 	return res
@@ -160,7 +161,7 @@ func (t *TaskUnsealSdr) schedule(ctx context.Context, taskFunc harmonytask.AddTa
 			SectorNumber int64 `db:"sector_number"`
 		}
 
-		err := t.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = FALSE AND task_id_unseal_sdr IS NULL`)
+		err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = FALSE AND task_id_unseal_sdr IS NULL`)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}

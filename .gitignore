@@ -1,4 +1,5 @@
 /curio
+/cuzk
 /sptool
 /docgen-md
 /docgen-openrpc
@@ -19,7 +20,7 @@ build/.*
 /venv
 **/.venv
 scratchpad
-
+target
 # to ensure tests build: itests/ go test -c .
 /itests/itests.test
 
@@ -31,4 +32,4 @@ scratchpad
 node_modules
 
 # VIM
-*.swp
+*.swpcmd/curio/internal/translations/toyextract_tmp/

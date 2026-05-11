@@ -18,7 +18,7 @@ type AlertPayload struct {
 	Summary  string
 	Severity string
 	Source   string
-	Details  map[string]interface{}
+	Details  map[string]any
 	Time     time.Time
 }
 

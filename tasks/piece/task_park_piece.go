@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("cu-piece")
@@ -99,7 +100,6 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 		}
 
 		for _, pieceID := range pieceIDs {
-			pieceID := pieceID
 
 			// Create a task for each piece
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
@@ -260,16 +260,16 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 		return nil, nil
 	}
 
-	capacity := p.maxInPark - count - running
+	capacity := min(p.maxInPark-count-running, len(ids))
 	return ids[:capacity], nil
 }
 
 func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	const maxSizePiece = 64 << 30
 
-	taskName := "ParkPiece"
+	taskName := tasknames.ParkPiece
 	if p.longTerm {
-		taskName = "StorePiece"
+		taskName = tasknames.StorePiece
 	}
 
 	storageType := storiface.PathSealing

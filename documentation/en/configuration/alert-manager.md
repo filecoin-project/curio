@@ -32,7 +32,7 @@ Nobody associated with the development of this software has any business relatio
 3. During the service creation, on the “Integration” page, choose “Events API V2”.
 4. Once the service creation is complete, copy the “Integration Key” from the service and paste it in the “base” layer configuration for “PagerDutyIntegrationKey”.
 5. Enable the plugin in config layer.
-6. Restart one of the nodes, and it will now generate critical alerts every hour.
+6. Restart one of the nodes, and it will now generate critical alerts at the top of every hour.
 
 ```
 [Alerting]

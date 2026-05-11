@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -37,6 +38,8 @@ func Routes(r *mux.Router, deps *deps.Deps) {
 	r.Methods("GET").Path("/layers/{layer}").HandlerFunc(c.getLayer)
 	r.Methods("POST").Path("/addlayer").HandlerFunc(c.addLayer)
 	r.Methods("POST").Path("/layers/{layer}").HandlerFunc(c.setLayer)
+	r.Methods("GET").Path("/history/{layer}").HandlerFunc(c.getLayerHistory)
+	r.Methods("GET").Path("/history/{layer}/{id}").HandlerFunc(c.getHistoryEntry)
 	r.Methods("GET").Path("/default").HandlerFunc(c.def)
 }
 
@@ -67,7 +70,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 					Pattern: "1 fil/0.03 fil/0.31/1 attofil",
 				}
 			}
-			if i == reflect.TypeOf(time.Second) { // Override the Pattern for duration
+			if i == reflect.TypeFor[time.Duration]() { // Override the Pattern for duration
 				return &jsonschema.Schema{
 					Type:    "string",
 					Pattern: "0h0m0s",
@@ -146,7 +149,7 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 		for _, v := range []*jsonschema.Schema{s.Items, s.AdditionalProperties, s.Not, s.If, s.Then, s.Else} {
 			allOpt(v)
 		}
-		for _, v := range []interface{}{s.AllOf, s.AnyOf, s.OneOf} {
+		for _, v := range []any{s.AllOf, s.AnyOf, s.OneOf} {
 			for _, sub := range v.([]*jsonschema.Schema) {
 				allOpt(sub)
 			}
@@ -154,12 +157,14 @@ func getSch(w http.ResponseWriter, r *http.Request) {
 	}
 	allOpt(sch)
 
+	w.Header().Set("Content-Type", "application/json")
 	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(sch))
 }
 
 func (c *cfg) getLayers(w http.ResponseWriter, r *http.Request) {
 	var layers []string
 	apihelper.OrHTTPFail(w, c.DB.Select(context.Background(), &layers, `SELECT title FROM harmony_config ORDER BY title`))
+	w.Header().Set("Content-Type", "application/json")
 	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(layers))
 }
 
@@ -208,9 +213,70 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 		configStr = string(cb)
 	}
 
+	// Save config history: snapshot the old config before overwriting
+	var oldConfig string
+	err = c.DB.QueryRow(context.Background(), `SELECT config FROM harmony_config WHERE title = $1`, layer).Scan(&oldConfig)
+	if err == nil && oldConfig != configStr {
+		_, err = c.DB.Exec(context.Background(),
+			`INSERT INTO harmony_config_history (title, config) VALUES ($1, $2)`,
+			layer, oldConfig)
+		apihelper.OrHTTPFail(w, err)
+	}
+
 	//Write the TOML to the database
 	_, err = c.DB.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, layer, configStr)
 	apihelper.OrHTTPFail(w, err)
+}
+
+func (c *cfg) getLayerHistory(w http.ResponseWriter, r *http.Request) {
+	layer := mux.Vars(r)["layer"]
+	var history []struct {
+		ID        int       `db:"id" json:"id"`
+		Title     string    `db:"title" json:"title"`
+		ChangedAt time.Time `db:"changed_at" json:"changed_at"`
+	}
+	apihelper.OrHTTPFail(w, c.DB.Select(context.Background(), &history,
+		`SELECT id, title, changed_at FROM harmony_config_history WHERE title = $1 ORDER BY changed_at DESC LIMIT 20`, layer))
+	w.Header().Set("Content-Type", "application/json")
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(history))
+}
+
+func (c *cfg) getHistoryEntry(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	id, err := strconv.Atoi(idStr)
+	apihelper.OrHTTPFail(w, err)
+
+	// Fetch the history entry (snapshot of config before this change)
+	var entry struct {
+		ID        int       `db:"id" json:"id"`
+		Title     string    `db:"title" json:"title"`
+		Config    string    `db:"config" json:"config"`
+		ChangedAt time.Time `db:"changed_at" json:"changed_at"`
+	}
+	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
+		`SELECT id, title, config, changed_at FROM harmony_config_history WHERE id = $1`, id).Scan(&entry.ID, &entry.Title, &entry.Config, &entry.ChangedAt))
+
+	// Always diff against the current live config
+	var currentConfig string
+	apihelper.OrHTTPFail(w, c.DB.QueryRow(context.Background(),
+		`SELECT config FROM harmony_config WHERE title = $1`, entry.Title).Scan(&currentConfig))
+
+	resp := struct {
+		ID        int       `json:"id"`
+		Title     string    `json:"title"`
+		OldConfig string    `json:"old_config"`
+		NewConfig string    `json:"new_config"`
+		ChangedAt time.Time `json:"changed_at"`
+	}{
+		ID:        entry.ID,
+		Title:     entry.Title,
+		OldConfig: entry.Config,
+		NewConfig: currentConfig,
+		ChangedAt: entry.ChangedAt,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(resp))
 }
 
 func (c *cfg) topo(w http.ResponseWriter, r *http.Request) {

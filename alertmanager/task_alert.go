@@ -6,17 +6,23 @@ package alertmanager
 import (
 	"context"
 	"fmt"
+	"iter"
+	"maps"
+	"strings"
+	"sync"
 	"time"
 
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/alertmanager/plugin"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -28,7 +34,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
-const AlertMangerInterval = time.Hour
+const AlertManagerInterval = 5 * time.Minute
+const FullAlertInterval = 30 * time.Minute
 
 var log = logging.Logger("curio/alertmanager")
 
@@ -51,6 +58,9 @@ type AlertTask struct {
 	db      *harmonydb.DB
 	plugins *config.Dynamic[[]plugin.Plugin]
 	al      *curioalerting.AlertingSystem
+
+	pingMu       sync.Mutex
+	pingProblems bool
 }
 
 type alertOut struct {
@@ -59,25 +69,68 @@ type alertOut struct {
 }
 
 type alerts struct {
-	ctx      context.Context
-	api      AlertAPI
-	db       *harmonydb.DB
-	cfg      config.CurioAlertingConfig
-	alertMap map[string]*alertOut
+	ctx         context.Context
+	api         AlertAPI
+	db          *harmonydb.DB
+	cfg         config.CurioAlertingConfig
+	alertMap    map[AlertName]*alertOut
+	minerAddrs  []address.Address
+	walletAddrs []address.Address
 }
 
 type AlertFunc func(al *alerts)
 
-var AlertFuncs = []AlertFunc{
-	balanceCheck,
-	taskFailureCheck,
-	permanentStorageCheck,
-	wdPostCheck,
-	wnPostCheck,
-	NowCheck,
-	chainSyncCheck,
-	missingSectorCheck,
-	pendingMessagesCheck,
+type alertMute struct {
+	AlertName string  `db:"alert_name"`
+	Pattern   *string `db:"pattern"`
+}
+
+type AlertName string
+
+const (
+	Name_BalanceCheck          AlertName = "Balance Check"
+	Name_TaskFailures          AlertName = "TaskFailures"
+	Name_PDPTaskFailures       AlertName = "PDPTaskFailures"
+	Name_PermanentStorageSpace AlertName = "PermanentStorageSpace"
+	Name_WindowPost            AlertName = "WindowPost"
+	Name_WinningPost           AlertName = "WinningPost"
+	Name_NowCheck              AlertName = "NowCheck"
+	Name_ChainSync             AlertName = "ChainSync"
+	Name_MissingSectors        AlertName = "MissingSectors"
+	Name_PendingMessages       AlertName = "PendingMessages"
+	Name_IPNISync              AlertName = "IPNISync"
+)
+
+var AlertFuncs = map[AlertName]AlertFunc{
+	Name_BalanceCheck:          balanceCheck,
+	Name_TaskFailures:          taskFailureCheck,
+	Name_PDPTaskFailures:       pdpTaskFailureCheck,
+	Name_PermanentStorageSpace: permanentStorageCheck,
+	Name_WindowPost:            wdPostCheck,
+	Name_WinningPost:           wnPostCheck,
+	Name_NowCheck:              NowCheck,
+	Name_ChainSync:             chainSyncCheck,
+	Name_MissingSectors:        missingSectorCheck,
+	Name_PendingMessages:       pendingMessagesCheck,
+	Name_IPNISync:              ipniSyncCheck,
+}
+
+var PingHealthFuncs = map[AlertName]AlertFunc{
+	Name_BalanceCheck:          AlertFuncs[Name_BalanceCheck],
+	Name_ChainSync:             AlertFuncs[Name_ChainSync],
+	Name_PermanentStorageSpace: AlertFuncs[Name_PermanentStorageSpace],
+	Name_PDPTaskFailures:       AlertFuncs[Name_PDPTaskFailures],
+	Name_IPNISync:              AlertFuncs[Name_IPNISync],
+}
+
+func isPingHealthOnly(now time.Time) bool {
+	return now.Unix()%int64(FullAlertInterval.Seconds()) < int64(AlertManagerInterval.Seconds())
+}
+func funcsByInterval(now time.Time) iter.Seq[AlertFunc] {
+	if isPingHealthOnly(now) {
+		return maps.Values(PingHealthFuncs)
+	}
+	return maps.Values(AlertFuncs)
 }
 
 func NewAlertTask(
@@ -94,57 +147,152 @@ func NewAlertTask(
 	}
 }
 
+// Problems returns the ping-relevant alert results from the most recent
+// AlertTask run (ChainSync, PermanentStorageSpace, Balance Check).
+// Returns nil before the first run — the node is assumed healthy until
+// the first periodic check completes.
+func (a *AlertTask) Problems() bool {
+	a.pingMu.Lock()
+	defer a.pingMu.Unlock()
+	return a.pingProblems
+}
+
 func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if len(a.plugins.Get()) == 0 {
 		log.Warnf("No alert plugins enabled, not sending an alert")
 		return true, nil
 	}
 
+	now := build.Clock.Now()
 	ctx := context.Background()
-
-	alMap := make(map[string]*alertOut)
-
 	altrs := &alerts{
 		ctx:      ctx,
 		api:      a.api,
 		db:       a.db,
 		cfg:      a.cfg,
-		alertMap: alMap,
+		alertMap: map[AlertName]*alertOut{},
 	}
 
-	for _, al := range AlertFuncs {
+	err = altrs.getAddresses()
+	if err != nil {
+		return false, xerrors.Errorf("getting addresses: %w", err)
+	}
+
+	for al := range funcsByInterval(now) {
 		al(altrs)
 	}
 
-	details := make(map[string]interface{})
+	// Update the ping-relevant subset for the /ping health endpoint.
+	for name := range maps.Keys(PingHealthFuncs) {
+		out, ok := altrs.alertMap[name]
+		if !ok || out == nil || out.err == nil || out.alertString == "" {
+			continue
+		}
+		// Only say unhealthy if PDP IPNI sync is failing, PoRep provider should not fail health check
+		if name == Name_IPNISync {
+			if strings.Contains(out.alertString, "PDP") {
+				log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
+				a.pingMu.Lock()
+				a.pingProblems = true
+				a.pingMu.Unlock()
+			}
+		} else {
+			log.Warnf("Ping health check problem: %s %s %s", name, out.err, out.alertString)
+			a.pingMu.Lock()
+			a.pingProblems = true
+			a.pingMu.Unlock()
+		}
+		break
+	}
+	if isPingHealthOnly(now) {
+		return true, nil
+	}
 
+	// Load active mutes from database
+	var mutes []alertMute
+	err = a.db.Select(ctx, &mutes, `
+		SELECT alert_name, pattern
+		FROM alert_mutes
+		WHERE active = TRUE AND (expires_at IS NULL OR expires_at > NOW())
+	`)
+	if err != nil {
+		log.Errorf("Error loading alert mutes: %s", err)
+		// Continue without muting on error
+	}
+
+	details := make(map[string]any)
+
+	// Process regular alerts
 	for k, v := range altrs.alertMap {
 		if v != nil {
+			var alertMsg string
 			if v.err != nil {
-				details[k] = v.err.Error()
+				alertMsg = v.err.Error()
+			} else if v.alertString != "" {
+				alertMsg = v.alertString
+			} else {
 				continue
 			}
-			if v.alertString != "" {
-				details[k] = v.alertString
+
+			// Check if this alert should be muted
+			muted := isAlertMuted(string(k), alertMsg, mutes)
+			if muted {
+				log.Debugf("Alert %s muted: %s", k, alertMsg)
+			}
+
+			// Always record to alert_history (even if muted, for visibility)
+			_, dbErr := a.db.Exec(ctx, `
+				INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
+				VALUES ($1, $2, $3, $4, $5)
+			`, k, alertMsg, nil, !muted && len(a.plugins.Get()) > 0, now)
+			if dbErr != nil {
+				log.Errorf("Failed to record alert to history: %s", dbErr)
+			}
+
+			// Only add to details for sending if not muted
+			if !muted {
+				details[string(k)] = alertMsg
 			}
 		}
 	}
+
+	// Process system alerts (from curioalerting)
 	{
 		a.al.Lock()
 		defer a.al.Unlock()
 		for sys, meta := range a.al.Current {
-			details[sys.System+"_"+sys.Subsystem] = meta
+			alertKey := sys.System + "_" + sys.Subsystem
+			alertMsg := fmt.Sprintf("%v", meta)
+
+			// Check if system alerts should be muted
+			muted := isAlertMuted(alertKey, alertMsg, mutes)
+			if muted {
+				log.Debugf("System alert %s muted", alertKey)
+			}
+
+			// Always record to alert_history
+			_, dbErr := a.db.Exec(ctx, `
+				INSERT INTO alert_history (alert_name, message, machine_name, sent_to_plugins, sent_at)
+				VALUES ($1, $2, $3, $4, $5)
+			`, alertKey, alertMsg, nil, !muted && len(a.plugins.Get()) > 0, now)
+			if dbErr != nil {
+				log.Errorf("Failed to record system alert to history: %s", dbErr)
+			}
+
+			if !muted {
+				details[alertKey] = meta
+			}
 		}
 	}
 
-	// Alert only if required
-	if len(details) > 0 {
+	// Send to plugins if there are any alerts and plugins configured
+	if len(details) > 0 && len(a.plugins.Get()) > 0 {
 		payloadData := &plugin.AlertPayload{
 			Summary:  "Curio Alert",
 			Severity: "critical", // This can be critical, error, warning or info.
 			Source:   "Curio Cluster",
 			Details:  details,
-			Time:     time.Now(),
+			Time:     now,
 		}
 
 		var errs []error
@@ -158,10 +306,30 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		if len(errs) != 0 {
 			return false, fmt.Errorf("errors sending alerts: %v", errs)
 		}
+	} else if len(a.plugins.Get()) == 0 && len(details) > 0 {
+		log.Warnf("No alert plugins enabled, alerts recorded to DB but not sent externally")
 	}
 
 	return true, nil
 
+}
+
+// isAlertMuted checks if an alert matches any active mute patterns
+func isAlertMuted(alertName string, alertMessage string, mutes []alertMute) bool {
+	for _, mute := range mutes {
+		if mute.AlertName != string(alertName) {
+			continue
+		}
+		// If no pattern, mute entire category
+		if mute.Pattern == nil || *mute.Pattern == "" {
+			return true
+		}
+		// Check if message matches pattern (simple substring match)
+		if strings.Contains(alertMessage, *mute.Pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
@@ -177,7 +345,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 			Gpu: 0,
 		},
-		IAmBored: harmonytask.SingletonTaskAdder(AlertMangerInterval, a),
+		IAmBored: harmonytask.SingletonTaskAdder(AlertManagerInterval, a),
 	}
 }
 

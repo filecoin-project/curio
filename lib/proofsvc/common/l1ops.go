@@ -955,8 +955,7 @@ func (s *Service) sendEVMMessage(
 		opt(settings)
 	}
 
-	param := abi.CborBytes(data)
-	ser, aerr := actors.SerializeParams(&param)
+	ser, aerr := actors.SerializeParams(new(abi.CborBytes(data)))
 	if aerr != nil {
 		return cid.Undef, fmt.Errorf("failed to serialize params: %w", aerr)
 	}
@@ -979,8 +978,7 @@ func (s *Service) sendEVMMessage(
 
 // mustSerializeCBOR is a helper that wraps call data in a CBOR byte array.
 func mustSerializeCBOR(data []byte) []byte {
-	param := abi.CborBytes(data)
-	ser, err := actors.SerializeParams(&param)
+	ser, err := actors.SerializeParams(new(abi.CborBytes(data)))
 	if err != nil {
 		panic(fmt.Sprintf("failed to serialize params: %v", err))
 	}

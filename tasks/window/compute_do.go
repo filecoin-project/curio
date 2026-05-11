@@ -24,6 +24,7 @@ import (
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
 
 	"github.com/filecoin-project/curio/build"
+	curioffi "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -59,6 +60,11 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 	parts, err := t.api.StateMinerPartitions(ctx, maddr, di.Index, ts.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting partitions: %w", err)
+	}
+
+	if len(parts) == 0 {
+		log.Infow("no partitions in deadline", "Miner", maddr.String(), "Deadline", di.Index, "Partition", partIdx, "Height", ts.Height())
+		return nil, errEmptyPartition
 	}
 
 	if partIdx >= uint64(len(parts)) {
@@ -399,12 +405,12 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 	var wg sync.WaitGroup
 	wg.Add(int(partitionCount))
 
-	for partIdx := uint64(0); partIdx < partitionCount; partIdx++ {
+	for partIdx := range partitionCount {
 		go func(partIdx uint64) {
 			defer wg.Done()
 
 			sectors := make([]storiface.PostSectorChallenge, 0)
-			for i := uint64(0); i < maxPartitionSize; i++ {
+			for i := range maxPartitionSize {
 				si := i + partIdx*maxPartitionSize
 				if si >= uint64(len(postChallenges.Sectors)) {
 					break
@@ -546,6 +552,11 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 }
 
 func (t *WdPostTask) GenerateWindowPoStWithVanilla(ctx context.Context, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, proofs [][]byte, partitionIdx int) (proof.PoStProof, error) {
+	// When cuzk is enabled, delegate SNARK computation to the daemon.
+	if t.cuzkClient != nil && t.cuzkClient.Enabled() {
+		return curioffi.WindowPoStCuzk(ctx, t.cuzkClient, proofType, minerID, randomness, proofs, partitionIdx)
+	}
+
 	ctx = ffiselect.WithLogCtx(ctx, "miner", minerID, "proofType", proofType, "randomness", randomness, "partitionIdx", partitionIdx)
 	pp, err := ffiselect.FFISelect.GenerateSinglePartitionWindowPoStWithVanilla(ctx, proofType, minerID, randomness, proofs, uint(partitionIdx))
 	if err != nil {

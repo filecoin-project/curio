@@ -1,0 +1,70 @@
+[package]
+name = "cuzk-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Core engine library for the cuzk proving daemon"
+
+[dependencies]
+cuzk-proto = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+
+# Filecoin proving stack — Phase 0: call directly into filecoin-proofs-api.
+# The `cuda-supraseal` feature activates the supraseal CUDA backend.
+# Without it, bellperson's native prover is used.
+filecoin-proofs-api = { workspace = true }
+
+# Phase 5: Pre-Compiled Constraint Evaluator
+cuzk-pce = { workspace = true }
+
+# Phase 2: Direct circuit construction and pipelined proving.
+# These are already transitive deps via filecoin-proofs-api;
+# adding them as direct deps doesn't increase compile time or binary size.
+filecoin-proofs = { workspace = true }
+storage-proofs-core = { workspace = true }
+storage-proofs-porep = { workspace = true }
+storage-proofs-post = { workspace = true }
+storage-proofs-update = { workspace = true }
+bellperson = { workspace = true }
+blstrs = { workspace = true }
+ff = { workspace = true }
+rayon = { workspace = true }
+rand_core = { workspace = true }
+filecoin-hashers = { workspace = true }
+bincode = { workspace = true }
+ec-gpu-gen = { workspace = true }
+bitvec = { workspace = true }
+libc = "0.2"
+
+[features]
+default = ["cuda-supraseal"]
+cuda = [
+    "filecoin-proofs-api/cuda",
+    "filecoin-proofs/cuda",
+    "storage-proofs-core/cuda",
+    "storage-proofs-porep/cuda",
+    "storage-proofs-post/cuda",
+    "storage-proofs-update/cuda",
+    "bellperson/cuda",
+]
+# cuda-supraseal: bellperson and storage-proofs-core get cuda-supraseal,
+# but porep/post/update only have a "cuda" feature (which is sufficient —
+# they don't call bellperson directly, only through storage-proofs-core).
+cuda-supraseal = [
+    "filecoin-proofs-api/cuda-supraseal",
+    "filecoin-proofs/cuda-supraseal",
+    "storage-proofs-core/cuda-supraseal",
+    "storage-proofs-porep/cuda",
+    "storage-proofs-post/cuda",
+    "storage-proofs-update/cuda",
+    "bellperson/cuda-supraseal",
+]

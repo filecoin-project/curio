@@ -669,7 +669,7 @@ var sectorsListCmd = &cli.Command{
 			// 	exp = st.OnTime // Can be different when the sector was CC upgraded
 			// }
 
-			m := map[string]interface{}{
+			m := map[string]any{
 				"ID": s,
 				//"State":   color.New(spcli.StateOrder[sealing.SectorState(st.State)].Col).Sprint(st.State),
 				"OnChain": yesno(inSSet),

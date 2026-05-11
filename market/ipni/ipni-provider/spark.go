@@ -25,10 +25,16 @@ import (
 )
 
 func (p *Provider) updateSparkContract(ctx context.Context) error {
-	for _, pInfo := range p.keys {
-		pInfo := pInfo
-		if pInfo.SPID == 0 {
-			return nil
+	p.mu.RLock()
+	infos := make([]*peerInfo, 0, len(p.providerInfos))
+	for _, pInfo := range p.providerInfos {
+		infos = append(infos, pInfo)
+	}
+	p.mu.RUnlock()
+	for _, pInfo := range infos {
+		if pInfo.SPID <= 0 {
+			log.Debugf("spark does not yet support pdp data")
+			continue
 		}
 		mInfo, err := p.full.StateMinerInfo(ctx, pInfo.Miner, types.EmptyTSK)
 		if err != nil {
@@ -62,8 +68,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 			return xerrors.Errorf("Failed to pack function call data: %w", err)
 		}
 
-		param := abi.CborBytes(callData)
-		getParams, err := actors.SerializeParams(&param)
+		getParams, err := actors.SerializeParams(new(abi.CborBytes(callData)))
 		if err != nil {
 			return xerrors.Errorf("failed to serialize params: %w", err)
 		}
@@ -242,6 +247,5 @@ func (p *Provider) getSparkParams(miner abi.ActorID, newPeer string, key crypto.
 		return nil, xerrors.Errorf("Failed to pack the `%s()` function call: %v", funcName, err)
 	}
 
-	param := abi.CborBytes(data)
-	return actors.SerializeParams(&param)
+	return actors.SerializeParams(new(abi.CborBytes(data)))
 }

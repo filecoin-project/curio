@@ -1,0 +1,1 @@
+-- no-op downgrade: nullable/data-set PK transition is retained

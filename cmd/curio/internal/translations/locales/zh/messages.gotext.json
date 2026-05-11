@@ -1439,9 +1439,9 @@
       "placeholder": null
     },
     {
-      "id": "Command separated list of hostnames for yugabyte cluster",
-      "translation": "Yugabyte 集群的主机名命令分隔列表",
-      "message": "Command separated list of hostnames for yugabyte cluster",
+      "id": "Comma-separated list of hostnames for yugabyte cluster",
+      "translation": "Yugabyte 集群的主机名逗号分隔列表",
+      "message": "Comma-separated list of hostnames for yugabyte cluster",
       "placeholder": null
     },
     {
@@ -2903,9 +2903,9 @@
       "placeholder": null
     },
     {
-      "id": "Downgrade a cluster's daatabase to a previous software version.",
+      "id": "Downgrade a cluster's database to a previous software version.",
       "translation": "将集群的数据库降级到之前的软件版本。",
-      "message": "Downgrade a cluster's daatabase to a previous software version.",
+      "message": "Downgrade a cluster's database to a previous software version.",
       "placeholder": null
     },
     {
@@ -2990,6 +2990,144 @@
       "id": "Supra consensus testing utilities",
       "translation": "Supra 共识测试工具",
       "message": "Supra consensus testing utilities",
+      "placeholder": null
+    },
+    {
+      "id": "Enter {Stringworkersenderi1} address",
+      "translation": "输入 {Stringworkersenderi1} 地址",
+      "message": "Enter {Stringworkersenderi1} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "translation": "输入 Yugabyte 数据库 {Stringportusernamepassworddatabasei1}",
+      "message": "Enter the Yugabyte database {Stringportusernamepassworddatabasei1}",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the path to the configuration directory used by {Lotusminer}",
+      "translation": "输入 {Lotusminer} 使用的配置目录路径",
+      "message": "Enter the path to the configuration directory used by {Lotusminer}",
+      "placeholder": null
+    },
+    {
+      "id": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "translation": "Filecoin {Slack} 频道：{Filcuriohelp} 和 {Filcuriodev}",
+      "message": "Filecoin {Slack} channels: {Filcuriohelp} and {Filcuriodev}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Hosts}",
+      "translation": "主机：{Hosts}",
+      "message": "Host: {Hosts}",
+      "placeholder": null
+    },
+    {
+      "id": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "translation": "存储路径 {ExpandedPath} 已添加为 {StorageTypeStr}。您需要使用以下命令初始化它：curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "message": "Storage path {ExpandedPath} added as {StorageTypeStr}. You'll need to initialize it with: curio cli storage attach --init --{StorageTypeStr1} {ExpandedPath1}",
+      "placeholder": null
+    },
+    {
+      "id": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "translation": "'{Base}' 层存储通用配置。所有 curio 实例都可以在其 {Layers} 参数中包含它。",
+      "message": "The '{Base}' layer stores common configuration. All curio instances can include it in their {Layers} argument.",
+      "placeholder": null
+    },
+    {
+      "id": "Try the web interface with {Render}",
+      "translation": "使用 {Render} 尝试 Web 界面",
+      "message": "Try the web interface with {Render}",
+      "placeholder": null
+    },
+    {
+      "id": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+      "translation": "比较 {Base} 与 {Expr} 的配置。除钱包地址外的矿工 ID 之间的变更，应为有需要的运行节点创建一个新的最小层。",
+      "message": "Compare the configurations {Base} to {Expr}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+      "placeholder": null
+    },
+    {
+      "id": "Enter {Expr} address",
+      "translation": "输入 {Expr} 地址",
+      "message": "Enter {Expr} address",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the Yugabyte database {Expr}",
+      "translation": "输入 Yugabyte 数据库 {Expr}",
+      "message": "Enter the Yugabyte database {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Host: {Join}",
+      "translation": "主机：{Join}",
+      "message": "Host: {Join}",
+      "placeholder": null
+    },
+    {
+      "id": "Owner Wallet: {Expr}",
+      "translation": "所有者钱包：{Expr}",
+      "message": "Owner Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+      "translation": "由于矿工创建操作不是幂等的，请不要再次运行 guided-setup。你需要运行 'curio config new-cluster {Expr}' 来完成配置。",
+      "message": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {Expr}' to finish the configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Sender Wallet: {Expr}",
+      "translation": "发送者钱包：{Expr}",
+      "message": "Sender Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Worker Wallet: {Expr}",
+      "translation": "工作钱包：{Expr}",
+      "message": "Worker Wallet: {Expr}",
+      "placeholder": null
+    },
+    {
+      "id": "Read piece CIDs one per line from stdin instead of from arguments",
+      "translation": "从标准输入逐行读取数据块 CID，而非从参数中读取",
+      "message": "Read piece CIDs one per line from stdin instead of from arguments",
+      "placeholder": null
+    },
+    {
+      "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "translation": "通过 market_piece_deal 将每个数据块 CID 解析为扇区，然后为这些扇区设置 target_unseal_state。\n   支持数据块 CID v1 或 v2。使用 --target-state 指定所需状态（true、false 或 none）。一次性提交所有 CID 可减少需要解封的扇区数量（当数据块分布在多个扇区时）。\n   对于大量列表，请使用 --stdin 从标准输入逐行读取数据块 CID。",
+      "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true, false, or none). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for sectors containing the given piece CIDs",
+      "translation": "为包含指定数据块 CID 的扇区设置目标解封状态",
+      "message": "Set the target unseal state for sectors containing the given piece CIDs",
+      "placeholder": null
+    },
+    {
+      "id": "Target state: true (ensure unsealed), false (ensure no unsealed copy), or none",
+      "translation": "目标状态：true（确保已解封）、false（确保无解封副本）或 none",
+      "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy), or none",
+      "placeholder": null
+    },
+    {
+      "id": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "translation": "通过 market_piece_deal 将每个数据块 CID 解析到对应的扇区，然后设置这些扇区的 target_unseal_state。\n   支持数据块 CID v1 或 v2。使用 --target-state 指定目标状态（true 或 false）。一次性请求所有数据块可以最小化需要解封的扇区数量（如果您的数据块存储在多个扇区中）。\n   对于大量列表，使用 --stdin 从标准输入逐行读取数据块 CID。",
+      "message": "Resolve each piece CID to sector(s) via market_piece_deal, then set target_unseal_state for those sectors.\n   Accepts piece CID v1 or v2. Use --target-state to specify the desired state (true or false). Request all at once to minimize the sectors needed to be unsealed (if you have pieces stored in multiple sectors).\n   Use --stdin to read piece CIDs one per line from stdin (for large lists).",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "设置特定扇区的解封目标状态。\n   \u003cminer-id\u003e：存储提供者 ID\n   \u003csector-number\u003e：扇区编号\n   \u003ctarget-state\u003e：目标状态（true、false）\n\n   解封目标状态指示 curio 如何维护扇区的解封副本。\n\t   如果目标状态为 true，curio 将确保该扇区已解封。\n\t   如果目标状态为 false，curio 将确保不存在该扇区的解封副本。\n\t   如果目标状态为 none，curio 不会更改扇区的当前状态。\n\n   目前 curio 仅在目标状态从其他状态变更为 true 时才会启动新的解封流程。\n\n   当目标状态为 false 且存在解封的扇区文件时，GC 标记步骤将为该解封扇区文件创建删除标记。文件仅在删除标记被接受后才会被移除。",
+      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "placeholder": null
+    },
+    {
+      "id": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
+      "translation": "目标状态：true（确保已解封）、false（确保无解封副本）",
+      "message": "Target state: true (ensure unsealed), false (ensure no unsealed copy)",
       "placeholder": null
     }
   ]

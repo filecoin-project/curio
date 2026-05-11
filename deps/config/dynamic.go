@@ -41,6 +41,8 @@ func NewDynamic[T any](value T) *Dynamic[T] {
 // The function is called in a goroutine to avoid blocking the main thread; it should not panic.
 func (d *Dynamic[T]) OnChange(fn func()) {
 	p := reflect.ValueOf(d).Pointer()
+	dynamicLocker.cdmx.Lock() // as OnChange is an init-time function, it's probably in a single-threaded context, but just in case.
+	defer dynamicLocker.cdmx.Unlock()
 	prev := dynamicLocker.notifier[p]
 	if prev == nil {
 		dynamicLocker.notifier[p] = fn
@@ -96,7 +98,7 @@ func (d *Dynamic[T]) GetWithoutLock() T {
 // Equal is used by cmp.Equal for custom comparison.
 // It doesn't lock dynamicLocker as this typically is used for an update test.
 func (d *Dynamic[T]) Equal(other *Dynamic[T]) bool {
-	return cmp.Equal(d.GetWithoutLock(), other.GetWithoutLock(), BigIntComparer, cmpopts.EquateEmpty())
+	return safeCmpEqual(d.GetWithoutLock(), other.GetWithoutLock(), cmpopts.EquateEmpty())
 }
 
 // MarshalTOML cannot be implemented for struct types because it won't be boxed correctly.
@@ -125,7 +127,7 @@ func CopyWithOriginalDynamics[T any](orig T) (T, error) {
 	val := reflect.ValueOf(orig)
 
 	// Handle pointer to struct
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		if typ.Elem().Kind() != reflect.Struct {
 			var zero T
 			return zero, fmt.Errorf("expected pointer to struct, got pointer to %s", typ.Elem().Kind())
@@ -166,7 +168,7 @@ func walker(orig, result reflect.Value) {
 			} else {
 				walker(field, resultField)
 			}
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if !field.IsNil() {
 				// Check if the pointed-to type is Dynamic[T]
 				elemType := field.Type().Elem()
@@ -196,7 +198,9 @@ func isDynamicType(t reflect.Type) bool {
 }
 
 func (r *cfgRoot[T]) changeMonitor() {
-	lastTimestamp := time.Time{} // lets do a read at startup
+	// Keep the watermark in DB "timestamp" semantics (no timezone) to avoid
+	// missing updates when app clock or timezone differs from DB.
+	lastTimestampLit := "1970-01-01 00:00:00"
 
 	sleepTime := time.Millisecond // read early so we didn't miss something on start-up.
 	for {
@@ -205,7 +209,15 @@ func (r *cfgRoot[T]) changeMonitor() {
 		configCount := 0
 		// Note: We need to prepend "base" layer like GetConfigs does
 		layers := append([]string{"base"}, r.layers...)
-		err := r.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_config WHERE timestamp > $1 AND title = ANY($2)`, lastTimestamp, layers).Scan(&configCount)
+		var newestTimestamp time.Time
+		err := r.db.QueryRow(
+			context.Background(),
+			`SELECT COUNT(*), COALESCE(MAX(timestamp), $1::timestamp)
+			 FROM harmony_config
+			 WHERE timestamp > $1::timestamp AND title = ANY($2)`,
+			lastTimestampLit,
+			layers,
+		).Scan(&configCount, &newestTimestamp)
 		if err != nil {
 			logger.Errorf("error selecting configs: %s", err)
 			continue
@@ -213,7 +225,9 @@ func (r *cfgRoot[T]) changeMonitor() {
 		if configCount == 0 {
 			continue
 		}
-		lastTimestamp = time.Now()
+		lastTimestampLit = newestTimestamp.Format("2006-01-02 15:04:05.999999")
+
+		logger.Infof("change detected for layers=%v (updated rows=%d), applying layers", r.layers, configCount)
 
 		// 1. get all configs
 		configs, err := GetConfigs(context.Background(), r.db, r.layers)
@@ -241,7 +255,7 @@ func (r *cfgRoot[T]) changeMonitor() {
 			atomic.StoreInt32(&dynamicLocker.updating, 0)
 			dynamicLocker.cdmx.Lock()
 			for k, v := range dynamicLocker.latest {
-				if !cmp.Equal(v, dynamicLocker.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
+				if !safeCmpEqual(v, dynamicLocker.originally[k], cmp.Reporter(&reportHandler{})) {
 					if notifier := dynamicLocker.notifier[k]; notifier != nil {
 						go notifier()
 					}
@@ -292,7 +306,7 @@ func (c *changeNotifier) Unlock() {
 
 	atomic.StoreInt32(&c.updating, 0)
 	for k, v := range c.latest {
-		if !cmp.Equal(v, c.originally[k], BigIntComparer, cmp.Reporter(&reportHandler{})) {
+		if !safeCmpEqual(v, c.originally[k], cmp.Reporter(&reportHandler{})) {
 			if notifier := c.notifier[k]; notifier != nil {
 				go notifier()
 			}
@@ -330,6 +344,17 @@ func (c *changeNotifier) inform(ptr uintptr, oldValue any, newValue any) {
 		c.originally[ptr] = oldValue
 	}
 	c.latest[ptr] = newValue
+}
+
+func safeCmpEqual(a, b any, opts ...cmp.Option) (equal bool) {
+	defer func() {
+		if recover() != nil {
+			equal = reflect.DeepEqual(a, b)
+		}
+	}()
+	baseOpts := []cmp.Option{BigIntComparer}
+	baseOpts = append(baseOpts, opts...)
+	return cmp.Equal(a, b, baseOpts...)
 }
 
 func Becomes[U any, T any](rootType *Dynamic[U], f func() T) *Dynamic[T] {

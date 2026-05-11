@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/market/backpressure"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -77,6 +78,7 @@ type CurioStorageDealMarket struct {
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
+	bp          *lazy.Lazy[*backpressure.CachedBackPressure]
 }
 
 type MK12Pipeline struct {
@@ -137,13 +139,14 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 		as:        as,
 		ethClient: ethClient,
 		sc:        sc,
+		bp:        backpressure.NewCachedBackPressure(),
 	}
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as)
+	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as, d.bp)
 	if err != nil {
 		return err
 	}
@@ -172,13 +175,13 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		}
 		d.miners.OnChange(func() {
 			newMiners := d.miners.Get()
-			if !cmp.Equal(prevMiners, newMiners, config.BigIntComparer) {
+			if !reflect.DeepEqual(prevMiners, newMiners) {
 				log.Errorf("Miners changed from %d to %d. . Restart required for Market 1.2 Ingest to work.", len(prevMiners), len(newMiners))
 			}
 		})
 	}
 
-	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
+	d.MK20Handler, err = mk20.NewMK20Handler(d.miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc, d.bp)
 	if err != nil {
 		return err
 	}
@@ -303,12 +306,11 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// gas cost for PSD messages
 	err = d.addPSDTask(ctx)
 	if err != nil {
-		log.Errorf("%w", err)
+		log.Errorf("%s", err)
 	}
 
 	// Process deals
 	for _, deal := range deals {
-		deal := deal
 		err := d.processMk12Deal(ctx, deal)
 		if err != nil {
 			log.Errorf("process deal: %s", err)
@@ -849,6 +851,9 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		}
 
 		var sp *abi.RegisteredSealProof
+		if d.pin == nil {
+			return false, xerrors.Errorf("piece ingester is not initialized")
+		}
 		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pdi, deal.RawSize.Int64, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)

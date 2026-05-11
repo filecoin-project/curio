@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
@@ -209,7 +210,7 @@ func extractDataSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 
 func getProvingPeriodChallengeWindow(ctx context.Context, ethClient bind.ContractBackend, listenerAddr common.Address) (uint64, uint64, error) {
 	// Get the proving schedule from the listener (handles view contract indirection)
-	schedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ethClient)
+	schedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ethClient)
 	if err != nil {
 		return 0, 0, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}

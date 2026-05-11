@@ -208,13 +208,13 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonytask.TaskID, id, PieceCID string, size, rawSize, pieceRef int64, indexed bool) error {
 	comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		_, err = tx.Exec(`SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			id, PieceCID, false, -1, -1, nil, size, rawSize, indexed, pieceRef, false, 0)
+			id, PieceCID, false, PDP_v1_SP_ID, -1, nil, size, rawSize, indexed, pieceRef, false, 0)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", id, err)
 		}
 
 		if P.cfg.Market.StorageMarketConfig.IPNI.Disable {
-			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+			n, err := tx.Exec(`UPDATE pdp_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
                                      complete = TRUE WHERE id = $1 AND indexing_task_id = $2`, id, taskID)
 			if err != nil {
 				return false, xerrors.Errorf("store indexing success: updating pipeline: %w", err)
@@ -247,72 +247,50 @@ func (P *PDPIndexingTask) recordCompletion(ctx context.Context, taskID harmonyta
 func (P *PDPIndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	ctx := context.Background()
 
-	type task struct {
-		TaskID    harmonytask.TaskID `db:"indexing_task_id"`
-		StorageID string             `db:"storage_id"`
-		PieceRef  int64              `db:"piece_ref"`
-		Indexing  bool               `db:"indexing"`
-	}
-
 	indIDs := make([]int64, len(ids))
 	for x, id := range ids {
 		indIDs[x] = int64(id)
 	}
 
-	var tasks []task
 	if storiface.FTPiece != 32 {
 		panic("storiface.FTPiece != 32")
 	}
 
-	err := P.db.Select(ctx, &tasks, `SELECT indexing_task_id, piece_ref, indexing FROM pdp_pipeline WHERE indexing_task_id = ANY($1)`, indIDs)
+	var resultTaskID []harmonytask.TaskID
+
+	// Single query to resolve storage locations and filter for acceptable tasks
+	err := P.db.QueryRow(ctx, `SELECT COALESCE(array_agg(s.indexing_task_id), '{}')::bigint[] AS indexing_task_ids
+									FROM (
+										SELECT p.indexing_task_id
+										FROM pdp_pipeline p
+										LEFT JOIN parked_piece_refs ppr
+										  ON p.piece_ref = ppr.ref_id
+										LEFT JOIN sector_location sl
+										  ON sl.sector_num = ppr.piece_id
+										 AND sl.miner_id = 0
+										 AND sl.sector_filetype = 32
+										LEFT JOIN storage_path sp
+										  ON sp.storage_id = sl.storage_id
+										WHERE p.indexing_task_id = ANY($1::bigint[])
+										  AND (
+											p.indexing = FALSE
+											OR (
+											  sp.urls IS NOT NULL
+											  AND sp.urls LIKE '%' || $2 || '%'
+											)
+											OR (
+												-- no file present at all (we handle this gracefully in DO())
+												sl.storage_id IS NULL
+											)
+										  )
+										LIMIT 100
+									) s`, indIDs, engine.Host()).Scan(&resultTaskID)
+
 	if err != nil {
-		return nil, xerrors.Errorf("getting PDP indexing details: %w", err)
+		return nil, xerrors.Errorf("pdp can accept batch query: %w", err)
 	}
 
-	for idx := range tasks {
-
-		if !tasks[idx].Indexing {
-			continue
-		}
-
-		var sLocation string
-		err = P.db.QueryRow(ctx, `
-				SELECT sl.storage_id
-				FROM parked_piece_refs ppr
-				JOIN sector_location sl 
-				  ON sl.sector_num = ppr.piece_id
-				 AND sl.miner_id = 0
-				 AND sl.sector_filetype = 32
-				WHERE ppr.ref_id = $1
-			`, tasks[idx].PieceRef).Scan(&sLocation)
-		if err != nil {
-			return nil, xerrors.Errorf("getting storage_id: %w", err)
-		}
-
-		tasks[idx].StorageID = sLocation
-	}
-
-	ls, err := P.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	localStorageMap := make(map[string]bool, len(ls))
-	for _, l := range ls {
-		localStorageMap[string(l.ID)] = true
-	}
-
-	acceptables := []harmonytask.TaskID{}
-	for idx := range tasks {
-		if !tasks[idx].Indexing {
-			acceptables = append(acceptables, tasks[idx].TaskID)
-		}
-		if found, ok := localStorageMap[tasks[idx].StorageID]; ok && found {
-			acceptables = append(acceptables, tasks[idx].TaskID)
-		}
-	}
-
-	return acceptables, nil
+	return resultTaskID, nil
 }
 
 func (P *PDPIndexingTask) TypeDetails() harmonytask.TaskTypeDetails {

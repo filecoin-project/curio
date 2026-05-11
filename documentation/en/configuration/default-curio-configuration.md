@@ -64,10 +64,10 @@ description: The default curio configuration
   # type: int
   #ParkPieceMaxInPark = 0
 
-  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+  # The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)
   #
   # type: float64
-  #ParkPieceMinFreeStoragePercent = 20.0
+  #ParkPieceMinFreeStoragePercent = 5.0
 
   # EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
   # creating 11 layer files in sector cache directory.
@@ -577,19 +577,19 @@ description: The default curio configuration
   #DelegateTLS = false
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #ReadTimeout = "10s"
+  #ReadTimeout = "30m0s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
   #
   # type: time.Duration
-  #IdleTimeout = "1h0m0s"
+  #IdleTimeout = "30m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
-  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+  # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
   #
   # type: time.Duration
   #ReadHeaderTimeout = "5s"
@@ -624,6 +624,15 @@ description: The default curio configuration
   #
   # type: string
   #CSP = "inline"
+
+  # DenylistServers is a list of URLs pointing to denylist.json files.
+  # Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+  # Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+  # will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+  # Updates will affect running instances.
+  #
+  # type: []string
+  #DenylistServers = ["https://badbits.dwebops.pub/denylist.json"]
 
   # CompressionLevels hold the compression level for various compression methods supported by the server
   #
@@ -809,13 +818,13 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       #
       # type: []string
-      #ServiceURL = ["https://cid.contact"]
+      #ServiceURL = ["https://cid.contact", "https://filecoinpin.contact"]
 
       # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"]
 
     # Indexing configuration for deal indexing
     #
@@ -940,6 +949,27 @@ description: The default curio configuration
   #
   # type: bool
   #DoSnap = false
+
+  # DisableSSRFProtection disables all SSRF (Server-Side Request Forgery) protection
+  # on deal data URL fetching. When true, URLs pointing to private IPs, loopback
+  # addresses, and local hostnames are allowed. URL structure validation (scheme,
+  # control characters) is still enforced.
+  # WARNING: Only enable in development or testing environments. (Default: false)
+  # Updates will affect running instances.
+  #
+  # type: bool
+  #DisableSSRFProtection = false
+
+  # SSRFAllowedHosts is a list of hosts or host:port pairs that are allowed through
+  # SSRF protection. Matched hosts bypass IP and hostname restrictions while other
+  # safety checks (URL scheme, headers) remain active.
+  # Entries without a port match any port for that host.
+  # Example: ["192.168.1.100:8080", "my-dev-server.local"]
+  # (Default: [])
+  # Updates will affect running instances.
+  #
+  # type: []string
+  #SSRFAllowedHosts = []
 
 
 # Seal defines the configuration related to the sealing process in Curio.
@@ -1086,6 +1116,13 @@ description: The default curio configuration
     # type: time.Duration
     #Slack = "6h0m0s"
 
+    # Maximum number of sectors per precommit batch message. The batch will be submitted
+    # immediately when this many sectors are ready, without waiting for the timeout.
+    # 0 = use the protocol maximum. (Default: 0)
+    #
+    # type: int
+    #MaxBatch = 0
+
   # Commit batching configuration
   #
   # type: CommitBatchingConfig
@@ -1104,6 +1141,13 @@ description: The default curio configuration
     #
     # type: time.Duration
     #Slack = "1h0m0s"
+
+    # Maximum number of sectors per commit batch message. The batch will be submitted
+    # immediately when this many sectors are ready, without waiting for the timeout.
+    # 0 = use the protocol maximum. (Default: 0)
+    #
+    # type: int
+    #MaxBatch = 0
 
   # Snap Deals batching configuration
   #
@@ -1130,5 +1174,35 @@ description: The default curio configuration
     #
     # type: time.Duration
     #Slack = "1h0m0s"
+
+
+# Cuzk configures integration with the cuzk proving daemon.
+# When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+# to an external cuzk daemon over gRPC instead of using local GPU resources.
+#
+# type: CuzkConfig
+[Cuzk]
+
+  # Address of the cuzk daemon gRPC endpoint.
+  # Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+  # Empty string disables cuzk integration. (Default: "")
+  #
+  # type: string
+  #Address = ""
+
+  # MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+  # before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+  # queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+  # (Default: 10)
+  #
+  # type: int
+  #MaxPending = 10
+
+  # ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+  # If the proof is not completed within this duration, the task will be retried.
+  # Time duration string (e.g., "30m", "1h"). (Default: "30m")
+  #
+  # type: time.Duration
+  #ProveTimeout = "30m0s"
 
 ```

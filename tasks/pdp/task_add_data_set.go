@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"errors"
+	"math/big"
 	"strings"
 	"time"
 
@@ -16,9 +17,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPTaskAddDataSet struct {
@@ -89,7 +92,7 @@ func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		contract.SybilFee(),
+		big.NewInt(0),
 		0,
 		nil,
 		data,
@@ -137,7 +140,7 @@ func (p *PDPTaskAddDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 func (p *PDPTaskAddDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPAddDataSet",
+		Name: tasknames.PDPAddDataSet,
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

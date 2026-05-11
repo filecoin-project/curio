@@ -23,7 +23,7 @@ func DeriveInteractiveChallenges(
 
 	out := make([]uint64, challengesPerPartition)
 
-	for i := uint64(0); i < challengesPerPartition; i++ {
+	for i := range challengesPerPartition {
 		// let j: u32 = ((self.challenges_per_partition * k as usize) + i) as u32;
 		j := uint32((challengesPerPartition * uint64(k)) + i)
 

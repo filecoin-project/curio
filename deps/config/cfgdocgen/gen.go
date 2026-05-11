@@ -53,8 +53,8 @@ func run() error {
 				continue
 			}
 		case stType:
-			if strings.HasPrefix(line, "//") {
-				cline := strings.TrimSpace(strings.TrimPrefix(line, "//"))
+			if after, ok := strings.CutPrefix(line, "//"); ok {
+				cline := strings.TrimSpace(after)
 				currentComment = append(currentComment, cline)
 				continue
 			}

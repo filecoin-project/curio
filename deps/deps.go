@@ -42,6 +42,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/repo"
+	"github.com/filecoin-project/curio/lib/robusthttp"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
@@ -223,6 +224,32 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	log.Debugw("config", "config", deps.Cfg)
+
+	// Wire SSRF policy override from config so that all nil-policy callers
+	// (deal data fetchers, proposal validators) pick up the operator settings.
+	applySSRFOverride := func() {
+		disabled := deps.Cfg.Ingest.DisableSSRFProtection.Get()
+		hosts := deps.Cfg.Ingest.SSRFAllowedHosts.Get()
+		if !disabled && len(hosts) == 0 {
+			robusthttp.SetGlobalSSRFOverride(nil)
+			return
+		}
+		robusthttp.SetGlobalSSRFOverride(&robusthttp.SSRFPolicy{
+			Disabled:            disabled,
+			AllowLoopbackIPs:    disabled,
+			AllowLocalHostnames: disabled,
+			AllowPrivateIPs:     disabled,
+			AllowedHosts:        hosts,
+		})
+		if disabled {
+			log.Warnw("SSRF protection is disabled — do not use in production")
+		} else {
+			log.Infow("SSRF allowed hosts configured", "hosts", hosts)
+		}
+	}
+	applySSRFOverride()
+	deps.Cfg.Ingest.DisableSSRFProtection.OnChange(applySSRFOverride)
+	deps.Cfg.Ingest.SSRFAllowedHosts.OnChange(applySSRFOverride)
 
 	if deps.Verif == nil {
 		deps.Verif = ffiwrapper.ProofVerifier
@@ -451,7 +478,7 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 	if err != nil {
 		return nil, err
 	}
-	err = config.EnableChangeDetection(db, curioConfig, layers, config.FixTOML)
+	err = config.EnableChangeDetection(db, curioConfig, append([]string{"base"}, layers...), config.FixTOML)
 	if err != nil {
 		return nil, err
 	}
@@ -522,9 +549,9 @@ func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 	return nil
 }
 
-func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]interface{} {
+func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]any {
 	// Parse the original config into a raw map
-	var rawConfig map[string]interface{}
+	var rawConfig map[string]any
 	err := toml.Unmarshal([]byte(originalConfig), &rawConfig)
 	if err != nil {
 		log.Warnw("Failed to parse original config for unknown fields", "error", err)
@@ -538,7 +565,7 @@ func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[strin
 	}
 
 	// Identify unrecognized fields
-	unrecognizedFields := map[string]interface{}{}
+	unrecognizedFields := map[string]any{}
 	for key, value := range rawConfig {
 		if _, recognized := recognizedKeys[key]; !recognized {
 			unrecognizedFields[key] = value
@@ -565,9 +592,9 @@ func removeUnknownEntries(array1, array2 []toml.Key) []toml.Key {
 	return result
 }
 
-func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]interface{}) (string, error) {
+func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]any) (string, error) {
 	// Parse the updated config into a raw map
-	var updatedConfigMap map[string]interface{}
+	var updatedConfigMap map[string]any
 	err := toml.Unmarshal([]byte(updatedConfig), &updatedConfigMap)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse updated config: %w", err)

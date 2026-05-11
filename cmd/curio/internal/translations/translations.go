@@ -1,27 +1,27 @@
 // Usage:
 // To UPDATE translations:
 //
-//  1. add/change strings in guidedsetup folder that use d.T() or d.say().
+//  1. Add/change strings in cmd/curio that use T() or say().
 //
-//  2. run `go generate` in the cmd/curio/internal/translations/ folder.
+//  2. Run `make gen` - this extracts strings and compiles existing translations.
+//     The output will show how many strings need translation for each language.
 //
-//  3. ChatGPT 3.5 can translate the ./locales/??/out.gotext.json files'
-//     which ONLY include the un-translated messages.
-//     APPEND to the messages.gotext.json files's array.
+//  3. Translate the missing strings:
+//     - Check ./locales/{lang}/out.gotext.json for strings with "fuzzy": true
+//     - Add translations to ./locales/{lang}/messages.gotext.json
+//     - ChatGPT/Claude can help translate - give it out.gotext.json content
 //
-//     ChatGPT fuss:
-//     - on a good day, you may need to hit "continue generating".
-//     - > 60? you'll need to give it sections of the file.
-//
-//  4. Re-import with `go generate` again.
+//  4. Run `make gen` again - translations are compiled into catalog.go.
 //
 // To ADD a language:
-//  1. Add it to the list in updateLang.sh
-//  2. Run `go generate` in the cmd/curio/internal/translations/ folder.
-//  3. Follow the "Update translations" steps here.
-//  4. Code will auto-detect the new language and use it.
+//  1. Add it to the lang list in updateLang.sh
+//  2. Run `make gen`
+//  3. Translate the new ./locales/{lang}/out.gotext.json
+//  4. Code will auto-detect the new language via $LANG env var.
 //
-// FUTURE Reliability: OpenAPI automation.
+// Technical note:
+// The extraction uses a fast AST-based parser (extract.go) that avoids loading
+// heavy CGO dependencies. This makes `make gen` run in ~8s instead of ~3min.
 package translations
 
 import (
@@ -39,7 +39,7 @@ import (
 
 var T = setupLang()
 
-func setupLang() func(key message.Reference, a ...interface{}) string {
+func setupLang() func(key message.Reference, a ...any) string {
 	lang, _ := SetupLanguage()
 	return lang
 }
@@ -50,7 +50,7 @@ var notice = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#CCCCCC")).
 	Background(lipgloss.Color("#333300")).MarginBottom(1)
 
-func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func(style lipgloss.Style, key message.Reference, a ...interface{})) {
+func SetupLanguage() (func(key message.Reference, a ...any) string, func(style lipgloss.Style, key message.Reference, a ...any)) {
 	langText := "en"
 	problem := false
 	if len(os.Getenv("LANG")) > 1 {
@@ -74,12 +74,12 @@ func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func
 	}
 	if problem {
 		_ = os.Setenv("LANG", "en-US") // for later users of this function
-		notice.Copy().AlignHorizontal(lipgloss.Right).
+		notice.AlignHorizontal(lipgloss.Right).
 			Render("$LANG=" + langText + " unsupported. Available: " + strings.Join(lo.Keys(have), ", "))
 	}
-	return func(key message.Reference, a ...interface{}) string {
+	return func(key message.Reference, a ...any) string {
 			return message.NewPrinter(lang).Sprintf(key, a...)
-		}, func(sty lipgloss.Style, key message.Reference, a ...interface{}) {
+		}, func(sty lipgloss.Style, key message.Reference, a ...any) {
 			msg := message.NewPrinter(lang).Sprintf(key, a...)
 			fmt.Println(sty.Render(msg))
 		}

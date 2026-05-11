@@ -12,7 +12,7 @@ import (
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/filecoin-ffi/cgo"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 )
@@ -138,15 +138,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	ccommr := cgo.AsByteArray32(commr)
-
 	commd, err := commcid.CIDToDataCommitmentV1(ucid)
 	if err != nil {
 		panic(err)
 	}
-	ccommd := cgo.AsByteArray32(commd)
-
-	c1o, err := cgo.SealCommitPhase1(profTyp, &ccommr, &ccommd,
+	c1o, err := cgo.SealCommitPhase1(profTyp, new(cgo.AsByteArray32(commr)), new(cgo.AsByteArray32(commd)),
 		cgo.AsSliceRefUint8([]byte(cacheDirPath)),
 		cgo.AsSliceRefUint8([]byte(sealedSectorPath)),
 		sectorNum,

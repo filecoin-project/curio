@@ -71,9 +71,10 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		OrigSealedCID  string `db:"orig_sealed_cid"`
 		CurSealedCID   string `db:"cur_sealed_cid"`
 		CurUnsealedCID string `db:"cur_unsealed_cid"`
+		HasSectorKey   bool   `db:"has_sector_key"`
 	}
 	err = t.db.Select(ctx, &sectorMeta, `
-		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid, cur_unsealed_cid
+		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid, cur_unsealed_cid, has_sector_key
 		FROM sectors_meta
 		WHERE sp_id = $1 AND sector_num = $2`, sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
@@ -128,7 +129,7 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
-	isSnap := commK != commR
+	isSnap := smeta.HasSectorKey
 	log.Infow("unseal decode", "snap", isSnap, "task", taskID, "commK", commK, "commR", commR, "commD", commD)
 	if isSnap {
 		err := t.sc.DecodeSnap(ctx, taskID, commD, commK, sref)
@@ -194,7 +195,7 @@ func (t *TaskUnsealDecode) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			SectorNumber int64 `db:"sector_number"`
 		}
 
-		err := t.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = TRUE AND after_decode_sector = FALSE AND task_id_decode_sector IS NULL`)
+		err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = TRUE AND after_decode_sector = FALSE AND task_id_decode_sector IS NULL`)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}

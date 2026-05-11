@@ -2,11 +2,9 @@ package storage_market
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-padreader"
@@ -24,6 +22,7 @@ import (
 )
 
 type FixRawSize struct {
+	startTime     time.Time
 	db            *harmonydb.DB
 	sc            *ffi.SealCalls
 	pieceProvider *pieceprovider.SectorReader
@@ -31,6 +30,7 @@ type FixRawSize struct {
 
 func NewFixRawSize(db *harmonydb.DB, sc *ffi.SealCalls, pieceProvider *pieceprovider.SectorReader) *FixRawSize {
 	return &FixRawSize{
+		startTime:     time.Now(),
 		db:            db,
 		sc:            sc,
 		pieceProvider: pieceProvider,
@@ -42,10 +42,10 @@ func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	var id, pieceCidStr string
 	var spID, sectorNumer, pieceOffset, pieceSize, proof int64
-	err = f.db.QueryRow(ctx, `SELECT f.id, mpd.sp_id, mpd.sector_number, mpd.piece_cid, mpd.piece_offset, mpd.piece_length, m.reg_seal_proof 
-									FROM fix_raw_size f 
+	err = f.db.QueryRow(ctx, `SELECT f.id, mpd.sp_id, mpd.sector_num, mpd.piece_cid, mpd.piece_offset, mpd.piece_length, m.reg_seal_proof 
+									FROM market_fix_raw_size f 
 									INNER JOIN market_piece_deal mpd ON f.id = mpd.id
-									INNER JOIN sectors_meta m ON mpd.sp_id = m.sp_id AND mpd.sector_number = m.sector_num
+									INNER JOIN sectors_meta m ON mpd.sp_id = m.sp_id AND mpd.sector_num = m.sector_num
 									WHERE  f.task_id = $1 AND mpd.raw_size = 0 
 									    AND piece_offset IS NOT NULL 
 									LIMIT 1`, taskID).Scan(&id, &spID, &sectorNumer, &pieceCidStr, &pieceOffset, &pieceSize, &proof)
@@ -96,9 +96,9 @@ func (f *FixRawSize) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			return false, xerrors.Errorf("failed to update raw size in DB: expected 1 rows affected, got %d", n)
 		}
 
-		_, err = tx.Exec(`DELETE FROM fix_raw_size WHERE task_id = $1`, taskID)
+		_, err = tx.Exec(`DELETE FROM market_fix_raw_size WHERE task_id = $1`, taskID)
 		if err != nil {
-			return false, xerrors.Errorf("deleting fix_raw_size: %w", err)
+			return false, xerrors.Errorf("deleting market_fix_raw_size: %w", err)
 		}
 
 		return true, nil
@@ -121,16 +121,6 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 	ctx := context.Background()
 
-	ls, err := f.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	storageIDs := make([]string, len(ls))
-	for i, l := range ls {
-		storageIDs[i] = string(l.ID)
-	}
-
 	indIDs := make([]int64, len(ids))
 	for i, id := range ids {
 		indIDs[i] = int64(id)
@@ -138,15 +128,13 @@ func (f *FixRawSize) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 	var acceptedIDs []harmonytask.TaskID
 
-	err = f.db.Select(ctx, &acceptedIDs, `
-		SELECT f.fix_raw_size FROM fix_raw_size f
-			INNER JOIN market_piece_deal mpd ON f.id = mpd.id
-		    INNER JOIN sector_location l ON mpd.sp_id = mpd.miner_id AND mpd.sector_number = l.sector_num
-			WHERE f.task_id = ANY ($1) AND l.sector_filetype = 1 AND l.storage_id = ANY ($2)`, indIDs, storageIDs)
+	err := f.db.QueryRow(ctx, `SELECT COALESCE(array_agg(task_id), '{}')::bigint[] AS task_ids FROM (
+						SELECT f.task_id FROM market_fix_raw_size f
+						INNER JOIN market_piece_deal mpd ON f.id = mpd.id
+						INNER JOIN sector_location l ON mpd.sp_id = l.miner_id AND mpd.sector_num = l.sector_num AND l.sector_filetype = 1
+						INNER JOIN storage_path sp ON sp.storage_id = l.storage_id 
+						WHERE f.task_id = ANY($1::bigint[])  AND sp.urls IS NOT NULL AND sp.urls LIKE '%' || $2 || '%' LIMIT 100) s`, indIDs, engine.Host()).Scan(&acceptedIDs)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, xerrors.Errorf("getting tasks from DB: %w", err)
 	}
 
@@ -163,7 +151,11 @@ func (f *FixRawSize) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(time.Minute*30, func(taskFunc harmonytask.AddTaskFunc) error {
+			if time.Since(f.startTime) < time.Hour {
+				return nil
+			}
+
 			return f.schedule(context.Background(), taskFunc)
 		}),
 	}
@@ -193,7 +185,13 @@ func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 			err = tx.Select(&tasks, `SELECT mpd.id FROM market_piece_deal mpd
           									WHERE mpd.raw_size = 0 
           									  AND mpd.piece_offset IS NOT NULL 
-          									  AND NOT EXISTS(SELECT 1 FROM fix_raw_size f WHERE f.id = mpd.id) 
+          									  AND EXISTS (
+          									  	SELECT 1 FROM sector_location sl
+          									  	WHERE sl.miner_id = mpd.sp_id
+          									  	  AND sl.sector_num = mpd.sector_num
+          									  	  AND sl.sector_filetype = 1
+          									  )
+          									  AND NOT EXISTS(SELECT 1 FROM market_fix_raw_size f WHERE f.id = mpd.id) 
           									      LIMIT 1`)
 			if err != nil {
 				return false, xerrors.Errorf("getting rows with 0 raw size: %w", err)
@@ -203,13 +201,13 @@ func (f *FixRawSize) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				return false, nil
 			}
 
-			n, err := tx.Exec(`INSERT INTO fix_raw_size (id, task_id) VALUES ($1, $2)`, tasks[0].ID, id)
+			n, err := tx.Exec(`INSERT INTO market_fix_raw_size (id, task_id) VALUES ($1, $2)`, tasks[0].ID, id)
 			if err != nil {
-				return false, xerrors.Errorf("scheduling fix_raw_size: %w", err)
+				return false, xerrors.Errorf("scheduling market_fix_raw_size: %w", err)
 			}
 
 			if n != 1 {
-				return false, xerrors.Errorf("scheduling fix_raw_size: %d rows affected", n)
+				return false, xerrors.Errorf("scheduling market_fix_raw_size: %d rows affected", n)
 			}
 
 			stop = false // we found a task to schedule, keep going

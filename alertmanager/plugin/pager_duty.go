@@ -33,13 +33,13 @@ func NewPagerDuty(cfg config.PagerDutyConfig) Plugin {
 func (p *PagerDuty) SendAlert(data *AlertPayload) error {
 
 	type pdPayload struct {
-		Summary       string      `json:"summary"`
-		Severity      string      `json:"severity"`
-		Source        string      `json:"source"`
-		Component     string      `json:"component,omitempty"`
-		Group         string      `json:"group,omitempty"`
-		Class         string      `json:"class,omitempty"`
-		CustomDetails interface{} `json:"custom_details,omitempty"`
+		Summary       string `json:"summary"`
+		Severity      string `json:"severity"`
+		Source        string `json:"source"`
+		Component     string `json:"component,omitempty"`
+		Group         string `json:"group,omitempty"`
+		Class         string `json:"class,omitempty"`
+		CustomDetails any    `json:"custom_details,omitempty"`
 	}
 
 	type pdData struct {

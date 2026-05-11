@@ -73,8 +73,8 @@
     "outputs": [
       {
         "name": "value",
-        "type": "string",
-        "internalType": "string"
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "stateMutability": "view"
@@ -120,11 +120,6 @@
         "internalType": "enum ServiceProviderRegistryStorage.ProductType"
       },
       {
-        "name": "productData",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
         "name": "isActive",
         "type": "bool",
         "internalType": "bool"
@@ -167,11 +162,6 @@
         "name": "isActive",
         "type": "bool",
         "internalType": "bool"
-      },
-      {
-        "name": "providerId",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"

@@ -193,10 +193,9 @@ func (mdh *MK12DealHandler) mk12status(w http.ResponseWriter, r *http.Request) {
 
 	rlog := log.With("id", req.DealUUID)
 	ctx := r.Context()
-	resp := mk12.GetDealStatus(ctx, mdh.db, req, rlog)
 	rlog.Debugw("processed deal status request")
 	buf := new(bytes.Buffer)
-	err = cborutil.WriteCborRPC(buf, &resp)
+	err = cborutil.WriteCborRPC(buf, new(mk12.GetDealStatus(ctx, mdh.db, req, rlog)))
 	if err != nil {
 		rlog.Warnw("failed to marshal deal status response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

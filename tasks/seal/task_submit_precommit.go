@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -149,7 +150,6 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 
 	// 2. Prepare preCommit info and PreCommitSectorBatchParams
 	for _, sectorParams := range sectorParamsArr {
-		sectorParams := sectorParams
 
 		// Check miner ID is same for all sectors in batch
 		tmpMaddr, err := address.NewIDAddress(uint64(sectorParams.SpID))
@@ -262,6 +262,14 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		params.Sectors = append(params.Sectors, param)
 	}
 
+	// Check if we have any valid sectors
+	if len(params.Sectors) == 0 {
+		log.Warnf("no valid sectors to precommit")
+		// We return true here because only way sectors are 0 is if they were removed due to ticket expiration,
+		// and we have already marked them as failed in pipeline
+		return true, nil
+	}
+
 	// 3. Prepare and send message
 
 	var pbuf bytes.Buffer
@@ -356,7 +364,7 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1024),
-		Name: "PreCommitBatch",
+		Name: tasknames.PreCommitBatch,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

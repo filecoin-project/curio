@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	mathbig "math/big"
 	"net/http"
 	"net/url"
@@ -1750,3 +1751,5 @@ func (s *EthClientInterfaceStub) TransactionSender(p0 context.Context, p1 *ethty
 var _ Curio = new(CurioStruct)
 var _ CurioChainRPC = new(CurioChainRPCStruct)
 var _ EthClientInterface = new(EthClientInterfaceStruct)
+
+var _ = fmt.Sprintf

@@ -18,7 +18,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireNotificationSuccess:     true,
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
-			ParkPieceMinFreeStoragePercent: 20,
+			ParkPieceMinFreeStoragePercent: 5,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -74,6 +74,9 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxQueueSnapProve:  NewDynamic(0),
 
 			MaxDealWaitTime: NewDynamic(time.Hour),
+
+			DisableSSRFProtection: NewDynamic(false),
+			SSRFAllowedHosts:      NewDynamic([]string{}),
 		},
 		Alerting: CurioAlertingConfig{
 			MinimumWalletBalance: NewDynamic(types.MustParseFIL("5")),
@@ -122,16 +125,20 @@ func DefaultCurioConfig() *CurioConfig {
 					MaximumChunkSize:          256 * 1024 * 1024, // 256 MiB
 				},
 				IPNI: IPNIConfig{
-					ServiceURL:         []string{"https://cid.contact"},
-					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
+					ServiceURL:         []string{"https://cid.contact", "https://filecoinpin.contact"},
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce", "https://filecoinpin.contact/announce"},
 				},
 			},
+		},
+		Cuzk: CuzkConfig{
+			MaxPending:   10,
+			ProveTimeout: 30 * time.Minute,
 		},
 		HTTP: HTTPConfig{
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
-			ReadTimeout:       time.Second * 10,
-			IdleTimeout:       time.Hour,
+			ReadTimeout:       time.Minute * 30,
+			IdleTimeout:       time.Minute * 30,
 			ReadHeaderTimeout: time.Second * 5,
 			CORSOrigins:       []string{},
 			CSP:               "inline",
@@ -140,6 +147,7 @@ func DefaultCurioConfig() *CurioConfig {
 				BrotliLevel:  4,
 				DeflateLevel: 6,
 			},
+			DenylistServers: NewDynamic([]string{"https://badbits.dwebops.pub/denylist.json"}),
 		},
 	}
 }
@@ -189,6 +197,11 @@ type CurioConfig struct {
 
 	// Batching represents the batching configuration for pre-commit, commit, and update operations.
 	Batching CurioBatchingConfig
+
+	// Cuzk configures integration with the cuzk proving daemon.
+	// When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+	// to an external cuzk daemon over gRPC instead of using local GPU resources.
+	Cuzk CuzkConfig
 }
 
 type BatchFeeConfig struct {
@@ -244,7 +257,7 @@ type CurioSubsystemsConfig struct {
 	// The maximum number of pieces that should be in storage + active tasks writing to storage on this node (Default: 0 - unlimited)
 	ParkPieceMaxInPark int
 
-	// The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+	// The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)
 	ParkPieceMinFreeStoragePercent float64
 
 	// EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
@@ -534,6 +547,29 @@ type CurioProvingConfig struct {
 	PartitionCheckTimeout time.Duration
 }
 
+// CuzkConfig configures integration with an external cuzk proving daemon.
+// The cuzk daemon is a persistent GPU-resident SNARK proving engine that keeps SRS parameters
+// loaded in memory across proofs, eliminating the 30-90s SRS loading overhead per proof.
+// When enabled, Curio delegates SNARK computations to cuzk over gRPC and uses pipeline
+// backpressure (via GetStatus) instead of local GPU/RAM resource accounting.
+type CuzkConfig struct {
+	// Address of the cuzk daemon gRPC endpoint.
+	// Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+	// Empty string disables cuzk integration. (Default: "")
+	Address string
+
+	// MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+	// before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+	// queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+	// (Default: 10)
+	MaxPending int
+
+	// ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+	// If the proof is not completed within this duration, the task will be retried.
+	// Time duration string (e.g., "30m", "1h"). (Default: "30m")
+	ProveTimeout time.Duration
+}
+
 type CurioIngestConfig struct {
 	// MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
 	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
@@ -612,6 +648,23 @@ type CurioIngestConfig struct {
 	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
 	// When enabled, all deals will be processed as snap deals. (Default: false)
 	DoSnap bool
+
+	// DisableSSRFProtection disables all SSRF (Server-Side Request Forgery) protection
+	// on deal data URL fetching. When true, URLs pointing to private IPs, loopback
+	// addresses, and local hostnames are allowed. URL structure validation (scheme,
+	// control characters) is still enforced.
+	// WARNING: Only enable in development or testing environments. (Default: false)
+	// Updates will affect running instances.
+	DisableSSRFProtection *Dynamic[bool]
+
+	// SSRFAllowedHosts is a list of hosts or host:port pairs that are allowed through
+	// SSRF protection. Matched hosts bypass IP and hostname restrictions while other
+	// safety checks (URL scheme, headers) remain active.
+	// Entries without a port match any port for that host.
+	// Example: ["192.168.1.100:8080", "my-dev-server.local"]
+	// (Default: [])
+	// Updates will affect running instances.
+	SSRFAllowedHosts *Dynamic[[]string]
 }
 
 type CurioAlertingConfig struct {
@@ -717,6 +770,11 @@ type PreCommitBatchingConfig struct {
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
 	Slack *Dynamic[time.Duration]
+
+	// Maximum number of sectors per precommit batch message. The batch will be submitted
+	// immediately when this many sectors are ready, without waiting for the timeout.
+	// 0 = use the protocol maximum. (Default: 0)
+	MaxBatch int
 }
 
 type CommitBatchingConfig struct {
@@ -727,6 +785,11 @@ type CommitBatchingConfig struct {
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
 	Slack *Dynamic[time.Duration]
+
+	// Maximum number of sectors per commit batch message. The batch will be submitted
+	// immediately when this many sectors are ready, without waiting for the timeout.
+	// 0 = use the protocol maximum. (Default: 0)
+	MaxBatch int
 }
 
 type UpdateBatchingConfig struct {
@@ -869,15 +932,15 @@ type HTTPConfig struct {
 	DelegateTLS bool
 
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
 	ReadTimeout time.Duration
 
 	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")
 	IdleTimeout time.Duration
 
 	// ReadHeaderTimeout is amount of time allowed to read request headers
-	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")
 	ReadHeaderTimeout time.Duration
 
 	// CORSOrigins specifies the allowed origins for CORS requests to the Curio admin UI. If empty, CORS is disabled.
@@ -909,6 +972,13 @@ type HTTPConfig struct {
 
 	// CompressionLevels hold the compression level for various compression methods supported by the server
 	CompressionLevels CompressionConfig
+
+	// DenylistServers is a list of URLs pointing to denylist.json files.
+	// Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+	// Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+	// will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+	// Updates will affect running instances.
+	DenylistServers *Dynamic[[]string]
 }
 
 // CompressionConfig holds the compression levels for supported types

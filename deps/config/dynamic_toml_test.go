@@ -124,6 +124,36 @@ func TestTransparentMarshalUnmarshal(t *testing.T) {
 	})
 }
 
+func TestTransparentDecodeDoesNotAliasDynamicValues(t *testing.T) {
+	type CurioAddress struct {
+		MinerAddresses []string
+	}
+	type cfg struct {
+		Addresses *Dynamic[[]CurioAddress]
+	}
+
+	target := cfg{
+		Addresses: NewDynamic([]CurioAddress{{
+			MinerAddresses: []string{"f01002"},
+		}}),
+	}
+
+	// Hold a reference to the pre-decode value. If decode mutates in-place,
+	// this reference will change too.
+	before := target.Addresses.GetWithoutLock()
+
+	input := `
+[[Addresses]]
+MinerAddresses = ["f01002", "f01003"]
+`
+
+	_, err := TransparentDecode(input, &target)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"f01002"}, before[0].MinerAddresses, "pre-decode value was mutated in-place")
+	require.Equal(t, []string{"f01002", "f01003"}, target.Addresses.Get()[0].MinerAddresses)
+}
+
 func TestTransparentMarshalCurioIngest(t *testing.T) {
 	// Test with a subset of CurioIngestConfig
 	type TestIngest struct {
@@ -788,17 +818,15 @@ func TestEdgeCases(t *testing.T) {
 			Ptr *Dynamic[*int]
 		}
 
-		val := 42
 		cfg1 := Config{
-			Ptr: NewDynamic(&val),
+			Ptr: NewDynamic(new(42)),
 		}
 
 		data, err := TransparentMarshal(cfg1)
 		require.NoError(t, err)
 
-		zero := 0
 		cfg2 := Config{
-			Ptr: NewDynamic(&zero),
+			Ptr: NewDynamic(new(0)),
 		}
 
 		err = TransparentUnmarshal(data, &cfg2)
@@ -812,17 +840,17 @@ func TestEdgeCases(t *testing.T) {
 func TestHelperFunctions(t *testing.T) {
 	t.Run("isDynamicTypeForMarshal", func(t *testing.T) {
 		// Dynamic type
-		dynType := reflect.TypeOf((*Dynamic[int])(nil)).Elem()
+		dynType := reflect.TypeFor[Dynamic[int]]()
 		assert.True(t, isDynamicTypeForMarshal(dynType))
 
 		// Pointer to Dynamic type
-		ptrDynType := reflect.TypeOf((*Dynamic[int])(nil))
+		ptrDynType := reflect.TypeFor[*Dynamic[int]]()
 		assert.True(t, isDynamicTypeForMarshal(ptrDynType))
 
 		// Regular types
-		assert.False(t, isDynamicTypeForMarshal(reflect.TypeOf(42)))
-		assert.False(t, isDynamicTypeForMarshal(reflect.TypeOf("string")))
-		assert.False(t, isDynamicTypeForMarshal(reflect.TypeOf(struct{}{})))
+		assert.False(t, isDynamicTypeForMarshal(reflect.TypeFor[int]()))
+		assert.False(t, isDynamicTypeForMarshal(reflect.TypeFor[string]()))
+		assert.False(t, isDynamicTypeForMarshal(reflect.TypeFor[struct{}]()))
 	})
 
 	t.Run("hasNestedDynamics", func(t *testing.T) {
@@ -846,14 +874,14 @@ func TestHelperFunctions(t *testing.T) {
 			}
 		}
 
-		assert.True(t, hasNestedDynamics(reflect.TypeOf(WithDynamic{})))
-		assert.False(t, hasNestedDynamics(reflect.TypeOf(WithoutDynamic{})))
-		assert.True(t, hasNestedDynamics(reflect.TypeOf(NestedWithDynamic{})))
-		assert.True(t, hasNestedDynamics(reflect.TypeOf(DeepNested{})))
+		assert.True(t, hasNestedDynamics(reflect.TypeFor[WithDynamic]()))
+		assert.False(t, hasNestedDynamics(reflect.TypeFor[WithoutDynamic]()))
+		assert.True(t, hasNestedDynamics(reflect.TypeFor[NestedWithDynamic]()))
+		assert.True(t, hasNestedDynamics(reflect.TypeFor[DeepNested]()))
 
 		// Pointer to struct
-		assert.True(t, hasNestedDynamics(reflect.TypeOf(&WithDynamic{})))
-		assert.False(t, hasNestedDynamics(reflect.TypeOf(&WithoutDynamic{})))
+		assert.True(t, hasNestedDynamics(reflect.TypeFor[*WithDynamic]()))
+		assert.False(t, hasNestedDynamics(reflect.TypeFor[*WithoutDynamic]()))
 	})
 
 	t.Run("extractDynamicValue", func(t *testing.T) {
@@ -872,22 +900,22 @@ func TestHelperFunctions(t *testing.T) {
 	})
 
 	t.Run("extractDynamicInnerType", func(t *testing.T) {
-		dynType := reflect.TypeOf((*Dynamic[int])(nil)).Elem()
+		dynType := reflect.TypeFor[Dynamic[int]]()
 		innerType := extractDynamicInnerType(dynType)
-		assert.Equal(t, reflect.TypeOf(0), innerType)
+		assert.Equal(t, reflect.TypeFor[int](), innerType)
 
 		// Test with string
-		dynStrType := reflect.TypeOf((*Dynamic[string])(nil)).Elem()
+		dynStrType := reflect.TypeFor[Dynamic[string]]()
 		innerStrType := extractDynamicInnerType(dynStrType)
-		assert.Equal(t, reflect.TypeOf(""), innerStrType)
+		assert.Equal(t, reflect.TypeFor[string](), innerStrType)
 
 		// Test with struct
 		type TestStruct struct {
 			Field int
 		}
-		dynStructType := reflect.TypeOf((*Dynamic[TestStruct])(nil)).Elem()
+		dynStructType := reflect.TypeFor[Dynamic[TestStruct]]()
 		innerStructType := extractDynamicInnerType(dynStructType)
-		assert.Equal(t, reflect.TypeOf(TestStruct{}), innerStructType)
+		assert.Equal(t, reflect.TypeFor[TestStruct](), innerStructType)
 	})
 
 	t.Run("setDynamicValue", func(t *testing.T) {
@@ -916,7 +944,7 @@ func TestCreateShadowType(t *testing.T) {
 			Field *Dynamic[int]
 		}
 
-		origType := reflect.TypeOf(Original{})
+		origType := reflect.TypeFor[Original]()
 		shadowType := createShadowType(origType)
 
 		assert.Equal(t, origType.NumField(), shadowType.NumField())
@@ -928,7 +956,7 @@ func TestCreateShadowType(t *testing.T) {
 		assert.True(t, isDynamicTypeForMarshal(origFieldType))
 		assert.False(t, isDynamicTypeForMarshal(shadowFieldType))
 		// The shadow field type should be int (the inner type of Dynamic[int])
-		assert.Equal(t, reflect.TypeOf(0), shadowFieldType)
+		assert.Equal(t, reflect.TypeFor[int](), shadowFieldType)
 	})
 
 	t.Run("mixed fields", func(t *testing.T) {
@@ -938,19 +966,19 @@ func TestCreateShadowType(t *testing.T) {
 			Another bool
 		}
 
-		origType := reflect.TypeOf(Original{})
+		origType := reflect.TypeFor[Original]()
 		shadowType := createShadowType(origType)
 
 		assert.Equal(t, 3, shadowType.NumField())
 
 		// Regular field unchanged
-		assert.Equal(t, reflect.TypeOf(0), shadowType.Field(0).Type)
+		assert.Equal(t, reflect.TypeFor[int](), shadowType.Field(0).Type)
 
 		// Dynamic field unwrapped - should be string (the inner type)
-		assert.Equal(t, reflect.TypeOf(""), shadowType.Field(1).Type)
+		assert.Equal(t, reflect.TypeFor[string](), shadowType.Field(1).Type)
 
 		// Another regular field unchanged
-		assert.Equal(t, reflect.TypeOf(false), shadowType.Field(2).Type)
+		assert.Equal(t, reflect.TypeFor[bool](), shadowType.Field(2).Type)
 	})
 
 	t.Run("nested struct with dynamics", func(t *testing.T) {
@@ -962,7 +990,7 @@ func TestCreateShadowType(t *testing.T) {
 			Inner Inner
 		}
 
-		origType := reflect.TypeOf(Outer{})
+		origType := reflect.TypeFor[Outer]()
 		shadowType := createShadowType(origType)
 
 		// Check outer struct
@@ -979,7 +1007,7 @@ func TestCreateShadowType(t *testing.T) {
 		innerValueField := innerType.Field(0)
 		assert.Equal(t, "Value", innerValueField.Name)
 		// The inner field should be int (unwrapped from *Dynamic[int])
-		assert.Equal(t, reflect.TypeOf(0), innerValueField.Type)
+		assert.Equal(t, reflect.TypeFor[int](), innerValueField.Type)
 	})
 
 	t.Run("pointer type handling", func(t *testing.T) {
@@ -987,11 +1015,11 @@ func TestCreateShadowType(t *testing.T) {
 			Field *Dynamic[int]
 		}
 
-		ptrType := reflect.TypeOf(&Original{})
+		ptrType := reflect.TypeFor[*Original]()
 		shadowType := createShadowType(ptrType)
 
 		// Should handle pointer
-		assert.Equal(t, reflect.Ptr, shadowType.Kind())
+		assert.Equal(t, reflect.Pointer, shadowType.Kind())
 		assert.Equal(t, reflect.Struct, shadowType.Elem().Kind())
 	})
 }
@@ -1306,7 +1334,7 @@ func TestRoundTripConsistency(t *testing.T) {
 			Value: NewDynamic(42),
 		}
 
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			data, err := TransparentMarshal(cfg)
 			require.NoError(t, err)
 
@@ -1488,7 +1516,7 @@ func TestAdditionalEdgeCases(t *testing.T) {
 
 	t.Run("extractDynamicInnerType with non-struct", func(t *testing.T) {
 		// Test with a non-struct type
-		intType := reflect.TypeOf(42)
+		intType := reflect.TypeFor[int]()
 		result := extractDynamicInnerType(intType)
 		// Should return the same type
 		assert.Equal(t, intType, result)
@@ -1507,9 +1535,9 @@ func TestAdditionalEdgeCases(t *testing.T) {
 
 	t.Run("hasNestedDynamics with non-struct", func(t *testing.T) {
 		// Test with non-struct types
-		assert.False(t, hasNestedDynamics(reflect.TypeOf(42)))
-		assert.False(t, hasNestedDynamics(reflect.TypeOf("string")))
-		assert.False(t, hasNestedDynamics(reflect.TypeOf([]int{})))
+		assert.False(t, hasNestedDynamics(reflect.TypeFor[int]()))
+		assert.False(t, hasNestedDynamics(reflect.TypeFor[string]()))
+		assert.False(t, hasNestedDynamics(reflect.TypeFor[[]int]()))
 	})
 
 	t.Run("unwrapDynamics with non-struct", func(t *testing.T) {
@@ -1522,16 +1550,14 @@ func TestAdditionalEdgeCases(t *testing.T) {
 	t.Run("wrapDynamics with non-struct", func(t *testing.T) {
 		// Test with non-struct values
 		shadow := 42
-		target := 99
-
-		err := wrapDynamics(shadow, &target)
+		err := wrapDynamics(shadow, new(99))
 		require.NoError(t, err)
 		// Since both are ints, wrapDynamics should just return without error
 	})
 
 	t.Run("createShadowType with non-struct", func(t *testing.T) {
 		// Test with non-struct type
-		intType := reflect.TypeOf(42)
+		intType := reflect.TypeFor[int]()
 		result := createShadowType(intType)
 		assert.Equal(t, intType, result)
 	})
@@ -1584,17 +1610,15 @@ func TestAdditionalEdgeCases(t *testing.T) {
 			Items *Dynamic[[]*int]
 		}
 
-		val1, val2 := 1, 2
 		cfg1 := Config{
-			Items: NewDynamic([]*int{&val1, &val2}),
+			Items: NewDynamic([]*int{new(1), new(2)}),
 		}
 
 		data, err := TransparentMarshal(cfg1)
 		require.NoError(t, err)
 
-		zero1, zero2 := 0, 0
 		cfg2 := Config{
-			Items: NewDynamic([]*int{&zero1, &zero2}),
+			Items: NewDynamic([]*int{new(0), new(0)}),
 		}
 
 		err = TransparentUnmarshal(data, &cfg2)
@@ -1608,9 +1632,9 @@ func TestAdditionalEdgeCases(t *testing.T) {
 
 	t.Run("extractDynamicInnerType with pointer to dynamic", func(t *testing.T) {
 		// Test with pointer to Dynamic type
-		ptrType := reflect.TypeOf((*Dynamic[string])(nil))
+		ptrType := reflect.TypeFor[*Dynamic[string]]()
 		innerType := extractDynamicInnerType(ptrType)
-		assert.Equal(t, reflect.TypeOf(""), innerType)
+		assert.Equal(t, reflect.TypeFor[string](), innerType)
 	})
 
 	t.Run("struct with unexported fields", func(t *testing.T) {
@@ -1739,9 +1763,8 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 			PtrField *string // Different pointer type
 		}
 
-		str := "test"
 		target := Config2{
-			PtrField: &str,
+			PtrField: new("test"),
 		}
 
 		shadow := Config1{
@@ -1892,7 +1915,7 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 	t.Run("extractDynamicInnerType with empty struct", func(t *testing.T) {
 		type EmptyStruct struct{}
 
-		emptyType := reflect.TypeOf(EmptyStruct{})
+		emptyType := reflect.TypeFor[EmptyStruct]()
 		result := extractDynamicInnerType(emptyType)
 
 		// Should return the same type when struct has no fields
@@ -1917,9 +1940,8 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 			IntPtr *int
 		}
 
-		val := 42
 		target := Config{
-			IntPtr: &val,
+			IntPtr: new(42),
 		}
 
 		shadow := Config{
@@ -1967,7 +1989,7 @@ func TestCoverageForRemainingPaths(t *testing.T) {
 
 		// Verify shadow has correct structure
 		shadowVal := reflect.ValueOf(shadow)
-		assert.Equal(t, reflect.Ptr, shadowVal.Kind())
+		assert.Equal(t, reflect.Pointer, shadowVal.Kind())
 		assert.Equal(t, reflect.Struct, shadowVal.Elem().Kind())
 	})
 

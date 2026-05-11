@@ -16,9 +16,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
@@ -134,7 +136,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// Get the proving schedule from the listener (handles view contract indirection)
-	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ipp.ethClient)
+	provingSchedule, err := contract.GetProvingScheduleFromListener(ctx, listenerAddr, ipp.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
@@ -251,7 +253,7 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPInitPP",
+		Name: tasknames.PDPInitPP,
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

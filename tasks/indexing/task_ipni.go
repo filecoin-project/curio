@@ -7,12 +7,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -20,53 +17,49 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr/net"
-	"github.com/multiformats/go-varint"
-	"github.com/oklog/ulid"
+	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/pieceprovider"
-	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/urlhelper"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
-	"github.com/filecoin-project/curio/market/mk20"
 )
 
 var ilog = logging.Logger("ipni")
 
+const ipniHeadCASRetries = 16
+
 type IPNITask struct {
-	db            *harmonydb.DB
-	pieceProvider *pieceprovider.SectorReader
-	cpr           *cachedreader.CachedPieceReader
-	sc            *ffi.SealCalls
-	cfg           *config.CurioConfig
-	max           taskhelp.Limiter
+	db  *harmonydb.DB
+	cfg *config.CurioConfig
+	max taskhelp.Limiter
+	idx *indexstore.IndexStore
 }
 
-func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, pieceProvider *pieceprovider.SectorReader, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
+func nullableText(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func NewIPNITask(db *harmonydb.DB, cfg *config.CurioConfig, max taskhelp.Limiter, idx *indexstore.IndexStore) *IPNITask {
 	return &IPNITask{
-		db:            db,
-		pieceProvider: pieceProvider,
-		cpr:           cpr,
-		sc:            sc,
-		cfg:           cfg,
-		max:           max,
+		db:  db,
+		cfg: cfg,
+		max: max,
+		idx: idx,
 	}
 }
 
@@ -114,33 +107,35 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	task := tasks[0]
 
 	if task.Complete {
-		log.Infow("IPNI task already complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
+		ilog.Infow("IPNI task already complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 		return true, nil
 	}
 
 	if task.Rm {
-		comm, err := I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var ads []struct {
-				ContextID []byte `db:"context_id"`
-				IsRm      bool   `db:"is_rm"`
-				Previous  string `db:"previous"`
-				Provider  string `db:"provider"`
-				Addresses string `db:"addresses"`
-				Entries   string `db:"entries"`
-				Metadata  []byte `db:"metadata"`
-				Pcid2     string `db:"piece_cid_v2"`
-				Pcid1     string `db:"piece_cid"`
-				Size      int64  `db:"piece_size"`
+		for range ipniHeadCASRetries {
+			if !stillOwned() {
+				return false, nil
 			}
+			comm, err := I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				var ads []struct {
+					ContextID []byte `db:"context_id"`
+					IsRm      bool   `db:"is_rm"`
+					Previous  string `db:"previous"`
+					Provider  string `db:"provider"`
+					Addresses string `db:"addresses"`
+					Metadata  []byte `db:"metadata"`
+					Pcid2     string `db:"piece_cid_v2"`
+					Pcid1     string `db:"piece_cid"`
+					Size      int64  `db:"piece_size"`
+				}
 
-			// Get the latest Ad
-			err = tx.Select(&ads, `SELECT 
+				// Get the latest Ad
+				err = tx.Select(&ads, `SELECT 
 										context_id,
 										is_rm, 
 										previous, 
 										provider, 
 										addresses, 
-										entries,
 										metadata,
 										piece_cid_v2,
 										piece_cid,
@@ -151,41 +146,199 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 										  ORDER BY order_number DESC
 										  LIMIT 1`, task.CtxID, task.Prov)
 
+				if err != nil {
+					return false, xerrors.Errorf("getting ad from DB: %w", err)
+				}
+
+				if len(ads) == 0 {
+					return false, xerrors.Errorf("not original ad found for removal ad")
+				}
+
+				if len(ads) > 1 {
+					return false, xerrors.Errorf("expected 1 ad but got %d", len(ads))
+				}
+
+				a := ads[0]
+
+				var prev string
+
+				err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return false, xerrors.Errorf("querying previous head: %w", err)
+				}
+
+				var privKey []byte
+				err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, task.SPID).Scan(&privKey)
+				if err != nil {
+					return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
+				}
+
+				prevCID, err := cid.Parse(prev)
+				if err != nil {
+					return false, xerrors.Errorf("parsing previous CID: %w", err)
+				}
+
+				pkey, err := crypto.UnmarshalPrivateKey(privKey)
+				if err != nil {
+					return false, xerrors.Errorf("unmarshaling private key: %w", err)
+				}
+
+				adv := schema.Advertisement{
+					PreviousID: cidlink.Link{Cid: prevCID},
+					Provider:   a.Provider,
+					Addresses:  strings.Split(a.Addresses, "|"),
+					Entries:    schema.NoEntries,
+					ContextID:  a.ContextID,
+					IsRm:       true,
+					Metadata:   a.Metadata,
+				}
+
+				err = adv.Sign(pkey)
+				if err != nil {
+					return false, xerrors.Errorf("signing the advertisement: %w", err)
+				}
+
+				err = adv.Validate()
+				if err != nil {
+					return false, xerrors.Errorf("validating the advertisement: %w", err)
+				}
+
+				adNode, err := adv.ToNode()
+				if err != nil {
+					return false, xerrors.Errorf("converting advertisement to node: %w", err)
+				}
+
+				ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
+				if err != nil {
+					return false, xerrors.Errorf("converting advertisement to link: %w", err)
+				}
+
+				var inserted bool
+				err = tx.QueryRow(`SELECT insert_ad_and_update_head_checked($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+					ad.(cidlink.Link).Cid.String(), adv.ContextID, a.Metadata, a.Pcid2, a.Pcid1, a.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+					adv.Signature, adv.Entries.String(), nullableText(prev)).Scan(&inserted)
+				if err != nil {
+					return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+				}
+				if !inserted {
+					return false, nil
+				}
+
+				n, err := tx.Exec(`UPDATE ipni_task SET complete = true WHERE task_id = $1`, taskID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("updated %d rows", n)
+				}
+
+				return true, nil
+			}, harmonydb.OptionRetry())
 			if err != nil {
-				return false, xerrors.Errorf("getting ad from DB: %w", err)
+				return false, xerrors.Errorf("store IPNI success: %w", err)
 			}
-
-			if len(ads) == 0 {
-				return false, xerrors.Errorf("not original ad found for removal ad")
+			if comm {
+				ilog.Infow("IPNI task complete", "task_id", taskID)
+				return true, nil
 			}
+		}
+		return false, xerrors.Errorf("store IPNI success: failed to commit after %d attempts", ipniHeadCASRetries)
+	}
 
-			if len(ads) > 1 {
-				return false, xerrors.Errorf("expected 1 ad but got %d", len(ads))
-			}
+	var pi abi.PieceInfo
+	err = pi.UnmarshalCBOR(bytes.NewReader(task.CtxID))
+	if err != nil {
+		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
+	}
 
-			a := ads[0]
+	var rawSize abi.UnpaddedPieceSize
+	if task.ID.Valid {
+		err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 AND id = $3 LIMIT 1`, pi.PieceCID.String(), pi.Size, task.ID.String).Scan(&rawSize)
+	} else {
+		err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1`, pi.PieceCID.String(), pi.Size).Scan(&rawSize)
+		if rawSize == 0 {
+			return false, xerrors.Errorf("piece raw size %d not found in market_piece_deal", pi.Size)
+		}
+	}
 
-			e, err := cid.Parse(a.Entries)
+	if err != nil {
+		return false, xerrors.Errorf("querying raw size: %w", err)
+	}
+
+	pcid2, err := commcid.PieceCidV2FromV1(pi.PieceCID, uint64(rawSize))
+	if err != nil {
+		return false, xerrors.Errorf("getting piece CID v2: %w", err)
+	}
+
+	chk := chunker.NewInitialChunker()
+	offset := multihash.Multihash{0}
+	ostr := offset.String()
+
+	for {
+		// Get the next EntriesChunkSize+1 (16384+1) entries for chunking
+		mhs, err := I.idx.GetPieceHashRange(ctx, pcid2, offset, chunker.EntriesChunkSize+1, false)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece hashes: %w", err)
+		}
+
+		if offset.String() == ostr && len(mhs) == 0 {
+			return false, xerrors.Errorf("no index record found for piece %s", pcid2.String())
+		}
+
+		if len(mhs) <= chunker.EntriesChunkSize && len(mhs) > 0 {
+			// Send EntriesChunkSize (16384) or less entries for chunking
+			err = chk.Accept(mhs)
 			if err != nil {
-				return false, xerrors.Errorf("parsing entry CID: %w", err)
+				return false, xerrors.Errorf("adding index to chunk: %w", err)
 			}
+			break
+		}
 
+		if len(mhs) == chunker.EntriesChunkSize+1 {
+			// Send EntriesChunkSize (16384) entries for chunking
+			err = chk.Accept(mhs[:len(mhs)-1])
+			if err != nil {
+				return false, xerrors.Errorf("adding index to chunk: %w", err)
+			}
+			// Use the last entry as the offset for the next iteration
+			offset = mhs[len(mhs)-1]
+			continue
+		}
+
+		return false, xerrors.Errorf("number of index records is not expected: %d", len(mhs))
+	}
+
+	// make sure we still own the task before writing to the database
+	if !stillOwned() {
+		return false, nil
+	}
+
+	lnk, err := chk.Finish(ctx, I.db, pcid2, false)
+	if err != nil {
+		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
+	}
+
+	for range ipniHeadCASRetries {
+		if !stillOwned() {
+			return false, nil
+		}
+		comm, err := I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var prev string
-
 			err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return false, xerrors.Errorf("querying previous head: %w", err)
 			}
 
-			prevCID, err := cid.Parse(prev)
+			mds := metadata.IpfsGatewayHttp{}
+			md, err := mds.MarshalBinary()
 			if err != nil {
-				return false, xerrors.Errorf("parsing previous CID: %w", err)
+				return false, xerrors.Errorf("marshaling metadata: %w", err)
 			}
 
 			var privKey []byte
 			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, task.SPID).Scan(&privKey)
 			if err != nil {
-				return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
+				return false, xerrors.Errorf("failed to get private ipni-libp2p key for miner %d: %w", task.SPID, err)
 			}
 
 			pkey, err := crypto.UnmarshalPrivateKey(privKey)
@@ -194,13 +347,34 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			}
 
 			adv := schema.Advertisement{
-				PreviousID: cidlink.Link{Cid: prevCID},
-				Provider:   a.Provider,
-				Addresses:  strings.Split(a.Addresses, "|"),
-				Entries:    cidlink.Link{Cid: e},
-				ContextID:  a.ContextID,
-				IsRm:       true,
-				Metadata:   a.Metadata,
+				Provider:  task.Prov,
+				Entries:   lnk,
+				ContextID: task.CtxID,
+				Metadata:  md,
+				IsRm:      task.Rm,
+			}
+
+			{
+				u, err := urlhelper.GetExternalURL(&I.cfg.HTTP)
+				if err != nil {
+					return false, xerrors.Errorf("getting external URL for IPNI: %w", err)
+				}
+
+				addr, err := urlhelper.FromURLWithPort(u)
+				if err != nil {
+					return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
+				}
+
+				adv.Addresses = append(adv.Addresses, addr.String())
+			}
+
+			if prev != "" {
+				prevCID, err := cid.Parse(prev)
+				if err != nil {
+					return false, xerrors.Errorf("parsing previous CID: %w", err)
+				}
+
+				adv.PreviousID = cidlink.Link{Cid: prevCID}
 			}
 
 			err = adv.Sign(pkey)
@@ -223,12 +397,15 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 				return false, xerrors.Errorf("converting advertisement to link: %w", err)
 			}
 
-			_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-				ad.(cidlink.Link).Cid.String(), adv.ContextID, a.Metadata, a.Pcid2, a.Pcid1, a.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
-				adv.Signature, adv.Entries.String())
-
+			var inserted bool
+			err = tx.QueryRow(`SELECT insert_ad_and_update_head_checked($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+				ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pi.PieceCID.String(), pi.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+				adv.Signature, adv.Entries.String(), nullableText(prev)).Scan(&inserted)
 			if err != nil {
 				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+			}
+			if !inserted {
+				return false, nil
 			}
 
 			n, err := tx.Exec(`UPDATE ipni_task SET complete = true WHERE task_id = $1`, taskID)
@@ -240,410 +417,21 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			}
 
 			return true, nil
+
 		}, harmonydb.OptionRetry())
 		if err != nil {
 			return false, xerrors.Errorf("store IPNI success: %w", err)
 		}
-
-		if !comm {
-			return false, xerrors.Errorf("store IPNI success: failed to commit the transaction")
-		}
-
-		log.Infow("IPNI task complete", "task_id", taskID)
-		return true, nil
-	}
-
-	var pi abi.PieceInfo
-	err = pi.UnmarshalCBOR(bytes.NewReader(task.CtxID))
-	if err != nil {
-		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
-	}
-
-	var rawSize abi.UnpaddedPieceSize
-	err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1`, pi.PieceCID.String(), pi.Size).Scan(&rawSize)
-	if err != nil {
-		return false, xerrors.Errorf("querying raw size: %w", err)
-	}
-
-	pcid2, err := commcid.PieceCidV2FromV1(pi.PieceCID, uint64(rawSize))
-	if err != nil {
-		return false, xerrors.Errorf("getting piece CID v2: %w", err)
-	}
-
-	// Try to read unsealed sector first (mk12 deal)
-	reader, err := I.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SPID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), pi.Size.Unpadded(), pi.PieceCID)
-	if err != nil {
-		serr := err
-		// Try to read piece (mk20 deal)
-		reader, _, err = I.cpr.GetSharedPieceReader(ctx, pcid2, false)
-		if err != nil {
-			return false, xerrors.Errorf("getting piece reader from sector and piece park: %w, %w", serr, err)
+		if comm {
+			ilog.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
+			return true, nil
 		}
 	}
-
-	defer func() {
-		_ = reader.Close()
-	}()
-
-	var isMK20 bool
-
-	if task.ID.Valid {
-		_, err := ulid.Parse(task.ID.String)
-		if err == nil {
-			isMK20 = true
-		} else {
-			_, err := uuid.Parse(task.ID.String)
-			if err != nil {
-				return false, xerrors.Errorf("parsing task id: %w", err)
-			}
-		}
-	}
-
-	recs := make(chan indexstore.Record, 1)
-
-	var eg errgroup.Group
-	addFail := make(chan struct{})
-	var interrupted bool
-	var subPieces []mk20.DataSource
-	chk := chunker.NewInitialChunker()
-
-	eg.Go(func() error {
-		defer close(addFail)
-		for rec := range recs {
-			// CAR sections are [varint (length), CID, blockData]
-			combinedSize := rec.Size + uint64(rec.Cid.ByteLen())
-			lenSize := uint64(varint.UvarintSize(combinedSize))
-			sectionSize := combinedSize + lenSize
-			serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), sectionSize)
-			if serr != nil {
-				addFail <- struct{}{}
-				return serr
-			}
-		}
-		return nil
-	})
-
-	if isMK20 {
-		id, serr := ulid.Parse(task.ID.String)
-		if serr != nil {
-			return false, xerrors.Errorf("parsing task id: %w", serr)
-		}
-		deal, serr := mk20.DealFromDB(ctx, I.db, id)
-		if serr != nil {
-			return false, xerrors.Errorf("getting deal from db: %w", serr)
-		}
-
-		if deal.Data.Format.Raw != nil {
-			return false, xerrors.Errorf("raw data not supported")
-		}
-
-		if deal.Data.Format.Car != nil {
-			_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
-		}
-
-		if deal.Data.Format.Aggregate != nil {
-			if deal.Data.Format.Aggregate.Type > 0 {
-				var found bool
-				if len(deal.Data.Format.Aggregate.Sub) > 0 {
-					subPieces = deal.Data.Format.Aggregate.Sub
-					found = true
-				}
-				if len(deal.Data.SourceAggregate.Pieces) > 0 {
-					subPieces = deal.Data.SourceAggregate.Pieces
-					found = true
-				}
-				if !found {
-					return false, xerrors.Errorf("no sub pieces for aggregate mk20 deal")
-				}
-				_, _, interrupted, err = IndexAggregate(pcid2, reader, pi.Size, subPieces, recs, addFail)
-			} else {
-				return false, xerrors.Errorf("invalid aggregate type")
-			}
-		}
-
-	} else {
-		_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
-	}
-
-	if err != nil {
-		// Chunking itself failed, stop early
-		close(recs) // still safe to close, chk.Accept() will exit on channel close
-		// wait for chk.Accept() goroutine to finish cleanly
-		_ = eg.Wait()
-		return false, xerrors.Errorf("chunking failed: %w", err)
-	}
-
-	// Close the channel
-	close(recs)
-
-	// Wait till  is finished
-	err = eg.Wait()
-	if err != nil {
-		return false, xerrors.Errorf("adding index to chunk (interrupted %t): %w", interrupted, err)
-	}
-
-	// make sure we still own the task before writing to the database
-	if !stillOwned() {
-		return false, nil
-	}
-
-	lnk, err := chk.Finish(ctx, I.db, pcid2, false)
-	if err != nil {
-		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
-	}
-
-	// make sure we still own the task before writing ad chains
-	if !stillOwned() {
-		return false, nil
-	}
-
-	_, err = I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		var prev string
-		err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return false, xerrors.Errorf("querying previous head: %w", err)
-		}
-
-		mds := metadata.IpfsGatewayHttp{}
-		md, err := mds.MarshalBinary()
-		if err != nil {
-			return false, xerrors.Errorf("marshaling metadata: %w", err)
-		}
-
-		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, task.SPID).Scan(&privKey)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get private ipni-libp2p key for miner %d: %w", task.SPID, err)
-		}
-
-		pkey, err := crypto.UnmarshalPrivateKey(privKey)
-		if err != nil {
-			return false, xerrors.Errorf("unmarshaling private key: %w", err)
-		}
-
-		adv := schema.Advertisement{
-			Provider:  task.Prov,
-			Entries:   lnk,
-			ContextID: task.CtxID,
-			Metadata:  md,
-			IsRm:      task.Rm,
-		}
-
-		{
-			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
-			if err != nil {
-				return false, xerrors.Errorf("parsing announce address domain: %w", err)
-			}
-			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
-				ls := strings.Split(I.cfg.HTTP.ListenAddress, ":")
-				u, err = url.Parse(fmt.Sprintf("http://%s:%s", I.cfg.HTTP.DomainName, ls[1]))
-				if err != nil {
-					return false, xerrors.Errorf("parsing announce address domain: %w", err)
-				}
-			}
-
-			addr, err := FromURLWithPort(u)
-			if err != nil {
-				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
-			}
-
-			adv.Addresses = append(adv.Addresses, addr.String())
-		}
-
-		if prev != "" {
-			prevCID, err := cid.Parse(prev)
-			if err != nil {
-				return false, xerrors.Errorf("parsing previous CID: %w", err)
-			}
-
-			adv.PreviousID = cidlink.Link{Cid: prevCID}
-		}
-
-		err = adv.Sign(pkey)
-		if err != nil {
-			return false, xerrors.Errorf("signing the advertisement: %w", err)
-		}
-
-		err = adv.Validate()
-		if err != nil {
-			return false, xerrors.Errorf("validating the advertisement: %w", err)
-		}
-
-		adNode, err := adv.ToNode()
-		if err != nil {
-			return false, xerrors.Errorf("converting advertisement to node: %w", err)
-		}
-
-		ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
-		if err != nil {
-			return false, xerrors.Errorf("converting advertisement to link: %w", err)
-		}
-
-		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pi.PieceCID.String(), pi.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
-			adv.Signature, adv.Entries.String())
-
-		if err != nil {
-			return false, xerrors.Errorf("adding advertisement to the database: %w", err)
-		}
-
-		n, err := tx.Exec(`UPDATE ipni_task SET complete = true WHERE task_id = $1`, taskID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("updated %d rows", n)
-		}
-
-		return true, nil
-
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return false, xerrors.Errorf("store IPNI success: %w", err)
-	}
-
-	log.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
-
-	return true, nil
+	return false, xerrors.Errorf("store IPNI success: failed to commit after %d attempts", ipniHeadCASRetries)
 }
 
 func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-	type task struct {
-		TaskID       harmonytask.TaskID `db:"task_id"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector"`
-		StorageID    sql.NullString     `db:"storage_id"`
-		IsRm         bool               `db:"is_rm"`
-		ID           string             `db:"id"`
-	}
-
-	if storiface.FTUnsealed != 1 {
-		panic("storiface.FTUnsealed != 1")
-	}
-
-	if storiface.FTPiece != 32 {
-		panic("storiface.FTPiece != 32")
-	}
-
-	ctx := context.Background()
-
-	indIDs := make([]int64, len(ids))
-	for i, id := range ids {
-		indIDs[i] = int64(id)
-	}
-
-	var tasks []task
-	err := I.db.Select(ctx, &tasks, `
-		SELECT dp.task_id, dp.sp_id, dp.sector, l.storage_id, dp.is_rm, dp.id FROM ipni_task dp
-			LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-			WHERE dp.task_id = ANY ($1) AND (l.sector_filetype IS NULL OR l.sector_filetype = 1)
-`, indIDs)
-	if err != nil {
-		return nil, xerrors.Errorf("getting task details: %w", err)
-	}
-
-	var mk12TaskIds []harmonytask.TaskID
-	var mk20TaskIds []harmonytask.TaskID
-
-	var result []harmonytask.TaskID
-	for _, t := range tasks {
-		if t.IsRm {
-			result = append(result, t.TaskID)
-			continue
-		}
-		_, err := ulid.Parse(t.ID)
-		if err == nil {
-			mk20TaskIds = append(mk20TaskIds, t.TaskID)
-		} else {
-			_, err := uuid.Parse(t.ID)
-			if err != nil {
-				return nil, xerrors.Errorf("parsing task id: %w", err)
-			}
-			mk12TaskIds = append(mk12TaskIds, t.TaskID)
-		}
-	}
-
-	var finalTasks []task
-
-	if len(mk12TaskIds) > 0 {
-		var mk12Tasks []task
-		err := I.db.Select(ctx, &mk12Tasks, `
-			SELECT dp.task_id, dp.id, l.storage_id FROM ipni_task dp
-				LEFT JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-				WHERE dp.task_id = ANY ($1) AND (l.sector_filetype IS NULL OR l.sector_filetype = 1)`, indIDs)
-		if err != nil {
-			return nil, xerrors.Errorf("getting storage details: %w", err)
-		}
-		finalTasks = append(finalTasks, mk12Tasks...)
-	}
-
-	if len(mk20TaskIds) > 0 {
-		var mk20Tasks []task
-		err := I.db.Select(ctx, &mk20Tasks, `
-							SELECT
-							  dp.task_id,
-							  dp.id,
-							  l.storage_id
-							FROM ipni_task dp
-							JOIN market_piece_deal   mpd ON mpd.id    = dp.id
-							JOIN parked_piece_refs    pr ON pr.ref_id = mpd.piece_ref
-							JOIN sector_location       l ON l.miner_id = 0
-														 AND l.sector_num = pr.piece_id
-														 AND l.sector_filetype = 32
-							WHERE dp.task_id = ANY ($1);
-							`, indIDs)
-		if err != nil {
-			return nil, xerrors.Errorf("getting storage details: %w", err)
-		}
-		finalTasks = append(finalTasks, mk20Tasks...)
-	}
-
-	ls, err := I.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	acceptables := map[harmonytask.TaskID]bool{}
-
-	for _, t := range ids {
-		acceptables[t] = true
-	}
-
-	for _, t := range finalTasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
-
-		acceptables[t.TaskID] = false // note the task was found
-
-		if !t.StorageID.Valid {
-			// no unsealed copy
-			result = append(result, t.TaskID)
-		}
-
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID.String {
-				result = append(result, t.TaskID)
-			}
-		}
-	}
-
-	// special case for orphan tasks which are created for non-announced pieces
-	for taskID, notAccepted := range acceptables {
-		if !notAccepted {
-			continue
-		}
-
-		result = append(result, taskID)
-	}
-
-	return result, nil
+	return ids, nil
 }
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
@@ -790,7 +578,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 
 				n, err := tx.Exec(`INSERT INTO ipni_peerid (sp_id, priv_key, peer_id) VALUES ($1, $2, $3) ON CONFLICT(sp_id) DO NOTHING `, p.SpID, privKey, pid.String())
 				if err != nil {
-					return false, xerrors.Errorf("failed to to insert the key into DB: %w", err)
+					return false, xerrors.Errorf("failed to insert the key into DB: %w", err)
 				}
 
 				if n == 0 {
@@ -869,10 +657,10 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			}
 
 			if err != nil {
-				log.Errorf("store IPNI success: updating pipeline (2): %s", err)
+				ilog.Errorf("store IPNI success: updating pipeline (2): %s", err)
 			}
 			if n != 1 {
-				log.Errorf("store IPNI success: updated %d rows", n)
+				ilog.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
 	}
@@ -886,7 +674,7 @@ func (I *IPNITask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
 	err := db.QueryRow(context.Background(), `SELECT sp_id FROM ipni_task WHERE task_id = $1`, taskID).Scan(&spid)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		ilog.Errorf("getting spid: %s", err)
 		return ""
 	}
 	return spid
@@ -894,66 +682,3 @@ func (I *IPNITask) GetSpid(db *harmonydb.DB, taskID int64) string {
 
 var _ = harmonytask.Reg(&IPNITask{})
 var _ harmonytask.TaskInterface = &IPNITask{}
-
-func FromURLWithPort(u *url.URL) (multiaddr.Multiaddr, error) {
-	h := u.Hostname()
-	var addr *multiaddr.Multiaddr
-	if n := net.ParseIP(h); n != nil {
-		ipAddr, err := manet.FromIP(n)
-		if err != nil {
-			return nil, err
-		}
-		addr = &ipAddr
-	} else {
-		// domain name
-		ma, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_DNS).Name, h)
-		if err != nil {
-			return nil, err
-		}
-		mab := multiaddr.Cast(ma.Bytes())
-		addr = &mab
-	}
-	pv := u.Port()
-	if pv != "" {
-		port, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, pv)
-		if err != nil {
-			return nil, err
-		}
-		wport := multiaddr.Join(*addr, port)
-		addr = &wport
-	} else {
-		// default ports for http and https
-		var port *multiaddr.Component
-		var err error
-		switch u.Scheme {
-		case "http":
-			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "80")
-			if err != nil {
-				return nil, err
-			}
-		case "https":
-			port, err = multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_TCP).Name, "443")
-		}
-		if err != nil {
-			return nil, err
-		}
-		wport := multiaddr.Join(*addr, port)
-		addr = &wport
-	}
-
-	http, err := multiaddr.NewComponent(u.Scheme, "")
-	if err != nil {
-		return nil, err
-	}
-
-	joint := multiaddr.Join(*addr, http)
-	if u.Path != "" {
-		httppath, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_HTTP_PATH).Name, url.PathEscape(u.Path))
-		if err != nil {
-			return nil, err
-		}
-		joint = multiaddr.Join(joint, httppath)
-	}
-
-	return joint, nil
-}

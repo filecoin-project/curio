@@ -9,9 +9,9 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
     }
 
     async loadData() {
-        const blockDelay = await RPCCall('BlockDelaySecs')
+        const blockDelay = await RPCCall('BlockDelaySecs');
         await this.updateData();
-        setTimeout(()=>this.loadData(), blockDelay * 1000);
+        setTimeout(() => this.loadData(), blockDelay * 1000);
     };
 
     async updateData() {
@@ -22,7 +22,7 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
     static get styles() {
         return [css`
         :host {
-            box-sizing: border-box; /* Don't forgert this to include padding/border inside width calculation */
+            box-sizing: border-box; /* Keep padding and border inside the element width */
         }
     `];
     }
@@ -45,7 +45,7 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
         <tr>
             <td>${item.Address}</td>
             <td>${item.Reachable ? html`<span class="success">ok</span>` : html`<span class="error">FAIL</span>`}</td>
-            <td>${item.SyncState === "ok" ? html`<span class="success">ok</span>` : html`<span class="warning">No${item.SyncState? ', '+item.SyncState:''}</span>`}</td>
+            <td>${item.SyncState === "ok" ? html`<span class="success">ok</span>` : html`<span class="warning">No${item.SyncState ? ', ' + item.SyncState : ''}</span>`}</td>
             <td>${item.Version}</td>
         </tr>
         `)}

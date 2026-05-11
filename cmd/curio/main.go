@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime/pprof"
 	"syscall"
 
 	"github.com/docker/go-units"
@@ -51,7 +50,6 @@ func setupCloseHandler() {
 	go func() {
 		<-c
 		fmt.Println("\r- Ctrl+C pressed in Terminal")
-		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 2)
 		panic(1)
 	}()
 }
@@ -83,7 +81,6 @@ func main() {
 	}()
 
 	for _, cmd := range local {
-		cmd := cmd
 		originBefore := cmd.Before
 		cmd.Before = func(cctx *cli.Context) error {
 			if jaeger != nil {
@@ -130,13 +127,13 @@ func main() {
 			&cli.StringFlag{
 				Name:    "db-host",
 				EnvVars: []string{"CURIO_DB_HOST", "CURIO_HARMONYDB_HOSTS"},
-				Usage:   translations.T("Command separated list of hostnames for yugabyte cluster"),
+				Usage:   translations.T("Comma-separated list of hostnames for yugabyte cluster"),
 				Value:   "127.0.0.1",
 			},
 			&cli.StringFlag{
 				Name:        "db-host-cql",
 				EnvVars:     []string{"CURIO_DB_HOST_CQL"},
-				Usage:       translations.T("Command separated list of hostnames for yugabyte cluster"),
+				Usage:       translations.T("Comma-separated list of hostnames for yugabyte cluster"),
 				Value:       "",
 				DefaultText: "<--db-host>",
 			},
@@ -239,8 +236,7 @@ func runApp(app *cli.App) {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
 		}
 
-		var phe *PrintHelpErr
-		if errors.As(err, &phe) {
+		if phe, ok := errors.AsType[*PrintHelpErr](err); ok {
 			_ = cli.ShowCommandHelp(phe.Ctx, phe.Ctx.Command.Name)
 		}
 		os.Exit(1)

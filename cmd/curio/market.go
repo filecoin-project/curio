@@ -152,7 +152,7 @@ var marketAddOfflineURLCmd = &cli.Command{
 
 				if parts[3] != "" {
 					header := http.Header{}
-					for _, s := range strings.Split(parts[3], ",") {
+					for s := range strings.SplitSeq(parts[3], ",") {
 						key, value, found := strings.Cut(s, ":")
 						if !found {
 							return fmt.Errorf("invalid header format, expected key:value")

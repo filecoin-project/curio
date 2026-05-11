@@ -65,6 +65,14 @@ Updates will affect running instances.`,
 Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")
 Updates will affect running instances.`,
 		},
+		{
+			Name: "MaxBatch",
+			Type: "int",
+
+			Comment: `Maximum number of sectors per commit batch message. The batch will be submitted
+immediately when this many sectors are ready, without waiting for the timeout.
+0 = use the protocol maximum. (Default: 0)`,
+		},
 	},
 	"CompressionConfig": {
 		{
@@ -258,6 +266,14 @@ Updates will affect running instances.`,
 
 			Comment: `Batching represents the batching configuration for pre-commit, commit, and update operations.`,
 		},
+		{
+			Name: "Cuzk",
+			Type: "CuzkConfig",
+
+			Comment: `Cuzk configures integration with the cuzk proving daemon.
+When enabled, SNARK proving tasks (PoRep C2, SnapDeals prove, and PSProve) are delegated
+to an external cuzk daemon over gRPC instead of using local GPU resources.`,
+		},
 	},
 	"CurioFees": {
 		{
@@ -428,6 +444,29 @@ Updates will affect running instances.`,
 Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
 When enabled, all deals will be processed as snap deals. (Default: false)`,
 		},
+		{
+			Name: "DisableSSRFProtection",
+			Type: "bool",
+
+			Comment: `DisableSSRFProtection disables all SSRF (Server-Side Request Forgery) protection
+on deal data URL fetching. When true, URLs pointing to private IPs, loopback
+addresses, and local hostnames are allowed. URL structure validation (scheme,
+control characters) is still enforced.
+WARNING: Only enable in development or testing environments. (Default: false)
+Updates will affect running instances.`,
+		},
+		{
+			Name: "SSRFAllowedHosts",
+			Type: "[]string",
+
+			Comment: `SSRFAllowedHosts is a list of hosts or host:port pairs that are allowed through
+SSRF protection. Matched hosts bypass IP and hostname restrictions while other
+safety checks (URL scheme, headers) remain active.
+Entries without a port match any port for that host.
+Example: ["192.168.1.100:8080", "my-dev-server.local"]
+(Default: [])
+Updates will affect running instances.`,
+		},
 	},
 	"CurioProvingConfig": {
 		{
@@ -578,7 +617,7 @@ also be bounded by resources available on the machine (Default: 0 - unlimited)`,
 			Name: "ParkPieceMinFreeStoragePercent",
 			Type: "float64",
 
-			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)`,
+			Comment: `The minimum free storage percentage required for the ParkPiece task to run. (Default: 5)`,
 		},
 		{
 			Name: "EnableSealSDR",
@@ -896,6 +935,33 @@ via Client Settings on the Proofshare webui page. Buy delay can also be set in t
 NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
 		},
 	},
+	"CuzkConfig": {
+		{
+			Name: "Address",
+			Type: "string",
+
+			Comment: `Address of the cuzk daemon gRPC endpoint.
+Supports unix socket (e.g., "unix:///run/curio/cuzk.sock") or TCP (e.g., "127.0.0.1:9820").
+Empty string disables cuzk integration. (Default: "")`,
+		},
+		{
+			Name: "MaxPending",
+			Type: "int",
+
+			Comment: `MaxPending is the maximum number of proof jobs that may be pending in the cuzk daemon queue
+before Curio stops accepting new proving tasks (backpressure). When the daemon's pending
+queue reaches this level, CanAccept will reject new tasks until capacity frees up.
+(Default: 10)`,
+		},
+		{
+			Name: "ProveTimeout",
+			Type: "time.Duration",
+
+			Comment: `ProveTimeout is the maximum time to wait for a proof result from the cuzk daemon.
+If the proof is not completed within this duration, the task will be retried.
+Time duration string (e.g., "30m", "1h"). (Default: "30m")`,
+		},
+	},
 	"HTTPConfig": {
 		{
 			Name: "Enable",
@@ -928,21 +994,21 @@ HTTP and the reverse proxy will handle TLS termination.`,
 			Type: "time.Duration",
 
 			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")`,
 		},
 		{
 			Name: "IdleTimeout",
 			Type: "time.Duration",
 
 			Comment: `IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "30m0s")`,
 		},
 		{
 			Name: "ReadHeaderTimeout",
 			Type: "time.Duration",
 
 			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers
-Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "0m5s")`,
 		},
 		{
 			Name: "CORSOrigins",
@@ -982,6 +1048,16 @@ Consider the trust level of your users and whether you need to support interacti
 			Type: "CompressionConfig",
 
 			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
+		},
+		{
+			Name: "DenylistServers",
+			Type: "[]string",
+
+			Comment: `DenylistServers is a list of URLs pointing to denylist.json files.
+Each URL should serve a JSON array of objects with an "anchor" field containing a SHA256 hash.
+Denylisted CIDs will be rejected with HTTP 451. Requests arriving before denylists are loaded
+will receive HTTP 503. (Default: ["https://badbits.dwebops.pub/denylist.json"])
+Updates will affect running instances.`,
 		},
 	},
 	"IPNIConfig": {
@@ -1269,6 +1345,14 @@ Updates will affect running instances.`,
 			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring
 Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")
 Updates will affect running instances.`,
+		},
+		{
+			Name: "MaxBatch",
+			Type: "int",
+
+			Comment: `Maximum number of sectors per precommit batch message. The batch will be submitted
+immediately when this many sectors are ready, without waiting for the timeout.
+0 = use the protocol maximum. (Default: 0)`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {

@@ -70,6 +70,9 @@ type TaskTypeDetails struct {
 	// task would block a short-running task from being scheduled, blocking other related pipelines on
 	// other machines.
 	SchedulingOverrides map[string]bool
+
+	// Should block shutdown until completion..
+	TimeSensitive bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -230,6 +233,7 @@ func New(
 		go h.Adder(h.AddTask)
 	}
 	go e.poller()
+	go e.singletonRunNowPoller()
 
 	return e, nil
 }
@@ -247,43 +251,17 @@ func (e *TaskEngine) GracefullyTerminate() {
 	// If there are any Post tasks then wait till Timeout and check again
 	// When no Post tasks are active, break out of loop  and call the shutdown function
 	for {
-		timeout := time.Millisecond
+		var waited bool
 		for _, h := range e.handlers {
-			if h.Name == "WinPost" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
-				continue
-			}
-			if h.Name == "WdPost" && h.Max.Active() > 0 {
-				timeout = time.Second * 3
-				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
-				continue
-			}
-
-			if h.Name == "WdPostSubmit" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
-				continue
-			}
-
-			if h.Name == "WdPostRecover" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
-				continue
-			}
-
-			// Test tasks for itest
-			if h.Name == "ThingOne" && h.Max.Active() > 0 {
-				timeout = time.Second
-				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
-				continue
+			if h.TimeSensitive && h.Max.Active() > 0 {
+				log.Infof("node shutdown deferred due to running %s task", h.Name)
+				time.Sleep(time.Second * 3)
+				waited = true
 			}
 		}
-		if timeout > time.Millisecond {
-			time.Sleep(timeout)
-			continue
+		if !waited {
+			break
 		}
-		break
 	}
 }
 
@@ -468,7 +446,6 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
-		v := v
 		if _, err := v.AssertMachineHasCapacity(); err != nil {
 			continue
 		}
@@ -505,7 +482,12 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 		ct := t.Max.ActiveThis()
 		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
-		tmp.Ram -= uint64(ct) * t.Cost.Ram
+		ramUsed := uint64(ct) * t.Cost.Ram
+		if ramUsed >= tmp.Ram {
+			tmp.Ram = 0
+		} else {
+			tmp.Ram -= ramUsed
+		}
 		rlog.Debugw("Per task type", "Name", t.Name, "Count", ct, "CPU", ct*t.Cost.Cpu, "RAM", uint64(ct)*t.Cost.Ram, "GPU", float64(ct)*t.Cost.Gpu)
 	}
 	rlog.Debugw("Total", "CPU", tmp.Cpu, "RAM", tmp.Ram, "GPU", tmp.Gpu)
@@ -583,4 +565,47 @@ func Reg(t TaskInterface) bool {
 
 func (e *TaskEngine) RunningCount(name string) int {
 	return int(e.taskMap[name].Max.Active())
+}
+
+const singletonRunNowPollInterval = 30 * time.Second
+
+// singletonRunNowPoller is a single goroutine per node that polls the DB
+// for singleton tasks with run_now_request=true. When found, it sets the
+// corresponding atomic flag so that SingletonTaskAdder bypasses its interval
+// on the next IAmBored cycle.
+// This is one query per node per 30s regardless of the number of singleton tasks.
+func (e *TaskEngine) singletonRunNowPoller() {
+	timer := time.NewTimer(singletonRunNowPollInterval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-timer.C:
+			timer.Reset(singletonRunNowPollInterval)
+		}
+
+		var requested []struct {
+			TaskName string `db:"task_name"`
+		}
+		err := e.db.Select(e.ctx, &requested,
+			`SELECT task_name FROM harmony_task_singletons WHERE run_now_request = TRUE`)
+		if err != nil {
+			log.Errorw("singletonRunNowPoller: failed to query", "error", err)
+			continue
+		}
+
+		if len(requested) == 0 {
+			continue
+		}
+
+		flags := singletonRunNowFlags()
+		for _, r := range requested {
+			if f, ok := flags[r.TaskName]; ok {
+				f.Store(true)
+				log.Infow("singleton run-now request detected", "task", r.TaskName)
+			}
+		}
+	}
 }
