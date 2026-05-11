@@ -35,7 +35,6 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/tasknames"
@@ -93,11 +92,6 @@ type SubmitTask struct {
 	sender *message.Sender
 	as     *multictladdr.MultiAddressSelector
 	cfg    submitConfig
-
-	// Stored by Adder() so Wake() can dispatch a schedule pass on demand
-	// (e.g. prove message landing on chain) without waiting for the next
-	// IAmBored cycle.
-	adder promise.Promise[harmonytask.AddTaskFunc]
 
 	// Hooks invoked after schedule()'s updateLanded path flips sealed=TRUE on
 	// at least one deal-pipeline row. Wire indexing wakes here so they fire
@@ -896,24 +890,6 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 }
 
 func (s *SubmitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	s.adder.Set(taskFunc)
-}
-
-// Wake triggers an immediate schedule() pass without waiting for the next
-// IAmBored tick. Use this when an upstream event (e.g. prove message landing
-// on chain) makes it likely that updateLanded would now find work — calling
-// Wake collapses the worst-case ~10s IAmBored gap.
-func (s *SubmitTask) Wake() {
-	if s == nil || !s.adder.IsSet() {
-		return
-	}
-	taskFunc := s.adder.Val(context.Background())
-	if taskFunc == nil {
-		return
-	}
-	if err := s.schedule(context.Background(), taskFunc); err != nil {
-		log.Errorf("snap submit wake schedule: %s", err)
-	}
 }
 
 // AddOnSealed registers a callback fired (best-effort, in a goroutine) right
