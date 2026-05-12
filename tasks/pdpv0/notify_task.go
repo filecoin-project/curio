@@ -11,6 +11,9 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-padreader"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -158,7 +161,7 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		// Move the entry from pdp_piece_uploads to pdp_piecerefs
 		// Insert into pdp_piecerefs
 		// Set needs_save_cache=TRUE for large pieces to enable proactive caching
-		needsSaveCache := upload.PieceRawSize >= MinSizeForCache
+		needsSaveCache := padreader.PaddedSize(upload.PieceRawSize).Padded() >= abi.PaddedPieceSize(MinSizeForCache)
 		_, err = tx.Exec(`
         INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at, needs_save_cache)
         VALUES ($1, $2, $3, NOW(), $4)`,
