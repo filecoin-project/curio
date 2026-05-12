@@ -30,8 +30,8 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 		return
 	}
 
-	slackEpochs := SlackEpochs(s.cfg.preCommit.Slack, build.BlockDelaySecs)
-	timeout := s.cfg.preCommit.Timeout
+	slackEpochs := SlackEpochs(s.cfg.preCommit.Slack.Get(), build.BlockDelaySecs)
+	timeout := s.cfg.preCommit.Timeout.Get()
 	maxBatch := s.cfg.preCommit.MaxPreCommitBatch
 	currentHeight := int64(ts.Height())
 

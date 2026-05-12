@@ -12,11 +12,11 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -26,7 +26,7 @@ import (
 type PDPTaskDeletePiece struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
-	ethClient ethchain.EthClient
+	ethClient api.EthClientInterface
 }
 
 func (p *PDPTaskDeletePiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -197,7 +197,7 @@ func (p *PDPTaskDeletePiece) schedule(ctx context.Context, taskFunc harmonytask.
 
 func (p *PDPTaskDeletePiece) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-func NewPDPTaskDeletePiece(db *harmonydb.DB, sender *message.SenderETH, ethClient ethchain.EthClient) *PDPTaskDeletePiece {
+func NewPDPTaskDeletePiece(db *harmonydb.DB, sender *message.SenderETH, ethClient api.EthClientInterface) *PDPTaskDeletePiece {
 	return &PDPTaskDeletePiece{
 		db:        db,
 		sender:    sender,

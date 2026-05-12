@@ -24,10 +24,10 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
+	curioapi "github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/parkpiece"
@@ -54,7 +54,7 @@ type MK20 struct {
 	miners             *config.Dynamic[[]address.Address]
 	DB                 *harmonydb.DB
 	api                MK20API
-	ethClient          ethchain.EthClient
+	ethClient          *lazy.Lazy[curioapi.EthClientInterface]
 	si                 paths.SectorIndex
 	cfg                *config.CurioConfig
 	sm                 *config.Dynamic[map[address.Address]abi.SectorSize]
@@ -69,7 +69,7 @@ func NewMK20Handler(
 	db *harmonydb.DB,
 	si paths.SectorIndex,
 	mapi MK20API,
-	ethClient ethchain.EthClient,
+	ethClient *lazy.Lazy[curioapi.EthClientInterface],
 	cfg *config.CurioConfig,
 	as *multictladdr.MultiAddressSelector,
 	sc *ffi.SealCalls,
@@ -498,7 +498,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, m.ethClient, deal)
+	ec, err := m.ethClient.Val()
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "Ethereum client unavailable",
+		}, nil
+	}
+	code, err := deal.Products.DDOV1.VerifyMarketDeal(ctx, m.DB, ec, deal)
 	if err != nil {
 		log.Errorw("error verifying market deal", "deal", deal.Identifier.String(), "error", err)
 		ret := &ProviderDealRejectionInfo{

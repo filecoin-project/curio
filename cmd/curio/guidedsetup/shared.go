@@ -171,7 +171,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 
 	curioCfg.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(js.PrivateKey)
 
-	curioCfg.Apis.ChainApiInfo = append(curioCfg.Apis.ChainApiInfo, chainApiInfo)
+	curioCfg.Apis.ChainApiInfo.Set(append(curioCfg.Apis.ChainApiInfo.Get(), chainApiInfo))
 	// Express as configTOML
 	configTOMLBytes, err := config.TransparentMarshal(curioCfg)
 	if err != nil {
@@ -207,7 +207,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 				return len(a.MinerAddresses) > 0
 			}))
 			if baseCfg.Apis.ChainApiInfo == nil {
-				baseCfg.Apis.ChainApiInfo = append(baseCfg.Apis.ChainApiInfo, chainApiInfo)
+				baseCfg.Apis.ChainApiInfo.Set(append(baseCfg.Apis.ChainApiInfo.Get(), chainApiInfo))
 			}
 			if baseCfg.Apis.StorageRPCSecret == "" {
 				baseCfg.Apis.StorageRPCSecret = curioCfg.Apis.StorageRPCSecret
@@ -309,8 +309,8 @@ func ensureEmptyArrays(cfg *config.CurioConfig) {
 		}
 		cfg.Addresses.Set(addrs)
 	}
-	if cfg.Apis.ChainApiInfo == nil {
-		cfg.Apis.ChainApiInfo = []string{}
+	if len(cfg.Apis.ChainApiInfo.Get()) == 0 {
+		cfg.Apis.ChainApiInfo.Set([]string{})
 	}
 }
 

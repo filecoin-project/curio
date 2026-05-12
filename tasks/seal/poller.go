@@ -51,15 +51,15 @@ type SealPollerAPI interface {
 
 type preCommitBatchingConfig struct {
 	MaxPreCommitBatch int
-	Slack             time.Duration
-	Timeout           time.Duration
+	Slack             *config.Dynamic[time.Duration]
+	Timeout           *config.Dynamic[time.Duration]
 }
 
 type commitBatchingConfig struct {
 	MinCommitBatch int
 	MaxCommitBatch int
-	Slack          time.Duration
-	Timeout        time.Duration
+	Slack          *config.Dynamic[time.Duration]
+	Timeout        *config.Dynamic[time.Duration]
 }
 
 type pollerConfig struct {
