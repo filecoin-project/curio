@@ -53,9 +53,9 @@ var (
 		stats.UnitDimensionless,
 	)
 	ipniProviderHTTPRequestDuration = stats.Float64(
-		"ipni_provider_http_request_seconds",
-		"Duration of inbound IPNI provider HTTP requests in seconds.",
-		stats.UnitSeconds,
+		"ipni_provider_http_request_milliseconds",
+		"Duration of inbound IPNI provider HTTP requests in milliseconds.",
+		stats.UnitMilliseconds,
 	)
 	ipniAnnounceAttempts = stats.Int64(
 		"ipni_announce_attempts_total",
@@ -63,9 +63,9 @@ var (
 		stats.UnitDimensionless,
 	)
 	ipniAnnounceHTTPRoundTripDuration = stats.Float64(
-		"ipni_announce_http_roundtrip_seconds",
-		"Duration of outbound IPNI announce HTTP round trips in seconds.",
-		stats.UnitSeconds,
+		"ipni_announce_http_roundtrip_milliseconds",
+		"Duration of outbound IPNI announce HTTP round trips in milliseconds.",
+		stats.UnitMilliseconds,
 	)
 )
 

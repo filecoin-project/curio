@@ -14,7 +14,7 @@ var (
 	CanSealTag, _     = tag.NewKey("can_seal")
 	CanStoreTag, _    = tag.NewKey("can_store")
 
-	pre = "curio_stor_"
+	pre = "stor_"
 
 	// Buckets for the duration histogram (in seconds)
 	durationBuckets = []float64{0.1, 1, 5, 12, 20, 60, 90, 150, 300, 500, 900, 1500, 3000, 6000, 15000, 30000, 60000, 90000, 200_000, 600_000, 1000_000}
