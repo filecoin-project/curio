@@ -40,8 +40,8 @@ func CalculateBackoffBlocks(failures int) int {
 
 // MarkDatasetProvingUnrecoverable marks a dataset as having an unrecoverable proving failure.
 // This is called when an unrecoverable error (like DataSetPaymentBeyondEndEpoch) is detected.
-func MarkDatasetProvingUnrecoverable(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) error {
-	_, err := db.Exec(ctx, `
+func MarkDatasetProvingUnrecoverable(tx *harmonydb.Tx, dataSetId int64, currentHeight int64) error {
+	_, err := tx.Exec(`
 		UPDATE pdp_data_sets
 		SET unrecoverable_proving_failure_epoch = $2,
 			consecutive_prove_failures = consecutive_prove_failures + 1,
@@ -57,10 +57,10 @@ func MarkDatasetProvingUnrecoverable(ctx context.Context, db *harmonydb.DB, data
 // ApplyProvingBackoff increments the failure count and sets a backoff period.
 // If too many failures occur, marks the dataset as unrecoverable.
 // Returns true if the dataset was marked as unrecoverable.
-func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64) (unrecoverable bool, err error) {
+func ApplyProvingBackoff(tx *harmonydb.Tx, dataSetId int64, currentHeight int64) (unrecoverable bool, err error) {
 	// Get current failure count
 	var currentFailures int
-	err = db.QueryRow(ctx, `
+	err = tx.QueryRow(`
 		SELECT consecutive_prove_failures FROM pdp_data_sets WHERE id = $1
 	`, dataSetId).Scan(&currentFailures)
 	if err != nil {
@@ -71,7 +71,7 @@ func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64,
 
 	if newFailures >= MaxConsecutiveFailures {
 		// Too many failures, mark as terminated
-		_, err = db.Exec(ctx, `
+		_, err = tx.Exec(`
 			UPDATE pdp_data_sets
 			SET unrecoverable_proving_failure_epoch = $2,
 				consecutive_prove_failures = $3,
@@ -93,7 +93,7 @@ func ApplyProvingBackoff(ctx context.Context, db *harmonydb.DB, dataSetId int64,
 	backoffBlocks := CalculateBackoffBlocks(newFailures)
 	nextAttempt := currentHeight + int64(backoffBlocks)
 
-	_, err = db.Exec(ctx, `
+	_, err = tx.Exec(`
 		UPDATE pdp_data_sets
 		SET consecutive_prove_failures = $2,
 			next_prove_attempt_at = $3
@@ -126,38 +126,42 @@ func ResetProvingFailures(ctx context.Context, db *harmonydb.DB, dataSetId int64
 //   - Tier 2: Other contract reverts, apply backoff, may terminate after repeated failures
 //   - Tier 3: Transient errors, return error for harmony retry
 //
-// Returns (done, err) where done=true means the task should complete (not retry),
+// Returns (err) where err==nil means the task should complete (not retry),
 // and err!=nil means harmony should retry the task.
-func HandleProvingSendError(ctx context.Context, db *harmonydb.DB, dataSetId int64, currentHeight int64, sendErr error) (done bool, err error) {
+func HandleProvingSendError(tx *harmonydb.Tx, dataSetId int64, currentHeight int64, sendErr error) error {
 	// Tier 1: Known unrecoverable errors, mark as unrecoverable immediately
 	if IsUnrecoverableError(sendErr) {
-		if markErr := MarkDatasetProvingUnrecoverable(ctx, db, dataSetId, currentHeight); markErr != nil {
+		if markErr := MarkDatasetProvingUnrecoverable(tx, dataSetId, currentHeight); markErr != nil {
 			log.Errorw("Failed to mark dataset as unrecoverable", "error", markErr, "dataSetId", dataSetId)
+			return xerrors.Errorf("failed to mark dataset as unrecoverable: %w", markErr)
 		}
 		log.Warnw("Dataset unrecoverable, stopping proving attempts",
 			"dataSetId", dataSetId, "error", sendErr)
-		if termErr := FWSS.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
+		if termErr := FWSS.EnsureServiceTerminationTx(tx, dataSetId); termErr != nil {
 			log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
+			return xerrors.Errorf("failed to ensure service termination: %w", termErr)
 		}
-		return true, nil
+		return nil
 	}
 
 	// Tier 2: Other contract reverts, apply backoff, may become unrecoverable after repeated failures
 	if IsContractRevert(sendErr) {
-		unrecoverable, backoffErr := ApplyProvingBackoff(ctx, db, dataSetId, currentHeight)
+		unrecoverable, backoffErr := ApplyProvingBackoff(tx, dataSetId, currentHeight)
 		if backoffErr != nil {
 			log.Errorw("Failed to apply backoff", "error", backoffErr, "dataSetId", dataSetId)
+			return xerrors.Errorf("failed to apply backoff: %w", backoffErr)
 		}
 		if unrecoverable {
 			log.Warnw("Dataset unrecoverable after repeated contract reverts",
 				"dataSetId", dataSetId, "error", sendErr)
-			if termErr := FWSS.EnsureServiceTermination(ctx, db, dataSetId); termErr != nil {
+			if termErr := FWSS.EnsureServiceTerminationTx(tx, dataSetId); termErr != nil {
 				log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
+				return xerrors.Errorf("failed to ensure service termination: %w", termErr)
 			}
 		}
-		return true, nil // Backoff applied; scheduler query prevents immediate re-scheduling
+		return nil // Backoff applied; scheduler query prevents immediate re-scheduling
 	}
 
 	// Tier 3: Transient errors, let harmony retry
-	return false, sendErr
+	return sendErr
 }

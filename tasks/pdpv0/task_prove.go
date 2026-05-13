@@ -428,8 +428,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	reason := "pdp-prove"
-	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
-	if err != nil {
+	txHash, sendErr := p.sender.Send(ctx, fromAddress, txEth, reason)
+	if sendErr != nil {
 		// Get current height for error handling
 		ts, heightErr := p.fil.ChainHead(ctx)
 		if heightErr != nil {
@@ -442,11 +442,20 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 		currentHeight := int64(ts.Height())
 
-		done, handleErr := HandleProvingSendError(ctx, p.db, dataSetId, currentHeight, err)
-		if done {
+		comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			if handleErr != nil {
+				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
+			}
 			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("failed to send transaction: %w", err)
 		}
-		return false, xerrors.Errorf("failed to send transaction: %w", handleErr)
+		if !comm {
+			return false, xerrors.Errorf("failed to commit transaction")
+		}
+		return true, nil
 	}
 
 	// Success, reset any accumulated failure count
