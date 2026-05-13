@@ -49,7 +49,13 @@ const IPNIRoutePath = "/ipni-provider/"
 // IPNIPath is a constant that represents the path for IPNI API requests.
 const IPNIPath = "/ipni/v1/ad/"
 
-const publishInterval = 5 * time.Second
+const PublishInterval = 5 * time.Second
+
+const (
+	PDPv0ProviderType = "PDP_v0"
+	PDPv1ProviderType = "PDP_v1"
+	PoRepProviderType = "PoRep"
+)
 
 var (
 	log = logging.Logger("ipni-provider")
@@ -65,6 +71,8 @@ type peerInfo struct {
 	// the provider. This is created by converting announceURLs into a multiaddr and adding the following
 	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
 	httpServerAddresses multiaddr.Multiaddr // map[peerID String]Multiaddr
+	providerType        string
+	lastPublishTime     *time.Time
 }
 
 // Provider represents a provider for IPNI.
@@ -81,6 +89,7 @@ type Provider struct {
 	// the list of indexer URLs to send direct HTTP announce messages to.
 	announceURLs   []*url.URL
 	httpServerBase *url.URL
+	startLock      sync.Once
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -164,6 +173,15 @@ func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
 		SPID:                spID,
 		Miner:               maddr,
 		httpServerAddresses: addr,
+	}
+
+	switch sp {
+	case -1:
+		info.providerType = PDPv1ProviderType
+	case -2:
+		info.providerType = PDPv0ProviderType
+	default:
+		info.providerType = PoRepProviderType
 	}
 
 	p.mu.Lock()
@@ -541,8 +559,14 @@ func FilterAnnounceURLs(slice []*url.URL, filter []string) []*url.URL {
 	})
 }
 
-// StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
+	p.startLock.Do(func() {
+		go p.startPublishing(ctx)
+	})
+}
+
+// StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
+func (p *Provider) startPublishing(ctx context.Context) {
 
 	// Remove cid.contact from announceURLs if the build is debug or testnet
 	if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
@@ -570,7 +594,7 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 		p.latest[provider] = c
 	}
 
-	ticker := time.NewTicker(publishInterval)
+	ticker := time.NewTicker(PublishInterval)
 
 	for {
 		select {
@@ -650,6 +674,14 @@ func (p *Provider) publishHead(ctx context.Context) {
 		} else {
 			recordAnnounceAttempt(provider, "success")
 			p.latest[provider] = c
+			p.mu.Lock()
+			info, ok := p.providerInfos[provider]
+			if !ok {
+				log.Warnw("cannot update provider announce times", "provider", provider, "error", "provider not found")
+			} else {
+				info.lastPublishTime = new(time.Now())
+			}
+			p.mu.Unlock()
 		}
 
 		i++
@@ -720,4 +752,14 @@ func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 
 	log.Infow("IPNI announcement response", "provider", lrt.peer, "cid", lrt.adCid, "url", req.URL.String(), "status", res.StatusCode)
 	return res, nil
+}
+
+func (p *Provider) LastPublishTime(providerPeerID string) *time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	info, ok := p.providerInfos[providerPeerID]
+	if !ok {
+		return nil
+	}
+	return info.lastPublishTime
 }
