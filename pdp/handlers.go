@@ -358,16 +358,16 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		if publishedAt != nil && publishedAt.After(result.AdvertisementCreatedAt.Time) {
 			response.Advertised = true
 			response.AdvertisedAt = new(*publishedAt)
-			if publishedAt.After(time.Now().Add(time.Second * 5)) {
-				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(time.Second * 5))
+			if publishedAt.After(time.Now().Add(ipni_provider.PublishInterval)) {
+				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
 			}
 		}
 	} else {
 		if result.AdvertisementCreated && !result.AdvertisementRetrievedAt.Valid {
-			if time.Since(result.AdvertisementCreatedAt.Time) > time.Second*5 {
+			if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
 				// More than 5 seconds since advertisement was created, assume it's published
 				response.Advertised = true
-				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(time.Second * 5))
+				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
 			} else {
 				response.Advertised = false
 				response.AdvertisedAt = nil

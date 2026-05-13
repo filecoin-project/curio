@@ -49,7 +49,7 @@ const IPNIRoutePath = "/ipni-provider/"
 // IPNIPath is a constant that represents the path for IPNI API requests.
 const IPNIPath = "/ipni/v1/ad/"
 
-const publishInterval = 5 * time.Second
+const PublishInterval = 5 * time.Second
 
 const (
 	PDPv0ProviderType = "PDP_v0"
@@ -594,7 +594,7 @@ func (p *Provider) startPublishing(ctx context.Context) {
 		p.latest[provider] = c
 	}
 
-	ticker := time.NewTicker(publishInterval)
+	ticker := time.NewTicker(PublishInterval)
 
 	for {
 		select {
