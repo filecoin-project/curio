@@ -268,7 +268,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 
 			-- Advertisement status
 			i.ad_cid IS NOT NULL as advertisement_created,
-			i.advertisement_created_at as advertisement_created_at,
+			pr.advertisement_created_at as advertisement_created_at,
 			i.ad_cid,
 
 			-- Advertisement Fetch status
