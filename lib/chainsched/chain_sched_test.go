@@ -44,11 +44,14 @@ func (m *mockNodeAPIWithCounter) ChainNotify(ctx context.Context) (<-chan []*api
 	return m.mockNodeAPI.ChainNotify(ctx)
 }
 
-func makeMockTipSet(height uint64) *types.TipSet {
+func makeMockTipSet(t *testing.T, height uint64) *types.TipSet {
+	t.Helper()
+
 	addr, _ := address.NewIDAddress(1)
 	c, _ := cid.Decode("bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4")
-	ts, _ := types.NewTipSet([]*types.BlockHeader{{
+	ts, err := types.NewTipSet([]*types.BlockHeader{{
 		Miner:                 addr,
+		Ticket:                &types.Ticket{VRFProof: []byte{byte(height)}},
 		Height:                abi.ChainEpoch(height),
 		ParentStateRoot:       c,
 		Messages:              c,
@@ -58,6 +61,7 @@ func makeMockTipSet(height uint64) *types.TipSet {
 		Timestamp:             uint64(time.Now().Unix()),
 		ParentBaseFee:         types.NewInt(100),
 	}})
+	require.NoError(t, err)
 	return ts
 }
 
@@ -152,7 +156,7 @@ func TestNotificationChannelResubscription(t *testing.T) {
 	// Send initial notification
 	notifCh <- []*api.HeadChange{{
 		Type: store.HCCurrent,
-		Val:  makeMockTipSet(100),
+		Val:  makeMockTipSet(t, 100),
 	}}
 
 	// Wait for processing
@@ -203,7 +207,7 @@ func TestCallbackExecution(t *testing.T) {
 	go sched.Run(ctx)
 
 	// Send initial current notification
-	currentTs := makeMockTipSet(100)
+	currentTs := makeMockTipSet(t, 100)
 	change := &api.HeadChange{
 		Type: store.HCCurrent,
 		Val:  currentTs,
@@ -225,7 +229,7 @@ func TestCallbackExecution(t *testing.T) {
 	callbackMu.Unlock()
 
 	// Send apply notification
-	newTs := makeMockTipSet(101)
+	newTs := makeMockTipSet(t, 101)
 	applyChange := &api.HeadChange{
 		Type: store.HCApply,
 		Val:  newTs,
@@ -261,7 +265,7 @@ func TestContextCancellation(t *testing.T) {
 	// Send initial notification
 	change := &api.HeadChange{
 		Type: store.HCCurrent,
-		Val:  makeMockTipSet(100),
+		Val:  makeMockTipSet(t, 100),
 	}
 	notifCh <- []*api.HeadChange{change}
 
@@ -316,7 +320,7 @@ func TestSubscriptionContextCancellation(t *testing.T) {
 			ch := make(chan []*api.HeadChange, 1)
 			ch <- []*api.HeadChange{{
 				Type: store.HCCurrent,
-				Val:  makeMockTipSet(100),
+				Val:  makeMockTipSet(t, 100),
 			}}
 			return ch, nil
 		},
@@ -339,7 +343,7 @@ func TestSubscriptionContextCancellation(t *testing.T) {
 	// Send initial notification
 	firstCh <- []*api.HeadChange{{
 		Type: store.HCCurrent,
-		Val:  makeMockTipSet(100),
+		Val:  makeMockTipSet(t, 100),
 	}}
 
 	// Verify we have the first subscription
@@ -435,7 +439,7 @@ func TestTimeoutResubscription(t *testing.T) {
 	// Send initial notification
 	notifyCh <- []*api.HeadChange{{
 		Type: store.HCCurrent,
-		Val:  makeMockTipSet(100),
+		Val:  makeMockTipSet(t, 100),
 	}}
 
 	// Verify initial call count
@@ -498,7 +502,7 @@ func TestMultipleChanges(t *testing.T) {
 	go sched.Run(ctx)
 
 	// Send initial current
-	ts0 := makeMockTipSet(100)
+	ts0 := makeMockTipSet(t, 100)
 	initialChange := &api.HeadChange{
 		Type: store.HCCurrent,
 		Val:  ts0,
@@ -513,9 +517,9 @@ func TestMultipleChanges(t *testing.T) {
 	}
 
 	// Send multiple changes in one notification
-	ts1 := makeMockTipSet(101)
-	ts2 := makeMockTipSet(102)
-	ts3 := makeMockTipSet(103)
+	ts1 := makeMockTipSet(t, 101)
+	ts2 := makeMockTipSet(t, 102)
+	ts3 := makeMockTipSet(t, 103)
 
 	changes := []*api.HeadChange{
 		{Type: store.HCApply, Val: ts1},
@@ -600,7 +604,7 @@ func TestWatchersExecutedFirst(t *testing.T) {
 	go sched.Run(ctx)
 
 	// Send an initial notification
-	testTipSet := makeMockTipSet(100)
+	testTipSet := makeMockTipSet(t, 100)
 	notifCh <- []*api.HeadChange{{
 		Type: store.HCCurrent,
 		Val:  testTipSet,

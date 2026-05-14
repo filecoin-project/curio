@@ -23,11 +23,14 @@ import (
 
 // Test helpers
 
-func makeMockTipSet(height uint64) *ltypes.TipSet {
+func makeMockTipSet(t *testing.T, height uint64) *ltypes.TipSet {
+	t.Helper()
+
 	addr, _ := address.NewIDAddress(1)
 	c, _ := cid.Decode("bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4")
-	ts, _ := ltypes.NewTipSet([]*ltypes.BlockHeader{{
+	ts, err := ltypes.NewTipSet([]*ltypes.BlockHeader{{
 		Miner:                 addr,
+		Ticket:                &ltypes.Ticket{VRFProof: []byte{byte(height)}},
 		Height:                abi.ChainEpoch(height),
 		ParentStateRoot:       c,
 		Messages:              c,
@@ -37,6 +40,7 @@ func makeMockTipSet(height uint64) *ltypes.TipSet {
 		Timestamp:             uint64(time.Now().Unix()),
 		ParentBaseFee:         ltypes.NewInt(100),
 	}})
+	require.NoError(t, err)
 	return ts
 }
 
@@ -153,7 +157,7 @@ func TestMessageWatcherEthProcessHeadChange(t *testing.T) {
 		updateCh: make(chan struct{}, 1),
 	}
 
-	ts := makeMockTipSet(100)
+	ts := makeMockTipSet(t, 100)
 	err := mw.processHeadChange(context.TODO(), nil, ts)
 	require.NoError(t, err)
 
