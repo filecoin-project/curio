@@ -1,0 +1,134 @@
+digraph RemoteSeal {
+    rankdir=TB;
+    compound=true;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=11];
+    edge [fontname="Helvetica", fontsize=9];
+    newrank=true;
+
+    // ===== CLIENT SIDE =====
+    subgraph cluster_client {
+        label="CLIENT CURIO NODE";
+        style=filled;
+        fillcolor="#e8f0fe";
+        color="#4285f4";
+        fontsize=14;
+        fontcolor="#1a73e8";
+
+        // Normal pipeline entry
+        sector_created [label="Sector Created\n(sectors_sdr_pipeline)", shape=box, style="filled,rounded", fillcolor="#fff3e0", color="#e65100"];
+
+        subgraph cluster_client_remote {
+            label="Remote Seal Client Tasks";
+            style=dashed;
+            color="#666";
+            fontsize=11;
+            fontcolor="#666";
+
+            delegate [label="RSealDelegate\n(IAmBored 15s)", shape=box, style="filled,rounded", fillcolor="#c8e6c9", color="#2e7d32"];
+            client_poll [label="RSealClientPoll\n(loop 30s, CanYield)", shape=box, style="filled,rounded", fillcolor="#c8e6c9", color="#2e7d32"];
+            client_fetch [label="RSealClientFetch\n(download sealed+cache)", shape=box, style="filled,rounded", fillcolor="#c8e6c9", color="#2e7d32"];
+            client_cleanup [label="RSealClientCleanup\n(finalize+cleanup)", shape=box, style="filled,rounded", fillcolor="#c8e6c9", color="#2e7d32"];
+        }
+
+        subgraph cluster_normal_pipeline {
+            label="Normal Seal Pipeline (client-side)";
+            style=dashed;
+            color="#666";
+            fontsize=11;
+            fontcolor="#666";
+
+            precommit [label="PrecommitSubmit\n(on-chain msg)", shape=box, style="filled,rounded", fillcolor="#bbdefb", color="#1565c0"];
+            porep [label="PoRepSnark\n(fetches C1 via c1.url)", shape=box, style="filled,rounded", fillcolor="#bbdefb", color="#1565c0"];
+            finalize_local [label="Finalize\n(move storage)", shape=box, style="filled,rounded", fillcolor="#bbdefb", color="#1565c0"];
+            commit [label="CommitSubmit\n(on-chain msg)", shape=box, style="filled,rounded", fillcolor="#bbdefb", color="#1565c0"];
+        }
+
+        complete_recv [label="/complete\ncallback", shape=diamond, style="filled", fillcolor="#fff9c4", color="#f9a825", fontsize=9];
+    }
+
+    // ===== PROVIDER SIDE =====
+    subgraph cluster_provider {
+        label="PROVIDER CURIO NODE";
+        style=filled;
+        fillcolor="#fce4ec";
+        color="#c62828";
+        fontsize=14;
+        fontcolor="#c62828";
+
+        order_recv [label="Order Received\n(rseal_provider_pipeline)", shape=box, style="filled,rounded", fillcolor="#fff3e0", color="#e65100"];
+
+        subgraph cluster_prov_compute {
+            label="Computation (existing seal tasks via UNION ALL)";
+            style=dashed;
+            color="#666";
+            fontsize=11;
+            fontcolor="#666";
+
+            prov_sdr [label="SDR\n(computes ticket\nfrom chain)", shape=box, style="filled,rounded", fillcolor="#f8bbd0", color="#880e4f"];
+            prov_treed [label="TreeD", shape=box, style="filled,rounded", fillcolor="#f8bbd0", color="#880e4f"];
+            prov_treerc [label="TreeRC\n(TreeC + TreeR)", shape=box, style="filled,rounded", fillcolor="#f8bbd0", color="#880e4f"];
+        }
+
+        subgraph cluster_prov_lifecycle {
+            label="Provider Lifecycle Tasks";
+            style=dashed;
+            color="#666";
+            fontsize=11;
+            fontcolor="#666";
+
+            prov_notify [label="RSealProvNotify\n(POST /complete)", shape=box, style="filled,rounded", fillcolor="#e1bee7", color="#6a1b9a"];
+            prov_finalize [label="RSealProvFinalize\n(drop layers)", shape=box, style="filled,rounded", fillcolor="#e1bee7", color="#6a1b9a"];
+            prov_cleanup [label="RSealProvCleanup\n(remove all data)", shape=box, style="filled,rounded", fillcolor="#e1bee7", color="#6a1b9a"];
+        }
+
+        c1_handler [label="/commit1\nhandler", shape=diamond, style="filled", fillcolor="#fff9c4", color="#f9a825", fontsize=9];
+    }
+
+    // ===== CLIENT INTERNAL FLOW =====
+    sector_created -> delegate [label="poller detects\nunassigned sector"];
+    delegate -> client_poll [label="order accepted\n(rseal_client_pipeline created)"];
+    client_poll -> complete_recv [style=invis]; // layout hint
+    {complete_recv, client_poll} -> client_fetch [label="completion applied\n(ApplyRemoteCompletion)"];
+    client_fetch -> precommit [label="after_fetch=TRUE\n(c1.url written)"];
+    precommit -> porep [label="precommit on-chain\n+ seed epoch"];
+    porep -> finalize_local;
+    finalize_local -> commit;
+    commit -> client_cleanup [label="after PoRep done"];
+
+    // ===== PROVIDER INTERNAL FLOW =====
+    order_recv -> prov_sdr [label="poller assigns\ntask_id_sdr"];
+    prov_sdr -> prov_treed [label="after_sdr=TRUE"];
+    prov_treed -> prov_treerc [label="after_tree_d=TRUE"];
+    prov_treerc -> prov_notify [label="after_tree_r=TRUE"];
+    prov_notify -> c1_handler [label="waits for\nclient request", style=dashed];
+    c1_handler -> prov_finalize [label="after_c1_supplied=TRUE"];
+    prov_finalize -> prov_cleanup [label="cleanup_requested\nor 72h timeout"];
+
+    // ===== CROSS-NODE HTTP CALLS =====
+    delegate -> order_recv [label="POST /available\nPOST /order", color="#e65100", fontcolor="#e65100", style=bold, constraint=false];
+    client_poll -> order_recv [label="POST /status\n(polls state)", color="#e65100", fontcolor="#e65100", style=dashed, constraint=false];
+    prov_notify -> complete_recv [label="POST /complete\n(ticket+CIDs)", color="#c62828", fontcolor="#c62828", style=bold, constraint=false];
+    client_fetch -> order_recv [label="GET /sealed-data (32GiB)\nGET /cache-data (tar)", color="#e65100", fontcolor="#e65100", style=bold, constraint=false];
+    porep -> c1_handler [label="POST /commit1\n(raw bytes ~50-128MiB)", color="#e65100", fontcolor="#e65100", style=bold, constraint=false];
+    client_cleanup -> order_recv [label="POST /finalize\nPOST /cleanup", color="#e65100", fontcolor="#e65100", style=bold, constraint=false];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=filled;
+        fillcolor=white;
+        color="#999";
+        fontsize=11;
+        fontcolor="#666";
+
+        leg_green [label="Client remote\nseal task", shape=box, style="filled,rounded", fillcolor="#c8e6c9", color="#2e7d32", fontsize=9];
+        leg_blue [label="Normal pipeline\ntask (client)", shape=box, style="filled,rounded", fillcolor="#bbdefb", color="#1565c0", fontsize=9];
+        leg_pink [label="Provider compute\ntask (UNION ALL)", shape=box, style="filled,rounded", fillcolor="#f8bbd0", color="#880e4f", fontsize=9];
+        leg_purple [label="Provider lifecycle\ntask", shape=box, style="filled,rounded", fillcolor="#e1bee7", color="#6a1b9a", fontsize=9];
+        leg_diamond [label="HTTP endpoint", shape=diamond, style="filled", fillcolor="#fff9c4", color="#f9a825", fontsize=9];
+        leg_arrow_bold [label="HTTP call\n(cross-node)", shape=plaintext, fontsize=9];
+
+        leg_green -> leg_blue -> leg_pink -> leg_purple -> leg_diamond [style=invis];
+    }
+}

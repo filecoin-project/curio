@@ -284,7 +284,7 @@ xcode-select --install
 使用命令`brew install`安装以下软件包：
 
 ```bash
-brew install go bzr jq pkg-config hwloc coreutils
+brew install go bzr jq pkg-config hwloc coreutils aria2
 ```
 
 接下来是克隆Lotus仓库并构建可执行文件。

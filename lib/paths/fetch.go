@@ -16,7 +16,7 @@ import (
 
 func init() {
 	tarutil.CacheFileConstraints["batch.json"] = 10_000
-	tarutil.CacheFileConstraints["commit-phase1-output"] = 20_000_000
+	tarutil.CacheFileConstraints["commit-phase1-output"] = 128_000_000 // ~50 MiB typical for C1 JSON
 }
 
 func fetch(ctx context.Context, url, outname string, header http.Header) (rerr error) {

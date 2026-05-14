@@ -34,6 +34,10 @@ func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
 	return build.BlockDelaySecs, nil
 }
 
+func (a *WebRPC) InstanceColor(context.Context) (uint8, error) {
+	return a.deps.Cfg.Subsystems.WebInstanceColorHue, nil
+}
+
 func Routes(r *mux.Router, deps *deps.Deps, debug bool) {
 	handler := &WebRPC{
 		deps:      deps,

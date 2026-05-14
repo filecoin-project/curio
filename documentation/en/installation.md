@@ -278,7 +278,7 @@ We recommend that macOS users use [Homebrew](https://brew.sh/) to install each o
 Use the command `brew install` to install the following packages:
 
 ```shell
-brew install jq pkg-config hwloc coreutils
+brew install jq pkg-config hwloc coreutils aria2
 brew install go@1.24
 ```
 

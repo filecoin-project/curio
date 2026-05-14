@@ -181,6 +181,8 @@ jobs:
             target: "./itests/pdp_prove_test.go"
           - name: test-itest-pieces-unseal
             target: "./itests/pieces_unseal_test.go"
+          - name: test-itest-remoteseal
+            target: "./itests/remoteseal_test.go"
           - name: test-itest-retrievals-test
             target: "./itests/retrievals_test.go"
           - name: test-itest-sql-idempotent-test
@@ -210,6 +212,7 @@ jobs:
 
       - name: Run tests with coverage
         env:
+          CURIO_OPTIMAL_LIBFILCRYPTO: 0
           FFI_USE_OPENCL: 1
         run: |
           mkdir -p coverage

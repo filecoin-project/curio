@@ -122,7 +122,8 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// COMPUTE THE PROOF!
-
+	// GeneratePoRepVanillaProof (called by PoRepSnark) handles remote-sealed
+	// sectors transparently via the c1.url file in the cache directory.
 	var proof []byte
 	if p.cuzkClient != nil && p.cuzkClient.Enabled() {
 		proof, err = p.sc.PoRepSnarkCuzk(ctx, p.cuzkClient, sr, sealed, unsealed, sectorParams.TicketValue, abi.InteractiveSealRandomness(rand))
