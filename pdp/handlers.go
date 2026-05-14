@@ -363,7 +363,7 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			}
 		}
 	} else {
-		if result.AdvertisementCreated && !result.AdvertisementRetrievedAt.Valid {
+		if result.AdvertisementCreated && result.AdvertisementCreatedAt.Valid {
 			if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
 				// More than 5 seconds since advertisement was created, assume it's published
 				response.Advertised = true
