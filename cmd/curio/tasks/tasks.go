@@ -346,7 +346,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			pdpv0.NewDataSetWatch(db, must.One(dependencies.EthClient.Val()), chainSched)
 
-			pay.NewSettleWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pay.NewSettleWatcher(db, must.One(dependencies.EthClient.Val()), chainSched, dependencies.Al)
 			pdpv0.NewDataSetDeleteWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdpv0.NewTerminateServiceWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdpv0.NewPieceDeleteWatcher(&cfg.HTTP, db, must.One(dependencies.EthClient.Val()), chainSched, iStore)
