@@ -53,6 +53,45 @@ FFI_USE_CUDA_SUPRASEAL ?= $(if $(and $(filter Linux,$(UNAME_S)),$(filter 1,$(FFI
 # Guardrail: cuda-supraseal cannot apply when CUDA is disabled.
 FFI_USE_CUDA_SUPRASEAL_EFFECTIVE = $(if $(filter 1,$(FFI_USE_CUDA)),$(FFI_USE_CUDA_SUPRASEAL),0)
 
+# -- CUDA host-compiler compatibility guard ----------------------------------
+# CUDA's nvcc cannot parse GCC 16's C++ standard-library headers (type_traits
+# etc.), causing ~100 template errors during the filecoin-ffi / supraseal
+# build.  When the user has not explicitly overridden CC/CXX, auto-downgrade
+# to the newest compatible GCC found on the system (tries 15 -> 12).
+ifeq ($(UNAME_S),Linux)
+ifneq ($(NVCC_PATH),)
+ifeq ($(FFI_USE_CUDA),1)
+_DEFAULT_GCC_VER := $(shell gcc -dumpversion 2>/dev/null | cut -d. -f1)
+ifeq ($(shell [ "$(_DEFAULT_GCC_VER)" -ge 16 ] 2>/dev/null && echo y),y)
+ifeq ($(filter-out undefined default,$(origin CC))$(filter-out undefined default,$(origin CXX)),)
+ifneq ($(shell which gcc-15 2>/dev/null),)
+CC  := gcc-15
+CXX := g++-15
+$(info [make] GCC $(_DEFAULT_GCC_VER) detected; CUDA requires <=15, using $(CC)/$(CXX))
+else ifneq ($(shell which gcc-14 2>/dev/null),)
+CC  := gcc-14
+CXX := g++-14
+$(info [make] GCC $(_DEFAULT_GCC_VER) detected; CUDA requires <=15, using $(CC)/$(CXX))
+else ifneq ($(shell which gcc-13 2>/dev/null),)
+CC  := gcc-13
+CXX := g++-13
+$(info [make] GCC $(_DEFAULT_GCC_VER) detected; CUDA requires <=15, using $(CC)/$(CXX))
+else ifneq ($(shell which gcc-12 2>/dev/null),)
+CC  := gcc-12
+CXX := g++-12
+$(info [make] GCC $(_DEFAULT_GCC_VER) detected; CUDA requires <=15, using $(CC)/$(CXX))
+else
+$(error GCC $(_DEFAULT_GCC_VER) is not supported by CUDA nvcc as a host compiler. \
+  Please install gcc-12 to gcc-15 (e.g. on Arch Linux: pacman -S gcc-15))
+endif
+export CC
+export CXX
+endif # origin check
+endif # gcc >= 16
+endif # FFI_USE_CUDA
+endif # nvcc present
+endif # Linux
+
 # Build tags.
 CURIO_TAGS_BASE ?= cunative
 CURIO_NOSUPRASEAL = $(if $(filter 1,$(FFI_USE_OPENCL) $(DISABLE_SUPRASEAL)),1,)
