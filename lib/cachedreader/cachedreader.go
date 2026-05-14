@@ -277,62 +277,19 @@ func (cpr *CachedPieceReader) getPieceReaderFromMarketPieceDeal(ctx context.Cont
 			return reader, dealRawSize, nil
 		}
 
-		// MK20 deal: for piece_ref 0 or invalid (e.g. AggregateTypeV2 single piece in sector),
-		// try sector read first; otherwise try piece park then sector.
-		if (!dl.PieceRef.Valid || dl.PieceRef.Int64 == 0) && dl.Offset.Valid {
-			// No piece park ref or ref=0: read directly from sector (e.g. V2 with tail index section).
-			sr := storiface.SectorRef{
-				ID: abi.SectorID{
-					Miner:  abi.ActorID(dl.SpID),
-					Number: abi.SectorNumber(dl.Sector),
-				},
-				ProofType: dl.Proof,
-			}
-			reader, err := cpr.sectorReader.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(dl.Offset.Int64).Unpadded()), dl.Length.Unpadded(), pieceCid)
-			if err == nil {
-				return reader, uint64(dl.RawSize), nil
-			}
-			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from sector: %w", err))
-		}
-
-		// MK20 deal: try piece park when piece_ref is set and non-zero
-		if dl.PieceRef.Valid && dl.PieceRef.Int64 != 0 {
+		if dl.PieceRef.Valid {
+			// This is a MK20 deal, get from piece park
 			ref := dl.PieceRef.Int64
 			reader, rawSize, err := cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
-			if err == nil {
-				return reader, rawSize, nil
+			if err != nil {
+				merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
+				continue
 			}
-			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from piece park: %w", err))
+			return reader, rawSize, nil
 		}
-
-		// MK20 deal: fallback to sector read (e.g. when piece park failed or piece_ref was 0 but Offset was missing earlier)
-		if !dl.Offset.Valid {
-			merr = multierror.Append(merr, xerrors.Errorf("MK20 deal has no piece_offset for sector read"))
-			continue
-		}
-		sr := storiface.SectorRef{
-			ID: abi.SectorID{
-				Miner:  abi.ActorID(dl.SpID),
-				Number: abi.SectorNumber(dl.Sector),
-			},
-			ProofType: dl.Proof,
-		}
-		reader, err := cpr.sectorReader.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(dl.Offset.Int64).Unpadded()), dl.Length.Unpadded(), pieceCid)
-		if err != nil {
-			merr = multierror.Append(merr, xerrors.Errorf("failed to read piece from sector: %w", err))
-			continue
-		}
-		return reader, uint64(dl.RawSize), nil
 	}
 
 	return nil, 0, merr
-}
-
-// GetPieceReaderByRef returns a reader for the piece stored in the piece park under the given ref_id (pieceref:N).
-// Used by indexing when the task has url=pieceref:N so we can read the piece before market_piece_deal is populated.
-func (cpr *CachedPieceReader) GetPieceReaderByRef(ctx context.Context, pieceRef int64) (storiface.Reader, uint64, error) {
-	ref := pieceRef
-	return cpr.getPieceReaderFromPiecePark(ctx, &ref, nil, nil)
 }
 
 func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceRef *int64, pieceCid *cid.Cid, pieceSize *abi.PaddedPieceSize) (storiface.Reader, uint64, error) {
@@ -346,7 +303,6 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 
 	if pieceRef != nil {
 		var pdr []pieceData
-		// Do not require long_term = TRUE: Mk20 SourceAggregate (e.g. exa-gateway) inserts with long_term = FALSE.
 		err := cpr.db.Select(ctx, &pdr, `
 										SELECT
 										  pp.id,
@@ -354,7 +310,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 										  pp.piece_raw_size
 										FROM parked_piece_refs pr
 										JOIN parked_pieces     pp ON pp.id = pr.piece_id
-										WHERE pr.ref_id = $1 AND pp.complete = TRUE;
+										WHERE pr.ref_id = $1 AND pp.complete = TRUE AND pp.long_term = TRUE;
     `, *pieceRef)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece_ref %d: %w", *pieceRef, err)

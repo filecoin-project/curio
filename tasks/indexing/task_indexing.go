@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -256,14 +255,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	var reader storiface.Reader
 
 	if task.Mk20 {
-		if task.PieceRef != 0 {
-			reader, _, err = i.cpr.GetPieceReaderByRef(ctx, task.PieceRef)
-			if err != nil {
-				log.Warnw("failed to get piece reader by ref, falling back to sector/shared", "piece_ref", task.PieceRef, "err", err)
-			}
-		}
-		if reader == nil && task.Sector != 0 {
-			// Try local sector (e.g. already sealed on this node).
+		if aggregateType == mk20.AggregateTypeV2 {
+			// V2 aggregates: read directly from sealed sector, no piecepark indirection needed.
 			reader, err = i.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
 				ID: abi.SectorID{
 					Miner:  abi.ActorID(task.SpID),
@@ -272,17 +265,13 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 				ProofType: task.Proof,
 			}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
 			if err != nil {
-				isSectorNotFound := errors.Is(err, storiface.ErrSectorNotFound) || strings.Contains(err.Error(), "sector not found")
-				if isSectorNotFound {
-					reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2, false)
-				}
+				return false, xerrors.Errorf("reading V2 aggregate piece from sector: %w", err)
 			}
-		}
-		if reader == nil {
+		} else {
 			reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2, false)
-		}
-		if err != nil {
-			return false, xerrors.Errorf("getting piece reader: %w", err)
+			if err != nil {
+				return false, xerrors.Errorf("getting piece reader: %w", err)
+			}
 		}
 	} else {
 		reader, err = i.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
@@ -301,7 +290,6 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// If no reader is available (no unsealed copy), complete the task without actual indexing.
 	// This records the piece metadata but marks it as not indexed.
 	if reader == nil {
-		log.Warnw("reader is still nil, complete it")
 		err = i.recordCompletion(ctx, task, taskID, false)
 		if err != nil {
 			return false, err
@@ -334,7 +322,6 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	var aggidx map[cid.Cid][]indexstore.Record
 
 	if task.Mk20 && aggregateType == mk20.AggregateTypeV2 {
-		log.Warnw("calling IndexAggregateV2", "pc2", pc2, "task.RawSize", task.RawSize)
 		blocks, aggidx, interrupted, err = IndexAggregateV2(pc2, reader, task.RawSize.Int64, recs, addFail)
 	} else if task.Mk20 && len(subPieces) > 0 {
 		blocks, aggidx, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, addFail)
@@ -594,7 +581,7 @@ func IndexAggregateV2(
 		pieceCid: records,
 	}
 	log.Infow("Indexed AggregateTypeV2 tail index", "piece_cid", pieceCid, "num_entries", len(records))
-	return 0, aggidx, interrupted, nil
+	return int64(len(records)), aggidx, interrupted, nil
 }
 
 func IndexAggregate(pieceCid cid.Cid,

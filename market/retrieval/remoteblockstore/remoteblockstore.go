@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
 	"github.com/hashicorp/go-multierror"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
@@ -141,6 +142,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			// CAR parse failed. Data may be a raw blob (e.g. datasegmentv2 aggregates
 			// store pieces as raw bytes at offset, without CAR framing).
 			// Fall back to reading exactly BlockSize bytes and verifying the hash.
+			log.Debugw("CAR block parse failed, trying raw block fallback", "cid", c, "piece", piece.PieceCid, "err", err)
 			if piece.BlockSize == 0 {
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
 			}
