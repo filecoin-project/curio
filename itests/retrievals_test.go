@@ -116,6 +116,8 @@ type retrievalFixtureSeed struct {
 	SectorNum          abi.SectorNumber
 	Fixture            helpers.PieceFixture
 	IndexAggregate     bool
+	IndexAggregateV2   bool // when true, use AddV2AggregateIndex instead
+	V2Fixture          *helpers.V2AggregateFixture
 	AggregateSubPieces []mk20.DataSource
 	RawSizeOverride    *int64
 	SkipIndex          bool
@@ -139,6 +141,9 @@ type retrievalFixtures struct {
 	aggregateRetryFailSubPieces    []mk20.DataSource
 	aggregateRetrySuccess          helpers.PieceFixture
 	aggregateRetrySuccessSubPieces []mk20.DataSource
+
+	// V2 aggregate fixtures
+	v2Aggregate helpers.V2AggregateFixture
 }
 
 type retrievalParkedPieceIDs struct {
@@ -157,6 +162,7 @@ const (
 	rawSizeZeroSectorNum        abi.SectorNumber = 203
 	missingMetadataSectorNum    abi.SectorNumber = 204
 	aggregateRetrySuccessSector abi.SectorNumber = 205
+	v2AggregateSectorNum        abi.SectorNumber = 206
 )
 
 func createPaddedRetrievalFixture(t *testing.T, dir string, sourceSize int64) helpers.PieceFixture {
@@ -207,6 +213,11 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 		aggregateRetrySuccessSubPieces = aggregateRetryASubPieces
 	}
 
+	// V2 aggregate: two small raw content blobs.
+	v2Content1 := bytes.Repeat([]byte{0xCA, 0xFE}, 64) // 128 bytes
+	v2Content2 := bytes.Repeat([]byte{0xDE, 0xAD}, 48) // 96 bytes
+	v2Fixture := helpers.CreateV2AggregateFixture(t, [][]byte{v2Content1, v2Content2})
+
 	return retrievalFixtures{
 		mk12:                           mk12Fixture,
 		aggregateSubpiece:              aggregateSubpieceFixture,
@@ -225,6 +236,7 @@ func buildRetrievalFixtures(t *testing.T, dir string) retrievalFixtures {
 		aggregateRetryFailSubPieces:    aggregateRetryFailSubPieces,
 		aggregateRetrySuccess:          aggregateRetrySuccess,
 		aggregateRetrySuccessSubPieces: aggregateRetrySuccessSubPieces,
+		v2Aggregate:                    v2Fixture,
 	}
 }
 
@@ -264,6 +276,13 @@ func buildRetrievalSeedPlan(fixtures retrievalFixtures) []retrievalFixtureSeed {
 			SectorNum: aggregateRetrySuccessSector,
 			Fixture:   fixtures.aggregateRetrySuccess,
 			SkipIndex: true,
+		},
+		{
+			DealID:           "mk12-v2-aggregate-itest",
+			SectorNum:        v2AggregateSectorNum,
+			Fixture:          fixtures.v2Aggregate.PieceFixture,
+			IndexAggregateV2: true,
+			V2Fixture:        &fixtures.v2Aggregate,
 		},
 	}
 }
@@ -314,6 +333,10 @@ func seedRetrievalFixtures(
 
 	for _, seed := range seeds {
 		if seed.SkipIndex {
+			continue
+		}
+		if seed.IndexAggregateV2 && seed.V2Fixture != nil {
+			require.NoError(t, helpers.AddV2AggregateIndex(t, ctx, idxStore, *seed.V2Fixture))
 			continue
 		}
 		if seed.IndexAggregate {
@@ -605,6 +628,22 @@ func runRetrievalScenarios(
 		require.Equal(t, http.StatusOK, status)
 		require.Equal(t, fixtures.aggregateRetrySub.CarBytes, body)
 		helpers.AssertPieceResponseHeaders(t, headers, fixtures.aggregateRetrySub.PieceCIDV2.String(), len(fixtures.aggregateRetrySub.CarBytes))
+	})
+
+	t.Run("v2 aggregate retrieval by subpiece CID", func(t *testing.T) {
+		// Retrieve the first sub-piece from the V2 aggregate. The raw block fallback
+		// in remoteblockstore should return the raw content bytes (not CAR-wrapped).
+		subCID := fixtures.v2Aggregate.SubCIDs[0]
+		status, body, _ := helpers.HTTPGetWithHeaders(t, baseURL, "/piece/"+subCID.String(), nil)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, fixtures.v2Aggregate.SubContents[0], body)
+	})
+
+	t.Run("v2 aggregate retrieval returns 404 for unknown subpiece CID", func(t *testing.T) {
+		// A CID not in the index should 404.
+		fakeCID := cid.NewCidV1(cid.Raw, []byte{0x12, 0x20, 0x01, 0x02, 0x03})
+		status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fakeCID.String(), nil)
+		require.Equal(t, http.StatusNotFound, status)
 	})
 
 	t.Run("piece retrieval serves only raw_size when raw_size is valid", func(t *testing.T) {
