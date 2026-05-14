@@ -185,8 +185,11 @@ func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
 	}
 
 	p.mu.Lock()
-	_, existed := p.providerInfos[peerID]
+	existing, existed := p.providerInfos[peerID]
 	p.providerInfos[peerID] = info
+	if existed {
+		info.lastPublishTime = existing.lastPublishTime
+	}
 	p.mu.Unlock()
 
 	if !existed {
