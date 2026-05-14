@@ -263,35 +263,43 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 			pr.created_at,
 
 			-- Indexing status (true when CAR indexing completed and ready for/in IPNI)
-			(pr.needs_ipni OR pr.ipni_task_id IS NOT NULL OR i.ad_cid IS NOT NULL) as indexed,
+			(pr.needs_ipni OR pr.ipni_task_id IS NOT NULL OR ia.ad_cid IS NOT NULL) as indexed,
 			pr.indexed_at,
 
 			-- Advertisement status
-			i.ad_cid IS NOT NULL as advertisement_created,
+			ia.ad_cid IS NOT NULL as advertisement_created,
 			pr.advertisement_created_at as advertisement_created_at,
-			i.ad_cid,
+			ia.ad_cid,
 
 			-- Advertisement Fetch status
-			af.fetched_at IS NOT NULL as advertisement_retrieved,
-			af.fetched_at as advertisement_retrieved_at,
+			ia.fetched_at IS NOT NULL as advertisement_retrieved,
+			ia.fetched_at as advertisement_retrieved_at,
 
 			-- Determine overall status
 			CASE
-				WHEN af.fetched_at IS NOT NULL THEN 'retrieved'
-				WHEN i.ad_cid IS NOT NULL THEN 'announced'
+				WHEN ia.fetched_at IS NOT NULL THEN 'retrieved'
+				WHEN ia.ad_cid IS NOT NULL THEN 'announced'
 				WHEN pr.ipni_task_id IS NOT NULL THEN 'creating_ad'
 				WHEN pr.indexing_task_id IS NOT NULL THEN 'indexing'
 				ELSE 'pending'
 			END as status,
 		
-			i.provider
+			ia.provider
 
 		FROM pdp_piecerefs pr
 		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
 		JOIN parked_pieces pp ON pp.id = pprf.piece_id
-		LEFT JOIN ipni i ON i.piece_cid = pr.piece_cid
-			AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
-		LEFT JOIN ipni_ad_fetches af ON af.ad_cid = i.ad_cid
+		LEFT JOIN LATERAL (
+			SELECT
+				MIN(i.ad_cid) as ad_cid,
+				MIN(i.provider) as provider,
+				MIN(af.fetched_at) as fetched_at
+			FROM ipni i
+			LEFT JOIN ipni_ad_fetches af ON af.ad_cid = i.ad_cid
+			WHERE i.piece_cid = pr.piece_cid
+				AND i.provider = (SELECT peer_id FROM ipni_peerid WHERE sp_id = $3)
+				AND i.is_rm = FALSE
+		) ia ON true
 		WHERE pr.piece_cid = $1 AND pr.service = $2
 		LIMIT 1
 	`, pieceCidV1Str, serviceLabel, indexing.PDP_v0_SP_ID)
@@ -352,17 +360,57 @@ func (p *PDPService) handleGetPieceStatus(w http.ResponseWriter, r *http.Request
 		response.RetrievedAt = &result.AdvertisementRetrievedAt.Time
 	}
 
-	// If we have IPNI provider, check if advertisement was published directly from IPNI provider
-	if p.ipp != nil && result.Provider.Valid {
+	// Advertised and AdvertisedAt are derived from three signals, in order:
+	// 1. A recorded fetch of this ad in ipni_ad_fetches is the strongest per-ad
+	//    signal. If an indexer fetched the ad, it must have been advertised
+	//    already. Since we do not store the actual first publish time for each
+	//    ad, AdvertisedAt is estimated as the earlier of
+	//    advertisement_created_at + PublishInterval and the first fetch time.
+	//    This keeps AdvertisedAt from appearing after RetrievedAt.
+	// 2. The in-process IPNI provider exposes LastPublishTime per provider, not
+	//    per ad. It is useful only when there is no fetch record and we know
+	//    when this ad was created. A provider publish after this ad was created
+	//    means the ad should have been included in the announced head; an older
+	//    provider publish means it was not, and we do not fall through to the
+	//    timing heuristic.
+	// 3. Without either signal, fall back to the old timing heuristic: after
+	//    PublishInterval has elapsed from ad creation, assume the ad was
+	//    announced.
+	if result.AdvertisementRetrieved {
+		response.Advertised = true
+		if result.AdvertisementRetrievedAt.Valid {
+			advertisedAt := result.AdvertisementRetrievedAt.Time
+			if result.AdvertisementCreatedAt.Valid {
+				createdAtEstimate := result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval)
+				if createdAtEstimate.Before(advertisedAt) {
+					advertisedAt = createdAtEstimate
+				}
+			}
+			response.AdvertisedAt = &advertisedAt
+		} else {
+			response.AdvertisedAt = nil
+		}
+	}
+
+	advertisedFromProvider := false
+	if !response.Advertised && result.AdvertisementCreatedAt.Valid && p.ipp != nil && result.Provider.Valid {
 		publishedAt := p.ipp.LastPublishTime(result.Provider.String)
-		if publishedAt != nil && publishedAt.After(result.AdvertisementCreatedAt.Time) {
-			response.Advertised = true
-			response.AdvertisedAt = new(*publishedAt)
-			if publishedAt.After(time.Now().Add(ipni_provider.PublishInterval)) {
-				response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
+		if publishedAt != nil {
+			advertisedFromProvider = true
+			if publishedAt.After(result.AdvertisementCreatedAt.Time) {
+				response.Advertised = true
+				response.AdvertisedAt = new(*publishedAt)
+				if publishedAt.After(time.Now().Add(ipni_provider.PublishInterval)) {
+					response.AdvertisedAt = new(result.AdvertisementCreatedAt.Time.Add(ipni_provider.PublishInterval))
+				}
+			} else {
+				response.Advertised = false
+				response.AdvertisedAt = nil
 			}
 		}
-	} else {
+	}
+
+	if !advertisedFromProvider && !response.Advertised {
 		if result.AdvertisementCreated && result.AdvertisementCreatedAt.Valid {
 			if time.Since(result.AdvertisementCreatedAt.Time) > ipni_provider.PublishInterval {
 				// More than 5 seconds since advertisement was created, assume it's published
