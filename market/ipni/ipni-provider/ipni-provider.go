@@ -136,6 +136,9 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	return p, nil
 }
 
+// upsertProvider inserts new providers and updates the providerInfos map
+// It does not change the details of the existing provider as all detailed are tied to a private key.
+// To remove an existing provider, a restart of all market nodes is required.
 func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
 	pkey, err := crypto.UnmarshalPrivateKey(priv)
 	if err != nil {
@@ -185,17 +188,12 @@ func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
 	}
 
 	p.mu.Lock()
-	existing, existed := p.providerInfos[peerID]
-	p.providerInfos[peerID] = info
-	if existed {
-		info.lastPublishTime = existing.lastPublishTime
+	_, existed := p.providerInfos[peerID]
+	if !existed {
+		log.Infow("New IPNI provider discovered", "peerID", id.String(), "spID", spID.String(), "miner", maddr.String(), "url", u.String())
+		p.providerInfos[peerID] = info
 	}
 	p.mu.Unlock()
-
-	if !existed {
-		log.Infow("ipni peer ID", "peerID", id.String())
-		log.Infow("Announce address", "address", addr.String(), "pid", peerID, "url", u.String())
-	}
 
 	return nil
 }
