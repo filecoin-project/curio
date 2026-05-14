@@ -17,7 +17,6 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/multicall"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
 )
@@ -111,38 +110,24 @@ func SettleLockupPeriod(ctx context.Context, db *harmonydb.DB, ethClient ethchai
 		return xerrors.Errorf("failed to get Payments ABI: %w", err)
 	}
 
-	// Batch in the 10s to settle rail
-	calls := make([]multicall.Multicall3Call, 0, 10)
-	rails := make([]int64, 0, 10)
 	transactionsToSend := make(map[*types.Transaction][]int64)
-
 	for _, id := range toSettle {
 		data, err := pabi.Pack("settleRail", id, big.NewInt(int64(current)))
 		if err != nil {
 			return xerrors.Errorf("failed to pack data: %w", err)
 		}
-		calls = append(calls, multicall.Multicall3Call{
-			Target:   paymentContractAddr,
-			CallData: data,
+
+		// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
+		txEth := types.NewTx(&types.LegacyTx{
+			Nonce:    0,
+			To:       &paymentContractAddr,
+			Value:    big.NewInt(0),
+			Gas:      0,
+			GasPrice: nil,
+			Data:     data,
 		})
-		rails = append(rails, id.Int64())
-		if len(calls) >= 10 {
-			tx, err := multicall.BatchCallGenerate(calls)
-			if err != nil {
-				return xerrors.Errorf("failed to generate batch call: %w", err)
-			}
-			transactionsToSend[tx] = rails
-			calls = make([]multicall.Multicall3Call, 0, 10)
-			rails = make([]int64, 0, 10)
-		}
-	}
-	// Handle any remaining calls that didn't make a full batch
-	if len(calls) > 0 {
-		tx, err := multicall.BatchCallGenerate(calls)
-		if err != nil {
-			return xerrors.Errorf("failed to generate batch call: %w", err)
-		}
-		transactionsToSend[tx] = rails
+
+		transactionsToSend[txEth] = []int64{id.Int64()}
 	}
 
 	for txToSend, railIDs := range transactionsToSend {

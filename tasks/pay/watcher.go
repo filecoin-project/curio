@@ -14,10 +14,16 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/filecoinpayment"
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/pdp/contract/FWSS"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
+)
+
+const (
+	alertName = "FilecoinPay"
+	alertType = "Settlements"
 )
 
 type settled struct {
@@ -35,9 +41,10 @@ type mwe struct {
 	Success *bool `db:"tx_success"`
 }
 
-func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
+func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched, al alertinginterface.AlertingInterface) {
+	at := al.AddAlertType(alertName, alertType)
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingTransactions(ctx, db, ethClient)
+		err := processPendingTransactions(ctx, db, ethClient, al, at)
 		if err != nil {
 			log.Warnf("Failed to process pending settle transactions: %s", err)
 		}
@@ -47,15 +54,15 @@ func NewSettleWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chain
 	}
 }
 
-func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
+func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, al alertinginterface.AlertingInterface, at alertinginterface.AlertType) error {
 	// Handle failed settlements first - log error and clean up
 	// This JOINLESS query structure is a critical optimization to prevent the query planner from iterating the entire
 	// massive mwe table on each filecoin head change.  We've observed that mwe gets selected as driving table if we
 	// use JOIN or WHERE EXIST clauses.
 	var settles []settled
 	err := db.Select(ctx, &settles, `
-	SELECT fpt.tx_hash, fpt.rail_ids
-	FROM filecoin_payment_transactions fpt`)
+	SELECT tx_hash, rail_ids
+	FROM filecoin_payment_transactions`)
 	if err != nil {
 		return xerrors.Errorf("failed to get settlements from DB: %w", err)
 	}
@@ -92,6 +99,10 @@ func processPendingTransactions(ctx context.Context, db *harmonydb.DB, ethClient
 		if mwe.Success == nil || !*mwe.Success {
 			delete(goodSettles, mwe.Hash)
 			log.Errorw("settlement transaction failed on chain", "txHash", mwe.Hash)
+			al.Raise(at, map[string]interface{}{
+				"txHash": mwe.Hash,
+				"error":  "settlement transaction failed on chain",
+			})
 			_, err = db.Exec(ctx, `DELETE FROM filecoin_payment_transactions WHERE tx_hash = $1`, mwe.Hash)
 			if err != nil {
 				return xerrors.Errorf("failed to delete failed settlement from DB: %w", err)
