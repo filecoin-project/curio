@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 
 class PipelineWaterfall extends LitElement {
     static properties = {
@@ -205,11 +206,9 @@ customElements.define('pipeline-waterfall', PipelineWaterfall);
 
 
 customElements.define('pipeline-stats', class PipelineStats extends LitElement {
-    constructor() {
-        super();
-        this.data = [];
-        this.loadData();
-    }
+    static properties = {
+        data: { type: Array },
+    };
 
     static styles = css`
         .chart-root {
@@ -218,10 +217,12 @@ customElements.define('pipeline-stats', class PipelineStats extends LitElement {
         }
     `
 
-    async loadData() {
-        this.data = await RPCCall('PorepPipelineSummary') || [];
-        setTimeout(() => this.loadData(), 5000);
-        this.requestUpdate();
+    constructor() {
+        super();
+        this.data = [];
+        pollRPC(async () => {
+            this.data = await RPCCall('PorepPipelineSummary') || [];
+        }, 5000);
     }
     render() {
         return html`

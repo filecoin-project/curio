@@ -1,16 +1,18 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs'
+import { pollRPC } from '/lib/poll.mjs';
 customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
     constructor() {
         super();
         this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('HarmonyTaskStats');
-        this.calculatePercentages();
-        this.requestUpdate();
+        pollRPC(async () => {
+            this.data = await RPCCall('HarmonyTaskStats');
+            this.calculatePercentages();
+        }, 10000);
     }
 
     calculatePercentages() {

@@ -1,26 +1,18 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 
 window.customElements.define('network-summary', class NetworkSummary extends LitElement {
+    static properties = {
+        summary: { type: Object },
+    };
+
     constructor() {
         super();
         this.summary = null;
-        this.pollHandle = setInterval(() => this.loadData(), 5000);
-        this.loadData();
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        if (this.pollHandle) clearInterval(this.pollHandle);
-    }
-
-    async loadData() {
-        try {
+        pollRPC(async () => {
             this.summary = await RPCCall('NetSummary');
-            this.requestUpdate();
-        } catch (err) {
-            console.error('failed to refresh network summary', err);
-        }
+        }, 5000);
     }
 
     formatRate(v) {
