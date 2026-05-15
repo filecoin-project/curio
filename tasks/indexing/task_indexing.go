@@ -737,9 +737,6 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 			if n != 1 {
 				return xerrors.Errorf("store indexing success: updated %d rows", n)
 			}
-			if task.PieceRef != 0 {
-				_, _ = i.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1 AND long_term = FALSE`, task.PieceRef)
-			}
 		} else {
 			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL,
                                      complete = TRUE WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
@@ -759,9 +756,6 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 			}
 			if n != 1 {
 				return xerrors.Errorf("store indexing success: updated %d rows", n)
-			}
-			if task.PieceRef != 0 {
-				_, _ = i.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1 AND long_term = FALSE`, task.PieceRef)
 			}
 		} else {
 			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL 
