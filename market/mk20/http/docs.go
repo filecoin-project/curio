@@ -1131,10 +1131,6 @@ const docTemplate = `{
         "mk20.DealStatusResponse": {
             "type": "object",
             "properties": {
-                "chainDealId": {
-                    "description": "ChainDealID is the on-chain market deal id when available (DDO flow).",
-                    "type": "integer"
-                },
                 "errorMsg": {
                     "description": "ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.",
                     "type": "string"
