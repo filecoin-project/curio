@@ -656,6 +656,12 @@ func assertVariantPieceRetrievals(t *testing.T, baseURL string, v *dealVariant) 
 func assertVariantIPFSBlockRetrieval(t *testing.T, baseURL string, v *dealVariant) {
 	t.Helper()
 
+	if v.aggregateType == mk20.AggregateTypeV2 {
+		// V2 aggregate data is raw content + index, not CAR. Sub-piece retrieval
+		// is validated separately in TestRetrievals/v2_aggregate_retrieval_by_subpiece_CID.
+		return
+	}
+
 	blockCID, blockData := helpers.SelectFixtureRawBlockCandidate(t, v.fixture)
 	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+blockCID.String(), map[string]string{
 		"Accept": "application/vnd.ipld.raw",

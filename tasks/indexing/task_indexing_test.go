@@ -78,10 +78,8 @@ func TestIndexAggregateV2_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, interrupted)
 
-	// Drain the channel to collect emitted records.
-	var records []indexstore.Record
-	for rec := range recs {
-		records = append(records, rec)
+	// Drain the channel (records are verified via aggidx below).
+	for range recs {
 	}
 
 	// blocks return should equal len(records) from aggidx.

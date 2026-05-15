@@ -430,15 +430,8 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 }
 
 func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	// If the caller passed a v2 piece CID, derive the v1 for cache keying and deal lookup.
-	// Otherwise (v1 piece CID or content CID) use as-is.
-	if commcidv2.IsPieceCidV2(pieceCid) {
-		v1, _, err := commcid.PieceCidV1FromV2(pieceCid)
-		if err != nil {
-			return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
-		}
-		pieceCid = v1
-	}
+	// Note: Let's not infer the pieceCID v1 -> v2 for a cache key
+	// The calculation required is basically the same as below func so might as well run it
 
 	// First check if we have a cached error for this piece
 	cpr.pieceErrorCacheMu.Lock()

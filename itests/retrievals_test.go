@@ -640,8 +640,13 @@ func runRetrievalScenarios(
 	})
 
 	t.Run("v2 aggregate retrieval returns 404 for unknown subpiece CID", func(t *testing.T) {
-		// A CID not in the index should 404.
-		fakeCID := cid.NewCidV1(cid.Raw, []byte{0x12, 0x20, 0x01, 0x02, 0x03})
+		// A CID not in the index should 404. Construct a valid sha2-256 multihash
+		// so the server can parse the CID (avoiding 400), but won't find any data.
+		fakeHash := make([]byte, 34) // varint(0x12) + varint(0x20) + 32 digest bytes
+		fakeHash[0] = 0x12           // sha2-256
+		fakeHash[1] = 0x20           // digest length = 32
+		fakeHash[2] = 0xff           // non-zero to avoid collisions
+		fakeCID := cid.NewCidV1(cid.Raw, fakeHash)
 		status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fakeCID.String(), nil)
 		require.Equal(t, http.StatusNotFound, status)
 	})
