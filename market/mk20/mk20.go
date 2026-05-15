@@ -851,9 +851,6 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 
-		// AggregateTypeV2 single piece is the deal's final piece; keep it long_term so indexing/cleanup do not remove it.
-		longTerm := data.Format.Aggregate != nil && data.Format.Aggregate.Type == AggregateTypeV2 && len(toDownload) == 1
-
 		var downloadRefs []ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
@@ -872,7 +869,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 					RawSize:    int64(k.RawSize),
 					URL:        src.URL,
 					Headers:    headers,
-					LongTerm:   longTerm,
+					LongTerm:   false,
 				})
 			}
 		}

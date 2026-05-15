@@ -32,6 +32,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/itests/helpers"
+	"github.com/filecoin-project/curio/market/mk20"
 
 	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -47,6 +48,10 @@ type dealVariant struct {
 	verified    bool
 	shouldIndex bool
 	offline     bool
+
+	// V2 aggregate fields
+	aggregateType mk20.AggregateType
+	v2Fixture     *helpers.V2AggregateFixture // set when aggregateType == V2
 
 	dealID       string
 	clientAddr   address.Address
@@ -232,6 +237,7 @@ func buildDealVariants(verifiedClientAddr, unverifiedClientAddr address.Address)
 		{name: "mk12-ddo-verified-index", isDDO: true, verified: true, shouldIndex: true, clientAddr: verifiedClientAddr},
 		{name: "mk20-online-index", mk20: true, shouldIndex: true, clientAddr: verifiedClientAddr},
 		{name: "mk20-offline-noindex", mk20: true, shouldIndex: false, offline: true, clientAddr: verifiedClientAddr},
+		{name: "mk20-v2agg-index", mk20: true, shouldIndex: true, aggregateType: mk20.AggregateTypeV2, clientAddr: verifiedClientAddr},
 	}
 }
 
@@ -240,7 +246,18 @@ func assignVariantFixturesAndIDs(t *testing.T, dir string, variants []*dealVaria
 	t.Helper()
 
 	for _, v := range variants {
-		v.fixture = helpers.CreatePieceFixture(t, dir, 200)
+		if v.aggregateType == mk20.AggregateTypeV2 {
+			// V2 aggregate: build from two small raw content blobs.
+			rawA := make([]byte, 128)
+			rawB := make([]byte, 96)
+			_, _ = rand.Read(rawA)
+			_, _ = rand.Read(rawB)
+			v2f := helpers.CreateV2AggregateFixture(t, [][]byte{rawA, rawB})
+			v.v2Fixture = &v2f
+			v.fixture = v2f.PieceFixture
+		} else {
+			v.fixture = helpers.CreatePieceFixture(t, dir, 200)
+		}
 		if v.mk20 {
 			v.dealID = ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
 		} else {
@@ -336,19 +353,24 @@ func seedVariantPipelines(
 
 			// MK20 variants seed the MK20 pending table.
 			if v.mk20 {
-				return true, helpers.SeedMK20PendingDeal(tx, helpers.MK20PendingSeed{
-					DealID:       v.dealID,
-					Client:       v.clientAddr.String(),
-					Provider:     maddr,
-					Contract:     "0xtest",
-					PieceCIDV2:   v.fixture.PieceCIDV2,
-					Offline:      v.offline,
-					SourceURL:    v.pieceRefURL,
-					Indexing:     v.shouldIndex,
-					Announce:     v.shouldIndex,
-					AllocationID: nil,
-					Duration:     dealDuration,
-				})
+				seed := helpers.MK20PendingSeed{
+					DealID:        v.dealID,
+					Client:        v.clientAddr.String(),
+					Provider:      maddr,
+					Contract:      "0xtest",
+					PieceCIDV2:    v.fixture.PieceCIDV2,
+					Offline:       v.offline,
+					SourceURL:     v.pieceRefURL,
+					Indexing:      v.shouldIndex,
+					Announce:      v.shouldIndex,
+					AllocationID:  nil,
+					Duration:      dealDuration,
+					AggregateType: v.aggregateType,
+				}
+				if v.v2Fixture != nil {
+					seed.SubPieces = v.v2Fixture.SubSources
+				}
+				return true, helpers.SeedMK20PendingDeal(tx, seed)
 			}
 
 			// DDO MK12 variants seed direct data onboarding rows with allocation metadata.
@@ -633,6 +655,12 @@ func assertVariantPieceRetrievals(t *testing.T, baseURL string, v *dealVariant) 
 
 func assertVariantIPFSBlockRetrieval(t *testing.T, baseURL string, v *dealVariant) {
 	t.Helper()
+
+	if v.aggregateType == mk20.AggregateTypeV2 {
+		// V2 aggregate data is raw content + index, not CAR. Sub-piece retrieval
+		// is validated separately in TestRetrievals/v2_aggregate_retrieval_by_subpiece_CID.
+		return
+	}
 
 	blockCID, blockData := helpers.SelectFixtureRawBlockCandidate(t, v.fixture)
 	status, body, headers := helpers.HTTPGetWithHeaders(t, baseURL, "/ipfs/"+blockCID.String(), map[string]string{
