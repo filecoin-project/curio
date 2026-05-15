@@ -403,21 +403,14 @@ func (s SubPieceReader) ReadAt(p []byte, off int64) (n int, err error) {
 	return s.sr.ReadAt(p, off)
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	// Aggregate is a MK20 exclusive concept. The requesting pieceCID must be v2
-
-	pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCidV2)
+func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCid cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
+	pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCid)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", err)
 	}
 
 	if len(pieces) == 0 {
-		return nil, 0, fmt.Errorf("subpiece %s not found in any aggregate piece", pieceCidV2.String())
-	}
-
-	_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+		return nil, 0, fmt.Errorf("subpiece %s not found in any aggregate piece", pieceCid.String())
 	}
 
 	var merr error
@@ -430,65 +423,21 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 		}
 
 		sr := io.NewSectionReader(reader, int64(p.Offset), int64(p.Size))
-		return SubPieceReader{r: reader, sr: sr}, rawSize, nil
+		return SubPieceReader{r: reader, sr: sr}, p.Size, nil
 	}
 
 	return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", merr)
 }
 
-func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCidV2 cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
-	yes := commcidv2.IsPieceCidV2(pieceCidV2)
-	if !yes {
-		// When input is v1: try index first (e.g. CidMapping v1 or piece v1 if ever indexed). Only fall back to market_piece_metadata when index has no match.
-		pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCidV2)
-		if err == nil && len(pieces) > 0 {
-			for _, p := range pieces {
-				reader, _, err := cpr.getPieceReaderFromMarketPieceDeal(ctx, p.Cid, retrieval)
-				if err != nil {
-					continue
-				}
-				sr := io.NewSectionReader(reader, int64(p.Offset), int64(p.Size))
-				return SubPieceReader{r: reader, sr: sr}, p.Size, nil
-			}
-		}
-		// Not found in index: resolve v1 via market_piece_metadata and convert to v2
-		var rawSize int64
-		var singlePiece bool
-		err = cpr.db.QueryRow(ctx, `WITH meta AS (
-											  SELECT piece_size
-											  FROM market_piece_metadata
-											  WHERE piece_cid = $1
-											),
-											exact AS (
-											  SELECT COUNT(*) AS n, MIN(piece_size) AS piece_size
-											  FROM meta
-											),
-											raw AS (
-											  SELECT MAX(mpd.raw_size) AS raw_size
-											  FROM market_piece_deal mpd
-											  WHERE mpd.piece_cid   = $1
-												AND mpd.piece_length = (SELECT piece_size FROM exact)
-												AND (SELECT n FROM exact) = 1
-											)
-											SELECT
-											  COALESCE((SELECT raw_size FROM raw), 0)        AS raw_size,
-											  ((SELECT n FROM exact) = 1)                    AS has_single_metadata;`, pieceCidV2.String()).Scan(&rawSize, &singlePiece)
+func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid, retrieval bool) (storiface.Reader, uint64, error) {
+	// If the caller passed a v2 piece CID, derive the v1 for cache keying and deal lookup.
+	// Otherwise (v1 piece CID or content CID) use as-is.
+	if commcidv2.IsPieceCidV2(pieceCid) {
+		v1, _, err := commcid.PieceCidV1FromV2(pieceCid)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to get piece metadata: %w", err)
+			return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
 		}
-		if !singlePiece {
-			return nil, 0, fmt.Errorf("more than 1 piece metadata found for piece cid %s, please use piece cid v2", pieceCidV2.String())
-		}
-		pcid2, err := commcid.PieceCidV2FromV1(pieceCidV2, uint64(rawSize))
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to convert piece cid v1 to v2: %w", err)
-		}
-		pieceCidV2 = pcid2
-	}
-
-	pieceCid, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		return nil, 0, xerrors.Errorf("getting piece CID v1 from piece CID v2: %w", err)
+		pieceCid = v1
 	}
 
 	// First check if we have a cached error for this piece
