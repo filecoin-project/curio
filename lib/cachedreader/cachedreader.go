@@ -413,6 +413,18 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 		return nil, 0, fmt.Errorf("subpiece %s not found in any aggregate piece", pieceCid.String())
 	}
 
+	// For V1 aggregate sub-pieces the requested CID is a v2 piece CID; derive
+	// the actual raw content size from it. For V2 aggregate sub-pieces the CID
+	// is a content CID (sha256/raw) where PieceCidV1FromV2 would fail; fall
+	// back to p.Size from the index record (which IS the content size for V2).
+	var rawSize uint64
+	if commcidv2.IsPieceCidV2(pieceCid) {
+		_, rawSize, err = commcid.PieceCidV1FromV2(pieceCid)
+		if err != nil {
+			return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+		}
+	}
+
 	var merr error
 
 	for _, p := range pieces {
@@ -422,8 +434,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 			continue
 		}
 
+		subRawSize := rawSize
+		if subRawSize == 0 {
+			subRawSize = p.Size
+		}
+
 		sr := io.NewSectionReader(reader, int64(p.Offset), int64(p.Size))
-		return SubPieceReader{r: reader, sr: sr}, p.Size, nil
+		return SubPieceReader{r: reader, sr: sr}, subRawSize, nil
 	}
 
 	return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", merr)

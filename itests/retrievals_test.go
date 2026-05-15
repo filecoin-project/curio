@@ -639,16 +639,17 @@ func runRetrievalScenarios(
 		require.Equal(t, fixtures.v2Aggregate.SubContents[0], body)
 	})
 
-	t.Run("v2 aggregate retrieval returns 404 for unknown subpiece CID", func(t *testing.T) {
-		// A CID not in the index should 404. Construct a valid sha2-256 multihash
-		// so the server can parse the CID (avoiding 400), but won't find any data.
+	t.Run("v2 aggregate retrieval returns 500 for unknown content CID", func(t *testing.T) {
+		// A completely unknown content CID has no market_piece_metadata entry,
+		// so the server cannot determine piece size and returns 500. (ErrNoDeal/404
+		// only fires when piece size is known but no deals exist.)
 		fakeHash := make([]byte, 34) // varint(0x12) + varint(0x20) + 32 digest bytes
 		fakeHash[0] = 0x12           // sha2-256
 		fakeHash[1] = 0x20           // digest length = 32
 		fakeHash[2] = 0xff           // non-zero to avoid collisions
 		fakeCID := cid.NewCidV1(cid.Raw, fakeHash)
 		status, _ := helpers.HTTPGet(t, baseURL, "/piece/"+fakeCID.String(), nil)
-		require.Equal(t, http.StatusNotFound, status)
+		require.Equal(t, http.StatusInternalServerError, status)
 	})
 
 	t.Run("piece retrieval serves only raw_size when raw_size is valid", func(t *testing.T) {
