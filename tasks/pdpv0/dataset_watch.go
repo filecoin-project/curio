@@ -10,7 +10,7 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-// NewDatasetSetWatch runes processing steps for data set creation and piece addtion
+// NewDataSetWatch runes processing steps for data set creation and piece addtion
 // These two are run in sequence to allow for combined create-and-add flow to first
 // create the data set, then add the pieces to it.
 func NewDataSetWatch(db *harmonydb.DB, ethClient ethchain.EthClient, pcs *chainsched.CurioChainSched) {
