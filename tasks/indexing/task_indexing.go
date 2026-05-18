@@ -23,6 +23,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
+	"github.com/filecoin-project/go-data-segment/datasegmentv2"
 	"github.com/filecoin-project/go-data-segment/fr32"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -33,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -167,6 +169,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	var byteData bool
 	var subPieces []mk20.DataSource
+	var aggregateType mk20.AggregateType
 
 	if task.Mk20 {
 		id, err := ulid.Parse(task.UUID)
@@ -177,14 +180,15 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		if err != nil {
 			return false, xerrors.Errorf("getting mk20 deal from DB: %w", err)
 		}
-		if deal.Data.Format.Aggregate != nil {
+		if deal.Data != nil && deal.Data.Format.Aggregate != nil {
+			aggregateType = deal.Data.Format.Aggregate.Type
 			if deal.Data.Format.Aggregate.Type > 0 {
 				var found bool
 				if len(deal.Data.Format.Aggregate.Sub) > 0 {
 					subPieces = deal.Data.Format.Aggregate.Sub
 					found = true
 				}
-				if len(deal.Data.SourceAggregate.Pieces) > 0 {
+				if deal.Data.SourceAggregate != nil && len(deal.Data.SourceAggregate.Pieces) > 0 {
 					subPieces = deal.Data.SourceAggregate.Pieces
 					found = true
 				}
@@ -235,22 +239,24 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	// Validate raw_size is present (required for PieceCID v2 calculation)
-	if !task.RawSize.Valid {
-		return false, xerrors.Errorf("raw_size is required but NULL for piece %s (uuid: %s)", task.PieceCid, task.UUID)
-	}
-
-	pc2, err := commcid.PieceCidV2FromV1(pieceCid, uint64(task.RawSize.Int64))
-
-	if err != nil {
-		return false, xerrors.Errorf("getting piece commP: %w", err)
+	var pc2 cid.Cid
+	if commcidv2.IsPieceCidV2(pieceCid) {
+		pc2 = pieceCid
+	} else {
+		if !task.RawSize.Valid {
+			return false, xerrors.Errorf("raw_size is required for piece CID v1 to v2 conversion (piece %s, uuid: %s)", task.PieceCid, task.UUID)
+		}
+		pc2, err = commcid.PieceCidV2FromV1(pieceCid, uint64(task.RawSize.Int64))
+		if err != nil {
+			return false, xerrors.Errorf("getting piece commP: %w", err)
+		}
 	}
 
 	var reader storiface.Reader
 
 	if task.Mk20 {
+		// mk20 always reads from piecepark (long_term storage), never from unsealed sectors.
 		reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2, false)
-
 		if err != nil {
 			return false, xerrors.Errorf("getting piece reader: %w", err)
 		}
@@ -302,7 +308,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	var aggidx map[cid.Cid][]indexstore.Record
 
-	if task.Mk20 && len(subPieces) > 0 {
+	if task.Mk20 && aggregateType == mk20.AggregateTypeV2 {
+		blocks, aggidx, interrupted, err = IndexAggregateV2(pc2, reader, task.RawSize.Int64, recs, addFail)
+	} else if task.Mk20 && len(subPieces) > 0 {
 		blocks, aggidx, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, addFail)
 	} else {
 		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
@@ -494,6 +502,75 @@ type IndexReader interface {
 	io.Reader
 }
 
+// IndexAggregateV2 indexes an AggregateTypeV2 piece: the tail index section is parsed with
+// datasegmentv2.ParseIndexSection (same as exa-gateway sector Finalize). For each blob entry we take
+// the content CID from the index (entry.DataCID()) and insert one record per piece; entries with ACL set are skipped.
+func IndexAggregateV2(
+	pieceCid cid.Cid,
+	reader IndexReader,
+	rawSize int64,
+	recs chan<- indexstore.Record,
+	addFail <-chan struct{},
+) (int64, map[cid.Cid][]indexstore.Record, bool, error) {
+	idx := &datasegmentv2.IndexDataV2{}
+	if err := idx.ParseIndexSection(reader, rawSize); err != nil {
+		return 0, nil, false, xerrors.Errorf("parsing V2 tail index section: %w", err)
+	}
+	if len(idx.Entries) == 0 {
+		return 0, nil, false, xerrors.New("V2 tail index section has no entries")
+	}
+
+	var interrupted bool
+	records := make([]indexstore.Record, 0, len(idx.Entries)+1)
+
+	// Index the aggregate piece CID itself so HEAD/GET /ipfs/<piece_cid> can resolve.
+	rootRec := indexstore.Record{Cid: pieceCid, Offset: 0, Size: uint64(rawSize)}
+	records = append(records, rootRec)
+	select {
+	case recs <- rootRec:
+	case <-addFail:
+		interrupted = true
+	}
+	if interrupted {
+		return 0, nil, true, nil
+	}
+
+	// For each entry, get the piece's content CID from the index and insert one record.
+	for i, entry := range idx.Entries {
+		if entry == nil {
+			continue
+		}
+		if entry.ACLType != 0 {
+			continue // skip ACL entries
+		}
+		contentCid, err := entry.DataCID()
+		if err != nil {
+			log.Warnw("IndexAggregateV2: skip entry without valid DataCID", "index", i, "err", err)
+			continue
+		}
+		rec := indexstore.Record{
+			Cid:    contentCid,
+			Offset: entry.UnpaddedOffset(),
+			Size:   entry.UnpaddedLength(),
+		}
+		records = append(records, rec)
+		select {
+		case recs <- rec:
+		case <-addFail:
+			interrupted = true
+		}
+		if interrupted {
+			break
+		}
+	}
+
+	aggidx := map[cid.Cid][]indexstore.Record{
+		pieceCid: records,
+	}
+	log.Infow("Indexed AggregateTypeV2 tail index", "piece_cid", pieceCid, "num_entries", len(records))
+	return int64(len(records)), aggidx, interrupted, nil
+}
+
 func IndexAggregate(pieceCid cid.Cid,
 	reader IndexReader,
 	size abi.PaddedPieceSize,
@@ -520,6 +597,19 @@ func IndexAggregate(pieceCid cid.Cid,
 	}
 
 	aggidx := make(map[cid.Cid][]indexstore.Record)
+
+	// Total unpadded size of the aggregate piece (sum of segment lengths) for root record
+	var totalUnpadded uint64
+	for _, entry := range valid {
+		totalUnpadded += entry.UnpaddedLength()
+	}
+	// Index the aggregate piece CID itself so HEAD/GET /ipfs/<piece_cid> can resolve (same as V2).
+	rootRec := indexstore.Record{Cid: pieceCid, Offset: 0, Size: totalUnpadded}
+	select {
+	case recs <- rootRec:
+	case <-addFail:
+		return 0, aggidx, true, nil
+	}
 
 	log.Infow("Indexing aggregate", "piece_size", size, "num_chunks", len(valid), "num_sub_pieces", len(subPieces))
 
@@ -635,7 +725,7 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 				return xerrors.Errorf("store indexing success: updated %d rows", n)
 			}
 		} else {
-			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+			n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL,
                                      complete = TRUE WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
 			if err != nil {
 				return xerrors.Errorf("store indexing success: updating pipeline: %w", err)

@@ -129,15 +129,42 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
 			}
 
-			// Seek to the section offset
+			// Try CAR block layout first (varint length + CID + payload).
 			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize+MaxCarBlockPrefixSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
-			if err != nil {
+			if err == nil {
+				if !bytes.Equal(readCid.Hash(), c.Hash()) {
+					return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
+				}
+				return data, nil
+			}
+
+			// CAR parse failed. Data may be a raw blob (e.g. datasegmentv2 aggregates
+			// store pieces as raw bytes at offset, without CAR framing).
+			// Fall back to reading exactly BlockSize bytes and verifying the hash.
+			log.Debugw("CAR block parse failed, trying raw block fallback", "cid", c, "piece", piece.PieceCid, "err", err)
+			if piece.BlockSize == 0 {
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
 			}
-			if !bytes.Equal(readCid.Hash(), c.Hash()) {
-				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
+
+			rawAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize))
+			data, readErr := io.ReadAll(rawAt)
+			if readErr != nil {
+				return nil, fmt.Errorf("reading raw block for %s from piece %s: %w", c, piece.PieceCid, readErr)
 			}
+			if uint64(len(data)) != piece.BlockSize {
+				return nil, fmt.Errorf("short read for block %s in piece %s: got %d, want %d", c, piece.PieceCid, len(data), piece.BlockSize)
+			}
+
+			// Verify the content hash matches the requested CID
+			mh, mhErr := multihash.Sum(data, c.Prefix().MhType, -1)
+			if mhErr != nil {
+				return nil, fmt.Errorf("hashing raw block for %s: %w", c, mhErr)
+			}
+			if !bytes.Equal(mh, c.Hash()) {
+				return nil, fmt.Errorf("raw block hash mismatch for %s in piece %s", c, piece.PieceCid)
+			}
+
 			return data, nil
 		}()
 		if err != nil {

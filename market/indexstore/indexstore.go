@@ -226,7 +226,6 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 	maxRetries := 20
 	backoff := 20 * time.Second
 	maxBackoff := 180 * time.Second
-
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		start := time.Now()
 		err = i.session.ExecuteBatch(batch)

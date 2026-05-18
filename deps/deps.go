@@ -20,6 +20,7 @@ import (
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/kr/pretty"
+	_ "github.com/multiformats/go-multihash/register/blake3" // BLAKE3
 	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
 	"github.com/yugabyte/pgx/v5"
