@@ -480,6 +480,12 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			}
 		}
 
+		// AggregateTypeV2 with a single piece: the download IS the final deal piece
+		// (no SP-side aggregation will occur), so store it long_term for retrieval.
+		// Multi-piece downloads stay short-term as they'll be replaced by the assembled aggregate.
+		longTerm := data.Format.Aggregate != nil &&
+			data.Format.Aggregate.Type == mk20.AggregateTypeV2 && len(toDownload) == 1
+
 		var downloadRefs []mk20.ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
@@ -498,7 +504,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 					RawSize:    int64(k.RawSize),
 					URL:        src.URL,
 					Headers:    headers,
-					LongTerm:   false,
+					LongTerm:   longTerm,
 				})
 			}
 		}
