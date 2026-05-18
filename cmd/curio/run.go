@@ -123,7 +123,7 @@ var runCmd = &cli.Command{
 			return err
 		}
 		if err := curiometrics.RecordNodeInfo(ctx, dependencies.Name, dependencies.ListenAddr); err != nil {
-			return xerrors.Errorf("recording node info: %w", err)
+			log.Errorf("recording node info, metrics will no longer have correct node label: %s", err)
 		}
 
 		go ffiSelfTest() // Panics on failure

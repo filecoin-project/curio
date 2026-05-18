@@ -324,7 +324,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 			log.Infow("created new work ask", "askID", askID)
 			recordProofshareNewlyAdded()
 		}
-		if neededAsks > 0 {
+		if asksCreated > 0 {
 			observeProofshareCreateAsksDuration(time.Since(startCreate))
 		}
 

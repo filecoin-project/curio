@@ -28,7 +28,6 @@ var TaskMeasures = struct {
 	TasksCompleted    *stats.Int64Measure
 	TasksFailed       *stats.Int64Measure
 	TaskDuration      *stats.Float64Measure
-	TaskRuntime       *stats.Float64Measure
 	TaskScheduledWait *stats.Float64Measure
 	ActiveTasks       *stats.Int64Measure
 	CpuUsage          *stats.Float64Measure
@@ -42,8 +41,7 @@ var TaskMeasures = struct {
 	TasksCompleted:    stats.Int64(pre+"tasks_completed", "Total number of tasks completed successfully.", stats.UnitDimensionless),
 	TasksFailed:       stats.Int64(pre+"tasks_failed", "Total number of tasks that failed.", stats.UnitDimensionless),
 	TaskDuration:      stats.Float64(pre+"task_duration_seconds", "The histogram of task durations in seconds.", stats.UnitSeconds),
-	TaskRuntime:       stats.Float64(pre+"task_runtime_seconds", "The histogram of task runtimes in seconds.", stats.UnitSeconds),
-	TaskScheduledWait: stats.Float64(pre+"task_scheduled_wait_seconds", "The histogram of task wait times between posting and work start in seconds.", stats.UnitSeconds),
+	TaskScheduledWait: stats.Float64(pre+"task_scheduled_wait_seconds", "The histogram of task wait times from posting or previous attempt completion to work start in seconds.", stats.UnitSeconds),
 	ActiveTasks:       stats.Int64(pre+"active_tasks", "Current number of active tasks.", stats.UnitDimensionless),
 	CpuUsage:          stats.Float64(pre+"cpu_usage", "Percentage of CPU in use.", stats.UnitDimensionless),
 	GpuUsage:          stats.Float64(pre+"gpu_usage", "Percentage of GPU in use.", stats.UnitDimensionless),
@@ -77,10 +75,6 @@ func init() {
 		},
 		&view.View{
 			Measure:     TaskMeasures.TaskDuration,
-			Aggregation: view.Distribution(durationBuckets...),
-		},
-		&view.View{
-			Measure:     TaskMeasures.TaskRuntime,
 			Aggregation: view.Distribution(durationBuckets...),
 			TagKeys:     []tag.Key{taskNameTag},
 		},

@@ -23,9 +23,8 @@ This document lists Prometheus metrics exported by Curio using the exact metric 
 | `curio_harmonytask_gpu_usage` | gauge | — | Percentage of GPU in use. |
 | `curio_harmonytask_poller_iterations` | counter | — | Total number of poller iterations. |
 | `curio_harmonytask_ram_usage` | gauge | — | Percentage of RAM in use. |
-| `curio_harmonytask_task_duration_seconds` | histogram | — | The histogram of task durations in seconds. |
-| `curio_harmonytask_task_runtime_seconds` | histogram | `task_name` | The histogram of task runtimes in seconds. |
-| `curio_harmonytask_task_scheduled_wait_seconds` | histogram | `task_name` | The histogram of task wait times between posting and work start in seconds. |
+| `curio_harmonytask_task_duration_seconds` | histogram | `task_name` | The histogram of task durations in seconds. |
+| `curio_harmonytask_task_scheduled_wait_seconds` | histogram | `task_name` | The histogram of task wait times from posting or previous attempt completion to work start in seconds. |
 | `curio_harmonytask_tasks_completed` | counter | `task_name` | Total number of tasks completed successfully. |
 | `curio_harmonytask_tasks_failed` | counter | `task_name` | Total number of tasks that failed. |
 | `curio_harmonytask_tasks_started` | counter | `task_name`, `source` | Total number of tasks started. |
@@ -109,7 +108,7 @@ This document lists Prometheus metrics exported by Curio using the exact metric 
 | `curio_stor_find_sector_cache_misses` | counter | — | Number of findSectorCache misses |
 | `curio_stor_find_sector_uncached` | counter | — | Number of findSector uncached calls |
 | `curio_stor_generate_single_vanilla_proof_calls` | counter | `update`, `cache_id`, `sealed_id` | Number of calls to GenerateSingleVanillaProof |
-| `curio_stor_generate_single_vanilla_proof_duration_seconds` | histogram | `update`, `cache_id`, `sealed_id` | Duration of GenerateSingleVanillaProof in seconds |
+| `curio_stor_generate_single_vanilla_proof_duration_milliseconds` | histogram | `update`, `cache_id`, `sealed_id` | Duration of GenerateSingleVanillaProof in milliseconds |
 | `curio_stor_generate_single_vanilla_proof_errors` | counter | `update`, `cache_id`, `sealed_id` | Number of errors in GenerateSingleVanillaProof |
 | `curio_stor_used_bytes` | gauge | `id`, `can_seal`, `can_store` | Used storage capacity in bytes |
 
