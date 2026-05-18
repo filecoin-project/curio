@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -136,7 +138,10 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	return p, nil
 }
 
-func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
+// insertProvider inserts new providers and updates the providerInfos map
+// It does not change the details of the existing provider as all detailed are tied to a private key.
+// To remove an existing provider, a restart of all market nodes is required.
+func (p *Provider) insertProvider(priv []byte, peerID string, sp int64) error {
 	pkey, err := crypto.UnmarshalPrivateKey(priv)
 	if err != nil {
 		return xerrors.Errorf("unmarshaling private key: %w", err)
@@ -184,18 +189,14 @@ func (p *Provider) upsertProvider(priv []byte, peerID string, sp int64) error {
 		info.providerType = PoRepProviderType
 	}
 
+	// Let's double-check before we update
 	p.mu.Lock()
-	existing, existed := p.providerInfos[peerID]
-	p.providerInfos[peerID] = info
-	if existed {
-		info.lastPublishTime = existing.lastPublishTime
+	_, existed := p.providerInfos[peerID]
+	if !existed {
+		log.Infow("New IPNI provider discovered", "peerID", id.String(), "spID", spID.String(), "miner", maddr.String(), "url", u.String())
+		p.providerInfos[peerID] = info
 	}
 	p.mu.Unlock()
-
-	if !existed {
-		log.Infow("ipni peer ID", "peerID", id.String())
-		log.Infow("Announce address", "address", addr.String(), "pid", peerID, "url", u.String())
-	}
 
 	return nil
 }
@@ -207,6 +208,10 @@ func (p *Provider) refreshProviders(ctx context.Context) error {
 	}
 	defer rows.Close()
 
+	p.mu.RLock()
+	peers := slices.Sorted(maps.Keys(p.providerInfos))
+	p.mu.RUnlock()
+
 	for rows.Next() && rows.Err() == nil {
 		var priv []byte
 		var peerID string
@@ -215,7 +220,10 @@ func (p *Provider) refreshProviders(ctx context.Context) error {
 			return xerrors.Errorf("failed to scan refreshed ipni peer row: %w", err)
 		}
 
-		if err := p.upsertProvider(priv, peerID, sp); err != nil {
+		if lo.Contains(peers, strings.TrimSpace(peerID)) {
+			continue
+		}
+		if err := p.insertProvider(priv, peerID, sp); err != nil {
 			return err
 		}
 	}
