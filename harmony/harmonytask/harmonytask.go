@@ -688,11 +688,11 @@ func (e *TaskEngine) singletonRunNowPoller() {
 // pending or running (unique-constraint violation), it is silently skipped.
 func (e *TaskEngine) RestartTaskByID(id TaskID, name string, postedTime time.Time) error {
 	_, err := e.cfg.db.BeginTransaction(e.cfg.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		_, err := tx.Exec(`
+		c, err := tx.Exec(`
 			INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
 			VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
 		`, id, postedTime, e.cfg.ownerID, name)
-		if err != nil {
+		if err != nil || c != 1 {
 			return false, fmt.Errorf("RestartTaskByID: insert failed: %w", err)
 		}
 		return true, nil
