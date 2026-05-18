@@ -247,9 +247,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	var p2Active sealsupra.P2Active
 	var sealPoller *seal.SealPoller
 	var snapSubmit *snap.SubmitTask
+	var sealMoveStorage *seal.MoveStorageTask
 	var snapMoveStorage *snap.MoveStorageTask
 	if hasAnySealingTask {
-		sealingTasks, p2a, sp, spp, ss, sms, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover, cuzkClient)
+		sealingTasks, p2a, sp, spp, ss, sds, sms, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover, cuzkClient)
 		if err != nil {
 			return nil, err
 		}
@@ -258,6 +259,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		sealPoller = sp
 		storePiecePoll = spp
 		snapSubmit = ss
+		sealMoveStorage = sds
 		snapMoveStorage = sms
 	}
 
@@ -506,6 +508,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			}
 		})
 	}
+	if sealMoveStorage != nil {
+		ht.OnTaskComplete(tasknames.Finalize, func(_ context.Context, _ harmonytask.TaskID, success bool) {
+			if success {
+				sealMoveStorage.Wake()
+			}
+		})
+	}
 	if snapMoveStorage != nil {
 		ht.OnTaskComplete(tasknames.UpdateEncode, func(_ context.Context, _ harmonytask.TaskID, success bool) {
 			if success {
@@ -582,10 +591,11 @@ func addSealingTasks(
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
 	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover,
-	cuzkClient *cuzk.Client) ([]harmonytask.TaskInterface, sealsupra.P2Active, *seal.SealPoller, *piece2.ParkPieceTask, *snap.SubmitTask, *snap.MoveStorageTask, error) {
+	cuzkClient *cuzk.Client) ([]harmonytask.TaskInterface, sealsupra.P2Active, *seal.SealPoller, *piece2.ParkPieceTask, *snap.SubmitTask, *seal.MoveStorageTask, *snap.MoveStorageTask, error) {
 	var activeTasks []harmonytask.TaskInterface
 	var storePiecePoll *piece2.ParkPieceTask
 	var snapSubmit *snap.SubmitTask
+	var sealMoveStorage *seal.MoveStorageTask
 	var snapMoveStorage *snap.MoveStorageTask
 	// Sealing / Snap
 
@@ -617,7 +627,7 @@ func addSealingTasks(
 			cfg.Seal.LayerNVMEDevices,
 			machineHostPort, db, full, stor, si, slr)
 		if err != nil {
-			return nil, nil, sp, nil, nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
+			return nil, nil, sp, nil, nil, nil, nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
 		slotMgr = sm
 		p2Active = p2a
@@ -655,12 +665,13 @@ func addSealingTasks(
 	}
 	if cfg.Subsystems.EnableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
+		sealMoveStorage = moveStorageTask
 		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		snapMoveStorage = moveStorageSnapTask
 
 		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
-			return nil, nil, sp, nil, nil, nil, err
+			return nil, nil, sp, nil, nil, nil, nil, err
 		}
 		storePiecePoll = storePieceTask
 
@@ -735,7 +746,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
-	return activeTasks, p2Active, sp, storePiecePoll, snapSubmit, snapMoveStorage, nil
+	return activeTasks, p2Active, sp, storePiecePoll, snapSubmit, sealMoveStorage, snapMoveStorage, nil
 }
 
 func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {
