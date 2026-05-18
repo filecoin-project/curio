@@ -289,10 +289,11 @@ func (h *taskTypeHandler) considerWork(from string, tasks []task, eventEmitter e
 					releaseStorage()
 				}
 				h.recordCompletion(tID, sectorID, workStart, done, doErr, preempted)
-				if done {
+				success := done && doErr == nil
+				if success {
 					h.TaskEngine.invokeTaskCompleteCallbacks(h.Name, meta, tID)
 				}
-				eventEmitter.EmitTaskCompleted(h.Name, done)
+				eventEmitter.EmitTaskCompleted(h.Name, success)
 				if !done {
 					for _, t := range tasks {
 						if t.ID == tID {
