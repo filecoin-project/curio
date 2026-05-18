@@ -66,8 +66,7 @@ func NewMessageWatcher(db *harmonydb.DB, ht *harmonytask.TaskEngine, pcs *chains
 // deal market poller) that gate progress on after_*_msg_success or on the
 // publish message reaching finality.
 //
-// Callbacks are invoked synchronously in the watcher's goroutine; they MUST be
-// fast and non-blocking (a debounced wake signal is the intended use).
+// Callbacks are invoked asynchronously. Debouncing may be necessary.
 //
 // Must be called before the first message lands; not safe to call concurrently
 // with itself or with watcher updates.
