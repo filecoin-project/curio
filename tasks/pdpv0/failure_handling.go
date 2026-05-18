@@ -137,7 +137,7 @@ func HandleProvingSendError(tx *harmonydb.Tx, dataSetId int64, currentHeight int
 		}
 		log.Warnw("Dataset unrecoverable, stopping proving attempts",
 			"dataSetId", dataSetId, "error", sendErr)
-		if termErr := FWSS.EnsureServiceTerminationTx(tx, dataSetId); termErr != nil {
+		if termErr := FWSS.EnsureServiceTermination(tx, dataSetId); termErr != nil {
 			log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
 			return xerrors.Errorf("failed to ensure service termination: %w", termErr)
 		}
@@ -154,7 +154,7 @@ func HandleProvingSendError(tx *harmonydb.Tx, dataSetId int64, currentHeight int
 		if unrecoverable {
 			log.Warnw("Dataset unrecoverable after repeated contract reverts",
 				"dataSetId", dataSetId, "error", sendErr)
-			if termErr := FWSS.EnsureServiceTerminationTx(tx, dataSetId); termErr != nil {
+			if termErr := FWSS.EnsureServiceTermination(tx, dataSetId); termErr != nil {
 				log.Errorw("Failed to ensure service termination", "error", termErr, "dataSetId", dataSetId)
 				return xerrors.Errorf("failed to ensure service termination: %w", termErr)
 			}

@@ -134,9 +134,8 @@ func (t *TaskChainSync) syncStaleDeletionTaskIDs(ctx context.Context) error {
 	return nil
 }
 
-// syncProvenDataSetFailureState reconciles local proving backoff after a proof has been accepted on-chain.
-// The reset is intentionally conservative: the data set must still be live, PDPVerifier must report a useful last proven epoch,
-// and FWSS must mark the corresponding proving period as proven.
+// syncProvenDataSetFailureState reconciles local proving backoff after PDPVerifier
+// reports that the data set has advanced past the local failure state.
 func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error {
 	var dataSets []struct {
 		ID                    int64         `db:"id"`
@@ -162,25 +161,6 @@ func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
-	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, t.ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to get FWSS view address: %w", err)
-	}
-
-	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, t.ethClient)
-	if err != nil {
-		return xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
-	}
-
-	maxProvingPeriod, err := fwssv.GetMaxProvingPeriod(contract.EthCallOpts(ctx))
-	if err != nil {
-		return xerrors.Errorf("failed to get FWSS max proving period: %w", err)
-	}
-	if maxProvingPeriod == 0 {
-		return xerrors.Errorf("FWSS max proving period is zero")
-	}
-
 	for _, dataSet := range dataSets {
 		dataSetID := big.NewInt(dataSet.ID)
 
@@ -204,24 +184,6 @@ func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error
 			continue
 		}
 
-		activationEpoch, err := fwssv.ProvingActivationEpoch(contract.EthCallOpts(ctx), dataSetID)
-		if err != nil {
-			return xerrors.Errorf("failed to get proving activation epoch for data set %d: %w", dataSet.ID, err)
-		}
-
-		provingPeriod, ok := provingPeriodForEpoch(activationEpoch, lastProvenEpoch, maxProvingPeriod)
-		if !ok {
-			continue
-		}
-
-		proven, err := fwssv.ProvenPeriods(contract.EthCallOpts(ctx), dataSetID, provingPeriod)
-		if err != nil {
-			return xerrors.Errorf("failed to check proven period %s for data set %d: %w", provingPeriod, dataSet.ID, err)
-		}
-		if !proven {
-			continue
-		}
-
 		updated, err := t.db.Exec(ctx, `UPDATE pdp_data_sets
 			SET consecutive_prove_failures = 0,
 				next_prove_attempt_at = NULL
@@ -235,24 +197,20 @@ func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error
 			return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", dataSet.ID, updated)
 		}
 		if updated == 1 {
-			log.Infow("reset PDP data set proving failure state after confirmed on-chain proof",
+			log.Infow("reset PDP data set proving failure state after confirmed PDPVerifier progress",
 				"dataSetId", dataSet.ID,
-				"lastProvenEpoch", lastProvenEpoch,
-				"provingPeriod", provingPeriod)
+				"lastProvenEpoch", lastProvenEpoch)
 		}
 	}
 
 	return nil
 }
 
-// dataSetProofCoversLocalFailure checks whether the on-chain proof happened late enough to explain the local failure
-// state we are about to clear. Prefer prove_at_epoch when it is still present; fall back to the reconstructed
+// dataSetProofCoversLocalFailure checks whether the PDPVerifier state advanced
+// late enough to explain the local failure state we are about to clear. Prefer
+// prove_at_epoch when it is still present; fall back to the reconstructed
 // failure epoch when the normal proof state has already moved on.
 func dataSetProofCoversLocalFailure(proveAtEpoch sql.NullInt64, consecutiveFailures int, nextProveAttemptEpoch sql.NullInt64, lastProvenEpoch *big.Int) bool {
-	if lastProvenEpoch == nil || lastProvenEpoch.Sign() <= 0 {
-		return false
-	}
-
 	if proveAtEpoch.Valid && lastProvenEpoch.Cmp(big.NewInt(proveAtEpoch.Int64)) >= 0 {
 		return true
 	}
@@ -265,25 +223,9 @@ func dataSetProofCoversLocalFailure(proveAtEpoch sql.NullInt64, consecutiveFailu
 	return lastProvenEpoch.Cmp(big.NewInt(lastFailureEpoch)) > 0
 }
 
-// provingPeriodForEpoch mirrors FWSS _provingPeriodForEpoch. The state-view binding exposes provenPeriods but not this helper,
-// so chain sync computes the period locally before checking the durable proven-period bitmap.
-func provingPeriodForEpoch(activationEpoch *big.Int, epoch *big.Int, maxProvingPeriod uint64) (*big.Int, bool) {
-	if activationEpoch == nil || epoch == nil || maxProvingPeriod == 0 {
-		return nil, false
-	}
-	if activationEpoch.Sign() == 0 || epoch.Cmp(activationEpoch) <= 0 {
-		return nil, false
-	}
-
-	period := new(big.Int).Sub(epoch, activationEpoch)
-	period.Sub(period, big.NewInt(1))
-	period.Div(period, new(big.Int).SetUint64(maxProvingPeriod))
-	return period, true
-}
-
 // syncFinalizedDataSetDeletionRails moves terminated PDP data sets to the local deletion-allowed state once the payment rail is final.
-// A rail lookup revert or EndEpoch == SettledUpTo means settlement is complete; this pass only toggles
-// deletion_allowed and leaves the actual delete to the existing delete task.
+// A RailInactiveOrSettled revert or EndEpoch == SettledUpTo means settlement is complete; this pass
+// only toggles deletion_allowed and leaves the actual delete to the existing delete task.
 func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) error {
 	current, err := t.ethClient.BlockNumber(ctx)
 	if err != nil {
@@ -330,7 +272,6 @@ func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) e
 	}
 
 	for _, dataSet := range pending {
-
 		ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(dataSet.ID))
 		if err != nil {
 			return xerrors.Errorf("failed to get data set %d from FWSS view: %w", dataSet.ID, err)
@@ -338,7 +279,7 @@ func (t *TaskChainSync) syncFinalizedDataSetDeletionRails(ctx context.Context) e
 
 		rail, err := payments.GetRail(contract.EthCallOpts(ctx), ds.PdpRailId)
 		if err != nil {
-			if IsContractRevert(err) {
+			if payment.IsRailInactiveOrSettledError(err) {
 				if err := t.ensureDataSetDeletion(ctx, dataSet.ID); err != nil {
 					return err
 				}
