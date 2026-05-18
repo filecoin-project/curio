@@ -252,7 +252,7 @@ type ProviderDealState struct {
 	// DealDataRoot is the root of the IPLD DAG that the client wants to store.
 	DealDataRoot cid.Cid
 
-	// InboundCARPath is the file-path where the storage provider will persist the CAR file sent by the client.
+	// InboundFilePath is the file-path where the storage provider will persist the CAR file sent by the client.
 	InboundFilePath string
 
 	// Transfer has the parameters for the data transfer
