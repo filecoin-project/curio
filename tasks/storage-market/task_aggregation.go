@@ -116,8 +116,11 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("getting piece info: %w", err)
 	}
 
+	aggregationType := pieces[0].Aggregation
+
 	var pinfos []abi.PieceInfo
 	var readers []io.Reader
+	var rawSizes []int64
 
 	var refIDs []int64
 
@@ -125,8 +128,11 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		if piece.Aggregated {
 			return false, xerrors.Errorf("piece %s for deal %s already aggregated for task %d", piece.Pcid, piece.ID, taskID)
 		}
-		if piece.Aggregation != 1 {
-			return false, xerrors.Errorf("incorrect aggregation value for piece %s for deal %s for task %d", piece.Pcid, piece.ID, taskID)
+		if piece.Aggregation != int(mk20.AggregateTypeV1) && piece.Aggregation != int(mk20.AggregateTypeV2) {
+			return false, xerrors.Errorf("unsupported aggregation type %d for piece %s deal %s task %d", piece.Aggregation, piece.Pcid, piece.ID, taskID)
+		}
+		if piece.Aggregation != aggregationType {
+			return false, xerrors.Errorf("mixed aggregation types in deal %s", piece.ID)
 		}
 		if piece.ID != id || piece.SpID != spid {
 			return false, xerrors.Errorf("piece details do not match")
@@ -182,26 +188,41 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		})
 
 		readers = append(readers, io.LimitReader(reader, piece.RawSize))
+		rawSizes = append(rawSizes, piece.RawSize)
 		refIDs = append(refIDs, refNum)
 	}
 
-	_, aggregatedRawSize, err := datasegment.ComputeDealPlacement(pinfos)
-	if err != nil {
-		return false, xerrors.Errorf("computing aggregated piece size: %w", err)
-	}
+	var outR io.Reader
 
-	overallSize := abi.PaddedPieceSize(aggregatedRawSize)
-	// we need to make this the 'next' power of 2 in order to have space for the index
-	next := 1 << (64 - bits.LeadingZeros64(uint64(overallSize+256)))
+	switch mk20.AggregateType(aggregationType) {
+	case mk20.AggregateTypeV1:
+		_, aggregatedRawSize, err := datasegment.ComputeDealPlacement(pinfos)
+		if err != nil {
+			return false, xerrors.Errorf("computing aggregated piece size: %w", err)
+		}
 
-	aggr, err := datasegment.NewAggregate(abi.PaddedPieceSize(next), pinfos)
-	if err != nil {
-		return false, xerrors.Errorf("creating aggregate: %w", err)
-	}
+		overallSize := abi.PaddedPieceSize(aggregatedRawSize)
+		// we need to make this the 'next' power of 2 in order to have space for the index
+		next := 1 << (64 - bits.LeadingZeros64(uint64(overallSize+256)))
 
-	outR, err := aggr.AggregateObjectReader(readers)
-	if err != nil {
-		return false, xerrors.Errorf("aggregating piece readers: %w", err)
+		aggr, err := datasegment.NewAggregate(abi.PaddedPieceSize(next), pinfos)
+		if err != nil {
+			return false, xerrors.Errorf("creating V1 aggregate: %w", err)
+		}
+
+		outR, err = aggr.AggregateObjectReader(readers)
+		if err != nil {
+			return false, xerrors.Errorf("aggregating V1 piece readers: %w", err)
+		}
+
+	case mk20.AggregateTypeV2:
+		outR, _, err = mk20.AssembleAggregateV2(readers, rawSizes)
+		if err != nil {
+			return false, xerrors.Errorf("assembling V2 aggregate: %w", err)
+		}
+
+	default:
+		return false, xerrors.Errorf("unsupported aggregation type: %d", aggregationType)
 	}
 
 	var parkedPieceID, pieceRefID int64

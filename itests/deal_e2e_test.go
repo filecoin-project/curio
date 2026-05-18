@@ -582,6 +582,23 @@ func assertMK20VariantFinalState(t *testing.T, ctx context.Context, db *harmonyd
 	require.True(t, p.Complete, "%s should have complete=true", v.name)
 	require.True(t, p.Sector.Valid, "%s should have sector assigned", v.name)
 	require.True(t, p.SectorOffset.Valid, "%s should have sector_offset assigned", v.name)
+
+	// Verify that long_term piecepark refs survived sealing. MK20 deals rely on
+	// piecepark for retrieval — if refs were incorrectly deleted during finalize,
+	// the piece data would become unretrievable.
+	var ltRefCount int
+	require.NoError(t, db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM parked_piece_refs pr
+		JOIN parked_pieces pp ON pp.id = pr.piece_id
+		WHERE pp.piece_cid = $1
+		  AND pp.long_term = TRUE
+		  AND pp.complete = TRUE
+		  AND pr.long_term = TRUE`,
+		v.fixture.PieceCIDV1.String(),
+	).Scan(&ltRefCount))
+	require.Greater(t, ltRefCount, 0,
+		"%s must retain long_term piecepark refs after sealing for retrieval", v.name)
 }
 
 // assertInitialPieceModel validates whether F05 proposal or DDO manifest was persisted for the piece.

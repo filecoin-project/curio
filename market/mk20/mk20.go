@@ -851,6 +851,12 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 		}
 
+		// AggregateTypeV2 with a single piece: the download IS the final deal piece
+		// (no SP-side aggregation will occur), so store it long_term for retrieval.
+		// Multi-piece downloads stay short-term as they'll be replaced by the assembled aggregate.
+		longTerm := data.Format.Aggregate != nil &&
+			data.Format.Aggregate.Type == AggregateTypeV2 && len(toDownload) == 1
+
 		var downloadRefs []ParkedPieceDownloadRef
 		for k, v := range toDownload {
 			for _, src := range v {
@@ -869,7 +875,7 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 					RawSize:    int64(k.RawSize),
 					URL:        src.URL,
 					Headers:    headers,
-					LongTerm:   false,
+					LongTerm:   longTerm,
 				})
 			}
 		}

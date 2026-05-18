@@ -255,23 +255,10 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	var reader storiface.Reader
 
 	if task.Mk20 {
-		if aggregateType == mk20.AggregateTypeV2 {
-			// V2 aggregates: read directly from sealed sector, no piecepark indirection needed.
-			reader, err = i.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
-				ID: abi.SectorID{
-					Miner:  abi.ActorID(task.SpID),
-					Number: task.Sector,
-				},
-				ProofType: task.Proof,
-			}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
-			if err != nil {
-				return false, xerrors.Errorf("reading V2 aggregate piece from sector: %w", err)
-			}
-		} else {
-			reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2, false)
-			if err != nil {
-				return false, xerrors.Errorf("getting piece reader: %w", err)
-			}
+		// mk20 always reads from piecepark (long_term storage), never from unsealed sectors.
+		reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2, false)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader: %w", err)
 		}
 	} else {
 		reader, err = i.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
