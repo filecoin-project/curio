@@ -10,7 +10,7 @@ var (
 	// Tags for seal metrics
 	MinerTag, _ = tag.NewKey("miner")
 
-	pre = "curio_seal_"
+	pre = "seal_"
 )
 
 // SealMeasures groups all seal pipeline metrics.

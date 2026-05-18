@@ -60,14 +60,12 @@ func init() {
 
 		// Register per-slot metrics
 		&view.View{
-			Name:        pre + "slot_in_use",
 			Measure:     SlotMgrSlotMeasures.SlotInUse,
 			Description: "Slot is in use (1) or not (0)",
 			TagKeys:     []tag.Key{KeySlotOffset},
 			Aggregation: view.LastValue(),
 		},
 		&view.View{
-			Name:        pre + "slot_sector_count",
 			Measure:     SlotMgrSlotMeasures.SlotSectorCount,
 			Description: "Number of sectors in a slot",
 			TagKeys:     []tag.Key{KeySlotOffset},

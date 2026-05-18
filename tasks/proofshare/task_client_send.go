@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -24,35 +23,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
-
-var (
-	psBuckets  = []float64{0.05, 0.2, 0.5, 1, 5, 15, 45} // seconds
-	psDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "curio_psvc_proofshare_duration_seconds",
-		Help:    "Duration of proofshare client_common operations",
-		Buckets: psBuckets,
-	}, []string{"call"})
-
-	retryBuckets  = []float64{0, 1, 3, 8, 20, 50, 200}
-	psRetryCounts = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "curio_psvc_proofshare_retry_count",
-		Help:    "Retry count per call in proofshare client_common operations",
-		Buckets: retryBuckets,
-	}, []string{"call"})
-)
-
-func init() {
-	_ = prometheus.Register(psDuration)
-	_ = prometheus.Register(psRetryCounts)
-}
-
-func recordPSDuration(call string, start time.Time) {
-	psDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
-}
-
-func recordPSRetries(call string, retries int) {
-	psRetryCounts.WithLabelValues(call).Observe(float64(retries))
-}
 
 type TaskClientSend struct {
 	db     *harmonydb.DB
