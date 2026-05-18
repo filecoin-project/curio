@@ -92,10 +92,10 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	var candidates []struct {
-		TxHash           string `db:"signed_tx_hash"`
-		SendReason       string `db:"send_reason"`
-		ConfirmEpoch     int64  `db:"confirmed_block_number"`
-		StoredBlockHash  string `db:"stored_block_hash"`
+		TxHash          string `db:"signed_tx_hash"`
+		SendReason      string `db:"send_reason"`
+		ConfirmEpoch    int64  `db:"confirmed_block_number"`
+		StoredBlockHash string `db:"stored_block_hash"`
 	}
 	err = t.db.Select(ctx, &candidates, `
 		SELECT mwe.signed_tx_hash, mse.send_reason, mwe.confirmed_block_number,
