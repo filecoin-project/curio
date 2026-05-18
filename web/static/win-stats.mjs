@@ -1,18 +1,19 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { pollRPC } from '/lib/poll.mjs';
 import '/ux/epoch.mjs';
 
 class WinStats extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
     constructor() {
         super();
         this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('WinStats') || [];
-        setTimeout(() => this.loadData(), 2 * 60 * 1000); // 2 minutes
-        this.requestUpdate();
+        pollRPC(async () => {
+            this.data = await RPCCall('WinStats') || [];
+        }, 2 * 60 * 1000);
     }
 
     async copyToClipboard(block) {
