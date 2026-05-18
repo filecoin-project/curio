@@ -1037,14 +1037,25 @@ func pendingMessagesCheck(al *alerts) {
 
 	var msgs []string
 
+	from := time.Now().UTC().Add(-time.Hour)
+	utcWallClock := func(t time.Time) time.Time {
+		// Read the displayed wall-clock fields from the scanned value.
+		y, m, d := t.Date()
+		h, minutes, s := t.Clock()
+
+		// Rebuild those same fields as a UTC instant.
+		return time.Date(y, m, d, h, minutes, s, t.Nanosecond(), time.UTC)
+	}
+
 	for _, msg := range messages {
-		if time.Since(msg.AddedAt) > time.Hour {
+		addedAt := utcWallClock(msg.AddedAt)
+		if addedAt.Before(from) {
 			msgs = append(msgs, msg.MessageCid)
 		}
 	}
 
 	if len(msgs) > 0 {
-		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending for more than 1 hour: %s", strings.Join(msgs, ", "))
+		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending execution status update in DB for more than 1 hour: %s", strings.Join(msgs, ", "))
 	}
 }
 
