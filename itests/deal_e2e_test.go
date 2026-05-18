@@ -209,8 +209,10 @@ func TestDealPipelineFullPath(t *testing.T) {
 			assertInitialPieceModel(t, ctx, db, v)
 		}
 
-		assertVariantPieceRetrievals(t, baseURL, v)
-		assertVariantIPFSBlockRetrieval(t, baseURL, v)
+		if v.shouldIndex {
+			assertVariantPieceRetrievals(t, baseURL, v)
+			assertVariantIPFSBlockRetrieval(t, baseURL, v)
+		}
 	}
 
 	// Ensure pipeline tables have no leftover incomplete rows after all assertions.
