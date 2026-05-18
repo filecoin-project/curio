@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/alertmanager"
 )
 
 // AlertMute represents a muted alert pattern
@@ -50,11 +52,20 @@ func (a *WebRPC) AlertMuteAdd(ctx context.Context, alertName string, pattern *st
 	return nil
 }
 
-// AlertMuteRemove deactivates an alert mute
-func (a *WebRPC) AlertMuteRemove(ctx context.Context, id int64) error {
+// AlertMuteDeactivate deactivates an alert mute
+func (a *WebRPC) AlertMuteDeactivate(ctx context.Context, id int64) error {
 	_, err := a.deps.DB.Exec(ctx, `UPDATE alert_mutes SET active = FALSE WHERE id = $1`, id)
 	if err != nil {
-		return xerrors.Errorf("removing alert mute: %w", err)
+		return xerrors.Errorf("deactivating alert mute: %w", err)
+	}
+	return nil
+}
+
+// AlertMuteDelete deletes an alert mute
+func (a *WebRPC) AlertMuteDelete(ctx context.Context, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM alert_mutes WHERE active = FALSE AND id = $1`, id)
+	if err != nil {
+		return xerrors.Errorf("deleting alert mute: %w", err)
 	}
 	return nil
 }
@@ -68,22 +79,9 @@ func (a *WebRPC) AlertMuteReactivate(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Alert categories for the UI
-var AlertCategories = []string{
-	"Balance Check",
-	"TaskFailures",
-	"PermanentStorageSpace",
-	"WindowPost",
-	"WinningPost",
-	"NowCheck",
-	"ChainSync",
-	"MissingSectors",
-	"PendingMessages",
-}
-
 // AlertCategoriesList returns the list of alert categories that can be muted
 func (a *WebRPC) AlertCategoriesList(ctx context.Context) ([]string, error) {
-	return AlertCategories, nil
+	return alertmanager.AlertNames, nil
 }
 
 // AlertPendingCount returns the count of pending (unprocessed) alerts from the alerts table

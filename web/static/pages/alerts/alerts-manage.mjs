@@ -128,14 +128,14 @@ class AlertsManage extends StyledLitElement {
         }
     }
 
-    async removeMute(id) {
+    async deactivateMute(id) {
         if (!confirm('Are you sure you want to deactivate this mute?')) return;
         
         try {
-            await RPCCall('AlertMuteRemove', [id]);
+            await RPCCall('AlertMuteDeactivate', [id]);
             await this.loadData();
         } catch (e) {
-            alert('Failed to remove mute: ' + e.message);
+            alert('Failed to deactivate mute: ' + e.message);
         }
     }
 
@@ -145,6 +145,16 @@ class AlertsManage extends StyledLitElement {
             await this.loadData();
         } catch (e) {
             alert('Failed to reactivate mute: ' + e.message);
+        }
+    }
+
+    async deleteMute(id) {
+        if (!confirm('Are you sure you want to delete this mute rule?')) return;
+        try {
+            await RPCCall('AlertMuteDelete', [id]);
+            await this.loadData();
+        } catch (e) {
+            alert('Failed to remove mute rule: ' + e.message);
         }
     }
 
@@ -509,9 +519,10 @@ class AlertsManage extends StyledLitElement {
                     </div>
                     <div>
                         ${mute.Active ? html`
-                            <button class="btn btn-small" @click="${() => this.removeMute(mute.ID)}">Deactivate</button>
+                            <button class="btn btn-small" @click="${() => this.deactivateMute(mute.ID)}">Deactivate</button>
                         ` : html`
                             <button class="btn btn-small" @click="${() => this.reactivateMute(mute.ID)}">Reactivate</button>
+                            <button class="btn btn-small btn-danger" @click="${() => this.deleteMute(mute.ID)}">Delete</button>
                         `}
                     </div>
                 </div>

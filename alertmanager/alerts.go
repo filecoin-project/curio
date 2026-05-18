@@ -3,6 +3,7 @@ package alertmanager
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -452,6 +453,8 @@ func (al *alerts) getAddresses() error {
 	return nil
 }
 
+const windowPostFinalityBuffer abi.ChainEpoch = 5
+
 func wdPostCheck(al *alerts) {
 	Name := Name_WindowPost
 	al.alertMap[Name] = &alertOut{}
@@ -464,141 +467,293 @@ func wdPostCheck(al *alerts) {
 	// Calculate from epoch for last AlertMangerInterval
 	from := max(head.Height()-abi.ChainEpoch(math.Ceil(FullAlertInterval.Seconds()/float64(build.BlockDelaySecs)))-1, 0)
 
-	miners := al.minerAddrs
-
-	// Start from the newest finalized tipset.
-	h, err := al.api.ChainGetTipSet(al.ctx, head.Parents())
-	if err != nil {
-		al.alertMap[Name].err = err
-		return
+	// Cache current deadline metadata per miner. We use it to derive closed
+	// deadlines in the alert window without walking every tipset.
+	type minerCheck struct {
+		addr            address.Address
+		id              uint64
+		deadlineIndex   uint64
+		deadlineCount   uint64
+		periodStart     abi.ChainEpoch
+		deadlineOpen    abi.ChainEpoch
+		challengeWindow abi.ChainEpoch
+		provingPeriod   abi.ChainEpoch
 	}
-
-	// Map[Miner Address]Map[DeadlineIdx]deadlinePartitionInfo
-	type deadlinePartitionInfo struct {
-		partitions     []bool // true if proof submitted
-		closeEpoch     abi.ChainEpoch
-		periodStart    abi.ChainEpoch
-		deadlineClosed bool
-	}
-	msgCheck := make(map[address.Address]map[uint64]*deadlinePartitionInfo)
-
-	// Walk back all tipset from current height to from height and find all deadlines and their partitions
-	for h.Height() >= from {
-		for _, maddr := range miners {
-			deadlineInfo, err := al.api.StateMinerProvingDeadline(al.ctx, maddr, h.Key())
+	minerChecks := make([]minerCheck, 0, len(al.minerAddrs))
+	for _, maddr := range al.minerAddrs {
+		id, err := address.IDFromAddress(maddr)
+		if err != nil {
+			idAddr, err := al.api.StateLookupID(al.ctx, maddr, head.Key())
 			if err != nil {
-				al.alertMap[Name].err = xerrors.Errorf("getting miner deadline: %w", err)
+				al.alertMap[Name].err = xerrors.Errorf("looking up miner ID address: %w", err)
 				return
 			}
-			partitions, err := al.api.StateMinerPartitions(al.ctx, maddr, deadlineInfo.Index, h.Key())
+			id, err = address.IDFromAddress(idAddr)
 			if err != nil {
-				al.alertMap[Name].err = xerrors.Errorf("getting miner partitions: %w", err)
+				al.alertMap[Name].err = xerrors.Errorf("getting miner ID: %w", err)
 				return
 			}
-			if _, ok := msgCheck[maddr]; !ok {
-				msgCheck[maddr] = make(map[uint64]*deadlinePartitionInfo)
-			}
-			if _, ok := msgCheck[maddr][deadlineInfo.Index]; !ok {
-				ps := make([]bool, len(partitions))
-				msgCheck[maddr][deadlineInfo.Index] = &deadlinePartitionInfo{
-					partitions:     ps,
-					closeEpoch:     deadlineInfo.Close,
-					periodStart:    deadlineInfo.PeriodStart,
-					deadlineClosed: head.Height() > deadlineInfo.Close,
-				}
-			}
 		}
-		h, err = al.api.ChainGetTipSet(al.ctx, h.Parents())
+
+		deadlineInfo, err := al.api.StateMinerProvingDeadline(al.ctx, maddr, head.Key())
 		if err != nil {
-			al.alertMap[Name].err = err
+			al.alertMap[Name].err = xerrors.Errorf("getting miner deadline: %w", err)
 			return
 		}
-	}
-
-	// Get all wdPost tasks from DB between from and head
-	var wdDetails []struct {
-		Miner     int64          `db:"sp_id"`
-		Deadline  int64          `db:"deadline"`
-		Partition int64          `db:"partition"`
-		Epoch     abi.ChainEpoch `db:"submit_at_epoch"`
-		Proof     []byte         `db:"proof_params"`
-	}
-
-	err = al.db.Select(al.ctx, &wdDetails, `
-				SELECT sp_id, submit_at_epoch, proof_params, partition, deadline
-				FROM wdpost_proofs 
-				WHERE submit_at_epoch > $1;`, from)
-	if err != nil {
-		al.alertMap[Name].err = xerrors.Errorf("getting windowPost details from database: %w", err)
-		return
-	}
-
-	// For all tasks between from and head, match how many we posted successfully
-	for _, detail := range wdDetails {
-		addr, err := address.NewIDAddress(uint64(detail.Miner))
-		if err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("getting miner address: %w", err)
-			return
-		}
-		dlInfo, ok := msgCheck[addr][uint64(detail.Deadline)]
-		if !ok {
-			// Don't alert for unknown deadlines - may be from a previous period
+		if !deadlineInfo.PeriodStarted() {
 			continue
 		}
 
-		if int(detail.Partition) >= len(dlInfo.partitions) {
-			continue // partition index out of range, skip
-		}
+		minerChecks = append(minerChecks, minerCheck{
+			addr:            maddr,
+			id:              id,
+			deadlineIndex:   deadlineInfo.Index,
+			deadlineCount:   deadlineInfo.WPoStPeriodDeadlines,
+			periodStart:     deadlineInfo.PeriodStart,
+			deadlineOpen:    deadlineInfo.Open,
+			challengeWindow: deadlineInfo.WPoStChallengeWindow,
+			provingPeriod:   deadlineInfo.WPoStProvingPeriod,
+		})
+	}
 
-		// If entry for a partition is found we should mark it as processed
-		dlInfo.partitions[detail.Partition] = true
+	to := head.Height() - windowPostFinalityBuffer
 
-		// Check if we skipped any sectors
-		var postOut miner.SubmitWindowedPoStParams
-		err = postOut.UnmarshalCBOR(bytes.NewReader(detail.Proof))
-		if err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("unmarshaling windowPost proof params: %w", err)
+	// One entry per closed deadline that needs a local proof check.
+	type closedDeadlineCheck struct {
+		minerID     uint64
+		minerAddr   address.Address
+		periodStart abi.ChainEpoch
+		deadline    uint64
+		closeEpoch  abi.ChainEpoch
+	}
+	deadlineChecks := make([]closedDeadlineCheck, 0)
+	for _, minerInfo := range minerChecks {
+		// Deadline math depends on actor metadata being internally consistent.
+		if minerInfo.deadlineCount == 0 || minerInfo.challengeWindow <= 0 || minerInfo.provingPeriod != abi.ChainEpoch(minerInfo.deadlineCount)*minerInfo.challengeWindow {
+			al.alertMap[Name].err = xerrors.Errorf("invalid deadline metadata for miner %s: deadlines=%d challengeWindow=%d provingPeriod=%d", minerInfo.addr, minerInfo.deadlineCount, minerInfo.challengeWindow, minerInfo.provingPeriod)
 			return
 		}
 
-		for i := range postOut.Partitions {
-			c, err := postOut.Partitions[i].Skipped.Count()
-			if err != nil {
-				al.alertMap[Name].err = xerrors.Errorf("getting skipped sector count: %w", err)
-				return
+		// The current deadline opens exactly when the previous deadline closed.
+		closeEpoch := minerInfo.deadlineOpen
+		deadlineIndex := (minerInfo.deadlineIndex + minerInfo.deadlineCount - 1) % minerInfo.deadlineCount
+		periodStart := minerInfo.periodStart
+		if minerInfo.deadlineIndex == 0 {
+			// Deadline 0 means the previous closed deadline was deadline 47 in
+			// the previous proving period.
+			periodStart -= minerInfo.provingPeriod
+		}
+
+		for closeEpoch > from {
+			if closeEpoch <= to {
+				deadlineChecks = append(deadlineChecks, closedDeadlineCheck{
+					minerID:     minerInfo.id,
+					minerAddr:   minerInfo.addr,
+					periodStart: periodStart,
+					deadline:    deadlineIndex,
+					closeEpoch:  closeEpoch,
+				})
 			}
-			if c > 0 {
-				al.alertMap[Name].alertString += fmt.Sprintf("Miner %s skipped %d sectors in deadline %d partition %d. ", addr.String(), c, postOut.Deadline, postOut.Partitions[i].Index)
+
+			// Step back one deadline window, wrapping to the previous proving
+			// period when we cross deadline 0.
+			closeEpoch -= minerInfo.challengeWindow
+			if deadlineIndex == 0 {
+				deadlineIndex = minerInfo.deadlineCount - 1
+				periodStart -= minerInfo.provingPeriod
+			} else {
+				deadlineIndex--
 			}
 		}
 	}
 
-	// Check if we missed any deadline/partitions - ONLY for deadlines that have CLOSED
-	for maddr, deadlines := range msgCheck {
-		for deadlineIndex, dlInfo := range deadlines {
-			// Only alert for closed deadlines - open deadlines may not have proofs yet
-			if !dlInfo.deadlineClosed {
+	type proofKey struct {
+		minerID            uint64
+		provingPeriodStart abi.ChainEpoch
+		deadline           uint64
+		partition          uint64
+	}
+	type expectedPost struct {
+		key        proofKey
+		minerAddr  address.Address
+		closeEpoch abi.ChainEpoch
+	}
+	expectedPosts := make([]expectedPost, 0)
+	expectedByPost := make(map[proofKey]expectedPost)
+
+	// Load only current deadline state. Chain state is used
+	// here only to find non-empty partitions; proof status comes from the DB.
+	for _, check := range deadlineChecks {
+		partitions, err := al.api.StateMinerPartitions(al.ctx, check.minerAddr, check.deadline, head.Key())
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting miner partitions: %w", err)
+			return
+		}
+
+		for idx, partition := range partitions {
+			empty, err := partition.LiveSectors.IsEmpty()
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("checking live sectors for miner %s deadline %d partition %d: %w", check.minerAddr, check.deadline, idx, err)
+				return
+			}
+			if empty {
 				continue
 			}
-			for idx, submitted := range dlInfo.partitions {
-				if !submitted {
-					al.alertMap[Name].alertString += fmt.Sprintf("No WindowPost proof found for miner %s deadline %d partition %d (deadline closed at epoch %d). ", maddr.String(), deadlineIndex, idx, dlInfo.closeEpoch)
+
+			post := expectedPost{
+				key: proofKey{
+					minerID:            check.minerID,
+					provingPeriodStart: check.periodStart,
+					deadline:           check.deadline,
+					partition:          uint64(idx),
+				},
+				minerAddr:  check.minerAddr,
+				closeEpoch: check.closeEpoch,
+			}
+			if _, ok := expectedByPost[post.key]; ok {
+				continue
+			}
+			expectedByPost[post.key] = post
+			expectedPosts = append(expectedPosts, post)
+		}
+	}
+
+	if len(expectedPosts) > 0 {
+		spIDs := make([]int64, 0, len(expectedPosts))
+		periodStarts := make([]int64, 0, len(expectedPosts))
+		deadlines := make([]int64, 0, len(expectedPosts))
+		partitions := make([]int64, 0, len(expectedPosts))
+		for _, expected := range expectedPosts {
+			spIDs = append(spIDs, int64(expected.key.minerID))
+			periodStarts = append(periodStarts, int64(expected.key.provingPeriodStart))
+			deadlines = append(deadlines, int64(expected.key.deadline))
+			partitions = append(partitions, int64(expected.key.partition))
+		}
+
+		var localProofs []struct {
+			Miner              int64          `db:"sp_id"`
+			ProvingPeriodStart abi.ChainEpoch `db:"proving_period_start"`
+			Deadline           int64          `db:"deadline"`
+			Partition          int64          `db:"partition"`
+			MessageCID         *string        `db:"message_cid"`
+			WaitMessageCID     sql.NullString `db:"wait_message_cid"`
+			ExecutedTSKCID     sql.NullString `db:"executed_tsk_cid"`
+			ExecutedTSKEpoch   sql.NullInt64  `db:"executed_tsk_epoch"`
+			ExitCode           sql.NullInt64  `db:"executed_rcpt_exitcode"`
+			Proof              []byte         `db:"proof_params"`
+		}
+
+		// message_waits tells us whether a recorded message CID was tracked,
+		// landed, and executed successfully.
+		err = al.db.Select(al.ctx, &localProofs, `
+			WITH expected(sp_id, proving_period_start, deadline, partition) AS (
+					SELECT *
+					FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[])
+				)
+				SELECT p.sp_id, p.proving_period_start, p.deadline, p.partition, p.message_cid, p.proof_params,
+					mw.signed_message_cid AS wait_message_cid, mw.executed_tsk_cid, mw.executed_tsk_epoch, mw.executed_rcpt_exitcode
+				FROM wdpost_proofs p
+				JOIN expected e USING (sp_id, proving_period_start, deadline, partition)
+				LEFT JOIN message_waits mw ON mw.signed_message_cid = p.message_cid;`,
+			spIDs, periodStarts, deadlines, partitions)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting local WindowPost proofs: %w", err)
+			return
+		}
+
+		type localProof struct {
+			messageCID     string
+			waitTracked    bool
+			executedTSKCID sql.NullString
+			executedEpoch  sql.NullInt64
+			exitCode       sql.NullInt64
+		}
+		localProofByPost := make(map[proofKey]localProof, len(localProofs))
+		for _, proof := range localProofs {
+			if proof.Deadline < 0 || proof.Partition < 0 {
+				continue
+			}
+			key := proofKey{
+				minerID:            uint64(proof.Miner),
+				provingPeriodStart: proof.ProvingPeriodStart,
+				deadline:           uint64(proof.Deadline),
+				partition:          uint64(proof.Partition),
+			}
+			messageCID := ""
+			if proof.MessageCID != nil {
+				messageCID = strings.TrimSpace(*proof.MessageCID)
+			}
+			localProofByPost[key] = localProof{
+				messageCID:     messageCID,
+				waitTracked:    proof.WaitMessageCID.Valid && strings.TrimSpace(proof.WaitMessageCID.String) != "",
+				executedTSKCID: proof.ExecutedTSKCID,
+				executedEpoch:  proof.ExecutedTSKEpoch,
+				exitCode:       proof.ExitCode,
+			}
+
+			expected, ok := expectedByPost[key]
+			if !ok {
+				continue
+			}
+			var postOut miner.SubmitWindowedPoStParams
+			err = postOut.UnmarshalCBOR(bytes.NewReader(proof.Proof))
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("unmarshaling windowPost proof params: %w", err)
+				return
+			}
+			for _, postedPartition := range postOut.Partitions {
+				skipped, err := postedPartition.Skipped.Count()
+				if err != nil {
+					al.alertMap[Name].err = xerrors.Errorf("getting skipped sector count: %w", err)
+					return
+				}
+				if skipped > 0 {
+					al.alertMap[Name].alertString += fmt.Sprintf("Miner %s skipped %d sectors in deadline %d partition %d. ", expected.minerAddr.String(), skipped, postOut.Deadline, postedPartition.Index)
+				}
+			}
+		}
+
+		// Classify each expected proof by the furthest local state it reached.
+		for _, expected := range expectedPosts {
+			proof, ok := localProofByPost[expected.key]
+			if !ok {
+				al.alertMap[Name].alertString += fmt.Sprintf("No WindowPost proof found for miner %s deadline %d partition %d (deadline closed at epoch %d; no local WindowPost proof was recorded). ", expected.minerAddr.String(), expected.key.deadline, expected.key.partition, expected.closeEpoch)
+				continue
+			}
+			if proof.messageCID == "" {
+				al.alertMap[Name].alertString += fmt.Sprintf("WindowPost proof found for miner %s deadline %d partition %d, but no local message CID was recorded (deadline closed at epoch %d; proof was created but not sent). ", expected.minerAddr.String(), expected.key.deadline, expected.key.partition, expected.closeEpoch)
+				continue
+			}
+			if !proof.waitTracked {
+				al.alertMap[Name].alertString += fmt.Sprintf("WindowPost proof message %s for miner %s deadline %d partition %d was not found in message_waits (deadline closed at epoch %d; message tracking is missing). ", proof.messageCID, expected.minerAddr.String(), expected.key.deadline, expected.key.partition, expected.closeEpoch)
+				continue
+			}
+			if !proof.executedTSKCID.Valid || strings.TrimSpace(proof.executedTSKCID.String) == "" {
+				al.alertMap[Name].alertString += fmt.Sprintf("WindowPost proof message %s for miner %s deadline %d partition %d has not landed on chain (deadline closed at epoch %d). ", proof.messageCID, expected.minerAddr.String(), expected.key.deadline, expected.key.partition, expected.closeEpoch)
+				continue
+			}
+			if !proof.exitCode.Valid {
+				al.alertMap[Name].alertString += fmt.Sprintf("WindowPost proof message %s for miner %s deadline %d partition %d landed, but no receipt exit code was recorded. ", proof.messageCID, expected.minerAddr.String(), expected.key.deadline, expected.key.partition)
+				continue
+			}
+			if proof.exitCode.Int64 != 0 {
+				if proof.executedEpoch.Valid {
+					al.alertMap[Name].alertString += fmt.Sprintf("WindowPost proof message %s for miner %s deadline %d partition %d failed on chain at epoch %d with exit code %d. ", proof.messageCID, expected.minerAddr.String(), expected.key.deadline, expected.key.partition, proof.executedEpoch.Int64, proof.exitCode.Int64)
+				} else {
+					al.alertMap[Name].alertString += fmt.Sprintf("WindowPost proof message %s for miner %s deadline %d partition %d failed on chain with exit code %d. ", proof.messageCID, expected.minerAddr.String(), expected.key.deadline, expected.key.partition, proof.exitCode.Int64)
 				}
 			}
 		}
 	}
 
 	// Check for new faults in deadlines that recently closed
-	for _, maddr := range miners {
-		deadlineInfo, err := al.api.StateMinerProvingDeadline(al.ctx, maddr, head.Key())
-		if err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("getting miner deadline for fault check: %w", err)
-			return
+	for _, minerInfo := range minerChecks {
+		if minerInfo.deadlineCount == 0 {
+			continue
 		}
-
 		// Check the deadline that just closed (current - 1)
-		prevDeadline := (deadlineInfo.Index + 47) % 48 // wrap around
-		partitions, err := al.api.StateMinerPartitions(al.ctx, maddr, prevDeadline, head.Key())
+		prevDeadline := (minerInfo.deadlineIndex + minerInfo.deadlineCount - 1) % minerInfo.deadlineCount
+		partitions, err := al.api.StateMinerPartitions(al.ctx, minerInfo.addr, prevDeadline, head.Key())
 		if err != nil {
 			al.alertMap[Name].err = xerrors.Errorf("getting partitions for fault check: %w", err)
 			return
@@ -618,7 +773,7 @@ func wdPostCheck(al *alerts) {
 				}
 				unrecovered := faultyCount - recoveringCount
 				if unrecovered > 0 {
-					al.alertMap[Name].alertString += fmt.Sprintf("Miner %s deadline %d partition %d has %d faulty sectors (%d not recovering). ", maddr.String(), prevDeadline, pidx, faultyCount, unrecovered)
+					al.alertMap[Name].alertString += fmt.Sprintf("Miner %s deadline %d partition %d has %d faulty sectors (%d not recovering). ", minerInfo.addr.String(), prevDeadline, pidx, faultyCount, unrecovered)
 				}
 			}
 		}
@@ -882,14 +1037,25 @@ func pendingMessagesCheck(al *alerts) {
 
 	var msgs []string
 
+	from := time.Now().UTC().Add(-time.Hour)
+	utcWallClock := func(t time.Time) time.Time {
+		// Read the displayed wall-clock fields from the scanned value.
+		y, m, d := t.Date()
+		h, minutes, s := t.Clock()
+
+		// Rebuild those same fields as a UTC instant.
+		return time.Date(y, m, d, h, minutes, s, t.Nanosecond(), time.UTC)
+	}
+
 	for _, msg := range messages {
-		if time.Since(msg.AddedAt) > time.Hour {
+		addedAt := utcWallClock(msg.AddedAt)
+		if addedAt.Before(from) {
 			msgs = append(msgs, msg.MessageCid)
 		}
 	}
 
 	if len(msgs) > 0 {
-		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending for more than 1 hour: %s", strings.Join(msgs, ", "))
+		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending execution status update in DB for more than 1 hour: %s", strings.Join(msgs, ", "))
 	}
 }
 
