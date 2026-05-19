@@ -211,14 +211,23 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 
 	// Send the transaction
 	reason := "pdp-proving-init"
-	txHash, err := ipp.sender.Send(ctx, fromAddress, txEth, reason)
-	if err != nil {
+	txHash, sendErr := ipp.sender.Send(ctx, fromAddress, txEth, reason)
+	if sendErr != nil {
 		currentHeight := int64(ts.Height())
-		done, handleErr := HandleProvingSendError(ctx, ipp.db, dataSetId, currentHeight, err)
-		if done {
+		comm, err := ipp.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			handleErr := HandleProvingSendError(tx, dataSetId, currentHeight, sendErr)
+			if handleErr != nil {
+				return false, xerrors.Errorf("failed to handle proving send error: %w", handleErr)
+			}
 			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("failed to send transaction: %w", err)
 		}
-		return false, xerrors.Errorf("failed to send transaction: %w", handleErr)
+		if !comm {
+			return false, xerrors.Errorf("failed to commit transaction")
+		}
+		return true, nil
 	}
 
 	txHashLower := strings.ToLower(txHash.Hex())
