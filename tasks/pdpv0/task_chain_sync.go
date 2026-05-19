@@ -180,7 +180,14 @@ func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error
 			continue
 		}
 
-		if !dataSetProofCoversLocalFailure(dataSet.ProveAtEpoch, dataSet.ConsecutiveFailures, dataSet.NextProveAttemptEpoch, lastProvenEpoch) {
+		proofAfterLocalFailure := false
+		if dataSet.ProveAtEpoch.Valid && lastProvenEpoch.Cmp(big.NewInt(dataSet.ProveAtEpoch.Int64)) >= 0 {
+			proofAfterLocalFailure = true
+		} else if dataSet.ConsecutiveFailures > 0 && dataSet.NextProveAttemptEpoch.Valid {
+			lastFailureEpoch := dataSet.NextProveAttemptEpoch.Int64 - int64(CalculateBackoffBlocks(dataSet.ConsecutiveFailures))
+			proofAfterLocalFailure = lastProvenEpoch.Cmp(big.NewInt(lastFailureEpoch)) > 0
+		}
+		if !proofAfterLocalFailure {
 			continue
 		}
 
@@ -204,23 +211,6 @@ func (t *TaskChainSync) syncProvenDataSetFailureState(ctx context.Context) error
 	}
 
 	return nil
-}
-
-// dataSetProofCoversLocalFailure checks whether the PDPVerifier state advanced
-// late enough to explain the local failure state we are about to clear. Prefer
-// prove_at_epoch when it is still present; fall back to the reconstructed
-// failure epoch when the normal proof state has already moved on.
-func dataSetProofCoversLocalFailure(proveAtEpoch sql.NullInt64, consecutiveFailures int, nextProveAttemptEpoch sql.NullInt64, lastProvenEpoch *big.Int) bool {
-	if proveAtEpoch.Valid && lastProvenEpoch.Cmp(big.NewInt(proveAtEpoch.Int64)) >= 0 {
-		return true
-	}
-
-	if consecutiveFailures <= 0 || !nextProveAttemptEpoch.Valid {
-		return false
-	}
-
-	lastFailureEpoch := nextProveAttemptEpoch.Int64 - int64(CalculateBackoffBlocks(consecutiveFailures))
-	return lastProvenEpoch.Cmp(big.NewInt(lastFailureEpoch)) > 0
 }
 
 // syncFinalizedDataSetDeletionRails moves terminated PDP data sets to the local deletion-allowed state once the payment rail is final.

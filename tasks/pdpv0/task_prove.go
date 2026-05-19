@@ -458,7 +458,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return true, nil
 	}
 
-	// Success, reset any accumulated failure count. We cannot fail the task here to avoid sending proof for same dataSet multiplt times
+	// Success, reset any accumulated failure count. We cannot fail the task here to avoid sending proof for same dataSet multiple times
 	// In case, this reset fails, it should be handled in task_chain_sync
 	if resetErr := ResetProvingFailures(ctx, p.db, dataSetId); resetErr != nil {
 		log.Warnw("Failed to reset proving failures after success", "error", resetErr, "dataSetId", dataSetId)
