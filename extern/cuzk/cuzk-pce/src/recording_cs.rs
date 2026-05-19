@@ -402,3 +402,120 @@ where
 
     Ok(cs.into_precompiled())
 }
+
+#[cfg(test)]
+mod recording_cs_tests {
+    use super::*;
+    use bellpepper_core::{ConstraintSystem, Index, Variable};
+    use blstrs::Scalar as Fr;
+    use ff::Field;
+
+    #[test]
+    fn recording_cs_alloc_assigns_increasing_indices() {
+        let mut cs = RecordingCS::<Fr>::new();
+        let v0 = cs.alloc(|| "a", || Ok(Fr::ONE)).unwrap();
+        let v1 = cs.alloc(|| "b", || Ok(Fr::ONE)).unwrap();
+        match (v0.get_unchecked(), v1.get_unchecked()) {
+            (Index::Aux(0), Index::Aux(1)) => {}
+            _ => panic!("unexpected indices"),
+        }
+    }
+
+    #[test]
+    fn recording_cs_alloc_input_separate_index_space() {
+        let mut cs = RecordingCS::<Fr>::new();
+        let i0 = cs.alloc_input(|| "in", || Ok(Fr::ONE)).unwrap();
+        let a0 = cs.alloc(|| "a", || Ok(Fr::ONE)).unwrap();
+        match (i0.get_unchecked(), a0.get_unchecked()) {
+            (Index::Input(0), Index::Aux(0)) => {}
+            _ => panic!("unexpected indices"),
+        }
+    }
+
+    #[test]
+    fn recording_cs_enforce_records_lc_in_csr() {
+        let mut cs = RecordingCS::<Fr>::new();
+        cs.alloc_input(|| "one", || Ok(Fr::ONE)).unwrap();
+        let x = cs.alloc(|| "x", || Ok(Fr::from(2u64))).unwrap();
+        cs.enforce(
+            || "c",
+            |lc| lc + Variable(Index::Input(0)),
+            |lc| lc + x,
+            |lc| lc + x,
+        );
+        assert_eq!(cs.num_constraints, 1);
+        assert_eq!(cs.a_row_ptrs.len(), 2);
+        assert_eq!(cs.b_row_ptrs.len(), 2);
+        assert_eq!(cs.c_row_ptrs.len(), 2);
+    }
+
+    #[test]
+    fn recording_cs_into_precompiled_renumbers_inputs_first() {
+        let mut cs = RecordingCS::<Fr>::new();
+        cs.alloc_input(|| "one", || Ok(Fr::ONE)).unwrap();
+        let x = cs.alloc(|| "x", || Ok(Fr::ONE)).unwrap();
+        cs.enforce(
+            || "c",
+            |lc| lc + Variable(Index::Input(0)),
+            |lc| lc + x,
+            |lc| lc + x,
+        );
+        let pce = cs.into_precompiled();
+        assert_eq!(pce.num_inputs, 1);
+        assert_eq!(pce.num_aux, 1);
+        // A side is only the constant input; B and C reference aux `x` at unified col 1.
+        let (a_cols, _) = pce.a.row(0);
+        assert_eq!(a_cols, &[0u32]);
+        let (b_cols, _) = pce.b.row(0);
+        assert_eq!(b_cols, &[1u32]);
+        let (c_cols, _) = pce.c.row(0);
+        assert_eq!(c_cols, &[1u32]);
+    }
+
+    #[test]
+    fn recording_cs_extract_handles_namespace_push_pop() {
+        let mut cs = RecordingCS::<Fr>::new();
+        cs.alloc_input(|| "one", || Ok(Fr::ONE)).unwrap();
+        cs.push_namespace(|| "ns");
+        let x = cs.alloc(|| "x", || Ok(Fr::ONE)).unwrap();
+        cs.pop_namespace();
+        cs.enforce(
+            || "c",
+            |lc| lc + Variable(Index::Input(0)),
+            |lc| lc + x,
+            |lc| lc + x,
+        );
+        let pce = cs.into_precompiled();
+        assert_eq!(pce.num_constraints, 1);
+    }
+
+    /// Minimal circuit: one aux `x` with constraint 1 * x = x.
+    struct OneTimesX {
+        x: Fr,
+    }
+
+    impl bellpepper_core::Circuit<Fr> for OneTimesX {
+        fn synthesize<CS: bellpepper_core::ConstraintSystem<Fr>>(
+            self,
+            cs: &mut CS,
+        ) -> Result<(), bellpepper_core::SynthesisError> {
+            let x = cs.alloc(|| "x", || Ok(self.x))?;
+            cs.enforce(
+                || "mul",
+                |lc| lc + Variable(Index::Input(0)),
+                |lc| lc + x,
+                |lc| lc + x,
+            );
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn extract_precompiled_circuit_against_mimc_test_circuit() {
+        let pce = extract_precompiled_circuit(OneTimesX { x: Fr::from(42u64) }).unwrap();
+        assert!(pce.num_constraints >= 1);
+        assert_eq!(pce.num_inputs >= 1, true);
+        let summary = pce.summary();
+        assert!(summary.contains("PreCompiledCircuit"));
+    }
+}

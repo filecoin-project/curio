@@ -1,0 +1,49 @@
+# Milestone B — status (`extern/cuzk`)
+
+Roadmap context: repo root [`cuzk-vulkan-optimization-roadmap.md`](../../cuzk-vulkan-optimization-roadmap.md) **§3.3** / **§3.4**.
+
+## B₁ — integration & I/O (**complete**)
+
+These acceptance items are satisfied in-tree; CI defaults keep Vulkan optional (`CUZK_VK_SKIP_SMOKE=1`).
+
+| Criterion | Where |
+|-----------|--------|
+| Optional `bellperson` ↔ `cuzk-vk` link (`vulkan-cuzk` feature) | [`bellperson/src/groth16/vulkan_cuzk.rs`](../bellperson/src/groth16/vulkan_cuzk.rs) |
+| Compile/link gate workspace | [`bellperson-vk-smoke/`](bellperson-vk-smoke/), `scripts/run-all-tests.sh` |
+| Groth16 **prove + verify** (pairing), then Vulkan partition smoke on same machine | [`cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs`](cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs) (`CUZK_VK_SKIP_SMOKE=0`) |
+| `VkPipelineCache` + optional disk warm | [`cuzk-vk/src/device.rs`](cuzk-vk/src/device.rs), `CUZK_VK_PIPELINE_CACHE` |
+| SRS file read overlap (host) | [`cuzk-vk/src/srs.rs`](cuzk-vk/src/srs.rs) `srs_read_file_spawn`, tests |
+| SRS decode + G1/G2 GPU limb staging smoke | [`cuzk-vk/src/srs_gpu.rs`](cuzk-vk/src/srs_gpu.rs), `prove_groth16_partition` |
+| §1 partition CSV / ceilings / hardware MD hooks | [`cuzk-vk/src/bench_csv.rs`](cuzk-vk/src/bench_csv.rs), [`prover.rs`](cuzk-vk/src/prover.rs) |
+| **B₂ hook (Fr NTT leg):** optional `witness_ntt_coeffs` on [`VkGroth16Job`](cuzk-vk/src/prover.rs) | [`tests/witness_ntt_partition_gpu.rs`](cuzk-vk/tests/witness_ntt_partition_gpu.rs), [`milestone_b_bellperson_vulkan_smoke.rs`](cuzk-vk/tests/milestone_b_bellperson_vulkan_smoke.rs) |
+
+**B₁ does not** route bellperson R1CS witness values through Vulkan kernels end-to-end; it proves coexistence and smoke coverage for the integration path. **`witness_ntt_coeffs`** is an explicit **B₂** entry point for Fr data on the GPU NTT round-trip only.
+
+## B₂ — proving parity (**not complete** — performance / semantics tier)
+
+This tier matches supraseal-scale **proving through** Vulkan (full-width scalars, bucket accumulate, production SRS hot path, optional pairing on a **Vulkan-emitted** Groth16 proof). The following work is **still missing** (ordered roughly as in roadmap **§3.4** / **§8**):
+
+1. **§8.1 MSM (A.\*)** — **Correctness slice landed:** [`run_g1_pippenger_msm_gpu`](cuzk-vk/src/g1_pippenger_bucket_gpu.rs) / [`g1_msm_pippenger_gpu`](cuzk-vk/src/split_msm.rs) — per-window GPU bucket accumulate ([`g1_pippenger_bucket_acc_tail.comp`](cuzk-vk/shaders/g1_pippenger_bucket_acc_tail.comp)), **255-bit** unsigned digits from canonical scalar bytes, host Horner-style combine ([`g1_msm_bucket`](cuzk-vk/src/g1_msm_bucket.rs)); `n ≤ 16384`, `window_bits ≤ 16`; validated vs `multi_exp` in [`tests/g1_pippenger_full_width_gpu.rs`](cuzk-vk/tests/g1_pippenger_full_width_gpu.rs). **Batched circuits:** [`run_g1_pippenger_msm_gpu_batch`](cuzk-vk/src/g1_pippenger_bucket_gpu.rs) / [`g1_msm_pippenger_gpu_batch`](cuzk-vk/src/split_msm.rs) — per-circuit effective `min(bases.len(), scalars.len())`, SSBO **`circuit_start`** prefix + **`N_tot`**, host tiling [`pippenger_plan_batch_tiles`](cuzk-vk/src/g1_pippenger_bucket_gpu.rs) when **`batch × bucket_count`**, **`∑ n`**, or **`batch`** exceed shader/SSBO budgets (§8.4 **correctness** slice — multiple dispatches per window, not perf mega-strip yet). Vulkan partition smoke ([`prove_groth16_partition`](cuzk-vk/src/prover.rs)) still uses the single-circuit path on SRS `h[]` (not the older trunc bit-plane helper). **Still open (parity perf):** roadmap **A.2–A.7** — signed buckets / wNAF, GLV, XYZZ buckets, CUDA-scale split MSM, queue overlap, subgroup cooperative accumulate; **GPU** window assembly vs host-only combine today; §8.4 **perf** mega-strip + D.2; [`device_profile`](cuzk-vk/src/device_profile.rs) remains **hints** + **`CUZK_VK_MSM_WINDOW_BITS`**. **Separate teaching path:** [`g1_msm_bitplanes_scalars_trunc_gpu_host`](cuzk-vk/src/split_msm.rs) (`n ≤ 64`, trunc to `max_bits ≤ 64`) for bitmap Jacobian batch demos.
+2. **§8.2 NTT (B.\*)** — **B.1 (complete):** radix-4 DIT butterflies — [`fr_ntt_general_radix4_stage_tail.comp`](cuzk-vk/shaders/fr_ntt_general_radix4_stage_tail.comp) compiled for forward/inverse; CT DIT half-split formula, natural wlen-slot indexing, `⌊log_n/2⌋` radix-4 stages + optional trailing radix-2 when `log_n` is odd; validated in [`tests/fr_ntt_radix4_gpu.rs`](cuzk-vk/tests/fr_ntt_radix4_gpu.rs). **B.2 (landed):** radix-8 DIT half-split butterfly — [`fr_ntt_general_radix8_stage_tail.comp`](cuzk-vk/shaders/fr_ntt_general_radix8_stage_tail.comp) compiled for forward/inverse (constants `omega8`, `omega8^3`, `i_unit` injected by `build.rs`); `run_fr_ntt_radix8_{forward,inverse,roundtrip}_gpu` dispatch `⌊log_n/3⌋` radix-8 stages + optional trailing radix-4 (`log_n≡2 mod 3`) or radix-2 (`log_n≡1 mod 3`); validated in [`tests/fr_ntt_radix8_gpu.rs`](cuzk-vk/tests/fr_ntt_radix8_gpu.rs); dispatch count ≤ radix-4 for all `log_n`. **B.4 (landed):** SSBO twiddle tables — host precomputes `wlen^j` per radix stage into [`OFF_TWIDDLE`](cuzk-vk/shaders/fr_ntt_general_radix4_stage_tail.comp) (`push_constants`: stride + `twiddle_word_off`); shaders load `w` from the blob instead of `fr_pow_u32` on the hot path ([`fr_ntt_general_gpu.rs`](cuzk-vk/src/fr_ntt_general_gpu.rs) `FR_NTT_GENERAL_TWIDDLE_U32_LEN`, `twiddle_blob_*`). **Still open:** B.3 subgroup-shuffle (needs glslang/WGSL or WGSL→SPIR-V path — `naga` glsl-in has no subgroup builtins), B.6 single-shot shared-mem. **B.5 (landed, pack fusion):** [`run_fr_ntt_general_forward_gpu_distribute`](cuzk-vk/src/fr_ntt_general_gpu.rs) / [`run_fr_ntt_radix8_forward_gpu_distribute`](cuzk-vk/src/fr_ntt_general_gpu.rs) apply `base^i` while packing SSBO coeffs — removes the separate GPU pointwise distribute dispatch before forward radix-4/8 NTT; [`run_fr_coset_fft_forward_gpu`](cuzk-vk/src/fr_coset_gpu.rs) uses **radix-8 forward** when `n ≥ 8`. **Partition smoke** (`prove_groth16_partition`): **`n = 8`** → [`run_fr_ntt8_roundtrip_gpu`](cuzk-vk/src/fr_ntt_gpu.rs); **`n > 8`** → [`run_fr_ntt_radix8_roundtrip_gpu`](cuzk-vk/src/fr_ntt_general_gpu.rs); **`n ∈ {2, 4}`** → radix-4 [`run_fr_ntt_general_roundtrip_gpu`](cuzk-vk/src/fr_ntt_general_gpu.rs) (single-SPV coset+first butterfly remains optional).
+3. **§8.3 C.2 remainder** — **Landed:** [`prove_groth16_partition`](cuzk-vk/src/prover.rs) submits SRS device-local upload via [`srs_staging_device_local_upload_submit_async`](cuzk-vk/src/srs_staging_gpu.rs) before Fr NTT and joins after MSM (`SrsDeviceLocalUploadGuard`); uses secondary compute queue when [`VulkanDevice::queue_compute_1`](cuzk-vk/src/device.rs) exists. No verification download on hot path.
+4. **§8.3 C.3** — **Partial:** trailing radix-2 stage (radix-4/8 schedules) uses `fr_ntt_general_radix2_stage_spec.spv` with **`VkSpecializationInfo`** from Rust for `local_size_x` id **0** — see [`shaders/SPEC_CONSTANTS.md`](cuzk-vk/shaders/SPEC_CONSTANTS.md). **Still open:** optional **`layout(constant_id)`** on remaining Fr tails / Pippenger bucket dispatch meta where **naga** glsl-in is insufficient (prebuilt SPIR-V); fixed `G1_PIPP_LOCAL_X` bucket shader today.
+5. **§8.4 D.\*** — **Partial:** independent circuits can share one bucket shader dispatch when tile budgets allow (`circuit_start` SSBO, [`run_g1_pippenger_window_gpu_batch_var`](cuzk-vk/src/g1_pippenger_bucket_gpu.rs)); host tiling merges partial window results across tiles. **Still open:** cross-circuit **SRS window table sharing** (**D.2**), fewer submits / mega-strip scheduling beyond greedy tiles, and shader-side optimizations tied to [`msm_mega_dense_groups_x`](cuzk-vk/src/msm.rs) (still host sketch only).
+6. **Witness → Vulkan** — **Partial:** [`VkGroth16Job::witness_ntt_coeffs`](cuzk-vk/src/prover.rs) feeds caller `Scalar` vectors into the partition **Fr NTT GPU round-trip** (`n = 8` → `fr_ntt8`, `n > 8` → radix-8, else radix-4) when `CUZK_VK_SKIP_SMOKE=0` ([`tests/witness_ntt_partition_gpu.rs`](cuzk-vk/tests/witness_ntt_partition_gpu.rs)). **Still open:** bellperson `ProvingAssignment` / domain wiring, A/B/H assignment buffers into the full prove path (not only this NTT leg).
+7. **Vulkan-native Groth16 proof + pairing** — A proof object produced entirely by the Vulkan prover path, then verified with the same pairing engine as bellperson (today: bellperson proves; Vulkan runs orthogonal smoke).
+8. **§1 CI baselines** — Optional committed timing rows / subgroup automation from real GPU runners (template: [`benchmarks/cuzk-vk/HARDWARE_MATRIX.md`](../../benchmarks/cuzk-vk/HARDWARE_MATRIX.md)).
+
+## B₂ — landed vs deferred (quick view)
+
+| Area | Status |
+|------|--------|
+| §8.1 full-width MSM buckets | **Partial** — GPU buckets + 255-bit Pippenger; multi-circuit batch + tiling ([`run_g1_pippenger_msm_gpu_batch`](cuzk-vk/src/g1_pippenger_bucket_gpu.rs)). **Deferred:** A.2–A.7 perf levers, GPU window combine, §8.4 perf mega-strip |
+| §8.2 B.1, B.2, B.4, B.5 | **Landed** — radix-4/8 + SSBO twiddles + distribute-at-pack; coset uses radix-8 forward when `n ≥ 8` |
+| §8.2 B.3 subgroup NTT, B.6 shared-mem single-shot | **Deferred** |
+| §8.3 C.2 SRS staging overlap | **Landed** |
+| §8.3 C.3 specialization | **Partial** — radix-2 tail spec wired from Rust (see above); MSM / broader tails remain |
+| §8.4 mega-dispatch MSM | **Partial** — batched SSBO + variable `n` + tiling + [`g1_msm_pippenger_gpu_batch`](cuzk-vk/src/split_msm.rs); **Deferred:** D.2 SRS sharing, perf mega-strip |
+| Witness → Vulkan | **Partial** — [`witness_ntt_coeffs`](cuzk-vk/src/prover.rs) exercises Fr NTT round-trip only |
+| Vulkan-emitted proof + pairing | **Deferred** |
+| §1 GPU baseline rows | **Deferred** |
+
+Closing **B₂** is intentionally **multi-release**; track slices in `cuzk-vulkan-optimization-roadmap.md` **§8.6–8.7** and **§3.4**.

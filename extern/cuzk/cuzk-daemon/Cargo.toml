@@ -5,12 +5,17 @@ edition.workspace = true
 license.workspace = true
 description = "Standalone binary for the cuzk proving daemon"
 
+[features]
+default = ["supraseal"]
+supraseal = ["cuzk-core/cuda-supraseal"]
+vulkan-cuzk = ["cuzk-core/vulkan-cuzk"]
+
 [[bin]]
 name = "cuzk-daemon"
 path = "src/main.rs"
 
 [dependencies]
-cuzk-core = { workspace = true }
+cuzk-core = { workspace = true, default-features = false }
 cuzk-proto = { workspace = true }
 cuzk-server = { workspace = true }
 tokio = { workspace = true }

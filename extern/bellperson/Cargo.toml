@@ -42,7 +42,8 @@ version = "0.2"
 version = "1.3.1"
 
 [dependencies.blake2s_simd]
-version = "1.0.0"
+# 1.0.4+ requires Cargo that supports edition 2024; pin for older toolchains (CI / dev).
+version = "=1.0.3"
 
 [dependencies.blstrs]
 version = "0.7.0"
@@ -53,6 +54,11 @@ version = "1"
 
 [dependencies.crossbeam-channel]
 version = "0.5.0"
+
+[dependencies.cuzk-vk]
+path = "../cuzk/cuzk-vk"
+optional = true
+default-features = true
 
 [dependencies.digest]
 version = "0.10.6"
@@ -164,6 +170,8 @@ cuda = [
 cuda-supraseal = ["supraseal-c2"]
 default = ["groth16"]
 groth16 = []
+# Vulkan cuZK (`cuzk-vk`) — mutually exclusive with `cuda-supraseal` (see `groth16/mod.rs`).
+vulkan-cuzk = ["dep:cuzk-vk"]
 opencl = [
     "ec-gpu-gen/opencl",
     "fs2",
