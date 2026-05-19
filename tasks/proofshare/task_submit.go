@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -200,8 +201,8 @@ func (t *TaskSubmit) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwn
 
 func (t *TaskSubmit) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PShareSubmit",
-		MayFollow: []string{"PSProve"},
+		Name:      tasknames.PShareSubmit,
+		MayFollow: []string{tasknames.PSProve},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

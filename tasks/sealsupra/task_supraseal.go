@@ -37,6 +37,7 @@ import (
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -549,7 +550,7 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(s.pipelines),
 		Name:      fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
-		MayFollow: []string{"AggregateDeals"},
+		MayFollow: []string{tasknames.AggregateDeals},
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,

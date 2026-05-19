@@ -254,7 +254,7 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       maxLimiter,
-		Name:      "PSProve",
+		Name:      tasknames.PSProve,
 		MayFollow: []string{"bg:PShareRequest", tasknames.PoRep},
 		Cost: resources.Resources{
 			Cpu: 1,

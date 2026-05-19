@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/proofsvc/cuhelper"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -268,8 +269,8 @@ func (t *TaskAutosettle) trackSettlement(ctx context.Context, providerID int64, 
 func (t *TaskAutosettle) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "PSAutoSettle",
-		MayFollow: []string{"PShareSubmit", "SendMessage"},
+		Name:      tasknames.PSAutoSettle,
+		MayFollow: []string{tasknames.PShareSubmit, tasknames.SendMessage},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

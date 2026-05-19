@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 // ScrubCommRTask verifies sealed/update sector files by computing CommR
@@ -135,8 +136,8 @@ func (c *ScrubCommRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 
 func (c *ScrubCommRTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "ScrubCommRCheck",
-		MayFollow: []string{"TreeRC", "UpdateEncode"},
+		Name:      tasknames.ScrubCommRCheck,
+		MayFollow: []string{tasknames.TreeRC, tasknames.UpdateEncode},
 		Cost: resources.Resources{
 			Cpu: min(4, runtime.NumCPU()/2),
 			Gpu: 1,       // Requires GPU for supraseal TreeR

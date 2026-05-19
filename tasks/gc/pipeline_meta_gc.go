@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const SDRPipelineGCInterval = 19 * time.Minute
@@ -55,8 +56,8 @@ func (s *PipelineGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 func (s *PipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "PipelineGC",
-		MayFollow: []string{"CommitBatch", "MoveStorage", "UpdateBatch"},
+		Name:      tasknames.PipelineGC,
+		MayFollow: []string{tasknames.CommitBatch, tasknames.MoveStorage, tasknames.UpdateBatch},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

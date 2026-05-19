@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const CheckIndexInterval = time.Hour * 6
@@ -787,8 +788,8 @@ func (c *CheckIndexesTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (c *CheckIndexesTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "CheckIndex",
-		MayFollow: []string{"Indexing", "IPNI"},
+		Name:      tasknames.CheckIndex,
+		MayFollow: []string{tasknames.Indexing, tasknames.IPNI},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

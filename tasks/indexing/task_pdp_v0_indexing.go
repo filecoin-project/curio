@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPIndexingV0Task struct {
@@ -190,8 +191,8 @@ func (P *PDPIndexingV0Task) TypeDetails() harmonytask.TaskTypeDetails {
 	const indexingTaskRAM = 128 << 20 // 128 MiB
 
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPv0_Indexing",
-		MayFollow: []string{"PDPv0_PullPiece", "PDPv0_Prove"},
+		Name:      tasknames.PDPv0_Indexing,
+		MayFollow: []string{tasknames.PDPv0_PullPiece, tasknames.PDPv0_Prove},
 		Cost: resources.Resources{
 			Cpu: 0, // I/O bound (storage read, CQL write), not CPU bound
 			Ram: indexingTaskRAM,

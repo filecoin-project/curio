@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 )
@@ -248,8 +249,8 @@ func (e *ExpMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 func (e *ExpMgrTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "ExpMgr",
-		MayFollow: []string{"WdPost", "SectorMetadata"},
+		Name:      tasknames.ExpMgr,
+		MayFollow: []string{tasknames.WdPost, tasknames.SectorMetadata},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

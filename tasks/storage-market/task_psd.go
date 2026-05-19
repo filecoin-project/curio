@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
@@ -291,8 +292,8 @@ func (p *PSDTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine)
 func (p *PSDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(10),
-		Name:      "PSD",
-		MayFollow: []string{"CommP"},
+		Name:      tasknames.PSD,
+		MayFollow: []string{tasknames.CommP},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

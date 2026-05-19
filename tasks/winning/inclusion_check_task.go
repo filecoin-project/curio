@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -105,8 +106,8 @@ func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.
 func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "WinInclCheck",
-		MayFollow: []string{"WinPost"},
+		Name:      tasknames.WinInclCheck,
+		MayFollow: []string{tasknames.WinPost},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

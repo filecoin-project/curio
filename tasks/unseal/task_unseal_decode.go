@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 var log = logging.Logger("unseal")
@@ -164,8 +165,8 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 
 	res := harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(t.max),
-		Name:      "UnsealDecode",
-		MayFollow: []string{"SDRKeyRegen"},
+		Name:      tasknames.UnsealDecode,
+		MayFollow: []string{tasknames.SDRKeyRegen},
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,

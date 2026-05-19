@@ -55,6 +55,7 @@ func (m *MoveStorageTask) Do(ctx context.Context, taskID harmonytask.TaskID, sti
 		return false, xerrors.Errorf("expected one task")
 	}
 	task := tasks[0]
+	harmonytask.SetMeta(ctx, PoRepPipelineKey, [2]int64{task.SpID, task.SectorNumber})
 
 	sector := storiface.SectorRef{
 		ID: abi.SectorID{
@@ -241,6 +242,16 @@ func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, e
 
 func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	m.sp.pollers[pollerMoveStorage].Set(taskFunc)
+}
+
+// Wake nudges the seal poller to run poll() sooner than the idle ticker so
+// MoveStorage tasks can be assigned right after Finalize flips after_finalize
+// (same role as snap.MoveStorageTask.Wake after UpdateEncode).
+func (m *MoveStorageTask) Wake() {
+	if m == nil || m.sp == nil {
+		return
+	}
+	m.sp.WakePoll()
 }
 
 var _ harmonytask.TaskInterface = &MoveStorageTask{}

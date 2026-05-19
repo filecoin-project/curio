@@ -38,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
@@ -589,7 +590,7 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Name:          "WinPost",
+		Name:          tasknames.WinPost,
 		Max:           maxLimiter,
 		TimeSensitive: true,
 

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -57,7 +58,11 @@ const (
 	numPollers
 )
 
-const dealPollerInterval = 3 * time.Second
+// dealPollerIdleInterval is the gap after each poll() before the next idle (timer-driven) poll.
+const dealPollerIdleInterval = 30 * time.Second
+
+// wakePollMinInterval caps how often completion-driven wakes may trigger poll().
+const wakePollMinInterval = 10 * time.Second
 
 type storageMarketAPI interface {
 	mk12.MK12API
@@ -78,7 +83,15 @@ type CurioStorageDealMarket struct {
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
 	sc          *ffi.SealCalls
-	bp          *lazy.Lazy[*backpressure.CachedBackPressure]
+
+	// Wake-driven polls: at most one every wakePollMinInterval (see WakeDealPoller).
+	wakeMu             sync.Mutex
+	lastWakeDrivenPoll time.Time
+	wakePollTimer      *time.Timer     // non-nil while a wake delivery is already scheduled
+	wakePollReq        chan struct{}   // unbuffered: run one wake-driven poll
+	wakePollLoopCtx    context.Context // set in StartMarket before runPoller starts
+
+	bp *lazy.Lazy[*backpressure.CachedBackPressure]
 }
 
 type MK12Pipeline struct {
@@ -123,17 +136,131 @@ func NewCurioStorageDealMarket(miners *config.Dynamic[[]address.Address], db *ha
 	}
 
 	return &CurioStorageDealMarket{
-		cfg:       cfg,
-		db:        db,
-		api:       mapi,
-		miners:    miners,
-		si:        si,
-		urls:      urls,
-		as:        as,
-		ethClient: ethClient,
-		sc:        sc,
-		bp:        backpressure.NewCachedBackPressure(),
+		cfg:             cfg,
+		db:              db,
+		api:             mapi,
+		miners:          miners,
+		si:              si,
+		urls:            urls,
+		as:              as,
+		ethClient:       ethClient,
+		sc:              sc,
+		wakePollReq:     make(chan struct{}),
+		wakePollLoopCtx: context.Background(),
+		bp:              backpressure.NewCachedBackPressure(),
 	}
+}
+
+// WakeDealPoller asks the poller to run poll() sooner than the idle ticker, but not more
+// often than wakePollMinInterval since the last wake-driven poll (idle ticker is unchanged).
+func (d *CurioStorageDealMarket) WakeDealPoller() {
+	if d == nil || d.wakePollReq == nil {
+		return
+	}
+	d.wakeMu.Lock()
+	if d.wakePollTimer != nil {
+		d.wakeMu.Unlock()
+		return
+	}
+	wait := time.Until(d.lastWakeDrivenPoll.Add(wakePollMinInterval))
+	if wait < 0 {
+		wait = 0
+	}
+	d.wakePollTimer = time.AfterFunc(wait, func() {
+		loopCtx := d.wakePollLoopCtx
+		if loopCtx == nil {
+			loopCtx = context.Background()
+		}
+		select {
+		case d.wakePollReq <- struct{}{}:
+		case <-loopCtx.Done():
+		}
+		d.wakeMu.Lock()
+		d.wakePollTimer = nil
+		d.wakeMu.Unlock()
+	})
+	d.wakeMu.Unlock()
+}
+
+// SignalNext runs the per-deal pipeline logic for a single deal immediately
+// after a task completes, so the next stage can start without waiting for the
+// periodic poller. Analogous to seal.SealPoller.SignalNext.
+func (d *CurioStorageDealMarket) SignalNext(ctx context.Context, ref MarketRef) {
+	if d == nil {
+		return
+	}
+	if ref.IsMK12 {
+		d.signalNextMK12(ctx, ref.ID)
+	} else {
+		d.signalNextMK20(ctx, ref.ID)
+	}
+}
+
+func (d *CurioStorageDealMarket) signalNextMK12(ctx context.Context, uuid string) {
+	var deals []MK12Pipeline
+	err := d.db.Select(ctx, &deals, `SELECT 
+		p.uuid AS uuid,
+		p.sp_id AS sp_id,
+		p.started AS started,
+		p.piece_cid AS piece_cid,
+		p.piece_size AS piece_size,
+		p.raw_size AS raw_size,
+		p.offline AS offline,
+		p.url AS url,
+		p.headers AS headers,
+		p.is_ddo AS is_ddo,
+		p.commp_task_id AS commp_task_id,
+		p.after_commp AS after_commp,
+		p.psd_task_id AS psd_task_id,
+		p.after_psd AS after_psd,
+		p.find_deal_task_id AS find_deal_task_id,
+		p.after_find_deal AS after_find_deal,
+		p.psd_wait_time AS psd_wait_time,
+		p.sector AS sector,
+		p.sector_offset AS sector_offset
+	FROM market_mk12_deal_pipeline p
+	WHERE p.uuid = $1`, uuid)
+	if err != nil {
+		log.Errorw("SignalNext MK12: select pipeline", "error", err, "uuid", uuid)
+		return
+	}
+	if len(deals) == 0 {
+		return
+	}
+
+	if err := d.processMk12Deal(ctx, deals[0]); err != nil {
+		log.Errorw("SignalNext MK12: process deal", "error", err, "uuid", uuid)
+	}
+
+	if err := d.addPSDTask(ctx); err != nil {
+		log.Errorw("SignalNext MK12: addPSDTask", "error", err)
+	}
+}
+
+func (d *CurioStorageDealMarket) signalNextMK20(ctx context.Context, id string) {
+	var pieces []MK20PipelinePiece
+	err := d.db.Select(ctx, &pieces, `SELECT 
+		id, sp_id, contract, client, piece_cid_v2, piece_cid,
+		piece_size, raw_size, offline, url, indexing, announce,
+		allocation_id, duration, piece_aggregation, started,
+		downloaded, commp_task_id, after_commp, deal_aggregation,
+		aggr_index, agg_task_id, aggregated, sector, reg_seal_proof,
+		sector_offset, indexing_created_at, indexing_task_id, indexed
+	FROM market_mk20_pipeline
+	WHERE id = $1 AND complete = false`, id)
+	if err != nil {
+		log.Errorw("SignalNext MK20: select pipeline", "error", err, "id", id)
+		return
+	}
+
+	for _, piece := range pieces {
+		if err := d.processMk20Pieces(ctx, piece); err != nil {
+			log.Errorw("SignalNext MK20: process piece", "error", err, "id", id)
+		}
+	}
+
+	d.processMK20DealAggregation(ctx)
+	d.processMK20DealIngestion(ctx)
 }
 
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
@@ -142,6 +269,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	d.MK12Handler, err = mk12.NewMK12Handler(d.miners.Get(), d.db, d.si, d.api, d.cfg, d.as, d.bp)
 	if err != nil {
 		return err
+	}
+	if d.MK12Handler != nil {
+		d.MK12Handler.OnDealInserted = d.WakeDealPoller
 	}
 	prevMiners := d.miners.Get()
 
@@ -178,6 +308,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if d.MK20Handler != nil {
+		d.MK20Handler.OnDealInserted = d.WakeDealPoller
+	}
 
 	if len(prevMiners) > 0 {
 		if d.cfg.Ingest.DoSnap {
@@ -195,6 +328,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			log.Errorf("Miners changed from %d to %d. . Restart required for Market Ingest to work.", len(prevMiners), len(newMiners))
 		}
 	})
+	d.wakePollLoopCtx = ctx
 	go d.runPoller(ctx)
 
 	return nil
@@ -206,15 +340,44 @@ func (d *CurioStorageDealMarket) runPoller(ctx context.Context) {
 	go d.pipelineInsertLoop(ctx)
 	go d.migratePieceCIDV2(ctx)
 
-	ticker := time.NewTicker(dealPollerInterval)
-	defer ticker.Stop()
+	idleTimer := time.NewTimer(dealPollerIdleInterval)
+	resetIdleAfterPoll := func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(dealPollerIdleInterval)
+	}
+	defer func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		d.wakeMu.Lock()
+		if d.wakePollTimer != nil {
+			d.wakePollTimer.Stop()
+			d.wakePollTimer = nil
+		}
+		d.wakeMu.Unlock()
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-d.wakePollReq:
+			d.wakeMu.Lock()
+			d.lastWakeDrivenPoll = time.Now()
+			d.wakeMu.Unlock()
 			d.poll(ctx)
+			resetIdleAfterPoll()
+		case <-idleTimer.C:
+			d.poll(ctx)
+			resetIdleAfterPoll()
 		}
 	}
 }

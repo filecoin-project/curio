@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 const (
@@ -299,8 +300,8 @@ func (P *PDPV0IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (P *PDPV0IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:      "PDPv0_IPNI",
-		MayFollow: []string{"PDPv0_Indexing"},
+		Name:      tasknames.PDPv0_IPNI,
+		MayFollow: []string{tasknames.PDPv0_Indexing},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

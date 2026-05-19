@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type AggregateDealTask struct {
@@ -82,6 +83,7 @@ func (a *AggregateDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, s
 	if len(pieces) == 0 {
 		return false, xerrors.Errorf("no pieces to aggregate for task %d", taskID)
 	}
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: pieces[0].ID, IsMK12: false})
 
 	if len(pieces) == 1 {
 		n, err := a.db.Exec(ctx, `UPDATE market_mk20_pipeline SET aggregated = TRUE, agg_task_id = NULL 
@@ -356,8 +358,8 @@ func (a *AggregateDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.T
 func (a *AggregateDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(50),
-		Name:      "AggregateDeals",
-		MayFollow: []string{"FindDeal"},
+		Name:      tasknames.AggregateDeals,
+		MayFollow: []string{tasknames.FindDeal},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,

@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type ProveTask struct {
@@ -166,8 +167,8 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Max:       maxLimiter,
-		Name:      "UpdateProve",
-		MayFollow: []string{"UpdateEncode"},
+		Name:      tasknames.UpdateProve,
+		MayFollow: []string{tasknames.UpdateEncode},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: gpu,

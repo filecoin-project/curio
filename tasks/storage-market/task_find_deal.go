@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/api"
 	apitypes "github.com/filecoin-project/lotus/api/types"
@@ -89,6 +90,7 @@ func (f *FindDealTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 		return false, xerrors.Errorf("expected 1 deal, got %d", len(bdeals))
 	}
 	bd := bdeals[0]
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: bd.UUID, IsMK12: true})
 
 	expired, err := checkExpiry(ctx, f.db, f.api, bd.UUID, f.sm.pin.GetExpectedSealDuration())
 	if err != nil {
@@ -314,8 +316,8 @@ func (f *FindDealTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEn
 func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(128),
-		Name:      "FindDeal",
-		MayFollow: []string{"PSD", "SendMessage"},
+		Name:      tasknames.FindDeal,
+		MayFollow: []string{tasknames.PSD, tasknames.SendMessage},
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

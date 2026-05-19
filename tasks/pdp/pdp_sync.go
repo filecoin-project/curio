@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type PDPSyncTask struct {
@@ -165,8 +166,8 @@ func (P *PDPSyncTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 func (P *PDPSyncTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "PDPSync",
-		MayFollow: []string{"PDPProve"},
+		Name:      tasknames.PDPSync,
+		MayFollow: []string{tasknames.PDPProve},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

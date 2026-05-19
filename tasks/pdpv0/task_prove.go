@@ -958,7 +958,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		// PDPv0_ProvPeriod already follows PDPv0_Prove; do not list ProvPeriod here.
 		// Proving pipeline only: onboarding ends before PDPv0_InitPP (see task_init_pp);
 		// chain is PDPv0_InitPP → PDPv0_Prove → PDPv0_ProvPeriod.
-		MayFollow: []string{"PDPv0_InitPP"},
+		MayFollow: []string{tasknames.PDPv0_InitPP},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,

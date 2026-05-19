@@ -16,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/paths"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
 type StorageGCSweep struct {
@@ -110,8 +111,8 @@ func (s *StorageGCSweep) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(1),
-		Name:      "StorageGCSweep",
-		MayFollow: []string{"StorageGCMark"},
+		Name:      tasknames.StorageGCSweep,
+		MayFollow: []string{tasknames.StorageGCMark},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,

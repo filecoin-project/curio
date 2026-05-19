@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/tasknames"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -102,6 +103,7 @@ func (c *CommpTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		return false, xerrors.Errorf("expected 1 piece, got %d", len(pieces))
 	}
 	piece := pieces[0]
+	harmonytask.SetMeta(ctx, MarketPipelineKey, MarketRef{ID: piece.ID, IsMK12: piece.MK12Piece})
 
 	if piece.MK12Piece {
 		expired, err := checkExpiry(ctx, c.db, c.api, piece.ID, c.sm.pin.GetExpectedSealDuration())
@@ -359,8 +361,8 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:       taskhelp.Max(c.max),
-		Name:      "CommP",
-		MayFollow: []string{"ParkPiece"},
+		Name:      tasknames.CommP,
+		MayFollow: []string{tasknames.ParkPiece},
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 1 << 30,

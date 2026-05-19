@@ -1241,6 +1241,10 @@ func (m *MK20) HandleSerialUploadFinalize(ctx context.Context, id ulid.ULID, dea
 		return
 	}
 
+	if m.OnDealInserted != nil {
+		m.OnDealInserted()
+	}
+
 	w.WriteHeader(int(Ok))
 }
 
