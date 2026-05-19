@@ -6,6 +6,9 @@ import (
 	"math/big"
 	"strings"
 
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
@@ -54,11 +57,14 @@ func NewPieceDeleteWatcher(cfg *config.HTTPConfig, db *harmonydb.DB, ethClient e
 //nolint:unused // TODO: reinstate after debugging
 func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pieces []struct {
-		DataSetID int64 `db:"data_set"`
-		PieceID   int64 `db:"piece_id"`
+		DataSetID int64  `db:"data_set"`
+		PieceID   int64  `db:"piece_id"`
+		RmTxHash  string `db:"rm_message_hash"`
 	}
 
-	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id FROM pdp_data_set_pieces WHERE removed = TRUE`)
+	err := db.Select(ctx, &pieces, `SELECT data_set, piece_id, rm_message_hash
+		FROM pdp_data_set_pieces
+		WHERE removed = TRUE AND rm_message_hash IS NOT NULL`)
 	if err != nil {
 		return xerrors.Errorf("failed to select pending piece deletes: %w", err)
 	}
@@ -81,6 +87,26 @@ func _processPendingCleanup(ctx context.Context, db *harmonydb.DB, ethClient eth
 		}
 
 		if !live {
+			// Double-check that the rm message actually landed on-chain before
+			// dropping the DB row. A reorg or otherwise dropped tx could leave
+			// us with removed=TRUE locally but no corresponding on-chain effect;
+			// in that case we want to skip and let the reorg-rollback path
+			// reset removed=FALSE rather than losing the row.
+			receipt, err := ethClient.TransactionReceipt(ctx, common.HexToHash(piece.RmTxHash))
+			if err != nil {
+				if errors.Is(err, ethereum.NotFound) {
+					log.Warnw("skipping piece delete: rm tx not found on-chain",
+						"dataSetId", piece.DataSetID, "pieceId", piece.PieceID, "txHash", piece.RmTxHash)
+					continue
+				}
+				return xerrors.Errorf("failed to fetch rm tx receipt for piece %d: %w", piece.PieceID, err)
+			}
+			if receipt == nil || receipt.Status != ethtypes.ReceiptStatusSuccessful {
+				log.Warnw("skipping piece delete: rm tx not successful on-chain",
+					"dataSetId", piece.DataSetID, "pieceId", piece.PieceID, "txHash", piece.RmTxHash)
+				continue
+			}
+
 			_, err = db.Exec(ctx, `DELETE FROM pdp_data_set_pieces WHERE data_set = $1 AND piece_id = $2 AND removed = TRUE`, piece.DataSetID, piece.PieceID)
 			if err != nil {
 				return xerrors.Errorf("failed to delete piece %d: %w", piece.PieceID, err)
