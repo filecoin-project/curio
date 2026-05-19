@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/yugabyte/pgx/v5"
@@ -57,9 +59,11 @@ type ReorgCheckFilAPI interface {
 	ChainHead(context.Context) (*chainTypes.TipSet, error)
 }
 
-// ReorgCheckEthAPI is the minimal Ethereum client surface for block hash checks.
+// ReorgCheckEthAPI is the minimal Ethereum client surface for canonical inclusion checks.
 type ReorgCheckEthAPI interface {
 	BlockByNumber(ctx context.Context, number *big.Int) (*ethtypes.Block, error)
+	BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error)
+	TransactionReceipt(ctx context.Context, txHash common.Hash) (*ethtypes.Receipt, error)
 }
 
 // ReorgCheckTask periodically verifies PDPv0 ETH transactions remain canonical past chain finality.
@@ -91,51 +95,91 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, err
 	}
 
-	var candidates []struct {
-		TxHash          string `db:"signed_tx_hash"`
-		SendReason      string `db:"send_reason"`
-		ConfirmEpoch    int64  `db:"confirmed_block_number"`
-		StoredBlockHash string `db:"stored_block_hash"`
-	}
+	var candidates []reorgCheckCandidate
 	err = t.db.Select(ctx, &candidates, `
-		SELECT mwe.signed_tx_hash, mse.send_reason, mwe.confirmed_block_number,
+		SELECT LOWER(TRIM(BOTH FROM mse.signed_hash)) AS signed_tx_hash,
+		       mse.send_reason,
+		       mse.send_time,
+		       mwe.confirmed_block_number,
 		       COALESCE(mwe.tx_receipt->>'blockHash', '') AS stored_block_hash
-		FROM message_waits_eth mwe
-		INNER JOIN message_sends_eth mse ON LOWER(TRIM(BOTH FROM mse.signed_hash)) = LOWER(TRIM(BOTH FROM mwe.signed_tx_hash))
-		WHERE mwe.tx_status = 'confirmed'
-		  AND mwe.tx_success = TRUE
-		  AND mwe.confirmed_block_number IS NOT NULL
-		  AND mse.send_success = TRUE
+		FROM message_sends_eth mse
+		LEFT JOIN message_waits_eth mwe
+		  ON LOWER(TRIM(BOTH FROM mse.signed_hash)) = LOWER(TRIM(BOTH FROM mwe.signed_tx_hash))
+		WHERE mse.send_success = TRUE
 		  AND mse.send_time IS NOT NULL
-		  AND mse.send_time >= $1
 		  AND mse.send_reason = ANY($2)
-		  AND ($3 - mwe.confirmed_block_number) >= $4
+		  AND (
+		    (mwe.tx_status = 'confirmed'
+		     AND mwe.tx_success = TRUE
+		     AND mwe.confirmed_block_number IS NOT NULL
+		     AND ($3 - mwe.confirmed_block_number) >= $4
+		     AND mse.send_time >= $1)
+		    OR (
+		      mwe.signed_tx_hash IS NULL
+		      AND mse.send_time <= NOW() - ($4::bigint * INTERVAL '30 seconds')
+		      AND NOT EXISTS (
+		        SELECT 1 FROM pdpv0_reorg_events re
+		        WHERE LOWER(re.tx_hash) = LOWER(TRIM(BOTH FROM mse.signed_hash))
+		      )
+		    )
+		  )
 	`, since, pdpv0SendReasons, headEpoch, int64(policy.ChainFinality))
 	if err != nil {
 		return false, xerrors.Errorf("select candidates: %w", err)
 	}
 
+	type pendingInclusion struct {
+		candidate reorgCheckCandidate
+		check     reorgInclusionCheck
+	}
+	var toVerify []pendingInclusion
+	var toRollback []reorgCheckCandidate
+
 	for _, c := range candidates {
 		if !stillOwned() {
 			return false, nil
 		}
-		if c.StoredBlockHash == "" {
-			log.Warnw("reorg check: no stored block hash in tx_receipt, skipping", "tx", c.TxHash)
-			continue
-		}
-		reorged, chkErr := t.TxReorgedFromChain(ctx, c.ConfirmEpoch, common.HexToHash(c.StoredBlockHash))
+		confirmEpoch, _, ready, dropped, chkErr := t.confirmationForCheck(ctx, c, headEpoch)
 		if chkErr != nil {
-			log.Errorw("reorg check RPC error", "tx", c.TxHash, "err", chkErr)
+			return false, xerrors.Errorf("confirmation for check %s: %w", c.TxHash, chkErr)
+		}
+		if !ready {
 			continue
 		}
-		if !reorged {
+		if dropped {
+			toRollback = append(toRollback, c)
 			continue
 		}
+		toVerify = append(toVerify, pendingInclusion{
+			candidate: c,
+			check: reorgInclusionCheck{
+				TxHash:        common.HexToHash(c.TxHash),
+				ConfirmHeight: confirmEpoch,
+			},
+		})
+	}
 
+	inclusionChecks := make([]reorgInclusionCheck, len(toVerify))
+	for i, p := range toVerify {
+		inclusionChecks[i] = p.check
+	}
+	notIncluded, chkErr := t.txsNotIncludedInCanonicalChain(ctx, inclusionChecks)
+	if chkErr != nil {
+		return false, xerrors.Errorf("canonical inclusion walk: %w", chkErr)
+	}
+	for _, p := range toVerify {
+		if notIncluded[p.check.TxHash] {
+			toRollback = append(toRollback, p.candidate)
+		}
+	}
+
+	for _, c := range toRollback {
+		if !stillOwned() {
+			return false, nil
+		}
 		summary, rbErr := t.rollbackByReason(ctx, c.SendReason, c.TxHash)
 		if rbErr != nil {
-			log.Errorw("reorg rollback failed", "tx", c.TxHash, "reason", c.SendReason, "err", rbErr)
-			continue
+			return false, xerrors.Errorf("reorg rollback %s (%s): %w", c.TxHash, c.SendReason, rbErr)
 		}
 
 		_, err = t.db.Exec(ctx, `
@@ -144,11 +188,53 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			ON CONFLICT (tx_hash) DO NOTHING
 		`, strings.ToLower(c.TxHash), c.SendReason, summary)
 		if err != nil {
-			log.Errorw("insert reorg event", "tx", c.TxHash, "err", err)
+			return false, xerrors.Errorf("insert reorg event %s: %w", c.TxHash, err)
 		}
 	}
 
 	return true, nil
+}
+
+type reorgCheckCandidate struct {
+	TxHash          string       `db:"signed_tx_hash"`
+	SendReason      string       `db:"send_reason"`
+	SendTime        time.Time    `db:"send_time"`
+	ConfirmEpoch    sql.NullInt64 `db:"confirmed_block_number"`
+	StoredBlockHash string       `db:"stored_block_hash"`
+}
+
+// confirmationForCheck returns inclusion height/hash for reorg comparison.
+// Sends without message_waits_eth (e.g. pdp-prove, pdp-terminate-service) are
+// resolved from the chain receipt once past finality.
+func (t *ReorgCheckTask) confirmationForCheck(ctx context.Context, c reorgCheckCandidate, headEpoch int64) (confirmEpoch int64, storedBlockHash common.Hash, ready, dropped bool, err error) {
+	finality := int64(policy.ChainFinality)
+	if c.ConfirmEpoch.Valid && c.StoredBlockHash != "" {
+		confirmEpoch = c.ConfirmEpoch.Int64
+		if headEpoch-confirmEpoch < finality {
+			return 0, common.Hash{}, false, false, nil
+		}
+		return confirmEpoch, common.HexToHash(c.StoredBlockHash), true, false, nil
+	}
+
+	receipt, err := t.eth.TransactionReceipt(ctx, common.HexToHash(c.TxHash))
+	if err != nil {
+		if errors.Is(err, ethereum.NotFound) {
+			// Only treat as dropped after finality; younger sends may still be pending.
+			if time.Since(c.SendTime) < time.Duration(finality)*30*time.Second {
+				return 0, common.Hash{}, false, false, nil
+			}
+			return 0, common.Hash{}, true, true, nil
+		}
+		return 0, common.Hash{}, false, false, err
+	}
+	if receipt == nil {
+		return 0, common.Hash{}, false, false, nil
+	}
+	confirmEpoch = int64(receipt.BlockNumber.Uint64())
+	if headEpoch-confirmEpoch < finality {
+		return 0, common.Hash{}, false, false, nil
+	}
+	return confirmEpoch, receipt.BlockHash, true, false, nil
 }
 
 func (t *ReorgCheckTask) lastSuccessfulRunCutoff(ctx context.Context) (time.Time, error) {
@@ -175,17 +261,79 @@ func (t *ReorgCheckTask) lastSuccessfulRunCutoff(ctx context.Context) (time.Time
 	return cutoff, nil
 }
 
-// TxReorgedFromChain checks whether the canonical block at confirmedHeight
-// still matches storedBlockHash (from the receipt saved at confirmation time).
-// This only uses BlockByNumber, which works on snapshot-imported nodes
-// (block headers are always available, unlike TransactionReceipt which needs
-// the MsgIndex that isn't populated for pre-snapshot epochs).
-func (t *ReorgCheckTask) TxReorgedFromChain(ctx context.Context, confirmedHeight int64, storedBlockHash common.Hash) (reorged bool, err error) {
-	blk, err := t.eth.BlockByNumber(ctx, big.NewInt(confirmedHeight))
-	if err != nil {
-		return false, xerrors.Errorf("block by number %d: %w", confirmedHeight, err)
+type reorgInclusionCheck struct {
+	TxHash        common.Hash
+	ConfirmHeight int64
+}
+
+// txsNotIncludedInCanonicalChain walks the canonical chain from head down to the
+// earliest expected confirmation height, scanning transactions in each block.
+// Returns true for txs that never appear on the walk (not included in chain).
+// A tx re-included in a different block after a reorg is still considered included.
+func (t *ReorgCheckTask) txsNotIncludedInCanonicalChain(ctx context.Context, checks []reorgInclusionCheck) (map[common.Hash]bool, error) {
+	notIncluded := make(map[common.Hash]bool, len(checks))
+	if len(checks) == 0 {
+		return notIncluded, nil
 	}
-	return blk.Hash() != storedBlockHash, nil
+
+	minHeight := uint64(math.MaxUint64)
+	for _, c := range checks {
+		h := uint64(c.ConfirmHeight)
+		if h < minHeight {
+			minHeight = h
+		}
+	}
+
+	pending := make(map[common.Hash]struct{}, len(checks))
+	for _, c := range checks {
+		pending[c.TxHash] = struct{}{}
+	}
+
+	blk, err := t.eth.BlockByNumber(ctx, nil)
+	if err != nil {
+		return nil, xerrors.Errorf("head block: %w", err)
+	}
+
+	for blk != nil {
+		for _, tx := range blk.Transactions() {
+			if _, ok := pending[tx.Hash()]; ok {
+				delete(pending, tx.Hash())
+			}
+		}
+		if len(pending) == 0 {
+			break
+		}
+		if blk.NumberU64() <= minHeight {
+			break
+		}
+		if blk.NumberU64() == 0 {
+			break
+		}
+		parentHash := blk.ParentHash()
+		blk, err = t.eth.BlockByHash(ctx, parentHash)
+		if err != nil {
+			return nil, xerrors.Errorf("parent block %s: %w", parentHash, err)
+		}
+	}
+
+	for _, c := range checks {
+		_, stillPending := pending[c.TxHash]
+		notIncluded[c.TxHash] = stillPending
+	}
+	return notIncluded, nil
+}
+
+// TxNotIncludedInChain reports whether txHash does not appear in the canonical
+// chain at or above confirmedHeight (walks from head, scanning block transactions).
+func (t *ReorgCheckTask) TxNotIncludedInChain(ctx context.Context, txHash common.Hash, confirmedHeight int64) (notIncluded bool, err error) {
+	m, err := t.txsNotIncludedInCanonicalChain(ctx, []reorgInclusionCheck{{
+		TxHash:        txHash,
+		ConfirmHeight: confirmedHeight,
+	}})
+	if err != nil {
+		return false, err
+	}
+	return m[txHash], nil
 }
 
 func (t *ReorgCheckTask) rollbackByReason(ctx context.Context, sendReason, txHash string) (summary string, err error) {
