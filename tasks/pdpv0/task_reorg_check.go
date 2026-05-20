@@ -22,14 +22,19 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 
+	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
 const (
-	reorgCheckInterval    = 8 * time.Hour
-	reorgCheckLookbackPad = 30 * time.Minute
-	reorgCheckDefaultPast = 24 * time.Hour
+	// reorgCheckInterval is how often the singleton reorg check task is scheduled.
+	reorgCheckInterval = 30 * time.Minute
+	// reorgCheckMinAge is the newest messages we will inclusion-check.
+	// These are comfortably far from typical reorg scenarios.
+	reorgCheckMinAge = 20 * time.Minute
+	// reorgCheckMaxLookbackEpochs caps how far back we walk from chain head (older sends are skipped).
+	reorgCheckMaxLookbackEpochs = 2000
 
 	reasonPDPMkDataset        = "pdp-mkdataset"
 	reasonPDPCreateAndAdd     = "pdp-create-and-add"
@@ -81,6 +86,14 @@ func NewReorgCheckTask(db *harmonydb.DB, eth ReorgCheckEthAPI, chain ReorgCheckF
 	}
 }
 
+type reorgCheckCandidate struct {
+	TxHash          string        `db:"signed_tx_hash"`
+	SendReason      string        `db:"send_reason"`
+	SendTime        time.Time     `db:"send_time"`
+	ConfirmEpoch    sql.NullInt64 `db:"confirmed_block_number"`
+	StoredBlockHash string        `db:"stored_block_hash"`
+}
+
 func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
@@ -90,9 +103,16 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 	headEpoch := int64(head.Height())
 
-	since, err := t.lastSuccessfulRunCutoff(ctx)
+	since, until, skipped, err := t.reorgCheckTimeWindow(ctx, head)
 	if err != nil {
 		return false, err
+	}
+	if skipped > 0 {
+		log.Warnw("reorg check: skipping sends older than max lookback because last successful run was too long ago",
+			"skipped", skipped,
+			"maxLookbackEpochs", reorgCheckMaxLookbackEpochs,
+			"since", since,
+		)
 	}
 
 	var candidates []reorgCheckCandidate
@@ -107,23 +127,23 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		  ON LOWER(TRIM(BOTH FROM mse.signed_hash)) = LOWER(TRIM(BOTH FROM mwe.signed_tx_hash))
 		WHERE mse.send_success = TRUE
 		  AND mse.send_time IS NOT NULL
-		  AND mse.send_reason = ANY($2)
+		  AND mse.send_time >= $1
+		  AND mse.send_time <= $2
+		  AND mse.send_reason = ANY($3)
 		  AND (
 		    (mwe.tx_status = 'confirmed'
 		     AND mwe.tx_success = TRUE
 		     AND mwe.confirmed_block_number IS NOT NULL
-		     AND ($3 - mwe.confirmed_block_number) >= $4
-		     AND mse.send_time >= $1)
+		     AND ($4 - mwe.confirmed_block_number) >= $5)
 		    OR (
 		      mwe.signed_tx_hash IS NULL
-		      AND mse.send_time <= NOW() - ($4::bigint * INTERVAL '30 seconds')
 		      AND NOT EXISTS (
 		        SELECT 1 FROM pdpv0_reorg_events re
 		        WHERE LOWER(re.tx_hash) = LOWER(TRIM(BOTH FROM mse.signed_hash))
 		      )
 		    )
 		  )
-	`, since, pdpv0SendReasons, headEpoch, int64(policy.ChainFinality))
+	`, since, until, pdpv0SendReasons, headEpoch, int64(policy.ChainFinality))
 	if err != nil {
 		return false, xerrors.Errorf("select candidates: %w", err)
 	}
@@ -177,30 +197,16 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		if !stillOwned() {
 			return false, nil
 		}
-		summary, rbErr := t.rollbackByReason(ctx, c.SendReason, c.TxHash)
-		if rbErr != nil {
-			return false, xerrors.Errorf("reorg rollback %s (%s): %w", c.TxHash, c.SendReason, rbErr)
-		}
-
-		_, err = t.db.Exec(ctx, `
-			INSERT INTO pdpv0_reorg_events (tx_hash, send_reason, rollback_summary, data_set_id)
-			VALUES ($1, $2, $3, NULL)
-			ON CONFLICT (tx_hash) DO NOTHING
-		`, strings.ToLower(c.TxHash), c.SendReason, summary)
+		committed, err := t.rollbackReorgCandidate(ctx, c)
 		if err != nil {
-			return false, xerrors.Errorf("insert reorg event %s: %w", c.TxHash, err)
+			return false, err
+		}
+		if !committed {
+			continue
 		}
 	}
 
 	return true, nil
-}
-
-type reorgCheckCandidate struct {
-	TxHash          string       `db:"signed_tx_hash"`
-	SendReason      string       `db:"send_reason"`
-	SendTime        time.Time    `db:"send_time"`
-	ConfirmEpoch    sql.NullInt64 `db:"confirmed_block_number"`
-	StoredBlockHash string       `db:"stored_block_hash"`
 }
 
 // confirmationForCheck returns inclusion height/hash for reorg comparison.
@@ -208,6 +214,7 @@ type reorgCheckCandidate struct {
 // resolved from the chain receipt once past finality.
 func (t *ReorgCheckTask) confirmationForCheck(ctx context.Context, c reorgCheckCandidate, headEpoch int64) (confirmEpoch int64, storedBlockHash common.Hash, ready, dropped bool, err error) {
 	finality := int64(policy.ChainFinality)
+	finalityAge := time.Duration(finality) * time.Duration(build.BlockDelaySecs) * time.Second
 	if c.ConfirmEpoch.Valid && c.StoredBlockHash != "" {
 		confirmEpoch = c.ConfirmEpoch.Int64
 		if headEpoch-confirmEpoch < finality {
@@ -220,7 +227,7 @@ func (t *ReorgCheckTask) confirmationForCheck(ctx context.Context, c reorgCheckC
 	if err != nil {
 		if errors.Is(err, ethereum.NotFound) {
 			// Only treat as dropped after finality; younger sends may still be pending.
-			if time.Since(c.SendTime) < time.Duration(finality)*30*time.Second {
+			if time.Since(c.SendTime) < finalityAge {
 				return 0, common.Hash{}, false, false, nil
 			}
 			return 0, common.Hash{}, true, true, nil
@@ -237,9 +244,56 @@ func (t *ReorgCheckTask) confirmationForCheck(ctx context.Context, c reorgCheckC
 	return confirmEpoch, receipt.BlockHash, true, false, nil
 }
 
-func (t *ReorgCheckTask) lastSuccessfulRunCutoff(ctx context.Context) (time.Time, error) {
-	var lastEnd time.Time
-	err := t.db.QueryRow(ctx, `
+// reorgCheckTimeWindow returns the send_time window [since, until] for this run.
+// since is the later of the last successful run end and (head - reorgCheckMaxLookbackEpochs).
+// until is now minus reorgCheckMinAge. skipped counts sends in the gap when the last run
+// was older than the max epoch lookback.
+func (t *ReorgCheckTask) reorgCheckTimeWindow(ctx context.Context, head *chainTypes.TipSet) (since, until time.Time, skipped int, err error) {
+	now := time.Now().UTC()
+	until = now.Add(-reorgCheckMinAge)
+
+	lookbackDur := time.Duration(reorgCheckMaxLookbackEpochs) * time.Duration(build.BlockDelaySecs) * time.Second
+	epochLookback := time.Unix(int64(head.MinTimestamp()), 0).UTC().Add(-lookbackDur)
+
+	lastEnd, hasLast, err := t.lastSuccessfulRunEnd(ctx)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+
+	if !hasLast {
+		since = epochLookback
+		return since, until, 0, nil
+	}
+
+	since = lastEnd
+	if epochLookback.After(since) {
+		since = epochLookback
+	}
+
+	if lastEnd.Before(epochLookback) {
+		err = t.db.QueryRow(ctx, `
+			SELECT COUNT(*)
+			FROM message_sends_eth mse
+			WHERE mse.send_success = TRUE
+			  AND mse.send_time IS NOT NULL
+			  AND mse.send_time >= $1
+			  AND mse.send_time < $2
+			  AND mse.send_reason = ANY($3)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM pdpv0_reorg_events re
+			    WHERE LOWER(re.tx_hash) = LOWER(TRIM(BOTH FROM mse.signed_hash))
+			  )
+		`, lastEnd, since, pdpv0SendReasons).Scan(&skipped)
+		if err != nil {
+			return time.Time{}, time.Time{}, 0, xerrors.Errorf("count skipped reorg check sends: %w", err)
+		}
+	}
+
+	return since, until, skipped, nil
+}
+
+func (t *ReorgCheckTask) lastSuccessfulRunEnd(ctx context.Context) (lastEnd time.Time, ok bool, err error) {
+	err = t.db.QueryRow(ctx, `
 		SELECT work_end FROM harmony_task_history
 		WHERE name = $1 AND result = TRUE
 		ORDER BY work_end DESC
@@ -247,18 +301,14 @@ func (t *ReorgCheckTask) lastSuccessfulRunCutoff(ctx context.Context) (time.Time
 	`, tasknames.PDPv0_ReorgChk).Scan(&lastEnd)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return time.Now().UTC().Add(-reorgCheckDefaultPast), nil
+			return time.Time{}, false, nil
 		}
-		return time.Time{}, xerrors.Errorf("last successful reorg check: %w", err)
+		return time.Time{}, false, xerrors.Errorf("last successful reorg check: %w", err)
 	}
 	if lastEnd.IsZero() {
-		return time.Now().UTC().Add(-reorgCheckDefaultPast), nil
+		return time.Time{}, false, nil
 	}
-	cutoff := lastEnd.Add(-reorgCheckLookbackPad)
-	if cutoff.Before(time.Now().UTC().Add(-reorgCheckDefaultPast * 2)) {
-		cutoff = time.Now().UTC().Add(-reorgCheckDefaultPast * 2)
-	}
-	return cutoff, nil
+	return lastEnd, true, nil
 }
 
 type reorgInclusionCheck struct {
@@ -296,9 +346,7 @@ func (t *ReorgCheckTask) txsNotIncludedInCanonicalChain(ctx context.Context, che
 
 	for blk != nil {
 		for _, tx := range blk.Transactions() {
-			if _, ok := pending[tx.Hash()]; ok {
-				delete(pending, tx.Hash())
-			}
+			delete(pending, tx.Hash())
 		}
 		if len(pending) == 0 {
 			break
@@ -336,23 +384,72 @@ func (t *ReorgCheckTask) TxNotIncludedInChain(ctx context.Context, txHash common
 	return m[txHash], nil
 }
 
+// rollbackReorgCandidate claims the tx in pdpv0_reorg_events and rolls back local state in one DB transaction.
+// Returns committed=false when another run already claimed the tx (ON CONFLICT).
+func (t *ReorgCheckTask) rollbackReorgCandidate(ctx context.Context, c reorgCheckCandidate) (committed bool, err error) {
+	txh := strings.ToLower(strings.TrimSpace(c.TxHash))
+	var summary string
+	committed, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			INSERT INTO pdpv0_reorg_events (tx_hash, send_reason, rollback_summary, data_set_id)
+			VALUES ($1, $2, $3, NULL)
+			ON CONFLICT (tx_hash) DO NOTHING
+		`, txh, c.SendReason, "rollback pending")
+		if err != nil {
+			return false, err
+		}
+		if n == 0 {
+			return false, nil
+		}
+
+		summary, err = t.rollbackByReasonTx(ctx, tx, c.SendReason, txh)
+		if err != nil {
+			return false, err
+		}
+
+		_, err = tx.Exec(`
+			UPDATE pdpv0_reorg_events SET rollback_summary = $2 WHERE tx_hash = $1
+		`, txh, summary)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return false, xerrors.Errorf("reorg rollback %s (%s): %w", c.TxHash, c.SendReason, err)
+	}
+	return committed, nil
+}
+
 func (t *ReorgCheckTask) rollbackByReason(ctx context.Context, sendReason, txHash string) (summary string, err error) {
 	txh := strings.ToLower(strings.TrimSpace(txHash))
+	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var err error
+		summary, err = t.rollbackByReasonTx(ctx, tx, sendReason, txh)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	return summary, err
+}
+
+func (t *ReorgCheckTask) rollbackByReasonTx(ctx context.Context, tx *harmonydb.Tx, sendReason, txHash string) (summary string, err error) {
 	switch sendReason {
 	case reasonPDPMkDataset, reasonPDPCreateAndAdd:
-		return t.rollbackCreate(ctx, txh, sendReason)
+		return t.rollbackCreateTx(ctx, tx, txHash, sendReason)
 	case reasonPDPAddPieces:
-		return t.rollbackAddPieces(ctx, txh)
+		return t.rollbackAddPiecesTx(ctx, tx, txHash)
 	case reasonPDPDeletePiece:
-		return t.rollbackDeletePiece(ctx, txh)
+		return t.rollbackDeletePieceTx(ctx, tx, txHash)
 	case reasonPDPProvingInit, reasonPDPProvingPeriod:
-		return t.rollbackProvingPeriod(ctx, txh)
+		return t.rollbackProvingPeriodTx(ctx, tx, txHash)
 	case reasonPDPProve:
-		return t.rollbackProve(ctx, txh)
+		return t.rollbackProveTx(ctx, tx, txHash)
 	case reasonPDPTerminateSvc:
-		return t.rollbackTerminateService(ctx, txh)
+		return t.rollbackTerminateServiceTx(ctx, tx, txHash)
 	case reasonPDPTerminateDataSet:
-		return t.rollbackTerminateDataSet(ctx, txh)
+		return t.rollbackTerminateDataSetTx(ctx, tx, txHash)
 	default:
 		return "", xerrors.Errorf("unknown send_reason %q", sendReason)
 	}
@@ -368,195 +465,158 @@ func (t *ReorgCheckTask) markWaitReorged(ctx context.Context, tx *harmonydb.Tx, 
 	return err
 }
 
-func (t *ReorgCheckTask) rollbackCreate(ctx context.Context, txHash, sendReason string) (string, error) {
-	var summary string
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		nDS, err := tx.Exec(`DELETE FROM pdp_data_sets WHERE LOWER(create_message_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		_, err = tx.Exec(`DELETE FROM pdp_data_set_creates WHERE LOWER(create_message_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		_, err = tx.Exec(`DELETE FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
-		}
-		summary = fmt.Sprintf("create rollback sendReason=%s deleted_data_sets_rows=%d", sendReason, nDS)
-		return true, nil
-	}, harmonydb.OptionRetry())
-	return summary, err
+func (t *ReorgCheckTask) rollbackCreateTx(ctx context.Context, tx *harmonydb.Tx, txHash, sendReason string) (string, error) {
+	nDS, err := tx.Exec(`DELETE FROM pdp_data_sets WHERE LOWER(create_message_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(`DELETE FROM pdp_data_set_creates WHERE LOWER(create_message_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(`DELETE FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("create rollback sendReason=%s deleted_data_sets_rows=%d", sendReason, nDS), nil
 }
 
-func (t *ReorgCheckTask) rollbackAddPieces(ctx context.Context, txHash string) (string, error) {
-	var summary string
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		nPieces, err := tx.Exec(`DELETE FROM pdp_data_set_pieces WHERE LOWER(add_message_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		nAdds, err := tx.Exec(`DELETE FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
-		}
-		summary = fmt.Sprintf("addPieces rollback deleted_pieces=%d deleted_add_rows=%d", nPieces, nAdds)
-		return true, nil
-	}, harmonydb.OptionRetry())
-	return summary, err
+func (t *ReorgCheckTask) rollbackAddPiecesTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
+	nPieces, err := tx.Exec(`DELETE FROM pdp_data_set_pieces WHERE LOWER(add_message_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+	nAdds, err := tx.Exec(`DELETE FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("addPieces rollback deleted_pieces=%d deleted_add_rows=%d", nPieces, nAdds), nil
 }
 
-func (t *ReorgCheckTask) rollbackDeletePiece(ctx context.Context, txHash string) (string, error) {
-	var summary string
-	var lostRefs int
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		var refs []struct {
-			PieceRef int64 `db:"pdp_pieceref"`
-		}
-		err := tx.Select(&refs, `
-			SELECT DISTINCT pdp_pieceref FROM pdp_data_set_pieces
-			WHERE LOWER(rm_message_hash) = $1 AND removed = TRUE`, txHash)
+func (t *ReorgCheckTask) rollbackDeletePieceTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
+	var refs []struct {
+		PieceRef int64 `db:"pdp_pieceref"`
+	}
+	err := tx.Select(&refs, `
+		SELECT DISTINCT pdp_pieceref FROM pdp_data_set_pieces
+		WHERE LOWER(rm_message_hash) = $1 AND removed = TRUE`, txHash)
+	if err != nil {
+		return "", err
+	}
+	lostRefs := 0
+	for _, r := range refs {
+		var cnt int
+		err = tx.QueryRow(`SELECT COUNT(*) FROM pdp_piecerefs WHERE id = $1`, r.PieceRef).Scan(&cnt)
 		if err != nil {
-			return false, err
+			return "", err
 		}
-		for _, r := range refs {
-			var cnt int
-			err = tx.QueryRow(`SELECT COUNT(*) FROM pdp_piecerefs WHERE id = $1`, r.PieceRef).Scan(&cnt)
-			if err != nil {
-				return false, err
-			}
-			if cnt == 0 {
-				lostRefs++
-			}
+		if cnt == 0 {
+			lostRefs++
 		}
-		n, err := tx.Exec(`
-			UPDATE pdp_data_set_pieces
-			SET removed = FALSE, rm_message_hash = NULL
-			WHERE LOWER(rm_message_hash) = $1 AND removed = TRUE`, txHash)
-		if err != nil {
-			return false, err
-		}
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
-		}
-		summary = fmt.Sprintf("deletePiece rollback unmarked_rows=%d piecerefs_already_missing=%d", n, lostRefs)
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err == nil && lostRefs > 0 {
+	}
+	n, err := tx.Exec(`
+		UPDATE pdp_data_set_pieces
+		SET removed = FALSE, rm_message_hash = NULL
+		WHERE LOWER(rm_message_hash) = $1 AND removed = TRUE`, txHash)
+	if err != nil {
+		return "", err
+	}
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+	if lostRefs > 0 {
 		log.Errorw("reorg rolled back piece deletion but pieceref data already cleaned up — DATA LOSS",
 			"tx", txHash, "lost_piecerefs", lostRefs)
 	}
-	return summary, err
+	return fmt.Sprintf("deletePiece rollback unmarked_rows=%d piecerefs_already_missing=%d", n, lostRefs), nil
 }
 
-func (t *ReorgCheckTask) rollbackProvingPeriod(ctx context.Context, txHash string) (string, error) {
-	var summary string
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`
-			UPDATE pdp_data_sets
-			SET challenge_request_msg_hash = NULL,
-			    prove_at_epoch = NULL,
-			    prev_challenge_request_epoch = NULL
-			WHERE LOWER(challenge_request_msg_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
-		}
-		summary = fmt.Sprintf("provingPeriod rollback updated_rows=%d", n)
-		return true, nil
-	}, harmonydb.OptionRetry())
-	return summary, err
+func (t *ReorgCheckTask) rollbackProvingPeriodTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("provingPeriod rollback updated_rows=%d", n), nil
 }
 
-func (t *ReorgCheckTask) rollbackProve(ctx context.Context, txHash string) (string, error) {
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
+func (t *ReorgCheckTask) rollbackProveTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
 	}
 	return "prove tx reorged: marked message_waits_eth reorged (possible missed proof / on-chain fault)", nil
 }
 
-func (t *ReorgCheckTask) rollbackTerminateService(ctx context.Context, txHash string) (string, error) {
-	var summary string
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`
-			UPDATE pdp_delete_data_set
-			SET service_termination_epoch = NULL,
-			    terminate_tx_hash = NULL,
-			    after_terminate_service = FALSE
-			WHERE LOWER(terminate_tx_hash) = $1`, txHash)
-		if err != nil {
-			return false, err
-		}
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
-		}
-		summary = fmt.Sprintf("terminateService rollback rows=%d", n)
-		return true, nil
-	}, harmonydb.OptionRetry())
-	return summary, err
+func (t *ReorgCheckTask) rollbackTerminateServiceTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
+	n, err := tx.Exec(`
+		UPDATE pdp_delete_data_set
+		SET service_termination_epoch = NULL,
+		    terminate_tx_hash = NULL,
+		    after_terminate_service = FALSE
+		WHERE LOWER(terminate_tx_hash) = $1`, txHash)
+	if err != nil {
+		return "", err
+	}
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("terminateService rollback rows=%d", n), nil
 }
 
-func (t *ReorgCheckTask) rollbackTerminateDataSet(ctx context.Context, txHash string) (string, error) {
+func (t *ReorgCheckTask) rollbackTerminateDataSetTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
 	var dsRow sql.NullInt64
-	_ = t.db.QueryRow(ctx, `
+	err := tx.QueryRow(`
 		SELECT id FROM pdp_delete_data_set WHERE LOWER(delete_tx_hash) = $1 LIMIT 1
 	`, txHash).Scan(&dsRow)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+	}
 
 	var stillHasDS bool
 	if dsRow.Valid {
-		_ = t.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_sets WHERE id = $1)`, dsRow.Int64).Scan(&stillHasDS)
+		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pdp_data_sets WHERE id = $1)`, dsRow.Int64).Scan(&stillHasDS)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	var summary string
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		if dsRow.Valid && stillHasDS {
-			_, err := tx.Exec(`
-				UPDATE pdp_delete_data_set
-				SET delete_tx_hash = NULL, after_delete_data_set = FALSE
-				WHERE id = $1 AND LOWER(delete_tx_hash) = $2`, dsRow.Int64, txHash)
-			if err != nil {
-				return false, err
-			}
-			summary = "deleteDataSet tx reorged before watch: cleared delete_tx_hash on pdp_delete_data_set"
-		} else {
-			notes := "deleteDataSet tx reorged after local DELETE of dataset; manual recovery may be required"
-			var dsIDArg any
-			if dsRow.Valid {
-				dsIDArg = dsRow.Int64
-				notes = fmt.Sprintf("%s data_set_id=%d", notes, dsRow.Int64)
-			} else {
-				dsIDArg = nil
-			}
-			_, err := tx.Exec(`
-				INSERT INTO pdpv0_reorg_orphans (tx_hash, data_set_id, notes)
-				VALUES ($1, $2, $3)
-				ON CONFLICT (tx_hash) DO UPDATE SET notes = EXCLUDED.notes, detected_at = NOW()
-			`, txHash, dsIDArg, notes)
-			if err != nil {
-				return false, err
-			}
-			summary = notes
+	if dsRow.Valid && stillHasDS {
+		_, err = tx.Exec(`
+			UPDATE pdp_delete_data_set
+			SET delete_tx_hash = NULL, after_delete_data_set = FALSE
+			WHERE id = $1 AND LOWER(delete_tx_hash) = $2`, dsRow.Int64, txHash)
+		if err != nil {
+			return "", err
 		}
-		if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
-			return false, err
+		summary = "deleteDataSet tx reorged before watch: cleared delete_tx_hash on pdp_delete_data_set"
+	} else {
+		notes := "deleteDataSet tx reorged after local DELETE of dataset; manual recovery may be required"
+		var dsIDArg any
+		if dsRow.Valid {
+			dsIDArg = dsRow.Int64
+			notes = fmt.Sprintf("%s data_set_id=%d", notes, dsRow.Int64)
 		}
-		return true, nil
-	}, harmonydb.OptionRetry())
-	return summary, err
+		_, err = tx.Exec(`
+			INSERT INTO pdpv0_reorg_orphans (tx_hash, data_set_id, notes)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (tx_hash) DO UPDATE SET notes = EXCLUDED.notes, detected_at = NOW()
+		`, txHash, dsIDArg, notes)
+		if err != nil {
+			return "", err
+		}
+		summary = notes
+	}
+	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
+		return "", err
+	}
+	return summary, nil
 }
 
 func (t *ReorgCheckTask) CanAccept(ids []harmonytask.TaskID, _ *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

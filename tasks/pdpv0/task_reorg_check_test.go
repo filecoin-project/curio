@@ -174,7 +174,7 @@ func TestTxNotIncludedInChain_BlockRPCError(t *testing.T) {
 
 func TestRollbackByReason_unknown(t *testing.T) {
 	rt := &ReorgCheckTask{}
-	_, err := rt.rollbackByReason(context.Background(), "unknown-reason", "0xabc")
+	_, err := rt.rollbackByReasonTx(context.Background(), nil, "unknown-reason", "0xabc")
 	if err == nil {
 		t.Fatal("expected error for unknown send_reason")
 	}
