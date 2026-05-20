@@ -47,6 +47,13 @@ func (t *TaskChainSync) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	if !stillOwned() {
 		return false, nil
 	}
+	if err := t.syncMissingDeletionMessageWaits(ctx); err != nil {
+		return false, xerrors.Errorf("syncing missing PDP deletion message waits: %w", err)
+	}
+
+	if !stillOwned() {
+		return false, nil
+	}
 	if err := t.syncProvenDataSetFailureState(ctx); err != nil {
 		return false, xerrors.Errorf("syncing proven PDP data set failure state: %w", err)
 	}
@@ -129,6 +136,177 @@ func (t *TaskChainSync) syncStaleDeletionTaskIDs(ctx context.Context) error {
 	}
 	if !comm {
 		return xerrors.Errorf("failed to commit stale task id cleanup")
+	}
+
+	return nil
+}
+
+type missingTerminationMessageWait struct {
+	ID     int64  `db:"id"`
+	TxHash string `db:"terminate_tx_hash"`
+}
+
+type missingDeleteMessageWait struct {
+	ID     int64  `db:"id"`
+	TxHash string `db:"delete_tx_hash"`
+}
+
+// syncMissingDeletionMessageWaits repairs deletion pipeline rows whose tx hash was recorded
+// without a matching message_waits_eth row. The tx may no longer be available from the
+// connected node, so this reconciles from contract state instead of tx history.
+func (t *TaskChainSync) syncMissingDeletionMessageWaits(ctx context.Context) error {
+	if err := t.syncMissingTerminationMessageWaits(ctx); err != nil {
+		return err
+	}
+	return t.syncMissingDeleteMessageWaits(ctx)
+}
+
+func (t *TaskChainSync) syncMissingTerminationMessageWaits(ctx context.Context) error {
+	var missing []missingTerminationMessageWait
+	if err := t.db.Select(ctx, &missing, `
+		SELECT id, terminate_tx_hash
+		FROM pdp_delete_data_set pdds
+		WHERE pdds.service_termination_epoch IS NULL
+		  AND pdds.after_terminate_service = TRUE
+		  AND pdds.terminate_tx_hash IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM message_waits_eth mwe
+			WHERE mwe.signed_tx_hash = pdds.terminate_tx_hash
+		  )
+		ORDER BY id
+	`); err != nil {
+		return xerrors.Errorf("failed to select terminations missing message wait rows: %w", err)
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+
+	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, t.ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to get FWSS view address: %w", err)
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, t.ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
+	}
+
+	for _, detail := range missing {
+		ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(detail.ID))
+		if err != nil {
+			return xerrors.Errorf("failed to get data set %d from FWSS view: %w", detail.ID, err)
+		}
+
+		if ds.PdpEndEpoch.Int64() != 0 {
+			n, err := t.db.Exec(ctx, `
+				UPDATE pdp_delete_data_set
+				SET service_termination_epoch = $1,
+				    terminate_service_task_id = NULL
+				WHERE id = $2
+				  AND terminate_tx_hash = $3
+				  AND after_terminate_service = TRUE
+				  AND service_termination_epoch IS NULL
+			`, ds.PdpEndEpoch.Int64(), detail.ID, detail.TxHash)
+			if err != nil {
+				return xerrors.Errorf("failed to reconcile terminated data set %d: %w", detail.ID, err)
+			}
+			if n > 1 {
+				return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", detail.ID, n)
+			}
+			if n == 1 {
+				log.Infow("reconciled missing service termination message wait from chain state", "dataSetId", detail.ID, "txHash", detail.TxHash, "epoch", ds.PdpEndEpoch.Int64())
+			}
+			continue
+		}
+
+		n, err := t.db.Exec(ctx, `
+			UPDATE pdp_delete_data_set
+			SET terminate_tx_hash = NULL,
+			    after_terminate_service = FALSE,
+			    terminate_service_task_id = NULL
+			WHERE id = $1
+			  AND terminate_tx_hash = $2
+			  AND after_terminate_service = TRUE
+			  AND service_termination_epoch IS NULL
+		`, detail.ID, detail.TxHash)
+		if err != nil {
+			return xerrors.Errorf("failed to reset service termination missing message wait for data set %d: %w", detail.ID, err)
+		}
+		if n > 1 {
+			return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", detail.ID, n)
+		}
+		if n == 1 {
+			log.Warnw("reset service termination missing message wait for retry", "dataSetId", detail.ID, "txHash", detail.TxHash)
+		}
+	}
+
+	return nil
+}
+
+func (t *TaskChainSync) syncMissingDeleteMessageWaits(ctx context.Context) error {
+	var missing []missingDeleteMessageWait
+	if err := t.db.Select(ctx, &missing, `
+		SELECT id, delete_tx_hash
+		FROM pdp_delete_data_set pdds
+		WHERE pdds.service_termination_epoch IS NOT NULL
+		  AND pdds.terminated = FALSE
+		  AND pdds.after_delete_data_set = TRUE
+		  AND pdds.delete_tx_hash IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM message_waits_eth mwe
+			WHERE mwe.signed_tx_hash = pdds.delete_tx_hash
+		  )
+		ORDER BY id
+	`); err != nil {
+		return xerrors.Errorf("failed to select data set deletes missing message wait rows: %w", err)
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, t.ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	for _, detail := range missing {
+		live, err := verifier.DataSetLive(contract.EthCallOpts(ctx), big.NewInt(detail.ID))
+		if err != nil {
+			return xerrors.Errorf("failed to check if data set %d is live: %w", detail.ID, err)
+		}
+
+		if !live {
+			if err := cleanupDeletedDataSet(ctx, t.db, detail.ID, detail.TxHash); err != nil {
+				return xerrors.Errorf("failed to reconcile deleted data set %d: %w", detail.ID, err)
+			}
+			log.Infow("reconciled missing data set delete message wait from chain state", "dataSetId", detail.ID, "txHash", detail.TxHash)
+			continue
+		}
+
+		n, err := t.db.Exec(ctx, `
+			UPDATE pdp_delete_data_set
+			SET delete_tx_hash = NULL,
+			    after_delete_data_set = FALSE,
+			    delete_data_set_task_id = NULL
+			WHERE id = $1
+			  AND delete_tx_hash = $2
+			  AND after_delete_data_set = TRUE
+			  AND service_termination_epoch IS NOT NULL
+			  AND terminated = FALSE
+		`, detail.ID, detail.TxHash)
+		if err != nil {
+			return xerrors.Errorf("failed to reset data set delete missing message wait for data set %d: %w", detail.ID, err)
+		}
+		if n > 1 {
+			return xerrors.Errorf("expected to update 0 or 1 rows for data set %d, updated %d", detail.ID, n)
+		}
+		if n == 1 {
+			log.Warnw("reset data set delete missing message wait for retry", "dataSetId", detail.ID, "txHash", detail.TxHash)
+		}
 	}
 
 	return nil

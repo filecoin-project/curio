@@ -34,4 +34,5 @@ const (
 	PDPv0_DelDataSet = "PDPv0_DelDataSet"
 	PDPv0_TermFWSS   = "PDPv0_TermFWSS"
 	PDPv0_ChainSync  = "PDPv0_ChainSync"
+	Settle           = "Settle"
 )

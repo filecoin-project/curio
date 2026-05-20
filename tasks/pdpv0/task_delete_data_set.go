@@ -64,6 +64,9 @@ func (t *DeleteDataSetTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	if !live {
+		// TODO: When the post-delete cleanup stage lands, route already-deleted. Currently, this missed the DB cleanup
+		// TODO: In the upcoming PR to handle https://github.com/filecoin-project/curio/issues/1236 this will be fixed
+		// data sets into that stage instead of marking this pipeline terminal here.
 		n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set SET 
                                after_delete_data_set = TRUE,
                                delete_data_set_task_id = NULL,
