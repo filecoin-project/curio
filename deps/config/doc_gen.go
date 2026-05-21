@@ -765,11 +765,9 @@ tasks, when this value is set the maximum number of concurrent tasks will not be
 			Name: "StorePieceMaxTasks",
 			Type: "int",
 
-			Comment: `The maximum number of StorePiece tasks that can run simultaneously on this node. StorePiece moves pieces from
-the sealing-path stash into long-term storage; it is the convergence point for pull-flow, push-flow, and any
-other path that produces a long-term parked piece. The task is IO-bound (stash read + long-term-storage write),
-so it does not reserve CPU against the scheduler; this value is the only concurrency cap. Tune to what the
-long-term storage backend (e.g. NFS) can sustain without saturating. (Default: 12)`,
+			Comment: `Max concurrent StorePiece tasks. Moves pieces from the sealing-path stash to long-term storage; covers
+pull-flow, push-flow, and any other long-term parked piece. IO-bound; Cost.Cpu=0 so this Max is the
+only cap. Tune for what long-term storage (e.g. NFS) sustains. (Default: 12)`,
 		},
 		{
 			Name: "EnableUpdateEncode",
@@ -870,11 +868,10 @@ This feature is BETA and should only be enabled on nodes which are part of a PDP
 			Name: "PDPPullPieceMaxTasks",
 			Type: "int",
 
-			Comment: `The maximum number of PDPv0 PullPiece tasks that can run simultaneously on this node. PullPiece fetches
-pieces from external SP source URLs (e.g. for SP-to-SP migrations) and verifies CommP. It is IO-bound
-(HTTP download + stash write), so it does not reserve CPU against the scheduler; this value is the only
-concurrency cap. Higher values drain pull backlogs faster at the cost of more concurrent egress on the
-remote SP and more concurrent stash writes locally. (Default: 8)`,
+			Comment: `Max concurrent PDPv0 PullPiece tasks. PullPiece downloads pieces from external SPs (e.g. for SP-to-SP
+migrations), streams to a stash file, and verifies CommP. Mostly IO-bound but CommP hashing adds
+brief CPU bursts proportional to piece size. Cost.Cpu=0 so this Max is the only cap; pick a value
+that suits IO capacity and the CPU cost of concurrent hashing. (Default: 8)`,
 		},
 		{
 			Name: "EnableCommP",

@@ -277,10 +277,8 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		storageType = storiface.PathStorage
 	}
 
-	// StorePiece (long-term) is IO-bound (stash read + long-term-storage write); concurrency is
-	// bounded by Max, not CPU reservation, so it cannot crowd CPU-reserving tasks like Prove off
-	// the scheduler. ParkPiece (sealing pipeline) keeps the CPU reservation since it shares slots
-	// with sealing tasks that do meaningful CPU work.
+	// StorePiece (long-term) is IO-bound; Cost.Cpu=0 lets Max govern concurrency. ParkPiece (sealing)
+	// shares CPU with sealing tasks, so keeps its 1-CPU reservation.
 	cpuCost := 1
 	if p.longTerm {
 		cpuCost = 0

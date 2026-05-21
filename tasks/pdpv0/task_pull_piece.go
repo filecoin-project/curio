@@ -424,6 +424,7 @@ func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: tasknames.PDPv0_PullPiece,
 		Max:  taskhelp.Max(t.max),
 		Cost: resources.Resources{
+			// Mostly IO-bound; CommP hashing adds brief CPU bursts. Cost.Cpu=0 lets Max govern concurrency.
 			Cpu: 0,
 			Gpu: 0,
 			Ram: 128 << 20, // 128 MiB for streaming + CommP computation
