@@ -23,8 +23,10 @@ import (
 	"github.com/filecoin-project/curio/tasks/tasknames"
 )
 
-var log = logging.Logger("cu-piece")
-var PieceParkPollInterval = time.Second * 5
+var (
+	log                   = logging.Logger("cu-piece")
+	PieceParkPollInterval = time.Second * 5
+)
 
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
@@ -100,7 +102,6 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 		}
 
 		for _, pieceID := range pieceIDs {
-
 			// Create a task for each piece
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// Update
@@ -212,7 +213,6 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
-
 	if p.p2Active != nil && p.p2Active() {
 		return nil, nil
 	}
@@ -253,7 +253,7 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 	}
 
 	// count tasks running on this node
-	var running = engine.RunningCount(p.TypeDetails().Name)
+	running := engine.RunningCount(p.TypeDetails().Name)
 
 	if count+running >= p.maxInPark {
 		log.Infow("park piece task can accept", "skip", "yes-in-running", "ids", ids, "running", running, "count+running", count+running, "maxInPark", p.maxInPark)
@@ -277,11 +277,20 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		storageType = storiface.PathStorage
 	}
 
+	// StorePiece (long-term) is IO-bound (stash read + long-term-storage write); concurrency is
+	// bounded by Max, not CPU reservation, so it cannot crowd CPU-reserving tasks like Prove off
+	// the scheduler. ParkPiece (sealing pipeline) keeps the CPU reservation since it shares slots
+	// with sealing tasks that do meaningful CPU work.
+	cpuCost := 1
+	if p.longTerm {
+		cpuCost = 0
+	}
+
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(p.max),
 		Name: taskName,
 		Cost: resources.Resources{
-			Cpu:     1,
+			Cpu:     cpuCost,
 			Gpu:     0,
 			Ram:     64 << 20,
 			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, p.minFreeStoragePercent),
@@ -322,6 +331,8 @@ func (p *ParkPieceTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	p.TF.Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &ParkPieceTask{}
-var _ = harmonytask.Reg(&ParkPieceTask{longTerm: false})
-var _ = harmonytask.Reg(&ParkPieceTask{longTerm: true})
+var (
+	_ harmonytask.TaskInterface = &ParkPieceTask{}
+	_                           = harmonytask.Reg(&ParkPieceTask{longTerm: false})
+	_                           = harmonytask.Reg(&ParkPieceTask{longTerm: true})
+)

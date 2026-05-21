@@ -199,6 +199,15 @@ description: The default curio configuration
   # type: int
   #MoveStorageMaxTasks = 0
 
+  # The maximum number of StorePiece tasks that can run simultaneously on this node. StorePiece moves pieces from
+  # the sealing-path stash into long-term storage; it is the convergence point for pull-flow, push-flow, and any
+  # other path that produces a long-term parked piece. The task is IO-bound (stash read + long-term-storage write),
+  # so it does not reserve CPU against the scheduler; this value is the only concurrency cap. Tune to what the
+  # long-term storage backend (e.g. NFS) can sustain without saturating. (Default: 12)
+  #
+  # type: int
+  #StorePieceMaxTasks = 12
+
   # EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
   # This step involves encoding the data into the sector and computing updated TreeR (uses gpu). (Default: false)
   #
@@ -279,6 +288,15 @@ description: The default curio configuration
   #
   # type: bool
   #EnablePDP = false
+
+  # The maximum number of PDPv0 PullPiece tasks that can run simultaneously on this node. PullPiece fetches
+  # pieces from external SP source URLs (e.g. for SP-to-SP migrations) and verifies CommP. It is IO-bound
+  # (HTTP download + stash write), so it does not reserve CPU against the scheduler; this value is the only
+  # concurrency cap. Higher values drain pull backlogs faster at the cost of more concurrent egress on the
+  # remote SP and more concurrent stash writes locally. (Default: 8)
+  #
+  # type: int
+  #PDPPullPieceMaxTasks = 8
 
   # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   # Must have EnableDealMarket = True (Default: false)

@@ -19,6 +19,8 @@ func DefaultCurioConfig() *CurioConfig {
 			IndexingMaxTasks:               8,
 			RemoteProofMaxUploads:          15,
 			ParkPieceMinFreeStoragePercent: 5,
+			PDPPullPieceMaxTasks:           8,
+			StorePieceMaxTasks:             12,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -163,7 +165,6 @@ func DefaultBalanceManager() BalanceManagerConfig {
 
 // CurioConfig defines configuration for the Curio node
 type CurioConfig struct {
-
 	// Subsystems defines configuration settings for various subsystems within the Curio node.
 	Subsystems CurioSubsystemsConfig
 
@@ -358,6 +359,13 @@ type CurioSubsystemsConfig struct {
 	// tasks, when this value is set the maximum number of concurrent tasks will not be bounded by CPU core count (Default: 0 - unlimited)
 	MoveStorageMaxTasks int
 
+	// The maximum number of StorePiece tasks that can run simultaneously on this node. StorePiece moves pieces from
+	// the sealing-path stash into long-term storage; it is the convergence point for pull-flow, push-flow, and any
+	// other path that produces a long-term parked piece. The task is IO-bound (stash read + long-term-storage write),
+	// so it does not reserve CPU against the scheduler; this value is the only concurrency cap. Tune to what the
+	// long-term storage backend (e.g. NFS) can sustain without saturating. (Default: 12)
+	StorePieceMaxTasks int
+
 	// EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
 	// This step involves encoding the data into the sector and computing updated TreeR (uses gpu). (Default: false)
 	EnableUpdateEncode bool
@@ -410,6 +418,13 @@ type CurioSubsystemsConfig struct {
 	// PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
 	// This feature is BETA and should only be enabled on nodes which are part of a PDP network.
 	EnablePDP bool
+
+	// The maximum number of PDPv0 PullPiece tasks that can run simultaneously on this node. PullPiece fetches
+	// pieces from external SP source URLs (e.g. for SP-to-SP migrations) and verifies CommP. It is IO-bound
+	// (HTTP download + stash write), so it does not reserve CPU against the scheduler; this value is the only
+	// concurrency cap. Higher values drain pull backlogs faster at the cost of more concurrent egress on the
+	// remote SP and more concurrent stash writes locally. (Default: 8)
+	PDPPullPieceMaxTasks int
 
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	// Must have EnableDealMarket = True (Default: false)

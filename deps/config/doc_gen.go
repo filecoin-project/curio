@@ -762,6 +762,16 @@ uses all available network (or disk) bandwidth on the machine without causing bo
 tasks, when this value is set the maximum number of concurrent tasks will not be bounded by CPU core count (Default: 0 - unlimited)`,
 		},
 		{
+			Name: "StorePieceMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum number of StorePiece tasks that can run simultaneously on this node. StorePiece moves pieces from
+the sealing-path stash into long-term storage; it is the convergence point for pull-flow, push-flow, and any
+other path that produces a long-term parked piece. The task is IO-bound (stash read + long-term-storage write),
+so it does not reserve CPU against the scheduler; this value is the only concurrency cap. Tune to what the
+long-term storage backend (e.g. NFS) can sustain without saturating. (Default: 12)`,
+		},
+		{
 			Name: "EnableUpdateEncode",
 			Type: "bool",
 
@@ -855,6 +865,16 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Comment: `Enable handling for PDP (proof-of-data possession) deals / proving on this node.
 PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
 This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
+		},
+		{
+			Name: "PDPPullPieceMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum number of PDPv0 PullPiece tasks that can run simultaneously on this node. PullPiece fetches
+pieces from external SP source URLs (e.g. for SP-to-SP migrations) and verifies CommP. It is IO-bound
+(HTTP download + stash write), so it does not reserve CPU against the scheduler; this value is the only
+concurrency cap. Higher values drain pull backlogs faster at the cost of more concurrent egress on the
+remote SP and more concurrent stash writes locally. (Default: 8)`,
 		},
 		{
 			Name: "EnableCommP",

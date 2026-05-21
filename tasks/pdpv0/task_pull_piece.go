@@ -424,7 +424,7 @@ func (t *PDPPullPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: tasknames.PDPv0_PullPiece,
 		Max:  taskhelp.Max(t.max),
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 128 << 20, // 128 MiB for streaming + CommP computation
 		},
