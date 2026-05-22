@@ -11,23 +11,12 @@ ALTER TABLE pdp_piece_pull_items
     ADD COLUMN IF NOT EXISTS complete BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE pdp_piece_pull_items
-    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 UPDATE pdp_piece_pull_items fi
-SET created_at = COALESCE(pp.created_at, NOW())
+SET created_at = COALESCE(pp.created_at, fi.created_at)
 FROM pdp_piece_pulls pp
-WHERE pp.id = fi.fetch_id
-    AND fi.created_at IS NULL;
-
-UPDATE pdp_piece_pull_items
-SET created_at = NOW()
-WHERE created_at IS NULL;
-
-ALTER TABLE pdp_piece_pull_items
-    ALTER COLUMN created_at SET DEFAULT NOW();
-
-ALTER TABLE pdp_piece_pull_items
-    ALTER COLUMN created_at SET NOT NULL;
+WHERE pp.id = fi.fetch_id;
 
 ALTER TABLE pdp_piece_pull_items
     ADD COLUMN IF NOT EXISTS parked_piece_ref BIGINT REFERENCES parked_piece_refs(ref_id) ON DELETE SET NULL;
