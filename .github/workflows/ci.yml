@@ -24,6 +24,9 @@ jobs:
       - name: Run actionlint
         run: actionlint -shellcheck= -pyflakes=
 
+      - name: Check shouldtest profiles are referenced in CI
+        run: go test ./shouldtest/... -run TestRepoCIRegistry -count=1
+
   build-mainnet:
     runs-on: ubuntu-latest
     needs: [ci-lint]
@@ -228,6 +231,8 @@ jobs:
     needs: [ci-lint]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: ./.github/actions/install-go
@@ -245,11 +250,20 @@ jobs:
           make deps
         shell: bash
 
+      - name: Decide whether to run lib/proof tests
+        id: shouldtest
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: go run github.com/curiostorage/shouldtest/cmd/shouldtest --ci --verbose ./lib/proof
+
       - name: Run lib/proof tests with coverage
+        if: steps.shouldtest.outputs.run == 'true'
         env:
           FFI_USE_OPENCL: 1
         run: |
-          mkdir -p coverage
           go test -v --tags="debug,fvm,nosupraseal" -timeout 30m -coverprofile=coverage/test-lib-proof.out -covermode=atomic ./lib/proof/...
 
       - name: Upload coverage artifact

@@ -383,4 +383,6 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
+require github.com/curiostorage/shouldtest v0.0.0-20260522222211-a06c87260eb5
+
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
