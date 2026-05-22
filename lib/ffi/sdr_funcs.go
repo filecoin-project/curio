@@ -803,7 +803,8 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 	}
 	defer releaseSector()
 
-	err = ffi.GenerateSynthProofs(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "cache", fspaths.Cache, "sealed", fspaths.Sealed)
+	err = ffiselect.FFISelect.GenerateSynthProofs(ctx, sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
 	if err != nil {
 		return xerrors.Errorf("generating synthetic proof: %w", err)
 	}
