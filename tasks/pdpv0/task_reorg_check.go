@@ -206,6 +206,7 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			return false, err
 		}
 		if !committed {
+			logReorgCheck.Warnw("reorg check: rollback candidate already claimed", "tx_hash", c.TxHash)
 			continue
 		}
 	}
@@ -388,7 +389,7 @@ func (t *ReorgCheckTask) TxNotIncludedInChain(ctx context.Context, txHash common
 	return m[txHash], nil
 }
 
-// rollbackReorgCandidate claims the tx in pdpv0_reorg_events and rolls back local state in one DB transaction.
+// rollbackReorgCandidate claims the message tx in pdpv0_reorg_events and rolls back local state in one DB transaction (or just logs).
 // Returns committed=false when another run already claimed the tx (ON CONFLICT).
 func (t *ReorgCheckTask) rollbackReorgCandidate(ctx context.Context, c reorgCheckCandidate) (committed bool, err error) {
 	txh := strings.ToLower(strings.TrimSpace(c.TxHash))
@@ -423,19 +424,6 @@ func (t *ReorgCheckTask) rollbackReorgCandidate(ctx context.Context, c reorgChec
 		return false, xerrors.Errorf("reorg rollback %s (%s): %w", c.TxHash, c.SendReason, err)
 	}
 	return committed, nil
-}
-
-func (t *ReorgCheckTask) rollbackByReason(ctx context.Context, sendReason, txHash string) (summary string, err error) {
-	txh := strings.ToLower(strings.TrimSpace(txHash))
-	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		var err error
-		summary, err = t.rollbackByReasonTx(ctx, tx, sendReason, txh)
-		if err != nil {
-			return false, err
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
-	return summary, err
 }
 
 func (t *ReorgCheckTask) rollbackByReasonTx(ctx context.Context, tx *harmonydb.Tx, sendReason, txHash string) (summary string, err error) {
