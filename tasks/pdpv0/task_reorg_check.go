@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -26,6 +27,9 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+// to simplify log auditing.
+var logReorgCheck = logging.Logger("pdpv0-reorg-check")
 
 const (
 	// reorgCheckInterval is how often the singleton reorg check task is scheduled.
@@ -108,7 +112,7 @@ func (t *ReorgCheckTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, err
 	}
 	if skipped > 0 {
-		log.Warnw("reorg check: skipping sends older than max lookback because last successful run was too long ago",
+		logReorgCheck.Warnw("reorg check: skipping sends older than max lookback because last successful run was too long ago",
 			"skipped", skipped,
 			"maxLookbackEpochs", reorgCheckMaxLookbackEpochs,
 			"since", since,
@@ -466,37 +470,45 @@ func (t *ReorgCheckTask) markWaitReorged(ctx context.Context, tx *harmonydb.Tx, 
 }
 
 func (t *ReorgCheckTask) rollbackCreateTx(ctx context.Context, tx *harmonydb.Tx, txHash, sendReason string) (string, error) {
-	nDS, err := tx.Exec(`DELETE FROM pdp_data_sets WHERE LOWER(create_message_hash) = $1`, txHash)
+	var nDS, nCreates, nAdds int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM pdp_data_sets WHERE LOWER(create_message_hash) = $1`, txHash).Scan(&nDS)
 	if err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(`DELETE FROM pdp_data_set_creates WHERE LOWER(create_message_hash) = $1`, txHash)
+	err = tx.QueryRow(`SELECT COUNT(*) FROM pdp_data_set_creates WHERE LOWER(create_message_hash) = $1`, txHash).Scan(&nCreates)
 	if err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(`DELETE FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash)
+	err = tx.QueryRow(`SELECT COUNT(*) FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash).Scan(&nAdds)
 	if err != nil {
 		return "", err
 	}
+	logReorgCheck.Warnw("reorg create rollback skipped deletes (log only)",
+		"tx", txHash, "send_reason", sendReason,
+		"would_delete_data_sets", nDS, "would_delete_creates", nCreates, "would_delete_adds", nAdds)
 	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("create rollback sendReason=%s deleted_data_sets_rows=%d", sendReason, nDS), nil
+	return fmt.Sprintf("create rollback log-only sendReason=%s would_delete_data_sets=%d would_delete_creates=%d would_delete_adds=%d",
+		sendReason, nDS, nCreates, nAdds), nil
 }
 
 func (t *ReorgCheckTask) rollbackAddPiecesTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
-	nPieces, err := tx.Exec(`DELETE FROM pdp_data_set_pieces WHERE LOWER(add_message_hash) = $1`, txHash)
+	var nPieces, nAdds int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM pdp_data_set_pieces WHERE LOWER(add_message_hash) = $1`, txHash).Scan(&nPieces)
 	if err != nil {
 		return "", err
 	}
-	nAdds, err := tx.Exec(`DELETE FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash)
+	err = tx.QueryRow(`SELECT COUNT(*) FROM pdp_data_set_piece_adds WHERE LOWER(add_message_hash) = $1`, txHash).Scan(&nAdds)
 	if err != nil {
 		return "", err
 	}
+	logReorgCheck.Warnw("reorg addPieces rollback skipped deletes (log only)",
+		"tx", txHash, "would_delete_pieces", nPieces, "would_delete_add_rows", nAdds)
 	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("addPieces rollback deleted_pieces=%d deleted_add_rows=%d", nPieces, nAdds), nil
+	return fmt.Sprintf("addPieces rollback log-only would_delete_pieces=%d would_delete_add_rows=%d", nPieces, nAdds), nil
 }
 
 func (t *ReorgCheckTask) rollbackDeletePieceTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
@@ -520,28 +532,30 @@ func (t *ReorgCheckTask) rollbackDeletePieceTx(ctx context.Context, tx *harmonyd
 			lostRefs++
 		}
 	}
-	n, err := tx.Exec(`
-		UPDATE pdp_data_set_pieces
-		SET removed = FALSE, rm_message_hash = NULL
-		WHERE LOWER(rm_message_hash) = $1 AND removed = TRUE`, txHash)
+	var n int
+	err = tx.QueryRow(`
+		SELECT COUNT(*) FROM pdp_data_set_pieces
+		WHERE LOWER(rm_message_hash) = $1 AND removed = TRUE`, txHash).Scan(&n)
 	if err != nil {
 		return "", err
 	}
+	logReorgCheck.Warnw("reorg deletePiece rollback skipped unmark (log only)",
+		"tx", txHash, "would_unmark_rows", n, "piecerefs_already_missing", lostRefs)
 	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
 	}
 	if lostRefs > 0 {
-		log.Errorw("reorg rolled back piece deletion but pieceref data already cleaned up — DATA LOSS",
+		logReorgCheck.Errorw("reorg deletePiece rollback would unmark rows but pieceref data already cleaned up — possible DATA LOSS",
 			"tx", txHash, "lost_piecerefs", lostRefs)
 	}
-	return fmt.Sprintf("deletePiece rollback unmarked_rows=%d piecerefs_already_missing=%d", n, lostRefs), nil
+	return fmt.Sprintf("deletePiece rollback log-only would_unmark_rows=%d piecerefs_already_missing=%d", n, lostRefs), nil
 }
 
 func (t *ReorgCheckTask) rollbackProvingPeriodTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
 	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("provingPeriod rollback updated_rows=%d", n), nil
+	return "provingPeriod rollback log-only: marked message_waits_eth reorged", nil
 }
 
 func (t *ReorgCheckTask) rollbackProveTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
@@ -552,19 +566,19 @@ func (t *ReorgCheckTask) rollbackProveTx(ctx context.Context, tx *harmonydb.Tx, 
 }
 
 func (t *ReorgCheckTask) rollbackTerminateServiceTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
-	n, err := tx.Exec(`
-		UPDATE pdp_delete_data_set
-		SET service_termination_epoch = NULL,
-		    terminate_tx_hash = NULL,
-		    after_terminate_service = FALSE
-		WHERE LOWER(terminate_tx_hash) = $1`, txHash)
+	var n int
+	err := tx.QueryRow(`
+		SELECT COUNT(*) FROM pdp_delete_data_set
+		WHERE LOWER(terminate_tx_hash) = $1`, txHash).Scan(&n)
 	if err != nil {
 		return "", err
 	}
+	logReorgCheck.Warnw("reorg terminateService rollback skipped update (log only)",
+		"tx", txHash, "would_clear_rows", n)
 	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("terminateService rollback rows=%d", n), nil
+	return fmt.Sprintf("terminateService rollback log-only would_clear_rows=%d", n), nil
 }
 
 func (t *ReorgCheckTask) rollbackTerminateDataSetTx(ctx context.Context, tx *harmonydb.Tx, txHash string) (string, error) {
@@ -588,30 +602,28 @@ func (t *ReorgCheckTask) rollbackTerminateDataSetTx(ctx context.Context, tx *har
 
 	var summary string
 	if dsRow.Valid && stillHasDS {
-		_, err = tx.Exec(`
-			UPDATE pdp_delete_data_set
-			SET delete_tx_hash = NULL, after_delete_data_set = FALSE
-			WHERE id = $1 AND LOWER(delete_tx_hash) = $2`, dsRow.Int64, txHash)
+		var n int
+		err = tx.QueryRow(`
+			SELECT COUNT(*) FROM pdp_delete_data_set
+			WHERE id = $1 AND LOWER(delete_tx_hash) = $2`, dsRow.Int64, txHash).Scan(&n)
 		if err != nil {
 			return "", err
 		}
-		summary = "deleteDataSet tx reorged before watch: cleared delete_tx_hash on pdp_delete_data_set"
+		logReorgCheck.Warnw("reorg deleteDataSet rollback skipped update (log only)",
+			"tx", txHash, "data_set_id", dsRow.Int64, "would_clear_rows", n)
+		summary = fmt.Sprintf("deleteDataSet rollback log-only would_clear_rows=%d data_set_id=%d", n, dsRow.Int64)
 	} else {
 		notes := "deleteDataSet tx reorged after local DELETE of dataset; manual recovery may be required"
-		var dsIDArg any
 		if dsRow.Valid {
-			dsIDArg = dsRow.Int64
 			notes = fmt.Sprintf("%s data_set_id=%d", notes, dsRow.Int64)
 		}
-		_, err = tx.Exec(`
-			INSERT INTO pdpv0_reorg_orphans (tx_hash, data_set_id, notes)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (tx_hash) DO UPDATE SET notes = EXCLUDED.notes, detected_at = NOW()
-		`, txHash, dsIDArg, notes)
-		if err != nil {
-			return "", err
+		var dataSetID any
+		if dsRow.Valid {
+			dataSetID = dsRow.Int64
 		}
-		summary = notes
+		logReorgCheck.Warnw("reorg deleteDataSet rollback skipped orphan insert (log only)",
+			"tx", txHash, "data_set_id", dataSetID, "notes", notes)
+		summary = "deleteDataSet rollback log-only: " + notes
 	}
 	if err := t.markWaitReorged(ctx, tx, txHash); err != nil {
 		return "", err
