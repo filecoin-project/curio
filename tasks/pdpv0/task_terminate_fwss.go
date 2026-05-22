@@ -29,6 +29,12 @@ type TerminateFWSSTask struct {
 	sender    *message.SenderETH
 }
 
+type terminateDataSet struct {
+	ID              int64  `db:"id"`
+	ClientRequested bool   `db:"client_requested_termination"`
+	ExtraData       []byte `db:"termination_extra_data"`
+}
+
 func NewTerminateServiceTask(db *harmonydb.DB, ethClient ethchain.EthClient, sender *message.SenderETH) *TerminateFWSSTask {
 	return &TerminateFWSSTask{
 		db:        db,
@@ -40,8 +46,12 @@ func NewTerminateServiceTask(db *harmonydb.DB, ethClient ethchain.EthClient, sen
 func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
-	var dataSetId int64
-	err = t.db.QueryRow(ctx, `SELECT id FROM pdp_delete_data_set WHERE terminate_service_task_id = $1`, taskID).Scan(&dataSetId)
+	var dataSet terminateDataSet
+	err = t.db.QueryRow(ctx, `
+		SELECT id, client_requested_termination, termination_extra_data
+		FROM pdp_delete_data_set
+		WHERE terminate_service_task_id = $1
+	`, taskID).Scan(&dataSet.ID, &dataSet.ClientRequested, &dataSet.ExtraData)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return true, nil
@@ -59,15 +69,16 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
 	}
 
-	ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(dataSetId))
+	ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(dataSet.ID))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get data set %d: %w", dataSetId, err)
+		return false, xerrors.Errorf("failed to get data set %d: %w", dataSet.ID, err)
 	}
 
 	if ds.PdpEndEpoch.Int64() != 0 {
 		n, err := t.db.Exec(ctx, `UPDATE pdp_delete_data_set 
 									SET after_terminate_service = TRUE,
 									    terminate_service_task_id = NULL,
+									    client_terminate_service_task_id = NULL,
 									    service_termination_epoch = $2
 									WHERE terminate_service_task_id = $1`, taskID, ds.PdpEndEpoch.Int64())
 		if err != nil {
@@ -94,7 +105,20 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	// TODO: Regenerate the FWSS ABI for terminateService(uint256,bytes)
 	// and pass empty extraData here for provider-initiated termination.
-	data, err := fwssABi.Pack("terminateService", big.NewInt(dataSetId))
+	var data []byte
+	if dataSet.ClientRequested {
+		if len(dataSet.ExtraData) == 0 {
+			return false, xerrors.Errorf("client-requested termination for data set %d has empty extraData", dataSet.ID)
+		}
+		// TODO: Regenerate the FWSS ABI for terminateService(uint256,bytes).
+		// Curio intentionally passes client extraData through unchanged; FWSS
+		// remains authoritative for client signature validation.
+		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID), dataSet.ExtraData)
+	} else {
+		// TODO: After the FWSS ABI update, pass empty extraData for
+		// provider-initiated termination.
+		data, err = fwssABi.Pack("terminateService", big.NewInt(dataSet.ID))
+	}
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
@@ -117,7 +141,8 @@ func (t *TerminateFWSSTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		n, err := tx.Exec(`UPDATE pdp_delete_data_set 
 									SET terminate_tx_hash = $2, 
 									    after_terminate_service = TRUE,
-									    terminate_service_task_id = NULL
+									    terminate_service_task_id = NULL,
+									    client_terminate_service_task_id = NULL
 									WHERE terminate_service_task_id = $1`, taskID, txHash.Hex())
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
@@ -158,11 +183,19 @@ func (t *TerminateFWSSTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 64 << 20,
 		},
-		MaxFailures: 3,
-		IAmBored: passcall.Every(time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		MaxFailures: 10,
+		RetryWait:   terminateServiceRetryWait,
+		IAmBored: passcall.Every(5*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(context.Background(), taskFunc)
 		}),
 	}
+}
+
+func terminateServiceRetryWait(retries int) time.Duration {
+	if retries <= 0 {
+		return 0
+	}
+	return time.Duration(retries*2) * time.Second
 }
 
 func (t *TerminateFWSSTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTaskFunc) error {
@@ -187,7 +220,17 @@ func (t *TerminateFWSSTask) schedule(ctx context.Context, addTaskFunc harmonytas
 
 			pending := pendings[0]
 
-			n, err := tx.Exec(`UPDATE pdp_delete_data_set SET terminate_service_task_id = $1 WHERE id = $2 AND terminate_service_task_id IS NULL AND after_terminate_service = FALSE`, taskID, pending)
+			n, err := tx.Exec(`
+				UPDATE pdp_delete_data_set
+				SET terminate_service_task_id = $1,
+				    client_terminate_service_task_id = CASE
+				        WHEN client_requested_termination THEN $1
+				        ELSE client_terminate_service_task_id
+				    END
+				WHERE id = $2
+				  AND terminate_service_task_id IS NULL
+				  AND after_terminate_service = FALSE
+			`, taskID, pending)
 
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)

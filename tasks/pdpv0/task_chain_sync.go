@@ -100,13 +100,15 @@ var _ = harmonytask.Reg(&TaskChainSync{})
 var _ harmonytask.TaskInterface = &TaskChainSync{}
 
 // syncStaleDeletionTaskIDs clears deletion task ids that point at Harmony tasks which no longer exist.
-// It does not advance any deletion state; it only unpins rows whose terminate/delete task exhausted retries so the normal
-// schedulers can pick them up again.
+// It does not advance any deletion state; it only unpins rows whose
+// terminate/delete task exhausted retries so the normal schedulers can
+// pick them up again.
 func (t *TaskChainSync) syncStaleDeletionTaskIDs(ctx context.Context) error {
 	comm, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		terminated, err := tx.Exec(`UPDATE pdp_delete_data_set pdds
 			SET terminate_service_task_id = NULL
 			WHERE pdds.terminate_service_task_id IS NOT NULL
+			  AND pdds.client_requested_termination = FALSE
 			  AND pdds.after_terminate_service = FALSE
 			  AND NOT EXISTS (
 				SELECT 1
@@ -149,8 +151,9 @@ func (t *TaskChainSync) syncStaleDeletionTaskIDs(ctx context.Context) error {
 }
 
 type missingTerminationMessageWait struct {
-	ID     int64  `db:"id"`
-	TxHash string `db:"terminate_tx_hash"`
+	ID              int64  `db:"id"`
+	TxHash          string `db:"terminate_tx_hash"`
+	ClientRequested bool   `db:"client_requested_termination"`
 }
 
 type missingDeleteMessageWait struct {
@@ -161,7 +164,7 @@ type missingDeleteMessageWait struct {
 func (t *TaskChainSync) syncMissingDataSetTerminationMessageWaits(ctx context.Context) error {
 	var missing []missingTerminationMessageWait
 	if err := t.db.Select(ctx, &missing, `
-		SELECT id, terminate_tx_hash
+		SELECT id, terminate_tx_hash, client_requested_termination
 		FROM pdp_delete_data_set pdds
 		WHERE pdds.service_termination_epoch IS NULL
 		  AND pdds.after_terminate_service = TRUE
@@ -200,7 +203,8 @@ func (t *TaskChainSync) syncMissingDataSetTerminationMessageWaits(ctx context.Co
 			n, err := t.db.Exec(ctx, `
 				UPDATE pdp_delete_data_set
 				SET service_termination_epoch = $1,
-				    terminate_service_task_id = NULL
+				    terminate_service_task_id = NULL,
+				    client_terminate_service_task_id = NULL
 				WHERE id = $2
 				  AND terminate_tx_hash = $3
 				  AND after_terminate_service = TRUE
@@ -218,6 +222,27 @@ func (t *TaskChainSync) syncMissingDataSetTerminationMessageWaits(ctx context.Co
 			continue
 		}
 
+		if detail.ClientRequested {
+			n, err := t.db.Exec(ctx, `
+				DELETE FROM pdp_delete_data_set
+				WHERE id = $1
+				  AND terminate_tx_hash = $2
+				  AND client_requested_termination = TRUE
+				  AND after_terminate_service = TRUE
+				  AND service_termination_epoch IS NULL
+			`, detail.ID, detail.TxHash)
+			if err != nil {
+				return xerrors.Errorf("failed to delete client termination missing message wait for data set %d: %w", detail.ID, err)
+			}
+			if n > 1 {
+				return xerrors.Errorf("expected to delete 0 or 1 rows for data set %d, deleted %d", detail.ID, n)
+			}
+			if n == 1 {
+				log.Warnw("deleted client termination missing message wait for retry", "dataSetId", detail.ID, "txHash", detail.TxHash)
+			}
+			continue
+		}
+
 		n, err := t.db.Exec(ctx, `
 			UPDATE pdp_delete_data_set
 			SET terminate_tx_hash = NULL,
@@ -225,6 +250,7 @@ func (t *TaskChainSync) syncMissingDataSetTerminationMessageWaits(ctx context.Co
 			    terminate_service_task_id = NULL
 			WHERE id = $1
 			  AND terminate_tx_hash = $2
+			  AND client_requested_termination = FALSE
 			  AND after_terminate_service = TRUE
 			  AND service_termination_epoch IS NULL
 		`, detail.ID, detail.TxHash)

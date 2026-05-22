@@ -17,8 +17,9 @@ import (
 )
 
 type pendingServiceTermination struct {
-	DataSetId int64  `db:"id"`
-	TxHash    string `db:"terminate_tx_hash"`
+	DataSetId       int64  `db:"id"`
+	TxHash          string `db:"terminate_tx_hash"`
+	ClientRequested bool   `db:"client_requested_termination"`
 }
 
 type serviceTerminationMessageWait struct {
@@ -42,7 +43,7 @@ func NewTerminateServiceWatcher(db *harmonydb.DB, ethClient ethchain.EthClient, 
 func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient) error {
 	var pending []pendingServiceTermination
 	err := db.Select(ctx, &pending, `
-		SELECT id, terminate_tx_hash
+		SELECT id, terminate_tx_hash, client_requested_termination
 		FROM pdp_delete_data_set
 		WHERE service_termination_epoch IS NULL
 		  AND after_terminate_service = TRUE
@@ -100,12 +101,10 @@ func processTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethcha
 		log.Warnw("filecoin warm storage service termination tx missing message_waits_eth row", "txHash", detail.TxHash, "dataSetId", detail.DataSetId)
 	}
 
-	successErr := processSuccessfulTerminations(ctx, db, ethClient, successes)
-	failureErr := processFailedTerminations(ctx, db, failures)
-	if successErr != nil {
-		return successErr
+	if err := processSuccessfulTerminations(ctx, db, ethClient, successes); err != nil {
+		return err
 	}
-	return failureErr
+	return processFailedTerminations(ctx, db, ethClient, failures)
 }
 
 func processSuccessfulTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, successes []pendingServiceTermination) error {
@@ -129,43 +128,168 @@ func processSuccessfulTerminations(ctx context.Context, db *harmonydb.DB, ethCli
 			return xerrors.Errorf("failed to get data set %d: %w", detail.DataSetId, err)
 		}
 
-		if ds.PdpEndEpoch.Int64() == 0 {
-			// Huston! we have a serious problem
+		epoch := fwssServiceTerminationEpoch(ds)
+		if epoch == nil {
 			return xerrors.Errorf("data set %d has no termination epoch", detail.DataSetId)
 		}
 
-		n, err := db.Exec(ctx, `UPDATE pdp_delete_data_set SET service_termination_epoch = $1 WHERE id = $2`, ds.PdpEndEpoch.Int64(), detail.DataSetId)
-		if err != nil {
+		if err := markServiceTerminationConfirmed(ctx, db, detail, *epoch); err != nil {
 			return xerrors.Errorf("failed to update pdp_delete_data_set: %w", err)
 		}
 
-		if n != 1 {
-			return xerrors.Errorf("expected to update 1 row, updated %d", n)
-		}
-
-		log.Infow("Successfully confirmed data set termination", "dataSetId", detail.DataSetId, "epoch", ds.PdpEndEpoch.Int64(), "txHash", detail.TxHash)
+		log.Infow("Successfully confirmed data set termination", "dataSetId", detail.DataSetId, "epoch", *epoch, "txHash", detail.TxHash)
 	}
 	return nil
 }
 
-func processFailedTerminations(ctx context.Context, db *harmonydb.DB, failures []pendingServiceTermination) error {
+func processFailedTerminations(ctx context.Context, db *harmonydb.DB, ethClient ethchain.EthClient, failures []pendingServiceTermination) error {
+	if len(failures) == 0 {
+		return nil
+	}
+
+	sAddr := contract.ContractAddresses().AllowedPublicRecordKeepers.FWSService
+	viewAddr, err := contract.ResolveViewAddress(ctx, sAddr, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to get FWSS view address: %w", err)
+	}
+	fwssv, err := FWSS.NewFilecoinWarmStorageServiceStateView(viewAddr, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate FWSS service state view: %w", err)
+	}
+
 	for _, detail := range failures {
-		_, err := db.Exec(ctx, `
-			UPDATE pdp_delete_data_set
-			SET terminate_tx_hash = NULL,
-			    after_terminate_service = FALSE,
-			    terminate_service_task_id = NULL
-			WHERE id = $1
-			  AND terminate_tx_hash = $2
-			  AND after_terminate_service = TRUE
-			  AND service_termination_epoch IS NULL
-		`, detail.DataSetId, detail.TxHash)
+		ds, err := fwssv.GetDataSet(contract.EthCallOpts(ctx), big.NewInt(detail.DataSetId))
 		if err != nil {
+			return xerrors.Errorf("failed to get data set %d: %w", detail.DataSetId, err)
+		}
+
+		if epoch := fwssServiceTerminationEpoch(ds); epoch != nil {
+			if err := markServiceTerminationConfirmed(ctx, db, detail, *epoch); err != nil {
+				return xerrors.Errorf("failed to reconcile failed service termination for data set %d: %w", detail.DataSetId, err)
+			}
+
+			log.Warnw("service termination tx failed but FWSS state is already terminated; advanced pipeline", "dataSetId", detail.DataSetId, "epoch", *epoch, "txHash", detail.TxHash)
+			continue
+		}
+
+		if detail.ClientRequested {
+			if err := deleteFailedClientTermination(ctx, db, detail); err != nil {
+				return xerrors.Errorf("failed to delete failed client service termination for data set %d: %w", detail.DataSetId, err)
+			}
+
+			log.Warnw("deleted failed client service termination for retry", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
+			continue
+		}
+
+		if err := resetFailedProviderTermination(ctx, db, detail); err != nil {
 			return xerrors.Errorf("failed to reset failed service termination for data set %d: %w", detail.DataSetId, err)
 		}
 
 		log.Warnw("reset failed provider service termination for retry", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
 	}
 
+	return nil
+}
+
+func fwssServiceTerminationEpoch(ds FWSS.FilecoinWarmStorageServiceDataSetInfoView) *int64 {
+	if ds.PdpEndEpoch == nil || ds.PdpEndEpoch.Sign() == 0 {
+		return nil
+	}
+	epoch := ds.PdpEndEpoch.Int64()
+	return &epoch
+}
+
+func markServiceTerminationConfirmed(ctx context.Context, db *harmonydb.DB, detail pendingServiceTermination, epoch int64) error {
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			UPDATE pdp_delete_data_set
+			SET service_termination_epoch = $1,
+			    terminate_service_task_id = NULL,
+			    client_terminate_service_task_id = NULL
+			WHERE id = $2
+			  AND terminate_tx_hash = $3
+			  AND after_terminate_service = TRUE
+			  AND service_termination_epoch IS NULL
+		`, epoch, detail.DataSetId, detail.TxHash)
+		if err != nil {
+			return false, err
+		}
+		if n > 1 {
+			return false, xerrors.Errorf("expected to update 0 or 1 rows, updated %d", n)
+		}
+		if n == 0 {
+			log.Warnw("service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return xerrors.Errorf("failed to commit confirmed service termination update")
+	}
+	return nil
+}
+
+func deleteFailedClientTermination(ctx context.Context, db *harmonydb.DB, detail pendingServiceTermination) error {
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			DELETE FROM pdp_delete_data_set
+			WHERE id = $1
+			  AND terminate_tx_hash = $2
+			  AND client_requested_termination = TRUE
+			  AND after_terminate_service = TRUE
+			  AND service_termination_epoch IS NULL
+		`, detail.DataSetId, detail.TxHash)
+		if err != nil {
+			return false, err
+		}
+		if n > 1 {
+			return false, xerrors.Errorf("expected to delete 0 or 1 rows, deleted %d", n)
+		}
+		if n == 0 {
+			log.Warnw("failed client service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return xerrors.Errorf("failed to commit failed client service termination delete")
+	}
+	return nil
+}
+
+func resetFailedProviderTermination(ctx context.Context, db *harmonydb.DB, detail pendingServiceTermination) error {
+	committed, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+			UPDATE pdp_delete_data_set
+			SET terminate_tx_hash = NULL,
+			    after_terminate_service = FALSE,
+			    terminate_service_task_id = NULL
+			WHERE id = $1
+			  AND terminate_tx_hash = $2
+			  AND client_requested_termination = FALSE
+			  AND after_terminate_service = TRUE
+			  AND service_termination_epoch IS NULL
+		`, detail.DataSetId, detail.TxHash)
+		if err != nil {
+			return false, err
+		}
+		if n > 1 {
+			return false, xerrors.Errorf("expected to update 0 or 1 rows, updated %d", n)
+		}
+		if n == 0 {
+			log.Warnw("failed provider service termination row was already reconciled or removed", "dataSetId", detail.DataSetId, "txHash", detail.TxHash)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return xerrors.Errorf("failed to commit failed provider service termination reset")
+	}
 	return nil
 }
